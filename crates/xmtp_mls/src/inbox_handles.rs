@@ -208,12 +208,14 @@ pub async fn resolve_handles_with_verifier<A: XmtpApi>(
 }
 
 /// The inbox of each target, in order. Handles resolve through the verified
-/// resolver first, then accounts resolve with one lookup. Fails when any
-/// target has no inbox.
+/// resolver first, and a handle that no inbox holds fails with
+/// [`HandleError::NotFound`]. Accounts then resolve with one lookup, and an
+/// account with no inbox is `None`, so each route treats it as its
+/// account-only path does.
 pub(crate) async fn resolve_targets_in<Context: XmtpSharedContext>(
     context: &Context,
     targets: &[IdentityTarget],
-) -> Result<Vec<InboxId>, ClientError> {
+) -> Result<Vec<Option<InboxId>>, ClientError> {
     let handles: Vec<Handle> = targets
         .iter()
         .filter_map(|target| match target {
@@ -241,13 +243,31 @@ pub(crate) async fn resolve_targets_in<Context: XmtpSharedContext>(
             IdentityTarget::Handle(_) => handle_inboxes
                 .next()
                 .flatten()
+                .map(Some)
                 .ok_or_else(|| HandleError::NotFound.into()),
-            IdentityTarget::Account(identifier) => account_inboxes
-                .next()
-                .flatten()
-                .ok_or_else(|| NotFound::InboxIdForAddress(identifier.to_string()).into()),
+            IdentityTarget::Account(_) => Ok(account_inboxes.next().flatten()),
         })
         .collect()
+}
+
+/// The inboxes of `targets`, failing as an account-only add does
+/// (`add_members_by_identity`) when an account has no inbox.
+fn require_account_inboxes(
+    targets: &[IdentityTarget],
+    inboxes: Vec<Option<InboxId>>,
+) -> Result<Vec<InboxId>, GroupError> {
+    let missing: Vec<String> = targets
+        .iter()
+        .zip(&inboxes)
+        .filter_map(|(target, inbox)| match (target, inbox) {
+            (IdentityTarget::Account(identifier), None) => Some(identifier.to_string()),
+            _ => None,
+        })
+        .collect();
+    if !missing.is_empty() {
+        return Err(GroupError::AddressNotFound(missing));
+    }
+    Ok(inboxes.into_iter().flatten().collect())
 }
 
 /// The account identifiers of `targets`, when every target is an account.
@@ -347,12 +367,24 @@ impl<Context: XmtpSharedContext> Client<Context> {
     }
 
     /// The inbox of each target, in order, from one call. Fails when any
-    /// target has no inbox.
+    /// target has no inbox: an account as `find_or_create_dm_by_identity`
+    /// does, and a handle with [`HandleError::NotFound`].
     pub async fn resolve_targets(
         &self,
         targets: &[IdentityTarget],
     ) -> Result<Vec<InboxId>, ClientError> {
-        resolve_targets_in(&self.context, targets).await
+        let inboxes = resolve_targets_in(&self.context, targets).await?;
+        targets
+            .iter()
+            .zip(inboxes)
+            .map(|(target, inbox)| match (target, inbox) {
+                (_, Some(inbox)) => Ok(inbox),
+                (IdentityTarget::Account(identifier), None) => {
+                    Err(NotFound::InboxIdForAddress(identifier.to_string()).into())
+                }
+                (IdentityTarget::Handle(_), None) => Err(HandleError::NotFound.into()),
+            })
+            .collect()
     }
 
     /// The active DM with `target`, or `None`. A handle that no inbox holds
@@ -408,7 +440,8 @@ impl<Context: XmtpSharedContext> Client<Context> {
 
     /// Create a group with `targets` as its members, in one commit. A list of
     /// accounts only keeps the account path and its errors. Any other list
-    /// resolves every target before the group exists.
+    /// resolves every target before the group exists, and an account with no
+    /// inbox fails as on the account path.
     pub async fn create_group_with_targets(
         &self,
         targets: &[IdentityTarget],
@@ -420,7 +453,8 @@ impl<Context: XmtpSharedContext> Client<Context> {
                 .create_group_with_identifiers(&accounts, permissions_policy_set, opts)
                 .await;
         }
-        let inbox_ids = self.resolve_targets(targets).await?;
+        let inboxes = resolve_targets_in(&self.context, targets).await?;
+        let inbox_ids = require_account_inboxes(targets, inboxes)?;
         self.create_group_with_members(&inbox_ids, permissions_policy_set, opts)
             .await
     }
@@ -429,7 +463,8 @@ impl<Context: XmtpSharedContext> Client<Context> {
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Add `targets` to the group in one commit. A list of accounts only
     /// keeps the account path and its errors. Any other list resolves every
-    /// target first and fails before any commit when a target has no inbox.
+    /// target first and fails before any commit when a target has no inbox,
+    /// with the account path's error for an account.
     pub async fn add_members_by_targets(
         &self,
         targets: &[IdentityTarget],
@@ -437,13 +472,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         if let Some(accounts) = all_accounts(targets) {
             return self.add_members_by_identity(&accounts).await;
         }
-        let inbox_ids = resolve_targets_in(&self.context, targets).await?;
+        let inboxes = resolve_targets_in(&self.context, targets).await?;
+        let inbox_ids = require_account_inboxes(targets, inboxes)?;
         self.add_members(&inbox_ids).await
     }
 
     /// Remove `targets` from the group in one commit. A list of accounts only
     /// keeps the account path and its errors. Any other list resolves every
-    /// target first and fails before any commit when a target has no inbox.
+    /// target first. It fails before any commit when a handle has no inbox,
+    /// and skips an account with no inbox, as the account path does.
     pub async fn remove_members_by_targets(
         &self,
         targets: &[IdentityTarget],
@@ -451,7 +488,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         if let Some(accounts) = all_accounts(targets) {
             return self.remove_members_by_identity(&accounts).await;
         }
-        let inbox_ids = resolve_targets_in(&self.context, targets).await?;
+        let inbox_ids: Vec<InboxId> = resolve_targets_in(&self.context, targets)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
         let inbox_ids: Vec<&str> = inbox_ids.iter().map(String::as_str).collect();
         self.remove_members(&inbox_ids).await
     }
