@@ -61,7 +61,12 @@ final class CodecValidationTests: XCTestCase {
 			actions: [Action(id: "one", label: "One", imageUrl: nil, style: nil, expiresAt: nil)],
 			expiresAt: Timestamp(ns: Int64.min),
 		)
-		XCTAssertThrowsError(try codec.encode(value))
+		XCTAssertThrowsError(try codec.encode(value)) { error in
+			guard case let XmtpError.InvalidInput(details) = error else { return XCTFail("Expected InvalidInput") }
+			XCTAssertEqual(details.code, "InvalidInput")
+			XCTAssertEqual(details.category, .input)
+			XCTAssertFalse(details.retryable)
+		}
 	}
 
 	private func wire(_ content: Data, algorithm: UInt8) throws -> Data {
@@ -91,5 +96,40 @@ final class CodecValidationTests: XCTestCase {
 		reply.content = overflow
 		XCTAssertThrowsError(try ReplyCodec().decode(reply))
 		XCTAssertThrowsError(try decodeEncodedContent(bytes: wire(Data([1]), algorithm: 99)))
+	}
+
+	// verifies: CTYPE-009
+	func testStandaloneCodecFailuresHaveDistinctTypedOutcomes() throws {
+		let text = try TextCodec().encode("body")
+		var invalid = text
+		invalid.content = Data([0xFF])
+		var missing = text
+		missing.type.authorityId = "other.example"
+		let attempts: [(String, () throws -> Any)] = [
+			(
+				"InvalidInput",
+				{ try ActionsCodec().encode(Actions(id: "choices", description: "Choose", actions: [], expiresAt: nil)) }
+			),
+			("CodecDecodeFailed", { try decodeStandard(encoded: invalid) }),
+			("CodecNotFound", { try decodeStandard(encoded: missing) }),
+			("MalformedEnvelope", { try decodeEncodedContent(bytes: Data([0xFF])) }),
+		]
+		for (code, operation) in attempts {
+			do { _ = try operation(); XCTFail("Expected codec failure") }
+			catch {
+				let details: ErrorDetails
+				switch error {
+				case let XmtpError.InvalidInput(value): details = value
+				case let XmtpError.CodecDecodeFailed(value): details = value
+				case let XmtpError.CodecNotFound(value): details = value
+				case let XmtpError.MalformedEnvelope(value): details = value
+				default: XCTFail("Unexpected codec failure"); continue
+				}
+				XCTAssertEqual(details.code, code)
+				XCTAssertEqual(details.category, .input)
+				XCTAssertFalse(details.retryable)
+				XCTAssertFalse(details.message.isEmpty)
+			}
+		}
 	}
 }

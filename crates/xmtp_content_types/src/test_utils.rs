@@ -39,11 +39,13 @@ impl TestContentGenerator {
         let remote_attachment = RemoteAttachment {
             url: url.to_string(),
             filename: Some(filename.to_string()),
-            content_digest: "test-digest".to_string(),
-            secret: b"test-secret".to_vec(),
-            salt: b"test-salt".to_vec(),
-            nonce: b"test-nonce".to_vec(),
-            scheme: "https".to_string(),
+            content_digest: "ab".repeat(32),
+            secret: vec![1; 32],
+            salt: vec![2; 32],
+            nonce: vec![3; 12],
+            scheme: crate::remote_attachment::content_url_scheme(url)
+                .expect("valid attachment URL")
+                .into(),
             content_length: Some(100),
         };
         RemoteAttachmentCodec::encode(remote_attachment)
@@ -55,13 +57,15 @@ impl TestContentGenerator {
             .into_iter()
             .map(|url| {
                 xmtp_proto::xmtp::mls::message_contents::content_types::RemoteAttachmentInfo {
-                    url,
+                    url: url.clone(),
                     filename: Some("test.txt".to_string()),
-                    content_digest: "test-digest".to_string(),
-                    secret: b"test-secret".to_vec(),
-                    salt: b"test-salt".to_vec(),
-                    nonce: b"test-nonce".to_vec(),
-                    scheme: "https".to_string(),
+                    content_digest: "ab".repeat(32),
+                    secret: vec![1; 32],
+                    salt: vec![2; 32],
+                    nonce: vec![3; 12],
+                    scheme: crate::remote_attachment::content_url_scheme(&url)
+                        .expect("valid attachment URL")
+                        .into(),
                     content_length: Some(100),
                 }
             })

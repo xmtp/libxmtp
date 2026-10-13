@@ -576,7 +576,15 @@ mod tests {
             MessageBody::Attachment(_)
         );
         check!(
-            RemoteAttachmentCodec::encode(RemoteAttachment::default())?,
+            RemoteAttachmentCodec::encode(RemoteAttachment {
+                url: "https://example.com/file".into(),
+                content_digest: "ab".repeat(32),
+                secret: vec![1; 32],
+                salt: vec![2; 32],
+                nonce: vec![3; 12],
+                scheme: "https://".into(),
+                ..Default::default()
+            })?,
             MessageBody::RemoteAttachment(_)
         );
         check!(

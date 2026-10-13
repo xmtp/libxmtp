@@ -559,3 +559,48 @@ fn encryption_key_diagnostics_hide_nested_secret_bytes() {
     assert_eq!(encrypted.keys.secret, secret);
     assert_eq!(encrypted.ciphertext, vec![4; 7]);
 }
+
+// verifies: CTYPE-009
+#[xmtp_common::test(unwrap_try = true)]
+fn standard_codec_errors_keep_distinct_typed_outcomes() {
+    let value = StandardContent::Actions(Actions {
+        id: "choices".into(),
+        description: "Choose".into(),
+        actions: vec![],
+        expires_at: None,
+    });
+    let crate::XmtpError::InvalidInput(encode) = encode_standard(value).unwrap_err() else {
+        panic!("encoding did not report InvalidInput")
+    };
+    assert_eq!(encode.code, "InvalidInput");
+    let mut encoded = encode_text("body".into())?;
+    encoded.content = vec![0xff];
+    let crate::XmtpError::CodecDecodeFailed(decode) = decode_standard(encoded).unwrap_err() else {
+        panic!("decoding did not report CodecDecodeFailed")
+    };
+    assert_eq!(decode.code, "CodecDecodeFailed");
+    let mut encoded = encode_text("body".into())?;
+    encoded.r#type.authority_id = "other.example".into();
+    let crate::XmtpError::CodecNotFound(missing) = decode_standard(encoded).unwrap_err() else {
+        panic!("lookup did not report CodecNotFound")
+    };
+    assert_eq!(missing.code, "CodecNotFound");
+    let mut encoded = encode_text("body".into())?;
+    encoded.r#type.authority_id.clear();
+    let crate::XmtpError::MalformedEnvelope(malformed) =
+        decode_standard(encoded.clone()).unwrap_err()
+    else {
+        panic!("untyped decode did not report MalformedEnvelope")
+    };
+    assert_eq!(malformed.code, "MalformedEnvelope");
+    let crate::XmtpError::InvalidArgument(shape) = encode_encoded_content(encoded).unwrap_err()
+    else {
+        panic!("invalid API shape did not report InvalidArgument")
+    };
+    assert_eq!(shape.code, "InvalidArgument");
+    for details in [encode, decode, missing, malformed, shape] {
+        assert!(matches!(details.category, crate::ErrorCategory::Input));
+        assert!(!details.retryable);
+        assert!(!details.message.is_empty());
+    }
+}

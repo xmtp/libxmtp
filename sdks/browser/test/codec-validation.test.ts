@@ -90,7 +90,7 @@ test("Actions expiry decode checks both fields at the signed range limits", () =
     actions: [{ id: "one", label: "One" }],
     expiresAt: new sdk.Timestamp(-9223372036854775808n),
   };
-  expect(() => codec.encode(value)).toThrow();
+  expect(() => codec.encode(value)).toThrow(sdk.XmtpError.InvalidInput);
 });
 
 const fromBase64 = (value: string) =>
@@ -134,4 +134,51 @@ test("standalone and nested decoding enforce the inclusive output bound", () => 
   expect(() =>
     sdk.decodeEncodedContent(wire(new Uint8Array([1]), 99)),
   ).toThrow();
+});
+
+// verifies: CTYPE-009
+test("standalone codec failures have four distinct typed outcomes", () => {
+  const text = new sdk.TextCodec().encode("body");
+  const attempts = [
+    [
+      "InvalidInput",
+      () =>
+        new sdk.ActionsCodec().encode({
+          id: "choices",
+          description: "Choose",
+          actions: [],
+        }),
+    ],
+    [
+      "CodecDecodeFailed",
+      () => sdk.decodeStandard({ ...text, content: new Uint8Array([0xff]) }),
+    ],
+    [
+      "CodecNotFound",
+      () =>
+        sdk.decodeStandard({
+          ...text,
+          type: { ...text.type, authorityId: "other.example" },
+        }),
+    ],
+    [
+      "MalformedEnvelope",
+      () => sdk.decodeEncodedContent(new Uint8Array([0xff])),
+    ],
+  ] as const;
+  for (const [code, operation] of attempts) {
+    try {
+      operation();
+      throw new Error("Expected codec failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(sdk.XmtpError[code]);
+      if (!(error instanceof sdk.XmtpError[code])) throw error;
+      expect(error.details).toMatchObject({
+        code,
+        category: "input",
+        retryable: false,
+      });
+      expect(error.details.message).not.toBe("");
+    }
+  }
 });

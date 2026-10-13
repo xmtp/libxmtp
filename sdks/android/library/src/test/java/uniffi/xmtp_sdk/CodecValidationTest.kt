@@ -77,7 +77,10 @@ class CodecValidationTest {
         }
         val value =
             Actions("choices", "Choose", listOf(Action("one", "One", null, null, null)), Timestamp(Long.MIN_VALUE))
-        assertThrows(XmtpException.CodecEncodeFailed::class.java) { codec.encode(value) }
+        val error = assertThrows(XmtpException.InvalidInput::class.java) { codec.encode(value) }
+        assertEquals("InvalidInput", error.v1.code)
+        assertEquals(ErrorCategory.INPUT, error.v1.category)
+        org.junit.Assert.assertFalse(error.v1.retryable)
     }
 
     private fun wire(
@@ -131,4 +134,32 @@ class CodecValidationTest {
                 }
             }
         }
+
+    // verifies: CTYPE-009
+    @Test
+    fun standaloneCodecFailuresHaveDistinctTypedOutcomes() {
+        val text = TextCodec().encode("body")
+        val attempts =
+            listOf<Pair<String, () -> Any>>(
+                "InvalidInput" to { ActionsCodec().encode(Actions("choices", "Choose", emptyList(), null)) },
+                "CodecDecodeFailed" to { decodeStandard(text.copy(content = byteArrayOf(0xff.toByte()))) },
+                "CodecNotFound" to { decodeStandard(text.copy(type = text.type.copy(authorityId = "other.example"))) },
+                "MalformedEnvelope" to { decodeEncodedContent(byteArrayOf(0xff.toByte())) },
+            )
+        for ((code, operation) in attempts) {
+            val error = runCatching(operation).exceptionOrNull()
+            val details =
+                when (error) {
+                    is XmtpException.InvalidInput -> error.v1
+                    is XmtpException.CodecDecodeFailed -> error.v1
+                    is XmtpException.CodecNotFound -> error.v1
+                    is XmtpException.MalformedEnvelope -> error.v1
+                    else -> throw AssertionError("Expected typed codec failure", error)
+                }
+            assertEquals(code, details.code)
+            assertEquals(ErrorCategory.INPUT, details.category)
+            org.junit.Assert.assertFalse(details.retryable)
+            org.junit.Assert.assertFalse(details.message.isEmpty())
+        }
+    }
 }
