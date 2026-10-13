@@ -27,8 +27,6 @@ jobs:
       # the build log, which holds the failed tests.
       - name: Test backend, replica recovery, HTTPS streaming, and SQL cache
         run: nix build --no-link --log-lines 500 .#backend-tests.x86_64-linux
-      - name: Warm sticky disk with build deps
-        run: dev/ci/warm-deps .#backend-tests.x86_64-linux
 
   native:
     name: Native backend contract

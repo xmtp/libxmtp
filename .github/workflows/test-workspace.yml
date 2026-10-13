@@ -30,8 +30,6 @@ jobs:
         # use `nix build` instead of `nix flake check` because we need the resulting coverage
         run: |
           nix build .#nextest.x86_64-linux --out-link workspace-tests --option sandbox relaxed
-      - name: Warm sticky disk with build deps
-        run: dev/ci/warm-deps .#nextest.x86_64-linux
       - name: Upload coverage
         uses: codecov/codecov-action@v6
         with:
