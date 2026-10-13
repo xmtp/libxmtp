@@ -12,6 +12,7 @@ public struct ConversationRecord: Identifiable, Equatable, Sendable {
 	public var preview: String
 	public var unread: Int
 	public var lastActivity: Date?
+	public var memberCount: Int?
 	public init(
 		id: String,
 		kind: ConversationKind,
@@ -22,10 +23,12 @@ public struct ConversationRecord: Identifiable, Equatable, Sendable {
 		preview: String = "",
 		unread: Int = 0,
 		lastActivity: Date? = nil,
+		memberCount: Int? = nil,
 	) {
 		self.id = id; self.kind = kind; self.name = name; self.peerInboxID = peerInboxID; self.peerHandle = peerHandle; self
 			.consent = consent; self.preview = preview; self.unread = unread
 		self.lastActivity = lastActivity
+		self.memberCount = memberCount
 	}
 
 	public func logicalKey(ownInboxID: String) -> String {

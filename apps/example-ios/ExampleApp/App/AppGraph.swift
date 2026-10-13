@@ -67,6 +67,7 @@ import SwiftUI
 		bound = info.key
 		do {
 			appearance = try files.loadIndex().appearance
+			try removeAbandonedAttachments(info)
 			let prefs = try loadPreferences(info)
 			guard fence.accepts(info.key),
 			      bound == info.key, active?.key == info.key else { return }
@@ -88,6 +89,11 @@ import SwiftUI
 		handles = nil; newConversation = nil; preferences = nil; identityDirectory = nil; messageObservers.removeAll()
 		currentHandle = nil; otherHandles = []
 		routes.replace(.connect)
+	}
+
+	private func removeAbandonedAttachments(_ info: SessionInfo) throws {
+		let temporary = try files.paths(info.key.profileID).root.appendingPathComponent("temp", isDirectory: true)
+		try AttachmentStagingFiles(temporaryDirectory: temporary).removeAbandoned()
 	}
 
 	private func loadPreferences(_ info: SessionInfo) throws -> ProfilePreferences {

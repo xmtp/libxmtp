@@ -30,7 +30,7 @@ struct SettingsView: View {
 			Section("Notifications") { Text("Off: APNs is not configured") }
 			appearanceSection
 			privacySection
-			Section("Send needs review") { Text("No sends need review") }
+			SendReviewSection(graph: graph)
 			developerSection
 			deviceSection
 			if let error = store.state.error ?? graph.error {
