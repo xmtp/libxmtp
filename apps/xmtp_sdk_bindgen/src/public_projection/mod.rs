@@ -70,7 +70,7 @@ pub(crate) fn generate(
     if target == Target::Browser {
         // The binding runs in the package worker: constructors and functions
         // go through its proxies, and storage admin through its template.
-        code.push_str("import * as P from './proxy.gen.js';\nimport { createInWorker, initLoggingInWorker } from './package-session.gen.js';\nimport { openStorageAdmin, type StorageAdmin } from './storage-admin.gen.js';\nimport { BridgeError } from './runtime/bridge/wire.js';\n");
+        code.push_str("import * as P from './proxy.gen.js';\nimport { createInWorker, initLoggingInWorker, migrateInWorker } from './package-session.gen.js';\nimport { openStorageAdmin, type StorageAdmin } from './storage-admin.gen.js';\nimport { BridgeError } from './runtime/bridge/wire.js';\n");
     }
     code.push_str(&crate::streams::typescript_import(
         streams,

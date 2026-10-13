@@ -3,6 +3,7 @@
   xmtp,
   lib,
   cargo-llvm-cov,
+  python3,
   ...
 }:
 let
@@ -49,6 +50,8 @@ rust.cargoNextest (
     # Crane would read these from the dummy source during evaluation.
     pname = "cargo-package";
     version = xmtp.mkVersion rust;
+    # The migration lock test uses a separate SQLite process.
+    nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ python3 ];
     doCheck = true;
     DATABASE_URL = "postgres://xmtp:xmtp@localhost:55432/xmtp_backend";
     pnameSuffix = "nextest";

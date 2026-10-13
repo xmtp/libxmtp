@@ -72,10 +72,10 @@ impl Drop for ActiveUtility {
 }
 
 /// Exclude persistent opens for the full duration of an OPFS file change.
-struct PoolChange;
+pub(super) struct PoolChange;
 
 impl PoolChange {
-    fn acquire() -> Result<Self, PlatformStorageError> {
+    pub(super) fn acquire() -> Result<Self, PlatformStorageError> {
         check_pool_usable()?;
         if operation_pending() {
             return Err(PlatformStorageError::DatabaseInUse);

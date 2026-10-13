@@ -1,0 +1,41 @@
+# Legacy migration
+
+Use raw legacy SQL only on a temporary copy. Never open the source with SQLite.
+The embedded migrations come from the revision in `README.md`.
+
+## Commands
+
+```bash
+dev/nix-shell 'just check crate xmtp_legacy_migration'
+dev/nix-shell 'just test crate xmtp_legacy_migration'
+```
+
+Keep fixtures and their provenance together. Do not regenerate a fixture with
+current SDK storage initialization.
+
+Each eligible message, group, and consent row has a fixed 64 MiB budget across
+all retained variable fields. Check SQL byte lengths before loading rows into
+Rust. Keep the exact limit inclusive. An oversized row fails the whole
+preparation with RecordRead; do not skip it. Preserve the SQL check when fields
+are added to MessageRow, Group, or Consent. Project only retained columns. Page
+bounded group IDs, then load one admitted group row at a time.
+
+Bound migration-history row count and version byte length in SQL before loading
+version strings. Keep the load query limited to the pinned migration count.
+
+Check sidecars beside both supplied and resolved source paths. Reject distinct
+files for one suffix; do not combine ambiguous source histories.
+
+Browser preparation uses a private OPFS working copy. Never export the complete
+source into a Vec or deserialize a second full copy in WASM memory.
+
+Check legacy deletion authority in SQL. Decode content type after the row
+budget check; cached type fields must not reveal a deleted body. Use the pinned
+legacy type-name classifier, which ignores authority and major version.
+Browser sources with SQLite sidecars must fail before copying;
+never open the source with SQLite to recover it.
+
+Native sidecars must be regular files. Reject symlinks and use a no-follow open
+to guard against replacement after a type check. Main database symlinks remain
+supported. Browser archive byte reads have a fixed inclusive 100 MB limit and
+check file size before allocation.

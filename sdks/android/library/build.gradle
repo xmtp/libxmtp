@@ -192,3 +192,8 @@ afterEvaluate {
         sign publishing.publications.release
     }
 }
+
+// Share the pinned legacy files with the native migration tests.
+tasks.withType(Test).configureEach {
+    systemProperty "xmtp.legacy.fixtures", rootProject.file("../../crates/xmtp_legacy_migration/fixtures").canonicalPath
+}
