@@ -144,5 +144,8 @@ pub(crate) async fn read(path: &str) -> Result<Vec<u8>, MigrationError> {
     let bytes = read_output(path)
         .await
         .map_err(|value| MigrationError::Output(OutputError::Browser { value }))?;
-    Ok(js_sys::Uint8Array::new(&bytes).to_vec())
+    Ok(bytes
+        .dyn_into::<js_sys::Uint8Array>()
+        .map_err(output)?
+        .to_vec())
 }

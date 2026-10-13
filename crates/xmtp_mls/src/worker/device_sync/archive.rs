@@ -194,6 +194,7 @@ mod tests {
     /// in the archive: the export is one snapshot. On wasm, whose single
     /// connection the export holds, such writes are refused instead.
     // verifies: ARCH-007, ARCH-017
+    // verifies: EVENT-004
     #[xmtp_common::test(unwrap_try = true)]
     async fn archive_snapshot_is_complete() {
         use xmtp_db::consent_record::{ConsentState, ConsentType};
@@ -273,7 +274,16 @@ mod tests {
             "the export saw writes committed after its snapshot: {consent:?}"
         );
 
-        tester!(alix2, from: alix);
+        tester!(alix2, from: alix, disable_workers);
+        let events = alix2.context.events().subscribe(
+            xmtp_events::EventFilter::new([
+                xmtp_events::EventKind::ArchiveRestored,
+                xmtp_events::EventKind::ConversationJoined,
+                xmtp_events::EventKind::MessageReceived,
+                xmtp_events::EventKind::ConsentChanged,
+            ]),
+            Some(64),
+        );
         let reader = Box::pin(BufReader::new(Cursor::new(archive)));
         let mut importer = ArchiveImporter::load(reader, &key).await?;
         insert_importer(&mut importer, &alix2.context).await?;
@@ -287,6 +297,9 @@ mod tests {
         }
         assert!(db.get_group_message(&in_window)?.is_some());
         assert!(db.get_group_message(&outside_message)?.is_none());
+        assert!(
+            matches!(events.drain().as_slice(), [xmtp_events::EventEnvelope { client: Some(ClientEvent::ArchiveRestored(restored)), .. }] if restored.complete)
+        );
     }
 
     // verifies: EVENT-001, EVENT-017
@@ -324,6 +337,72 @@ mod tests {
         ));
     }
 
+    // verifies: EVENT-004
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn failed_import_suppresses_events_for_all_stored_elements() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let group = alix.create_group(None, None)?;
+        let message_id = group.send_message_optimistic(b"archive message", Default::default())?;
+        alix.db()
+            .insert_or_replace_consent_records(&[StoredConsentRecord::new(
+                xmtp_db::consent_record::ConsentType::InboxId,
+                xmtp_db::consent_record::ConsentState::Denied,
+                bo.inbox_id().into(),
+            )])?;
+        let key = vec![9; 32];
+        let mut archive = vec![];
+        exporter::export(
+            ArchiveOptions {
+                elements: vec![
+                    BackupElementSelection::Messages,
+                    BackupElementSelection::Consent,
+                ],
+                start_ns: None,
+                end_ns: None,
+                exclude_disappearing_messages: false,
+            },
+            alix.db(),
+            &key,
+            &mut archive,
+        )?;
+        let importer =
+            ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(archive))), &key).await?;
+        let mut elements = importer
+            .map(|item| item.map_err(DeviceSyncError::from))
+            .chain(futures::stream::iter([Err(DeviceSyncError::from(
+                std::io::Error::other("archive cut"),
+            ))]));
+        tester!(restored, from: alix, disable_workers);
+        let events = restored.context.events().subscribe(
+            xmtp_events::EventFilter::new([
+                xmtp_events::EventKind::ArchiveRestored,
+                xmtp_events::EventKind::ConversationJoined,
+                xmtp_events::EventKind::MessageReceived,
+                xmtp_events::EventKind::ConsentChanged,
+            ]),
+            Some(64),
+        );
+        assert!(
+            insert_elements(&mut elements, &restored.context)
+                .await
+                .is_err()
+        );
+        assert!(restored.db().find_group(&group.group_id)?.is_some());
+        assert!(restored.db().get_group_message(&message_id)?.is_some());
+        assert!(
+            restored
+                .db()
+                .get_consent_record(
+                    bo.inbox_id().into(),
+                    xmtp_db::consent_record::ConsentType::InboxId
+                )?
+                .is_some()
+        );
+        assert!(
+            matches!(events.drain().as_slice(), [xmtp_events::EventEnvelope { client: Some(ClientEvent::ArchiveRestored(restored)), .. }] if !restored.complete)
+        );
+    }
     // verifies: CONS-010
     #[xmtp_common::test(unwrap_try = true)]
     async fn archived_consent_keeps_the_latest_record() {
