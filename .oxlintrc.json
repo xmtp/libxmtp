@@ -68,6 +68,13 @@
   },
   "overrides": [
     {
+      // These tests deliberately check that default stringification cannot leak a key.
+      "files": ["sdks/{node,browser}/test/LocalSigningKey.test.ts"],
+      "rules": {
+        "typescript/no-base-to-string": "off"
+      }
+    },
+    {
       // These standalone Node tools load runtime data and have no TS project.
       // Keep correctness and promise checks.
       "files": [

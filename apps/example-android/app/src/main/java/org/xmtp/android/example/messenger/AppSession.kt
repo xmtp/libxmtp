@@ -381,7 +381,8 @@ class AppSession(
                         .read(
                             saved.id,
                             "wallet",
-                        ) ?: SDKClient.generateKeys()
+                        ) ?: SDKClient
+                        .generateKeys()
                         .toBytes()
                         .also {
                             secrets

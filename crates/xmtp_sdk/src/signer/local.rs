@@ -22,12 +22,7 @@ impl LocalSigningKey {
     /// Restore a 32-byte secp256k1 private key. The input is copied.
     #[uniffi::constructor]
     pub async fn from_bytes(key: Vec<u8>) -> Result<Arc<Self>, XmtpError> {
-        if key.len() != PRIVATE_KEY_LENGTH {
-            return Err(XmtpError::invalid("invalid local signer private key"));
-        }
-        let signer = PrivateKeySigner::from_slice(&key)
-            .map_err(|_| XmtpError::invalid("invalid local signer private key"))?;
-        Ok(Arc::new(Self(signer)))
+        Self::parse_bytes(&key)
     }
 
     /// Restore a private key encoded as 0x followed by exactly 64 hexadecimal digits.
@@ -39,7 +34,7 @@ impl LocalSigningKey {
             .ok_or_else(|| XmtpError::invalid("invalid local signer private key"))?;
         let bytes = hex::decode(encoded)
             .map_err(|_| XmtpError::invalid("invalid local signer private key"))?;
-        Self::from_bytes(bytes).await
+        Self::parse_bytes(&bytes)
     }
 
     pub async fn identity(&self) -> Result<PublicIdentity, XmtpError> {
@@ -62,6 +57,16 @@ impl LocalSigningKey {
 }
 
 impl LocalSigningKey {
+    // Parse below the exported boundary so each failed SDK call logs only once.
+    fn parse_bytes(key: &[u8]) -> Result<Arc<Self>, XmtpError> {
+        if key.len() != PRIVATE_KEY_LENGTH {
+            return Err(XmtpError::invalid("invalid local signer private key"));
+        }
+        let signer = PrivateKeySigner::from_slice(key)
+            .map_err(|_| XmtpError::invalid("invalid local signer private key"))?;
+        Ok(Arc::new(Self(signer)))
+    }
+
     fn private_key_bytes(&self) -> Vec<u8> {
         self.0.to_bytes().to_vec()
     }
