@@ -58,6 +58,24 @@ describe("ChooseHandlePrompt", () => {
     await screen.findByText("identity page");
   });
 
+  it("opens the identity page on Enter on the card", async () => {
+    show(inboxA);
+    const card = screen.getByText(title).closest<HTMLElement>("[tabindex]");
+    expect(card).not.toBeNull();
+    fireEvent.keyDown(card!, { key: "Enter" });
+    await screen.findByText("identity page");
+  });
+
+  it("dismisses on Enter on Dismiss, without opening the identity page", () => {
+    show(inboxA);
+    const dismiss = screen.getByRole("button", { name: "Dismiss" });
+    // a browser sends the keydown, then activates the button with a click
+    fireEvent.keyDown(dismiss, { key: "Enter" });
+    fireEvent.click(dismiss);
+    expect(screen.queryByText(title)).toBeNull();
+    expect(screen.queryByText("identity page")).toBeNull();
+  });
+
   it("hides after dismissal, and keeps the dismissal for that inbox only", () => {
     const first = show(inboxA);
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
