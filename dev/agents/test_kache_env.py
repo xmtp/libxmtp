@@ -482,10 +482,7 @@ KACHE_CALLERS = {
     "test-backend.yml / native": "backend-tests-debug",
     "test-browser-sdk.yml / test": "sdk-products-debug",
     "test-node-sdk.yml / test": "sdk-native-debug",
-    "test-sdk-platform.yml / proof": (
-        "${{ matrix.target == 'browser' && 'sdk-browser-conformance'"
-        " || 'sdk-products-debug' }}"
-    ),
+    "test-sdk-platform.yml / proof": "sdk-browser-conformance",
     "test-sdk.yml / sdk": "sdk-products-tests-conformance",
     "test-sdk.yml / android-stage": "sdk-android-release",
 }

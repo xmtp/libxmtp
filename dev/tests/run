@@ -70,6 +70,9 @@ def run_directory(start):
     failed = []
     if not files:
         failed.append((start, "No test_*.py files. Update START_DIRS.\n"))
+    # Python put this script's directory first; only the selected one stays.
+    runner = Path(__file__).resolve().parent
+    sys.path[:] = [p for p in sys.path if not p or Path(p).resolve() != runner]
     sys.path.insert(0, str(directory))
     total = 0
     for path in files:

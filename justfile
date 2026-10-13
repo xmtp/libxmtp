@@ -84,7 +84,7 @@ _check-crate +crates:
 # docs_quality, the WASM and SDK generator Clippy of check_rust, and
 # `spec-check`. It skips lint_ios, lint_android, and lint_example_android,
 # which need mobile toolchains.
-lint: install-js lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto docs::test docs::check-source spec-check
+lint: _js-deps lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto docs::test docs::check-source spec-check
 
 lint-proto:
     buf lint proto
