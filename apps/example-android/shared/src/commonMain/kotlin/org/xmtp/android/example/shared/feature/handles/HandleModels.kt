@@ -248,8 +248,12 @@ object HandleCopy {
     const val LIMIT_REACHED =
         "This inbox has used all 64 handle changes. Your current handle stays, and so do your other handles."
 
-    /** The Settings screen title: Choose handle for an inbox with no handle, else Change handle. */
-    fun screenTitle(state: HandleState): String = if (state.current == null) CHOOSE_SCREEN else CHANGE_SCREEN
+    /**
+     * The Settings screen title: Choose handle for an inbox with no handle, else Change handle.
+     * Unknown handles are not "no handle", so they keep the Change title.
+     */
+    fun screenTitle(state: HandleState): String =
+        if (state.current == null && !state.ownUnknown) CHOOSE_SCREEN else CHANGE_SCREEN
 
     fun supporting(minNameLength: Int): String =
         if (minNameLength >= MAX_HANDLE_NAME_LENGTH) {
