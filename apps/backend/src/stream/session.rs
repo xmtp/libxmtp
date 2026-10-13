@@ -357,6 +357,7 @@ impl Session {
                             StreamEnd::Capacity,
                         ));
                     }
+                    self.validate_request(&frame)?;
                     if matches!(
                         &frame.request,
                         Some(api::subscribe_request::Request::Ping(_))
@@ -406,6 +407,10 @@ impl Session {
                     ));
                 }
                 if self.pending_update.is_some() || !self.deferred_updates.is_empty() {
+                    self.validate_update_fields(&update).map_err(|error| {
+                        telemetry::stream_updated(UpdateOutcome::Invalid);
+                        self.fail(error, StreamEnd::Invalid)
+                    })?;
                     self.deferred_bytes += update.encoded_len();
                     if self.deferred_bytes > self.config.limits.max_request_bytes {
                         return Err(self.fail(
@@ -554,7 +559,46 @@ impl Session {
     }
 
     // implements: API-251
+    fn validate_request(&self, frame: &api::SubscribeRequest) -> Result<(), Status> {
+        match frame
+            .request
+            .as_ref()
+            .ok_or_else(|| Status::invalid_argument("request is absent"))?
+        {
+            api::subscribe_request::Request::Update(update) => {
+                self.validate_update_fields(update).map(|_| ())
+            }
+            api::subscribe_request::Request::Ping(_) | api::subscribe_request::Request::Pong(_) => {
+                Ok(())
+            }
+        }
+    }
+
     fn validate_update(
+        &self,
+        update: &api::subscribe_request::Update,
+    ) -> Result<Vec<(Vec<u8>, i64)>, Status> {
+        let adds = self.validate_update_fields(update)?;
+        let mut total = self.topics.len();
+        for (topic, _) in &adds {
+            total += usize::from(!self.topics.contains_key(topic));
+        }
+        for topic in &update.removes {
+            total -= usize::from(self.topics.contains_key(&topic.topic));
+        }
+        if total
+            > if self.static_subscription {
+                self.config.limits.max_static_topics
+            } else {
+                self.config.limits.max_stream_topics
+            }
+        {
+            return Err(Status::invalid_argument("stream topic limit exceeded"));
+        }
+        Ok(adds)
+    }
+
+    fn validate_update_fields(
         &self,
         update: &api::subscribe_request::Update,
     ) -> Result<Vec<(Vec<u8>, i64)>, Status> {
@@ -573,7 +617,6 @@ impl Session {
         }
         let mut seen = HashSet::new();
         let mut adds = Vec::with_capacity(update.adds.len());
-        let mut total = self.topics.len();
         for query in &update.adds {
             let topic = query
                 .topic
@@ -585,7 +628,6 @@ impl Session {
             if !seen.insert(topic.topic.clone()) {
                 return Err(Status::invalid_argument("duplicate update topic"));
             }
-            total += usize::from(!self.topics.contains_key(&topic.topic));
             adds.push((topic.topic.clone(), floor));
         }
         for topic in &update.removes {
@@ -593,22 +635,10 @@ impl Session {
             if !seen.insert(topic.topic.clone()) {
                 return Err(Status::invalid_argument("overlapping update topic"));
             }
-            total -= usize::from(self.topics.contains_key(&topic.topic));
-        }
-        if total
-            > if self.static_subscription {
-                limits.max_static_topics
-            } else {
-                limits.max_stream_topics
-            }
-        {
-            return Err(Status::invalid_argument("stream topic limit exceeded"));
         }
         Ok(adds)
     }
 
-    /// Keep each active generation once in the FIFO, or switch it atomically
-    /// to direct live delivery when its admitted floor covers all known work.
     fn schedule(&mut self, topic: Vec<u8>) {
         let Some(registration) = self.topics.get_mut(&topic) else {
             return;
