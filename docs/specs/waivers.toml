@@ -458,29 +458,8 @@ issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
 reason = "Restored conversations report an unknown creator until validated activation, including when the archive supplied a creator. Legacy getters use empty text; the new SDK uses its optional unknown value. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
-id = "IDENT-085"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No client resolves a handle. No code checks a handle lookup answer against the answered inbox's association state."
-
-[[waiver]]
-id = "IDENT-086"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No SDK returns the handles of an inbox, and no code reports a current handle and the other handles."
-
-[[waiver]]
 id = "CONF-081"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Handles are not implemented, so no test shows that the client and the SDKs resolve, claim, and return a handle whose name part is shorter than the snapshot's handles.min_name_length."
-
-[[waiver]]
-id = "EVENT-058"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The client has no handle.changed kind, and the association state it stores carries no handles yet, so no event reports a change of an inbox's display handle."
