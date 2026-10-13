@@ -237,3 +237,36 @@ test("legacy schemes decode without changing stored parameters", () => {
     ).toBe(canonical);
   }
 });
+
+// verifies: CTYPE-030
+test("Actions checks the last expiry after an action without an expiry", () => {
+  const codec = new sdk.ActionsCodec();
+  const first = { id: "one", label: "One" };
+  const value = {
+    id: "choices",
+    description: "Choose",
+    actions: [
+      first,
+      { id: "two", label: "Two", expiresAt: "2262-04-11T23:47:16.854775808Z" },
+    ],
+  };
+  const encoded = {
+    type: codec.type,
+    parameters: new Map<string, string>(),
+    content: new TextEncoder().encode(JSON.stringify(value)),
+  };
+  expect(() => codec.decode(encoded)).toThrow(sdk.XmtpError.CodecDecodeFailed);
+  expect(() =>
+    codec.encode({
+      ...value,
+      actions: [
+        first,
+        {
+          id: "two",
+          label: "Two",
+          expiresAt: new sdk.Timestamp(-9223372036854775808n),
+        },
+      ],
+    }),
+  ).toThrow(sdk.XmtpError.InvalidInput);
+});

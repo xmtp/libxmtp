@@ -239,4 +239,29 @@ class CodecValidationTest : BaseInstrumentedTest() {
             assertEquals(canonical, codec.decode(ReplyCodec().decode(reply).content).scheme)
         }
     }
+
+    // verifies: CTYPE-030
+    @Test
+    fun lastActionExpiryIsChecked() {
+        val codec = ActionsCodec()
+        val json =
+            """
+            {"id":"choices","description":"Choose","actions":[
+              {"id":"one","label":"One"},
+              {"id":"two","label":"Two","expiresAt":"2262-04-11T23:47:16.854775808Z"}]}
+            """.trimIndent()
+        val encoded = EncodedContent(codec.type, emptyMap(), null, json.toByteArray())
+        assertThrows(XmtpException.CodecDecodeFailed::class.java) { codec.decode(encoded) }
+        val value =
+            Actions(
+                "choices",
+                "Choose",
+                listOf(
+                    Action("one", "One", null, null, null),
+                    Action("two", "Two", null, null, Timestamp(Long.MIN_VALUE)),
+                ),
+                null,
+            )
+        assertThrows(XmtpException.InvalidInput::class.java) { codec.encode(value) }
+    }
 }

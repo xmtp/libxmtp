@@ -176,4 +176,26 @@ final class CodecValidationTests: XCTestCase {
 			XCTAssertEqual(try codec.decode(ReplyCodec().decode(reply).content).scheme, canonical)
 		}
 	}
+
+	// verifies: CTYPE-030
+	func testLastActionExpiryIsChecked() throws {
+		let codec = ActionsCodec()
+		let json = #"{"id":"choices","description":"Choose","actions":[{"id":"one","label":"One"},{"id":"two","label":"Two","expiresAt":"2262-04-11T23:47:16.854775808Z"}]}"#
+		let encoded = EncodedContent(type: codec.type, content: Data(json.utf8))
+		XCTAssertThrowsError(try codec.decode(encoded)) { error in
+			guard case XmtpError.CodecDecodeFailed = error else { return XCTFail("Expected CodecDecodeFailed") }
+		}
+		let value = Actions(
+			id: "choices",
+			description: "Choose",
+			actions: [
+				Action(id: "one", label: "One", imageUrl: nil, style: nil, expiresAt: nil),
+				Action(id: "two", label: "Two", imageUrl: nil, style: nil, expiresAt: Timestamp(ns: Int64.min)),
+			],
+			expiresAt: nil,
+		)
+		XCTAssertThrowsError(try codec.encode(value)) { error in
+			guard case XmtpError.InvalidInput = error else { return XCTFail("Expected InvalidInput") }
+		}
+	}
 }

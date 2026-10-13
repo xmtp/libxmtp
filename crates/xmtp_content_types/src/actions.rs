@@ -361,4 +361,50 @@ mod tests {
             }
         }
     }
+
+    // verifies: CTYPE-030
+    #[xmtp_common::test(unwrap_try = true)]
+    fn last_action_expiry_is_checked() {
+        for timestamp in [
+            "1677-09-21T00:12:43.145224191Z",
+            "2262-04-11T23:47:16.854775808Z",
+        ] {
+            let expiry = DateTime::parse_from_rfc3339(timestamp)?.with_timezone(&Utc);
+            let actions = Actions {
+                id: "choices".into(),
+                description: "Choose".into(),
+                actions: vec![
+                    Action {
+                        id: "one".into(),
+                        label: "One".into(),
+                        image_url: None,
+                        style: None,
+                        expires_at: None,
+                    },
+                    Action {
+                        id: "two".into(),
+                        label: "Two".into(),
+                        image_url: None,
+                        style: None,
+                        expires_at: Some(expiry),
+                    },
+                ],
+                expires_at: None,
+            };
+            assert!(matches!(
+                ActionsCodec::encode(actions.clone()),
+                Err(CodecError::Encode(_))
+            ));
+            let mut json = serde_json::to_value(actions)?;
+            json["actions"][1]["expiresAt"] = timestamp.into();
+            assert!(matches!(
+                ActionsCodec::decode(EncodedContent {
+                    r#type: Some(ActionsCodec::content_type()),
+                    content: serde_json::to_vec(&json)?,
+                    ..Default::default()
+                }),
+                Err(CodecError::Decode(_))
+            ));
+        }
+    }
 }
