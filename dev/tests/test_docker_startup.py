@@ -36,6 +36,12 @@ if args[:1] == ["compose"]:
             print("fixture log failure", file=sys.stderr)
             sys.exit(12)
         print('backend | Error: relation "allocation_boundary" does not exist')
+    elif command[:2] == ["config", "--images"]:
+        # Only the backend and toxiproxy, which depends on it, need its image.
+        services = command[2:]
+        if not services or {"backend", "toxiproxy"} & set(services):
+            print(os.environ["XMTP_BACKEND_IMAGE"])
+        print("postgres:18.6")
     elif command[:1] == ["ps"]:
         if mode == "ps":
             print("fixture ps failure", file=sys.stderr)
@@ -93,7 +99,14 @@ class DockerStartupTest(unittest.TestCase):
         self.runner.mkdir()
         self.calls = self.directory / "calls.jsonl"
 
-    def run_up(self, status=37, failure="", runner=True, **overrides):
+    def run_up(
+        self,
+        status=37,
+        failure="",
+        runner=True,
+        services=("backend", "replica"),
+        **overrides,
+    ):
         env = dict(
             os.environ,
             PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -108,7 +121,7 @@ class DockerStartupTest(unittest.TestCase):
             env["RUNNER_TEMP"] = str(self.runner)
         env.update(overrides)
         return subprocess.run(
-            ["bash", str(self.docker_dir / "up"), "backend", "replica"],
+            ["bash", str(self.docker_dir / "up"), *services],
             env=env,
             text=True,
             capture_output=True,
@@ -225,6 +238,17 @@ class DockerStartupTest(unittest.TestCase):
         loaded = self.run_up(IMAGE_PRESENT="1")
         self.assertEqual(loaded.returncode, 37, loaded.stderr)
         self.assertNotIn("just backend up", loaded.stderr)
+        # A start without the backend, such as `db-up`, fails for another reason.
+        database = self.run_up(services=("--wait-timeout", "5", "db", "replica"))
+        self.assertEqual(database.returncode, 37, database.stderr)
+        self.assertNotIn("just backend up", database.stderr)
+        # Toxiproxy depends on the backend, unless only it starts.
+        proxy = self.run_up(services=("toxiproxy",))
+        self.assertIn("Run 'just backend up'", proxy.stderr)
+        alone = self.run_up(services=("--no-deps", "toxiproxy"))
+        self.assertNotIn("just backend up", alone.stderr)
+        named = self.run_up(services=("--no-deps", "backend"))
+        self.assertIn("Run 'just backend up'", named.stderr)
         self.calls.unlink()
         started = self.run_up(status=0)
         self.assertEqual(started.returncode, 0, started.stderr)
