@@ -304,7 +304,11 @@ export const InboxTools: React.FC = () => {
                   error={!!memberIdError}
                   value={memberId}
                   onChange={(event) => {
-                    setMemberId(event.target.value);
+                    // as in the new-DM and add-members fields: a handle
+                    // typed with capitals still matches the handle grammar
+                    setMemberId(
+                      event.target.value.toLowerCase().replace(/\s/g, ""),
+                    );
                   }}
                 />
                 <Group justify="space-between" align="center">
