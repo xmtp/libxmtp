@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-use crate::{ApiClientWrapper, ApiError, PublishUnit, chunk::chunk_publish};
+use crate::{ApiClientWrapper, ApiError, HandleRejection, PublishUnit, chunk::chunk_publish};
 use prost::Message;
 use rstest::rstest;
 use std::{
@@ -222,9 +222,17 @@ fn size_status(code: tonic::Code) -> ApiClientError {
     if code != tonic::Code::InvalidArgument {
         return status(code);
     }
+    publish_refusal(wire::publish_error::Reason::TooLarge)
+}
+
+/// An `INVALID_ARGUMENT` publish refusal whose structured detail carries
+/// `reason`. The messages are not the reason's text, so only the detail can
+/// identify it.
+fn publish_refusal(reason: wire::publish_error::Reason) -> ApiClientError {
+    let code = tonic::Code::InvalidArgument;
     let detail = wire::PublishError {
         index: None,
-        reason: wire::publish_error::Reason::TooLarge as i32,
+        reason: reason as i32,
         message: "not used".into(),
     };
     let details = tonic_types::pb::Status {
@@ -655,6 +663,71 @@ async fn inbox_lookup_rejects_unknown_response_kind(#[case] kind: i32) {
             .await,
         Err(ApiError::InvalidResponse(_))
     ));
+}
+
+#[rstest]
+#[case(wire::publish_error::Reason::HandleTaken, Some(HandleRejection::Taken))]
+#[case(
+    wire::publish_error::Reason::HandleNotAllowed,
+    Some(HandleRejection::NotAllowed)
+)]
+#[case(
+    wire::publish_error::Reason::HandleTooSoon,
+    Some(HandleRejection::TooSoon)
+)]
+#[case(wire::publish_error::Reason::InvalidIdentityUpdate, None)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn identity_publish_maps_handle_reasons(
+    #[case] reason: wire::publish_error::Reason,
+    #[case] expected: Option<HandleRejection>,
+) {
+    let mut mock = MockBackendClient::new();
+    mock.expect_publish()
+        .times(1)
+        .returning(move |_| Err(publish_refusal(reason)));
+    let update = xmtp_proto::xmtp::identity::associations::IdentityUpdate {
+        inbox_id: "ab".repeat(32),
+        ..Default::default()
+    };
+    let error = wrapper(mock)
+        .publish_identity_update(update)
+        .await
+        .unwrap_err();
+    match expected {
+        Some(rejection) => {
+            assert!(matches!(error, ApiError::HandleRejected(found) if found == rejection));
+            assert!(!error.is_retryable());
+        }
+        None => assert!(matches!(error, ApiError::Api(_)), "{error:?}"),
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn get_inbox_ids_accepts_handle_kind() {
+    let mut mock = MockBackendClient::new();
+    mock.expect_get_inbox_ids().times(1).returning(|request| {
+        assert_eq!(
+            request.requests,
+            vec![wire::get_inbox_ids_request::Request {
+                identifier: "nick#0042".into(),
+                identifier_kind: IdentifierKind::Handle as i32,
+            }]
+        );
+        Ok(wire::GetInboxIdsResponse {
+            responses: vec![wire::get_inbox_ids_response::Response {
+                identifier: "nick#0042".into(),
+                identifier_kind: IdentifierKind::Handle as i32,
+                inbox_id: Some("ab".repeat(32)),
+            }],
+        })
+    });
+    let inbox_ids = wrapper(mock)
+        .get_inbox_ids(vec![ApiIdentifier {
+            identifier: "nick#0042".into(),
+            identifier_kind: IdentifierKind::Handle,
+        }])
+        .await?;
+    assert_eq!(inbox_ids, vec![Some("ab".repeat(32))]);
 }
 
 #[xmtp_common::test(unwrap_try = true)]

@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**37 error types** across **10 crates** with **417 total error codes**.
+**38 error types** across **10 crates** with **420 total error codes**.
 
 ## xmtp_api
 
@@ -25,6 +25,19 @@ This document lists all error codes defined in LibXMTP, the core library underly
 | `ApiError::InvalidEnvelope` | The payload cannot be parsed. Not retryable. |
 | `ApiError::Envelope` | A returned backend envelope cannot be decoded. Not retryable. |
 | `ApiError::ProtoConversion` | Proto conversion error. Protobuf conversion failed. Not retryable. |
+
+### HandleRejection <sub>enum</sub>
+
+<small>`crates/xmtp_api/src/lib.rs`</small>
+
+Why the backend refused a handle claim that the validators accept. The
+backend reports it in the structured `PublishError` detail of the publish.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `HandleRejection::Taken` | Another inbox holds the handle. Not retryable. |
+| `HandleRejection::NotAllowed` | The handle's name part is reserved or shorter than the deployment's minimum name length. Not retryable. |
+| `HandleRejection::TooSoon` | The inbox claimed a handle too recently to claim another. Not retryable. |
 
 ## xmtp_api_grpc
 
