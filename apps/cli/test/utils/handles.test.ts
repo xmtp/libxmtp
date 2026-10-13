@@ -6,6 +6,7 @@ import {
   claimFailureMessage,
   handleFields,
   invalidHandleMessage,
+  isValidHandle,
 } from "../../src/utils/handles.js";
 import { canMessageKey, publicIdentity } from "../../src/utils/identity.js";
 
@@ -87,6 +88,14 @@ const ESCAPE_INPUT = "\u001b]0;evil\u0007";
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 describe("handle input", () => {
+  // without the m flag, $ matches only at the end of the input
+  it.each(["nick\n", "nick\r\n", "nick#0001\n"])(
+    "refuses a trailing line terminator: %j",
+    (input) => {
+      expect(isValidHandle(input)).toBe(false);
+    },
+  );
+
   it("refuses a handle outside the grammar before the SDK sees it", () => {
     for (const input of [ESCAPE_INPUT, "Nick\u212A", "nick.eth"]) {
       expect(() => publicIdentity(input, "handle")).toThrow(

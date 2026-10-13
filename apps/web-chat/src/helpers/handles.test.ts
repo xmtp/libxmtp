@@ -46,6 +46,16 @@ it("splits a handle into its name part and code", () => {
   expect(handleHint(5)).toBe("5 to 27 lowercase letters, numbers, _ or -.");
 });
 
+describe("isValidHandle", () => {
+  // without the m flag, $ matches only at the end of the input
+  it.each(["nick\n", "nick\r\n", "nick#0001\n"])(
+    "refuses a trailing line terminator: %j",
+    (input) => {
+      expect(isValidHandle(input)).toBe(false);
+    },
+  );
+});
+
 describe("claimFailure", () => {
   const details = (code: string): ErrorDetails => ({
     code,
