@@ -98,6 +98,7 @@ describe("InboxTools query state", () => {
     inboxId: mocks.inboxId,
     installations: [installation],
     identities: [],
+    otherHandles: [],
     recoveryIdentity: {
       identifier: "0x1234",
       kind: "ethereum" as const,
