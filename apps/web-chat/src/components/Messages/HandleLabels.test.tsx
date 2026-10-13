@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { ManageDetailsModal } from "@/components/Conversation/ManageDetailsModal";
+import { MemberPopover } from "@/components/Conversation/MemberPopover";
 
 import { Message } from "./Message";
 import { MessageProperties } from "./MessageProperties";
@@ -28,7 +29,7 @@ vi.mock("@/hooks/useConversation", () => ({
     conversation: mocks.conversation,
     members: mocks.members,
     messages: mocks.messages,
-    permissions: { policyType: "allMembers" },
+    permissions: { policyType: "allMembers", policySet: {} },
   }),
 }));
 vi.mock("@/contexts/ConversationContext", () => ({
@@ -175,4 +176,45 @@ it("refreshes reactor handles from member state and falls back to an inbox ID wh
     </MantineProvider>,
   );
   expect(screen.getByLabelText("👍: aaaaaa...aaaa")).toBeTruthy();
+});
+
+const replyInsideAnotherAuthor = () => (
+  <MemberPopover
+    address=""
+    avatar={null}
+    conversationId="group-1"
+    description={null}
+    displayName={other}
+    handle="bob#1234"
+    inboxId={other}
+    otherHandles={["oldbob"]}
+    permissionLevel="member">
+    <div>
+      <ReplyContent
+        align="left"
+        reply={{
+          kind: "reply",
+          referenceId: "parent-1",
+          body: { kind: "text", value: "reply" },
+        }}
+        scrollToMessage={mocks.scroll}
+      />
+    </div>
+  </MemberPopover>
+);
+it("opens the replied-to author's profile instead of an enclosing author's profile", async () => {
+  open(replyInsideAnotherAuthor());
+  fireEvent.click(screen.getByText("nick#2341"));
+  expect(await screen.findByText("aaaaaaaaaa...aaaaaaaa")).toBeTruthy();
+  expect(screen.getByText("Other handles: oldnick")).toBeTruthy();
+  expect(screen.queryByText("bbbbbbbbbb...bbbbbbbb")).toBeNull();
+  expect(mocks.navigate).not.toHaveBeenCalled();
+});
+it("renders an unavailable reply author as a static inbox label", () => {
+  mocks.members.delete(peer);
+  open(replyInsideAnotherAuthor());
+  const label = screen.getByText(peer);
+  expect(label.closest("[tabindex='0']")).toBeNull();
+  fireEvent.click(label);
+  expect(screen.queryByText("bbbbbbbbbb...bbbbbbbb")).toBeNull();
 });
