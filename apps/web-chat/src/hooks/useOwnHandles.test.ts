@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { Client, ClientEvent, Conversation } from "@xmtp/browser-sdk";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { inboxStore } from "@/stores/inbox/store";
 
@@ -106,7 +106,15 @@ const fakeClient = (inboxId: string) => {
     if (!listener) throw new Error("no handle.changed listener");
     await act(async () => listener?.(event));
   };
-  return { client, emit };
+  // deliver an event without waiting for its retries to finish
+  const fire = async (event: ClientEvent) => {
+    if (!listener) throw new Error("no handle.changed listener");
+    await act(async () => {
+      void listener?.(event);
+      await Promise.resolve();
+    });
+  };
+  return { client, emit, fire };
 };
 
 const renderSync = (client: unknown) =>
@@ -250,5 +258,83 @@ describe("useHandleSync", () => {
     expect(inboxStore.getState().ownHandlesFailed).toBe(false);
     await act(async () => slowB.resolve({ handle: "bob", otherHandles: [] }));
     expect(inboxStore.getState().ownHandles?.handle).toBe("bob");
+  });
+
+  describe("after handle.changed", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // settle the first load and the listener registration
+    const flush = () => act(async () => {});
+
+    it("reloads the own handles when the member refresh fails", async () => {
+      const a = fakeClient("a".repeat(64));
+      a.client.inboxState
+        .mockResolvedValueOnce({ handle: "alice", otherHandles: [] })
+        .mockResolvedValueOnce({ handle: "alice2", otherHandles: ["alice"] });
+      inboxStore.setState({
+        refreshInboxHandles: vi.fn(async () => {
+          throw new Error("members read failed");
+        }),
+      });
+      renderSync(a.client);
+      await flush();
+      expect(inboxStore.getState().ownHandles?.handle).toBe("alice");
+
+      await a.fire(handleChanged(a.client.inboxId, "alice2"));
+      expect(inboxStore.getState().ownHandles).toEqual({
+        handle: "alice2",
+        otherHandles: ["alice"],
+      });
+    });
+
+    it("retries a failed own-handle refresh after a short delay", async () => {
+      const a = fakeClient("a".repeat(64));
+      a.client.inboxState
+        .mockResolvedValueOnce({ handle: "alice", otherHandles: [] })
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockResolvedValueOnce({ handle: "alice2", otherHandles: ["alice"] });
+      renderSync(a.client);
+      await flush();
+
+      await a.fire(handleChanged(a.client.inboxId, "alice2"));
+      expect(inboxStore.getState().ownHandles?.handle).toBe("alice");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(a.client.inboxState).toHaveBeenCalledTimes(3);
+      expect(inboxStore.getState().ownHandles?.handle).toBe("alice2");
+    });
+
+    it("stops retrying after the app switches clients", async () => {
+      const a = fakeClient("a".repeat(64));
+      const b = fakeClient("b".repeat(64));
+      a.client.inboxState
+        .mockResolvedValueOnce({ handle: "alice", otherHandles: [] })
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockResolvedValue({ handle: "alice3", otherHandles: [] });
+      b.client.inboxState.mockResolvedValue({
+        handle: "bob",
+        otherHandles: [],
+      });
+      const { rerender } = renderSync(a.client);
+      await flush();
+      await a.fire(handleChanged(a.client.inboxId, "alice2"));
+      expect(a.client.inboxState).toHaveBeenCalledTimes(2);
+
+      rerender({ current: b.client });
+      await flush();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(a.client.inboxState).toHaveBeenCalledTimes(2);
+      expect(inboxStore.getState().ownHandles?.handle).toBe("bob");
+    });
   });
 });

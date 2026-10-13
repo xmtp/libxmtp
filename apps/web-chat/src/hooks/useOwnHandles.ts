@@ -64,6 +64,30 @@ export const useOwnHandles = () => {
   };
 };
 
+/** The delays before each retry of a refresh after a `handle.changed` event. */
+const HANDLE_REFRESH_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+
+/**
+ * Runs `refresh`. After a failure it logs the error and tries again after
+ * each delay in turn, while `current()` holds. It never rejects.
+ */
+const refreshWithRetry = async (
+  refresh: () => Promise<unknown>,
+  current: () => boolean,
+) => {
+  for (const delay of [...HANDLE_REFRESH_RETRY_DELAYS_MS, undefined]) {
+    try {
+      await refresh();
+      return;
+    } catch (error) {
+      console.error(error);
+    }
+    if (delay === undefined || !current()) return;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    if (!current()) return;
+  }
+};
+
 /**
  * Loads the client's own handles, and keeps member handles current: on each
  * `handle.changed` event it reads the members of every conversation that
@@ -95,10 +119,18 @@ export const useHandleSync = (client: Client | undefined) => {
       .startListener({ kinds: ["handle.changed"] }, async (event) => {
         if (event.kind !== "handle.changed") return;
         const { inbox_id: inboxId } = event.handle_changed;
-        await refreshInboxHandles(inboxId);
+        // stop retrying once the app switches clients or the effect cleans up
+        const current = () => active && syncedClient === client;
+        // one refresh failing must not skip the other
+        const refreshes = [
+          refreshWithRetry(() => refreshInboxHandles(inboxId), current),
+        ];
         if (inboxId === client.inboxId) {
-          await loadOwnHandles(client);
+          refreshes.push(
+            refreshWithRetry(() => loadOwnHandles(client), current),
+          );
         }
+        await Promise.all(refreshes);
       })
       .then((id) => {
         if (active) {
