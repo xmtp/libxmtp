@@ -8,7 +8,7 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import { ConfirmHandleChange } from "@/components/Handles/ConfirmHandleChange";
 import { HandleText } from "@/components/Handles/HandleText";
@@ -29,7 +29,7 @@ type Phase =
   | { kind: "checking"; query: string }
   | { kind: "checkFailed"; query: string }
   // the typed handle is free
-  | { kind: "available"; handle: string; others: string[] }
+  | { kind: "available"; handle: string }
   // the typed handle is one of the user's other handles: a switch back
   | { kind: "own"; handle: string }
   | {
@@ -71,8 +71,6 @@ export const HandleEditor: React.FC<HandleEditorProps> = ({
   const [claiming, setClaiming] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
-  // an answer for older input must not replace the state for newer input
-  const generation = useRef(0);
 
   const inputError = checkHandleInput(input, minNameLength);
   const isCurrent = input !== "" && input === currentHandle;
@@ -82,26 +80,23 @@ export const HandleEditor: React.FC<HandleEditorProps> = ({
   const showChoices = (
     taken: string,
     candidates: string[],
-    selectedIndex: number,
     notice: string | null,
   ) => {
     if (candidates.length === 0) {
       setPhase({ kind: "noFreeCodes", query: taken, notice });
       return;
     }
-    const selected = Math.min(selectedIndex, candidates.length - 1);
     setPhase({
       kind: "suggestions",
       taken,
       candidates,
-      visible: Math.max(HANDLE_SUGGESTION_PAGE, selected + 1),
-      selected: candidates[selected],
+      visible: HANDLE_SUGGESTION_PAGE,
+      selected: candidates[0],
       notice,
     });
   };
 
   const check = async (query: string) => {
-    const request = ++generation.current;
     setClaimError(null);
     if (otherHandles.includes(query)) {
       setPhase({ kind: "own", handle: query });
@@ -110,25 +105,17 @@ export const HandleEditor: React.FC<HandleEditorProps> = ({
     setPhase({ kind: "checking", query });
     try {
       const free = await client.availableHandles(query);
-      if (request !== generation.current) return;
       if (free.includes(query)) {
-        setPhase({
-          kind: "available",
-          handle: query,
-          others: free.filter((handle) => handle !== query),
-        });
+        setPhase({ kind: "available", handle: query });
         return;
       }
       // a taken handle with a code: offer free handles for its name part
       const { name, code } = splitHandle(query);
       const candidates =
         code === undefined ? free : await client.availableHandles(name);
-      if (request !== generation.current) return;
-      showChoices(query, candidates, 0, null);
+      showChoices(query, candidates, null);
     } catch {
-      if (request === generation.current) {
-        setPhase({ kind: "checkFailed", query });
-      }
+      setPhase({ kind: "checkFailed", query });
     }
   };
 
@@ -137,24 +124,19 @@ export const HandleEditor: React.FC<HandleEditorProps> = ({
   // the fresh free handles, with the first one selected, and wait for the
   // user to pick again.
   const handleTaken = async (handle: string) => {
-    const request = ++generation.current;
     const notice = `Someone claimed ${handle} a moment before you. Pick another handle.`;
     const taken = phase.kind === "suggestions" ? phase.taken : handle;
     const { name } = splitHandle(handle);
     setPhase({ kind: "checking", query: name });
     try {
       const free = await client.availableHandles(name);
-      if (request !== generation.current) return;
       showChoices(
         taken,
         free.filter((other) => other !== handle),
-        0,
         notice,
       );
     } catch {
-      if (request === generation.current) {
-        setPhase({ kind: "checkFailed", query: input });
-      }
+      setPhase({ kind: "checkFailed", query: input });
     }
   };
 
@@ -165,7 +147,6 @@ export const HandleEditor: React.FC<HandleEditorProps> = ({
     setClaiming(null);
     switch (outcome) {
       case "claimed":
-        generation.current += 1;
         setInput("");
         setPhase({ kind: "idle" });
         break;
@@ -173,7 +154,6 @@ export const HandleEditor: React.FC<HandleEditorProps> = ({
         await handleTaken(handle);
         break;
       case "notAllowed":
-        generation.current += 1;
         setPhase({ kind: "notAllowed", handle });
         break;
       case "failed":
@@ -240,6 +220,7 @@ export const HandleEditor: React.FC<HandleEditorProps> = ({
         autoComplete="off"
         value={input}
         disabled={busy}
+        readOnly={phase.kind === "checking"}
         description={fieldError === null ? handleHint(minNameLength) : null}
         error={fieldError}
         inputWrapperOrder={["label", "input", "description", "error"]}
@@ -252,7 +233,6 @@ export const HandleEditor: React.FC<HandleEditorProps> = ({
           ) : null
         }
         onChange={(event) => {
-          generation.current += 1;
           setInput(asciiLowercase(event.currentTarget.value));
           setPhase({ kind: "idle" });
           setClaimError(null);

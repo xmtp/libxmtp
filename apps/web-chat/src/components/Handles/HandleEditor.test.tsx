@@ -126,8 +126,12 @@ describe("HandleEditor", () => {
     fireEvent.click(button("Continue"));
     expect(screen.getByText("Checking nick…")).toBeTruthy();
     expect(button("Continue")).toHaveProperty("disabled", true);
+    // one check at a time: the field takes no input until the answer
+    const field = screen.getByRole("textbox", { name: "Handle" });
+    expect(field).toHaveProperty("readOnly", true);
     await act(async () => pending.resolve(["nick", ...SUGGESTIONS]));
     expect(screen.getByText("nick is available.")).toBeTruthy();
+    expect(field).toHaveProperty("readOnly", false);
     fireEvent.click(button("Claim nick"));
     await waitFor(() => expect(claim).toHaveBeenCalledWith("nick"));
     expect(mocks.availableHandles).toHaveBeenCalledWith("nick");
