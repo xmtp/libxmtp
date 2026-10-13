@@ -201,7 +201,8 @@ The backend publishes its minimum name length in the server configuration as `ha
 
 ```kotlin
 fun handleHint(client: SDKClient, typed: String): String? {
-    val handle = typed.lowercase()
+    // Lowercase ASCII capitals only, as the SDK does.
+    val handle = typed.replace(Regex("[A-Z]")) { it.value.lowercase() }
     if (!Regex("[a-z][a-z0-9_-]{0,26}(#[0-9]{4})?").matches(handle)) {
         return "Start with a letter. Use letters, digits, _ and -."
     }
@@ -220,7 +221,8 @@ import Foundation
 import XmtpSdk
 
 func handleHint(client: SDKClient, typed: String) -> String? {
-    let handle = typed.lowercased()
+    // Lowercase ASCII capitals only, as the SDK does.
+    let handle = String(typed.map { $0.isASCII ? Character($0.lowercased()) : $0 })
     guard handle.range(of: "^[a-z][a-z0-9_-]{0,26}(#[0-9]{4})?$", options: .regularExpression) != nil else {
         return "Start with a letter. Use letters, digits, _ and -."
     }
