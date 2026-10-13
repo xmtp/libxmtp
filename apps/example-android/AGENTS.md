@@ -57,6 +57,9 @@ It uses the existing backend. Press Enter to stop the owned emulator and remove
 its temporary device data. Keep the scoped launcher so failure and interruption
 also clean up only this device.
 
+Instrumented tests start from Chats: `TestAppGraphRule` turns off Choose your
+handle unless a test passes `offerHandleChoice = true`.
+
 The Android host is in `app`. Shared Compose screens are in `shared/src/commonMain`.
 `test` runs host and shared unit tests. `test-integration` runs app instrumentation
 in the owned emulator scope.

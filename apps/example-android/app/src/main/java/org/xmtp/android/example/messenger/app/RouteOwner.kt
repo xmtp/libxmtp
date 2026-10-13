@@ -87,9 +87,10 @@ class RouteOwner(
         restored = null
         restoreResolvedFor = boundSessionKey
         val previous = mutableState.value
-        if (route == AppRoute.Connect || route == AppRoute.Chats) {
+        if (route == AppRoute.Connect || route == AppRoute.Chats || route == AppRoute.ChooseHandle) {
             backStack.clear()
-        } else if (previous.route != AppRoute.Connect && previous.route != route &&
+        } else if (previous.route != AppRoute.Connect && previous.route != AppRoute.ChooseHandle &&
+            previous.route != route &&
             !(previous.route == AppRoute.CreateConversation && route is AppRoute.Chat)
         ) {
             backStack.add(previous.route)
@@ -104,7 +105,12 @@ class RouteOwner(
                 return@withStateLock true
             }
             val previous = mutableState.value
-            if (previous.route == AppRoute.Connect || previous.route == AppRoute.Chats) return@withStateLock false
+            // Choose your handle is the first screen of an account. Back leaves the app, as on Chats.
+            if (previous.route == AppRoute.Connect || previous.route == AppRoute.Chats ||
+                previous.route == AppRoute.ChooseHandle
+            ) {
+                return@withStateLock false
+            }
             restored = null
             restoreResolvedFor = boundSessionKey
             val route = backStack.removeLastOrNull() ?: parent(previous.route)
@@ -177,8 +183,10 @@ class RouteOwner(
         return Closeable { job.cancel() }
     }
 
+    /** [start] is the first route of the account when no saved route opens. */
     suspend fun restore(
         owner: ActiveSession,
+        start: AppRoute = AppRoute.Chats,
         canOpen: suspend (AppRoute) -> Boolean,
     ): AppRoute? {
         sessionChanged(owner)
@@ -191,7 +199,7 @@ class RouteOwner(
             if (candidate?.profileId == owner.key.profileId && canOpen(candidate.route)) {
                 candidate.route
             } else {
-                AppRoute.Chats
+                start
             }
         var applied: AppRoute? = null
         admit(DestinationOrigin(owner.key, token)) {
@@ -242,6 +250,7 @@ class RouteOwner(
             is AppRoute.ConversationDetails -> AppRoute.Chat(route.conversationId)
             is AppRoute.GroupFields -> AppRoute.ConversationDetails(route.conversationId)
             is AppRoute.OwnFields -> AppRoute.ConversationDetails(route.conversationId)
+            AppRoute.ChangeHandle -> AppRoute.Settings
             else -> AppRoute.Chats
         }
 
@@ -257,6 +266,8 @@ class RouteOwner(
             is AppRoute.OwnFields -> "own-fields"
             AppRoute.Settings -> "settings"
             AppRoute.AttachmentRecovery -> "attachments"
+            AppRoute.ChooseHandle -> "choose-handle"
+            AppRoute.ChangeHandle -> "change-handle"
         }
 
     private fun decode(
@@ -273,6 +284,8 @@ class RouteOwner(
             "own-fields" -> id?.let { AppRoute.OwnFields(it) }
             "settings" -> AppRoute.Settings
             "attachments" -> AppRoute.AttachmentRecovery
+            "choose-handle" -> AppRoute.ChooseHandle
+            "change-handle" -> AppRoute.ChangeHandle
             else -> null
         }
 

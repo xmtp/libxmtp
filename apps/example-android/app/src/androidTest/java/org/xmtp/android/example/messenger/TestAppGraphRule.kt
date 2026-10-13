@@ -22,10 +22,14 @@ import uniffi.xmtp_sdk.ClientEvent
 import uniffi.xmtp_sdk.Message
 import uniffi.xmtp_sdk.SDKClient
 
-/** Install an owned production graph before the Activity creates its controller. */
+/**
+ * Install an owned production graph before the Activity creates its controller. Tests start
+ * from Chats, so Choose your handle is off unless [offerHandleChoice] turns it on.
+ */
 internal class TestAppGraphRule(
     private val notificationTransport: PushTransport? = null,
     private val conversationQueries: ConversationQueries = XmtpQueries(),
+    private val offerHandleChoice: Boolean = false,
 ) : TestRule {
     val observers = TestGraphObservers()
     lateinit var graph: AppGraph
@@ -53,6 +57,7 @@ internal class TestAppGraphRule(
                     app,
                     sessionObservers = observers.fixed(),
                     conversationQueries = conversationQueries,
+                    offerHandleChoice = offerHandleChoice,
                 )
             } else {
                 AppGraph(
@@ -60,6 +65,7 @@ internal class TestAppGraphRule(
                     sessionObservers = observers.fixed(),
                     notificationTransport = notificationTransport,
                     conversationQueries = conversationQueries,
+                    offerHandleChoice = offerHandleChoice,
                 )
             }
         app.graph = graph
@@ -81,6 +87,7 @@ internal class TestAppGraphRule(
                             app,
                             sessionObservers = observers.fixed(),
                             conversationQueries = conversationQueries,
+                            offerHandleChoice = offerHandleChoice,
                         )
                     } else {
                         AppGraph(
@@ -88,6 +95,7 @@ internal class TestAppGraphRule(
                             sessionObservers = observers.fixed(),
                             notificationTransport = notificationTransport,
                             conversationQueries = conversationQueries,
+                            offerHandleChoice = offerHandleChoice,
                         )
                     }
                 app.graph = graph

@@ -18,6 +18,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.handles.HandleText
 
 @Composable
 fun SettingsScreen(
@@ -39,15 +40,49 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    MessengerAvatar("You", size = 56.dp)
+                    MessengerAvatar(state.handle ?: "You", size = 56.dp)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Your profile", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        val handle = state.handle
+                        if (handle != null) {
+                            HandleText(handle, MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        } else {
+                            Text(
+                                "Your profile",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                         Text(
-                            "Your identity on this server",
+                            if (handle != null) {
+                                "Your handle on this server"
+                            } else {
+                                "Choose a handle so people on this server can find you."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                HorizontalDivider()
+                if (state.otherHandles.isNotEmpty()) {
+                    Text(
+                        "Other handles",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(state.otherHandles.joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "They are still yours, and people can still find you by them.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state.inbox.isNotBlank()) {
+                    TextButton(
+                        { shellAction(ShellAction.Navigate(AppRoute.ChangeHandle)) },
+                        Modifier.heightIn(min = 48.dp),
+                        enabled = !state.pendingReset,
+                    ) { Text(if (state.handle == null) "Choose a handle" else "Change handle") }
                 }
                 HorizontalDivider()
                 Text(

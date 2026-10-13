@@ -79,7 +79,10 @@ class MainActivity : ComponentActivity() {
             }
             PredictiveBackHandler(
                 enabled =
-                    (destination.route != AppRoute.Connect && destination.route != AppRoute.Chats) ||
+                    (
+                        destination.route != AppRoute.Connect && destination.route != AppRoute.Chats &&
+                            destination.route != AppRoute.ChooseHandle
+                    ) ||
                         state.chatState?.overlay != null || attachmentChoice != null,
             ) { progress ->
                 val origin = backOrigin()

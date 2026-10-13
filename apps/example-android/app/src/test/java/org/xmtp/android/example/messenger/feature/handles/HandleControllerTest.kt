@@ -1,0 +1,560 @@
+package org.xmtp.android.example.messenger.feature.handles
+
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import org.junit.Assert.*
+import org.junit.Test
+import org.xmtp.android.example.shared.feature.handles.*
+import uniffi.xmtp_sdk.ErrorCategory
+import uniffi.xmtp_sdk.ErrorDetails
+import uniffi.xmtp_sdk.XmtpException
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+
+/** Every editor state of the approved designs, driven through the controller with a fake account. */
+class HandleControllerTest {
+    private val day = TimeUnit.DAYS.toMillis(1)
+    private var clock = 100 * day
+
+    private class FakeAccount(
+        var current: String? = null,
+        var others: List<String> = emptyList(),
+        var minimum: Int = DEFAULT_HANDLE_MIN_NAME_LENGTH,
+    ) : HandleAccount {
+        val lookups = mutableListOf<String>()
+        val ownedQueries = mutableListOf<List<String>>()
+        val claims = mutableListOf<String>()
+        val times = mutableMapOf<String, Long>()
+        var finished = 0
+        var held = emptySet<String>()
+        var available: suspend (String) -> List<String> = { emptyList() }
+        var claim: suspend (String) -> Unit = {}
+
+        override suspend fun handles(refresh: Boolean) = OwnHandles(current, others)
+
+        override fun minNameLength() = minimum
+
+        override suspend fun availableHandles(name: String): List<String> {
+            lookups += name
+            return available(name)
+        }
+
+        override suspend fun owned(handles: List<String>): Set<String> {
+            ownedQueries += handles
+            return handles.filterTo(mutableSetOf()) { it in held }
+        }
+
+        override suspend fun claimHandle(handle: String) {
+            claims += handle
+            claim(handle)
+        }
+
+        override fun claimTimes(): Map<String, Long> = times
+
+        override fun recordClaim(
+            handle: String,
+            atMs: Long,
+        ) {
+            times[handle] = atMs
+        }
+
+        override fun finish() {
+            finished++
+        }
+    }
+
+    private fun details(code: String) = ErrorDetails(code, ErrorCategory.IDENTITY, false, code)
+
+    private fun taken() = XmtpException.HandleTaken(details("HandleTaken"))
+
+    private fun notAllowed() = XmtpException.HandleNotAllowed(details("HandleNotAllowed"))
+
+    private fun tooSoon() = XmtpException.HandleTooSoon(details("HandleTooSoon"))
+
+    private fun limit() = XmtpException.HandleLimitReached(details("HandleLimitReached"))
+
+    private fun offline() = XmtpException.RequestTimeout(details("RequestTimeout"))
+
+    private fun open(
+        account: FakeAccount,
+        mode: HandleMode = HandleMode.CHOOSE,
+    ) = HandleController(
+        CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+        Dispatchers.Unconfined,
+        now = { clock },
+        day = { "day ${it / day}" },
+    ).also { it.open(account, mode) }
+
+    private fun HandleController.type(value: String) = dispatch(HandleAction.ChangeInput(value))
+
+    private val HandleController.value get() = state.value
+
+    @Test fun emptyEditorWaitsForInput() {
+        val account = FakeAccount()
+        val editor = open(account)
+        val state = editor.value
+        assertEquals(HandleState(), state)
+        assertFalse(state.canCheck)
+        assertFalse(state.canClaim)
+        assertEquals("Continue", HandleCopy.primary(state))
+        assertEquals("3 to 27 lowercase letters, numbers, _ or -.", HandleCopy.supporting(state.minNameLength))
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(emptyList<String>(), account.lookups)
+        assertEquals(emptyList<String>(), account.claims)
+        assertEquals(0, account.finished)
+    }
+
+    @Test fun invalidGrammarShowsWhileTypingAndIsNeverSent() {
+        val account = FakeAccount()
+        val editor = open(account)
+        val cases =
+            listOf(
+                "nick.eth" to HandleInputProblem.INVALID_CHARACTERS,
+                "ni ck" to HandleInputProblem.INVALID_CHARACTERS,
+                "nick@x" to HandleInputProblem.INVALID_CHARACTERS,
+                "1nick" to HandleInputProblem.START_WITH_LETTER,
+                "_nick" to HandleInputProblem.START_WITH_LETTER,
+                "#0012" to HandleInputProblem.START_WITH_LETTER,
+                "nicholas_the_magnificent_one" to HandleInputProblem.TOO_LONG,
+                "nick#12" to HandleInputProblem.BAD_CODE,
+                "nick#12345" to HandleInputProblem.BAD_CODE,
+                "nick#" to HandleInputProblem.BAD_CODE,
+            )
+        for ((input, problem) in cases) {
+            editor.type(input)
+            assertEquals(input, problem, editor.value.problem)
+            assertFalse(input, editor.value.canCheck)
+            editor.dispatch(HandleAction.Check)
+        }
+        assertEquals(emptyList<String>(), account.lookups)
+        assertEquals("28/27", HandleCopy.counter("nicholas_the_magnificent_one"))
+        assertEquals(
+            "After #, use exactly 4 digits, like nick#0012.",
+            HandleCopy.problem(HandleInputProblem.BAD_CODE, "nick#12", 3),
+        )
+        // The SDK lowercases ASCII capitals, so the field shows the text the server receives.
+        editor.type("Nick#0012")
+        assertEquals("nick#0012", editor.value.input)
+        assertNull(editor.value.problem)
+        editor.type("n" + "a".repeat(MAX_HANDLE_NAME_LENGTH - 1) + "#0001")
+        assertNull(editor.value.problem)
+        assertTrue(editor.value.canCheck)
+    }
+
+    @Test fun tooShortUsesThePublishedMinimumForTypedInputOnly() {
+        val account = FakeAccount(minimum = 5)
+        val editor = open(account)
+        assertEquals(5, editor.value.minNameLength)
+        editor.type("nick")
+        assertEquals(HandleInputProblem.TOO_SHORT, editor.value.problem)
+        assertEquals(
+            "Use at least 5 characters on this server.",
+            HandleCopy.problem(HandleInputProblem.TOO_SHORT, "nick", 5),
+        )
+        editor.dispatch(HandleAction.Check)
+        assertEquals(emptyList<String>(), account.lookups)
+        editor.type("nicky")
+        assertNull(editor.value.problem)
+        // A server that publishes no minimum gets the client default.
+        assertEquals(DEFAULT_HANDLE_MIN_NAME_LENGTH, open(FakeAccount(minimum = 0)).value.minNameLength)
+    }
+
+    @Test fun checkingShowsUntilTheServerAnswers() {
+        val answer = CompletableDeferred<List<String>>()
+        val account = FakeAccount().apply { available = { answer.await() } }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        assertEquals(HandleStatus.Checking("nick"), editor.value.status)
+        assertTrue(editor.value.busy)
+        assertFalse(editor.value.canCheck)
+        assertFalse(editor.value.canClaim)
+        assertEquals("Checking nick…", HandleCopy.checking("nick"))
+        editor.dispatch(HandleAction.Check)
+        assertEquals(listOf("nick"), account.lookups)
+        answer.complete(listOf("nick"))
+        assertEquals(HandleStatus.Available("nick"), editor.value.status)
+    }
+
+    @Test fun anEditWhileCheckingDropsTheOldAnswer() {
+        // A lookup that ignores cancellation, as a native call can, still answers after the edit.
+        var pending: Continuation<List<String>>? = null
+        val account = FakeAccount().apply { available = { suspendCoroutine { pending = it } } }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.type("nicky")
+        checkNotNull(pending).resume(listOf("nick"))
+        assertEquals(HandleStatus.Editing, editor.value.status)
+        assertEquals("nicky", editor.value.input)
+    }
+
+    @Test fun bareNameFreeIsOfferedAndClaimedOnlyWhenPicked() {
+        val account = FakeAccount().apply { available = { listOf("nick", "nick#2341") } }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        assertEquals(HandleStatus.Available("nick"), editor.value.status)
+        assertEquals("nick is available.", HandleCopy.available("nick"))
+        assertEquals("Claim nick", HandleCopy.primary(editor.value))
+        assertEquals(emptyList<String>(), account.claims)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(listOf("nick"), account.claims)
+        assertEquals(mapOf("nick" to clock), account.times)
+        assertEquals(1, account.finished)
+        assertEquals("nick", editor.value.current)
+    }
+
+    @Test fun claimingDisablesTheEditorUntilTheServerAnswers() {
+        val answer = CompletableDeferred<Unit>()
+        val account =
+            FakeAccount().apply {
+                available = { listOf("nick#2341", "nick#0912", "nick#5530") }
+                claim = { answer.await() }
+            }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals("nick#2341", editor.value.claiming)
+        assertFalse(editor.value.editable)
+        assertEquals("Claiming nick#2341…", HandleCopy.primary(editor.value))
+        editor.type("other")
+        editor.dispatch(HandleAction.Select("nick#0912"))
+        editor.dispatch(HandleAction.Skip)
+        assertEquals("nick", editor.value.input)
+        assertEquals("nick#2341", editor.value.pick)
+        assertEquals(0, account.finished)
+        answer.complete(Unit)
+        assertEquals(1, account.finished)
+    }
+
+    @Test fun takenNameShowsThreeSuggestionsAndShowMore() {
+        val free = listOf("nick#2341", "nick#0912", "nick#5530", "nick#6418", "nick#7702")
+        val account = FakeAccount().apply { available = { free } }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        val status = editor.value.status as HandleStatus.Suggestions
+        assertEquals(HandleStatus.Suggestions("nick", free, 3, "nick#2341"), status)
+        assertEquals(free.take(3), status.visible)
+        assertTrue(status.more)
+        assertEquals("nick is taken. These handles are free:", HandleCopy.suggestions("nick"))
+        assertEquals("Claim nick#2341", HandleCopy.primary(editor.value))
+        editor.dispatch(HandleAction.ShowMore)
+        val more = editor.value.status as HandleStatus.Suggestions
+        assertEquals(free, more.visible)
+        assertFalse(more.more)
+        editor.dispatch(HandleAction.Select("nick#6418"))
+        assertEquals("nick#6418", editor.value.pick)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(listOf("nick#6418"), account.claims)
+    }
+
+    @Test fun takenHandleWithACodeSuggestsCodesForItsName() {
+        val account =
+            FakeAccount().apply {
+                available = { name -> if (name == "nick#1337") emptyList() else listOf("nick#2341", "nick#0912") }
+            }
+        val editor = open(account)
+        editor.type("nick#1337")
+        editor.dispatch(HandleAction.Check)
+        assertEquals(listOf("nick#1337", "nick"), account.lookups)
+        assertEquals(
+            HandleStatus.Suggestions("nick#1337", listOf("nick#2341", "nick#0912"), 2, "nick#2341"),
+            editor.value.status,
+        )
+    }
+
+    @Test fun noSuggestionsOfferLookAgain() {
+        val account = FakeAccount().apply { available = { emptyList() } }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        assertEquals(HandleStatus.NoneFree("nick"), editor.value.status)
+        assertFalse(editor.value.canClaim)
+        assertFalse(editor.value.canCheck)
+        assertEquals(
+            "nick and the codes we checked are all taken. Look again, or try a different name.",
+            HandleCopy.noneFree("nick"),
+        )
+        account.available = { listOf("nick#4410") }
+        editor.dispatch(HandleAction.Check)
+        assertEquals(listOf("nick", "nick"), account.lookups)
+        assertEquals("nick#4410", editor.value.pick)
+    }
+
+    @Test fun takenDuringClaimReturnsToRefreshedSuggestionsAndWaitsForThePick() {
+        val free = listOf("nick#2341", "nick#0912", "nick#5530", "nick#6418")
+        val account =
+            FakeAccount().apply {
+                available = { free }
+                claim = { if (it == "nick#2341") throw taken() }
+            }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        // The refreshed suggestions come back with the next one selected; nothing else is claimed.
+        assertEquals(listOf("nick#2341"), account.claims)
+        assertEquals(listOf(free.drop(1)), account.ownedQueries)
+        assertEquals(
+            HandleStatus.Suggestions("nick", free.drop(1), 3, "nick#0912"),
+            editor.value.status,
+        )
+        assertEquals(HandleNotice.Taken("nick#2341"), editor.value.notice)
+        assertNull(editor.value.claiming)
+        assertEquals(0, account.finished)
+        assertEquals(
+            "Someone claimed nick#2341 a moment before you. Pick another handle.",
+            HandleCopy.notice(editor.value.notice!!),
+        )
+        // The user picks again.
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(listOf("nick#2341", "nick#0912"), account.claims)
+        assertEquals(1, account.finished)
+    }
+
+    @Test fun takenDuringClaimDropsSuggestionsThatAreNoLongerFree() {
+        val free = listOf("nick#2341", "nick#0912", "nick#5530", "nick#6418", "nick#7702")
+        val account =
+            FakeAccount().apply {
+                available = { free }
+                claim = { throw taken() }
+                held = setOf("nick#5530")
+            }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Select("nick#0912"))
+        editor.dispatch(HandleAction.Claim)
+        val expected = listOf("nick#2341", "nick#6418", "nick#7702")
+        assertEquals(HandleStatus.Suggestions("nick", expected, 3, "nick#6418"), editor.value.status)
+        assertEquals(listOf("nick"), account.lookups)
+    }
+
+    @Test fun takenBareNameRefreshesWithNewCodes() {
+        var calls = 0
+        val account =
+            FakeAccount().apply {
+                // The second answer still names the bare name free, as a lagging replica can.
+                available = { if (calls++ == 0) listOf("nick") else listOf("nick", "nick#3001", "nick#3002") }
+                claim = { throw taken() }
+            }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(listOf("nick", "nick"), account.lookups)
+        assertEquals(
+            HandleStatus.Suggestions("nick", listOf("nick#3001", "nick#3002"), 2, "nick#3001"),
+            editor.value.status,
+        )
+        assertEquals(HandleNotice.Taken("nick"), editor.value.notice)
+        assertEquals(listOf("nick"), account.claims)
+    }
+
+    @Test fun notAllowedAsksForAnotherName() {
+        val account =
+            FakeAccount().apply {
+                available = { listOf(it) }
+                claim = { throw notAllowed() }
+            }
+        val editor = open(account)
+        editor.type("admin")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(listOf("admin"), account.claims)
+        assertEquals(HandleNotice.NotAllowed("admin"), editor.value.notice)
+        assertEquals(HandleStatus.Editing, editor.value.status)
+        assertFalse(editor.value.canCheck)
+        assertFalse(editor.value.canClaim)
+        assertEquals("admin is not allowed on this server.", HandleCopy.notice(editor.value.notice!!))
+        editor.type("admins")
+        assertNull(editor.value.notice)
+        assertTrue(editor.value.canCheck)
+    }
+
+    @Test fun tooSoonShowsWhenTheUserCanChangeAgain() {
+        val account =
+            FakeAccount(current = "nick#2341", others = listOf("nick#0912")).apply {
+                times["nick#2341"] = clock - 3 * day
+                available = { listOf(it) }
+                claim = { throw tooSoon() }
+            }
+        val editor = open(account, HandleMode.CHANGE)
+        assertEquals("day 97", editor.value.currentSince)
+        editor.type("nicky")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        editor.dispatch(HandleAction.ConfirmClaim)
+        assertEquals(HandleNotice.TooSoon("day 97", "day 104"), editor.value.notice)
+        assertTrue(editor.value.blocked)
+        assertFalse(editor.value.editable)
+        assertEquals(
+            "You changed your handle on day 97. You can change it again on day 104.",
+            HandleCopy.notice(editor.value.notice!!),
+        )
+        editor.type("other")
+        editor.dispatch(HandleAction.SwitchBack("nick#0912"))
+        assertEquals("", editor.value.input)
+        assertNull(editor.value.confirm)
+        assertEquals(listOf("nicky"), account.claims)
+        // A claim from another device has no date on this one.
+        val elsewhere =
+            FakeAccount(current = "nick#2341", others = listOf("nick#0912")).apply { claim = { throw tooSoon() } }
+        val other = open(elsewhere, HandleMode.CHANGE)
+        other.dispatch(HandleAction.SwitchBack("nick#0912"))
+        other.dispatch(HandleAction.ConfirmClaim)
+        assertEquals(HandleNotice.TooSoon(null, null), other.value.notice)
+        assertEquals(
+            "You changed your handle less than 7 days ago. Try again later.",
+            HandleCopy.notice(other.value.notice!!),
+        )
+    }
+
+    @Test fun claimLimitReachedBlocksEveryChange() {
+        val account =
+            FakeAccount(current = "nick#2341", others = listOf("nick#0912", "nickm")).apply {
+                claim = { throw limit() }
+            }
+        val editor = open(account, HandleMode.CHANGE)
+        editor.dispatch(HandleAction.SwitchBack("nickm"))
+        editor.dispatch(HandleAction.ConfirmClaim)
+        assertEquals(HandleNotice.LimitReached, editor.value.notice)
+        assertTrue(editor.value.blocked)
+        assertEquals(HandleCopy.LIMIT_REACHED, HandleCopy.notice(editor.value.notice!!))
+        editor.dispatch(HandleAction.SwitchBack("nick#0912"))
+        assertNull(editor.value.confirm)
+        assertEquals(listOf("nickm"), account.claims)
+    }
+
+    @Test fun networkErrorOffersRetry() {
+        var down = true
+        val account = FakeAccount().apply { available = { if (down) throw offline() else listOf("nick") } }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        assertEquals(HandleNotice.CheckFailed, editor.value.notice)
+        assertEquals(HandleStatus.Editing, editor.value.status)
+        assertTrue(editor.value.canCheck)
+        assertEquals("Cannot check this handle. Try again.", HandleCopy.notice(editor.value.notice!!))
+        down = false
+        editor.dispatch(HandleAction.Retry)
+        assertNull(editor.value.notice)
+        assertEquals(HandleStatus.Available("nick"), editor.value.status)
+    }
+
+    @Test fun claimWithNoAnswerChecksTheLogBeforeItOffersRetry() {
+        var fail = true
+        val account =
+            FakeAccount().apply {
+                available = { listOf(it) }
+                claim = { if (fail) throw offline() }
+            }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(HandleNotice.ClaimFailed("nick"), editor.value.notice)
+        assertNull(editor.value.claiming)
+        assertEquals(0, account.finished)
+        fail = false
+        editor.dispatch(HandleAction.Retry)
+        assertEquals(listOf("nick", "nick"), account.claims)
+        assertEquals(1, account.finished)
+        // A claim that landed before the failure is a success, and is not sent again.
+        val landed =
+            FakeAccount().apply {
+                available = { listOf(it) }
+                claim = {
+                    current = it
+                    throw offline()
+                }
+            }
+        val second = open(landed)
+        second.type("nick")
+        second.dispatch(HandleAction.Check)
+        second.dispatch(HandleAction.Claim)
+        assertEquals(listOf("nick"), landed.claims)
+        assertEquals(1, landed.finished)
+        assertNull(second.value.notice)
+        assertEquals(setOf("nick"), landed.times.keys)
+    }
+
+    @Test fun switchBackThatFailsTheCurrentRulesShowsWhy() {
+        val account =
+            FakeAccount(current = "nick#2341", others = listOf("nickm", "nk"), minimum = 5).apply {
+                claim = { throw notAllowed() }
+            }
+        val editor = open(account, HandleMode.CHANGE)
+        editor.dispatch(HandleAction.SwitchBack("nk"))
+        assertEquals("nk", editor.value.confirm)
+        editor.dispatch(HandleAction.ConfirmClaim)
+        // The server decides: the app sends the claim even though nk is shorter than the published minimum.
+        assertEquals(listOf("nk"), account.claims)
+        assertEquals(HandleNotice.SwitchBackBlocked("nk", shorterThanMinimum = true), editor.value.notice)
+        assertEquals(
+            "nk is shorter than this server now allows. It still finds you, but you cannot switch back to it.",
+            HandleCopy.notice(editor.value.notice!!),
+        )
+        assertTrue(editor.value.editable)
+        // A name the server refuses for another reason says so.
+        editor.dispatch(HandleAction.SwitchBack("nickm"))
+        editor.dispatch(HandleAction.ConfirmClaim)
+        assertEquals(HandleNotice.SwitchBackBlocked("nickm", shorterThanMinimum = false), editor.value.notice)
+        assertEquals(
+            "nickm is not allowed on this server now. It still finds you, but you cannot switch back to it.",
+            HandleCopy.notice(editor.value.notice!!),
+        )
+    }
+
+    @Test fun changeAsksForConfirmationBeforeItClaims() {
+        val account =
+            FakeAccount(current = "nick#2341", others = listOf("nick#0912")).apply { available = { listOf(it) } }
+        val editor = open(account, HandleMode.CHANGE)
+        editor.type("nicky")
+        editor.dispatch(HandleAction.Check)
+        assertEquals("Change to nicky", HandleCopy.primary(editor.value))
+        editor.dispatch(HandleAction.Claim)
+        assertEquals("nicky", editor.value.confirm)
+        assertEquals(
+            "People will see nicky as your handle. nick#2341 stays yours, and people can still find you by it. " +
+                "You cannot change your handle again for 7 days.",
+            HandleCopy.confirmText(editor.value, "nicky"),
+        )
+        editor.dispatch(HandleAction.CancelClaim)
+        assertNull(editor.value.confirm)
+        assertEquals(emptyList<String>(), account.claims)
+        editor.dispatch(HandleAction.Claim)
+        editor.dispatch(HandleAction.ConfirmClaim)
+        assertEquals(listOf("nicky"), account.claims)
+        assertEquals("nicky", editor.value.current)
+        assertEquals(listOf("nick#2341", "nick#0912"), editor.value.others)
+        assertEquals(1, account.finished)
+    }
+
+    @Test fun skipLeavesOnboardingWithoutAClaim() {
+        val account = FakeAccount()
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Skip)
+        assertEquals(1, account.finished)
+        assertEquals(emptyList<String>(), account.claims)
+    }
+
+    @Test fun anAccountWithAHandleSkipsOnboarding() {
+        val account = FakeAccount(current = "nick")
+        open(account)
+        assertEquals(1, account.finished)
+        val settings = FakeAccount(current = "nick")
+        val editor = open(settings, HandleMode.CHANGE)
+        assertEquals(0, settings.finished)
+        assertEquals("nick", editor.value.current)
+    }
+}

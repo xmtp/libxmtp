@@ -28,6 +28,12 @@ sealed interface AppRoute {
     data object Settings : AppRoute
 
     data object AttachmentRecovery : AppRoute
+
+    /** The onboarding step after Join a server. It runs once per account. */
+    data object ChooseHandle : AppRoute
+
+    /** Settings > Change handle. */
+    data object ChangeHandle : AppRoute
 }
 
 enum class Appearance { SYSTEM, LIGHT, DARK }

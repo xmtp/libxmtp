@@ -8,6 +8,7 @@ import org.xmtp.android.example.shared.feature.connect.ConnectFixtures
 import org.xmtp.android.example.shared.feature.conversations.ConversationsFixtures
 import org.xmtp.android.example.shared.feature.conversations.CreateConversationFixtures
 import org.xmtp.android.example.shared.feature.group.GroupFixtures
+import org.xmtp.android.example.shared.feature.handles.HandleFixtures
 import org.xmtp.android.example.shared.feature.settings.SettingsFixtures
 
 /** Use the same immutable samples for previews at each size, text scale, and layout direction. */
@@ -117,11 +118,50 @@ val messengerPreviewCases: List<MessengerPreviewCase> =
             "Notifications unavailable" to SettingsFixtures.unconfigured,
             "Notification permission denied" to SettingsFixtures.permissionDenied,
             "Settings reset failure" to SettingsFixtures.resetFailure,
+            "Settings without a handle" to SettingsFixtures.populated.copy(handle = null, otherHandles = emptyList()),
         ).forEach { (name, state) ->
             add(
                 MessengerPreviewCase(
                     name,
                     MessengerUiState(shell = ShellState(AppRoute.Settings), settings = state),
+                ),
+            )
+        }
+        listOf(
+            "Choose handle" to HandleFixtures.empty,
+            "Checking handle" to HandleFixtures.checking,
+            "Handle available" to HandleFixtures.available,
+            "Handle suggestions" to HandleFixtures.suggestions,
+            "Claiming handle" to HandleFixtures.claiming,
+            "Handle taken while claiming" to HandleFixtures.takenWhileClaiming,
+            "Handle invalid characters" to HandleFixtures.invalidCharacters,
+            "Handle starts with a digit" to HandleFixtures.startsWithDigit,
+            "Handle too short" to HandleFixtures.tooShort,
+            "Handle code not 4 digits" to HandleFixtures.badCode,
+            "Handle too long" to HandleFixtures.tooLong,
+            "Handle not allowed" to HandleFixtures.notAllowed,
+            "No free handle codes" to HandleFixtures.noneFree,
+            "Handle check failed" to HandleFixtures.checkFailed,
+        ).forEach { (name, state) ->
+            add(
+                MessengerPreviewCase(
+                    name,
+                    MessengerUiState(shell = ShellState(AppRoute.ChooseHandle), handles = state),
+                ),
+            )
+        }
+        listOf(
+            "Change handle" to HandleFixtures.changeAvailable,
+            "Confirm handle change" to HandleFixtures.confirmChange,
+            "Handle changed too soon" to HandleFixtures.tooSoon,
+            "Handle switch back blocked" to HandleFixtures.switchBackBlocked,
+            "All handle changes used" to HandleFixtures.limitReached,
+            "Choose handle from Settings" to HandleFixtures.firstFromSettings,
+        ).forEach { (name, state) ->
+            add(
+                MessengerPreviewCase(
+                    name,
+                    MessengerUiState(shell = ShellState(AppRoute.ChangeHandle), handles = state),
                 ),
             )
         }
