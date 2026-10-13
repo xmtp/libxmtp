@@ -89,8 +89,8 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   ANDROID_NDK_HOME = xmtp.androidEnv.buildPaths.ndkHome;
   XMTP_SDK_GENERATED_DIR = generatedKotlin;
   XMTP_SDK_ANDROID_JNI_DIR = "${androidLibraries}/jniLibs";
-  # A USB-connected device can reach this with adb reverse; remote servers use HTTPS.
-  XMTP_ANDROID_BACKEND_URL = "http://127.0.0.1:5050";
+  # Require the tester to choose a server; never prefill a credential-bearing HTTP endpoint.
+  XMTP_ANDROID_BACKEND_URL = "https://your-server.example";
 
   preConfigure = ''
     export HOME="$TMPDIR/home"
@@ -113,6 +113,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   gradleFlags = [
     "--dependency-verification=strict"
     "-PxmtpExampleVersion=${finalAttrs.version}"
+    "-PxmtpExampleTestingApk=true"
     "-Dorg.gradle.java.home=${jdk17}"
     "-Pkotlin.compiler.execution.strategy=in-process"
     "-Pandroid.aapt2FromMavenOverride=${xmtp.androidEnv.buildPaths.home}/build-tools/35.0.0/aapt2"
@@ -126,6 +127,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     python3.11 -B ${../../sdks/android/dev/check-native-packages.py} --require-all-abis "$apk"
     "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk"
     "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" > "$TMPDIR/apk-badging"
+    grep -q "^package: name='org.xmtp.android.example.testing'" "$TMPDIR/apk-badging"
     if grep -q application-debuggable "$TMPDIR/apk-badging"; then
       echo "The downloadable APK must use the non-debuggable release variant." >&2
       exit 1

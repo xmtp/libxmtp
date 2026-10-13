@@ -33,7 +33,9 @@ published SDK package for these checks.
 universal APK to `build/apk/xmtp-messenger-local.apk`. It starts no services or
 emulator. The derivation includes all four JNI ABIs and checks packaging and
 signing. It uses the non-debuggable release variant and its HTTPS transport rules.
-The APK uses the public AOSP testing key and embeds the SDK version
+The APK uses the public AOSP testing key under the separate
+`org.xmtp.android.example.testing` app ID, labelled `XMTP Messenger (Testing)`.
+The Nix caller sets `xmtpExampleTestingApk=true` for this identity. The APK embeds the SDK version
 from `sdks/android/gradle.properties`. For releases, `XMTP_EXAMPLE_VERSION` selects
 the output filename and must match that version. Android releases attach it to
 the `android-<version>` GitHub Release.

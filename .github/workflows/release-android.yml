@@ -193,6 +193,6 @@ jobs:
             fi
             gh release create "$TAG" "$APK" --verify-tag \
               --title "Android SDK $VERSION" \
-              --notes "Android SDK $VERSION. The XMTP Messenger APK is a universal release build for testing on Android 8.1 or newer, signed with the public AOSP testing key. Select a reachable server in the app. Installing over an older APK with a different signing key requires uninstalling it first, which removes its local data. Firebase notifications are off in this build." \
+              --notes "Android SDK $VERSION. The XMTP Messenger APK is a universal release build for testing on Android 8.1 or newer, signed with the public AOSP testing key. It installs separately as XMTP Messenger (Testing). Select a reachable HTTPS server in the app. Its profiles and local data are separate from normal example-app installs. Firebase notifications are off in this build." \
               "${FLAGS[@]}"
           fi

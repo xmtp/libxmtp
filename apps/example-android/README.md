@@ -109,10 +109,12 @@ when Android asks. Or install it over USB with `adb install -r <apk-path>`.
 
 Every Android dev, RC, stable, and nightly release attaches
 `xmtp-messenger-<version>.apk` to its `android-<version>` GitHub Release.
-These APKs use the public AOSP testing key so local and CI builds can update
-each other. They are for testing only. Remote servers require HTTPS; HTTP is limited to loopback. Installing over an older APK signed with
-a different key requires uninstalling that app first, which removes its profiles
-and local data. Firebase notifications are off in the downloadable APK.
+These APKs use the separate `org.xmtp.android.example.testing` app ID and show
+as **XMTP Messenger (Testing)**. They use the public AOSP testing key so local
+and CI testing builds can update each other without replacing normal app installs.
+Their profiles and local data stay separate. They are for testing only. Remote
+servers require HTTPS; HTTP is limited to loopback. Firebase notifications are off
+in the downloadable APK.
 
 You can also build directly with Nix on macOS ARM64 or Linux x86_64:
 

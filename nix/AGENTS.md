@@ -86,8 +86,9 @@ mobile-stage command builds the SDK library AAR so platform helpers are included
 `example-android-apk` builds the signed universal Messenger testing APK on
 macOS ARM64 and Linux x86_64. It uses the SDK version in `gradle.properties`, the
 four JNI libraries, a pinned Gradle distribution, and the public AOSP testing
-key. It builds the non-debuggable release variant with loopback as the default
-backend; other hosts require HTTPS. The build has an empty Gradle home and a local replay proxy for hash-pinned
+key under the separate `org.xmtp.android.example.testing` app ID. It builds the
+non-debuggable release variant with an HTTPS placeholder; testers must choose a
+server. The build has an empty Gradle home and a local replay proxy for hash-pinned
 downloads; it does not access external repositories. The Android build toolchain
 omits emulators and system images. Keep its source filter limited to APK inputs.
 
