@@ -1,5 +1,7 @@
+import type { BackendOptions } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
 
+import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { isValidHandle } from "@/helpers/handles";
 import {
   getInboxIdForAddressQuery,
@@ -23,14 +25,14 @@ type Lookup = {
 
 const lookUp = async (
   memberId: string,
-  backendUrl: string,
+  backend: BackendOptions,
 ): Promise<Omit<Lookup, "memberId" | "backendUrl">> => {
   const empty = { inboxId: "", address: "", handle: null, error: null };
   if (isValidEthereumAddress(memberId)) {
     try {
       const inboxId = await getInboxIdForAddressQuery(
         memberId.toLowerCase(),
-        backendUrl,
+        backend,
       );
       return inboxId
         ? { ...empty, inboxId, address: memberId }
@@ -43,7 +45,7 @@ const lookUp = async (
     }
   }
   try {
-    const result = await getInboxIdForHandleQuery(memberId, backendUrl);
+    const result = await getInboxIdForHandleQuery(memberId, backend);
     return result
       ? { ...empty, inboxId: result.inboxId, handle: result.handle }
       : { ...empty, error: "No inbox has this handle on this server" };
@@ -61,6 +63,7 @@ export const useMemberId = () => {
   const [memberId, setMemberId] = useState("");
   const [lookup, setLookup] = useState<Lookup>();
   const { backendUrl } = useSettings();
+  const { createCredentialSource } = useAuthToken();
 
   const isAddress = isValidEthereumAddress(memberId);
   const isHandle = !isAddress && isValidHandle(memberId);
@@ -72,7 +75,13 @@ export const useMemberId = () => {
     let current = true;
     const timeout = setTimeout(
       () => {
-        void lookUp(memberId, backendUrl).then((result) => {
+        // the lookup connects its own backend client, which needs its own
+        // credential source: with auth on, identity lookups need a credential
+        const backend = {
+          url: backendUrl,
+          credentials: createCredentialSource(),
+        };
+        void lookUp(memberId, backend).then((result) => {
           if (current) setLookup({ memberId, backendUrl, ...result });
         });
       },
@@ -82,7 +91,7 @@ export const useMemberId = () => {
       current = false;
       clearTimeout(timeout);
     };
-  }, [backendUrl, isHandle, memberId, needsLookup]);
+  }, [backendUrl, createCredentialSource, isHandle, memberId, needsLookup]);
 
   const answered =
     lookup?.memberId === memberId && lookup.backendUrl === backendUrl

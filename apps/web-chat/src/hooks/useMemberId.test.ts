@@ -3,11 +3,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useMemberId } from "./useMemberId";
 
-const mocks = vi.hoisted(() => ({
-  getInboxIdForAddressQuery: vi.fn(),
-  getInboxIdForHandleQuery: vi.fn(),
+const mocks = vi.hoisted(() => {
+  const source = {
+    credential: async () => ({ value: "", expiresAtSeconds: 0n }),
+  };
+  return {
+    getInboxIdForAddressQuery: vi.fn(),
+    getInboxIdForHandleQuery: vi.fn(),
+    source,
+    createCredentialSource: vi.fn(() => source),
+  };
+});
+vi.mock("@/helpers/inboxId", () => ({
+  getInboxIdForAddressQuery: mocks.getInboxIdForAddressQuery,
+  getInboxIdForHandleQuery: mocks.getInboxIdForHandleQuery,
 }));
-vi.mock("@/helpers/inboxId", () => mocks);
+vi.mock("@/contexts/AuthTokenContext", () => ({
+  useAuthToken: () => ({
+    createCredentialSource: mocks.createCredentialSource,
+  }),
+}));
+
+// a lookup connects its own backend client, with the app's credential source
+const credentialed = { url: expect.any(String), credentials: mocks.source };
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -41,7 +59,20 @@ describe("useMemberId", () => {
     expect(result.current.error).toBeNull();
     expect(mocks.getInboxIdForHandleQuery).toHaveBeenCalledWith(
       "nick",
-      expect.any(String),
+      credentialed,
+    );
+    expect(mocks.createCredentialSource).toHaveBeenCalledTimes(1);
+  });
+
+  it("looks up an address with the app's credential source", async () => {
+    const address = `0x${"A".repeat(40)}`;
+    mocks.getInboxIdForAddressQuery.mockResolvedValue("c".repeat(64));
+    const { result } = renderHook(() => useMemberId());
+    await act(async () => result.current.setMemberId(address));
+    await waitFor(() => expect(result.current.inboxId).toBe("c".repeat(64)));
+    expect(mocks.getInboxIdForAddressQuery).toHaveBeenCalledWith(
+      address.toLowerCase(),
+      credentialed,
     );
   });
 
