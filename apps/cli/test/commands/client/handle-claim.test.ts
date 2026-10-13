@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { Config } from "@oclif/core";
+import type { Client as XmtpClient } from "@xmtp/node-sdk";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import ClientHandleClaim from "@/commands/client/handle-claim";
 
 import {
   createRegisteredIdentity,
@@ -22,6 +26,8 @@ async function currentHandle(
     result.stdout,
   ).properties.handle;
 }
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("client handle-claim", () => {
   it("claims a handle typed with capitals and makes it current", async () => {
@@ -98,6 +104,40 @@ describe("client handle-claim", () => {
       `${handle} is already your current handle. Nothing was claimed.`,
     );
     expect(await currentHandle(identity)).toBe(handle);
+  });
+
+  // A live switch back needs a second claim within 7 days (HandleTooSoon),
+  // so this test gives the command a client with an older handle.
+  it("claims one of the other handles to switch back to it", async () => {
+    const command = new ClientHandleClaim(
+      ["nick", "--force"],
+      await Config.load({ root: process.cwd() }),
+    );
+    const claimHandle = vi.fn(async (_handle: string) => undefined);
+    const inboxState = vi
+      .fn()
+      .mockResolvedValueOnce({
+        inboxId: "inbox",
+        handle: "nick#0001",
+        otherHandles: ["nick"],
+      })
+      .mockResolvedValueOnce({
+        inboxId: "inbox",
+        handle: "nick",
+        otherHandles: ["nick#0001"],
+      });
+    vi.spyOn(command, "initClient").mockResolvedValue({
+      inboxState,
+      claimHandle,
+    } as unknown as XmtpClient);
+    const log = vi.spyOn(command, "log").mockImplementation(() => undefined);
+
+    await command.run();
+
+    expect(claimHandle).toHaveBeenCalledExactlyOnceWith("nick");
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      "Your handle is now nick.\nOther handles: nick#0001",
+    );
   });
 
   it("reports a taken handle and never claims another one", async () => {
