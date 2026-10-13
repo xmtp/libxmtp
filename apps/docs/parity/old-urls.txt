@@ -1,4 +1,6 @@
 /
+/signatures
+/signatures/
 /agents/build-agents/create-a-client
 /agents/build-agents/create-conversations
 /agents/build-agents/group-permissions
