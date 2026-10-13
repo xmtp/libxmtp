@@ -216,7 +216,7 @@ test("legacy schemes decode without changing stored parameters", () => {
     expect(legacy.parameters.get("scheme")).toBe(bare);
     expect(legacy).toEqual(snapshot);
     expect(raw).toEqual(original);
-    expect(codec.encode(decoded).parameters.get("scheme")).toBe(canonical);
+    expect(codec.encode(decoded).parameters?.get("scheme")).toBe(canonical);
     expect(() => codec.encode({ ...value, scheme: bare })).toThrow(
       sdk.XmtpError.InvalidInput,
     );
