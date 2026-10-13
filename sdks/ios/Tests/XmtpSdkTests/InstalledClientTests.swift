@@ -21,12 +21,19 @@ final class InstalledClientTests: XCTestCase {
 		let calls = AuthenticationCalls()
 		var options = testOptions()
 		options.registration = RegistrationOptions(auto: false)
-		options.handlers = ClientHandlers(preAuthenticate: TestPreAuthenticate(calls, fail: false))
+		let (release, releaseSignal) = AsyncStream<Void>.makeStream()
+		defer { releaseSignal.finish() }
+		options.handlers = ClientHandlers(preAuthenticate: TestPreAuthenticate(calls, fail: false, release: release))
 		let client = try await SDKClient.create(
 			signer: TestRecordingSigner(generateLocalSigner(), calls), options: options,
 		)
 		XCTAssertEqual(calls.values, [])
-		try await client.register()
+		let registration = Task { try await client.register() }
+		let entered = await eventually(seconds: 5) { !calls.values.isEmpty }
+		XCTAssertTrue(entered, "The pre-authentication handler did not start")
+		XCTAssertEqual(calls.values, ["preAuthenticate"])
+		releaseSignal.finish()
+		try await registration.value
 		XCTAssertEqual(calls.values, ["preAuthenticate", "sign"])
 		calls.clear()
 		try await client.register()
@@ -226,12 +233,16 @@ private final class AuthenticationCalls: @unchecked Sendable {
 private final class TestPreAuthenticate: PreAuthenticate, @unchecked Sendable {
 	let calls: AuthenticationCalls
 	let fail: Bool
-	init(_ calls: AuthenticationCalls, fail: Bool) {
-		self.calls = calls; self.fail = fail
+	let release: AsyncStream<Void>?
+	init(_ calls: AuthenticationCalls, fail: Bool, release: AsyncStream<Void>? = nil) {
+		self.calls = calls; self.fail = fail; self.release = release
 	}
 
 	func run() async throws {
 		calls.append("preAuthenticate")
+		if let release {
+			for await _ in release {}
+		}
 		if fail {
 			throw PreAuthenticateError.Failed
 		}

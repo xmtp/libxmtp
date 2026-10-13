@@ -262,6 +262,20 @@ class ClientTest : BaseInstrumentedTest() {
     // verifies: FORK-070
     @Test fun testForkRecoveryOptionsCrossNativeBoundary() =
         runBlocking {
+            val invalid =
+                createClientOptions().copy(
+                    storage = StorageOptions(StorageLocation.InMemory),
+                    registration = RegistrationOptions(auto = false),
+                    forkRecovery =
+                        ForkRecoveryOptions(
+                            policy = ForkRecoveryPolicy.ALLOWLISTED_GROUPS,
+                            groups = listOf("invalid"),
+                            disableResponses = false,
+                        ),
+                )
+            val failure = runCatching { client(createWallet(), invalid) }.exceptionOrNull()
+            assertTrue(failure is XmtpException.InvalidArgument)
+
             for (policy in listOf(
                 ForkRecoveryPolicy.NONE,
                 ForkRecoveryPolicy.ALLOWLISTED_GROUPS,
@@ -271,7 +285,7 @@ class ClientTest : BaseInstrumentedTest() {
                     val recovery =
                         ForkRecoveryOptions(
                             policy = policy,
-                            groups = listOf("13".repeat(32)),
+                            groups = listOf("13".repeat(16)),
                             disableResponses = disabled,
                         )
                     val options =

@@ -62,6 +62,15 @@ final class StorageLifecycleTests: XCTestCase {
 
 	// verifies: FORK-070
 	func testForkOptionsCrossNativeBoundary() async throws {
+		var invalid = liveOptions(storage: StorageOptions(location: .inMemory))
+		invalid.registration = RegistrationOptions(auto: false)
+		invalid.forkRecovery = ForkRecoveryOptions(policy: .allowlistedGroups, groups: ["invalid"], disableResponses: false)
+		do {
+			let unexpected = try await SDKClient.create(signer: generateLocalSigner(), options: invalid)
+			try await unexpected.end()
+			XCTFail("An invalid fork group reached client creation")
+		} catch XmtpError.InvalidArgument {}
+
 		for policy in [ForkRecoveryPolicy.none, .allowlistedGroups, .all] {
 			for disabled in [false, true] {
 				var options = liveOptions(storage: StorageOptions(location: .inMemory))

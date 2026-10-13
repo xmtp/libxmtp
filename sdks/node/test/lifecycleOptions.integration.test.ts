@@ -76,6 +76,33 @@ it("waits for pre-authentication and stops signing after callback failure", asyn
 
 // verifies: FORK-070
 it("preserves every fork recovery policy and response choice", async () => {
+  const owner = createSigner().signer;
+  let identityCalls = 0;
+  const checkedSigner = {
+    ...owner,
+    identity: async () => {
+      identityCalls++;
+      return owner.identity();
+    },
+  };
+  await expect(
+    Client.create(
+      checkedSigner,
+      clientOptions({
+        registration: { auto: false },
+        forkRecovery: {
+          policy: "allowlistedGroups",
+          groups: ["invalid"],
+          disableResponses: false,
+        },
+      }),
+    ).then(async (unexpected) => {
+      await unexpected.end();
+      throw new Error("Invalid fork group reached client creation");
+    }),
+  ).rejects.toBeInstanceOf(XmtpError.InvalidArgument);
+  expect(identityCalls).toBe(0);
+
   for (const policy of ["none", "allowlistedGroups", "all"] as const) {
     for (const disableResponses of [false, true]) {
       const forkRecovery: ForkRecoveryOptions = {
@@ -127,7 +154,7 @@ it("rejects new builds and deletes file storage only after closing the client", 
     try {
       expect(client.storagePath).toBe(path);
       expect(await client.storage.path()).toBe(path);
-      await client.storage.delete();
+      await client.storage.delete_();
       expect(existsSync(path)).toBe(false);
       await expect(client.conversations.list()).rejects.toBeInstanceOf(
         XmtpError.ClientClosed,
@@ -145,7 +172,7 @@ it("rejects new builds and deletes file storage only after closing the client", 
   try {
     expect(memory.storagePath).toBeUndefined();
     expect(await memory.storage.path()).toBeUndefined();
-    await expect(memory.storage.delete()).rejects.toBeInstanceOf(
+    await expect(memory.storage.delete_()).rejects.toBeInstanceOf(
       XmtpError.InvalidInput,
     );
     expect(await memory.isRegistered()).toBe(true);
