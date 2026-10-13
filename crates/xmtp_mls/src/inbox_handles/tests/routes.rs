@@ -1,6 +1,6 @@
 //! Routes that take accounts or handles.
 
-use super::{random_handle, scripted_client};
+use super::{random_handle, scripted_client, wait_until_claim_visible};
 use crate::{
     client::ClientError,
     groups::GroupError,
@@ -68,6 +68,7 @@ async fn mixed_targets_make_one_commit() {
     tester!(caro);
     let handle = random_handle();
     bo.claim_handle(&handle).await?;
+    wait_until_claim_visible(&alix, &handle).await;
     let group = alix.create_group(None, None)?;
     let epoch = group.epoch().await?;
 

@@ -10,18 +10,10 @@ mod resolver;
 mod routes;
 mod search;
 
-use crate::{
-    client::ClientError, context::XmtpSharedContext, identity_updates::IdentityUpdates,
-    utils::Tester,
-};
+use crate::{Client, context::XmtpSharedContext, utils::Tester};
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
-use xmtp_id::associations::{
-    AssociationState, Identifier,
-    builder::SignatureRequestBuilder,
-    handle::Handle,
-    test_utils::{WalletTestExt, add_wallet_signature},
-};
+use xmtp_id::associations::{AssociationState, Identifier, handle::Handle};
 use xmtp_proto::{
     api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire,
     xmtp::identity::associations::IdentifierKind,
@@ -44,7 +36,15 @@ fn random_handle() -> Handle {
 /// second by that key repeats its earlier signature, which replay protection
 /// rejects. A second signer avoids that without a wait.
 #[cfg(not(target_arch = "wasm32"))]
-async fn claim_with_wallet(tester: &Tester, handle: &Handle) -> Result<(), ClientError> {
+async fn claim_with_wallet(
+    tester: &Tester,
+    handle: &Handle,
+) -> Result<(), crate::client::ClientError> {
+    use crate::identity_updates::IdentityUpdates;
+    use xmtp_id::associations::{
+        builder::SignatureRequestBuilder,
+        test_utils::{WalletTestExt, add_wallet_signature},
+    };
     let wallet = &tester.builder.owner;
     let mut request = SignatureRequestBuilder::new(tester.inbox_id())
         .claim_handle(handle.clone(), wallet.member_identifier())
@@ -53,6 +53,27 @@ async fn claim_with_wallet(tester: &Tester, handle: &Handle) -> Result<(), Clien
     IdentityUpdates::new(&tester.context)
         .apply_signature_request(request)
         .await
+}
+
+/// Wait until the backend's lookup names an inbox for `handle`. A lookup reads
+/// the backend's replica, which can lag behind a claim that the primary just
+/// stored. Call this after a claim on the shared backend and before anything
+/// that looks the handle up.
+async fn wait_until_claim_visible<Context: XmtpSharedContext>(
+    client: &Client<Context>,
+    handle: &Handle,
+) {
+    xmtp_common::wait_for_eq(
+        || async {
+            client
+                .handles_have_owner(std::slice::from_ref(handle))
+                .await
+                .ok()
+        },
+        Some(vec![true]),
+    )
+    .await
+    .expect("the lookup sees the claim within 20 s");
 }
 
 /// `base` after claims of `handles`, in order. It is built in memory, for

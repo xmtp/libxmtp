@@ -1,6 +1,6 @@
 //! The verified handle resolver.
 
-use super::{random_handle, scripted_client};
+use super::{random_handle, scripted_client, wait_until_claim_visible};
 use crate::{context::XmtpSharedContext, identity::IdentityExt, tester};
 use xmtp_db::prelude::*;
 use xmtp_id::associations::{Action, MemberIdentifier};
@@ -30,6 +30,7 @@ async fn claim_then_resolve_returns_own_inbox() {
         if claim.handle == handle.as_str() && claim.signature.signer == installation));
 
     let unclaimed = random_handle();
+    wait_until_claim_visible(&bo, &handle).await;
     assert_eq!(
         bo.resolve_handles(&[handle, unclaimed]).await?,
         vec![Some(alix.inbox_id().to_owned()), None]
@@ -62,6 +63,8 @@ async fn resolver_loads_updates_newer_than_the_cache() {
     assert!(before[0].handles().is_empty());
     let handle = random_handle();
     alix.claim_handle(&handle).await?;
+    // The lookup checks no state, so waiting on it leaves bo's cache stale.
+    wait_until_claim_visible(&bo, &handle).await;
 
     assert_eq!(
         bo.resolve_handles(&[handle]).await?,
