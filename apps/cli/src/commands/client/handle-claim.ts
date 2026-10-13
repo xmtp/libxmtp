@@ -6,6 +6,8 @@ import {
   claimFailureMessage,
   formatOtherHandles,
   handleFields,
+  invalidHandleMessage,
+  isValidHandle,
 } from "@/utils/handles";
 
 export default class ClientHandleClaim extends BaseCommand {
@@ -54,11 +56,16 @@ command fails before it asks the backend, and claims nothing.`;
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ClientHandleClaim);
+    // Check the grammar before the prompt or any output shows the input:
+    // text outside it, such as an escape sequence, never reaches the terminal.
+    if (!isValidHandle(args.handle)) {
+      this.error(invalidHandleMessage(args.handle));
+    }
+    const handle = asciiLowercase(args.handle);
     const client = await this.initClient();
 
     // The client loaded the inbox's identity updates when it was created.
     const before = await client.inboxState(false);
-    const handle = asciiLowercase(args.handle);
     // The backend admits a claim of the current handle. It changes nothing,
     // but it uses one of the 64 changes and starts the 7-day wait again.
     if (handle === before.handle) {

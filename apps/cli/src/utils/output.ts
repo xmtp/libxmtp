@@ -8,6 +8,19 @@ export function isTTY(): boolean {
   return stdout.isTTY ?? false;
 }
 
+/**
+ * Text with each control character (C0, DEL, and C1) replaced by a visible
+ * `\uXXXX` escape. Use it for user input in terminal output: an escape
+ * sequence in the input could otherwise change the terminal or fake a line.
+ */
+export function escapeControlCharacters(text: string): string {
+  // oxlint-disable-next-line no-control-regex
+  return text.replace(/[\u0000-\u001f\u007f-\u009f]/g, (character) => {
+    const code = character.charCodeAt(0).toString(16).padStart(4, "0");
+    return `\\u${code}`;
+  });
+}
+
 export function jsonStringify(data: unknown, pretty = false): string {
   return JSON.stringify(
     data,

@@ -8,7 +8,12 @@ import { parseBackendUrl, parseEnvironmentLabel } from "./utils/backend.js";
 import { createClient } from "./utils/client.js";
 import { loadConfig, mergeConfig, type XmtpConfig } from "./utils/config.js";
 import { formatOtherHandles, handleFields } from "./utils/handles.js";
-import { formatHuman, isTTY, jsonStringify } from "./utils/output.js";
+import {
+  escapeControlCharacters,
+  formatHuman,
+  isTTY,
+  jsonStringify,
+} from "./utils/output.js";
 
 export class BaseCommand extends Command {
   /** Flags shared by all commands (including those that don't need a client). */
@@ -266,13 +271,15 @@ export class BaseCommand extends Command {
 
   catch(error: Error): never {
     if (error instanceof Errors.CLIError) {
-      this.logToStderr(error.message);
+      this.logToStderr(terminalSafeMessage(error.message));
       this.exit(error.oclif.exit ?? 1);
     }
 
     // Wrap non-CLI errors (e.g., SDK errors) with showHelp for
     // helpful command usage display alongside the error message
-    const message = formatStorageErrorMessage(error, this.#config.dbPath);
+    const message = terminalSafeMessage(
+      formatStorageErrorMessage(error, this.#config.dbPath),
+    );
     const cliError = new Errors.CLIError(message);
     const errorWithHelp = cliError as Error & {
       showHelp?: boolean;
@@ -282,6 +289,14 @@ export class BaseCommand extends Command {
     errorWithHelp.parse = { input: { argv: this.argv } };
     throw errorWithHelp;
   }
+}
+
+/**
+ * An error message with its control characters escaped, line by line. An
+ * error can echo user input, such as a handle or an identifier argument.
+ */
+export function terminalSafeMessage(message: string): string {
+  return message.split("\n").map(escapeControlCharacters).join("\n");
 }
 
 const UNSUPPORTED_DATABASE_CODES = [

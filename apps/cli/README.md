@@ -103,6 +103,10 @@ has used all 64 changes. It never claims a different handle. Run
 current handle before it asks the backend: that claim changes nothing, but it
 counts as a change.
 
+Handle commands check the handle grammar before they ask the backend, and
+refuse other text with a plain message. Error output shows each control
+character in user input as a visible `\uXXXX` escape.
+
 Commands that take an identity accept a handle with `--identifier-kind handle`
 (`--kind handle` for `client inbox-id`): `can-message`, `conversations
 create-dm`, `create-group`, and `get-dm`, and `conversation add-members` and

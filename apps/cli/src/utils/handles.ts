@@ -1,5 +1,19 @@
 import { XmtpError } from "@xmtp/node-sdk";
 
+import { escapeControlCharacters } from "./output.js";
+
+/**
+ * The handle grammar (IDENT section 10): a name part, then an optional code.
+ * It is the one rule a client may check; the backend applies the minimum
+ * length and the reserved names (CONF-081).
+ */
+const HANDLE_PATTERN = /^[a-z][a-z0-9_-]{0,26}(#[0-9]{4})?$/;
+
+/** Whether input, after the SDK's ASCII lowercasing, matches the grammar. */
+export function isValidHandle(input: string): boolean {
+  return HANDLE_PATTERN.test(asciiLowercase(input));
+}
+
 /** Lowercase ASCII letters only, as the SDK does with handle input. */
 export function asciiLowercase(value: string): string {
   return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
@@ -36,7 +50,7 @@ export function formatOtherHandles(otherHandles: readonly string[]): string {
 
 /** The message for input that the handle grammar does not match. */
 export function invalidHandleMessage(input: string): string {
-  return `${input} is not a valid handle. Start with a letter, then use only lowercase letters, numbers, _ and -, 27 characters or fewer before #. After #, use exactly 4 digits, like nick#0012.`;
+  return `${escapeControlCharacters(input)} is not a valid handle. Start with a letter, then use only lowercase letters, numbers, _ and -, 27 characters or fewer before #. After #, use exactly 4 digits, like nick#0012.`;
 }
 
 /**
