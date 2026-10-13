@@ -99,6 +99,8 @@ rust.cargoNextest (
     pname = "wasm";
     version = xmtp.mkVersion rust;
     doInstallCargoArtifacts = false;
+    # A check result must name no store path, so it substitutes on a hit.
+    allowedReferences = [ ];
     partitions = 1;
     partitionType = "count";
     cargoNextestPartitionsExtraArgs = "--no-tests=pass";

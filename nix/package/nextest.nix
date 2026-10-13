@@ -3,6 +3,7 @@
   xmtp,
   lib,
   cargo-llvm-cov,
+  nukeReferences,
   python3,
   ...
 }:
@@ -51,7 +52,10 @@ rust.cargoNextest (
     pname = "cargo-package";
     version = xmtp.mkVersion rust;
     # The migration lock test uses a separate SQLite process.
-    nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ python3 ];
+    nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
+      python3
+      nukeReferences
+    ];
     doCheck = true;
     DATABASE_URL = "postgres://xmtp:xmtp@localhost:55432/xmtp_backend";
     pnameSuffix = "nextest";
@@ -61,6 +65,17 @@ rust.cargoNextest (
     # The dedicated backend workflow owns the PostgreSQL service suite.
     cargoNextestExtraArgs = "--profile ci -E 'not package(xmtp_backend)'";
     withLlvmCov = true;
+    # This value replaces Crane's default, so it restates it. The coverage
+    # report must name no store path: a reference keeps the result from
+    # substituting when that path is missing from the cache. The regex drops
+    # store sources (such as Crane's dummy build script); nuke-refs removes any
+    # hash that remains, and `test -s` fails when the report is missing or empty.
+    cargoLlvmCovExtraArgs = "--lcov --output-path $out/coverage --ignore-filename-regex '^/nix/store/'";
+    postInstall = ''
+      test -s $out/coverage
+      nuke-refs $out/coverage
+    '';
+    allowedReferences = [ ];
     doInstallCargoArtifacts = false;
     # most tests query docker
     __noChroot = true;

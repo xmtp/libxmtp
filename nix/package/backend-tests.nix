@@ -101,6 +101,8 @@ rust.mkCargoDerivation (
     S3_CORS = ../../dev/docker/s3/cors.json;
     checkPhaseCargoCommand = "bash ${./backend-tests.sh} ${run}";
     doInstallCargoArtifacts = false;
+    # A check result must name no store path, so it substitutes on a hit.
+    allowedReferences = [ ];
     # A Darwin sandbox denies loopback networking unless the derivation allows it.
     __darwinAllowLocalNetworking = true;
   }
