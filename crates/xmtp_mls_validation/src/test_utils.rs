@@ -16,10 +16,12 @@ use xmtp_id::{
         AccountId, Identifier, MemberIdentifier,
         builder::SignatureRequestBuilder,
         test_utils::{MockSmartContractSignatureVerifier, WalletTestExt, add_wallet_signature},
-        unsigned_actions::{UnsignedChangeRecoveryAddress, UnsignedCreateInbox},
+        unsigned_actions::{
+            UnsignedChangeRecoveryAddress, UnsignedClaimHandle, UnsignedCreateInbox,
+        },
         unverified::{
-            UnverifiedAction, UnverifiedChangeRecoveryAddress, UnverifiedCreateInbox,
-            UnverifiedIdentityUpdate, UnverifiedSignature,
+            UnverifiedAction, UnverifiedChangeRecoveryAddress, UnverifiedClaimHandle,
+            UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedSignature,
         },
     },
     key_package::{KeyPackageOptions, build_key_package, create_credential},
@@ -424,6 +426,28 @@ pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
                 scw_signature(0x56, block_number),
             ),
         )],
+    )
+    .into()
+}
+
+/// Claim `handle` for the fixture inbox, signed by the wallet at
+/// `block_number`. The signature's bytes are `signature`, so two claims with
+/// two bytes have two replay keys. It applies after
+/// [`scw_create_inbox_update_at`].
+pub fn scw_claim_handle_update_at(
+    handle: &str,
+    signature: u8,
+    block_number: u64,
+) -> IdentityUpdate {
+    UnverifiedIdentityUpdate::new(
+        scw_inbox_id(),
+        3,
+        vec![UnverifiedAction::ClaimHandle(UnverifiedClaimHandle::new(
+            UnsignedClaimHandle {
+                handle: handle.to_string(),
+            },
+            scw_signature(signature, block_number),
+        ))],
     )
     .into()
 }

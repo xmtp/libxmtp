@@ -101,6 +101,9 @@ impl Query {
                           let new_recovery_address = change_recovery_address.new_recovery_identifier;
                           println!("    change_recovery_address: new_recovery_address: {new_recovery_address}");
                         }
+                        xmtp_proto::xmtp::identity::associations::identity_action::Kind::ClaimHandle(claim_handle) => {
+                          println!("    claim_handle: handle: {}", claim_handle.handle);
+                        }
                     }
                 }
             }

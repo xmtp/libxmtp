@@ -248,6 +248,12 @@ message PublishError {
     REASON_INVALID_IDENTITY_UPDATE = 3;
     REASON_INVALID_SIGNATURE = 4;
     REASON_TOO_LARGE = 5;
+    // Another inbox holds the claimed handle.
+    REASON_HANDLE_TAKEN = 6;
+    // The claimed handle's name part is reserved or too short.
+    REASON_HANDLE_NOT_ALLOWED = 7;
+    // The inbox claimed a handle less than 7 days ago.
+    REASON_HANDLE_TOO_SOON = 8;
   }
 
   // Index of the failing envelope in the request. Absent for request-level
@@ -467,6 +473,12 @@ message MlsConfiguration {
   optional bool commit_log_enabled = 3;
 }
 
+// Handle settings.
+message HandlesConfiguration {
+  // The shortest name part, the text before "#", the backend admits in a claim.
+  uint32 min_name_length = 1;
+}
+
 // One operator-defined application component. A client registers it in the
 // conversations the flags select; it carries no initial value.
 message ApplicationComponentDefinition {
@@ -507,6 +519,8 @@ message GetConfigurationResponse {
   xmtp.backend.v1.AttachmentsConfiguration attachments = 9;
   // Sorted by component_id ascending.
   repeated ApplicationComponentDefinition application_components = 10;
+  // Set on every deployment.
+  HandlesConfiguration handles = 11;
 }
 
 message CreateUploadRequest {

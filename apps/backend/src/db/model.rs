@@ -35,6 +35,8 @@ pub(crate) struct TopicCursor {
 pub(crate) struct History {
     pub head: i64,
     pub payloads: Vec<Vec<u8>>,
+    /// The `server_ns` of each payload, at the same index.
+    pub server_ns: Vec<i64>,
 }
 
 pub(crate) struct Projection {
@@ -45,6 +47,8 @@ pub(crate) struct Projection {
 pub(crate) struct IdentityAdmission {
     pub inbox_id: Vec<u8>,
     pub head: i64,
+    /// The handle the update claims, once validation has accepted the claim.
+    pub claim: Option<xmtp_id::associations::Handle>,
 }
 
 pub(crate) struct PendingEnvelope {

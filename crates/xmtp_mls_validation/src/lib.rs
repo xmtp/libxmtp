@@ -9,8 +9,9 @@ use tls_codec::Deserialize;
 use xmtp_common::RetryableError;
 use xmtp_id::{
     associations::{
-        self, AccountId, AssociationError, AssociationState, AssociationStateDiff, SignatureError,
-        try_map_vec, unverified::UnverifiedIdentityUpdate, verify_updates,
+        self, AccountId, AssociationError, AssociationState, AssociationStateDiff, Handle,
+        IdentityAction as _, SignatureError, try_map_vec, unverified::UnverifiedIdentityUpdate,
+        verify_updates,
     },
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier, VerifierError},
@@ -255,6 +256,9 @@ pub struct AssociationValidation {
     pub state: AssociationState,
     /// Active-member changes between the old and resulting states.
     pub diff: AssociationStateDiff,
+    /// The handle each new update claims, in update order. A claim of a handle
+    /// the inbox already holds is included.
+    pub claimed_handles: Vec<Handle>,
 }
 
 /// Validate a new identity suffix against one complete history snapshot.
@@ -276,18 +280,31 @@ pub async fn validate_identity_updates(
         try_map_vec(new_updates).map_err(ValidationError::IdentityEncoding)?;
     let old = verify_updates(old, &verifier).await?;
     let new = verify_updates(new, &verifier).await?;
-    if old.is_empty() {
-        let state = associations::get_state(new)?;
-        let diff = state.as_diff();
-        return Ok(AssociationValidation { state, diff });
-    }
-    let old_state = associations::get_state(old)?;
+    let old_state = if old.is_empty() {
+        None
+    } else {
+        Some(associations::get_state(old)?)
+    };
     let mut state = old_state.clone();
+    let mut claimed_handles = Vec::new();
     for update in new {
-        state = associations::apply_update(state, update)?;
+        let applied = update.update_state(state, update.client_timestamp_ns)?;
+        // A claim moves its handle to the end, so it is the display handle.
+        if update.claims_handle() {
+            claimed_handles.extend(applied.display_handle().cloned());
+        }
+        state = Some(applied);
     }
-    let diff = old_state.diff(&state);
-    Ok(AssociationValidation { state, diff })
+    let state = state.ok_or(AssociationError::NotCreated)?;
+    let diff = match &old_state {
+        Some(old_state) => old_state.diff(&state),
+        None => state.as_diff(),
+    };
+    Ok(AssociationValidation {
+        state,
+        diff,
+        claimed_handles,
+    })
 }
 
 /// The oldest a new update's ERC-6492 block may be, relative to the chain head.
@@ -314,6 +331,7 @@ pub fn erc6492_signatures(
             Some(identity_action::Kind::ChangeRecoveryAddress(value)) => {
                 [value.existing_recovery_identifier_signature.as_ref(), None]
             }
+            Some(identity_action::Kind::ClaimHandle(value)) => [value.signature.as_ref(), None],
             None => [None, None],
         })
         .flatten()

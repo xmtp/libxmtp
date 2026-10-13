@@ -139,6 +139,9 @@ impl AdmissionError {
             Self::InvalidIdentity(message) => {
                 publish_invalid(Some(index), Reason::InvalidIdentityUpdate, *message)
             }
+            Self::Handle(rejection) => {
+                publish_invalid(Some(index), rejection.reason(), rejection.message())
+            }
         }
     }
 }

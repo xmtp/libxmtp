@@ -2,12 +2,12 @@
 use crate::scw_verifier::SmartContractSignatureVerifier;
 
 use super::{
-    AccountId, Action, AddAssociation, CreateInbox, IdentityUpdate, RevokeAssociation,
+    AccountId, Action, AddAssociation, ClaimHandle, CreateInbox, IdentityUpdate, RevokeAssociation,
     SignatureError,
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
-        UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
-        UnsignedRevokeAssociation,
+        UnsignedChangeRecoveryAddress, UnsignedClaimHandle, UnsignedCreateInbox,
+        UnsignedIdentityUpdate, UnsignedRevokeAssociation,
     },
     verified_signature::VerifiedSignature,
 };
@@ -79,6 +79,7 @@ pub enum UnverifiedAction {
     AddAssociation(UnverifiedAddAssociation),
     RevokeAssociation(UnverifiedRevokeAssociation),
     ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress),
+    ClaimHandle(UnverifiedClaimHandle),
 }
 
 impl UnverifiedAction {
@@ -95,6 +96,9 @@ impl UnverifiedAction {
             }
             UnverifiedAction::ChangeRecoveryAddress(action) => {
                 UnsignedAction::ChangeRecoveryAddress(action.unsigned_action.clone())
+            }
+            UnverifiedAction::ClaimHandle(action) => {
+                UnsignedAction::ClaimHandle(action.unsigned_action.clone())
             }
         }
     }
@@ -114,6 +118,7 @@ impl UnverifiedAction {
             UnverifiedAction::ChangeRecoveryAddress(action) => {
                 vec![action.recovery_identifier_signature.clone()]
             }
+            UnverifiedAction::ClaimHandle(action) => vec![action.signature.clone()],
         }
     }
 
@@ -160,6 +165,13 @@ impl UnverifiedAction {
                     new_recovery_identifier: action.unsigned_action.new_recovery_identifier.clone(),
                 })
             }
+            UnverifiedAction::ClaimHandle(action) => Action::ClaimHandle(ClaimHandle {
+                handle: action.unsigned_action.handle.clone(),
+                signature: action
+                    .signature
+                    .to_verified(signature_text.as_ref(), &scw_verifier)
+                    .await?,
+            }),
         };
 
         Ok(action)
@@ -236,6 +248,21 @@ impl UnverifiedChangeRecoveryAddress {
         Self {
             unsigned_action,
             recovery_identifier_signature,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnverifiedClaimHandle {
+    pub(crate) unsigned_action: UnsignedClaimHandle,
+    pub(crate) signature: UnverifiedSignature,
+}
+
+impl UnverifiedClaimHandle {
+    pub fn new(unsigned_action: UnsignedClaimHandle, signature: UnverifiedSignature) -> Self {
+        Self {
+            unsigned_action,
+            signature,
         }
     }
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT sequence_id, payload FROM envelopes WHERE topic = $1 ORDER BY sequence_id",
+  "query": "SELECT sequence_id, server_ns, payload FROM envelopes WHERE topic = $1 ORDER BY sequence_id",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "server_ns",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "server_ns"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "payload",
         "type_info": "Bytea",
         "origin": {
@@ -33,8 +44,9 @@
     },
     "nullable": [
       false,
+      false,
       false
     ]
   },
-  "hash": "1fbe4f942bd7d3bd7805964606611dd684fbdbcb12d84b1dc5e4e6732dd50cef"
+  "hash": "859feaff373483f04af3a925a82affd098846375749d85a1dcec90bf6f94ef01"
 }

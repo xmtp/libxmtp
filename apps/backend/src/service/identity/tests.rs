@@ -1,5 +1,7 @@
 use crate::test_support as support;
 
+mod handles;
+
 use crate::api;
 use crate::api::publish_error::Reason;
 use prost::Message;

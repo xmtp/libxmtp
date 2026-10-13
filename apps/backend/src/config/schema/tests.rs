@@ -215,6 +215,7 @@ fn published_schema_enforces_every_numeric_scalar_range() {
                 ("retention", _) => i64::MAX as u64 / 1_000_000_000,
                 ("limits", "max_query_limit" | "default_query_limit") => i64::MAX as u64 - 1,
                 ("mls", _) => super::super::MAX_MLS_LIMIT as u64,
+                ("handles", "min_name_length") => 27,
                 _ => u64::MAX,
             };
             let minimum = if section == "push" && field == "recipient_ttl_seconds" {
@@ -779,4 +780,30 @@ fn telemetry_schema_describes_all_keys_and_checks_values() {
         instance["telemetry"]["sample_ratio"] = json!(ratio);
         assert!(validator.is_valid(&instance));
     }
+}
+
+/// An editor flags the handle minimum that startup refuses: 0, and anything
+/// above the longest name part of 27 characters.
+// verifies: CONF-080
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_handles_range() {
+    let validator = validator();
+    let config: Config = toml::from_str("[database]\nurl = 'postgres://localhost/xmtp'")?;
+    let baseline = serde_json::to_value(config)?;
+    assert_eq!(baseline["handles"]["min_name_length"], json!(3));
+    for (value, accepted) in [
+        (json!(1), true),
+        (json!(3), true),
+        (json!(27), true),
+        (json!(0), false),
+        (json!(28), false),
+        (json!("3"), false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["handles"]["min_name_length"] = value.clone();
+        assert_eq!(validator.is_valid(&instance), accepted, "{value}");
+    }
+    let mut unknown = baseline;
+    unknown["handles"]["max_name_length"] = json!(27);
+    assert!(!validator.is_valid(&unknown));
 }

@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**36 error types** across **10 crates** with **412 total error codes**.
+**37 error types** across **10 crates** with **417 total error codes**.
 
 ## xmtp_api
 
@@ -248,6 +248,8 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `AssociationError::ChainIdMismatch` | Chain ID mismatch. Smart contract wallet chain ID changed. Not retryable. |
 | `AssociationError::InvalidAccountAddress` | Invalid account address. Address is not 42-char hex starting with 0x. Not retryable. |
 | `AssociationError::NotIdentifier` | Not an identifier. Value is not a valid public identifier. Not retryable. |
+| `AssociationError::ClaimNotAlone` | Claim not alone. An identity update that claims a handle carries another action. Not retryable. |
+| `AssociationError::HandleClaimLimit` | Handle claim limit reached. The inbox's log already holds the most handle claims it can hold. Not retryable. |
 
 ### DeserializationError <sub>enum</sub>
 
@@ -266,8 +268,19 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `DeserializationError::InvalidHash` | Invalid hash. Hash must be 32 bytes. Not retryable. |
 | `DeserializationError::Unspecified` | Unspecified value. An unrecognized or unsupported value was encountered. Not retryable. |
 | `DeserializationError::Deprecated` | Deprecated field. A deprecated field was used. Not retryable. |
+| `DeserializationError::HandleNotIdentifier` | Handle is not an identifier. A handle names an inbox in a lookup, but it is not an account identifier. Not retryable. |
 | `DeserializationError::Ed25519` | Ed25519 key error. Failed to create public key from bytes. Not retryable. |
 | `DeserializationError::Bincode` | Unable to deserialize. Bincode deserialization failed. Not retryable. |
+
+### InvalidHandle <sub>struct</sub>
+
+<small>`crates/xmtp_id/src/associations/handle.rs`</small>
+
+Invalid handle.
+
+The string is not a handle under the handle grammar. Not retryable.
+
+**Error code:** `InvalidHandle`
 
 ### KeyPackageVerificationError <sub>enum</sub>
 
@@ -688,6 +701,7 @@ This general error type avoid circular hard-dependencies on crates further up th
 | `ConversionError::Decode` | Decode error. Protobuf decoding failed. Not retryable. |
 | `ConversionError::Encode` | Encode error. Protobuf encoding failed. Not retryable. |
 | `ConversionError::UnknownEnumValue` | Unknown enum value. Protobuf enum has unrecognized value. Not retryable. |
+| `ConversionError::NonSigningIdentifierKind` | Identifier kind that cannot sign. The identifier kind is a handle or a value that `IdentifierKind` does not list. Such an identifier cannot sign, so it cannot be an inbox's initial or recovery identifier. Not retryable. |
 | `ConversionError::EdSignature` | Ed25519 signature error. Ed25519 signature bytes invalid. Not retryable. |
 | `ConversionError::InvalidPublicKey` | Invalid public key. Public key validation failed. Not retryable. |
 | `ConversionError::InvalidVersion` | Invalid version. Protocol version not supported. Not retryable. |

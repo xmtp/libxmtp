@@ -7,18 +7,26 @@ impl Store {
     ///
     /// The returned head is the sequence ID of the final payload, or zero for
     /// an empty topic. Callers validate against this payload list and later
-    /// compare the same head while holding the identity lock.
+    /// compare the same head while holding the identity lock. Each payload's
+    /// `server_ns` is returned beside it for the interval between claims.
     #[xmtp_common::db_span]
     pub(crate) async fn history(&self, topic: &[u8]) -> Result<History, Error> {
         let rows = sqlx::query!(
-            "SELECT sequence_id, payload FROM envelopes WHERE topic = $1 ORDER BY sequence_id",
+            "SELECT sequence_id, server_ns, payload FROM envelopes WHERE topic = $1 ORDER BY sequence_id",
             topic
         )
         .fetch_all(&self.primary)
         .await?;
         let head = rows.last().map_or(0, |row| row.sequence_id);
-        let payloads = rows.into_iter().map(|row| row.payload).collect();
-        Ok(History { head, payloads })
+        let (payloads, server_ns) = rows
+            .into_iter()
+            .map(|row| (row.payload, row.server_ns))
+            .unzip();
+        Ok(History {
+            head,
+            payloads,
+            server_ns,
+        })
     }
 }
 

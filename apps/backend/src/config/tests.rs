@@ -759,3 +759,31 @@ fn an_oversized_published_response_stops_startup() {
         "the fixture must exceed the bound"
     );
 }
+
+/// An absent minimum name length takes the default of 3. The two ends of the
+/// range start, and 0 and 28 refuse to start and name the key.
+// verifies: CONF-065, CONF-080
+#[xmtp_common::test(unwrap_try = true)]
+fn handles_min_name_length_defaults_and_range() {
+    let config = Config::load_str(MINIMAL)?;
+    assert_eq!(config.handles.min_name_length, 3);
+    for length in [1, 27] {
+        let config =
+            Config::load_str(&format!("{MINIMAL}\n[handles]\nmin_name_length = {length}"))?;
+        assert_eq!(config.handles.min_name_length, length);
+    }
+    for length in [0, 28] {
+        let error = Config::load_str(&format!("{MINIMAL}\n[handles]\nmin_name_length = {length}"))
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ConfigError::Invalid {
+                    field: "handles.min_name_length",
+                    ..
+                }
+            ),
+            "{length}: {error}"
+        );
+    }
+}
