@@ -260,6 +260,51 @@ describe("useHandleSync", () => {
     expect(inboxStore.getState().ownHandles?.handle).toBe("bob");
   });
 
+  it("drops a slow earlier read that finishes after a newer refresh", async () => {
+    const a = fakeClient("a".repeat(64));
+    const slow = Promise.withResolvers<Handles>();
+    a.client.inboxState
+      .mockReturnValueOnce(slow.promise)
+      .mockResolvedValueOnce({ handle: "alice2", otherHandles: ["alice"] });
+    renderSync(a.client);
+    await waitFor(() => expect(a.client.inboxState).toHaveBeenCalledOnce());
+
+    mocks.client = a.client;
+    const { result } = renderHook(() => useOwnHandles());
+    await act(async () => {
+      await result.current.refresh(true);
+    });
+    expect(inboxStore.getState().ownHandles?.handle).toBe("alice2");
+
+    await act(async () => slow.resolve({ handle: "alice", otherHandles: [] }));
+    expect(inboxStore.getState().ownHandles).toEqual({
+      handle: "alice2",
+      otherHandles: ["alice"],
+    });
+  });
+
+  it("lets an earlier read fill the store after a newer read failed", async () => {
+    const a = fakeClient("a".repeat(64));
+    const slow = Promise.withResolvers<Handles>();
+    a.client.inboxState
+      .mockReturnValueOnce(slow.promise)
+      .mockRejectedValueOnce(new Error("offline"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    renderSync(a.client);
+    await waitFor(() => expect(a.client.inboxState).toHaveBeenCalledOnce());
+
+    mocks.client = a.client;
+    const { result } = renderHook(() => useOwnHandles());
+    await act(async () => {
+      await result.current.refresh(true).catch(() => undefined);
+    });
+    expect(inboxStore.getState().ownHandlesFailed).toBe(true);
+
+    await act(async () => slow.resolve({ handle: "alice", otherHandles: [] }));
+    expect(inboxStore.getState().ownHandles?.handle).toBe("alice");
+    expect(result.current).toMatchObject({ loaded: true, failed: false });
+  });
+
   describe("after handle.changed", () => {
     beforeEach(() => {
       vi.useFakeTimers();

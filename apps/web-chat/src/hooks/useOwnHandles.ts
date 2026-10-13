@@ -18,24 +18,41 @@ import { inboxStore, type OwnHandles } from "@/stores/inbox/store";
 let syncedClient: Client | undefined;
 
 /**
+ * Reads of the same client can finish out of order. Each read takes the next
+ * number, and the store keeps the number of the read whose handles it holds.
+ * A read stores its handles only when it is newer than that read, so an
+ * older read that finishes late never replaces newer handles. A failed read
+ * stores nothing: an older read that succeeds after a newer one failed can
+ * still fill the store. A failure marks the store failed only while it holds
+ * no handles (see `setOwnHandlesFailed`).
+ */
+let lastRead = 0;
+let storedRead = 0;
+
+/**
  * Reads the handles of the client's inbox into the inbox store. Returns the
- * handles it stored, or `undefined` when it dropped the read.
+ * handles that the store holds after the read, or `undefined` when the
+ * client is no longer current.
  */
 export const loadOwnHandles = async (
   client: Client,
   refreshFromNetwork: boolean = false,
 ): Promise<OwnHandles | undefined> => {
+  const read = ++lastRead;
   let state;
   try {
     state = await client.inboxState(refreshFromNetwork);
   } catch (error) {
     // a failure for a client that is no longer current changes nothing
-    if (client === syncedClient) {
+    if (client === syncedClient && read > storedRead) {
       inboxStore.getState().setOwnHandlesFailed();
     }
     throw error;
   }
   if (client !== syncedClient) return undefined;
+  // a newer read already stored its handles
+  if (read < storedRead) return inboxStore.getState().ownHandles;
+  storedRead = read;
   const handles = {
     handle: state.handle ?? null,
     otherHandles: state.otherHandles,
