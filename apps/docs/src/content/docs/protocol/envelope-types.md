@@ -6,13 +6,13 @@ Envelope types are the top-level protocol payloads that clients publish to the b
 
 The backend derives the wire topic from each payload. A publish request does not supply a topic. Query and subscription responses use unsigned backend envelopes over a trusted transport.
 
-| Envelope         | Purpose                                                    | Wire topic kind |
-| ---------------- | ---------------------------------------------------------- | --------------- |
-| Group message    | MLS application or commit message                          | `0x00`          |
-| Welcome          | Bootstrap a new group member                               | `0x01`          |
-| Identity update  | Link, rotate, or revoke inbox identities and installations | `0x02`          |
-| Key package      | Publish an installation's MLS credentials                  | `0x03`          |
-| Commit-log entry | Detect group commit forks                                  | `0x04`          |
+| Envelope         | Purpose                                                                       | Wire topic kind |
+| ---------------- | ----------------------------------------------------------------------------- | --------------- |
+| Group message    | MLS application or commit message                                             | `0x00`          |
+| Welcome          | Bootstrap a new group member                                                  | `0x01`          |
+| Identity update  | Link, rotate, or revoke inbox identities and installations, or claim a handle | `0x02`          |
+| Key package      | Publish an installation's MLS credentials                                     | `0x03`          |
+| Commit-log entry | Detect group commit forks                                                     | `0x04`          |
 
 ## Group messages
 
@@ -31,6 +31,8 @@ A key package contains the public encryption key, signature key, capabilities, l
 ## Identity updates
 
 Identity updates link installations and account identifiers to an inbox. They also carry rotation and revocation changes.
+
+An identity update can also claim a [handle](/protocol/identity/#handles), a public name such as `nick#2341`. An update that claims a handle carries no other action. The inbox's identity topic keeps every claim, so its handles stay public and permanent.
 
 ## Commit-log entries
 
