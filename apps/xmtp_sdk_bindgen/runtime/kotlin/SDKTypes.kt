@@ -31,8 +31,9 @@ internal data class ContentCodecKey(
     val authorityId: String,
     val typeId: String,
     val versionMajor: UInt,
+    val versionMinor: UInt,
 ) {
-    constructor(type: ContentTypeId) : this(type.authorityId, type.typeId, type.versionMajor)
+    constructor(type: ContentTypeId) : this(type.authorityId, type.typeId, type.versionMajor, type.versionMinor)
 }
 
 sealed class SDKMessageContent {

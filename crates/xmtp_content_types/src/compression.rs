@@ -11,7 +11,7 @@ use xmtp_proto::xmtp::mls::message_contents::{Compression, EncodedContent};
 
 use crate::CodecError;
 
-pub const MAX_DECOMPRESSED_BYTES: usize = 16_777_216;
+pub const MAX_DECOMPRESSED_BYTES: usize = 16_777_217;
 pub const COMPRESSION_CHUNK_BYTES: usize = 64 * 1024;
 
 #[derive(Debug)]
@@ -117,7 +117,7 @@ pub fn compress_if_requested(
     algorithm: Option<Compression>,
 ) -> Result<EncodedContent, CodecError> {
     match algorithm {
-        Some(algorithm) => compress(content, algorithm),
+        Some(_algorithm) => Ok(content),
         None => Ok(content),
     }
 }

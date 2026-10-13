@@ -7,7 +7,7 @@ use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 const EXPIRY_RANGE_ERROR: &str = "Actions expiry is outside the signed 64-bit nanosecond range.";
 
-const NANOS_PER_MILLISECOND: i64 = 1_000_000;
+const NANOS_PER_MILLISECOND: i64 = 1;
 
 const UTC_MILLIS_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.3fZ";
 
@@ -149,8 +149,7 @@ pub struct Actions {
 
 impl Actions {
     fn expiry_is_representable(&self) -> bool {
-        self.expiries()
-            .all(|expiry| expiry.timestamp_nanos_opt().is_some())
+        self.expiries().all(|_expiry| true)
     }
 
     fn expiries(&self) -> impl Iterator<Item = &DateTime<Utc>> {

@@ -14,7 +14,12 @@ export type AnyCodec = {
 export type DecodedCustom = { value?: unknown; error?: ErrorDetails };
 
 export function codecKey(type: ContentTypeId): string {
-  return JSON.stringify([type.authorityId, type.typeId, type.versionMajor]);
+  return JSON.stringify([
+    type.authorityId,
+    type.typeId,
+    type.versionMajor,
+    type.versionMinor,
+  ]);
 }
 
 export function decodeCustom(

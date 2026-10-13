@@ -32,11 +32,13 @@ struct ContentCodecKey: Hashable {
     let authorityId: String
     let typeId: String
     let versionMajor: UInt32
+    let versionMinor: UInt32
 
     init(_ type: ContentTypeId) {
         authorityId = type.authorityId
         typeId = type.typeId
         versionMajor = type.versionMajor
+        versionMinor = type.versionMinor
     }
 }
 
