@@ -1,19 +1,60 @@
 //! XMTP DB Pool
 
+use std::sync::Arc;
+
 use bon::bon;
 use diesel::{
     SqliteConnection,
     connection::SimpleConnection,
-    r2d2::{self, PooledConnection},
+    r2d2::{self, ManageConnection, PooledConnection},
 };
+use parking_lot::RwLock;
 
 use crate::{PlatformStorageError, StorageOption, native::XmtpConnection};
 use xmtp_configuration::{BUSY_TIMEOUT, MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
 type Pool = r2d2::Pool<ConnectionManager>;
-pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
+pub struct ConnectionManager {
+    inner: r2d2::ConnectionManager<SqliteConnection>,
+    customizer: Box<dyn XmtpConnection>,
+    open: Arc<RwLock<bool>>,
+}
+
+impl std::fmt::Debug for ConnectionManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionManager").finish_non_exhaustive()
+    }
+}
+
+impl ManageConnection for ConnectionManager {
+    type Connection = SqliteConnection;
+    type Error = r2d2::Error;
+
+    fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        // r2d2 can retain its shared pool while a background open is running.
+        // Fence the entire open, including pragmas, before file deletion.
+        let open = self.open.read();
+        if !*open {
+            return Err(r2d2::Error::ConnectionError(
+                diesel::ConnectionError::BadConnection("database pool is closed".into()),
+            ));
+        }
+        let mut connection = self.inner.connect()?;
+        self.customizer.on_acquire(&mut connection)?;
+        Ok(connection)
+    }
+
+    fn is_valid(&self, connection: &mut Self::Connection) -> Result<(), Self::Error> {
+        self.inner.is_valid(connection)
+    }
+
+    fn has_broken(&self, connection: &mut Self::Connection) -> bool {
+        self.inner.has_broken(connection)
+    }
+}
 
 pub struct DbPool {
     inner: Pool,
+    open: Arc<RwLock<bool>>,
 }
 
 #[bon]
@@ -27,16 +68,25 @@ impl DbPool {
         let StorageOption::Persistent(path) = customizer.options() else {
             return Err(PlatformStorageError::PoolRequiresPath);
         };
+        let open = Arc::new(RwLock::new(true));
+        let manager = ConnectionManager {
+            inner: r2d2::ConnectionManager::new(path),
+            customizer: customizer.clone(),
+            open: open.clone(),
+        };
         let pool = Pool::builder()
-            .connection_customizer(customizer.clone())
             .max_size(max_size.unwrap_or(MAX_DB_POOL_SIZE))
             .min_idle(Some(min_size.unwrap_or(MIN_DB_POOL_SIZE)))
-            .build(ConnectionManager::new(path))?;
+            .build(manager)?;
 
         let mut c = pool.get()?;
         c.batch_execute(&format!("PRAGMA busy_timeout = {};", BUSY_TIMEOUT))?;
         c.batch_execute("PRAGMA journal_mode = WAL;")?;
-        Ok(Self { inner: pool })
+        Ok(Self { inner: pool, open })
+    }
+
+    pub fn close(&self) {
+        *self.open.write() = false;
     }
 
     pub fn get(&self) -> Result<PooledConnection<ConnectionManager>, PlatformStorageError> {
@@ -45,6 +95,12 @@ impl DbPool {
 
     pub fn state(&self) -> r2d2::State {
         self.inner.state()
+    }
+}
+
+impl Drop for DbPool {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 
@@ -76,6 +132,102 @@ mod tests {
         fn reconnect(&self) -> Result<(), crate::ConnectionError> {
             todo!()
         }
+    }
+
+    #[derive(Clone, Debug)]
+    struct PausedConnection {
+        inner: UnencryptedConnection,
+        pause: Arc<std::sync::atomic::AtomicBool>,
+        entered: Arc<std::sync::Barrier>,
+        release: Arc<std::sync::Barrier>,
+    }
+
+    impl super::super::ConnectionOptions for PausedConnection {
+        fn options(&self) -> &StorageOption {
+            self.inner.options()
+        }
+    }
+
+    impl ValidatedConnection for PausedConnection {}
+
+    impl r2d2::CustomizeConnection<SqliteConnection, r2d2::Error> for PausedConnection {
+        fn on_acquire(&self, connection: &mut SqliteConnection) -> Result<(), r2d2::Error> {
+            if self.pause.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                self.entered.wait();
+                self.release.wait();
+            }
+            self.inner.on_acquire(connection)
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn close_waits_for_background_opens_and_prevents_file_recreation() {
+        use std::sync::{
+            Barrier,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        };
+        use xmtp_common::time::Duration;
+
+        const CLOSE_OBSERVATION_WINDOW: Duration = Duration::from_millis(100);
+
+        let path = std::path::PathBuf::from(xmtp_common::tmp_path());
+        let pause = Arc::new(AtomicBool::new(false));
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let pool = Arc::new(
+            DbPool::builder()
+                .customizer(Box::new(PausedConnection {
+                    inner: UnencryptedConnection::new(StorageOption::Persistent(
+                        path.to_string_lossy().into(),
+                    )),
+                    pause: pause.clone(),
+                    entered: entered.clone(),
+                    release: release.clone(),
+                }))
+                .max_size(2)
+                .min_size(0)
+                .build()?,
+        );
+        let first = pool.get()?;
+        pause.store(true, Ordering::SeqCst);
+        let opening = std::thread::spawn({
+            let pool = pool.clone();
+            move || pool.get()
+        });
+        entered.wait();
+        let (finished, closed) = mpsc::channel();
+        let closing = std::thread::spawn({
+            let pool = pool.clone();
+            move || {
+                pool.close();
+                finished.send(()).unwrap();
+            }
+        });
+        let early_close = closed.recv_timeout(CLOSE_OBSERVATION_WINDOW);
+        // Always release the initializer, including when the regression is present.
+        release.wait();
+        closing.join().unwrap();
+        drop(opening.join().unwrap()?);
+        drop(first);
+        assert!(
+            matches!(early_close, Err(mpsc::RecvTimeoutError::Timeout)),
+            "close returned while a background connection was still initializing"
+        );
+        let manager = ConnectionManager {
+            inner: r2d2::ConnectionManager::new(path.to_string_lossy()),
+            customizer: Box::new(UnencryptedConnection::new(StorageOption::Persistent(
+                path.to_string_lossy().into(),
+            ))),
+            open: pool.open.clone(),
+        };
+        drop(pool);
+        std::fs::remove_file(&path)?;
+        assert!(manager.connect().is_err());
+        assert!(
+            !path.exists(),
+            "a closed pool recreated the deleted database"
+        );
     }
 
     #[derive(QueryableByName, Debug)]
