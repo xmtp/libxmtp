@@ -503,6 +503,8 @@ New consent and events:
 | `close()`                                                                                                                     | `await client.end()`.                                                                                                                                                  |
 | Instance `verifySignedWithPublicKey(text, signature, publicKey)`                                                              | Static `Client.verifySignedWithPublicKey(text, signature, publicKey)`.                                                                                                 |
 
+Handles are new. An inbox can claim a public name such as `nick#2341`, and a `PublicIdentity` of kind `handle` finds that inbox. Static `Client.inboxIdFor` never derives an inbox ID from a handle: it fails with `IdentityNotFound` for a handle that no inbox claimed. See [Handles](/sdk/inboxes/#handles).
+
 New identity queries and signature request:
 
 ```ts source="migration-browser.ts" region="identity"

@@ -15,6 +15,8 @@ When you call `Client.create()` on Browser or Node, or `SDKClient.create()` on K
 3. It opens or creates the local database for that inbox and installation.
 4. It asks the signer to register a new installation when needed, unless `registration.auto` is `false`.
 
+The signer's identity is an Ethereum or passkey account. A [handle](/sdk/inboxes/#handles) cannot sign, so client creation fails with `InvalidArgument` for a handle. A registered client can claim a handle for its inbox with `claimHandle`.
+
 ### Keep the database encryption key safe
 
 For Node, Kotlin, and Swift, generate a secure 32-byte encryption key and store it so the app can use the same key on every launch. If the key changes or is lost, the client cannot read the former encrypted database. Keep the same key when reopening it.

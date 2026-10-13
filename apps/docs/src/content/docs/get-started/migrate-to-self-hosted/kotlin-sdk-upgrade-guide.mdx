@@ -186,6 +186,8 @@ The client now has an explicit lifetime. End it in `withContext(NonCancellable) 
 
 New identity methods include `register()`, `isRegistered()`, `installationIdBytes()`, `options()`, `appVersion()`, `changeRecoveryIdentifier(signer, identity)`, `latestInboxUpdatesCount(ids, refreshFromNetwork)`, `ownInboxUpdatesCount(refreshFromNetwork)`, `serverConfiguration()`, `refreshServerConfiguration()`, and `setCredential(credential)`. Static helpers also include `isAddressAuthorized(inboxId, address, backend)` and `isInstallationAuthorized(inboxId, installationId, backend)`, both returning `Boolean`. A configuration refresh returns the fetched value; it does not replace the running client's held configuration. `fetchServerConfiguration(backend)` can discover configuration before client creation. Supply a fixed `Credential` or a suspend `CredentialSource.credential()` in `BackendOptions` when the deployment requires authentication.
 
+Handles are new. An inbox can claim a public name such as `nick#2341`, and a `PublicIdentity` of kind `PublicIdentityKind.HANDLE` finds that inbox. `SDKClient.inboxIdFor(identity, backend)` never derives an inbox ID from a handle: it throws `XmtpException.IdentityNotFound` for a handle that no inbox claimed. `InboxState` and `Member` also have `handle` and `otherHandles`. See [Handles](/sdk/inboxes/#handles).
+
 Before:
 
 ```kotlin

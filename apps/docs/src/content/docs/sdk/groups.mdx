@@ -80,7 +80,11 @@ The backend sets the group member limit. The default limit is 250 inboxes.
 
 Use `addMembers` and `removeMembers` with a list of inbox IDs or a list of `PublicIdentity` values. Swift uses the `members:` label. Call `members()` to read the member list on all four SDKs. These calls are asynchronous.
 
+A `PublicIdentity` list can hold [handles](/sdk/inboxes/#handles) and accounts together, and each call makes one commit. A handle that no inbox claimed fails the call with `IdentityNotFound` before any change.
+
 Sync before you read the member list.
+
+Each `Member` has `handle`, the inbox's current handle, and `otherHandles`, its other handles with the most recent first. Show `handle` as the text that identifies the member, and show `otherHandles` only as secondary information. See [Show handles](/sdk/inboxes/#show-handles).
 
 ## Leave a group
 
