@@ -27,7 +27,7 @@
     "apps/.gitkeep",
     ".github/{CODEOWNERS,dependabot.yml}",
     ".github/ISSUE_TEMPLATE/**",
-    "dev/{fly,tls,test}/**",
+    "dev/{fly,test}/**",
     "dev/{ast-outline,bench,serena,flamegraph,llvm-cov,up,down,direnv-up,direnv-down,docs}",
     "dev/{nix-up,nix-down,nix-status,nix-cache-up,ci-failure-markers}",
     "dev/{ci,nix}/**"
@@ -127,6 +127,9 @@
       "paths": [
         "**/*.{nix,py,sh,toml,kt,kts,swift}",
         ".github/**",
+        "apps/backend/backend.just",
+        "dev/docker/{compose.yml,load-backend-image,load-env,up}",
+        "dev/tls/**",
         "dev/{tests,agents,specs,release-tools}/**",
         "nix/fmt.nix",
         "{.editorconfig,sdks/ios/.swiftformat}"

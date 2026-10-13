@@ -16,7 +16,8 @@ services:
       retries: 30
 
   backend:
-    image: ghcr.io/xmtp/backend:self-hosted
+    # This worktree's build. See dev/docker/compose.yml.
+    image: ${XMTP_BACKEND_IMAGE:-ghcr.io/xmtp/backend:self-hosted}
     depends_on:
       db: { condition: service_healthy }
     environment:

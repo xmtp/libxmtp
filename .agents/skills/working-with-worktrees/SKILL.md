@@ -1,12 +1,12 @@
 ---
 name: working-with-worktrees
-description: Use when creating a git worktree, running the Docker stack or tests from more than one checkout at once, or debugging port and database conflicts between checkouts - covers per-worktree slots, the generated env file, shared caches, the shared stash, and the commands that report and release a stack
+description: Use when creating a git worktree, running the Docker stack or tests from more than one checkout at once, or debugging port, database, or backend image conflicts between checkouts - covers per-worktree slots, the generated env file, per-worktree backend images, shared caches, the shared stash, and the commands that report and release a stack
 ---
 
 # Working with worktrees in libxmtp
 
-Each worktree gets its own Compose project and host ports, so several can run
-the stack at once. Never assume port 5050: that is only the main checkout.
+Each worktree gets its own Compose project, host ports, and backend image tag,
+so several can run the stack at once. Never assume port 5050: that is only the main checkout.
 Every port in `docs/` and `AGENTS.md` is a slot-0 value.
 
 ## Start work in a new worktree
@@ -15,12 +15,21 @@ Every port in `docs/` and `AGENTS.md` is a slot-0 value.
 git worktree add ../<name>/libxmtp -b <branch> origin/self-hosted
 cd ../<name>/libxmtp
 dev/nix-shell 'just backend up'      # this worktree's own stack
-dev/nix-shell 'just backend status'  # project, slot, ports, URLs
+dev/nix-shell 'just backend status'  # project, slot, image, ports, URLs
 ```
 
 `dev/worktree-env` claims a slot for the checkout and writes `dev/docker/.env`
 (gitignored). Ports are `base + slot * 100`. The main checkout and any plain
 clone, so CI, are slot 0.
+
+The file also sets `XMTP_BACKEND_IMAGE` to `xmtp-backend:<project>`. Every Nix
+image build has the tag `ghcr.io/xmtp/backend:self-hosted`, so
+`just backend up` loads the build under the worktree's tag instead
+(`dev/docker/load-backend-image`). Compose runs that tag, so a recreated backend
+never runs another worktree's build. Do not `docker load` the archive for the
+stack by hand. To run a different image, such as a published release, set
+`XMTP_BACKEND_IMAGE` and start with `dev/docker/up`. `just backend up` would
+still build this worktree's image, but it does not load the build under that tag.
 
 ## Run in parallel without conflicts
 
@@ -56,6 +65,9 @@ worktree-env: this worktree is 'libxmtp-agent-efficiency-1' (slot 1). Stop the o
 
 - A stack from a deleted worktree keeps running. Find it with `docker ps` and
   stop it with `docker compose -p <project> down`.
+- A backend runs code from another checkout: compare the `image:` line of
+  `just backend status` with the image in `docker ps`, then run
+  `just backend up` again.
 - A port held by a non-Compose process is an unrelated local service. Stop it
   or override with `XMTP_WORKTREE_SLOT=<n>`.
 - All 40 slots claimed: run `just backend release` in worktrees you are done
@@ -64,6 +76,10 @@ worktree-env: this worktree is 'libxmtp-agent-efficiency-1' (slot 1). Stop the o
 ## Finish
 
 ```sh
-dev/nix-shell 'just backend release'   # stop the stack, free the slot
+dev/nix-shell 'just backend release'   # stop the stack, free the slot, remove the image tag
 git worktree remove ../<name>/libxmtp
 ```
+
+A worktree removed without `release` keeps its image tag. List the tags with
+`docker images xmtp-backend` and remove one with
+`docker image rm xmtp-backend:<project>`.

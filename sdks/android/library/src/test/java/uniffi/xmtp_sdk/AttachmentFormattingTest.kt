@@ -59,7 +59,18 @@ class AttachmentFormattingTest {
     @Test
     fun encodedRemoteAttachmentTextKeepsUrlStructured() {
         val attachment =
-            RemoteAttachment(url, "digest", byteArrayOf(1, 2), byteArrayOf(3), byteArrayOf(4), "https", 2u, "file.txt")
+            RemoteAttachment(
+                url,
+                "ab".repeat(32),
+                ByteArray(32) {
+                    1
+                },
+                ByteArray(32) { 2 },
+                ByteArray(12) { 3 },
+                "https://",
+                2u,
+                "file.txt",
+            )
         val codec = RemoteAttachmentCodec()
         val encoded = codec.encode(attachment)
         val reply = ReplyContent("message", null, encoded)
