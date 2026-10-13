@@ -258,8 +258,14 @@ fn time_audience_and_issuer_errors_follow_the_documented_order() {
     let now = xmtp_common::time::now_secs();
     let cases = [
         (json!({}), Rejection::Expired),
-        (json!({"exp": "sentinel"}), Rejection::Malformed),
-        (json!({"exp": null}), Rejection::Malformed),
+        (
+            json!({"exp": "sentinel", "aud": "backend", "iss": "issuer"}),
+            Rejection::Malformed,
+        ),
+        (
+            json!({"exp": null, "aud": "backend", "iss": "issuer"}),
+            Rejection::Malformed,
+        ),
         // Stay well clear of the 60 s leeway. A one-second margin flips when
         // minting and verification land in different seconds.
         (json!({"exp": now - 3600}), Rejection::Expired),
@@ -268,9 +274,12 @@ fn time_audience_and_issuer_errors_follow_the_documented_order() {
             Rejection::NotYetValid,
         ),
         (json!({"exp": now + 3600}), Rejection::Audience),
-        (json!({"exp": now + 3600, "aud": 1}), Rejection::Malformed),
         (
-            json!({"exp": now + 3600, "aud": ["backend", 1]}),
+            json!({"exp": now + 3600, "aud": 1, "iss": "issuer"}),
+            Rejection::Malformed,
+        ),
+        (
+            json!({"exp": now + 3600, "aud": ["backend", 1], "iss": "issuer"}),
             Rejection::Malformed,
         ),
         (
@@ -509,5 +518,128 @@ fn numeric_dates_round_fractional_seconds_and_accept_finite_nonnegative_numbers(
     }
     for value in [json!(-1), json!(-0.1), json!(null), json!("1")] {
         assert_eq!(numeric_date(&value), None);
+    }
+}
+
+// verifies: AUTH-014, AUTH-031
+#[xmtp_common::test(unwrap_try = true)]
+fn mixed_claim_errors_follow_table_order_with_and_without_allowlists() {
+    let key = TestKey::es256();
+    let now = xmtp_common::time::now_secs();
+    let base = json!({"exp": now + 3600, "nbf": 0, "aud": "backend", "iss": "issuer", "sub": "caller", "scope": "required"});
+    for audiences in [false, true] {
+        for issuers in [true, false] {
+            let mut config = key.auth_config();
+            config.required_scopes = vec!["required".into()];
+            if audiences {
+                config.audiences = Some(vec!["backend".into()]);
+            }
+            if issuers {
+                config.issuers = Some(vec!["issuer".into()]);
+            }
+            let verifier = verifier(config);
+            let issuer_before_type = if issuers {
+                Rejection::Issuer
+            } else {
+                Rejection::Malformed
+            };
+            let audience_before_type = if audiences {
+                Rejection::Audience
+            } else {
+                Rejection::Malformed
+            };
+            let allowlist_before_type = if audiences {
+                Rejection::Audience
+            } else {
+                issuer_before_type
+            };
+            let cases = [
+                (json!({"aud": 1, "iss": "other"}), issuer_before_type),
+                (
+                    json!({"exp": now - 3600, "nbf": null, "aud": 1, "iss": false, "sub": null, "scope": null}),
+                    Rejection::Expired,
+                ),
+                (
+                    json!({"nbf": now + 3600, "aud": 1, "iss": false, "sub": null, "scope": null}),
+                    Rejection::NotYetValid,
+                ),
+                (
+                    json!({"exp": null, "nbf": now + 3600}),
+                    Rejection::NotYetValid,
+                ),
+                (
+                    json!({"exp": "invalid", "nbf": null, "aud": "other", "iss": "other", "sub": false}),
+                    allowlist_before_type,
+                ),
+                (
+                    json!({"nbf": -1, "aud": "other", "iss": "other"}),
+                    allowlist_before_type,
+                ),
+                (json!({"aud": "other", "iss": false}), audience_before_type),
+                (json!({"aud": 1, "iss": false}), Rejection::Malformed),
+                (json!({"iss": "other", "scope": null}), issuer_before_type),
+                (json!({"sub": null, "scope": "other"}), Rejection::Malformed),
+                (json!({"scope": "other"}), Rejection::Scope),
+            ];
+            for (changes, expected) in cases {
+                let mut claims = base.clone();
+                for (name, value) in changes.as_object().unwrap() {
+                    claims[name] = value.clone();
+                }
+                assert_eq!(
+                    verifier.verify(&headers(&mint(&claims, &key))),
+                    Err(expected),
+                    "audiences={audiences}, issuers={issuers}, {claims}"
+                );
+            }
+            let mut no_exp = base.clone();
+            no_exp.as_object_mut().unwrap().remove("exp");
+            no_exp["nbf"] = json!(now + 3600);
+            no_exp["aud"] = json!(1);
+            assert_eq!(
+                verifier.verify(&headers(&mint(&no_exp, &key))),
+                Err(Rejection::Expired)
+            );
+            for invalid_date in [
+                json!(null),
+                json!("1"),
+                json!(-1),
+                json!(-0.1),
+                json!(true),
+                json!([]),
+            ] {
+                let mut claims = base.clone();
+                claims["exp"] = invalid_date.clone();
+                assert_eq!(
+                    verifier.verify(&headers(&mint(&claims, &key))),
+                    Err(Rejection::Malformed),
+                    "{claims}"
+                );
+                claims["exp"] = base["exp"].clone();
+                claims["nbf"] = invalid_date;
+                assert_eq!(
+                    verifier.verify(&headers(&mint(&claims, &key))),
+                    Err(Rejection::Malformed),
+                    "{claims}"
+                );
+            }
+            for missing in ["aud", "iss"] {
+                let mut claims = base.clone();
+                claims.as_object_mut().unwrap().remove(missing);
+                claims["exp"] = json!(null);
+                let expected = if missing == "aud" && audiences {
+                    Rejection::Audience
+                } else if missing == "iss" && issuers {
+                    Rejection::Issuer
+                } else {
+                    Rejection::Malformed
+                };
+                assert_eq!(
+                    verifier.verify(&headers(&mint(&claims, &key))),
+                    Err(expected),
+                    "{claims}"
+                );
+            }
+        }
     }
 }

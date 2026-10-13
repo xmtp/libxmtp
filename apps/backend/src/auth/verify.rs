@@ -207,51 +207,54 @@ impl Verifier {
 
     /// Enforce strict JSON claim types and the documented error order.
     /// This must only receive claims whose signature has been verified.
-    // implements: AUTH-011, AUTH-012, AUTH-013, AUTH-031
+    // implements: AUTH-011, AUTH-012, AUTH-013, AUTH-014, AUTH-031
     fn check_claims(&self, value: Value) -> Result<AuthContext, Rejection> {
         let now = xmtp_common::time::now_secs() as u64;
-        let exp = numeric_date(value.get("exp").ok_or(Rejection::Expired)?)
-            .ok_or(Rejection::Malformed)?;
-        if exp < now.saturating_sub(self.config.leeway_seconds) {
+        let exp = numeric_date(value.get("exp").ok_or(Rejection::Expired)?);
+        let mut malformed = exp.is_none();
+        if exp.is_some_and(|exp| exp < now.saturating_sub(self.config.leeway_seconds)) {
             return Err(Rejection::Expired);
         }
         if let Some(nbf) = value.get("nbf") {
-            let nbf = numeric_date(nbf).ok_or(Rejection::Malformed)?;
-            if nbf > now.saturating_add(self.config.leeway_seconds) {
+            let nbf = numeric_date(nbf);
+            malformed |= nbf.is_none();
+            if nbf.is_some_and(|nbf| nbf > now.saturating_add(self.config.leeway_seconds)) {
                 return Err(Rejection::NotYetValid);
             }
         }
         let audience = match value.get("aud") {
             None => None,
             Some(Value::String(aud)) => Some(vec![aud.as_str()]),
-            Some(Value::Array(aud)) => Some(
-                aud.iter()
-                    .map(Value::as_str)
-                    .collect::<Option<Vec<_>>>()
-                    .ok_or(Rejection::Malformed)?,
-            ),
-            _ => return Err(Rejection::Malformed),
+            Some(Value::Array(aud)) => {
+                let audience = aud.iter().map(Value::as_str).collect::<Option<Vec<_>>>();
+                malformed |= audience.is_none();
+                audience
+            }
+            _ => {
+                malformed = true;
+                None
+            }
         };
-        if let Some(allowed) = &self.config.audiences {
-            let audience = audience.ok_or(Rejection::Audience)?;
-            if !audience
-                .iter()
-                .any(|aud| allowed.iter().any(|allowed| allowed == aud))
-            {
-                return Err(Rejection::Audience);
-            }
+        if let Some(allowed) = &self.config.audiences
+            && (value.get("aud").is_none()
+                || audience.as_ref().is_some_and(|audience| {
+                    !audience
+                        .iter()
+                        .any(|aud| allowed.iter().any(|allowed| allowed == aud))
+                }))
+        {
+            return Err(Rejection::Audience);
         }
-        let issuer = value
-            .get("iss")
-            .map(|issuer| issuer.as_str().ok_or(Rejection::Malformed))
-            .transpose()?;
-        if let Some(allowed) = &self.config.issuers {
-            let issuer = issuer.ok_or(Rejection::Issuer)?;
-            if !allowed.iter().any(|allowed| allowed == issuer) {
-                return Err(Rejection::Issuer);
-            }
+        let issuer = value.get("iss").and_then(Value::as_str);
+        malformed |= value.get("iss").is_some() && issuer.is_none();
+        if let Some(allowed) = &self.config.issuers
+            && (value.get("iss").is_none()
+                || issuer.is_some_and(|issuer| !allowed.iter().any(|allowed| allowed == issuer)))
+        {
+            return Err(Rejection::Issuer);
         }
-        if value.get("sub").is_some_and(|sub| !sub.is_string()) {
+        // Type errors follow valid time and allowlist failures.
+        if malformed || value.get("sub").is_some_and(|sub| !sub.is_string()) {
             return Err(Rejection::Malformed);
         }
         let claims: Claims = serde_json::from_value(value).map_err(|_| Rejection::Malformed)?;
