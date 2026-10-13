@@ -17,13 +17,17 @@ describe("LocalSigningKey", () => {
       kind: "ethereum",
       identifier: "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
     });
-    const bytes = await key.toBytes();
+    const bytesResult = key.toBytes();
+    expect(bytesResult).toBeInstanceOf(Promise);
+    const bytes = await bytesResult;
     expect(bytes).toHaveLength(32);
     const backing = new Uint8Array(34);
     backing.set(bytes, 1);
     const restored = await LocalSigningKey.fromBytes(backing.subarray(1, 33));
     bytes.fill(0);
-    expect(await key.toHex()).toBe(fixed);
+    const hexResult = key.toHex();
+    expect(hexResult).toBeInstanceOf(Promise);
+    expect(await hexResult).toBe(fixed);
     expect(await restored.toHex()).toBe(fixed);
     expect(await restored.sign({ text: "restore account" })).toEqual(
       await key.sign({ text: "restore account" }),

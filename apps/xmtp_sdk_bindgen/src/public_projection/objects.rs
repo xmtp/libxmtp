@@ -277,9 +277,17 @@ fn is_codec_send(owner: &str, name: &str) -> bool {
     matches!(owner, "Group" | "Dm") && matches!(name, "send" | "prepareMessage")
 }
 
+/// Keep the JavaScript key-export API asynchronous even when its native
+/// binding is synchronous. WebAssembly keeps these calls in the worker.
+fn javascript_async(method: &MethodMetadata) -> bool {
+    method.is_async
+        || (method.self_name == "LocalSigningKey"
+            && matches!(method.name.as_str(), "to_bytes" | "to_hex"))
+}
+
 /// A synchronous, argument-free, infallible member with a result.
 pub(super) fn is_getter(method: &MethodMetadata) -> bool {
-    !method.is_async
+    !javascript_async(method)
         && method.inputs.is_empty()
         && method.throws.is_none()
         && method.return_type.is_some()
@@ -287,12 +295,13 @@ pub(super) fn is_getter(method: &MethodMetadata) -> bool {
 
 fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &str) -> Result<()> {
     let name = camel(&method.name);
+    let asynchronous = javascript_async(method);
     let call = call(
         owner,
         &name,
         &method.inputs,
         method.return_type.as_ref(),
-        method.is_async,
+        asynchronous,
     );
     // Decision 14: a synchronous, argument-free, infallible member is a
     // readonly getter.
@@ -309,7 +318,7 @@ fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &st
         writeln!(
             code,
             "{}{}{name}({}): {} {{",
-            if method.is_async { "async " } else { "" },
+            if asynchronous { "async " } else { "" },
             if getter { "get " } else { "" },
             call.parameters,
             call.result_type
@@ -319,14 +328,21 @@ fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &st
     render_body(
         code,
         &call,
-        &|args| match routed {
-            Some(routed) => format!(
-                "({} ? {receiver}.{}({}) : {receiver}.{name}({args}))",
-                routed.guard, routed.identity, routed.arguments
-            ),
-            None => format!("{receiver}.{name}({args})"),
+        &|args| {
+            let call = match routed {
+                Some(routed) => format!(
+                    "({} ? {receiver}.{}({}) : {receiver}.{name}({args}))",
+                    routed.guard, routed.identity, routed.arguments
+                ),
+                None => format!("{receiver}.{name}({args})"),
+            };
+            if asynchronous && !method.is_async {
+                format!("Promise.resolve({call})")
+            } else {
+                call
+            }
         },
-        method.is_async,
+        asynchronous,
     )?;
     code.push_str("}\n");
     Ok(())
@@ -701,5 +717,47 @@ mod pure_inbox_tests {
         assert!(root.contains("export { generateInboxId } from \"../typescript-pure/index.js\""));
         metadata.inputs[1].ty = Type::Int64;
         assert!(function(&mut String::new(), &metadata, Target::Pure).is_err());
+    }
+}
+
+#[cfg(test)]
+mod local_key_export_tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn local_key_exports_keep_async_javascript_methods() {
+        for (name, output, expected) in [
+            ("to_bytes", Type::Bytes, "toBytes(): Promise<Uint8Array>"),
+            ("to_hex", Type::String, "toHex(): Promise<string>"),
+        ] {
+            for is_async in [false, true] {
+                let method = MethodMetadata {
+                    module_path: "xmtp_sdk::signer".into(),
+                    self_name: "LocalSigningKey".into(),
+                    name: name.into(),
+                    orig_name: None,
+                    is_async,
+                    inputs: vec![],
+                    return_type: Some(output.clone()),
+                    throws: None,
+                    takes_self_by_arc: false,
+                    checksum: None,
+                    docstring: (!is_async).then(|| "@xmtp-immutable".into()),
+                };
+                let mut code = String::new();
+                member(&mut code, "LocalSigningKey", &method, "binding")?;
+                assert!(code.contains(&format!("async {expected}")), "{code}");
+                assert!(!is_getter(&method));
+                assert_eq!(code.contains("await binding."), is_async, "{code}");
+                assert_eq!(
+                    code.contains("await Promise.resolve(binding."),
+                    !is_async,
+                    "{code}"
+                );
+                let mut unrelated = method.clone();
+                unrelated.self_name = "Other".into();
+                assert_eq!(is_getter(&unrelated), !is_async);
+            }
+        }
     }
 }

@@ -60,7 +60,9 @@ returns lowercase hex with a `0x` prefix; `toBytes()` returns a copy of the 32
 private-key bytes. `LocalSigningKey.fromHex()` and `fromBytes()` restore the same
 identity. Hex imports require `0x` followed by exactly 64 hexadecimal digits.
 Invalid lengths, invalid hex, zero, and out-of-range private keys fail with
-`InvalidInput`. All these methods are asynchronous.
+`InvalidInput`. `toBytes()` and `toHex()` are synchronous on Swift and Kotlin,
+and asynchronous on Node and Browser. Generation, import, and signing remain
+asynchronous on every platform.
 
 | SDK              | Byte type    |
 | ---------------- | ------------ |
@@ -96,8 +98,8 @@ val keyHex = signer.toHex()
 
 ```swift
 let signer = try await LocalSigningKey.fromHex(key: saved)
-let keyBytes = await signer.toBytes()
-let keyHex = await signer.toHex()
+let keyBytes = signer.toBytes()
+let keyHex = signer.toHex()
 ```
 
 </TabItem>

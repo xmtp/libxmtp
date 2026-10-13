@@ -5,11 +5,11 @@ import XmtpSdk
 final class LocalSigningKeyTests: XCTestCase {
 	func testExportRestoreAndSignerConformance() async throws {
 		let key = await SDKClient.generateKeys()
-		let bytes = await key.toBytes()
-		let hex = await key.toHex()
+		let bytes = key.toBytes()
+		let hex = key.toHex()
 		XCTAssertEqual(bytes.count, 32)
 		let restored = try await LocalSigningKey.fromHex(key: hex)
-		let restoredBytes = await restored.toBytes()
+		let restoredBytes = restored.toBytes()
 		XCTAssertEqual(restoredBytes, bytes)
 		let owner: Signer = try await LocalSigningKey.fromBytes(key: bytes)
 		let identity = try await owner.identity()
@@ -27,7 +27,7 @@ final class LocalSigningKeyTests: XCTestCase {
 		let key = try await LocalSigningKey.fromHex(key: fixed)
 		let identity = try await key.identity()
 		XCTAssertEqual(identity.identifier, "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf")
-		let exported = await key.toHex()
+		let exported = key.toHex()
 		XCTAssertEqual(exported, fixed)
 		XCTAssertFalse(String(describing: key).contains(String(fixed.dropFirst(2))))
 		for bytes in [Data(repeating: 0, count: 31), Data(repeating: 0, count: 32), Data(repeating: 255, count: 32)] {

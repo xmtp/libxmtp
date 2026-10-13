@@ -29,6 +29,7 @@ try {
 
 Save `signer.toHex()` securely and restore it with `LocalSigningKey.fromHex(saved)`
 on later starts. `toBytes()` and `fromBytes()` use 32-byte `ByteArray` values.
+Exports are synchronous; generation and import are suspend functions.
 Keep signing keys separate from database encryption keys.
 
 The SDK supports Android API 23 and later. Enable

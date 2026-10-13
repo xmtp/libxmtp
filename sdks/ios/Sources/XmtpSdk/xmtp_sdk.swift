@@ -6726,12 +6726,12 @@ public protocol LocalSigningKeyProtocol: AnyObject, Sendable {
     /**
      * Export a copy of the private key. Store it securely; it controls the account.
      */
-    func toBytes() async  -> Data
+    func toBytes()  -> Data
 
     /**
      * Export the private key as lowercase, 0x-prefixed hex. Store it securely.
      */
-    func toHex() async  -> String
+    func toHex()  -> String
 
 }
 /**
@@ -6882,43 +6882,25 @@ open func sign(request: SigningRequest)async throws  -> Signature  {
     /**
      * Export a copy of the private key. Store it securely; it controls the account.
      */
-open func toBytes()async  -> Data  {
-    return
-        try!  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtp_sdk_fn_method_localsigningkey_to_bytes(
-                        self.uniffiCloneHandle()
-                )
-            },
-            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
-            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
-            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
-            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterData.lift,
-            errorHandler: nil
-
-        )
+open func toBytes() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_method_localsigningkey_to_bytes(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
 }
 
     /**
      * Export the private key as lowercase, 0x-prefixed hex. Store it securely.
      */
-open func toHex()async  -> String  {
-    return
-        try!  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtp_sdk_fn_method_localsigningkey_to_hex(
-                        self.uniffiCloneHandle()
-                )
-            },
-            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
-            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
-            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
-            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterString.lift,
-            errorHandler: nil
-
-        )
+open func toHex() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_method_localsigningkey_to_hex(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
 }
 
 
@@ -30425,10 +30407,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_localsigningkey_sign() != 26966) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_to_bytes() != 32136) {
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_to_bytes() != 44337) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_to_hex() != 39070) {
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_to_hex() != 58335) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_signer_identity() != 1499) {

@@ -42,16 +42,6 @@ impl LocalSigningKey {
         Self::from_bytes(bytes).await
     }
 
-    /// Export a copy of the private key. Store it securely; it controls the account.
-    pub async fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_bytes().to_vec()
-    }
-
-    /// Export the private key as lowercase, 0x-prefixed hex. Store it securely.
-    pub async fn to_hex(&self) -> String {
-        format!("0x{}", hex::encode(self.0.to_bytes()))
-    }
-
     pub async fn identity(&self) -> Result<PublicIdentity, XmtpError> {
         <Self as Signer>::identity(self)
             .await
@@ -68,6 +58,44 @@ impl LocalSigningKey {
         <Self as Signer>::sign(self, request)
             .await
             .map_err(|_| XmtpError::signer())
+    }
+}
+
+impl LocalSigningKey {
+    fn private_key_bytes(&self) -> Vec<u8> {
+        self.0.to_bytes().to_vec()
+    }
+
+    fn private_key_hex(&self) -> String {
+        format!("0x{}", hex::encode(self.0.to_bytes()))
+    }
+}
+
+#[xmtp_macro::sdk_export(native_only)]
+impl LocalSigningKey {
+    /// Export a copy of the private key. Store it securely; it controls the account.
+    #[sdk(immutable)]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.private_key_bytes()
+    }
+
+    /// Export the private key as lowercase, 0x-prefixed hex. Store it securely.
+    #[sdk(immutable)]
+    pub fn to_hex(&self) -> String {
+        self.private_key_hex()
+    }
+}
+
+#[xmtp_macro::sdk_export(wasm_only)]
+impl LocalSigningKey {
+    /// Export a copy of the private key. Store it securely; it controls the account.
+    pub async fn to_bytes(&self) -> Vec<u8> {
+        self.private_key_bytes()
+    }
+
+    /// Export the private key as lowercase, 0x-prefixed hex. Store it securely.
+    pub async fn to_hex(&self) -> String {
+        self.private_key_hex()
     }
 }
 

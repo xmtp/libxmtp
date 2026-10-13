@@ -225,3 +225,11 @@ runs `prepareMigrationArchive` through `WorkerSessions.runExclusive`. It rejects
 active clients and storage calls, starts a fresh worker, and waits for worker
 termination before it returns. The dispatch assigns the normal storage pool to
 this call. `readMigrationArchive` uses the normal worker and byte codec.
+
+## Local signing key exports
+
+`LocalSigningKey.toBytes()` and `toHex()` are synchronous in Swift and Kotlin.
+The native Rust exports are immutable getters; the JavaScript public projection
+keeps them as asynchronous methods for parity with the WebAssembly worker calls.
+The WebAssembly exports stay asynchronous and are never included in an object
+snapshot, so creating a key does not export its private material to JavaScript.

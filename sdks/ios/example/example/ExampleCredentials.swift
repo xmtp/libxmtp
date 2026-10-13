@@ -11,7 +11,7 @@ struct ExampleCredentials: Codable {
 			return saved
 		}
 		let signer = await SDKClient.generateKeys()
-		let signerKey = await signer.toBytes()
+		let signerKey = signer.toBytes()
 		let credentials = try ExampleCredentials(signerKey: signerKey, databaseKey: randomKey())
 		var query = keychainQuery(service: service)
 		query[kSecValueData as String] = try JSONEncoder().encode(credentials)

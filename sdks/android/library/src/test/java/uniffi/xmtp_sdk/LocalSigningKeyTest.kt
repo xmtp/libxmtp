@@ -12,8 +12,7 @@ class LocalSigningKeyTest {
     fun exportRestoreAndSignerConformance() =
         runBlocking {
             val key = SDKClient.generateKeys()
-            val bytes = key.toBytes()
-            val hex = key.toHex()
+            val (bytes, hex) = exportKey(key)
             assertEquals(32, bytes.size)
             val restored = LocalSigningKey.fromHex(hex)
             assertArrayEquals(bytes, restored.toBytes())
@@ -41,3 +40,6 @@ class LocalSigningKeyTest {
             }
         }
 }
+
+// This ordinary function is a compile-time check that mobile exports do not suspend.
+private fun exportKey(key: LocalSigningKey): Pair<ByteArray, String> = key.toBytes() to key.toHex()

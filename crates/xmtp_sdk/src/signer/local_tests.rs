@@ -11,16 +11,16 @@ async fn local_key_restores_identity_and_personal_message_signatures() {
         "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
     );
     assert!(matches!(key.kind().await?, SignerKind::Eoa));
-    let mut bytes = key.to_bytes().await;
+    let mut bytes = export_bytes(&key).await;
     assert_eq!(bytes.len(), 32);
     assert_eq!(bytes[31], 1);
     let restored = LocalSigningKey::from_bytes(bytes.clone()).await?;
     bytes.fill(0);
-    assert_eq!(key.to_hex().await, KEY);
-    assert_eq!(restored.to_hex().await, KEY);
+    assert_eq!(export_hex(&key).await, KEY);
+    assert_eq!(export_hex(&restored).await, KEY);
     let text = "XMTP local signing key round trip";
-    let expected =
-        PrivateKeySigner::from_slice(&key.to_bytes().await)?.sign_message_sync(text.as_bytes())?;
+    let expected = PrivateKeySigner::from_slice(&export_bytes(&key).await)?
+        .sign_message_sync(text.as_bytes())?;
     for signer in [key, restored] {
         let Signature::Ecdsa(actual) = signer.sign(SigningRequest { text: text.into() }).await?
         else {
@@ -63,18 +63,40 @@ async fn local_key_rejects_invalid_scalars_and_encodings_without_echoing_them() 
     }
     let upper = "0x".to_owned() + &"ab".repeat(32);
     let key = LocalSigningKey::from_hex(upper.to_uppercase().replacen("0X", "0x", 1)).await?;
-    assert_eq!(key.to_hex().await, upper);
+    assert_eq!(export_hex(&key).await, upper);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_key_generation_is_exportable_and_debug_is_redacted() {
     let first = generate_keys().await;
     let second = generate_keys().await;
-    assert_ne!(first.to_bytes().await, second.to_bytes().await);
-    let restored = LocalSigningKey::from_hex(first.to_hex().await).await?;
+    assert_ne!(export_bytes(&first).await, export_bytes(&second).await);
+    let restored = LocalSigningKey::from_hex(export_hex(&first).await).await?;
     assert_eq!(
         first.identity().await?.identifier,
         restored.identity().await?.identifier
     );
     assert_eq!(format!("{first:?}"), "LocalSigningKey([REDACTED])");
+}
+
+async fn export_bytes(key: &LocalSigningKey) -> Vec<u8> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        key.to_bytes()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        key.to_bytes().await
+    }
+}
+
+async fn export_hex(key: &LocalSigningKey) -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        key.to_hex()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        key.to_hex().await
+    }
 }
