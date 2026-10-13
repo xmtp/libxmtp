@@ -178,11 +178,14 @@ class ClientTest : BaseInstrumentedTest() {
             val created = client(recordingSigner, options)
             assertEquals(emptyList<String>(), calls)
             val registration = async { created.register() }
-            withTimeout(5_000) { entered.await() }
-            delay(100)
-            assertFalse(registration.isCompleted)
-            assertEquals(listOf("preAuthenticate"), calls)
-            release.complete(Unit)
+            try {
+                withTimeout(5_000) { entered.await() }
+                delay(100)
+                assertFalse(registration.isCompleted)
+                assertEquals(listOf("preAuthenticate"), calls)
+            } finally {
+                release.complete(Unit)
+            }
             registration.await()
             assertEquals(listOf("preAuthenticate", "sign"), calls)
             calls.clear()

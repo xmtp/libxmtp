@@ -51,7 +51,7 @@ private fun <T, R> readerFlow(
 
                     fun emitState(current: ConnectionState) {
                         if (previous == current) return
-                        if (current != ConnectionState.RECONNECTING) onConnectionStateChange(previous, current)
+                        onConnectionStateChange(previous, current)
                         previous = current
                     }
                     try {

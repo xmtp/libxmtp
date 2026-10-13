@@ -345,13 +345,6 @@ impl Client {
         let Some(mut request) = self.inner.identity().signature_request() else {
             return Ok(());
         };
-        let signature = signer::sign(
-            signer,
-            SigningRequest {
-                text: request.signature_text(),
-            },
-        )
-        .await?;
         if let Some(handler) = self
             .options
             .handlers
@@ -363,6 +356,13 @@ impl Client {
                 .map_err(|_| XmtpError::callback_failed())?
                 .map_err(|_| XmtpError::callback_failed())?;
         }
+        let signature = signer::sign(
+            signer,
+            SigningRequest {
+                text: request.signature_text(),
+            },
+        )
+        .await?;
         let verifier = self.inner.scw_verifier();
         match (kind, signature) {
             (SignerKind::Eoa, Signature::Ecdsa(bytes)) => {

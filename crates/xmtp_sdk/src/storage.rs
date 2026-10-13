@@ -24,7 +24,7 @@ pub struct Storage {
 #[xmtp_macro::sdk_export]
 impl Storage {
     pub async fn path(&self) -> Result<Option<String>, XmtpError> {
-        Ok(None)
+        Ok(self.path.clone())
     }
 }
 
@@ -42,13 +42,13 @@ impl Storage {
 #[xmtp_macro::sdk_export(native_only)]
 impl Storage {
     pub async fn delete(&self) -> Result<(), XmtpError> {
-        let Some(path) = self.path.clone() else {
-            return Ok(());
-        };
+        let path = self
+            .path
+            .clone()
+            .ok_or_else(|| XmtpError::invalid("in-memory storage has no file"))?;
         if !self.client.context.shutdown_complete() {
             end_client(&self.client, &self.listeners, &self.event_readers).await?;
         }
-        let _ = path;
-        Ok(())
+        std::fs::remove_file(path).map_err(XmtpError::storage)
     }
 }
