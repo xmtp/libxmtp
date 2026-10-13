@@ -100,7 +100,7 @@ pub enum StandardContentKind {
 }
 
 fn codec_error(error: xmtp_content_types::CodecError) -> crate::XmtpError {
-    crate::XmtpError::codec_decode_failed(error.to_string())
+    crate::XmtpError::invalid(error.to_string())
 }
 
 fn standard_type(kind: StandardContentKind) -> ProtoContentTypeId {
