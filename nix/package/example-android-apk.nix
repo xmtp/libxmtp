@@ -71,6 +71,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [
     gradle
+    jdk17
     python311
     openssl
   ];
