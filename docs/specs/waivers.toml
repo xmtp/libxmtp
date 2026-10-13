@@ -191,13 +191,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Dispatch does not wait for open subscription transactions, so an envelope settled after the start position was read and dispatched before the subscription committed is never attempted."
 
 [[waiver]]
-id = "GMOD-018"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "CommitPendingProposals selects only the first installation of a previously absent inbox for Welcome delivery and skips additions to inboxes already present."
-
-[[waiver]]
 id = "PERM-009"
 kind = "gap"
 owner = "protocol"
@@ -280,13 +273,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "MlsGroup::publish_messages (SDK publishMessages) waits only for the last intent it selected and does not report an exact outcome for each earlier intent. The SDK also maps an ordered rejection to Unknown without the rejected intent's stable reason code; that mapping moves to a later SEND-019 change."
-
-[[waiver]]
-id = "SEND-016"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A rejected echo marks the intent as errored without setting its message row to failed."
 
 [[waiver]]
 id = "ARCH-008"
@@ -511,13 +497,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "The current local event channels have no shared rule that excludes every event naming a sync group."
 
 [[waiver]]
-id = "EVENT-004"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "Archive import does not use the specified client event bus or suppress its per-element kinds through that bus."
-
-[[waiver]]
 id = "EVENT-012"
 kind = "gap"
 owner = "protocol"
@@ -525,32 +504,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "Current event channels do not preserve the specified per-group, per-entity, and transaction event order."
 
 [[waiver]]
-id = "EVENT-018"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No message.received payload names the stored group for a stitched DM message."
-
-[[waiver]]
-id = "EVENT-019"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No conversation.metadata_changed payload names changed components and fields."
-
-[[waiver]]
 id = "EVENT-024"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "Installed-package proof pending for the attachment payload members, which the generated SDK is expected to set on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. Issue 4207 tracks the rest of the event contract."
-
-[[waiver]]
-id = "EVENT-026"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No open-client observer emits hmac_keys.updated when the current HMAC epoch increases, without an app call or network request."
 
 [[waiver]]
 id = "EVENT-055"
