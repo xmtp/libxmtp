@@ -100,7 +100,8 @@ describe("client handle-claim", () => {
     // the 7-day wait, or a replayed signature when both claims are signed in
     // the same second.
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toBe(
+    // stderr can also hold core log lines, so match the CLI's own line
+    expect(result.stderr.split("\n")).toContain(
       `${handle} is already your current handle. Nothing was claimed.`,
     );
     expect(await currentHandle(identity)).toBe(handle);
