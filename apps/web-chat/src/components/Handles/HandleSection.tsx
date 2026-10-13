@@ -66,11 +66,20 @@ export const HandleSection: React.FC = () => {
       }
       if (outcome === "tooSoon" || outcome === "limitReached") {
         // With no handle shown, a first claim cannot get these: another
-        // installation claimed, and this view is stale. Read the inbox from
-        // the network; a handle it has now replaces the "Choose" view.
-        await refresh(true).catch(console.error);
-        setBlocked(outcome);
-      } else if (outcome === "claimed") {
+        // installation claimed, and this view is stale. A retry of a claim
+        // that landed gets them too. Read the inbox from the network; a
+        // handle it has now replaces the "Choose" view.
+        const own = await refresh(true).catch((error: unknown) => {
+          console.error(error);
+          return undefined;
+        });
+        if (own?.handle === asciiLowercase(next)) {
+          outcome = "claimed";
+        } else {
+          setBlocked(outcome);
+        }
+      }
+      if (outcome === "claimed") {
         setEditing(false);
         setSwitchBack(null);
         await refresh().catch(console.error);
