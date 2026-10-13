@@ -129,6 +129,9 @@ sealed interface HandleNotice {
     /** The availability check failed. Retry checks again. */
     data object CheckFailed : HandleNotice
 
+    /** The inbox's own handles could not be read. Retry reads them again. */
+    data object LoadFailed : HandleNotice
+
     /** The claim of [handle] failed with no answer from the server. Retry claims it again. */
     data class ClaimFailed(
         val handle: String,
@@ -154,6 +157,11 @@ data class HandleState(
     val claiming: String? = null,
     val confirm: String? = null,
     val notice: HandleNotice? = null,
+    /**
+     * Every read of the inbox's own handles failed, so its current and other handles are
+     * unknown. The editor allows no edit, switch back, or claim until a read works.
+     */
+    val ownUnknown: Boolean = false,
 ) {
     /** The server refused every new claim for this inbox. The editor stays read-only. */
     val blocked: Boolean get() = notice is HandleNotice.TooSoon || notice is HandleNotice.LimitReached
@@ -172,12 +180,12 @@ data class HandleState(
     /** The primary button checks the input when there is no pick. */
     val canCheck: Boolean
         get() =
-            claiming == null && !blocked && input.isNotEmpty() && problem == null &&
+            editable && input.isNotEmpty() && problem == null &&
                 status == HandleStatus.Editing && notice !is HandleNotice.NotAllowed
 
-    val canClaim: Boolean get() = claiming == null && !blocked && pick != null
+    val canClaim: Boolean get() = editable && pick != null
 
-    val editable: Boolean get() = claiming == null && !blocked
+    val editable: Boolean get() = claiming == null && !blocked && !ownUnknown
 }
 
 sealed interface HandleAction {
@@ -236,6 +244,7 @@ object HandleCopy {
     const val CHANGE_SCREEN = "Change handle"
     const val NOT_ALLOWED_FIELD = "Choose a different name."
     const val CHECK_FAILED = "Cannot check this handle. Try again."
+    const val LOAD_FAILED = "Cannot load your handle. Try again."
     const val LIMIT_REACHED =
         "This inbox has used all 64 handle changes. Your current handle stays, and so do your other handles."
 
@@ -298,6 +307,10 @@ object HandleCopy {
 
             HandleNotice.CheckFailed -> {
                 CHECK_FAILED
+            }
+
+            HandleNotice.LoadFailed -> {
+                LOAD_FAILED
             }
 
             is HandleNotice.ClaimFailed -> {

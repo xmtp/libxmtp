@@ -83,16 +83,42 @@ internal class HandleController(
                 ui.value = HandleState(mode = mode, loading = true, minNameLength = minimum)
                 ++opened
             }
+        load(account, token, mode)
+    }
+
+    private fun load(
+        account: HandleAccount,
+        token: Long,
+        mode: HandleMode,
+    ) {
         load =
             scope.launch(dispatcher) {
                 // Show the handles this device holds at once, then the newest from the network.
                 val local = read(account, refresh = false)
                 if (local != null) show(account, token, local, loading = true)
                 val own = read(account, refresh = true) ?: local
+                if (own == null) {
+                    // Unknown is not "no handle": the inbox can have one. Block every claim until a read works.
+                    update(token) { it.copy(loading = false, ownUnknown = true, notice = HandleNotice.LoadFailed) }
+                    return@launch
+                }
                 val applied = show(account, token, own, loading = false)
                 // An account that already has a handle needs no onboarding step.
-                if (applied && mode == HandleMode.CHOOSE && own?.current != null) account.finish()
+                if (applied && mode == HandleMode.CHOOSE && own.current != null) account.finish()
             }
+    }
+
+    /** Read the own handles again after [HandleNotice.LoadFailed]. */
+    private fun reload(account: HandleAccount) {
+        val token =
+            synchronized(lock) {
+                val state = ui.value
+                if (!state.ownUnknown || state.loading) return
+                load?.cancel()
+                ui.value = state.copy(loading = true)
+                opened
+            }
+        load(account, token, ui.value.mode)
     }
 
     private suspend fun read(
@@ -109,16 +135,18 @@ internal class HandleController(
     private fun show(
         account: HandleAccount,
         token: Long,
-        own: OwnHandles?,
+        own: OwnHandles,
         loading: Boolean,
     ): Boolean {
-        val since = own?.current?.let { claimDay(account, it) }
+        val since = own.current?.let { claimDay(account, it) }
         return update(token) {
             it.copy(
                 loading = loading,
-                current = own?.current,
+                current = own.current,
                 currentSince = since,
-                others = own?.others.orEmpty(),
+                others = own.others,
+                ownUnknown = false,
+                notice = if (it.notice == HandleNotice.LoadFailed) null else it.notice,
             )
         }
     }
@@ -192,6 +220,7 @@ internal class HandleController(
             HandleAction.Retry -> {
                 when (val notice = ui.value.notice) {
                     HandleNotice.CheckFailed -> check(account)
+                    HandleNotice.LoadFailed -> reload(account)
                     is HandleNotice.ClaimFailed -> claim(account, notice.handle)
                     else -> Unit
                 }
@@ -304,7 +333,7 @@ internal class HandleController(
         val (token, step, previous) =
             synchronized(lock) {
                 val state = ui.value
-                if (state.claiming != null || state.blocked) return
+                if (!state.editable) return
                 work?.cancel()
                 ui.value = state.copy(claiming = handle, confirm = null, notice = null)
                 Triple(opened, ++request, state)
