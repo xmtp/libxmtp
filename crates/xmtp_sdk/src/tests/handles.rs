@@ -8,6 +8,7 @@
 //! server time past the interval between claims.
 
 mod errors;
+mod lying_backend;
 mod statics;
 
 use super::*;
@@ -362,6 +363,27 @@ async fn can_message_keys_handles_by_canonical_text() {
         crate::static_helpers::can_message_with_backend(shared_source(), malformed).await,
         "can_message_with_backend",
     );
+    alix.end().await?;
+    bo.end().await?;
+}
+
+// A claim reads its input as every other handle input does: the capitals
+// a user types are lowercased, and the log holds the canonical handle.
+#[xmtp_common::test(unwrap_try = true)]
+async fn claim_stores_the_lowercase_form_of_a_mixed_case_handle() {
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let tail = random_handle();
+    let typed = format!("Nick{}", tail.to_uppercase());
+    let canonical = format!("nick{tail}");
+    alix.claim_handle(typed).await?;
+
+    let own = alix.inbox_state(true).await?;
+    assert_eq!(own.handle.as_deref(), Some(canonical.as_str()));
+    assert!(own.other_handles.is_empty(), "{:?}", own.other_handles);
+    // Another client derives the same handle from the stored log.
+    let peer = bo.inbox_states(vec![alix.inbox_id()], true).await?;
+    assert_eq!(peer[0].handle.as_deref(), Some(canonical.as_str()));
     alix.end().await?;
     bo.end().await?;
 }
