@@ -96,7 +96,7 @@ lint-js-source:
     node --test dev/js/test-lint-source.mjs
 
 # Config linting: TOML, Nix, and shell scripts.
-lint-config: lint-treefmt
+lint-config: install-js lint-treefmt
     python3.11 -B dev/ci-suites check
     python3.11 -B dev/tests/test_ci_suites.py
     python3.11 -B dev/tests/test_ci_select.py
