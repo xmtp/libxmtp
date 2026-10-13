@@ -19,11 +19,26 @@ that fails the current rules, confirmation, Skip for now, and an account that
 already has a handle. Each of the 22 tests failed under its own mutation of the
 controller or the input check, and passed again after the source was restored.
 
+Review round 1 added three controller tests and one more page of Show more:
+typing the current handle or another handle of the inbox, which the server never
+lists as free; a too-soon answer when this device's last claim is older than
+7 days; and an `InvalidArgument` from the SDK during a check. `HandleStepTest`
+drives `HandleStep`, which keeps Choose your handle to one run for each account.
+Each new assertion failed under its own mutation, and the 23 earlier mutations
+still fail their tests.
+
+`HandleStepInstrumentedTest` runs the production `AppGraph` and `RouteOwner`
+against the worktree backend. A new account opens Choose your handle, and Back
+there returns false. A restart before Skip for now opens the step again, not
+the saved Settings route. After Skip for now, a restart opens Settings. It
+passed on an owned ARM64 API 34 emulator with no proxies. It failed under each
+of three mutations: Skip for now saves no flag, a saved route replaces the
+pending step, and Back on the step opens Chats.
+
 `ScreenScaleInstrumentedTest` now opens both handle screens, so the all-screens
 assertion covers eleven screens. The exporter allows their two screenshot
-names. Not run: app instrumentation, the scaled screen pass, and a manual
-walk-through on an emulator. No emulator was available for this change, so the
-host tests above are the only runtime proof.
+names. Not run: the rest of app instrumentation, the scaled screen pass, and a
+manual walk-through on an emulator.
 
 ## Messenger redesign, 2026-10-10
 

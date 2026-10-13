@@ -11,6 +11,7 @@ import uniffi.xmtp_sdk.*
 internal class SessionHandleAccount(
     private val owner: ActiveSession,
     private val preferences: AppFeaturePreferences,
+    private val step: HandleStep,
     private val destinations: DestinationScope,
     private val origin: DestinationOrigin,
     private val mode: HandleMode,
@@ -46,7 +47,7 @@ internal class SessionHandleAccount(
     }
 
     override fun finish() {
-        if (mode == HandleMode.CHOOSE) preferences.finishHandleStep(owner.key)
+        step.finish(owner.key, mode)
         destinations.admit(origin) { leave() }
     }
 }
