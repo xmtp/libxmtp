@@ -41,7 +41,7 @@ afterEach(() => {
 describe("AppHeader", () => {
   it("shows the own handle on the account button", () => {
     mocks.handle = "nick#2341";
-    expect(accountButton().textContent).toBe("nick#2341");
+    expect(accountButton().textContent).toBe("@nick#2341");
   });
 
   it("shows the short address when the inbox has no handle", () => {

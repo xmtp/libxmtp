@@ -81,3 +81,19 @@ describe("member rendering", () => {
     expect(screen.queryByText(/Other handles/)).toBeNull();
   });
 });
+
+it("uses the inbox ID for a member with no handle, address, or display name", () => {
+  render(
+    <MantineProvider>
+      <MemberCard
+        address=""
+        displayName={null}
+        avatar={null}
+        description={null}
+        handle={null}
+        inboxId={inboxId}
+      />
+    </MantineProvider>,
+  );
+  expect(screen.getByText("aaaaaa...aaaa")).toBeTruthy();
+});

@@ -4,7 +4,6 @@ import { useCallback } from "react";
 import { Member } from "@/components/Conversation/Member";
 import type { Member as MemberCardMember } from "@/components/Conversation/MemberCard";
 import type { MemberProfile } from "@/helpers/member";
-import { normalizeMemberInput } from "@/helpers/strings";
 import { useMemberId } from "@/hooks/useMemberId";
 
 const hasInboxId = (
@@ -93,7 +92,7 @@ export const AddMembers: React.FC<AddMembersProps> = ({
           error={memberIdError || error}
           value={memberId}
           onChange={(event) => {
-            setMemberId(normalizeMemberInput(event.target.value));
+            setMemberId(event.target.value);
           }}
           onKeyDown={(event) => {
             if (event.key === " ") {

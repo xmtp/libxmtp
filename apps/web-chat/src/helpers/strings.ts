@@ -1,3 +1,5 @@
+import { isValidHandle } from "@/helpers/handles";
+
 /**
  * Lowercases ASCII letters only, as the protocol does with handle input.
  * `toLowerCase` also folds other letters: U+212A KELVIN SIGN becomes ASCII
@@ -11,16 +13,21 @@ export const asciiLowercase = (value: string): string =>
 /**
  * Normalizes a field that takes an Ethereum address, an inbox ID, or a
  * handle: ASCII capitals become lowercase, and white space is removed.
+ * A displayed @ prefix is removed only when the rest is a valid handle.
  */
-export const normalizeMemberInput = (value: string): string =>
-  asciiLowercase(value).replace(/\s/g, "");
+export const normalizeMemberInput = (value: string): string => {
+  const normalized = asciiLowercase(value).replace(/\s/g, "");
+  return normalized.startsWith("@") && isValidHandle(normalized.slice(1))
+    ? normalized.slice(1)
+    : normalized;
+};
 
 export const isValidEthereumAddress = (
   address: string,
 ): address is `0x${string}` => /^0x[a-fA-F0-9]{40}$/.test(address);
 
 export const isValidInboxId = (inboxId: string): inboxId is string =>
-  /^[a-z0-9]{64}$/.test(inboxId);
+  /^[a-f0-9]{64}$/.test(inboxId);
 
 export const shortAddress = (address: string, length: number = 4): string => {
   if (!isValidEthereumAddress(address) && !isValidInboxId(address)) {

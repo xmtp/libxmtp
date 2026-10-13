@@ -29,3 +29,15 @@ describe("normalizeMemberInput", () => {
     expect(normalizeMemberInput(`${KELVIN}ate`)).toBe(`${KELVIN}ate`);
   });
 });
+
+it("accepts an @ prefix only for handles and preserves other input kinds", () => {
+  expect(normalizeMemberInput(" @Nick#2341 ")).toBe("nick#2341");
+  expect(normalizeMemberInput("@oldnick")).toBe("oldnick");
+  expect(normalizeMemberInput("@0x" + "a".repeat(40))).toBe(
+    "@0x" + "a".repeat(40),
+  );
+  expect(normalizeMemberInput("@" + "a".repeat(64))).toBe("@" + "a".repeat(64));
+  expect(normalizeMemberInput("0x" + "A".repeat(40))).toBe(
+    "0x" + "a".repeat(40),
+  );
+});

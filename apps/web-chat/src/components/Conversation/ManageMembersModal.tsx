@@ -8,7 +8,7 @@ import type { ConversationOutletContext } from "@/components/Conversation/Conver
 import { Members } from "@/components/Conversation/Members";
 import { Modal } from "@/components/Modal";
 import { toMemberProfile, type MemberProfile } from "@/helpers/member";
-import { isValidEthereumAddress, isValidInboxId } from "@/helpers/strings";
+import { isValidInboxId } from "@/helpers/strings";
 import { useClientPermissions } from "@/hooks/useClientPermissions";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useConversation } from "@/hooks/useConversation";
@@ -51,18 +51,6 @@ export const ManageMembersModal: React.FC = () => {
           .map((member) => member.inboxId);
         if (addedMemberInboxIds.length > 0) {
           await conversation.addMembers(addedMemberInboxIds);
-          hasUpdated = true;
-        }
-        const addedMemberAddresses = addedMembers.filter((member) =>
-          isValidEthereumAddress(member.address),
-        );
-        if (addedMemberAddresses.length > 0) {
-          await conversation.addMembers(
-            addedMemberAddresses.map((member) => ({
-              identifier: member.address.toLowerCase(),
-              kind: "ethereum" as const,
-            })),
-          );
           hasUpdated = true;
         }
       }

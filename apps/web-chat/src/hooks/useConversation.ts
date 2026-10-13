@@ -1,4 +1,4 @@
-import { Timestamp, type Intent } from "@xmtp/browser-sdk";
+import { Dm, Timestamp, type Intent } from "@xmtp/browser-sdk";
 import type {
   EncodedContent,
   RemoteAttachment,
@@ -34,6 +34,12 @@ export const useConversation = (conversationId: string) => {
       `useConversation: Conversation ${conversationId} not found`,
     );
   }
+
+  const handle =
+    conversation instanceof Dm
+      ? Array.from(members.values()).find((member) => member.handle === name)
+          ?.handle
+      : undefined;
 
   const sync = useCallback(
     async (fromNetwork: boolean = false) => {
@@ -167,6 +173,7 @@ export const useConversation = (conversationId: string) => {
     conversation,
     description,
     imageUrl,
+    handle,
     loading,
     members,
     messages,

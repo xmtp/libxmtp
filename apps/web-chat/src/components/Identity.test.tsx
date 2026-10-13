@@ -13,7 +13,9 @@ vi.mock("@/components/Conversation/MemberPopover", () => ({
 const address = `0x${"1".repeat(40)}`;
 
 const renderSender = (
-  props: Pick<IdentityProps, "displayName" | "handle" | "otherHandles">,
+  props: Pick<IdentityProps, "displayName" | "handle" | "otherHandles"> & {
+    address?: string;
+  },
 ) =>
   render(
     <MantineProvider>
@@ -51,4 +53,14 @@ describe("message sender badge", () => {
     renderSender({ displayName: null, handle: null, otherHandles: [] });
     expect(screen.getByText("0x1111...1111")).toBeTruthy();
   });
+});
+
+it("uses the inbox ID when neither a handle nor an address is available", () => {
+  renderSender({
+    address: "",
+    displayName: null,
+    handle: null,
+    otherHandles: [],
+  });
+  expect(screen.getByText("a".repeat(64))).toBeTruthy();
 });
