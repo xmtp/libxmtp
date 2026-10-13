@@ -11,6 +11,8 @@ pub use database::TestDatabase;
 #[cfg(test)]
 pub(crate) mod grpc_web;
 #[cfg(test)]
+pub(crate) mod handles;
+#[cfg(test)]
 pub(crate) mod native;
 #[cfg(test)]
 pub(crate) mod replica;

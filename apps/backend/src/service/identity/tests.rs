@@ -3,7 +3,10 @@ use crate::test_support as support;
 use crate::api;
 use crate::api::publish_error::Reason;
 use prost::Message;
-use support::TestServer;
+use support::{
+    TestServer,
+    handles::{ClaimingInbox, resolve},
+};
 use tonic::Code;
 use xmtp_id::associations::{
     Identifier, MemberIdentifier,
@@ -832,5 +835,68 @@ async fn handle_kind_outside_lookups_is_invalid_identity_update() {
     }
     // The same change with its own kind is admitted.
     server.publish(vec![identity_envelope(change)]).await?;
+    server.stop().await?;
+}
+
+/// A claimed handle resolves to its inbox, whatever the ASCII letter case of
+/// the lookup, and the answer echoes the identifier as sent. A handle no one
+/// claimed, the same name without the code included, resolves to no inbox.
+// verifies: API-299
+#[xmtp_common::test(unwrap_try = true)]
+async fn claimed_handle_resolves_by_exact_lookup() {
+    let server = TestServer::new(|_| {}).await?;
+    let inbox = ClaimingInbox::registered(&server).await?;
+    inbox.publish_claim(&server, "nick#0042").await?;
+
+    let rows: Vec<(String, i16, Vec<u8>)> = sqlx::query_as(
+        "SELECT identifier, identifier_kind, inbox_id FROM identifier_association
+         WHERE identifier_kind = 3",
+    )
+    .fetch_all(&server.backend.store.primary)
+    .await?;
+    assert_eq!(
+        rows,
+        [("nick#0042".into(), 3, hex::decode(&inbox.inbox_id)?)]
+    );
+
+    let owner = Some(inbox.inbox_id.clone());
+    assert_eq!(
+        resolve(
+            &server,
+            &["nick#0042", "NICK#0042", "Nick#0042", "nick", "nick#0043"]
+        )
+        .await?,
+        [owner.clone(), owner.clone(), owner, None, None]
+    );
+    let answer = server
+        .identity()
+        .get_inbox_ids(api::GetInboxIdsRequest {
+            requests: vec![api::get_inbox_ids_request::Request {
+                identifier: "NICK#0042".into(),
+                identifier_kind: IdentifierKind::Handle.into(),
+            }],
+        })
+        .await?
+        .into_inner();
+    assert_eq!(answer.responses[0].identifier, "NICK#0042");
+    assert_eq!(
+        answer.responses[0].identifier_kind,
+        i32::from(IdentifierKind::Handle)
+    );
+    server.stop().await?;
+}
+
+/// A handle lookup that the grammar does not match after its ASCII letters are
+/// lowercased fails the whole request with a fixed message that does not
+/// carry the handle.
+// verifies: API-299
+#[xmtp_common::test(unwrap_try = true)]
+async fn malformed_handle_lookup_is_invalid_argument() {
+    let server = TestServer::new(|_| {}).await?;
+    for input in ["nïck", "nick#12", "_nick", "nick.eth", "nick ", ""] {
+        let error = resolve(&server, &["nick", input]).await.expect_err(input);
+        assert_eq!(error.code(), Code::InvalidArgument, "{input:?}");
+        assert_eq!(error.message(), "malformed handle", "{input:?}");
+    }
     server.stop().await?;
 }
