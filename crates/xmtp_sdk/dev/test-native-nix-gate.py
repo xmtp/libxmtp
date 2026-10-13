@@ -20,7 +20,6 @@ with patch('subprocess.check_output', return_value=json.dumps(products).encode()
 
 def products():
     inputs = {
-        "jobs": None,
         "vendor": "0",
         "static": "1",
         "macos": "11.0",

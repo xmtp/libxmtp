@@ -122,16 +122,18 @@ publication runs only on main, self-hosted, tag pushes, or reusable calls.
 
 All CI commands select a targeted Nix shell. Full root Nix warming still builds
 all outputs and dependencies, including the default developer shell. Kache is
-the default compiler wrapper; its Darwin helper bypasses linked outputs.
+off unless a job sets `kache: "true"`; its Darwin helper bypasses linked outputs.
 Recovery runs only through the manual workflow. Windows installed-package
 smoke remains a manual owner in `test-sdk.yml`.
 
 ## Compiler cache
 
 `setup-nix` uses a private local Kache store and disables GitHub compiler-cache
-archives. All enabled callers pass S3 settings with a stable build scope.
-Keep callers with `kache: false` disabled and free of S3 inputs. The setup
-action's README lists each scope and its access mode.
+archives. Kache is off by default. Set `kache: "true"` only in a job that runs
+cargo outside Nix; a job that only runs `nix build` passes no Kache input and
+selects no writer environment. All enabled callers pass S3 settings with a
+stable build scope. The setup action's README lists each scope and its access
+mode, and `dev/agents/test_kache_env.py` checks the wiring.
 `dev/kache-ci-config` requires a complete key pair, bucket, and build scope for
 S3. No keys selects local-only; a partial pair fails before the action starts.
 
@@ -143,16 +145,19 @@ environment. Do not create a reader environment.
 Existing deployment jobs retain their environments and use reader access.
 Tags, dispatches, and jobs that build a selected ref cannot write. Source lint,
 docs quality and composition, Nix output warming, and manual recovery are
-readers. The backend suite uses `secrets: inherit`. Keep the native backend
-acceptance job free of cache writer keys: pass only the Kache reader pair to
-its setup-nix step, and do not reference other secrets in that job.
+readers or leave Kache off. The backend suite uses `secrets: inherit`. Keep
+the native backend acceptance job free of cache writer keys: pass only the
+Kache reader pair to its setup-nix step, and do not reference other secrets in
+that job.
 
-When adding an enabled caller, pass both optional Kache secrets through every
-reusable call in its chain. Declare them under `workflow_call.secrets` when a
-caller uses an explicit secret map. Share a stable scope across the same outer
+When adding an enabled caller, add it to the setup action's README table and
+to `KACHE_CALLERS` in `dev/agents/test_kache_env.py`. Pass both optional Kache
+secrets through every reusable call in its chain. Declare them under
+`workflow_call.secrets` when a caller uses an explicit secret map. Share a
+stable scope across the same outer
 Cargo build family, including reader-only consumers. Keep Clippy, check, test,
-doc, and release variants separate. Jobs with no outer Cargo compilation share
-`nix-only`; Nix derivations do not use this remote. Identical test shards share
+doc, and release variants separate. Jobs with no outer Cargo compilation leave
+Kache off; Nix derivations do not use this remote. Identical test shards share
 a scope. The action adds runner OS and architecture.
 Keep credentials out of global `AWS_*` settings and Nix derivations.
 

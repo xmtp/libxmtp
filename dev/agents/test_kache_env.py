@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 import unittest
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -446,6 +448,198 @@ class KacheWorkflowWiringTests(unittest.TestCase):
         )
         for secret in ("KACHE_S3_ACCESS_KEY_ID", "KACHE_S3_SECRET_ACCESS_KEY"):
             self.assertEqual(fields.get(secret), "${{ secrets." + secret + " }}")
+
+
+ACTION = ROOT / ".github/actions/setup-nix/action.yml"
+SETUP_NIX = "./.github/actions/setup-nix"
+S3_INPUTS = (
+    "kache-s3-bucket",
+    "kache-s3-region",
+    "kache-s3-endpoint",
+    "kache-s3-access-key-id",
+    "kache-s3-secret-access-key",
+)
+
+# Jobs that run cargo outside Nix, with their Kache scope. A job leaves this
+# list only when it stops running cargo outside Nix, so dropping Kache from a
+# cargo job fails here even when its README row goes too.
+KACHE_CALLERS = {
+    "build-sdk-node-platforms.yml / assemble": "sdk-native-release",
+    "check-rust.yml / native": "rust-clippy-native",
+    "check-rust.yml / wasm": "rust-clippy-wasm",
+    "check-sdk-products.yml / generated": "sdk-products-debug",
+    "check-sdk-unit.yml / unit": "sdk-tests-debug",
+    "check-types.yml / check": "sdk-products-debug",
+    "deploy-docs.yml / site": "sdk-products-debug",
+    "deploy-web-chat.yml / deploy": "sdk-products-debug",
+    "docs-rust-reference.yml / rust": "rust-reference",
+    "manual-sdk-recovery.yml / recovery": "sdk-native-debug",
+    "release-agent-sdk.yml / build": "sdk-native-debug",
+    "release-browser-sdk.yml / build": "sdk-products-debug",
+    "release-cli.yml / build": "sdk-native-debug",
+    "test-agent-sdk.yml / test": "sdk-native-debug",
+    "test-android.yml / android-stage": "sdk-android-release",
+    "test-backend.yml / native": "backend-tests-debug",
+    "test-browser-sdk.yml / test": "sdk-products-debug",
+    "test-node-sdk.yml / test": "sdk-native-debug",
+    "test-sdk-platform.yml / proof": (
+        "${{ matrix.target == 'browser' && 'sdk-browser-conformance'"
+        " || 'sdk-products-debug' }}"
+    ),
+    "test-sdk.yml / sdk": "sdk-products-tests-conformance",
+    "test-sdk.yml / android-stage": "sdk-android-release",
+}
+
+
+def setup_nix_calls():
+    """Yield (workflow, job id, job, inputs) for every setup-nix call."""
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        document = yaml.safe_load(path.read_text())
+        for job_id, job in (document.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                if step.get("uses") == SETUP_NIX:
+                    yield path.name, job_id, job, step.get("with") or {}
+
+
+def action_step(name):
+    steps = yaml.safe_load(ACTION.read_text())["runs"]["steps"]
+    return next(step for step in steps if step.get("name") == name)
+
+
+class SetupNixTests(unittest.TestCase):
+    def test_action_has_no_nix_or_buildx_sticky_disk(self):
+        action = yaml.safe_load(ACTION.read_text())
+        for name in ("disk-key", "nix-disk", "docker-builder"):
+            self.assertNotIn(name, action["inputs"])
+        disks = [
+            step["with"]["path"]
+            for step in action["runs"]["steps"]
+            if step.get("uses", "").startswith("useblacksmith/stickydisk@")
+        ]
+        self.assertEqual(disks, ["~/.gradle"])
+        self.assertNotIn("setup-docker-builder", ACTION.read_text())
+
+    def test_nix_builds_one_derivation_per_cpu_with_all_cores(self):
+        for name, field in (
+            ("Install Nix (Linux)", "nix_conf"),
+            ("Install Nix (macOS)", "extra_nix_config"),
+        ):
+            lines = action_step(name)["with"][field].splitlines()
+            with self.subTest(step=name):
+                # Nix applies the last value, so any other line would win.
+                for key, value in (("max-jobs", "auto"), ("cores", "0")):
+                    self.assertEqual(
+                        [
+                            line
+                            for line in lines
+                            if re.match(rf"\s*(extra-)?{key}\s*=", line)
+                        ],
+                        [f"{key} = {value}"],
+                    )
+
+    def test_kache_is_off_unless_a_caller_runs_cargo(self):
+        action = yaml.safe_load(ACTION.read_text())
+        self.assertEqual(action["inputs"]["kache"]["default"], "false")
+        calls = list(setup_nix_calls())
+        self.assertGreater(len(calls), 40)
+        for workflow, job_id, job, inputs in calls:
+            with self.subTest(caller=f"{workflow} / {job_id}"):
+                for name in ("disk-key", "nix-disk", "docker-builder"):
+                    self.assertNotIn(name, inputs)
+                environment = repr(job.get("environment") or "")
+                if inputs.get("kache") == "true":
+                    self.assertTrue(inputs.get("kache-scope"))
+                    for name in S3_INPUTS:
+                        self.assertIn(name, inputs)
+                else:
+                    self.assertEqual(
+                        [name for name in inputs if name.startswith("kache")], []
+                    )
+                    self.assertNotIn("kache-s3-writer", environment)
+
+    def test_kache_callers_match_the_cargo_job_list(self):
+        callers = {
+            f"{workflow} / {job_id}": inputs.get("kache-scope")
+            for workflow, job_id, _, inputs in setup_nix_calls()
+            if inputs.get("kache") == "true"
+        }
+        self.assertEqual(callers, KACHE_CALLERS)
+
+    def test_readme_lists_exactly_the_kache_callers(self):
+        readme = (ROOT / ".github/actions/setup-nix/README.md").read_text()
+        table = readme.split("## Caller scopes\n", 1)[1]
+        rows = {
+            match.group(1): match.group(2)
+            for match in re.finditer(r"^\| `([^`]+ / [^`]+)` \| (.+?) \|", table, re.M)
+        }
+        callers = {
+            f"{workflow} / {job_id}": inputs["kache-scope"]
+            for workflow, job_id, _, inputs in setup_nix_calls()
+            if inputs.get("kache") == "true"
+        }
+        self.assertEqual(sorted(rows), sorted(callers))
+        for caller, scope in callers.items():
+            # `cond && 'a' || 'b'` yields a or b, as dev/ci-suites reads it.
+            literals = (
+                re.findall(r"(?:&&|\|\|)\s*'([^']+)'", scope)
+                if "${{" in scope
+                else [scope]
+            )
+            self.assertTrue(literals)
+            for literal in literals:
+                with self.subTest(caller=caller, scope=literal):
+                    self.assertIn(f"`{literal}`", rows[caller])
+
+    def run_oom_report(self, log, status=0):
+        script = action_step("Write kernel OOM report script")["run"]
+        body = script.split("<< 'EOF'\n", 1)[1].split("\nEOF\n", 1)[0]
+        with tempfile.TemporaryDirectory(prefix="xmtp oom report ") as temp:
+            temp = Path(temp)
+            (temp / "report.sh").write_text(body + "\n")
+            (temp / "dmesg.txt").write_text(log)
+            sudo = temp / "sudo"
+            sudo.write_text(
+                '#!/bin/sh\ntest "$*" = "-n dmesg" || exit 97\n'
+                f'cat "{temp}/dmesg.txt"\nexit {status}\n'
+            )
+            sudo.chmod(0o755)
+            return subprocess.run(
+                [shutil.which("bash"), str(temp / "report.sh")],
+                env={"PATH": f"{temp}:/usr/bin:/bin"},
+                capture_output=True,
+                text=True,
+            )
+
+    def test_oom_report_prints_kernel_records_and_never_fails(self):
+        killed = (
+            "[  812.1] cargo invoked oom-killer: gfp_mask=0x140cca\n"
+            "[  812.2] Out of memory: Killed process 4242 (rustc) total-vm:9000kB\n"
+        )
+        result = self.run_oom_report("[    0.0] Linux version 6.8\n" + killed)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::warning title=Kernel OOM::", result.stdout)
+        self.assertIn("Killed process 4242 (rustc)", result.stdout)
+        self.assertIn("invoked oom-killer", result.stdout)
+        self.assertNotIn("Linux version", result.stdout)
+
+        result = self.run_oom_report("[    0.0] Linux version 6.8\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("::warning", result.stdout)
+        self.assertIn("No kernel out-of-memory record", result.stdout)
+
+        result = self.run_oom_report("dmesg: read kernel buffer failed\n", status=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::warning title=Kernel log unavailable::", result.stdout)
+
+    def test_oom_report_runs_after_the_job_on_linux(self):
+        steps = yaml.safe_load(ACTION.read_text())["runs"]["steps"]
+        names = [step.get("name") for step in steps]
+        register = action_step("Register kernel OOM report")
+        self.assertTrue(register["uses"].startswith("webiny/action-post-run@"))
+        self.assertIn("kernel-oom-report.sh", register["with"]["run"])
+        self.assertIn("runner.os == 'Linux'", register["if"])
+        # Posts run in reverse order: the first registered post runs last.
+        self.assertEqual(names.index("Register kernel OOM report"), 1)
 
 
 if __name__ == "__main__":
