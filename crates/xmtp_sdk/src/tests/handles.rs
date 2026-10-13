@@ -43,21 +43,25 @@ impl DisposableBackend {
     }
 
     fn source(&self) -> BackendSource {
-        BackendSource::Options {
-            options: BackendOptions {
-                url: self.0.url.clone(),
-                app_version: None,
-                credentials: None,
-                credential: None,
-            },
-        }
+        source_at(&self.0.url)
     }
 
     fn options(&self) -> ClientOptions {
-        ClientOptions {
-            backend: Some(self.source()),
-            ..options()
-        }
+        options_at(&self.0.url)
+    }
+
+    /// A second backend on this database with `change` applied to the
+    /// configuration, as an operator restart with a new setting gives.
+    async fn restarted(
+        &self,
+        change: impl FnOnce(&mut xmtp_backend::config::Config),
+    ) -> Result<xmtp_backend::test_support::RunningServer, XmtpError> {
+        let mut config = (*self.0.backend.config).clone();
+        change(&mut config);
+        config.validate().map_err(XmtpError::unknown)?;
+        xmtp_backend::test_support::RunningServer::new(config)
+            .await
+            .map_err(XmtpError::unknown)
     }
 
     /// Move `inbox`'s identity history back past the interval between
@@ -71,6 +75,24 @@ impl DisposableBackend {
 
     async fn stop(self) -> Result<(), XmtpError> {
         self.0.stop().await.map_err(XmtpError::unknown)
+    }
+}
+
+fn source_at(url: &str) -> BackendSource {
+    BackendSource::Options {
+        options: BackendOptions {
+            url: url.to_owned(),
+            app_version: None,
+            credentials: None,
+            credential: None,
+        },
+    }
+}
+
+fn options_at(url: &str) -> ClientOptions {
+    ClientOptions {
+        backend: Some(source_at(url)),
+        ..options()
     }
 }
 
@@ -574,5 +596,70 @@ async fn server_configuration_exposes_min_name_length() {
     let (published, _, _) = request_counts(&alix).await?;
     assert!(published > publishes, "the claim reached the backend");
     alix.end().await?;
+    backend.stop().await?;
+}
+
+// A raised minimum leaves a shorter handle claimed before it valid. A client
+// whose snapshot holds the raised minimum still resolves that handle, adds a
+// member by it, and returns it in every result.
+// verifies: CONF-081
+#[xmtp_common::test(unwrap_try = true)]
+async fn handle_shorter_than_a_raised_minimum_stays_in_results() {
+    let backend = DisposableBackend::start(
+        r#"
+        [handles]
+        min_name_length = 1
+    "#,
+    )
+    .await?;
+    let alix = Client::create(crate::generate_local_signer().await, backend.options()).await?;
+    let short = "ab".to_owned();
+    alix.claim_handle(short.clone()).await?;
+    let mut raised = backend
+        .restarted(|config| config.handles.min_name_length = 5)
+        .await?;
+    let bo = Client::create(
+        crate::generate_local_signer().await,
+        options_at(&raised.url),
+    )
+    .await?;
+    assert_eq!(bo.server_configuration().handles.min_name_length, 5);
+
+    let source = source_at(&raised.url);
+    let target = handle_identity(&short);
+    assert_eq!(
+        bo.inbox_id_for(target.clone()).await?,
+        Some(alix.inbox_id())
+    );
+    assert_eq!(
+        crate::static_helpers::inbox_id_for_with_backend(source.clone(), target.clone()).await?,
+        alix.inbox_id()
+    );
+    let reachable = HashMap::from([(format!("handle:{short}"), true)]);
+    assert_eq!(bo.can_message(vec![target.clone()]).await?, reachable);
+    assert_eq!(
+        crate::static_helpers::can_message_with_backend(source.clone(), vec![target.clone()])
+            .await?,
+        reachable
+    );
+    let peer = bo.inbox_states(vec![alix.inbox_id()], true).await?;
+    assert_eq!(peer[0].handle.as_ref(), Some(&short));
+    let fetched =
+        crate::static_helpers::inbox_states_with_backend(source, vec![alix.inbox_id()]).await?;
+    assert_eq!(fetched[0].handle.as_ref(), Some(&short));
+
+    let group = bo
+        .conversations()
+        .create_group_with_identities(vec![target], None)
+        .await?;
+    let members = group.members().await?;
+    let alix_member = members
+        .iter()
+        .find(|member| member.inbox_id == alix.inbox_id())
+        .expect("the short handle added alix");
+    assert_eq!(alix_member.handle.as_ref(), Some(&short));
+    alix.end().await?;
+    bo.end().await?;
+    raised.stop().await.map_err(XmtpError::unknown)?;
     backend.stop().await?;
 }
