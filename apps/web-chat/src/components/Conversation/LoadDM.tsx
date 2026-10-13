@@ -1,6 +1,6 @@
 import type { PublicIdentity } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 
 import { LoadingMessage } from "@/components/LoadingMessage";
 import { useClient } from "@/contexts/XMTPContext";
@@ -13,6 +13,8 @@ const REDIRECT_TIMEOUT = 2000;
 export const LoadDM: React.FC = () => {
   const [message, setMessage] = useState("");
   const { address } = useParams();
+  // the code of a handle link such as /dm/nick#2341 is the URL fragment
+  const { hash } = useLocation();
   const { addConversation } = useActions();
   const navigate = useNavigate();
   const client = useClient();
@@ -31,7 +33,9 @@ export const LoadDM: React.FC = () => {
       if (isValidEthereumAddress(address)) {
         return { identifier: address.toLowerCase(), kind: "ethereum" };
       }
-      const handle = address.toLowerCase();
+      // keep the code, or refuse a fragment that is not one: never resolve
+      // the bare name in place of the handle in the link
+      const handle = `${address}${hash}`.toLowerCase();
       return isValidHandle(handle)
         ? { identifier: handle, kind: "handle" }
         : null;
@@ -100,7 +104,7 @@ export const LoadDM: React.FC = () => {
     return () => {
       clearTimeout(timeout);
     };
-  }, [addConversation, address, client, navigate]);
+  }, [addConversation, address, client, hash, navigate]);
 
   return <LoadingMessage message={message} />;
 };
