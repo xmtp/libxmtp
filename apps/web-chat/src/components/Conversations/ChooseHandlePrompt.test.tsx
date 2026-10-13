@@ -8,6 +8,7 @@ import { ChooseHandlePrompt } from "./ChooseHandlePrompt";
 const mocks = vi.hoisted(() => ({
   inboxId: "",
   handle: null as string | null,
+  loaded: true,
 }));
 vi.mock("@/contexts/XMTPContext", () => ({
   useClient: () => ({ inboxId: mocks.inboxId }),
@@ -16,7 +17,7 @@ vi.mock("@/hooks/useOwnHandles", () => ({
   useOwnHandles: () => ({
     handle: mocks.handle,
     otherHandles: [],
-    loaded: true,
+    loaded: mocks.loaded,
     refresh: async () => {},
   }),
 }));
@@ -41,6 +42,7 @@ const show = (inboxId: string) => {
 
 beforeEach(() => {
   mocks.handle = null;
+  mocks.loaded = true;
   localStorage.clear();
 });
 
@@ -73,6 +75,13 @@ describe("ChooseHandlePrompt", () => {
     // another inbox in the same browser: not dismissed
     show(inboxB);
     expect(screen.getByText(title)).toBeTruthy();
+  });
+
+  it("does not show before the handles are loaded", () => {
+    // the hook gives a null handle until the first read finishes
+    mocks.loaded = false;
+    show(inboxA);
+    expect(screen.queryByText(title)).toBeNull();
   });
 
   it("does not show for an inbox that has a handle", () => {

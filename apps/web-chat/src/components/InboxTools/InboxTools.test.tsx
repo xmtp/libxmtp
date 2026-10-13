@@ -219,7 +219,7 @@ describe("InboxTools member field", () => {
   it("lowercases a handle typed with capitals and drops spaces", () => {
     render(view());
     fireEvent.change(screen.getByRole("textbox"), {
-      target: { value: " Nick#2341" },
+      target: { value: " Ni ck #2341 " },
     });
     // the handle grammar is lowercase, so the raw input would be refused
     expect(mocks.setMemberId).toHaveBeenCalledExactlyOnceWith("nick#2341");
