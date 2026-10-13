@@ -35,6 +35,12 @@ test-bridge *args:
 test-browser:
     bash "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests"
 
+# Run only the real-worker and Chromium log queue proofs.
+test-browser-logging: wasm-init
+    cd "{{ root }}" && NIX_DEVSHELL=rust "{{ root }}/dev/nix-shell" 'bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture'
+    cd "{{ root }}" && NIX_DEVSHELL=js "{{ root }}/dev/nix-shell" 'NODE_OPTIONS=--preserve-symlinks sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/bridge.log.real.mts'
+    cd "{{ root }}" && NIX_DEVSHELL=js "{{ root }}/dev/nix-shell" 'NODE_OPTIONS= sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/logging.chromium.mts'
+
 # Run only the real-worker OPFS proof against the staged SDK.
 test-browser-storage: wasm-init
     {{ _env }} && cd "{{ root }}" && NODE_OPTIONS= sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/storage.chromium.mts

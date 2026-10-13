@@ -83,7 +83,8 @@ export async function managedQueue(): Promise<void> {
     });
     await waitForLog(emit(2), "Rust emit waited for the held app callback");
     await waitForLog(first, "first Rust record was not delivered");
-    await waitForLog(admin.end(), "admin end waited for log drain");
+    // The outer Chromium proof also permits 20 seconds. The app callback stays held.
+    await waitForLog(admin.end(), "admin end waited for log drain", 20_000);
     check(terminated === 0, "worker retired during the first callback");
     releaseFirst();
     await waitForLog(second, "worker lost the queued Rust successor");
