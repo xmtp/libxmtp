@@ -65,6 +65,10 @@ export const HandleSection: React.FC = () => {
         }
       }
       if (outcome === "tooSoon" || outcome === "limitReached") {
+        // With no handle shown, a first claim cannot get these: another
+        // installation claimed, and this view is stale. Read the inbox from
+        // the network; a handle it has now replaces the "Choose" view.
+        await refresh(true).catch(console.error);
         setBlocked(outcome);
       } else if (outcome === "claimed") {
         setEditing(false);
@@ -104,6 +108,12 @@ export const HandleSection: React.FC = () => {
     );
   }
 
+  const blockedAlert = blocked !== null && (
+    <Alert color="red" variant="light">
+      {BLOCKED_MESSAGES[blocked]}
+    </Alert>
+  );
+
   if (handle === null) {
     return (
       <Stack gap="md">
@@ -112,23 +122,21 @@ export const HandleSection: React.FC = () => {
           Your handle is public. People on this server use it to find you and
           send you messages.
         </Text>
-        <HandleEditor
-          currentHandle={null}
-          otherHandles={otherHandles}
-          claim={claim}
-        />
+        {blockedAlert}
+        {blocked !== "limitReached" && (
+          <HandleEditor
+            currentHandle={null}
+            otherHandles={otherHandles}
+            disabled={blocked !== null}
+            claim={claim}
+          />
+        )}
         <Text size="xs" c="dimmed">
           You can change your handle once every 7 days.
         </Text>
       </Stack>
     );
   }
-
-  const blockedAlert = blocked !== null && (
-    <Alert color="red" variant="light">
-      {BLOCKED_MESSAGES[blocked]}
-    </Alert>
-  );
 
   if (!editing) {
     return (
