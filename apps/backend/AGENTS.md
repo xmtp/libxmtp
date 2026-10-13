@@ -22,10 +22,19 @@ dev/nix-shell 'just backend image aarch64'            # explicit architecture im
 dev/nix-shell 'just backend observe-check'             # client operations, shared trace, metrics, Grafana
 dev/nix-shell 'just backend tls-check'                 # build, start, check, and remove the TLS stack
 dev/nix-shell 'just backend down'                      # stop the shared stack
+dev/nix-shell 'just backend release'                   # stop the stack, free the slot, remove the image tag
 dev/nix-shell 'just backend logs backend tempo'
 dev/nix-shell 'just backend run'
 dev/nix-shell 'just backend db-down'
 ```
+
+`up` and `tls-check` load the `image` build as `XMTP_BACKEND_IMAGE`, which is
+`xmtp-backend:<compose project>`, through `dev/docker/load-backend-image`. Both
+Compose files run that tag. Every build has the tag
+`ghcr.io/xmtp/backend:self-hosted`, so a plain `docker load` would let one
+worktree's stack run another worktree's build. Do not use it for the stack.
+Any other `XMTP_BACKEND_IMAGE` value is an image to run instead; the recipes
+neither load nor remove it. `release` removes the derived tag.
 
 `dev/nix-shell 'just backend run'` uses `dev/backend/local.toml` without attachment storage.
 The `build` and `image` recipes remove `LD_LIBRARY_PATH` from the Nix process.

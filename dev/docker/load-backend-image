@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Load a Nix-built backend image archive into Docker under one image reference.
+
+Usage: dev/docker/load-backend-image ARCHIVE IMAGE
+
+The Nix archive tags its image `ghcr.io/xmtp/backend:self-hosted`. A plain
+`docker load` puts every worktree's build on that one tag, so Compose can
+recreate one worktree's backend from another worktree's build. This script
+replaces the archive's tag while it streams the archive to `docker load`, so
+the build gets only IMAGE.
+
+Do not load first and retag after. Another worktree can load between the two
+commands and move the shared tag. The containerd image store also cannot find
+an image by the archive's config digest, so the digest is not a safe handle.
+"""
+
+import io
+import json
+import posixpath
+import subprocess
+import sys
+import tarfile
+
+
+class ArchiveError(Exception):
+    pass
+
+
+def retag(archive, image, target):
+    """Write ARCHIVE to TARGET, with every manifest entry tagged IMAGE only."""
+    with (
+        tarfile.open(archive, mode="r|*") as source,
+        tarfile.open(fileobj=target, mode="w|") as output,
+    ):
+        tagged = False
+        for member in source:
+            data = source.extractfile(member) if member.isfile() else None
+            if posixpath.normpath(member.name) == "manifest.json":
+                data = tagged_manifest(archive, data, image)
+                member.size = len(data.getbuffer())
+                tagged = True
+            output.addfile(member, data)
+        # Raise inside the block, so tarfile does not end the archive.
+        if not tagged:
+            raise ArchiveError(f"{archive}: no manifest.json to tag")
+
+
+def tagged_manifest(archive, data, image):
+    manifest = json.load(data)
+    if not isinstance(manifest, list) or not manifest:
+        raise ArchiveError(f"{archive}: manifest.json lists no image")
+    for entry in manifest:
+        entry["RepoTags"] = [image]
+    return io.BytesIO(json.dumps(manifest).encode())
+
+
+def main():
+    if len(sys.argv) != 3 or not sys.argv[2]:
+        sys.exit("Usage: dev/docker/load-backend-image ARCHIVE IMAGE")
+    archive, image = sys.argv[1:]
+    loader = subprocess.Popen(["docker", "load"], stdin=subprocess.PIPE)
+    stopped_reading = False
+    try:
+        retag(archive, image, loader.stdin)
+    except BrokenPipeError:
+        # `docker load` exited early. It printed its own error.
+        stopped_reading = True
+    except BaseException:
+        # Kill it before closing its input, so it cannot load a partial stream.
+        loader.kill()
+        raise
+    finally:
+        try:
+            loader.stdin.close()
+        except BrokenPipeError:
+            stopped_reading = True
+        status = loader.wait()
+    return status or int(stopped_reading)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (ArchiveError, OSError, tarfile.TarError) as error:
+        sys.exit(f"load-backend-image: {error}")

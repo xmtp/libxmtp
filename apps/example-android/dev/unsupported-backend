@@ -19,6 +19,11 @@ def docker(*args, check=True):
 def main():
     if len(sys.argv) < 2:
         raise SystemExit("Usage: unsupported-backend COMMAND [ARGS...]")
+    # This worktree's build, loaded by `just backend up`. Never fall back to the
+    # shared Nix tag: it can hold another worktree's build or a published image.
+    image = os.environ.get("XMTP_BACKEND_IMAGE")
+    if not image:
+        raise SystemExit("XMTP_BACKEND_IMAGE is not set. Load dev/docker/.env, as the just recipes do.")
     scope = "xmtp-attachment-support-" + uuid.uuid4().hex[:12]
     directory = Path(tempfile.mkdtemp(prefix=scope + "-"))
     logs = Path(tempfile.mkdtemp(prefix=scope + "-logs-"))
@@ -57,7 +62,7 @@ def main():
                          "--label", "xmtp.test.owner=" + scope, "-p", "127.0.0.1::5050",
                          "-v", str(config) + ":/config.toml:ro", "-e", "XMTP_DATABASE_URL=" + url,
                          "-e", "XMTP_REPLICA_URL=" + url, "-e", "XMTP_CHAIN_31337_URL=http://127.0.0.1:8545",
-                         "ghcr.io/xmtp/backend:self-hosted", "--config-file", "/config.toml").stdout.strip()
+                         image, "--config-file", "/config.toml").stdout.strip()
         containers.append(backend)
         deadline = time.monotonic() + 60
         while docker("exec", backend, "/bin/grpc-health-probe", "-addr=127.0.0.1:5050", check=False).returncode:
