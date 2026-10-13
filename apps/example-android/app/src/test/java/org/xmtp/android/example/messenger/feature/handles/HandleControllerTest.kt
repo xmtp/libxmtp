@@ -37,10 +37,7 @@ class HandleControllerTest {
         var readFailure: (() -> Throwable)? = null
         var readGate: CompletableDeferred<Unit>? = null
 
-        val reads = mutableListOf<Boolean>()
-
         override suspend fun handles(refresh: Boolean): OwnHandles {
-            reads += refresh
             readGate?.await()
             readFailure?.let { throw it() }
             return OwnHandles(current, others)
@@ -579,71 +576,6 @@ class HandleControllerTest {
         assertEquals(HandleNotice.TooSoon(null, null), third.value.notice)
     }
 
-    @Test fun tooSoonFirstClaimReadsTheInboxAgain() {
-        // This device sees no handle, but another device claimed one: the first claim is too soon.
-        val account =
-            FakeAccount().apply {
-                available = { listOf(it) }
-                claim = {
-                    current = "nick#0412"
-                    throw tooSoon()
-                }
-            }
-        val editor = open(account)
-        editor.type("nick")
-        editor.dispatch(HandleAction.Check)
-        editor.dispatch(HandleAction.Claim)
-        assertEquals(listOf(false, true, true), account.reads)
-        assertEquals("nick#0412", editor.value.current)
-        assertEquals(HandleNotice.TooSoon(null, null), editor.value.notice)
-        // The inbox has a handle, so onboarding ends with no other claim.
-        assertEquals(1, account.finished)
-        assertEquals(listOf("nick"), account.claims)
-        // The network read still shows no handle: the editor stays blocked and says why.
-        val stale =
-            FakeAccount().apply {
-                available = { listOf(it) }
-                claim = { throw limit() }
-            }
-        val other = open(stale)
-        other.type("nick")
-        other.dispatch(HandleAction.Check)
-        other.dispatch(HandleAction.Claim)
-        assertEquals(listOf(false, true, true), stale.reads)
-        assertNull(other.value.current)
-        assertEquals(HandleNotice.LimitReached, other.value.notice)
-        assertFalse(other.value.editable)
-        assertEquals(0, stale.finished)
-    }
-
-    @Test fun tooSoonRetryOfAClaimThatLandedIsASuccess() {
-        // The first claim landed, but its transport error and the read after it hid that.
-        var landed = false
-        val account =
-            FakeAccount().apply {
-                available = { listOf(it) }
-                claim = {
-                    if (landed) throw tooSoon()
-                    landed = true
-                    throw offline()
-                }
-            }
-        val editor = open(account)
-        editor.type("nick")
-        editor.dispatch(HandleAction.Check)
-        account.readFailure = { offline() }
-        editor.dispatch(HandleAction.Claim)
-        assertEquals(HandleNotice.ClaimFailed("nick"), editor.value.notice)
-        // The retry is refused as too soon, and the network read now shows the claim.
-        account.readFailure = null
-        account.current = "nick"
-        editor.dispatch(HandleAction.Retry)
-        assertEquals(listOf("nick", "nick"), account.claims)
-        assertNull(editor.value.notice)
-        assertEquals("nick", editor.value.current)
-        assertEquals(1, account.finished)
-    }
-
     @Test fun claimLimitReachedBlocksEveryChange() {
         val account =
             FakeAccount(current = "nick#2341", others = listOf("nick#0912", "nickm")).apply {
@@ -688,7 +620,7 @@ class HandleControllerTest {
         assertFalse(editor.value.canCheck)
     }
 
-    @Test fun claimWithNoAnswerChecksTheLogBeforeItOffersRetry() {
+    @Test fun claimWithNoAnswerOffersRetry() {
         var fail = true
         val account =
             FakeAccount().apply {
@@ -706,59 +638,29 @@ class HandleControllerTest {
         editor.dispatch(HandleAction.Retry)
         assertEquals(listOf("nick", "nick"), account.claims)
         assertEquals(1, account.finished)
-        // A claim that landed before the failure is a success, and is not sent again.
-        val landed =
-            FakeAccount().apply {
-                available = { listOf(it) }
-                claim = {
-                    current = it
-                    throw offline()
-                }
-            }
-        val second = open(landed)
-        second.type("nick")
-        second.dispatch(HandleAction.Check)
-        second.dispatch(HandleAction.Claim)
-        assertEquals(listOf("nick"), landed.claims)
-        assertEquals(1, landed.finished)
-        assertNull(second.value.notice)
-        assertEquals(setOf("nick"), landed.times.keys)
     }
 
-    @Test fun changeWithNoAnswerChecksTheLogBeforeItOffersRetry() {
-        // The change landed before the failure: a success, with no retry.
-        val landed =
+    @Test fun changeWithNoAnswerOffersRetry() {
+        var fail = true
+        val account =
             FakeAccount(current = "nick#2341").apply {
                 available = { listOf(it) }
-                claim = {
-                    others = listOfNotNull(current)
-                    current = it
-                    throw offline()
-                }
+                claim = { if (fail) throw offline() }
             }
-        val editor = open(landed, HandleMode.CHANGE)
+        val editor = open(account, HandleMode.CHANGE)
         editor.type("nicky")
         editor.dispatch(HandleAction.Check)
         editor.dispatch(HandleAction.Claim)
         editor.dispatch(HandleAction.ConfirmClaim)
-        assertEquals(listOf("nicky"), landed.claims)
-        assertNull(editor.value.notice)
+        assertEquals(HandleNotice.ClaimFailed("nicky"), editor.value.notice)
+        assertEquals("nick#2341", editor.value.current)
+        assertNull(editor.value.claiming)
+        assertEquals(0, account.finished)
+        fail = false
+        editor.dispatch(HandleAction.Retry)
+        assertEquals(listOf("nicky", "nicky"), account.claims)
         assertEquals("nicky", editor.value.current)
-        assertEquals(1, landed.finished)
-        // The change did not land: the error shows, and the user can try again.
-        val lost =
-            FakeAccount(current = "nick#2341").apply {
-                available = { listOf(it) }
-                claim = { throw offline() }
-            }
-        val other = open(lost, HandleMode.CHANGE)
-        other.type("nicky")
-        other.dispatch(HandleAction.Check)
-        other.dispatch(HandleAction.Claim)
-        other.dispatch(HandleAction.ConfirmClaim)
-        assertEquals(HandleNotice.ClaimFailed("nicky"), other.value.notice)
-        assertEquals("nick#2341", other.value.current)
-        assertEquals(0, lost.finished)
+        assertEquals(1, account.finished)
     }
 
     @Test fun switchBackThatFailsTheCurrentRulesShowsWhy() {

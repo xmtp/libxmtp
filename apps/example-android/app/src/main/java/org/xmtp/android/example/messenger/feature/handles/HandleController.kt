@@ -359,24 +359,12 @@ internal class HandleController(
                         }
                     }
                 } catch (error: XmtpException.HandleTooSoon) {
-                    refused(account, token, step, handle, tooSoon(account))
+                    update(token, step) { blocked(it, tooSoon(account)) }
                 } catch (error: XmtpException.HandleLimitReached) {
-                    refused(account, token, step, handle, HandleNotice.LimitReached)
+                    update(token, step) { blocked(it, HandleNotice.LimitReached) }
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
-                    // The claim can land before the failure. A second claim would then fail as too soon.
-                    val own =
-                        try {
-                            account.handles(refresh = true)
-                        } catch (read: Throwable) {
-                            if (read is CancellationException) throw read
-                            null
-                        }
-                    if (own?.current == handle) {
-                        claimed(account, token, step, handle)
-                    } else {
-                        update(token, step) { it.copy(claiming = null, notice = HandleNotice.ClaimFailed(handle)) }
-                    }
+                    update(token, step) { it.copy(claiming = null, notice = HandleNotice.ClaimFailed(handle)) }
                 }
             }
     }
@@ -452,34 +440,6 @@ internal class HandleController(
                 notice = HandleNotice.Taken(handle),
             )
         }
-    }
-
-    /**
-     * The server refused every new claim for this inbox. When no handle shows, this view is
-     * stale (another device claimed), so read the inbox again. A retry of a claim of [handle]
-     * that landed gets this refusal too: if [handle] is now current, the claim is a success.
-     * Onboarding ends for an inbox that has a handle, as when it opens.
-     */
-    private suspend fun refused(
-        account: HandleAccount,
-        token: Long,
-        step: Long,
-        handle: String,
-        notice: HandleNotice,
-    ) {
-        val own = read(account, refresh = true)
-        if (own?.current == handle) {
-            claimed(account, token, step, handle)
-            return
-        }
-        val since = own?.current?.let { claimDay(account, it) }
-        val applied =
-            update(token, step) { state ->
-                val known =
-                    own?.let { state.copy(current = it.current, currentSince = since, others = it.others) } ?: state
-                blocked(known, notice)
-            }
-        if (applied && own?.current != null && ui.value.mode == HandleMode.CHOOSE) account.finish()
     }
 
     private fun blocked(
