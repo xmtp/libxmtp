@@ -56,6 +56,12 @@ default:
 install-js:
     pnpm install --frozen-lockfile
 
+# Install the JavaScript dependencies only when a fresh checkout has none
+# (the release-tools test stubs run its `tsx`).
+[private]
+_js-deps:
+    [ -x dev/release-tools/node_modules/.bin/tsx ] || pnpm install --frozen-lockfile
+
 # --- CHECK ---
 
 # `just check`, `just check crate xmtp_mls`, `just check crate xmtp_mls xmtp_db`
@@ -96,7 +102,7 @@ lint-js-source:
     node --test dev/js/test-lint-source.mjs
 
 # Config linting: TOML, Nix, and shell scripts.
-lint-config: lint-treefmt
+lint-config: _js-deps lint-treefmt
     python3.11 -B dev/ci-suites check
     python3.11 -B dev/tests/test_ci_suites.py
     python3.11 -B dev/tests/test_ci_select.py
