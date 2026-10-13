@@ -59,6 +59,23 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   migration. The iOS and Android unit jobs include their
   migration tests.
 
+## Cutover controls
+
+The cutover owner sets repository variable `XMTP_DEPLOYMENT_HOLD=true` to stop
+deployments and development image publication. Empty or `false` keeps the
+current behavior. Other values fail the policy check. Set the hold before
+cancelling queued and running writers; a hold does not revoke a running job.
+`XMTP_RELEASE_HOLD` is a separate control for release publication.
+
+Manual docs, chat, and backend deployments use `accepted-source`. It must be
+the full SHA of the active primary branch, workflow revision, and checkout.
+An empty docs input builds without deployment, including CI dispatches. Keep
+`workflow_call` inputs absent on registered suite workflows.
+
+Run `dev/nix-shell 'just lint-config'` after changing the policy, source checks,
+or their workflow guards. Its cutover fixtures use local command stubs and
+never publish or deploy.
+
 ## CI selection
 
 `.github/ci-suites.yml` declares every CI suite: its workflow, `path_filters` (globs, Cargo

@@ -1,0 +1,52 @@
+name: Check cutover policy
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        required: true
+        type: string
+      accepted-source:
+        type: string
+        default: ""
+      primary-branch:
+        type: string
+        default: self-hosted
+      dry-run:
+        type: boolean
+        default: false
+    outputs:
+      allowed:
+        value: ${{ jobs.policy.outputs.allowed }}
+      deploy:
+        value: ${{ jobs.policy.outputs.deploy }}
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.hold.outputs.allowed }}
+      deploy: ${{ steps.source.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check operation hold
+        id: hold
+        env:
+          OPERATION: ${{ inputs.operation }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          XMTP_DEPLOYMENT_HOLD: ${{ vars.XMTP_DEPLOYMENT_HOLD }}
+          XMTP_RELEASE_HOLD: ${{ vars.XMTP_RELEASE_HOLD }}
+        run: bash dev/cutover-policy "$OPERATION"
+      - name: Check deployment source
+        id: source
+        if: steps.hold.outputs.allowed == 'true' && inputs.operation == 'deployment' && !inputs.dry-run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCEPTED_SOURCE: ${{ inputs.accepted-source }}
+          PRIMARY_BRANCH: ${{ inputs.primary-branch }}
+        run: bash dev/cutover-source "$PRIMARY_BRANCH"

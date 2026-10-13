@@ -4,14 +4,16 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'apps/keepalive-probe/**'
-      - 'crates/xmtp_proto/**'
-      - 'crates/xmtp_common/**'
-      - 'crates/xmtp_configuration/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
   workflow_dispatch:
+    inputs:
+      accepted-source:
+        description: Full primary-branch SHA accepted for deployment
+        required: true
+        type: string
+
+concurrency:
+  group: keepalive-publication
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -22,7 +24,16 @@ env:
   IMAGE_NAME: xmtp/keepalive-probe
 
 jobs:
+  cutover-policy:
+    uses: ./.github/workflows/check-cutover-policy.yml
+    with:
+      operation: deployment
+      accepted-source: ${{ inputs.accepted-source || '' }}
+      primary-branch: main
+
   build:
+    needs: cutover-policy
+    if: needs.cutover-policy.outputs.allowed == 'true' && needs.cutover-policy.outputs.deploy == 'true'
     name: Build and push keepalive-probe image
     runs-on: ubuntu-latest
     outputs:
@@ -61,8 +72,24 @@ jobs:
         with:
           context: .
           file: ./apps/keepalive-probe/docker/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Check current source before publication
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCEPTED_SOURCE: ${{ inputs.accepted-source || '' }}
+        run: bash dev/cutover-source main
+      - name: Publish current image tags
+        if: steps.current.outputs.deploy == 'true'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then docker push "$tag"; fi
+          done <<< "$IMAGE_TAGS"

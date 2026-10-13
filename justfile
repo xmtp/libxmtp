@@ -104,6 +104,7 @@ lint-config: lint-treefmt
     python3.11 dev/tests/test_android_release.py
     python3.11 -B dev/tests/test_example_android_selection.py
     python3.11 dev/tests/test_release_push.py
+    python3.11 dev/tests/test_cutover.py
     python3.11 dev/tests/test_android_clock.py
     python3.11 dev/tests/test_android_emulator_start.py
     python3.11 dev/tests/test_docker_startup.py

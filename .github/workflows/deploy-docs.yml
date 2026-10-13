@@ -1,13 +1,24 @@
 name: Build and Deploy Docs
 'on':
   workflow_call: null
-  workflow_dispatch: null
+  workflow_dispatch:
+    inputs:
+      accepted-source:
+        description: Full primary-branch SHA to deploy; empty builds only
+        type: string
+        default: ""
 permissions:
   contents: read
 concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  cutover-policy:
+    uses: ./.github/workflows/check-cutover-policy.yml
+    with:
+      operation: deployment
+      accepted-source: ${{ inputs.accepted-source || '' }}
+
   rust:
     uses: ./.github/workflows/docs-rust-reference.yml
     secrets:
@@ -186,8 +197,8 @@ jobs:
       with:
         path: apps/docs/_site
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted'
-    needs: compose
+    if: needs.cutover-policy.outputs.deploy == 'true'
+    needs: [compose, cutover-policy]
     permissions:
       pages: write
       id-token: write
@@ -208,6 +219,7 @@ jobs:
     if: always()
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs:
+    - cutover-policy
     - rust
     - swift
     - kotlin
@@ -216,7 +228,6 @@ jobs:
     - deploy
     steps:
     - env:
-        PASSED: ${{ needs.rust.result == 'success' && needs.site.result == 'success' && needs.compose.result == 'success' && (github.event_name
-          == 'pull_request' || (needs.swift.result == 'success' && needs.kotlin.result == 'success')) && (github.event_name != 'push'
-          || github.ref != 'refs/heads/self-hosted' || needs.deploy.result == 'success') }}
+        PASSED: ${{ needs.cutover-policy.result == 'success' && needs.rust.result == 'success' && needs.site.result == 'success' && needs.compose.result == 'success' && (github.event_name
+          == 'pull_request' || (needs.swift.result == 'success' && needs.kotlin.result == 'success')) && (needs.cutover-policy.outputs.deploy != 'true' || needs.deploy.result == 'success') }}
       run: test "$PASSED" = true

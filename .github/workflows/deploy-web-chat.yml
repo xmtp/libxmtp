@@ -11,6 +11,11 @@ on:
   push:
     branches: [self-hosted]
   workflow_dispatch:
+    inputs:
+      accepted-source:
+        description: Full primary-branch SHA accepted for deployment
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -26,7 +31,15 @@ env:
   NIX_DEVSHELL: js
 
 jobs:
+  cutover-policy:
+    uses: ./.github/workflows/check-cutover-policy.yml
+    with:
+      operation: deployment
+      accepted-source: ${{ inputs.accepted-source || '' }}
+
   deploy:
+    needs: cutover-policy
+    if: needs.cutover-policy.outputs.deploy == 'true'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     environment:

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# The cutover owner sets repository holds before cancelling in-flight writers.
+set -euo pipefail
+operation="${1:?Expected deployment or release}"
+case "$operation" in
+  deployment) hold="${XMTP_DEPLOYMENT_HOLD:-}" ;;
+  release) hold="${XMTP_RELEASE_HOLD:-}" ;;
+  *) echo '::error::Unknown cutover operation'; exit 1 ;;
+esac
+case "$hold" in
+  ''|false) allowed=true ;;
+  true) allowed=false ;;
+  *) echo '::error::Hold must be empty, false, or true'; exit 1 ;;
+esac
+# A release preview cannot publish. Publishers still enforce their dry-run input.
+if [[ "$operation" == release && "${DRY_RUN:-false}" == true ]]; then
+  allowed=true
+fi
+printf 'allowed=%s\n' "$allowed" >> "${GITHUB_OUTPUT:?}"
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  printf '%s allowed: %s.\n' "$operation" "$allowed" >> "$GITHUB_STEP_SUMMARY"
+fi

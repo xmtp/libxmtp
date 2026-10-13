@@ -2,6 +2,10 @@ name: Deploy persistent backend
 
 on:
   workflow_call:
+    inputs:
+      accepted-source:
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -14,8 +18,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  cutover-policy:
+    uses: ./.github/workflows/check-cutover-policy.yml
+    with:
+      operation: deployment
+      accepted-source: ${{ inputs.accepted-source || '' }}
+
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted'
+    needs: cutover-policy
+    if: needs.cutover-policy.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:

@@ -28,7 +28,15 @@ permissions:
   attestations: write
 
 jobs:
+  cutover-policy:
+    uses: ./.github/workflows/check-cutover-policy.yml
+    with:
+      operation: release
+      dry-run: ${{ inputs.dry-run == true }}
+
   setup:
+    needs: cutover-policy
+    if: needs.cutover-policy.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

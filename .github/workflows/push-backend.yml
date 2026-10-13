@@ -4,6 +4,12 @@ on:
   push:
     branches: [main, self-hosted]
     tags: ['**']
+  workflow_dispatch:
+    inputs:
+      accepted-source:
+        description: Full primary-branch SHA accepted for deployment
+        required: true
+        type: string
   workflow_call:
     inputs:
       ref:
@@ -32,6 +38,13 @@ permissions:
   packages: write
 
 jobs:
+  cutover-policy:
+    uses: ./.github/workflows/check-cutover-policy.yml
+    with:
+      operation: ${{ (inputs.release-build || startsWith(github.ref, 'refs/tags/')) && 'release' || 'deployment' }}
+      dry-run: ${{ inputs.dry-run == true }}
+      accepted-source: ${{ inputs.accepted-source || '' }}
+
   source:
     runs-on: ubuntu-latest
     permissions:
@@ -55,19 +68,21 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   deploy-dev:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted' && !inputs.ref && !inputs.dry-run
-    needs: manifest
+    if: needs.cutover-policy.outputs.deploy == 'true' && !inputs.ref && !inputs.dry-run
+    needs: [manifest, cutover-policy]
     uses: ./.github/workflows/deploy-backend-dev.yml
+    with:
+      accepted-source: ${{ inputs.accepted-source || '' }}
     secrets: inherit
 
   publish:
-    needs: source
+    needs: [source, cutover-policy]
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: needs.cutover-policy.outputs.allowed == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Publish backend image (${{ matrix.arch }})
     strategy:
       fail-fast: false
@@ -145,8 +160,8 @@ jobs:
           push-to-registry: true
 
   manifest:
-    if: inputs.dry-run != true
-    needs: [source, publish]
+    if: inputs.dry-run != true && needs.cutover-policy.outputs.allowed == 'true'
+    needs: [source, publish, cutover-policy]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

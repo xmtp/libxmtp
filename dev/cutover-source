@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Check the selected source before a deployment uses its credentials.
+set -euo pipefail
+primary="${1:-self-hosted}"
+case "$primary" in main|self-hosted) ;; *) echo '::error::Unsupported primary branch'; exit 1 ;; esac
+accepted="${ACCEPTED_SOURCE:-}"
+event="${GITHUB_EVENT_NAME:?}"
+ref="${GITHUB_REF:?}"
+sha="${GITHUB_SHA:?}"
+deploy=false
+if [[ "$event" == workflow_dispatch && -n "$accepted" ]]; then
+  if [[ "$ref" != "refs/heads/$primary" || ! "$accepted" =~ ^[0-9a-f]{40}$ || "$accepted" != "$sha" ]]; then
+    echo '::error::Manual deployment requires the full SHA of the primary workflow revision'
+    exit 1
+  fi
+elif [[ "$event" != push || "$ref" != "refs/heads/$primary" ]]; then
+  echo 'deploy=false' >> "${GITHUB_OUTPUT:?}"
+  exit 0
+fi
+if [[ "$event" == workflow_dispatch && -z "$accepted" ]]; then
+  echo 'deploy=false' >> "${GITHUB_OUTPUT:?}"
+  exit 0
+fi
+checkout=$(git rev-parse HEAD)
+if [[ "$checkout" != "$sha" ]]; then
+  echo '::error::Checkout does not match the workflow revision'
+  exit 1
+fi
+head=$(gh api "repos/${GITHUB_REPOSITORY:?}/git/ref/heads/$primary" --jq .object.sha)
+if [[ "$head" == "$sha" ]]; then
+  deploy=true
+elif [[ "$event" == workflow_dispatch ]]; then
+  echo '::error::Accepted source is no longer the primary branch head'
+  exit 1
+else
+  echo "Skip superseded source $sha"
+fi
+printf 'deploy=%s\n' "$deploy" >> "${GITHUB_OUTPUT:?}"
