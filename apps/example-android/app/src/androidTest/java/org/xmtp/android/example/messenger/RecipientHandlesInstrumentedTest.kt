@@ -106,6 +106,7 @@ class RecipientHandlesInstrumentedTest {
         input: String,
         expected: Set<String>,
         group: Boolean = false,
+        handles: Map<String, String> = emptyMap(),
     ): Conversation {
         model.createConversation.clear()
         model.dispatch(MessengerAction.Navigate(Screen.CREATE))
@@ -122,6 +123,15 @@ class RecipientHandlesInstrumentedTest {
                     .toSet() == expected &&
                 model.createConversation.state.value.failure == null
         }
+        handles.forEach { (inbox, handle) ->
+            assertEquals(
+                handle,
+                model.createConversation.state.value.selectedRecipients
+                    .single { it.inboxId == inbox }
+                    .title,
+            )
+            compose.onNodeWithText(handle).assertExists()
+        }
         button("Continue").performScrollTo().performClick()
         until("Review did not open") { model.createConversation.state.value.step == CreateStep.REVIEW }
         button(if (group) "Create group" else "Start conversation").performScrollTo().performClick()
@@ -137,10 +147,27 @@ class RecipientHandlesInstrumentedTest {
             for (coded in listOf(false, true)) {
                 val target = peer()
                 val handle = claim(target, coded)
-                val conversation = create(" " + handle.uppercase() + " ", setOf(target.inboxId()))
+                val conversation =
+                    create(
+                        " " + handle.uppercase() + " ",
+                        setOf(target.inboxId()),
+                        handles =
+                            mapOf(target.inboxId() to handle),
+                    )
+                until("The conversation header did not show the current handle") {
+                    model.chat.state.value.title ==
+                        handle
+                }
+                compose.onNodeWithText(handle).assertExists()
                 assertEquals(target.inboxId(), (conversation as Conversation.Dm).dm.peerInboxId())
                 model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
                 until("Chats did not reopen") { model.state.value.screen == Screen.CONVERSATIONS }
+                model.conversations.refresh()
+                until("The conversation list did not show the current handle") {
+                    model.conversations.state.value.rows
+                        .any { it.id == conversation.id() && it.title == handle }
+                }
+                compose.onNodeWithText(handle).assertExists()
             }
         }
 
@@ -161,6 +188,7 @@ class RecipientHandlesInstrumentedTest {
                     ).joinToString(", "),
                     expected,
                     group = true,
+                    handles = mapOf(byHandle.inboxId() to handle),
                 )
             val group = (conversation as Conversation.Group).group
             assertTrue(group.members().map { it.inboxId }.containsAll(expected))
@@ -170,6 +198,12 @@ class RecipientHandlesInstrumentedTest {
             until("Group settings did not open") {
                 model.state.value.screen == Screen.CONVERSATION_SETTINGS && model.state.value.settings.group
             }
+            assertEquals(
+                handle,
+                model.group.state.value.settings.members
+                    .single { it.inboxId == byHandle.inboxId() }
+                    .displayName,
+            )
             button("Add member").performClick()
             compose.onNodeWithText(recipientLabel).performTextReplacement(addedHandle)
             androidx.test.espresso.Espresso

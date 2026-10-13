@@ -28,6 +28,11 @@ interface ConversationQueries {
         address: String,
     ): String?
 
+    suspend fun inboxHandle(
+        owner: ActiveSession,
+        inboxId: String,
+    ): String?
+
     suspend fun create(
         owner: ActiveSession,
         group: Boolean,
@@ -90,6 +95,14 @@ class XmtpQueries :
         owner: ActiveSession,
         address: String,
     ) = resolveRecipient(address) { identity -> owner.client.inboxIdFor(identity) }
+
+    override suspend fun inboxHandle(
+        owner: ActiveSession,
+        inboxId: String,
+    ) = owner.client
+        .inboxStates(listOf(inboxId), false)
+        .firstOrNull()
+        ?.handle
 
     override suspend fun create(
         owner: ActiveSession,

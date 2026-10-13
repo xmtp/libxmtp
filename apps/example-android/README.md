@@ -172,6 +172,8 @@ callbacks also require accepted consent.
 New conversations and Add member accept handles, Ethereum addresses, or inbox
 IDs. The app detects the input type: a `0x` prefix selects Ethereum, 64 hexadecimal
 characters select an inbox ID, and a handle resolves through the SDK.
+Selected people, DM headers, conversation rows, and member details show the
+current handle when available, with the inbox ID as a fallback.
 Groups offer All members and Admins only presets.
 
 Messages support text, replies, emoji reactions and remote deletion. “Sent”

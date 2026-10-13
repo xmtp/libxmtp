@@ -697,7 +697,7 @@ internal class GroupController(
         val canManage = group?.admins?.contains(own) == true || group?.superAdmins?.contains(own) == true
         val settings =
             ConversationSettings(
-                group?.name ?: ui.value.settings.title,
+                chat.displayTitle(group?.name, members),
                 group
                     ?.description
                     .orEmpty(),
@@ -718,6 +718,7 @@ internal class GroupController(
                         },
                         canManage && it.inboxId != own && it.permissionLevel !=
                             PermissionLevel.SUPER_ADMIN,
+                        displayName = it.handle,
                     )
                 },
                 policyLabel(group?.permissions?.policyType),
