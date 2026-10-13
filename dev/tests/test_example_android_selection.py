@@ -73,7 +73,6 @@ class SelectionTest(unittest.TestCase):
                     "test_bindings",
                 ):
                     self.assertNotIn(suite, result["suites"]["test"])
-                self.assertNotIn("lint_android", result["suites"]["lint"])
 
     def test_sdk_native_and_shared_changes_keep_compatibility(self):
         for path in (
@@ -104,7 +103,6 @@ class SelectionTest(unittest.TestCase):
                 result = select([path])
                 self.assert_app(result)
                 self.assertEqual(result["unknown_paths"], [])
-                self.assertIn("lint_android", result["suites"]["lint"])
                 self.assertIn("test_android", result["suites"]["test"])
                 for suite in (
                     "check_rust",

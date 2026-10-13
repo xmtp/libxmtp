@@ -25,7 +25,7 @@ on:
       - "NPM Publish"
       # Monitoring & utilities
       - "Ignored Tests Tracker"
-      - "Cargo-Deny Checker"
+      - "Lint Deny"
       - "Error Glossary"
       - "Nightly Automation"
       - "Push XDBG Image"

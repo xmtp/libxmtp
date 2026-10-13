@@ -1,0 +1,30 @@
+name: Lint Deny
+on:
+  workflow_call:
+  # Advisories appear without a change in this repository. The daily run on
+  # the default branch reports them, and its advisories step fails on one.
+  schedule:
+    - cron: "23 7 * * *"
+permissions:
+  contents: read
+env:
+  NIX_DEVSHELL: rust
+jobs:
+  deny:
+    name: Lint (cargo-deny)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - name: Check bans, licenses, and sources
+        if: github.event_name != 'schedule'
+        run: just lint-deny
+      - name: Check advisories
+        # A new advisory must not fail an unrelated pull request or merge.
+        continue-on-error: ${{ github.event_name != 'schedule' }}
+        run: dev/nix-shell 'cargo deny --locked check advisories'

@@ -78,13 +78,23 @@ neutral:
 
 path_groups:
   # Suites that start the Docker stack test against a backend built from source.
+  # A backend change runs the backend suites and four client suites that talk
+  # to it: test_workspace, test_wasm, test_node, and check_sdk_unit. The
+  # Android, iOS, browser, agent, and SDK platform suites add wrapper code that
+  # a backend change does not touch; the merge run covers them. The
+  # observability services (Tempo, Prometheus, Grafana) select only test_xdbg,
+  # which checks them.
   docker_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
-    - "dev/{docker,backend}/**"
+    - "dev/docker/{compose.yml,up,down,compose,load-env,load-backend-image}"
+    - "dev/docker/{postgres,s3,toxiproxy}/**"
+    - "dev/backend/{local.toml,local-s3.toml}"
     - "nix/package/backend.nix"
     - "nix/musl-docker.nix"
-  # Suites that run `just backend ci` use the native backend package.
+  # The native backend package and the `just backend ci` wrapper. test_backend
+  # checks the wrapper contract; test_ios uses the wrapper but is not selected
+  # by backend changes (see docker_backend).
   native_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
@@ -94,7 +104,8 @@ path_groups:
   js_workspace:
     - "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
     - "sdks/js.just"
-    - "dev/js/**"
+    # lint_js alone runs the source lint script and its test.
+    - "dev/js/{.setup,sdk-*,tsconfig.*.json}"
     - "nix/{js,js-node}.nix"
     - "nix/lib/packages/pnpm.nix"
   # The SDK facade and its generated bindings. Rust core changes reach the SDK
@@ -132,7 +143,6 @@ path_groups:
   js_packages:
     - "sdks/{node,browser,agent}/**"
     - "apps/{cli,web-chat,docs}/**"
-    - "dev/release-tools/**"
 
 suites:
   # --- Lint ------------------------------------------------------------------
@@ -164,6 +174,10 @@ suites:
     path_filters:
       - path_group: js_workspace
       - path_group: js_packages
+      - "dev/js/{lint-source.mjs,test-lint-source.mjs}"
+      # Source lint and format. lint_config type-checks these tools, so
+      # check_types does not select them.
+      - "dev/release-tools/**"
   lint_config:
     phase: lint
     workflow: lint-config.yml
@@ -234,16 +248,17 @@ suites:
     kache: []
     path_filters:
       - path_group: swift
-  lint_android:
+  lint_deny:
     phase: lint
-    workflow: lint-android.yml
-    run_on: [ready_pr_push, merge]
+    workflow: lint-deny.yml
+    run_on: [draft_pr_push, ready_pr_push, merge]
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
     kache: []
     path_filters:
-      - path_group: android
+      - "{Cargo.lock,deny.toml}"
+      - "**/Cargo.toml"
   lint_example_android:
     phase: lint
     workflow: lint-example-android.yml
@@ -365,8 +380,11 @@ suites:
     kache: []
     path_filters:
       - cargo_package: xdbg
-      # The observability job runs xdbg against the Docker stack.
+      # The observability job runs xdbg against the Docker stack and checks
+      # its traces, metrics, and dashboard.
       - path_group: docker_backend
+      - "dev/docker/{tempo,prometheus,grafana}/**"
+      - "dev/docker/observe-check.sh"
       - "nix/package/xdbg{,-check}.nix"
       - "nix/ci-checks.nix"
   docs_rust:
@@ -434,7 +452,6 @@ suites:
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
-      - path_group: docker_backend
       - "sdks/{node,agent}/**"
       - "apps/cli/**"
   test_browser:
@@ -448,7 +465,6 @@ suites:
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
-      - path_group: docker_backend
       - "sdks/browser/**"
       - "apps/web-chat/**"
   test_sdk_platform:
@@ -462,7 +478,6 @@ suites:
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
-      - path_group: docker_backend
       - "sdks/browser/**"
   docs_site:
     phase: test
@@ -494,7 +509,6 @@ suites:
     path_filters:
       - path_group: sdk_core
       - path_group: swift
-      - path_group: native_backend
   test_android:
     phase: test
     workflow: test-android.yml
@@ -504,9 +518,10 @@ suites:
     permissions: {contents: read}
     kache: [sdk-android-release]
     path_filters:
+      # check-android runs `gradlew build`, which includes Android Lint and
+      # Spotless, so no separate Android lint suite exists.
       - path_group: sdk_core
       - path_group: android
-      - path_group: docker_backend
   test_example_android:
     phase: test
     workflow: test-example-android.yml
@@ -519,4 +534,3 @@ suites:
       - path_group: example_android
       - path_group: android
       - path_group: sdk_core
-      - path_group: docker_backend

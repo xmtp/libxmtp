@@ -80,14 +80,19 @@ _check-crate +crates:
 
 # --- LINT ---
 
-# The CI lint suites lint_workspace, lint_js, lint_config, lint_proto, and
-# docs_quality, the WASM and SDK generator Clippy of check_rust, and
-# `spec-check`. It skips lint_ios, lint_android, and lint_example_android,
-# which need mobile toolchains.
-lint: _js-deps lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto docs::test docs::check-source spec-check
+# The CI lint suites lint_workspace, lint_js, lint_config, lint_proto,
+# lint_deny, and docs_quality, the WASM and SDK generator Clippy of check_rust,
+# and `spec-check`. It skips lint_ios and lint_example_android, which need
+# mobile toolchains, and the cargo-deny advisories check, which does not block.
+lint: _js-deps lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto lint-deny docs::test docs::check-source spec-check
 
 lint-proto:
     buf lint proto
+
+# Dependency bans, licenses, and sources. CI also checks advisories; only its
+# daily scheduled run fails on a new advisory.
+lint-deny:
+    cargo deny --locked check bans licenses sources
 
 # Clippy for the default members and the SDK generator, which is not one.
 # Format is checked once, by treefmt in `lint-config`.
@@ -106,10 +111,14 @@ lint-js-source:
 
 # Config linting: TOML, Nix, and shell scripts, and the dev tool tests.
 # dev/tests/run finds test_*.py files; add a test without editing this recipe.
+# The release-tools checks run here, so release-tools edits do not select
+# check_types.
 lint-config: _js-deps lint-treefmt
     python3.11 -B dev/ci-suites check
     python3.11 -B dev/tests/run
     node --test dev/fly/render-dashboard.test.mjs
+    pnpm --filter @xmtp/release-tools --fail-if-no-match run typecheck
+    pnpm --filter @xmtp/release-tools --fail-if-no-match run lint
     pnpm --filter @xmtp/release-tools --fail-if-no-match run test
 
 lint-toml:
