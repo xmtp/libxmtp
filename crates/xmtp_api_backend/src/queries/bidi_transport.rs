@@ -55,6 +55,7 @@ use xmtp_proto::{
 const AUTH_LOCKOUT_COOLDOWN: std::time::Duration = std::time::Duration::from_millis(500);
 
 use super::bidi::{BidiBinding, Connection, Event, TryMutateError};
+use super::chunk_by_budget;
 
 /// Default event capacity for one lease. Slow consumers must recover from storage.
 pub const DEFAULT_LEASE_DEPTH: usize = 64;
@@ -116,31 +117,6 @@ impl MutateLimits {
 
 fn topic_wire_cost(topic: &Topic) -> usize {
     1 + topic.identifier().len() + PER_ENTRY_OVERHEAD
-}
-
-/// Keep input order while splitting at either the topic count or byte budget.
-fn chunk_by_budget<T>(
-    items: Vec<T>,
-    max_count: usize,
-    max_bytes: usize,
-    wire_cost: impl Fn(&T) -> usize,
-) -> Vec<Vec<T>> {
-    let mut chunks: Vec<Vec<T>> = Vec::new();
-    let mut current: Vec<T> = Vec::new();
-    let mut current_bytes = 0usize;
-    for item in items {
-        let cost = wire_cost(&item);
-        if !current.is_empty() && (current.len() >= max_count || current_bytes + cost > max_bytes) {
-            chunks.push(std::mem::take(&mut current));
-            current_bytes = 0;
-        }
-        current_bytes += cost;
-        current.push(item);
-    }
-    if !current.is_empty() {
-        chunks.push(current);
-    }
-    chunks
 }
 
 /// Split an add set into updates within the backend count and byte limits.

@@ -2,11 +2,13 @@ use crate::{
     BackendClient,
     backend::SubscribeStatic,
     envelope::{
-        decode_group_message, decode_welcome_message, ordered_batches, registration_targets,
+        EnvelopeError, decode_group_message, decode_welcome_message, ordered_batches,
+        registration_targets,
     },
-    queries::stream::try_extractor,
+    queries::{chunk_by_budget, stream::try_extractor},
 };
 use futures::{StreamExt, stream};
+use prost::Message;
 use std::collections::VecDeque;
 use xmtp_common::{
     BoxDynStream,
@@ -19,7 +21,7 @@ use xmtp_proto::{
     backend_v1 as wire,
     types::{
         Cursor, GroupId, GroupMessage, IncomingBatchLimits, IncomingEvent, IncomingSubscription,
-        InstallationId, Topic, TopicCursor, WelcomeMessage,
+        InstallationId, OrderedEnvelopeBatch, Topic, TopicCursor, WelcomeMessage,
     },
 };
 
@@ -196,7 +198,7 @@ fn normalize_static_stream(
                     Some(wire::subscribe_static_response::Response::Messages(messages))
                         if registered =>
                     {
-                        match ordered_batches(&mut cursors, messages.envelopes, limits) {
+                        match frame_batches(&mut cursors, messages.envelopes, limits) {
                             Ok(batches) => {
                                 pending.extend(batches.into_iter().map(IncomingEvent::OrderedBatch))
                             }
@@ -216,6 +218,31 @@ fn normalize_static_stream(
         },
     ))
 }
+
+/// Validate one complete frame, then split it into deliveries within `limits`.
+/// The backend bounds a frame by bytes only, so one frame can carry more rows
+/// than one delivery admits. Fail with `Capacity` only when one envelope alone
+/// cannot fit. On any error, no cursor advances.
+// implements: PROC-020
+fn frame_batches(
+    cursors: &mut TopicCursor,
+    envelopes: Vec<wire::ServerEnvelope>,
+    limits: IncomingBatchLimits,
+) -> Result<Vec<OrderedEnvelopeBatch>, EnvelopeError> {
+    let mut next = cursors.clone();
+    let mut batches = Vec::new();
+    for delivery in chunk_by_budget(
+        envelopes,
+        limits.max_rows,
+        limits.max_bytes,
+        Message::encoded_len,
+    ) {
+        batches.extend(ordered_batches(&mut next, delivery, limits)?);
+    }
+    *cursors = next;
+    Ok(batches)
+}
+
 fn malformed(field: &str) -> ApiClientError {
     ApiClientError::OtherUnretryable(format!("missing or invalid {field}").into())
 }
