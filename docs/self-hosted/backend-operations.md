@@ -73,8 +73,9 @@ Each worktree also has its own backend image tag, `XMTP_BACKEND_IMAGE`, which is
 `ghcr.io/xmtp/backend:self-hosted`. `just backend up` loads the build under the
 worktree's tag instead, and Compose runs that tag. A backend that Compose
 recreates in one worktree therefore never runs another worktree's build. To run
-a different image, such as a published release, set `XMTP_BACKEND_IMAGE`;
-`just backend up` then runs that image and loads nothing. `just backend release`
+a different image, such as a published release, set `XMTP_BACKEND_IMAGE` and
+start with `dev/docker/up`. `just backend up` would still build this worktree's
+image, but it does not load the build under that tag. `just backend release`
 removes only the derived tag.
 
 Every port in this document is the slot-0 value. Do not assume it applies to a

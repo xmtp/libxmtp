@@ -49,6 +49,8 @@ if args[:1] == ["compose"]:
             print("owned-backend Exited (37)\nowned-db healthy")
     else:
         raise SystemExit("Unexpected Compose command: " + repr(command))
+elif args[:2] == ["image", "inspect"]:
+    sys.exit(0 if os.environ.get("IMAGE_PRESENT") else 1)
 elif args[:1] == ["inspect"]:
     container = args[-1]
     if mode == "inspect" and container == "owned-backend":
@@ -210,6 +212,23 @@ class DockerStartupTest(unittest.TestCase):
         self.assertEqual(second.returncode, 42, second.stderr)
         self.assertEqual(len(self.diagnostics()), 2)
         self.assertTrue((original / "compose.log").is_file())
+
+    def test_failure_without_the_worktree_image_names_the_recipe(self):
+        with (self.docker_dir / ".env").open("a") as env:
+            env.write(f"XMTP_BACKEND_IMAGE='xmtp-backend:{PROJECT}'\n")
+        missing = self.run_up()
+        self.assertEqual(missing.returncode, 37, missing.stderr)
+        self.assertIn(
+            f"xmtp-backend:{PROJECT} is not loaded. Run 'just backend up'",
+            missing.stderr,
+        )
+        loaded = self.run_up(IMAGE_PRESENT="1")
+        self.assertEqual(loaded.returncode, 37, loaded.stderr)
+        self.assertNotIn("just backend up", loaded.stderr)
+        self.calls.unlink()
+        started = self.run_up(status=0)
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.assertNotIn(["image"], [call[:1] for call in self.docker_calls()])
 
     def test_worktree_refusal_does_not_start_or_inspect_containers(self):
         result = self.run_up(WORKTREE_STATUS="65")

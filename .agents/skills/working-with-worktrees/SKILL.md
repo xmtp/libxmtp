@@ -28,7 +28,8 @@ image build has the tag `ghcr.io/xmtp/backend:self-hosted`, so
 (`dev/docker/load-backend-image`). Compose runs that tag, so a recreated backend
 never runs another worktree's build. Do not `docker load` the archive for the
 stack by hand. To run a different image, such as a published release, set
-`XMTP_BACKEND_IMAGE`; `just backend up` then runs that image and loads nothing.
+`XMTP_BACKEND_IMAGE` and start with `dev/docker/up`. `just backend up` would
+still build this worktree's image, but it does not load the build under that tag.
 
 ## Run in parallel without conflicts
 

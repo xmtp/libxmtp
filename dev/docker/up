@@ -25,6 +25,13 @@ else
   startup_status=$?
 fi
 
+# This worktree's backend tag exists only after `just backend up` loads it, so a
+# bare `dev/docker/up` fails with a pull error from Compose. Name the fix.
+if [ "${XMTP_BACKEND_IMAGE:-}" = "xmtp-backend:${XMTP_COMPOSE_PROJECT}" ] &&
+  ! docker image inspect "${XMTP_BACKEND_IMAGE}" >/dev/null 2>&1; then
+  echo "Backend image ${XMTP_BACKEND_IMAGE} is not loaded. Run 'just backend up' to build and load it." >&2
+fi
+
 # Keep the failed project's logs and state before a runner removes its containers.
 # Inspect only State: a full inspect would also retain environment credentials.
 # Diagnostics are best effort and must never replace Compose's failure status.

@@ -5,8 +5,8 @@ Every Nix build tags its image ghcr.io/xmtp/backend:self-hosted. If two
 worktrees shared one image reference, Compose could recreate one worktree's
 backend from the other worktree's build. These checks run dev/worktree-env in
 real git worktrees, resolve each Compose file's backend image from the
-generated .env, and check the loader that applies the tag. They do not use a
-Docker daemon.
+generated .env, and check the loader that applies the tag and the recipes that
+load and remove it. They do not use a Docker daemon.
 """
 
 import io
@@ -72,6 +72,39 @@ def git(*args):
     )
 
 
+def executable(path, body):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body)
+    path.chmod(0o755)
+
+
+def read_env(checkout):
+    """The values in a checkout's dev/docker/.env, one NAME='value' per line."""
+    text = (checkout / "dev/docker/.env").read_text()
+    return dict(token.split("=", 1) for token in shlex.split(text, comments=True))
+
+
+def fixture_worktrees(test):
+    """A main checkout and two worktrees under one parent, with worktree-env."""
+    temporary = tempfile.TemporaryDirectory()
+    test.addCleanup(temporary.cleanup)
+    base = Path(temporary.name).resolve()
+    main = base / "main"
+    main.mkdir()
+    git("-C", str(main), "init", "-q")
+    git("-C", str(main), "commit", "-q", "--allow-empty", "-m", "fixture")
+    # One parent for both worktrees, so both derive the same name and only the
+    # slot can tell them apart.
+    lanes = [base / "lanes/one", base / "lanes/two"]
+    for lane in lanes:
+        git("-C", str(main), "worktree", "add", "-q", "--detach", str(lane))
+    for checkout in [main, *lanes]:
+        (checkout / "dev/docker").mkdir(parents=True)
+        shutil.copy2(WORKTREE_ENV, checkout / "dev/worktree-env")
+        shutil.copy2(ROOT / "dev/docker/load-env", checkout / "dev/docker/load-env")
+    return base, main, lanes
+
+
 def compose_backend_image(compose_file, environment):
     """Resolve the backend image the way Compose interpolates it."""
     image = yaml.safe_load(compose_file.read_text())["services"]["backend"]["image"]
@@ -90,21 +123,7 @@ def compose_backend_image(compose_file, environment):
 
 class WorktreeImageTest(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        base = Path(temporary.name)
-        self.main = base / "main"
-        self.main.mkdir()
-        git("-C", str(self.main), "init", "-q")
-        git("-C", str(self.main), "commit", "-q", "--allow-empty", "-m", "fixture")
-        # One parent for both worktrees, so both derive the same name and only
-        # the slot can tell them apart.
-        self.lanes = [base / "lanes/one", base / "lanes/two"]
-        for lane in self.lanes:
-            git("-C", str(self.main), "worktree", "add", "-q", "--detach", str(lane))
-        for checkout in [self.main, *self.lanes]:
-            (checkout / "dev/docker").mkdir(parents=True)
-            shutil.copy2(WORKTREE_ENV, checkout / "dev/worktree-env")
+        self.base, self.main, self.lanes = fixture_worktrees(self)
 
     def generate(self, checkout, **overrides):
         """Run dev/worktree-env in a checkout and return the generated values."""
@@ -116,9 +135,7 @@ class WorktreeImageTest(unittest.TestCase):
             env=clean_environment(**overrides),
             timeout=60,
         )
-        # Each line is NAME='value', quoted for the shell.
-        text = (checkout / "dev/docker/.env").read_text()
-        return dict(token.split("=", 1) for token in shlex.split(text, comments=True))
+        return read_env(checkout)
 
     def test_two_worktrees_run_distinct_backend_images(self):
         first, second = (self.generate(lane) for lane in self.lanes)
@@ -150,6 +167,127 @@ class WorktreeImageTest(unittest.TestCase):
         values = self.generate(self.lanes[0], XMTP_BACKEND_IMAGE=published)
         for compose_file in COMPOSE_FILES:
             self.assertEqual(compose_backend_image(compose_file, values), published)
+
+    def test_tls_stack_gets_this_worktree_image(self):
+        # dev/tls/compose.yml has no .env beside it, so only the wrapper's
+        # exports reach it. A direct call would resolve the Nix tag instead.
+        for script in ("up", "check.sh"):
+            text = (ROOT / "dev/tls" / script).read_text()
+            self.assertIn('"$script_dir/compose" up', text)
+            self.assertNotIn("docker compose", text)
+        lane = self.lanes[0]
+        (lane / "dev/tls").mkdir()
+        shutil.copy2(ROOT / "dev/tls/compose", lane / "dev/tls/compose")
+        record = self.base / "docker-call"
+        executable(
+            self.base / "bin/docker",
+            'printf "%s\\n" "$XMTP_BACKEND_IMAGE" "$@" > "$RECORD"\n',
+        )
+        subprocess.run(
+            [str(lane / "dev/tls/compose"), "config"],
+            check=True,
+            capture_output=True,
+            env=clean_environment(
+                PATH=str(self.base / "bin") + os.pathsep + os.environ["PATH"],
+                RECORD=str(record),
+            ),
+            timeout=60,
+        )
+        image, *args = record.read_text().splitlines()
+        self.assertEqual(image, read_env(lane)["XMTP_BACKEND_IMAGE"])
+        self.assertNotEqual(image, NIX_TAG)
+        self.assertEqual(
+            args,
+            [
+                "compose",
+                "-f",
+                str(lane / "dev/tls/compose.yml"),
+                "-p",
+                "libxmtp-tls",
+                "config",
+            ],
+        )
+
+
+class RecipeTest(unittest.TestCase):
+    """`just backend` loads and removes only the tag that worktree-env derives."""
+
+    DERIVED = "xmtp-backend:libxmtp-lanes-7"
+    PUBLISHED = "ghcr.io/xmtp/backend:8.0.0-rc1"
+
+    def setUp(self):
+        base, _, lanes = fixture_worktrees(self)
+        self.root = lanes[0]
+        names = subprocess.check_output(
+            ["git", "ls-files", "*.just", "justfile"], cwd=ROOT, text=True
+        ).splitlines()
+        for name in names:
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / name, self.root / name)
+        self.log = base / "calls.log"
+        executable(self.root / "dev/nix-shell", 'exec bash -euc "$1"\n')
+        executable(
+            self.root / "dev/docker/load-backend-image", 'echo "load $*" >> "$LOG"\n'
+        )
+        executable(self.root / "dev/docker/down", 'echo "down $*" >> "$LOG"\n')
+        executable(
+            base / "bin/docker",
+            'case "$1 $2" in\n'
+            '  "image inspect") exit 0 ;;\n'
+            '  "image rm") echo "rm $3" >> "$LOG"; exit "${RM_STATUS:-0}" ;;\n'
+            "esac\n"
+            'echo "unexpected docker $*" >&2\n'
+            "exit 1\n",
+        )
+        self.environment = clean_environment(
+            PATH=str(base / "bin") + os.pathsep + os.environ["PATH"],
+            LOG=str(self.log),
+            XMTP_WORKTREE_SLOT="7",
+        )
+
+    def just(self, *args, **overrides):
+        result = subprocess.run(
+            ["just", "--justfile", str(self.root / "justfile"), *args],
+            cwd=self.root,
+            env=dict(self.environment, **overrides),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def calls(self):
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def test_up_loads_the_build_under_the_derived_tag(self):
+        self.just("--no-deps", "backend", "_load-image")
+        self.assertEqual(
+            self.calls(), [f"load {self.root}/result-backend-image {self.DERIVED}"]
+        )
+
+    def test_an_overridden_image_never_receives_a_local_build(self):
+        result = self.just(
+            "--no-deps", "backend", "_load-image", XMTP_BACKEND_IMAGE=self.PUBLISHED
+        )
+        self.assertEqual(self.calls(), [])
+        self.assertIn(self.PUBLISHED, result.stderr)
+
+    def test_release_removes_the_derived_tag_and_frees_the_slot(self):
+        self.just("backend", "release")
+        self.assertEqual(self.calls(), ["down --volumes", f"rm {self.DERIVED}"])
+        # `worktree-env --release` runs last and deletes the file.
+        self.assertFalse((self.root / "dev/docker/.env").exists())
+
+    def test_release_keeps_an_overridden_image(self):
+        self.just("backend", "release", XMTP_BACKEND_IMAGE=self.PUBLISHED)
+        self.assertEqual(self.calls(), ["down --volumes"])
+        self.assertFalse((self.root / "dev/docker/.env").exists())
+
+    def test_release_frees_the_slot_when_the_tag_is_in_use(self):
+        result = self.just("backend", "release", RM_STATUS="1")
+        self.assertIn(f"kept {self.DERIVED}", result.stderr)
+        self.assertFalse((self.root / "dev/docker/.env").exists())
 
 
 def archive_members(manifest=True):

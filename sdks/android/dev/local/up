@@ -1,6 +1,9 @@
 #!/bin/bash
 set -eou pipefail
 script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+repo_root="$(cd -- "${script_dir}/../../../.." && pwd)"
 
-"${script_dir}"/compose pull
-"${script_dir}"/compose up -d --build
+# The stack runs this worktree's backend build under a local tag that no
+# registry has, so `compose pull` cannot fetch it. The recipe builds and loads it.
+cd "${repo_root}"
+exec dev/nix-shell 'just backend up'

@@ -121,13 +121,16 @@ release:
     set -euo pipefail
     {{ root }}/dev/docker/down --volumes
     {{ _env }}
-    {{ root }}/dev/worktree-env --release
     # Remove only the tag this worktree derived, never an override such as a
-    # published image. Shared layers stay while another tag uses them.
+    # published image. Shared layers stay while another tag uses them. Do it
+    # before the release: after it, a rerun can derive another slot's tag. A
+    # failure, such as a container that still uses the tag, must not keep the slot.
     if [ "$XMTP_BACKEND_IMAGE" = "xmtp-backend:$XMTP_COMPOSE_PROJECT" ] &&
       docker image inspect "$XMTP_BACKEND_IMAGE" >/dev/null 2>&1; then
-      docker image rm "$XMTP_BACKEND_IMAGE" >/dev/null
+      docker image rm "$XMTP_BACKEND_IMAGE" >/dev/null ||
+        echo "release: kept $XMTP_BACKEND_IMAGE. Remove it with 'docker image rm' when no container uses it." >&2
     fi
+    {{ root }}/dev/worktree-env --release
 
 # Verify client traces, backend metrics, and the local dashboard.
 observe-check:

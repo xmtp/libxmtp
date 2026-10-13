@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-"$script_dir/compose" down --volumes --remove-orphans "$@"
+# Teardown resolves no image, so it skips the wrapper and claims no worktree slot.
+docker compose -f "$script_dir/compose.yml" -p libxmtp-tls down --volumes --remove-orphans "$@"
 rm -rf "$script_dir/.generated"

@@ -33,8 +33,9 @@ dev/nix-shell 'just backend db-down'
 Compose files run that tag. Every build has the tag
 `ghcr.io/xmtp/backend:self-hosted`, so a plain `docker load` would let one
 worktree's stack run another worktree's build. Do not use it for the stack.
-Any other `XMTP_BACKEND_IMAGE` value is an image to run instead; the recipes
-neither load nor remove it. `release` removes the derived tag.
+Any other `XMTP_BACKEND_IMAGE` value is an image to run instead: start it with
+`dev/docker/up`. The recipes still build, but never load a build under that tag
+or remove it. `release` removes the derived tag.
 
 `dev/nix-shell 'just backend run'` uses `dev/backend/local.toml` without attachment storage.
 The `build` and `image` recipes remove `LD_LIBRARY_PATH` from the Nix process.
