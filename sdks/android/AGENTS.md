@@ -20,6 +20,8 @@ SDK `check` also runs `check-packages` on the debug and release AARs.
 The separate app `check` validates the moved Debug and Release APKs.
 The artifact check rejects static symbol and debug sections and requires the
 dynamic symbol sections in every packaged SDK JNI library. It uses NDK `llvm-readelf`.
+The package checker accepts `--require-all-abis` for the downloadable example APK;
+this also requires arm64-v8a, armeabi-v7a, x86_64, and x86.
 The format and lint recipes use strict dependency verification and stop their Gradle daemons.
 The lint recipe checks the SDK. Use the app lint recipe for the example.
 The dependency locks include the pinned Spotless formatter graph.

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$APP_ROOT/../.." && pwd)"
+VERSION="${XMTP_EXAMPLE_VERSION:-local}"
+if ! [[ "$VERSION" =~ ^[a-zA-Z0-9][a-zA-Z0-9.+_-]*$ ]]; then
+  echo 'XMTP_EXAMPLE_VERSION must be a filename-safe version.' >&2
+  exit 1
+fi
+OUTPUT="$APP_ROOT/build/apk/xmtp-messenger-$VERSION.apk"
+rm -f "$OUTPUT"
+
+# Include physical devices and emulators, even when the fast bindings were staged.
+"$ROOT/sdks/android/dev/bindings" --release
+cd "$APP_ROOT"
+./gradlew -p . :example:assembleDebug "-PxmtpExampleVersion=$VERSION" \
+  --dependency-verification=strict --no-daemon
+APK=app/build/outputs/apk/debug/example-debug.apk
+python3.11 -B "$ROOT/sdks/android/dev/check-native-packages.py" --require-all-abis "$APK"
+"${ANDROID_HOME:?}/build-tools/35.0.0/apksigner" verify "$APK"
+
+mkdir -p "$(dirname "$OUTPUT")"
+cp "$APK" "$OUTPUT"
+printf '\nTesting APK: %s\n' "$OUTPUT"

@@ -93,6 +93,32 @@ The command uses the current worktree ports and keeps the backend running.
 
 ## Build and check
 
+Build a sideloadable testing APK from the repository root:
+
+```sh
+dev/nix-shell 'just example-android apk'
+```
+
+The command prints the output path:
+`apps/example-android/build/apk/xmtp-messenger-local.apk`. It builds the local
+SDK and includes arm64-v8a, armeabi-v7a, x86_64, and x86 in one debug-signed APK.
+It does not need a backend or emulator. Android 8.1 (API 27) or newer is required.
+Transfer the APK to a device and open it, allowing installation from that source
+when Android asks. Or install it over USB with `adb install -r <apk-path>`.
+
+Every Android dev, RC, stable, and nightly release attaches
+`xmtp-messenger-<version>.apk` to its `android-<version>` GitHub Release.
+These APKs are for testing. Each build machine uses its own debug signing key.
+If Android rejects an update because its signature differs, uninstall the old
+app first. Uninstalling removes its profiles and local data.
+Published APKs have Firebase notifications off.
+
+Choose a reachable HTTPS server in the app. For a USB-connected device and a
+local backend, run `adb reverse tcp:5050 tcp:5050` and enter
+`http://127.0.0.1:5050`; replace 5050 with the port from `just backend status`.
+Forward the object-store port too when testing attachments. The default
+`10.0.2.2` address reaches the host only from an Android emulator.
+
 Run these commands from the repository root:
 
 ```sh

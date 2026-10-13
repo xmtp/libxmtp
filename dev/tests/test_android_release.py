@@ -2,11 +2,16 @@
 """Exercise release build wiring without native builds or publication."""
 
 import os
+import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+import zipfile
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/release-android.yml"
@@ -18,6 +23,172 @@ def step(name):
 
 
 class AndroidReleaseTest(unittest.TestCase):
+    def test_apk_build_and_failure_gates(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            app = root / "apps/example-android"
+            sdk = root / "sdks/android/dev"
+            (app / "dev").mkdir(parents=True)
+            sdk.mkdir(parents=True)
+            shutil.copy(ROOT / "apps/example-android/dev/apk", app / "dev/apk")
+            shutil.copy(ROOT / "sdks/android/dev/check-native-packages.py", sdk)
+
+            def executable(path, body):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("#!/usr/bin/env bash\nset -eu\n" + body)
+                path.chmod(0o755)
+
+            executable(
+                sdk / "bindings", 'test "$*" = --release\nexit "${BINDINGS_EXIT:-0}"\n'
+            )
+            executable(
+                app / "gradlew",
+                'test "$*" = "-p . :example:assembleDebug -PxmtpExampleVersion=8.0.0-dev.test --dependency-verification=strict --no-daemon"\n'
+                'exit "${GRADLE_EXIT:-0}"\n',
+            )
+            android = root / "android"
+            executable(
+                android / "build-tools/35.0.0/apksigner",
+                'test "$*" = "verify app/build/outputs/apk/debug/example-debug.apk"\n'
+                'exit "${SIGNATURE_EXIT:-0}"\n',
+            )
+            ndk = root / "ndk"
+            executable(
+                ndk / "toolchains/llvm/prebuilt/host/bin/llvm-readelf",
+                "printf '  [1] .dynsym\\n  [2] .dynstr\\n'\n",
+            )
+            apk = app / "app/build/outputs/apk/debug/example-debug.apk"
+            apk.parent.mkdir(parents=True)
+            output = app / "build/apk/xmtp-messenger-8.0.0-dev.test.apk"
+            output.parent.mkdir(parents=True)
+            env = dict(
+                os.environ,
+                ANDROID_HOME=str(android),
+                ANDROID_NDK_HOME=str(ndk),
+                XMTP_EXAMPLE_VERSION="8.0.0-dev.test",
+            )
+            abis = ["arm64-v8a", "armeabi-v7a", "x86_64", "x86"]
+            for failure, status in [
+                (None, 0),
+                ("BINDINGS_EXIT", 41),
+                ("GRADLE_EXIT", 42),
+                ("SIGNATURE_EXIT", 43),
+                ("missing_abi", 1),
+            ]:
+                with self.subTest(failure=failure):
+                    with zipfile.ZipFile(apk, "w") as archive:
+                        for abi in abis[:1] if failure == "missing_abi" else abis:
+                            archive.writestr(f"lib/{abi}/libxmtp_sdk.so", "fixture")
+                    output.write_text("stale APK")
+                    run_env = dict(env)
+                    if failure and failure != "missing_abi":
+                        run_env[failure] = str(status)
+                    result = subprocess.run(
+                        ["bash", str(app / "dev/apk")],
+                        env=run_env,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        result.returncode, status, result.stdout + result.stderr
+                    )
+                    if status:
+                        self.assertFalse(output.exists(), result.stdout + result.stderr)
+                    else:
+                        self.assertEqual(output.read_bytes(), apk.read_bytes())
+                        self.assertIn(str(output), result.stdout)
+
+    def test_apk_release_publication(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        steps = jobs["publish"]["steps"]
+        names = [item.get("name") for item in steps]
+        build = steps[names.index("Build example APK")]
+        self.assertEqual(build["run"], "dev/nix-shell 'just example-android apk'")
+        self.assertEqual(
+            build["env"]["XMTP_EXAMPLE_VERSION"], "${{ steps.version.outputs.version }}"
+        )
+        self.assertLess(names.index("Build example APK"), names.index("Publish"))
+        upload = steps[names.index("Retain example APK")]
+        self.assertLess(names.index("Retain example APK"), names.index("Publish"))
+        self.assertEqual(upload["with"]["if-no-files-found"], "error")
+        self.assertEqual(
+            upload["with"]["path"],
+            "apps/example-android/build/apk/xmtp-messenger-${{ steps.version.outputs.version }}.apk",
+        )
+        job = jobs["publish-apk"]
+        self.assertEqual(set(job["needs"]), {"publish", "push-tag"})
+        self.assertNotIn("if", job)
+        self.assertNotIn("if", build)
+        self.assertEqual(job["steps"][0]["with"]["name"], upload["with"]["name"])
+        command = job["steps"][-1]["run"]
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "apk").mkdir()
+            asset = root / "apk/xmtp-messenger-8.0.0.apk"
+            asset.write_bytes(b"APK")
+            gh = root / "gh"
+            gh.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, sys\n"
+                "with open(os.environ['GH_LOG'], 'a') as log: log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                "sys.exit(int(os.environ['VIEW_EXIT']) if sys.argv[2] == 'view' else int(os.environ.get('UPLOAD_EXIT', '0')))\n"
+            )
+            gh.chmod(0o755)
+            log = root / "calls.jsonl"
+            for kind in ("dev", "rc", "final", "nightly"):
+                for existing in (False, True):
+                    with self.subTest(kind=kind, existing=existing):
+                        log.write_text("")
+                        env = dict(
+                            os.environ,
+                            PATH=str(root) + os.pathsep + os.environ["PATH"],
+                            GH_LOG=str(log),
+                            VERSION="8.0.0",
+                            RELEASE_TYPE=kind,
+                            VIEW_EXIT="0" if existing else "1",
+                        )
+                        result = subprocess.run(
+                            ["bash", "-euc", command],
+                            cwd=root,
+                            env=env,
+                            capture_output=True,
+                            text=True,
+                        )
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        calls = [
+                            json.loads(line) for line in log.read_text().splitlines()
+                        ]
+                        self.assertEqual(calls[0], ["release", "view", "android-8.0.0"])
+                        self.assertEqual(len(calls), 2)
+                        self.assertEqual(
+                            calls[1][:4],
+                            [
+                                "release",
+                                "upload" if existing else "create",
+                                "android-8.0.0",
+                                "apk/xmtp-messenger-8.0.0.apk",
+                            ],
+                        )
+                        if existing:
+                            self.assertIn("--clobber", calls[1])
+                        else:
+                            self.assertIn("--verify-tag", calls[1])
+                            self.assertEqual(
+                                "--prerelease" in calls[1], kind != "final"
+                            )
+            env["UPLOAD_EXIT"] = "44"
+            result = subprocess.run(
+                ["bash", "-euc", command], cwd=root, env=env, capture_output=True
+            )
+            self.assertEqual(result.returncode, 44)
+            asset.unlink()
+            log.write_text("")
+            result = subprocess.run(
+                ["bash", "-euc", command], cwd=root, env=env, capture_output=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(log.read_text(), "")
+
     def test_integration_failure_upload_retains_app_and_library_evidence(self):
         paths = []
         for name, title in (

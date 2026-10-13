@@ -4,6 +4,7 @@ Run commands from the repository root. These recipes use the Android Nix shell.
 
 ```bash
 dev/nix-shell 'just example-android start'
+dev/nix-shell 'just example-android apk'
 dev/nix-shell 'just example-android check'
 dev/nix-shell 'just example-android preview-check'
 dev/nix-shell 'just example-android lint'
@@ -26,6 +27,13 @@ Open this directory as a Gradle project in Android Studio. `:example` maps to
 `app`; `:example-shared` maps to `shared`. The composite build maps
 `org.xmtp:android` to `sdks/android/library` in this checkout. Do not use a
 published SDK package for these checks.
+
+`apk` stages all four release JNI ABIs and builds a debug-signed universal APK
+without starting services or an emulator. It checks JNI packaging and signing,
+then writes `build/apk/xmtp-messenger-local.apk`. `XMTP_EXAMPLE_VERSION` sets the
+filename and app version name for CI. Android releases attach this APK to the
+`android-<version>` GitHub Release. The debug signing key belongs to the build
+machine; switching builds can require an uninstall, which removes local data.
 
 The SDK root owns `gradle/toolchain.properties`, the Gradle wrapper, and the
 shared dependency verification inventory. App module locks remain here. The
