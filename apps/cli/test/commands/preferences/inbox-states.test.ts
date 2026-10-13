@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
   runWithIdentity,
@@ -8,6 +9,8 @@ import {
 
 interface InboxState {
   inboxId: string;
+  handle: string | null;
+  otherHandles: string[];
   recoveryIdentifier: {
     identifier: string;
     kind: string;
@@ -41,5 +44,28 @@ describe("preferences inbox-states", () => {
     const states = parseJsonOutput<InboxState[]>(result.stdout);
     expect(states.length).toBe(1);
     expect(states[0].inboxId).toBe(user.inboxId);
+  });
+
+  it("shows the handles of a cached inbox", async () => {
+    const user = await createIdentityWithHandle();
+
+    const result = await runWithIdentity(user, [
+      "preferences",
+      "inbox-states",
+      user.inboxId,
+      "--json",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const states = parseJsonOutput<InboxState[]>(result.stdout);
+    expect(
+      states.map(({ inboxId, handle, otherHandles }) => ({
+        inboxId,
+        handle,
+        otherHandles,
+      })),
+    ).toEqual([
+      { inboxId: user.inboxId, handle: user.handle, otherHandles: [] },
+    ]);
   });
 });

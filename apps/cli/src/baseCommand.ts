@@ -7,6 +7,7 @@ import type { BackendOptions, Client } from "@xmtp/node-sdk";
 import { parseBackendUrl, parseEnvironmentLabel } from "./utils/backend.js";
 import { createClient } from "./utils/client.js";
 import { loadConfig, mergeConfig, type XmtpConfig } from "./utils/config.js";
+import { formatOtherHandles, handleFields } from "./utils/handles.js";
 import { formatHuman, isTTY, jsonStringify } from "./utils/output.js";
 
 export class BaseCommand extends Command {
@@ -108,6 +109,23 @@ export class BaseCommand extends Command {
     } else {
       this.log(formatHuman(data));
     }
+  }
+
+  /**
+   * The handle fields of an inbox for output. JSON output has the other
+   * handles as a list; human output has them as one line of text.
+   */
+  handleOutput(record: Parameters<typeof handleFields>[0]): {
+    handle: string | null;
+    otherHandles: string[] | string;
+  } {
+    const { handle, otherHandles } = handleFields(record);
+    return {
+      handle,
+      otherHandles: this.jsonOutput
+        ? otherHandles
+        : formatOtherHandles(otherHandles),
+    };
   }
 
   /**

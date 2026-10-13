@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
   runWithIdentity,
@@ -15,6 +16,8 @@ interface DmResult {
   creatorInboxId: string;
   members: Array<{
     inboxId: string;
+    handle: string | null;
+    otherHandles: string[];
     accountIdentifiers: Array<{
       identifier: string;
       kind: string;
@@ -119,5 +122,34 @@ describe("conversations create-dm", () => {
     const createOutput = parseJsonOutput<DmResult>(createResult.stdout);
 
     expect(dms.some((dm) => dm.id === createOutput.id)).toBe(true);
+  });
+
+  it("creates a DM with the inbox that holds a handle", async () => {
+    const sender = await createRegisteredIdentity();
+    const recipient = await createIdentityWithHandle();
+
+    const byHandle = await runWithIdentity(sender, [
+      "conversations",
+      "create-dm",
+      recipient.handle,
+      "--identifier-kind",
+      "handle",
+      "--json",
+    ]);
+    expect(byHandle.exitCode).toBe(0);
+    const dm = parseJsonOutput<DmResult>(byHandle.stdout);
+    expect(dm.peerInboxId).toBe(recipient.inboxId);
+    expect(
+      dm.members.find((member) => member.inboxId === recipient.inboxId)?.handle,
+    ).toBe(recipient.handle);
+
+    const byAddress = await runWithIdentity(sender, [
+      "conversations",
+      "create-dm",
+      recipient.address,
+      "--json",
+    ]);
+    expect(byAddress.exitCode).toBe(0);
+    expect(parseJsonOutput<DmResult>(byAddress.stdout).id).toBe(dm.id);
   });
 });

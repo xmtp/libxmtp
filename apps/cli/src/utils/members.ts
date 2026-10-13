@@ -1,9 +1,16 @@
 import type { Client, Member } from "@xmtp/node-sdk";
 
-/** Add cached installation IDs to conversation member output. */
+import { handleFields } from "@/utils/handles";
+
+/**
+ * Add cached installation IDs to conversation member output. Each row has
+ * the member's current handle. With `withOtherHandles` (the JSON output),
+ * each row also has the member's other handles.
+ */
 export async function memberDetails(
   client: Pick<Client, "inboxStates">,
   members: Member[],
+  withOtherHandles: boolean,
 ) {
   if (members.length === 0) return [];
 
@@ -20,8 +27,11 @@ export async function memberDetails(
     const installationIds = installationsByInboxId.get(member.inboxId);
     if (!installationIds)
       throw new Error(`Inbox state not found: ${member.inboxId}`);
+    const { handle, otherHandles } = handleFields(member);
     return {
       inboxId: member.inboxId,
+      handle,
+      ...(withOtherHandles ? { otherHandles } : {}),
       accountIdentifiers: member.identities,
       installationIds,
       permissionLevel: member.permissionLevel,

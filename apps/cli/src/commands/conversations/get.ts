@@ -68,7 +68,7 @@ Use this to inspect the full details of a specific conversation.`;
       addedByInboxId: conversation.addedByInboxId,
       creatorInboxId: conversation.creatorInboxId,
       memberCount: members.length,
-      members: await memberDetails(client, members),
+      members: await memberDetails(client, members, this.jsonOutput),
     };
 
     if (isGroup(conversation) && "common" in snapshot) {

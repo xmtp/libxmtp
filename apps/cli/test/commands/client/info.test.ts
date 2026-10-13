@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  claimHandle,
   createTestIdentity,
   parseJsonOutput,
+  randomHandleName,
   runWithIdentity,
 } from "../../helpers.js";
 
@@ -10,6 +12,8 @@ interface ClientInfoOutput {
   properties: {
     address: string;
     inboxId: string;
+    handle: string | null;
+    otherHandles: string[];
     installationId: string;
     isRegistered: boolean;
     appVersion: string;
@@ -126,5 +130,31 @@ describe("client info", () => {
     ]);
 
     expect(result.exitCode).not.toBe(0);
+  });
+
+  it("shows the current handle after a claim", async () => {
+    const identity = createTestIdentity();
+    const before = await runWithIdentity(identity, [
+      "client",
+      "info",
+      "--json",
+    ]);
+    expect(before.exitCode).toBe(0);
+    const unclaimed = parseJsonOutput<ClientInfoOutput>(before.stdout);
+    expect(unclaimed.properties.handle).toBeNull();
+    expect(unclaimed.properties.otherHandles).toEqual([]);
+
+    const handle = randomHandleName();
+    await claimHandle(identity, handle);
+
+    const json = await runWithIdentity(identity, ["client", "info", "--json"]);
+    expect(json.exitCode).toBe(0);
+    const claimed = parseJsonOutput<ClientInfoOutput>(json.stdout);
+    expect(claimed.properties.handle).toBe(handle);
+    expect(claimed.properties.otherHandles).toEqual([]);
+
+    const human = await runWithIdentity(identity, ["client", "info"]);
+    expect(human.exitCode).toBe(0);
+    expect(human.stdout).toMatch(new RegExp(`^\\s+handle\\s+${handle}$`, "m"));
   });
 });

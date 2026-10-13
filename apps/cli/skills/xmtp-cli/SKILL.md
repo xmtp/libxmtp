@@ -103,11 +103,13 @@ xmtp can-message <address>
 xmtp can-message <address-1> <address-2>
 # output result as JSON for scripting
 xmtp can-message <address> --json
+# check whether inboxes hold handles
+xmtp can-message nick nick#2341 --identifier-kind handle
 ```
 
 ### Get Client Information
 
-Shows client properties (address, inboxId, installationId, etc.) and client options (env, dbPath, etc.) in two sections. JSON output is nested as `{ properties, options }`.
+Shows client properties (address, inboxId, handle, otherHandles, installationId, etc.) and client options (env, dbPath, etc.) in two sections. JSON output is nested as `{ properties, options }`. `handle` is the current handle, or `null` when the inbox has none.
 
 ```bash
 # display client properties in human-readable format
@@ -115,6 +117,23 @@ xmtp client info
 # output as JSON (nested as { properties, options })
 xmtp client info --json
 ```
+
+### Choose a Handle
+
+A handle is a public name, such as `nick` or `nick#2341`, that people on a backend use to find an inbox. Handles are public and permanent. An inbox can change its handle once every 7 days, up to 64 times in total. Its earlier handles stay with it and still find it.
+
+```bash
+# list free handles for a name, the bare name first when it is free
+xmtp client handle-available nick
+# check one handle with a code
+xmtp client handle-available nick#2341 --json
+# claim a handle (--force skips the confirmation prompt)
+xmtp client handle-claim nick#2341 --force
+# switch back to one of your other handles (a new claim; every rule applies)
+xmtp client handle-claim nick --force
+```
+
+The backend decides each claim. `handle-claim` exits with a nonzero code and a plain message when the handle is taken, not allowed on the backend, or claimed less than 7 days after the last change, or when the inbox has used all 64 changes. It never claims a different handle: run `handle-available` again and pick another one. Do not claim a handle the user did not choose.
 
 ### Sign and Verify Messages
 
@@ -135,6 +154,8 @@ xmtp client verify-signature "verify me" --signature <base64-signature> --base64
 ```bash
 # create a DM conversation with a wallet address
 xmtp conversations create-dm <address>
+# create a DM conversation with the inbox that holds a handle
+xmtp conversations create-dm nick#2341 --identifier-kind handle
 
 # send a text message to a conversation by its ID
 xmtp conversation send-text <conversation-id> "Hello, world!"
@@ -178,6 +199,8 @@ xmtp conversation send-read-receipt <conversation-id>
 ```bash
 # create a group with multiple members and a name
 xmtp conversations create-group <address-1> <address-2> --name "My Team"
+# create a group from handles
+xmtp conversations create-group nick bo#0042 --identifier-kind handle
 
 # create a group with full metadata and admin-only permissions
 xmtp conversations create-group <address> \
@@ -252,6 +275,8 @@ Content types: `actions`, `attachment`, `custom`, `group-membership-change`, `gr
 xmtp conversations get-dm <address>
 # look up a DM conversation by inbox ID
 xmtp conversations get-dm <inbox-id>
+# look up a DM conversation by handle
+xmtp conversations get-dm nick#2341 --identifier-kind handle
 ```
 
 ### Stream in Real-Time
@@ -292,7 +317,12 @@ xmtp conversation members <conversation-id> --sync
 xmtp conversation add-members <conversation-id> <address-1> <address-2>
 # remove a member by their Ethereum address
 xmtp conversation remove-members <conversation-id> <address>
+# add or remove members by handle
+xmtp conversation add-members <conversation-id> nick#2341 --identifier-kind handle
+xmtp conversation remove-members <conversation-id> nick#2341 --identifier-kind handle
 ```
+
+The members table shows each member's current handle. JSON output also has `otherHandles`, the member's earlier handles.
 
 ### Update Group Permissions
 
@@ -417,6 +447,8 @@ xmtp installation-authorized <inbox-id> <installation-id>
 
 # look up the inbox ID associated with a wallet address
 xmtp client inbox-id --identifier <address>
+# look up the inbox that holds a handle (an old handle finds it too)
+xmtp client inbox-id --identifier nick#2341 --kind handle
 ```
 
 ### Conversation Details
@@ -534,6 +566,7 @@ client or contacts the backend. There is no built-in backend default.
 3. **Address not registered**: Use `can-message` to check first
 4. **Conversation not found**: Sync first with `conversations sync`
 5. **Permission denied**: Check group permissions with `conversation permissions`
+6. **Handle taken, not allowed, or changed too recently**: `client handle-claim` claimed nothing. Run `client handle-available <name>` and let the user pick another handle
 
 ## Complete Example
 
@@ -562,5 +595,5 @@ xmtp conversation stream "$DM_ID" --timeout 300
 3. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
 4. **Handle streaming gracefully**: Use `--timeout` and `--count` flags for bounded operations
 5. **Specify backend**: Save `XMTP_BACKEND_URL` with `xmtp init` or pass `--backend-url`
-6. **Dangerous operations require --force**: Commands like `add-account`, `remove-account`, `revoke-installations`, `revoke-all-other-installations`, and `change-recovery-identifier` prompt for confirmation unless `--force` is passed
+6. **Dangerous operations require --force**: Commands like `add-account`, `remove-account`, `revoke-installations`, `revoke-all-other-installations`, `change-recovery-identifier`, and `handle-claim` prompt for confirmation unless `--force` is passed
 7. **Check command help**: Run `xmtp <command> --help` for full flag documentation
