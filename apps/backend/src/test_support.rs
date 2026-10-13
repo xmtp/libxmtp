@@ -13,6 +13,8 @@ pub(crate) mod grpc_web;
 #[cfg(test)]
 pub(crate) mod handles;
 #[cfg(test)]
+pub(crate) mod locks;
+#[cfg(test)]
 pub(crate) mod native;
 #[cfg(test)]
 pub(crate) mod replica;
@@ -219,6 +221,25 @@ impl RunningServer {
             .await?
             .into_inner()
             .envelope_metas)
+    }
+
+    /// Move every envelope on the identity topic of `inbox_id`, as lowercase
+    /// hex, back in server time by `by`, so a test passes the interval between
+    /// handle claims without waiting. Only `server_ns` changes: identity
+    /// envelopes have no expiry, and sequence ids keep their order.
+    pub async fn age_identity_history(
+        &self,
+        inbox_id: &str,
+        by: std::time::Duration,
+    ) -> TestResult {
+        let topic = xmtp_proto::types::TopicKind::IdentityUpdatesV1.create(hex::decode(inbox_id)?);
+        let by_ns = i64::try_from(by.as_nanos())?;
+        sqlx::query("UPDATE envelopes SET server_ns = server_ns - $2 WHERE topic = $1")
+            .bind(topic.to_vec())
+            .bind(by_ns)
+            .execute(&self.backend.store.primary)
+            .await?;
+        Ok(())
     }
 
     pub fn shutdown(&mut self) {

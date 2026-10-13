@@ -844,6 +844,10 @@ fn complete_immediately<F: Future>(future: F) -> F::Output {
 )]
 // verifies: OPS-013, OPS-014, OPS-016, OPS-019
 async fn publish_and_subscribe_exclude_topic_and_inbox_bytes_from_all_telemetry() {
+    const HANDLE_NAME: &str = "zebrahandle";
+    const HANDLE: &str = "zebrahandle#7319";
+    const REFUSED_HANDLE: &str = "admin#7319";
+    const MALFORMED_HANDLE: &str = "zebra.handle";
     use crate::{api, test_support as support};
     use support::native::{Native, terminal};
     use xmtp_logging::test_logging::{OtlpCollector, string_attribute};
@@ -940,6 +944,20 @@ async fn publish_and_subscribe_exclude_topic_and_inbox_bytes_from_all_telemetry(
             }],
         })
         .await?;
+    // Handle claims, a taken and a refused claim, and handle lookups, one of
+    // them malformed: no handle text and no inbox id may reach telemetry.
+    let claimer = support::handles::ClaimingInbox::registered(&server).await?;
+    claimer.publish_claim(&server, HANDLE).await?;
+    let rival = support::handles::ClaimingInbox::registered(&server).await?;
+    rival.publish_claim(&server, HANDLE).await.unwrap_err();
+    rival
+        .publish_claim(&server, REFUSED_HANDLE)
+        .await
+        .unwrap_err();
+    support::handles::resolve(&server, &[HANDLE, &HANDLE.to_uppercase()]).await?;
+    support::handles::resolve(&server, &[MALFORMED_HANDLE])
+        .await
+        .unwrap_err();
     let _ = server
         .identity()
         .verify_smart_contract_wallet_signatures(api::VerifySmartContractWalletSignaturesRequest {
@@ -982,6 +1000,12 @@ async fn publish_and_subscribe_exclude_topic_and_inbox_bytes_from_all_telemetry(
         format!("{topic:?}"),
         inbox.clone(),
         format!("{inbox_bytes:?}"),
+        claimer.inbox_id.clone(),
+        rival.inbox_id.clone(),
+        HANDLE_NAME.to_owned(),
+        HANDLE_NAME.to_uppercase(),
+        REFUSED_HANDLE.to_owned(),
+        MALFORMED_HANDLE.to_owned(),
     ] {
         for text in [&rendered, &span_text, &log_text] {
             assert!(

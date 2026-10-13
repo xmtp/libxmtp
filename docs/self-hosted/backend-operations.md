@@ -141,7 +141,10 @@ are capped at the fixed 25 MiB transport ceiling.
 the backend admits in a new handle claim. It is 1 to 27, and the default is 3.
 The backend publishes it, and applies it only when it admits a claim. A change
 applies only to later claims: a handle claimed before the change stays valid
-and still resolves.
+and still resolves. When it admits a claim, the backend also refuses a handle
+that another inbox holds, a name part on its built-in reserved list (such as
+`admin` and `support`), and a second claim by one inbox within 7 days of its
+previous claim. The reserved list and the 7-day interval are fixed in the build.
 
 An inbox can make at most 64 handle claims, and each claim uses one entry of
 its identity log. At the default `limits.max_identity_entries` of 256, that

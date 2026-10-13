@@ -31,6 +31,8 @@ pub enum AdmissionError {
     Validation(std::sync::Arc<ValidationError>),
     TooLarge(&'static str),
     InvalidIdentity(&'static str),
+    /// A claim that every validator accepts and the backend's handle policy refuses.
+    Handle(crate::handles::HandleRejection),
 }
 
 impl From<ValidationError> for AdmissionError {
