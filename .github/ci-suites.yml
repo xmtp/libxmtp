@@ -146,12 +146,14 @@ suites:
     permissions: {contents: read}
     kache: []
     path_filters:
-      - "{crates,apps}/**/*.rs"
+      # `just lint-rust-source` checks the workspace manifests; treefmt in
+      # lint_config checks Rust format.
       - "**/Cargo.toml"
-      - "{Cargo.lock,rustfmt.toml,.clippy.toml,.taplo.toml,deny.toml}"
+      - "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
       - ".config/hakari.toml"
       - "crates/xmtp-workspace-hack/**"
-      - "apps/{chaos,db_tools,error_glossary,keepalive-probe,xmtp_debug}/**"
+      # No other suite owns this module; any `just` run parses it.
+      - "apps/chaos/chaos.just"
   lint_js:
     phase: lint
     workflow: lint-js.yml
@@ -173,7 +175,10 @@ suites:
     kache: []
     path_filters:
       # treefmt formats and checks these file types across the repository.
-      - "**/*.{nix,py,rs,sh,toml,kt,kts,swift}"
+      # Rust stays under crates/ and apps/, so a new Rust path elsewhere is
+      # unknown and runs every suite.
+      - "**/*.{nix,py,sh,toml,kt,kts,swift}"
+      - "{crates,apps}/**/*.rs"
       - "{.editorconfig,sdks/ios/.swiftformat}"
       - ".github/**"
       # `just lint-config` runs the tests of these tools.
@@ -185,6 +190,7 @@ suites:
       - "dev/tls/**"
       - "apps/backend/backend.just"
       - "sdks/android/android.just"
+      - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
       - "nix/fmt.nix"
   lint_proto:
     phase: lint

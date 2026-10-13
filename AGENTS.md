@@ -35,7 +35,7 @@ just check crate <name>      # check one crate
 just test                    # test default members
 just test crate <name>       # test one crate
 just test workspace -p <name> <args> # focused nextest options and filters
-just lint                    # CI lint without mobile toolchains, plus spec-check
+just lint                    # CI lint except lint_ios/android/example_android, plus spec-check
 dev/nix-shell 'just lint-js-source' # source Oxlint without generated SDK products
 dev/nix-shell 'just lint-rust-source' # Rust manifests, without Clippy
 just backend up              # shared services

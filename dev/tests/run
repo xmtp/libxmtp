@@ -3,11 +3,14 @@
 
 Each start directory contributes its `test_*.py` files. A new test file in one
 of these directories runs without a recipe or workflow edit. The tests import
-sibling modules by bare name, so each directory goes first on `sys.path`.
+sibling modules by bare name, so each directory runs in its own Python process
+with that directory first on `sys.path`. A test cannot pass here by importing
+a module from another start directory.
 """
 
 import importlib
 import io
+import subprocess
 import sys
 import time
 import traceback
@@ -33,61 +36,86 @@ EXCLUDED = {
     ),
 }
 
-
-def discover():
-    """Yield (start directory, test file) pairs in a stable order."""
-    for start in START_DIRS:
-        directory = ROOT / start
-        files = sorted(directory.glob("test_*.py"))
-        if not files:
-            raise SystemExit(f"{start} has no test_*.py files; update START_DIRS")
-        for path in files:
-            if path.relative_to(ROOT).as_posix() not in EXCLUDED:
-                yield directory, path
+# The last stdout line of a directory process: tests run and failed modules.
+SUMMARY = "dev-tests-run-summary"
 
 
-def load(directory, path):
-    """Import one test module as a top-level module of its directory."""
-    name = path.stem
-    loaded = sys.modules.get(name)
-    if loaded is not None and Path(getattr(loaded, "__file__", "")) != path:
-        raise ImportError(
-            f"module name {name} is already loaded from {loaded.__file__}"
-        )
-    if str(directory) not in sys.path:
-        sys.path.insert(0, str(directory))
-    module = importlib.import_module(name)
-    return unittest.defaultTestLoader.loadTestsFromModule(module)
+def run_module(path):
+    """Import and run one module. Return (tests run, failure detail or None)."""
+    output = io.StringIO()
+    try:
+        module = importlib.import_module(path.stem)
+        suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+        result = unittest.TextTestRunner(stream=output, verbosity=0).run(suite)
+    except KeyboardInterrupt:
+        raise
+    except BaseException:  # noqa: BLE001
+        # An import error, or a SystemExit from setUpModule or setUpClass.
+        return 0, output.getvalue() + traceback.format_exc()
+    if not result.wasSuccessful():
+        return result.testsRun, output.getvalue()
+    if result.testsRun == 0:
+        return 0, "No tests ran. Use unittest.TestCase classes.\n"
+    return result.testsRun, None
+
+
+def run_directory(start):
+    """Run the modules of one start directory in this process."""
+    directory = ROOT / start
+    files = [
+        path
+        for path in sorted(directory.glob("test_*.py"))
+        if path.relative_to(ROOT).as_posix() not in EXCLUDED
+    ]
+    failed = []
+    if not files:
+        failed.append((start, "No test_*.py files. Update START_DIRS.\n"))
+    sys.path.insert(0, str(directory))
+    total = 0
+    for path in files:
+        label = path.relative_to(ROOT).as_posix()
+        started = time.monotonic()
+        count, detail = run_module(path)
+        seconds = time.monotonic() - started
+        total += count
+        status = "ok" if detail is None else "FAIL"
+        print(f"{status:5} {label} ({count} tests, {seconds:.1f} s)", flush=True)
+        if detail is not None:
+            failed.append((label, detail))
+    for label, detail in failed:
+        print(f"\n===== {label}\n{detail}", file=sys.stderr, flush=True)
+    print(f"{SUMMARY} {total} {len(failed)}", flush=True)
+    return 1 if failed else 0
 
 
 def main():
-    failed = []
+    if len(sys.argv) == 3 and sys.argv[1] == "--directory":
+        return run_directory(sys.argv[2])
+    if len(sys.argv) != 1:
+        print("Usage: dev/tests/run", file=sys.stderr)
+        return 2
     total = 0
-    for directory, path in discover():
-        label = path.relative_to(ROOT).as_posix()
-        output = io.StringIO()
-        started = time.monotonic()
-        try:
-            suite = load(directory, path)
-        except (Exception, SystemExit):  # noqa: BLE001
-            # Report every module that fails to import, then fail the run.
-            print(f"ERROR {label}: import failed", flush=True)
-            failed.append((label, traceback.format_exc()))
+    failed = 0
+    for start in START_DIRS:
+        command = [sys.executable, "-B", __file__, "--directory", start]
+        child = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, text=True)
+        summary = None
+        for line in child.stdout:
+            if line.startswith(SUMMARY + " "):
+                summary = line.split()[1:]
+            else:
+                print(line, end="", flush=True)
+        code = child.wait()
+        if summary is None:
+            print(f"ERROR {start}: the test process exited {code} without a summary")
+            failed += 1
             continue
-        result = unittest.TextTestRunner(stream=output, verbosity=0).run(suite)
-        seconds = time.monotonic() - started
-        total += result.testsRun
-        status = "ok" if result.wasSuccessful() else "FAIL"
-        skipped = f", {len(result.skipped)} skipped" if result.skipped else ""
-        print(
-            f"{status:5} {label} ({result.testsRun} tests{skipped}, {seconds:.1f} s)",
-            flush=True,
-        )
-        if not result.wasSuccessful():
-            failed.append((label, output.getvalue()))
-    for label, detail in failed:
-        print(f"\n===== {label}\n{detail}", file=sys.stderr)
-    print(f"{total} tests; {len(failed)} failed modules")
+        total += int(summary[0])
+        failed += int(summary[1])
+        if code != 0 and int(summary[1]) == 0:
+            print(f"ERROR {start}: the test process exited {code}")
+            failed += 1
+    print(f"{total} tests; {failed} failed modules")
     return 1 if failed else 0
 
 

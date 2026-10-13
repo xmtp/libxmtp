@@ -57,10 +57,9 @@
       "paths": [
         "**/Cargo.toml",
         ".config/hakari.toml",
-        "apps/{chaos,db_tools,error_glossary,keepalive-probe,xmtp_debug}/**",
+        "apps/chaos/chaos.just",
         "crates/xmtp-workspace-hack/**",
-        "{Cargo.lock,rustfmt.toml,.clippy.toml,.taplo.toml,deny.toml}",
-        "{crates,apps}/**/*.rs"
+        "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
       ]
     },
     "lint_js": {
@@ -119,9 +118,10 @@
         ".github/workflows/lint-config.yml"
       ],
       "paths": [
-        "**/*.{nix,py,rs,sh,toml,kt,kts,swift}",
+        "**/*.{nix,py,sh,toml,kt,kts,swift}",
         ".github/**",
         "apps/backend/backend.just",
+        "apps/example-android/{dev/apk,example-android.just,app/build.gradle}",
         "dev/ci-failure-markers",
         "dev/docker/grafana/dashboards/backend.json",
         "dev/docker/{compose.yml,load-backend-image,load-env,up}",
@@ -129,7 +129,8 @@
         "dev/{tests,agents,specs,release-tools,fly,ci}/**",
         "nix/fmt.nix",
         "sdks/android/android.just",
-        "{.editorconfig,sdks/ios/.swiftformat}"
+        "{.editorconfig,sdks/ios/.swiftformat}",
+        "{crates,apps}/**/*.rs"
       ]
     },
     "lint_proto": {

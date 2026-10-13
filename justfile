@@ -80,8 +80,11 @@ _check-crate +crates:
 
 # --- LINT ---
 
-# Every CI lint command that needs no mobile toolchain, plus `spec-check`.
-lint: lint-rust wasm::lint lint-config lint-markdown lint-proto spec-check
+# The CI lint suites lint_workspace, lint_js, lint_config, lint_proto, and
+# docs_quality, the WASM and SDK generator Clippy of check_rust, and
+# `spec-check`. It skips lint_ios, lint_android, and lint_example_android,
+# which need mobile toolchains.
+lint: install-js lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto docs::test docs::check-source spec-check
 
 lint-proto:
     buf lint proto
@@ -106,8 +109,8 @@ lint-js-source:
 lint-config: _js-deps lint-treefmt
     python3.11 -B dev/ci-suites check
     python3.11 -B dev/tests/run
-    cd dev/fly && node --test
-    pnpm --filter @xmtp/release-tools run test
+    node --test dev/fly/render-dashboard.test.mjs
+    pnpm --filter @xmtp/release-tools --fail-if-no-match run test
 
 lint-toml:
     taplo format --check --diff
