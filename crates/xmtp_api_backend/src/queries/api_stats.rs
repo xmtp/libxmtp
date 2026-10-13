@@ -217,3 +217,6 @@ impl<C: xmtp_proto::api::IsConnectedCheck> xmtp_proto::api::IsConnectedCheck
         self.inner.is_connected().await
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests;
