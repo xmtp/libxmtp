@@ -180,7 +180,13 @@ async fn ping_drain_half_close_answers_a_buffered_client_ping() {
 // verifies: API-251
 #[xmtp_common::test(unwrap_try = true)]
 async fn buffered_input_rejects_malformed_frames_before_half_close() {
-    use crate::test_support::{query_topic, topic};
+    use crate::test_support::{metrics, query_topic, topic};
+
+    let Some(recorder) = metrics::isolated(
+        "stream::session::tests::buffered_input_rejects_malformed_frames_before_half_close",
+    ) else {
+        return;
+    };
     use api::subscribe_request::{Request, Update};
 
     let valid_topic = topic(xmtp_proto::types::TopicKind::WelcomeMessagesV1, &[4; 32]);
@@ -307,6 +313,11 @@ async fn buffered_input_rejects_malformed_frames_before_half_close() {
                 update(8, vec![], vec![])
             };
             let mut queued = VecDeque::new();
+            let invalid_before = metrics::value(
+                &recorder,
+                "xmtp_stream_updates_total",
+                &[("outcome", "invalid")],
+            );
             let result = if deferred {
                 session.pending_update = Some(PendingUpdate {
                     id: 7,
@@ -329,6 +340,23 @@ async fn buffered_input_rejects_malformed_frames_before_half_close() {
                 session.on_timer(&mut input, &mut queued).map(|_| ())
             };
             let path = if deferred { "deferred" } else { "timer" };
+            let invalid_after = metrics::value(
+                &recorder,
+                "xmtp_stream_updates_total",
+                &[("outcome", "invalid")],
+            );
+            let expected_invalid =
+                if !legal_capacity && matches!(&invalid.request, Some(Request::Update(_))) {
+                    1.0
+                } else {
+                    0.0
+                };
+            if invalid_after - invalid_before != expected_invalid {
+                failures.push(format!(
+                    "{path} {name}: invalid outcome delta {}, expected {expected_invalid}",
+                    invalid_after - invalid_before,
+                ));
+            }
             if legal_capacity && result.is_err() {
                 failures.push(format!(
                     "{path} {name}: legal queued fields failed: {result:?}"

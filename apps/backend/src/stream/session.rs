@@ -357,7 +357,14 @@ impl Session {
                             StreamEnd::Capacity,
                         ));
                     }
-                    self.validate_request(&frame)?;
+                    self.validate_request(&frame).inspect_err(|_| {
+                        if matches!(
+                            &frame.request,
+                            Some(api::subscribe_request::Request::Update(_))
+                        ) {
+                            telemetry::stream_updated(UpdateOutcome::Invalid);
+                        }
+                    })?;
                     if matches!(
                         &frame.request,
                         Some(api::subscribe_request::Request::Ping(_))
