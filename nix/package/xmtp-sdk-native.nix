@@ -72,8 +72,17 @@ let
         remove-references-to -t ${stdenv.cc} $out/lib/libxmtp_sdk.so $out/lib/libxmtp_sdk.a
       '';
     }
-    # The NDK is already a build input, so this guard adds no fetch.
-    // lib.optionalAttrs android { disallowedRequisites = [ stdenv.cc ]; }
+    # Reject the NDK wrapper and the paths it wraps: the unwrapped toolchain,
+    # the bintools wrapper, and bionic. All are in the wrapper's closure, which
+    # this build already needs, so the guard adds no fetch.
+    // lib.optionalAttrs android {
+      disallowedRequisites = [
+        stdenv.cc
+        stdenv.cc.cc
+        stdenv.cc.bintools
+        stdenv.cc.libc
+      ];
+    }
   );
 
 in
