@@ -101,7 +101,9 @@ backend, or claimed less than 7 days after the last change, or when the inbox
 has used all 64 changes. It never claims a different handle. Run
 `handle-available` again to pick another one. It also refuses the inbox's
 current handle before it asks the backend: that claim changes nothing, but it
-counts as a change.
+counts as a change. If the connection fails during a claim, the command reads
+the inbox from the backend, and reports success when the handle is now
+current.
 
 Handle commands check the handle grammar before they ask the backend, and
 refuse other text with a plain message. Error output shows each control
