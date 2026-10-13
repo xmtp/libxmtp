@@ -1,6 +1,6 @@
 name: nightly-dry-run
 
-# Manual preview of the nightly version-computation plan (cross-test gate +
+# Manual preview of the nightly version-computation plan (source CI gate +
 # git-cliff oracle, capped at minor, with the not-major assertion). Calls the
 # same release-gate-plan reusable workflow the real nightly uses, so it
 # exercises identical logic. Has NO publish jobs — it structurally cannot

@@ -74,7 +74,15 @@ on:
     - cron: "0 6 * * *"
 
 jobs:
+  cutover-policy:
+    uses: ./.github/workflows/check-cutover-policy.yml
+    with:
+      operation: release
+      dry-run: ${{ inputs.dry-run == true }}
+
   validate:
+    needs: cutover-policy
+    if: needs.cutover-policy.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     outputs:
       release-type: ${{ steps.resolve.outputs.release-type }}
@@ -196,7 +204,7 @@ jobs:
   # Nightly blocking relies on TWO mechanisms that must BOTH be preserved (see hub job below):
   #  1. gate-skip == 'true' (a legitimate "not green yet" skip; gate job succeeds), and
   #  2. job-dependency skip on plan FAILURE.
-  # The cross-test gate + version oracle live in the reusable release-gate-plan
+  # The source CI gate + version oracle live in the reusable release-gate-plan
   # workflow (one source of truth, shared with nightly-dry-run.yml). This `plan`
   # job runs it for the real nightly. Outputs: sha, gate-skip, version, kind,
   # nothing-pending.
@@ -220,7 +228,7 @@ jobs:
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
+      ref: ${{ needs.validate.outputs.release-type == 'nightly' && needs.plan.outputs.sha || needs.validate.outputs.ref }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
@@ -238,7 +246,7 @@ jobs:
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
+      ref: ${{ needs.validate.outputs.release-type == 'nightly' && needs.plan.outputs.sha || needs.validate.outputs.ref }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
@@ -255,7 +263,7 @@ jobs:
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
+      ref: ${{ needs.validate.outputs.release-type == 'nightly' && needs.plan.outputs.sha || needs.validate.outputs.ref }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
@@ -273,7 +281,7 @@ jobs:
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
+      ref: ${{ needs.validate.outputs.release-type == 'nightly' && needs.plan.outputs.sha || needs.validate.outputs.ref }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
@@ -294,7 +302,7 @@ jobs:
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
+      ref: ${{ needs.validate.outputs.release-type == 'nightly' && needs.plan.outputs.sha || needs.validate.outputs.ref }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
       pending-version: ${{ needs.plan.outputs.version }}
@@ -315,7 +323,7 @@ jobs:
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
+      ref: ${{ needs.validate.outputs.release-type == 'nightly' && needs.plan.outputs.sha || needs.validate.outputs.ref }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
       pending-version: ${{ needs.plan.outputs.version }}
@@ -377,7 +385,7 @@ jobs:
   #    breaks all non-nightly releases.
   #  - `!contains(needs.*.result, 'failure')` still blocks when a needs job (e.g. a
   #    nightly gate error) FAILED — fail-closed for nightlies.
-  #  - the `gate-skip != 'true'` clause blocks a nightly when cross-test isn't green.
+  #  - the `gate-skip != 'true'` clause blocks a nightly when source CI is not green.
   # Do NOT drop any of the three; they jointly make non-nightly run and nightly
   # block-on-not-green / block-on-error.
   hub:
@@ -402,7 +410,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.validate.outputs.ref }}
+          ref: ${{ needs.validate.outputs.release-type == 'nightly' && needs.plan.outputs.sha || needs.validate.outputs.ref }}
           fetch-depth: 0
       - uses: ./.github/actions/setup-release-tools
       # Don't mint an empty hub release. A manual nightly dispatch can disable
@@ -524,8 +532,8 @@ jobs:
           fi
 
   notify:
-    needs: [validate, plan, hub, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, release-backend, merge-pr]
-    if: always() && needs.validate.outputs.skip != 'true'
+    needs: [cutover-policy, validate, plan, hub, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, release-backend, merge-pr]
+    if: always() && needs.cutover-policy.outputs.allowed == 'true' && needs.validate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

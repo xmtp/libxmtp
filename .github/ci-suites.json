@@ -14,7 +14,7 @@
     ".github/{ci-suites.yml,ci-suites.json}",
     ".github/workflows/{ci,lint-generated,test-generated}.yml",
     ".github/actions/setup-nix/**",
-    "dev/{cutover-policy,cutover-source,ci-select,ci-suites,nix-shell,worktree-env,agent-run,kache-env,kache-ci-config,kache-ci-policy,kache-darwin-wrapper}"
+    "dev/{release-ci-gate,cutover-policy,cutover-source,ci-select,ci-suites,nix-shell,worktree-env,agent-run,kache-env,kache-ci-config,kache-ci-policy,kache-darwin-wrapper}"
   ],
   "neutral": [
     ".github/workflows/benchmark-example-android.yml",

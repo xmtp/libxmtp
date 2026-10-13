@@ -90,6 +90,7 @@ on:
 
 jobs:
   create-branch:
+    if: (vars.XMTP_RELEASE_HOLD == '' || vars.XMTP_RELEASE_HOLD == 'false')
     runs-on: ubuntu-latest
     permissions:
       contents: write

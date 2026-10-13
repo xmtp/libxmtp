@@ -201,6 +201,212 @@ class CutoverTest(unittest.TestCase):
         self.assertLess(current, publish)
         self.assertEqual(steps[publish]["if"], "steps.current.outputs.deploy == 'true'")
 
+    def test_release_hold_precedes_credentials(self):
+        for file in ("check-release-push.yml", "push-release-tag.yml"):
+            workflow = yaml.safe_load((ROOT / ".github/workflows" / file).read_text())
+            job = next(iter(workflow["jobs"].values()))
+            self.assertEqual(job["steps"][0]["name"], "Check release hold")
+            script = job["steps"][0]["run"]
+            for hold, dry_run, expected in (
+                ("", "false", 0),
+                ("false", "false", 0),
+                ("true", "false", 1),
+                ("invalid", "false", 1),
+            ):
+                result = subprocess.run(
+                    ["bash", "-euc", script],
+                    env=dict(os.environ, HOLD=hold, DRY_RUN=dry_run),
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, expected, result.stderr)
+            self.assertLess(
+                0,
+                next(
+                    i
+                    for i, step in enumerate(job["steps"])
+                    if "actions/create-github-app-token" in step.get("uses", "")
+                ),
+            )
+
+    def test_direct_publishers_have_release_boundaries(self):
+        root = ROOT / ".github/workflows"
+        npm = yaml.safe_load((root / "npm-publish.yml").read_text())
+        self.assertIn("vars.XMTP_RELEASE_HOLD", npm["jobs"]["publish"]["if"])
+        self.assertEqual(
+            npm["jobs"]["check-push-permissions"]["uses"],
+            "./.github/workflows/check-release-push.yml",
+        )
+        for file, job in (
+            ("release.yml", "validate"),
+            ("release-backend.yml", "setup"),
+        ):
+            workflow = yaml.safe_load((root / file).read_text())
+            self.assertEqual(
+                workflow["jobs"]["cutover-policy"]["with"]["operation"], "release"
+            )
+            self.assertEqual(workflow["jobs"][job]["needs"], "cutover-policy")
+            self.assertIn(
+                "needs.cutover-policy.outputs.allowed == 'true'",
+                workflow["jobs"][job]["if"],
+            )
+        backend = yaml.safe_load((root / "push-backend.yml").read_text())
+        self.assertIn(
+            "inputs.release-build",
+            backend["jobs"]["cutover-policy"]["with"]["operation"],
+        )
+        self.assertIn(
+            "'release'", backend["jobs"]["cutover-policy"]["with"]["operation"]
+        )
+
+    def test_nightly_requires_both_latest_normal_checks(self):
+        for conclusions, skip in (
+            (("success", "success"), "false"),
+            (("failure", "success"), "true"),
+            (("success", "cancelled"), "true"),
+            (("in_progress", "success"), "true"),
+            (("missing", "success"), "true"),
+            (("wrong_app", "success"), "true"),
+            (("older_success", "success"), "true"),
+        ):
+            with (
+                self.subTest(conclusions=conclusions),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                responses = {}
+                for name, state in zip(("Test", "Lint"), conclusions):
+                    record = {
+                        "id": 2,
+                        "app": {"id": 15368},
+                        "started_at": "2026-10-12T02:00:00Z",
+                        "status": "completed",
+                        "conclusion": state,
+                    }
+                    if state == "in_progress":
+                        record["status"] = state
+                    if state == "wrong_app":
+                        record["app"]["id"] = 1
+                        record["conclusion"] = "success"
+                    records = [] if state == "missing" else [record]
+                    if state == "older_success":
+                        record["conclusion"] = "failure"
+                        records.insert(
+                            0,
+                            dict(
+                                record,
+                                id=1,
+                                started_at="2026-10-12T01:00:00Z",
+                                conclusion="success",
+                            ),
+                        )
+                    responses[name] = {"check_runs": records}
+                stub = root / "gh"
+                stub.write_text(
+                    "#!/usr/bin/env python3\nimport json,sys\nresponses="
+                    + repr(responses)
+                    + "\nname='Test' if 'check_name=Test' in sys.argv[2] else 'Lint'\nresult={'workflow_runs':[{'id':2,'event':'push','status':'completed','conclusion':'success'}]} if 'actions/workflows' in sys.argv[2] else responses[name]\nprint(json.dumps(result))\n"
+                )
+                stub.chmod(0o755)
+                output = root / "output"
+                result = subprocess.run(
+                    ["bash", str(ROOT / "dev/release-ci-gate"), SHA],
+                    env=dict(
+                        os.environ,
+                        PATH=str(root) + os.pathsep + os.environ["PATH"],
+                        GITHUB_REPOSITORY="fixture/repo",
+                        GITHUB_OUTPUT=str(output),
+                    ),
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output.read_text().strip(), "skip=" + skip)
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/release-gate-plan.yml").read_text()
+        )
+        self.assertEqual(
+            workflow["jobs"]["gate"]["outputs"]["gate-skip"],
+            "${{ steps.ci.outputs.skip }}",
+        )
+
+    def test_full_ci_rerun_blocks_old_successful_aggregates(self):
+        import json
+
+        for state in ("queued", "in_progress", "failure", "missing"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                output = root / "output"
+                runs = (
+                    []
+                    if state == "missing"
+                    else [
+                        {
+                            "id": 1,
+                            "event": "push",
+                            "status": "completed",
+                            "conclusion": "success",
+                        },
+                        {
+                            "id": 2,
+                            "event": "push",
+                            "status": state if state != "failure" else "completed",
+                            "conclusion": None if state != "failure" else "failure",
+                        },
+                    ]
+                )
+                response = {
+                    "workflow_runs": runs,
+                    "check_runs": [
+                        {
+                            "id": 1,
+                            "app": {"id": 15368},
+                            "status": "completed",
+                            "conclusion": "success",
+                        }
+                    ],
+                }
+                stub = root / "gh"
+                stub.write_text(
+                    "#!/bin/sh\ncat <<'RESPONSE'\n"
+                    + json.dumps(response)
+                    + "\nRESPONSE\n"
+                )
+                stub.chmod(0o755)
+                result = subprocess.run(
+                    ["bash", str(ROOT / "dev/release-ci-gate"), SHA],
+                    env=dict(
+                        os.environ,
+                        PATH=str(root) + os.pathsep + os.environ["PATH"],
+                        GITHUB_REPOSITORY="fixture/repo",
+                        GITHUB_OUTPUT=str(output),
+                    ),
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output.read_text().strip(), "skip=true")
+
+    def test_nightly_keeps_gate_code_and_publication_source_separate(self):
+        workflows = ROOT / ".github/workflows"
+        plan = yaml.safe_load((workflows / "release-gate-plan.yml").read_text())
+        gate = plan["jobs"]["gate"]
+        self.assertEqual(gate["steps"][0]["with"]["ref"], "${{ github.sha }}")
+        self.assertEqual(
+            plan["jobs"]["pending"]["steps"][0]["with"]["ref"],
+            "${{ needs.gate.outputs.sha }}",
+        )
+        release = yaml.safe_load((workflows / "release.yml").read_text())
+        for job in (
+            "release-ios",
+            "release-android",
+            "release-node-sdk",
+            "release-browser-sdk",
+            "release-agent-sdk",
+            "release-cli",
+        ):
+            self.assertIn("needs.plan.outputs.sha", release["jobs"][job]["with"]["ref"])
+
     def test_backend_release_routes_and_gates_publication(self):
         push = yaml.safe_load((ROOT / ".github/workflows/push-backend.yml").read_text())
         policy = push["jobs"]["cutover-policy"]["with"]

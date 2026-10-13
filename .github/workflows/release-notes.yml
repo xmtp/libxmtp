@@ -27,7 +27,7 @@ jobs:
   # exempt from Actions' recursion prevention, and the dispatched run
   # (a supported event type) does the real work below.
   redispatch:
-    if: github.event_name == 'push'
+    if: (vars.XMTP_RELEASE_HOLD == '' || vars.XMTP_RELEASE_HOLD == 'false') && (github.event_name == 'push')
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -43,7 +43,7 @@ jobs:
             -f release-branch="$BRANCH"
 
   update-release-notes:
-    if: github.event_name != 'push'
+    if: (vars.XMTP_RELEASE_HOLD == '' || vars.XMTP_RELEASE_HOLD == 'false') && (github.event_name != 'push')
     runs-on: ubuntu-latest
     # Job-level (not workflow-level) so the push shim above never joins
     # the group — its dispatched child was cancelling it, leaving a

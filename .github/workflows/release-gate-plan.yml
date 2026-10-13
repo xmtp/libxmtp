@@ -25,33 +25,35 @@ on:
 
 jobs:
   gate:
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
-      # Phase 3 deleted the cross-version test harness: it compares two
-      # post-transition releases and none exist yet, so there is no result to
-      # gate on. Releases stay disabled (`release.yml` is guarded off), which is
-      # what keeps this safe. Phase 4.9 restores the harness and must derive
-      # this value from its result again before any release is re-enabled.
-      gate-skip: "false"
+      gate-skip: ${{ steps.ci.outputs.skip }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
       - uses: ./.github/actions/setup-release-tools
       - name: Resolve exact SHA
         id: sha
+        env:
+          SELECTED_REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
-          # Use the SHA of the commit actually checked out above (inputs.ref).
-          # This is correct for an arbitrary requested ref (e.g. a dry-run
-          # previewing a specific branch) AND avoids a TOCTOU race — it's the
-          # literal checked-out tree, not a second branch-HEAD lookup that a
-          # concurrent push could move. (Earlier this preferred github.sha,
-          # which ignored a dispatched inputs.ref and gated the wrong commit.)
-          SHA=$(git rev-parse HEAD)
+          # Keep gate code at the workflow revision while resolving the selected source.
+          git fetch --no-tags --depth=1 origin -- "$SELECTED_REF"
+          SHA=$(git rev-parse 'FETCH_HEAD^{commit}')
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: Require accepted source CI
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.sha.outputs.sha }}
+        run: bash dev/release-ci-gate "$SOURCE_SHA"
 
   pending:
     needs: [gate]
@@ -66,7 +68,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
       - uses: ./.github/actions/setup-release-tools
       - name: Install git-cliff

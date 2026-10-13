@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# A nightly release needs the latest normal aggregate checks on its exact source.
+set -euo pipefail
+sha="${1:?Expected source SHA}"
+if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo '::error::Release gate requires a full source SHA'
+  exit 1
+fi
+skip=false
+runs=$(gh api "repos/${GITHUB_REPOSITORY:?}/actions/workflows/ci.yml/runs?head_sha=$sha&per_page=100")
+if ! jq -e '
+  .workflow_runs | map(select(.event == "push" or .event == "workflow_dispatch"))
+  | sort_by(.id) | last
+  | .status == "completed" and .conclusion == "success"
+' <<< "$runs" > /dev/null; then
+  skip=true
+  echo "Full CI is not successful on $sha"
+fi
+for check in Test Lint; do
+  checks=$(gh api "repos/${GITHUB_REPOSITORY:?}/commits/$sha/check-runs?check_name=$check&filter=latest&per_page=100")
+  if ! jq -e '
+    .check_runs
+    | map(select(.app.id == 15368))
+    | sort_by(.id) | last
+    | .status == "completed" and .conclusion == "success"
+  ' <<< "$checks" > /dev/null; then
+    skip=true
+    echo "$check is not successful on $sha"
+  fi
+done
+printf 'skip=%s\n' "$skip" >> "${GITHUB_OUTPUT:?}"

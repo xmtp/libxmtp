@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   changelog-pr:
+    if: (vars.XMTP_RELEASE_HOLD == '' || vars.XMTP_RELEASE_HOLD == 'false')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -54,10 +55,9 @@ jobs:
             ## Pending libxmtp release
 
             Auto-generated changelog from conventional commits on `main`.
-            This PR is updated on every push and stays open. **Merging it is
-            the "release" signal** — the release workflow then strips `-dev`,
-            tags `vX.Y.Z`, creates the GitHub Release hub, and fans out to the
-            SDKs. This PR contains ONLY changelog changes; the workspace
+            This PR is updated on every push and stays open. Merging it updates
+            the changelog only. Publish SDKs and the backend through the Release
+            workflow after accepting their source and installed artifacts. This PR contains ONLY changelog changes; the workspace
             version is intentionally NOT bumped here.
 
             🤖 Generated with [Claude Code](https://claude.com/claude-code)

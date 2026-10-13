@@ -25,6 +25,16 @@ jobs:
     outputs:
       source-sha: ${{ steps.source.outputs.sha }}
     steps:
+      - name: Check release hold
+        env:
+          HOLD: ${{ vars.XMTP_RELEASE_HOLD }}
+          DRY_RUN: ${{ inputs.dry-run || false }}
+        run: |
+          case "$HOLD" in
+            ''|false) ;;
+            true) if [ "$DRY_RUN" != true ]; then echo '::error::Release publication is held'; exit 1; fi ;;
+            *) echo '::error::Release hold must be empty, false, or true'; exit 1 ;;
+          esac
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
