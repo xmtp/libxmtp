@@ -128,8 +128,9 @@ test("a peer worker projects standard content, content type, and fallback", asyn
   });
   const remote = {
     url: "https://example.com/file",
-    scheme: "https",
-    contentDigest: "digest",
+    scheme: "https://",
+    contentDigest:
+      "abababababababababababababababababababababababababababababababab",
     secret: new Uint8Array(32).fill(1),
     salt: new Uint8Array(32).fill(2),
     nonce: new Uint8Array(12).fill(3),

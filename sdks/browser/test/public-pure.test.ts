@@ -29,8 +29,9 @@ test("attachment codecs preserve optional filename and transfer fields", () => {
   const remote = new RemoteAttachmentCodec();
   const value = {
     url: "https://example.com/file",
-    scheme: "https",
-    contentDigest: "digest",
+    scheme: "https://",
+    contentDigest:
+      "abababababababababababababababababababababababababababababababab",
     secret: new Uint8Array(32),
     salt: new Uint8Array(32),
     nonce: new Uint8Array(12),

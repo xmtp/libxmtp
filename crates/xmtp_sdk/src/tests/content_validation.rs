@@ -1,17 +1,25 @@
 use super::*;
 
+pub(super) fn raw_actions_envelope(
+    actions: &xmtp_content_types::actions::Actions,
+) -> Result<xmtp_proto::xmtp::mls::message_contents::EncodedContent, Box<dyn std::error::Error>> {
+    use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
+    Ok(xmtp_proto::xmtp::mls::message_contents::EncodedContent {
+        r#type: Some(ActionsCodec::content_type()),
+        content: serde_json::to_vec(actions)?,
+        ..Default::default()
+    })
+}
+
 // verifies: CTYPE-030
 #[xmtp_common::test(unwrap_try = true)]
 fn decode_standard_rejects_out_of_range_actions_expiry() {
-    use xmtp_content_types::{
-        ContentCodec,
-        actions::{Actions, ActionsCodec},
-    };
+    use xmtp_content_types::actions::Actions;
 
     let actions: Actions = serde_json::from_str(
         r#"{"id":"far-future","description":"Choose","expiresAt":"9999-12-31T23:59:59.999Z","actions":[{"id":"one","label":"One","expiresAt":"9999-12-31T23:59:59.999Z"}]}"#,
     )?;
-    let encoded = ActionsCodec::encode(actions)?;
+    let encoded = raw_actions_envelope(&actions)?;
     assert!(crate::decode_standard(encoded.try_into()?).is_err());
 }
 
@@ -19,10 +27,7 @@ fn decode_standard_rejects_out_of_range_actions_expiry() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn out_of_range_actions_remain_readable_and_replay_until_acknowledged() {
     use prost::Message as _;
-    use xmtp_content_types::{
-        ContentCodec,
-        actions::{Actions, ActionsCodec},
-    };
+    use xmtp_content_types::actions::Actions;
     use xmtp_mls::groups::send_message_opts::SendMessageOpts;
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
@@ -30,7 +35,7 @@ async fn out_of_range_actions_remain_readable_and_replay_until_acknowledged() {
     let actions: Actions = serde_json::from_str(
         r#"{"id":"far-future","description":"Choose","expiresAt":"9999-12-31T23:59:59.999Z","actions":[{"id":"one","label":"One"}]}"#,
     )?;
-    let raw = ActionsCodec::encode(actions)?.encode_to_vec();
+    let raw = raw_actions_envelope(&actions)?.encode_to_vec();
     let id = MessageId::from_bytes(
         &group
             .inner
@@ -66,7 +71,7 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
     use prost::Message as _;
     use xmtp_content_types::{
         ContentCodec,
-        actions::{Actions, ActionsCodec},
+        actions::Actions,
         reply::{Reply, ReplyCodec},
         text::TextCodec,
     };
@@ -108,7 +113,7 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
         ("Actions both expiries", actions),
         ("Actions item expiry", action_only),
     ] {
-        let encoded = ActionsCodec::encode(value)?;
+        let encoded = raw_actions_envelope(&value)?;
         let id = group.send(encoded.try_into()?, None).await?;
         let raw = client
             .inner

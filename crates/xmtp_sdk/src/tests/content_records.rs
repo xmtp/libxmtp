@@ -81,11 +81,11 @@ fn standard_content_types_decode_to_records() {
 
     let remote = RemoteAttachment {
         url: "https://example.org/a".into(),
-        content_digest: "digest".into(),
+        content_digest: "ab".repeat(32),
         secret: vec![1, 2],
         salt: vec![3, 4],
         nonce: vec![5, 6],
-        scheme: "https".into(),
+        scheme: "https://".into(),
         content_length: Some(12),
         filename: Some("a.txt".into()),
     };

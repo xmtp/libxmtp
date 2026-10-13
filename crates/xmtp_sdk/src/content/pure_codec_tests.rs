@@ -41,11 +41,11 @@ pub(crate) fn standard_codec_samples()
     let text = xmtp_content_types::text::TextCodec::encode("hello".into())?;
     let remote = proto::RemoteAttachmentInfo {
         url: "https://example.test/file".into(),
-        content_digest: "digest".into(),
+        content_digest: "ab".repeat(32),
         secret: vec![1; 32],
         salt: vec![2; 32],
         nonce: vec![3; 12],
-        scheme: "https".into(),
+        scheme: "https://".into(),
         content_length: Some(10),
         filename: Some("file".into()),
     };

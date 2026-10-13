@@ -234,4 +234,53 @@ final class CustomCodecTests: XCTestCase {
 			XCTAssertEqual(parentError.code, "ClientClosed")
 		}
 	}
+
+	// verifies: CTYPE-001, CTYPE-009
+	func testRegistryMatchesAuthorityTypeAndMajorAndIgnoresMinor() async throws {
+		try await withClients { scope in
+			let client = try await scope.create(signer: generateLocalSigner(), options: liveOptions(), codecs: [NoteCodec()])
+			let group = try await client.conversations.createGroup(members: [InboxId]())
+			for (type, matched) in [
+				(ContentTypeId(authorityId: "example.org", typeId: "note", versionMajor: 1, versionMinor: 9), true),
+				(ContentTypeId(authorityId: "other.org", typeId: "note", versionMajor: 1, versionMinor: 0), false),
+				(ContentTypeId(authorityId: "example.org", typeId: "other", versionMajor: 1, versionMinor: 0), false),
+				(ContentTypeId(authorityId: "example.org", typeId: "note", versionMajor: 2, versionMinor: 0), false),
+			] {
+				let encoded = EncodedContent(type: type, fallback: "kept", content: Data("value".utf8))
+				let id = try await group.send(encoded: encoded)
+				guard let message = try await client.conversations.getMessageById(id: id) else { return XCTFail("Missing message") }
+				if matched {
+					guard case let .custom(received, _, value, nil) = message.content
+					else { return XCTFail("Minor version selected no codec") }
+					XCTAssertEqual(value as? String, "value")
+					XCTAssertEqual(received, encoded)
+				} else {
+					guard case let .unknown(received, raw, error) = message.content
+					else { return XCTFail("Wrong key selected a codec") }
+					XCTAssertEqual(received, encoded)
+					XCTAssertEqual(raw, message.rawBytes)
+					XCTAssertEqual(error.code, "CodecNotFound")
+				}
+			}
+		}
+	}
+
+	// verifies: CTYPE-023, CTYPE-024
+	func testSendOptionsWriteSharedCompressionFrames() async throws {
+		try await withClients { scope in
+			let client = try await scope.create(signer: generateLocalSigner(), options: liveOptions())
+			let group = try await client.conversations.createGroup(members: [InboxId]())
+			for (compression, magic) in [
+				(Compression.deflate, [UInt8(0x78), UInt8(0x9C)]),
+				(Compression.gzip, [UInt8(0x1F), UInt8(0x8B)]),
+			] {
+				let text = String(repeating: "compressed", count: 100)
+				let id = try await group.sendText(text: text, options: SendOptions(compression: compression))
+				guard let message = try await client.conversations.getMessageById(id: id),
+				      case let .standard(.text(decoded)) = message.content else { return XCTFail("Compressed text did not decode") }
+				XCTAssertEqual(decoded, text)
+				XCTAssertTrue(message.rawBytes.range(of: Data(magic)) != nil)
+			}
+		}
+	}
 }
