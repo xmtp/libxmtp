@@ -35,7 +35,8 @@ export const ChooseHandlePrompt: React.FC = () => {
         withBorder
         tabIndex={0}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
+          // a key on the Dismiss button bubbles here; it must not open the page
+          if (e.key === "Enter" && e.target === e.currentTarget) {
             handleOpen();
           }
         }}
