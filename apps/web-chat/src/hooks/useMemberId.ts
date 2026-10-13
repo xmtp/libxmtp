@@ -7,7 +7,11 @@ import {
   getInboxIdForAddressQuery,
   getInboxIdForHandleQuery,
 } from "@/helpers/inboxId";
-import { isValidEthereumAddress, isValidInboxId } from "@/helpers/strings";
+import {
+  asciiLowercase,
+  isValidEthereumAddress,
+  isValidInboxId,
+} from "@/helpers/strings";
 import { useSettings } from "@/hooks/useSettings";
 
 // a handle is typed one character at a time; look it up when typing pauses
@@ -31,7 +35,7 @@ const lookUp = async (
   if (isValidEthereumAddress(memberId)) {
     try {
       const inboxId = await getInboxIdForAddressQuery(
-        memberId.toLowerCase(),
+        asciiLowercase(memberId),
         backend,
       );
       return inboxId

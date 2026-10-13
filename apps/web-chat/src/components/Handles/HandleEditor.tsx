@@ -21,6 +21,7 @@ import {
   splitHandle,
   type ClaimOutcome,
 } from "@/helpers/handles";
+import { asciiLowercase } from "@/helpers/strings";
 
 type Phase =
   // the user types; the field shows the hint or an as-you-type error
@@ -257,7 +258,7 @@ export const HandleEditor: React.FC<HandleEditorProps> = ({
         }
         onChange={(event) => {
           generation.current += 1;
-          setInput(event.currentTarget.value.toLowerCase());
+          setInput(asciiLowercase(event.currentTarget.value));
           setPhase({ kind: "idle" });
           setClaimError(null);
         }}

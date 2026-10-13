@@ -96,6 +96,25 @@ describe("LoadDM", () => {
     expect(mocks.client.conversations.createDm).not.toHaveBeenCalled();
   });
 
+  it("lowercases ASCII capitals in the name and the fragment", async () => {
+    open("/dm/Nick#2341");
+    await screen.findByText("conversation dm-1");
+    expect(mocks.client.inboxIdFor).toHaveBeenCalledExactlyOnceWith({
+      identifier: "nick#2341",
+      kind: "handle",
+    });
+  });
+
+  // toLowerCase would fold U+212A KELVIN SIGN to "k" and resolve "kate"
+  it.each(["/dm/\u212Aate", "/dm/\u0130nci", "/dm/\u212Aate#2341"])(
+    "refuses a link with a non-ASCII capital: %s",
+    async (url) => {
+      open(url);
+      await screen.findByText("Invalid identifier, redirecting...");
+      expect(mocks.client.inboxIdFor).not.toHaveBeenCalled();
+    },
+  );
+
   it("refuses a fragment that is not a handle code", async () => {
     open("/dm/nick#12");
     await screen.findByText("Invalid identifier, redirecting...");

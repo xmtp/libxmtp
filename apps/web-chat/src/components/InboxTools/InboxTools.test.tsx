@@ -224,4 +224,16 @@ describe("InboxTools member field", () => {
     // the handle grammar is lowercase, so the raw input would be refused
     expect(mocks.setMemberId).toHaveBeenCalledExactlyOnceWith("nick#2341");
   });
+
+  // toLowerCase would fold U+212A KELVIN SIGN to "k" and look up "kate"
+  it.each(["\u212Aate", "\u0130nci"])(
+    "keeps a non-ASCII capital in %s, so the grammar refuses it",
+    (input) => {
+      render(view());
+      fireEvent.change(screen.getByRole("textbox"), {
+        target: { value: input },
+      });
+      expect(mocks.setMemberId).toHaveBeenCalledExactlyOnceWith(input);
+    },
+  );
 });
