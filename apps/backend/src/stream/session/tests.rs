@@ -14,7 +14,7 @@ async fn ping_drain_half_close_returns_completion_without_an_error() {
     let mailbox = Arc::new(Mailbox::default());
     let id = registry.connect(mailbox.clone(), StreamKind::Bidi)?;
     let topic = xmtp_proto::types::TopicKind::WelcomeMessagesV1
-        .create(&[9; 32])
+        .create([9; 32])
         .to_vec();
     registry.add(id, topic.clone(), 1)?;
     let hub = Arc::new(StreamHub {
