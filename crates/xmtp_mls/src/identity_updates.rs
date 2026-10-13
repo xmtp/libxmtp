@@ -10,9 +10,9 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
 use xmtp_cryptography::CredentialSign;
-use xmtp_db::StorageError;
 use xmtp_db::XmtpDb;
 use xmtp_db::prelude::*;
+use xmtp_db::{StorageError, TransactionOutcome};
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::associations::verify_updates;
 use xmtp_id::{
@@ -135,14 +135,25 @@ impl<Context> IdentityUpdates<Context> {
     }
 }
 
-/// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
-/// If no `to_sequence_id` is provided, use the latest value in the database
-pub async fn get_association_state_with_verifier(
+/// An association state read from the cache, or one computed from the stored
+/// identity updates that the caller must store.
+enum ResolvedState {
+    Cached(AssociationState),
+    Computed {
+        sequence_id: i64,
+        state: AssociationState,
+    },
+}
+
+/// Read the association state of `inbox_id` at `to_sequence_id`, or at the
+/// newest stored update, from the cache. On a miss, compute it from the
+/// stored updates and leave the store to the caller.
+async fn resolve_association_state(
     conn: &impl DbQuery,
     inbox_id: &str,
     to_sequence_id: Option<i64>,
     scw_verifier: &impl SmartContractSignatureVerifier,
-) -> Result<AssociationState, ClientError> {
+) -> Result<ResolvedState, ClientError> {
     let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
     let last_sequence_id = updates
         .last()
@@ -155,7 +166,9 @@ pub async fn get_association_state_with_verifier(
     }
 
     if let Some(association_state) = conn.read_from_cache(inbox_id, last_sequence_id)? {
-        return Ok(association_state.try_into().map_err(StorageError::from)?);
+        return Ok(ResolvedState::Cached(
+            association_state.try_into().map_err(StorageError::from)?,
+        ));
     }
 
     let unverified_updates = updates
@@ -165,15 +178,106 @@ pub async fn get_association_state_with_verifier(
         .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
     let updates = verify_updates(unverified_updates, scw_verifier).await?;
 
-    let association_state = get_state(updates)?;
+    Ok(ResolvedState::Computed {
+        sequence_id: last_sequence_id,
+        state: get_state(updates)?,
+    })
+}
 
-    conn.write_to_cache(
-        inbox_id.to_owned(),
-        last_sequence_id,
-        association_state.clone().into(),
-    )?;
+/// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
+/// If no `to_sequence_id` is provided, use the latest value in the database
+///
+/// This path has no client, so storing a computed state emits no event. A
+/// client stores through [`IdentityUpdates::get_association_state`].
+pub async fn get_association_state_with_verifier(
+    conn: &impl DbQuery,
+    inbox_id: &str,
+    to_sequence_id: Option<i64>,
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<AssociationState, ClientError> {
+    match resolve_association_state(conn, inbox_id, to_sequence_id, scw_verifier).await? {
+        ResolvedState::Cached(state) => Ok(state),
+        ResolvedState::Computed { sequence_id, state } => {
+            conn.write_to_cache(inbox_id.to_owned(), sequence_id, state.clone().into())?;
+            Ok(state)
+        }
+    }
+}
 
-    Ok(association_state)
+/// [`get_association_state_with_verifier`] for a client: a computed state is
+/// stored by [`store_association_state`], which emits `handle.changed`.
+pub(crate) async fn get_association_state_for_client(
+    context: &impl XmtpSharedContext,
+    conn: &impl DbQuery,
+    inbox_id: &str,
+    to_sequence_id: Option<i64>,
+) -> Result<AssociationState, ClientError> {
+    let verifier = context.scw_verifier();
+    match resolve_association_state(conn, inbox_id, to_sequence_id, &verifier).await? {
+        ResolvedState::Cached(state) => Ok(state),
+        ResolvedState::Computed { sequence_id, state } => {
+            store_association_state(context, sequence_id, &state)?;
+            Ok(state)
+        }
+    }
+}
+
+/// Store the association state of an inbox at `sequence_id` in the client's
+/// cache. In the same write, read the newest state the client already holds
+/// for the inbox, and emit `handle.changed` when the stored state changes its
+/// display handle. Concurrent stores for one inbox are serialized by the
+/// write, so their events follow their sequence ids.
+// implements: EVENT-058, EVENT-059
+pub(crate) fn store_association_state(
+    context: &impl XmtpSharedContext,
+    sequence_id: i64,
+    state: &AssociationState,
+) -> Result<(), ClientError> {
+    use xmtp_events::{ClientEvent, EventWriter};
+    let inbox_id = state.inbox_id();
+    crate::state_tx::state_write_with_events(
+        context.mls_storage(),
+        context.events(),
+        |tx, events| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let held = db
+                .newest_cached_states(&[inbox_id])?
+                .remove(inbox_id)
+                .map(|(held_sequence, held)| {
+                    AssociationState::try_from(held).map(|held| (held_sequence, held))
+                })
+                .transpose()
+                .map_err(StorageError::from)?;
+            db.write_to_cache(inbox_id.to_owned(), sequence_id, state.clone().into())?;
+            if let Some(change) = handle_change(held.as_ref(), sequence_id, state) {
+                events.emit(Some(ClientEvent::HandleChanged(change)), None);
+            }
+            Ok::<_, StorageError>(TransactionOutcome::Continue(()))
+        },
+    )?
+    .into_continued();
+    Ok(())
+}
+
+/// The `handle.changed` event for storing `state` at `sequence_id`, given
+/// the newest state the client held for the inbox before the store. Storing
+/// the first state of an inbox, or a state no newer than the held one, is not
+/// a change.
+fn handle_change(
+    held: Option<&(i64, AssociationState)>,
+    sequence_id: i64,
+    state: &AssociationState,
+) -> Option<xmtp_events::HandleChanged> {
+    let (held_sequence, held) = held?;
+    if sequence_id <= *held_sequence {
+        return None;
+    }
+    let handle = state.display_handle()?;
+    (held.display_handle() != Some(handle)).then(|| xmtp_events::HandleChanged {
+        inbox_id: state.inbox_id().to_owned(),
+        handle: handle.to_string(),
+    })
 }
 
 /// Whether the association state of the inbox in the database holds the
@@ -284,8 +388,15 @@ where
         conn: &impl DbQuery,
         identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
-        let verifier = self.context.scw_verifier();
-        batch_get_association_state_with_verifier(conn, identifiers, &verifier).await
+        try_join_all(identifiers.iter().map(|(inbox_id, to_sequence_id)| {
+            get_association_state_for_client(
+                &self.context,
+                conn,
+                inbox_id.as_ref(),
+                *to_sequence_id,
+            )
+        }))
+        .await
     }
 
     /// Get the latest association state available on the network for the given `inbox_id`
@@ -371,8 +482,7 @@ where
         inbox_id: InboxIdRef<'_>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        let verifier = self.context.scw_verifier();
-        get_association_state_with_verifier(conn, inbox_id, to_sequence_id, &verifier).await
+        get_association_state_for_client(&self.context, conn, inbox_id, to_sequence_id).await
     }
 
     /// Generate a `CreateInbox` signature request for the given wallet address.
@@ -741,8 +851,7 @@ pub(crate) async fn load_identity_updates_for_client<Context: XmtpSharedContext>
         None
     };
     let before = if previous_sequence.is_some() {
-        let verifier = context.scw_verifier();
-        Some(get_association_state_with_verifier(conn, own_inbox, None, &verifier).await?)
+        Some(get_association_state_for_client(context, conn, own_inbox, None).await?)
     } else {
         None
     };

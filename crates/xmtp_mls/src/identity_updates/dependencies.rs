@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 use super::load_identity_updates;
-use super::{get_association_state_with_verifier, load_identity_updates_for_client};
+use super::{get_association_state_for_client, load_identity_updates_for_client};
 use crate::{client::ClientError, context::XmtpSharedContext};
 use futures::{StreamExt, stream};
 use std::{
@@ -210,11 +210,11 @@ async fn resolve_identity_requirement_with_wait(
         }
         // Query uses the primary and returns the complete retained prefix.
         load_identity_updates_for_client(&context, &conn, &[requirement.inbox_id.as_str()]).await?;
-        match get_association_state_with_verifier(
+        match get_association_state_for_client(
+            context,
             &conn,
             &requirement.inbox_id,
             Some(sequence),
-            &context.scw_verifier(),
         )
         .await
         {
@@ -228,11 +228,11 @@ async fn resolve_identity_requirement_with_wait(
                     .last()
                     .map(|update| update.sequence_id);
                 if let Some(last) = last {
-                    get_association_state_with_verifier(
+                    get_association_state_for_client(
+                        context,
                         &conn,
                         &requirement.inbox_id,
                         Some(last),
-                        &context.scw_verifier(),
                     )
                     .await?;
                 }
