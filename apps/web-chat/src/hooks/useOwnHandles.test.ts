@@ -161,6 +161,8 @@ describe("useHandleSync", () => {
       otherHandles: [],
     });
     renderSync(a.client);
+    // let any read queued as a microtask start
+    await act(async () => {});
     expect(a.client.startListener).toHaveBeenCalledOnce();
     // a handle.changed before the listener exists would be lost
     expect(a.client.inboxState).not.toHaveBeenCalled();
@@ -170,6 +172,18 @@ describe("useHandleSync", () => {
       expect(inboxStore.getState().ownHandles?.handle).toBe("alice"),
     );
     expect(a.client.inboxState).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it("skips the first read when the sync stops before the listener starts", async () => {
+    const a = fakeClient("a".repeat(64));
+    const registered = Promise.withResolvers<bigint>();
+    a.client.startListener.mockReturnValueOnce(registered.promise);
+    const { unmount } = renderSync(a.client);
+    unmount();
+    await act(async () => registered.resolve(1n));
+    expect(a.client.stopListener).toHaveBeenCalledExactlyOnceWith(1n);
+    // the old client's handles must not reach the store
+    expect(a.client.inboxState).not.toHaveBeenCalled();
   });
 
   it("reads the own handles when the listener cannot start", async () => {
