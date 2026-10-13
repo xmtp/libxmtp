@@ -29,6 +29,7 @@ object HandleFixtures {
     val checkFailed = HandleState(input = "nick", notice = HandleNotice.CheckFailed)
     val loadFailed = HandleState(ownUnknown = true, notice = HandleNotice.LoadFailed)
     val changeLoadFailed = loadFailed.copy(mode = HandleMode.CHANGE)
+    val changeLoading = HandleState(mode = HandleMode.CHANGE, loading = true)
 
     private val change =
         HandleState(

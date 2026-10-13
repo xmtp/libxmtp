@@ -47,6 +47,7 @@ fun ChooseHandleScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         XmtpBrand()
+        if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(HandleCopy.TITLE, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text(
@@ -116,6 +117,8 @@ fun ChangeHandleScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        // Before the first read, the handles are unknown: show only the progress, no empty editor.
+        if (state.loading && state.current == null && state.others.isEmpty()) return@Column
         if (state.ownUnknown) {
             // The current and other handles are unknown: show the error in their place, and no editor.
             state.notice?.let { NoticeBox(it, state, action) }

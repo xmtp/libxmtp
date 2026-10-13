@@ -159,6 +159,7 @@ val messengerPreviewCases: List<MessengerPreviewCase> =
             "All handle changes used" to HandleFixtures.limitReached,
             "Choose handle from Settings" to HandleFixtures.firstFromSettings,
             "Own handles not loaded in Settings" to HandleFixtures.changeLoadFailed,
+            "Loading own handles in Settings" to HandleFixtures.changeLoading,
         ).forEach { (name, state) ->
             add(
                 MessengerPreviewCase(
