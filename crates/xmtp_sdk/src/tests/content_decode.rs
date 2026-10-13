@@ -76,11 +76,7 @@ async fn encoded_sends_use_catalogue_push_defaults_and_explicit_override() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn invalid_reply_parent_body_does_not_break_reads() {
     use crate::MessageBody;
-    use xmtp_content_types::{
-        ContentCodec,
-        actions::{Actions, ActionsCodec},
-        group_updated::GroupUpdatedCodec,
-    };
+    use xmtp_content_types::{ContentCodec, actions::Actions, group_updated::GroupUpdatedCodec};
     use xmtp_db::{Store, group_message::QueryGroupMessage};
     use xmtp_proto::xmtp::mls::message_contents::GroupUpdated;
 
@@ -99,7 +95,10 @@ async fn invalid_reply_parent_body_does_not_break_reads() {
                 ..Default::default()
             })?,
         ),
-        ("actions", ActionsCodec::encode(actions)?),
+        (
+            "actions",
+            super::content_validation::raw_actions_envelope(&actions)?,
+        ),
     ];
     let reader = group.message_reader(None).await?;
     for (kind, content) in parents {

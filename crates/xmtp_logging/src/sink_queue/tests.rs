@@ -119,11 +119,41 @@ fn replacement_rejects_delayed_handoff_and_keeps_transport_credit() {
         queue.push(record(i));
     }
     assert!(!queue.handoff());
-    queue.complete(old, false);
+    queue.complete(old, true);
     assert_eq!(queue.error_count(), 0);
     let new = next(&queue);
     assert_eq!(*new.target, "new");
     assert_eq!(new.record.dropped_records, 1);
+}
+
+// verifies: LOG-007, LOG-011, LOG-012
+#[test]
+fn replaced_active_failure_cannot_add_errors_or_keep_old_drops() {
+    let queue = SinkQueue::default();
+    queue.replace(Some(Arc::new("old")));
+    for i in 0..SINK_QUEUE_CAPACITY + 7 {
+        queue.push(record(i));
+    }
+    let old = next(&queue);
+    assert_eq!(old.record.dropped_records, 7);
+    assert!(queue.handoff());
+    queue.replace(None);
+    queue.replace(Some(Arc::new("new")));
+    for i in 0..SINK_QUEUE_CAPACITY + 3 {
+        queue.push(record(i));
+    }
+    pending(&queue);
+    queue.complete(old, false);
+    assert_eq!(queue.error_count(), 0);
+    let current = next(&queue);
+    assert_eq!(*current.target, "new");
+    assert_eq!(current.record.message, "0");
+    assert_eq!(current.record.dropped_records, 3);
+    assert!(queue.handoff());
+    queue.complete(current, true);
+    let second = next(&queue);
+    assert_eq!(second.record.message, "1");
+    assert_eq!(second.record.dropped_records, 0);
 }
 
 // verifies: LOG-004, LOG-008

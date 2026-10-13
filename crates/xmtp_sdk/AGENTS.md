@@ -62,6 +62,10 @@ Run commands from the repository root in the Nix shell. Run
   `sdks/node/test` do not use this fixture. The attachment end test starts its
   own held-upload relay (`sdks/node/test/heldUpload.ts`) on ephemeral loopback
   ports. It needs no `SDK_FIXTURE_URL` and no `protoc`.
+- `dev/nix-shell 'just sdk test-browser-logging'` runs only the real WASM worker
+  and Chromium log queue proofs. It reuses the existing conformance fixture and
+  checks held callbacks, overflow, replacement, and delayed packet admission.
+  Run `dev/nix-shell 'just sdk generate node,browser'` first.
 - `dev/nix-shell 'just sdk test-browser-storage'` runs only the real-worker OPFS
   proof, and `dev/nix-shell 'just sdk test-browser-package'` runs only the
   package worker proof (creation reservations, shared client/admin workers,

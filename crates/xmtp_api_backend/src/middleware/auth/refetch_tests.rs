@@ -307,6 +307,33 @@ async fn lockout_blocks_all_paths_and_set_clears_it() {
     );
 }
 
+// verifies: AUTH-035
+#[xmtp_common::test(unwrap_try = true)]
+async fn mixed_clients_share_failures_and_lockout_on_all_rpc_paths() {
+    let (first, peer, callback) = fixture();
+    let second = AuthMiddleware::new(
+        peer.clone(),
+        Some(callback.clone()),
+        Some(first.handle.clone()),
+    );
+    for failure in 0..MAX_CONSECUTIVE_AUTH_FAILURES {
+        let client = if failure % 2 == 0 { &first } else { &second };
+        peer.enqueue(tonic::Code::Unauthenticated).await;
+        assert!(call(client, Rpc::Bidi).await.is_err());
+        assert_eq!(first.handle.inner.state.lock().await.failures, failure + 1);
+    }
+    let sent = peer.sent.lock().await.len();
+    let callbacks = callback.calls.load(Ordering::SeqCst);
+    assert_locked(&first).await;
+    assert_locked(&second).await;
+    assert_eq!(peer.sent.lock().await.len(), sent);
+    assert_eq!(callback.calls.load(Ordering::SeqCst), callbacks);
+    second.handle.set(credential("replacement")).await;
+    call(&first, Rpc::Unary).await?;
+    call(&second, Rpc::Stream).await?;
+    assert_eq!(first.handle.inner.state.lock().await.failures, 0);
+}
+
 // verifies: EVENT-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn shared_auth_handle_fans_lockout_transitions_to_live_clients() {

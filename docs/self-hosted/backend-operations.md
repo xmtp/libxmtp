@@ -62,11 +62,21 @@ never move, and a plain clone — which is what CI uses — is also slot 0.
 
 ```sh
 just backend status     # project, slot, ports, and URLs for this checkout
-just backend release    # stop this worktree's stack and free its slot
+just backend release    # stop this worktree's stack, free its slot, remove its image tag
 ```
 
 `just backend up` refuses to start when another Compose project holds one of this
 worktree's ports, and names the port and the project.
+
+Each worktree also has its own backend image tag, `XMTP_BACKEND_IMAGE`, which is
+`xmtp-backend:<project>`. Every Nix image build has the tag
+`ghcr.io/xmtp/backend:self-hosted`. `just backend up` loads the build under the
+worktree's tag instead, and Compose runs that tag. A backend that Compose
+recreates in one worktree therefore never runs another worktree's build. To run
+a different image, such as a published release, set `XMTP_BACKEND_IMAGE` and
+start with `dev/docker/up`. `just backend up` would still build this worktree's
+image, but it does not load the build under that tag. `just backend release`
+removes only the derived tag.
 
 Every port in this document is the slot-0 value. Do not assume it applies to a
 worktree; run `just backend status`. Code reads the address from the environment:
@@ -360,6 +370,8 @@ needs `grpcurl`, `protoc`, Python 3, OpenSSL, Docker, and Nix; it gets
 
 To test an idle-stream failure, run `dev/tls/up`,
 `dev/tls/check.sh --short-timeout`, and `dev/tls/down` through `dev/nix-shell`.
+These scripts run this worktree's backend image, so run `just backend up` or
+`just backend tls-check` first to load it.
 The check uses 12-second client and server timeouts and a one-hour tunnel
 timeout. It confirms an HTTP/2 PING before the stream drops, then restores the
 normal 24-hour timeouts. HTTP/2 uses client and server timeouts, not `timeout

@@ -81,11 +81,11 @@ fn standard_content_types_decode_to_records() {
 
     let remote = RemoteAttachment {
         url: "https://example.org/a".into(),
-        content_digest: "digest".into(),
-        secret: vec![1, 2],
-        salt: vec![3, 4],
-        nonce: vec![5, 6],
-        scheme: "https".into(),
+        content_digest: "ab".repeat(32),
+        secret: vec![1; 32],
+        salt: vec![3; 32],
+        nonce: vec![5; 12],
+        scheme: "https://".into(),
         content_length: Some(12),
         filename: Some("a.txt".into()),
     };
@@ -108,7 +108,7 @@ fn standard_content_types_decode_to_records() {
         MessageContent::decode(MultiRemoteAttachmentCodec::encode(multi)?.encode_to_vec())?,
         MessageContent::MultiRemoteAttachment(value)
             if value.attachments.len() == 2
-                && value.attachments[0].content_digest == "digest"
+                && value.attachments[0].content_digest == "ab".repeat(32)
                 && value.attachments[1].url == "https://example.org/a"
     ));
 

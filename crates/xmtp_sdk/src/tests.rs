@@ -638,6 +638,7 @@ mod query_costs;
 mod reader_delivery;
 mod reader_recovery;
 mod retained_content;
+mod shared_auth;
 mod signers;
 mod standard_sends;
 mod storage;

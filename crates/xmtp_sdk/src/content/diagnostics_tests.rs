@@ -7,11 +7,11 @@ fn secret() -> Vec<u8> {
 fn remote_attachment() -> RemoteAttachment {
     RemoteAttachment {
         url: "https://example.invalid/attachment?token=attachment-access-token".into(),
-        content_digest: "digest".into(),
+        content_digest: "ab".repeat(32),
         secret: secret(),
         salt: vec![2; 32],
         nonce: vec![3; 12],
-        scheme: "https".into(),
+        scheme: "https://".into(),
         content_length: Some(64),
         filename: Some("attachment.txt".into()),
     }
@@ -110,7 +110,7 @@ fn attachment_diagnostics_hide_core_encrypted_attachment_secret() {
     use xmtp_content_types::remote_attachment::EncryptedAttachment;
     let encrypted = EncryptedAttachment {
         payload: vec![4; 64],
-        content_digest: "digest".into(),
+        content_digest: "ab".repeat(32),
         secret: secret(),
         salt: vec![2; 32],
         nonce: vec![3; 12],

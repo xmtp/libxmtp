@@ -372,11 +372,11 @@ class StandardCodecWrapperTest {
     private val remoteAttachment =
         RemoteAttachment(
             "https://example.test/file",
-            "digest",
+            "ab".repeat(32),
             ByteArray(32) { 1 },
             ByteArray(32) { 2 },
             ByteArray(12) { 3 },
-            "https",
+            "https://",
             10u,
             "file",
         )

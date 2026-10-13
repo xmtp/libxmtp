@@ -69,9 +69,20 @@ schema:
     cargo run --locked --quiet -p xmtp_backend --example config_schema > "$schema_tmp"
     mv "$schema_tmp" docs/schemas/backend-v1.json
 
-# Start the shared SDK and observability stack.
-up *services: image
-    docker load --input {{ root }}/result-backend-image
+# Load the `image` build under this worktree's own tag, XMTP_BACKEND_IMAGE.
+# Compose runs that tag, so another worktree's load cannot replace this build.
+# Any other value is an image to run instead, such as a published release:
+# never put a local build on that tag.
+[private]
+_load-image: image
+    {{ _env }} && if [ "$XMTP_BACKEND_IMAGE" = "xmtp-backend:$XMTP_COMPOSE_PROJECT" ]; then \
+      {{ root }}/dev/docker/load-backend-image {{ root }}/result-backend-image "$XMTP_BACKEND_IMAGE"; \
+    else \
+      echo "XMTP_BACKEND_IMAGE is $XMTP_BACKEND_IMAGE: running it, not this worktree's build." >&2; \
+    fi
+
+# Start the shared SDK and observability stack with this worktree's build.
+up *services: _load-image
     {{ root }}/dev/docker/up {{ services }}
 
 down:
@@ -88,6 +99,7 @@ logs *services:
     {{ _env }} && printf '%s\n' \
       "worktree:   $XMTP_WORKTREE_NAME (slot $XMTP_WORKTREE_SLOT)" \
       "project:    $XMTP_COMPOSE_PROJECT" \
+      "image:      $XMTP_BACKEND_IMAGE" \
       "backend:    $XMTP_BACKEND_URL" \
       "toxic:      $XMTP_BACKEND_TOXIC_URL" \
       "anvil:      $ANVIL_URL" \
@@ -100,12 +112,24 @@ logs *services:
       "metrics:    http://127.0.0.1:$XMTP_BACKEND_METRICS_PORT/metrics" \
       && docker compose -f {{ root }}/dev/docker/compose.yml -p "$XMTP_COMPOSE_PROJECT" ps 2>/dev/null || true
 
-# Stop this worktree's stack and give up its port slot.
+# Stop this worktree's stack, give up its port slot, and remove its image tag.
 #
 # Teardown must succeed before the claim is dropped: releasing a slot whose
 # containers are still running would let another worktree claim those ports.
+[script("bash")]
 release:
+    set -euo pipefail
     {{ root }}/dev/docker/down --volumes
+    {{ _env }}
+    # Remove only the tag this worktree derived, never an override such as a
+    # published image. Shared layers stay while another tag uses them. Do it
+    # before the release: after it, a rerun can derive another slot's tag. A
+    # failure, such as a container that still uses the tag, must not keep the slot.
+    if [ "$XMTP_BACKEND_IMAGE" = "xmtp-backend:$XMTP_COMPOSE_PROJECT" ] &&
+      docker image inspect "$XMTP_BACKEND_IMAGE" >/dev/null 2>&1; then
+      docker image rm "$XMTP_BACKEND_IMAGE" >/dev/null ||
+        echo "release: kept $XMTP_BACKEND_IMAGE. Remove it with 'docker image rm' when no container uses it." >&2
+    fi
     {{ root }}/dev/worktree-env --release
 
 # Verify client traces, backend metrics, and the local dashboard.
@@ -114,9 +138,8 @@ observe-check:
 
 # Build and check the separate HAProxy TLS validation stack. Always clean up.
 [script("bash")]
-tls-check: image
+tls-check: _load-image
     set -euo pipefail
-    docker load --input {{ root }}/result-backend-image
     trap '{{ root }}/dev/tls/down' EXIT
     {{ root }}/dev/tls/up
     {{ root }}/dev/tls/check.sh

@@ -23,6 +23,6 @@ develop:
     readme: |
       Welcome to **libxmtp** devshell
 
-      🌐 ./dev/docker/up to get a network environment setup
+      🌐 just backend up to build the backend and start this worktree's stack
 
       🦀 run `just` to see all recipes

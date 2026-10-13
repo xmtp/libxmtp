@@ -538,3 +538,48 @@ async fn concurrent_create_keeps_one_inbox_id() {
         client.end().await?;
     }
 }
+
+// verifies: FORK-070
+#[xmtp_common::test(unwrap_try = true)]
+async fn fork_recovery_options_reach_the_core_client() {
+    use crate::client::{ForkRecoveryOptions, ForkRecoveryPolicy};
+    use xmtp_mls::builder::ForkRecoveryPolicy as CorePolicy;
+
+    let group = crate::ConversationId::try_from("13".repeat(16))?;
+    for (policy, expected) in [
+        (ForkRecoveryPolicy::None, CorePolicy::None),
+        (
+            ForkRecoveryPolicy::AllowlistedGroups,
+            CorePolicy::AllowlistedGroups,
+        ),
+        (ForkRecoveryPolicy::All, CorePolicy::All),
+    ] {
+        for disable_responses in [false, true] {
+            let mut settings = options();
+            settings.registration.auto = false;
+            settings.fork_recovery = Some(ForkRecoveryOptions {
+                policy: policy.clone(),
+                groups: vec![group.clone()],
+                disable_responses,
+                ..Default::default()
+            });
+            let client = Client::create(crate::generate_local_signer().await, settings).await?;
+            let applied = client.inner.context.fork_recovery_opts();
+            assert_eq!(applied.enable_recovery_requests, expected);
+            assert_eq!(
+                applied.groups_to_request_recovery,
+                vec![group.checked()?.to_string()]
+            );
+            assert_eq!(applied.disable_recovery_responses, disable_responses);
+            client.end().await?;
+        }
+    }
+    let mut settings = options();
+    settings.registration.auto = false;
+    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    let applied = client.inner.context.fork_recovery_opts();
+    assert_eq!(applied.enable_recovery_requests, CorePolicy::None);
+    assert!(applied.groups_to_request_recovery.is_empty());
+    assert!(!applied.disable_recovery_responses);
+    client.end().await?;
+}

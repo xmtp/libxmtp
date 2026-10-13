@@ -163,6 +163,23 @@ async fn test_add_unregistered_member() {
     assert!(result.is_err());
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn add_by_identity_lists_each_missing_address() {
+    tester!(amal);
+    tester!(bola);
+    let (first, second) = (Identifier::rand_ethereum(), Identifier::rand_ethereum());
+    let group = amal.create_group(None, None)?;
+    let epoch = group.epoch().await?;
+
+    let result = group
+        .add_members_by_identity(&[first.clone(), bola.identifier(), second.clone()])
+        .await;
+
+    assert!(matches!(result, Err(GroupError::AddressNotFound(missing))
+        if missing == vec![first.to_string(), second.to_string()]));
+    assert_eq!(group.epoch().await?, epoch);
+}
+
 // verifies: GMOD-034
 #[xmtp_common::test]
 async fn test_remove_by_account_address() {

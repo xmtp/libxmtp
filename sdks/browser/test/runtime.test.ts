@@ -91,6 +91,7 @@ test("a signature request signs with a main-thread signer through the worker", a
   expect(await client.isRegistered()).toBe(true);
 });
 
+// verifies: PROC-041, PROC-042
 test("a stream replays an unacknowledged message, cancels an idle read, and reports its close", async () => {
   const client = await create();
   const group = await client.conversations.createGroup([]);
