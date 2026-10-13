@@ -23,7 +23,8 @@ counts as a change.
 The backend decides each claim. If the handle is taken, not allowed, or you
 changed your handle too recently, the command fails and claims nothing. It
 never claims a different handle. Run 'xmtp client handle-available <name>'
-to find free handles.`;
+to find free handles. If the handle is already your current handle, the
+command fails before it asks the backend, and claims nothing.`;
 
   static examples = [
     {
@@ -55,8 +56,16 @@ to find free handles.`;
     const { args, flags } = await this.parse(ClientHandleClaim);
     const client = await this.initClient();
 
+    // The client loaded the inbox's identity updates when it was created.
     const before = await client.inboxState(false);
     const handle = asciiLowercase(args.handle);
+    // The backend admits a claim of the current handle. It changes nothing,
+    // but it uses one of the 64 changes and starts the 7-day wait again.
+    if (handle === before.handle) {
+      this.error(
+        `${handle} is already your current handle. Nothing was claimed.`,
+      );
+    }
     const kept = before.handle
       ? ` ${before.handle} stays yours, and people can still find you by it.`
       : "";

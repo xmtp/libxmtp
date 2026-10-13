@@ -99,7 +99,9 @@ The backend decides each claim. `handle-claim` prints a plain message and
 exits with a nonzero code when the handle is taken, not allowed on the
 backend, or claimed less than 7 days after the last change, or when the inbox
 has used all 64 changes. It never claims a different handle. Run
-`handle-available` again to pick another one.
+`handle-available` again to pick another one. It also refuses the inbox's
+current handle before it asks the backend: that claim changes nothing, but it
+counts as a change.
 
 Commands that take an identity accept a handle with `--identifier-kind handle`
 (`--kind handle` for `client inbox-id`): `can-message`, `conversations

@@ -133,7 +133,7 @@ xmtp client handle-claim nick#2341 --force
 xmtp client handle-claim nick --force
 ```
 
-The backend decides each claim. `handle-claim` exits with a nonzero code and a plain message when the handle is taken, not allowed on the backend, or claimed less than 7 days after the last change, or when the inbox has used all 64 changes. It never claims a different handle: run `handle-available` again and pick another one. Do not claim a handle the user did not choose.
+The backend decides each claim. `handle-claim` exits with a nonzero code and a plain message when the handle is taken, not allowed on the backend, or claimed less than 7 days after the last change, or when the inbox has used all 64 changes. It also refuses the inbox's current handle before it asks the backend, because that claim changes nothing but counts as a change. It never claims a different handle: run `handle-available` again and pick another one. Do not claim a handle the user did not choose.
 
 ### Sign and Verify Messages
 
