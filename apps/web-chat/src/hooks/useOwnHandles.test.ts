@@ -4,7 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { inboxStore } from "@/stores/inbox/store";
 
-import { useHandleSync } from "./useOwnHandles";
+import { useHandleSync, useOwnHandles } from "./useOwnHandles";
+
+const mocks = vi.hoisted(() => ({ client: undefined as unknown }));
+vi.mock("@/contexts/XMTPContext", () => ({
+  useClient: () => mocks.client,
+}));
 
 const member = (
   inboxId: string,
@@ -75,6 +80,7 @@ const setup = () => {
 
 afterEach(() => {
   inboxStore.getState().reset();
+  vi.restoreAllMocks();
 });
 
 type Handles = { handle: string; otherHandles: string[] };
@@ -199,5 +205,50 @@ describe("useHandleSync", () => {
       handle: "bob",
       otherHandles: [],
     });
+  });
+
+  it("marks a failed first read, and a working retry loads the handles", async () => {
+    const a = fakeClient("a".repeat(64));
+    a.client.inboxState
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ handle: "alice", otherHandles: [] });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    renderSync(a.client);
+    await waitFor(() =>
+      expect(inboxStore.getState().ownHandlesFailed).toBe(true),
+    );
+    expect(inboxStore.getState().ownHandles).toBeUndefined();
+
+    mocks.client = a.client;
+    const { result } = renderHook(() => useOwnHandles());
+    expect(result.current).toMatchObject({ loaded: false, failed: true });
+    await act(async () => {
+      await result.current.refresh(true);
+    });
+    expect(result.current).toMatchObject({
+      loaded: true,
+      failed: false,
+      handle: "alice",
+    });
+  });
+
+  it("ignores a failed read for a client that the app switched away from", async () => {
+    const a = fakeClient("a".repeat(64));
+    const b = fakeClient("b".repeat(64));
+    const slowA = Promise.withResolvers<Handles>();
+    const slowB = Promise.withResolvers<Handles>();
+    a.client.inboxState.mockReturnValueOnce(slowA.promise);
+    b.client.inboxState.mockReturnValueOnce(slowB.promise);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const { rerender } = renderSync(a.client);
+    await waitFor(() => expect(a.client.inboxState).toHaveBeenCalled());
+    rerender({ current: b.client });
+    await waitFor(() => expect(b.client.inboxState).toHaveBeenCalled());
+
+    await act(async () => slowA.reject(new Error("offline")));
+    expect(inboxStore.getState().ownHandlesFailed).toBe(false);
+    await act(async () => slowB.resolve({ handle: "bob", otherHandles: [] }));
+    expect(inboxStore.getState().ownHandles?.handle).toBe("bob");
   });
 });
