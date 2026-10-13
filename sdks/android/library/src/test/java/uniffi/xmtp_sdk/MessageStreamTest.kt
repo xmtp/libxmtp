@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
@@ -317,6 +318,46 @@ class MessageStreamTest {
                 }
             try {
                 assertEquals(null to ConnectionState.CONNECTED, withTimeout(5_000) { first.await() })
+            } finally {
+                collection.cancelAndJoin()
+            }
+            assertEquals(1, reader.endCalls)
+        }
+
+    // verifies: PROC-044
+    @Test(timeout = STREAM_TEST_TIMEOUT_MS)
+    fun connectionStateChangesKeepTheirOrder() =
+        runBlocking {
+            val changes = Channel<ConnectionState>(Channel.UNLIMITED)
+            val reported = Channel<Pair<ConnectionState?, ConnectionState>>(Channel.UNLIMITED)
+            val reader = StateReader(ConnectionState.CONNECTED) { changes.receive() }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            val collection =
+                launch {
+                    client.conversations
+                        .streamAllMessages(
+                            MessageStreamOptions(onConnectionStateChange = { previous, current ->
+                                reported.trySend(previous to current).getOrThrow()
+                            }),
+                        ).collect {}
+                }
+            try {
+                assertEquals(null to ConnectionState.CONNECTED, withTimeout(5_000) { reported.receive() })
+                changes.send(ConnectionState.RECONNECTING)
+                assertEquals(
+                    ConnectionState.CONNECTED to ConnectionState.RECONNECTING,
+                    withTimeout(5_000) { reported.receive() },
+                )
+                changes.send(ConnectionState.CONNECTED)
+                assertEquals(
+                    ConnectionState.RECONNECTING to ConnectionState.CONNECTED,
+                    withTimeout(5_000) { reported.receive() },
+                )
+                changes.send(ConnectionState.CLOSED)
+                assertEquals(
+                    ConnectionState.CONNECTED to ConnectionState.CLOSED,
+                    withTimeout(5_000) { reported.receive() },
+                )
             } finally {
                 collection.cancelAndJoin()
             }

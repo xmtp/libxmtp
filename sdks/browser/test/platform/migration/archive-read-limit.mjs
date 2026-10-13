@@ -5,6 +5,7 @@ import { createMigrationServer, withMigrationPage } from "./server.mjs";
 
 const limit = 100_000_000;
 const allocations = [];
+const copies = [];
 const server = await createMigrationServer(
   "crates/xmtp_legacy_migration/fixtures",
   ["stable"],
@@ -16,6 +17,10 @@ try {
       if (event.text().startsWith("MIGRATION_ARCHIVE_READ "))
         allocations.push(
           Number(event.text().slice("MIGRATION_ARCHIVE_READ ".length)),
+        );
+      if (event.text().startsWith("MIGRATION_ARCHIVE_COPY "))
+        copies.push(
+          Number(event.text().slice("MIGRATION_ARCHIVE_COPY ".length)),
         );
     });
     // verifies: MIG-008
@@ -128,13 +133,18 @@ try {
     assert.equal(result.sourceUnchanged, true);
     assert.ok(allocations.includes(limit), "boundary read was not observed");
     assert.equal(
+      copies.includes(limit),
+      false,
+      "archive read made a duplicate 100 MB byte-array copy",
+    );
+    assert.equal(
       allocations.includes(limit + 1),
       false,
       "oversized archive bytes were allocated before rejection",
     );
   });
   console.log(
-    "Browser archive read: inclusive 100 MB limit, rejection before allocation, preservation, and retry passed",
+    "Browser archive read: inclusive 100 MB limit, no duplicate copy, rejection before allocation, preservation, and retry passed",
   );
 } finally {
   await browser.close();

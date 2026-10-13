@@ -66,6 +66,7 @@ final class ClientOwnershipTests: XCTestCase {
 
 	/// Default storage resolves to the app's Application Support folder. A
 	/// build with an unknown identity there creates no database.
+	// verifies: STORE-002, STORE-007
 	func testDefaultStorageUsesApplicationSupport() async throws {
 		let bundle = try XCTUnwrap(Bundle.main.bundleIdentifier, "The test host has no bundle identifier")
 		let support = try XCTUnwrap(FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
