@@ -72,6 +72,28 @@ private final class ContractLogMailbox<Value: Sendable>: @unchecked Sendable {
 	}
 }
 
+private final class ContractLogReplies: @unchecked Sendable {
+	private let stream: AsyncStream<Bool>
+	private let continuation: AsyncStream<Bool>.Continuation
+	init() {
+		var continuation: AsyncStream<Bool>.Continuation!
+		stream = AsyncStream { continuation = $0 }
+		self.continuation = continuation
+	}
+
+	func push(_ value: Bool) {
+		continuation.yield(value)
+	}
+
+	func next() async throws -> Bool {
+		var iterator = stream.makeAsyncIterator()
+		guard let value = await iterator.next() else {
+			throw LogSinkError.Failed(reason: "log barrier cancelled")
+		}
+		return value
+	}
+}
+
 private final class ContractLogSink: LogSink, @unchecked Sendable {
 	let body: @Sendable (LogRecord) async throws -> Void
 	init(_ body: @escaping @Sendable (LogRecord) async throws -> Void) {
@@ -101,7 +123,7 @@ extension LoggingTests {
 	func testGeneratedSwiftCallbacksKeepQueueOrderBoundAndGeneration() async throws {
 		for oldSuccess in [false, true] {
 			let records = ContractLogMailbox<LogRecord>()
-			let replies = ContractLogMailbox<Bool>()
+			let replies = ContractLogReplies()
 			let active = Shared(0)
 			let maximum = Shared(0)
 			try await initLogging(options: LoggingOptions(level: .error))

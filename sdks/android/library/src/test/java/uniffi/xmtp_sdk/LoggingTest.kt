@@ -102,6 +102,8 @@ private class LogMailbox<T> {
     }
 
     suspend fun next(): T = withTimeout(30_000) { channel.receive() }
+
+    suspend fun waitForRelease(): T = channel.receive()
 }
 
 private suspend fun emitContractLogs(count: Int) {
@@ -134,7 +136,7 @@ class LogDispatchContractTest {
                                     maximum.updateAndGet { maxOf(it, now) }
                                     records.push(record)
                                     try {
-                                        check(replies.next())
+                                        check(replies.waitForRelease())
                                     } finally {
                                         active.decrementAndGet()
                                     }
