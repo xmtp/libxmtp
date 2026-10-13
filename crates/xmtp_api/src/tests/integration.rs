@@ -11,13 +11,9 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
         .publish_identity_update(history.history[0].clone())
         .await?;
     assert!(registration.0 > 0);
-    let registered = api
-        .newest(
-            vec![Topic::new_identity_update(hex::decode(&history.inbox_id)?)],
-            true,
-        )
-        .await?
-        .pop()?;
+    let identity_topic = Topic::new_identity_update(hex::decode(&history.inbox_id)?);
+    wait_for_newest(&api, [(identity_topic.clone(), registration)]).await?;
+    let registered = api.newest(vec![identity_topic], true).await?.pop()?;
     assert_eq!(
         registered.meta.as_ref()?.cursor.as_ref()?.sequence_id,
         registration.0
@@ -38,6 +34,15 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
     let key = key_package_envelope(&history.inbox_id, Default::default());
     let key_meta = api.upload_key_package(key.tls_bytes.clone()).await?;
     let key_id: InstallationId = key.installation_id.as_slice().try_into()?;
+    // Key package reads use QueryNewest, so they wait for the read pool too.
+    wait_for_newest(
+        &api,
+        [(
+            Topic::new_key_package(key_id),
+            Cursor(key_meta.cursor.as_ref()?.sequence_id),
+        )],
+    )
+    .await?;
     let absent: InstallationId = xmtp_common::rand_array::<32>().into();
     let found = api.fetch_key_packages(&[key_id, absent, key_id]).await?;
     assert_eq!(

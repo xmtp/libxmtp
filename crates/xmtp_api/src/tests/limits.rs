@@ -89,7 +89,20 @@ async fn read_topic_boundaries(#[case] read: Read, #[case] cap: usize) {
                     .map(|topic| PublishUnit::single(welcome_for(topic, vec![1])))
                     .collect::<crate::Result<Vec<_>>>()
                     .unwrap();
-                api.publish_units(units).await.unwrap();
+                let metas = api.publish_units(units).await.unwrap();
+                wait_for_newest(
+                    &api,
+                    metas.iter().map(|meta| {
+                        (
+                            Topic::parse(&meta.topic.as_ref().unwrap().topic).unwrap(),
+                            Cursor(meta.cursor.as_ref().unwrap().sequence_id),
+                        )
+                    }),
+                )
+                .await
+                .unwrap();
+                // Count only the measured read, not the reads of the wait.
+                let before = api.api_client.mls_stats().query_newest.get_count();
                 let full = matches!(read, Read::NewestFull);
                 let results = api.newest(topics.clone(), full).await.unwrap();
                 let returned: HashSet<_> = results
@@ -99,7 +112,7 @@ async fn read_topic_boundaries(#[case] read: Read, #[case] cap: usize) {
                 assert_eq!(returned, topics.into_iter().collect());
                 assert_eq!(results.len(), count);
                 assert!(results.iter().all(|row| row.envelope.is_some() == full));
-                api.api_client.mls_stats().query_newest.get_count()
+                api.api_client.mls_stats().query_newest.get_count() - before
             }
         };
         assert_eq!(rows, count.div_ceil(cap));
