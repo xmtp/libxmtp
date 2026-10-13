@@ -94,6 +94,18 @@
           android-sdk-libs-fast
           ;
       }
+      //
+        lib.optionalAttrs
+          (builtins.elem system [
+            "aarch64-darwin"
+            "x86_64-linux"
+          ])
+          {
+            example-android-apk = pkgs.callPackage ./package/example-android-apk.nix {
+              androidLibraries = android-sdk-libs;
+              generatedKotlin = self.packages.${system}.xmtp-sdk-generated-kotlin;
+            };
+          }
       // lib.mapAttrs' (config: crossPkgs: {
         name = "xmtp-sdk-android-${configToAbi.${config}}";
         value = sdkDylibs.${config};

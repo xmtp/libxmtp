@@ -77,6 +77,16 @@ let
   # --- Dev shell helpers (shared between android.nix and local.nix) ---
   devComposition = composeDevPackages;
   devPaths = mkAndroidPaths composeDevPackages;
+  # APK packaging needs the compiler tools and NDK, but no emulator or system image.
+  buildComposition = androidenv.composeAndroidPackages {
+    platformVersions = [ "35" ];
+    platformToolsVersion = sdkConfig.platformTools;
+    buildToolsVersions = [ "35.0.0" ];
+    includeNDK = true;
+    includeEmulator = false;
+    includeSystemImages = false;
+  };
+  buildPaths = mkAndroidPaths buildComposition;
   androidSdk = "${composeDevPackages.androidsdk}/libexec/android-sdk";
 
   # Custom emulator launch script replacing nixpkgs' androidenv.emulateApp.
@@ -175,6 +185,8 @@ in
     composeDevPackages
     devComposition
     devPaths
+    buildComposition
+    buildPaths
     hasEmulator
     ;
 }

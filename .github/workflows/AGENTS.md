@@ -59,6 +59,15 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   migration. The iOS and Android unit jobs include their
   migration tests.
 
+`release-android.yml` builds the example with
+`dev/nix-shell 'just example-android apk'` before Maven publication.
+After the isolated tag push, it attaches the test-signed
+universal APK to the matching GitHub Release for every release type. Keep the
+APK upload job dependent on the tag push and use `--verify-tag` on creation.
+The APK build needs no signing secret. Its Nix derivation uses the public AOSP
+testing key. The `apk` job in `test-example-android.yml` checks that derivation
+without a host Gradle cache or a running backend.
+
 ## CI selection
 
 `.github/ci-suites.yml` declares every CI suite: its workflow, `path_filters` (globs, Cargo

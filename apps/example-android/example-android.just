@@ -8,6 +8,15 @@ root := justfile_directory()
 # BuildConfig (see library/build.gradle).
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
+# Build a signed universal testing APK and print its local path.
+apk:
+  ./dev/apk
+
+# Refresh the pinned Gradle downloads used by the APK derivation.
+apk-update-deps:
+  env -u LD_LIBRARY_PATH nix build "{{ root }}#example-android-apk.mitmCache.updateScript" --out-link .build/apk-update-deps
+  cd "{{ root }}" && apps/example-android/.build/apk-update-deps
+
 # Compile both app variants, shared UI and app instrumentation under strict verification.
 check *args: build
   ./gradlew -p . :example:assembleDebug :example:assembleRelease :example:assembleDebugAndroidTest :example-shared:assembleDebug :example-shared:assembleRelease {{ args }} --dependency-verification=strict --no-daemon

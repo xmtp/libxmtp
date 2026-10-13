@@ -26,6 +26,8 @@ String androidBackendURL() {
 // The release test mode changes signing and instrumentation only, not DEBUG or resources.
 boolean releaseTransportTests = providers.gradleProperty('xmtpExampleReleaseTests').map { it.toBoolean() }.getOrElse(false)
 boolean performanceTests = providers.gradleProperty('android.testInstrumentationRunnerArguments.messengerPerformance').map { it == 'true' }.getOrElse(false)
+// The Nix download uses a public testing key and must not replace normal app installs.
+boolean testingApk = providers.gradleProperty('xmtpExampleTestingApk').map { it.toBoolean() }.getOrElse(false)
 
 android {
     namespace 'org.xmtp.android.example'
@@ -33,11 +35,12 @@ android {
     testBuildType releaseTransportTests ? 'release' : 'debug'
 
     defaultConfig {
-        applicationId "org.xmtp.android.example"
+        applicationId(testingApk ? "org.xmtp.android.example.testing" : "org.xmtp.android.example")
+        manifestPlaceholders = [xmtpApplicationLabel: testingApk ? "XMTP Messenger (Testing)" : "XMTP Messenger"]
         minSdk 27
         targetSdk 34
         versionCode 1
-        versionName "1.0"
+        versionName providers.gradleProperty('xmtpExampleVersion').getOrElse('1.0')
 
         buildConfigField "String", "XMTP_BACKEND_URL", "\"${androidBackendURL()}\""
 

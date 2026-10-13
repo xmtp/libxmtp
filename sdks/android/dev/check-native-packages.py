@@ -19,7 +19,7 @@ PACKAGES = [
 ]
 
 
-def check_package(path, readelf):
+def check_package(path, readelf, require_all_abis=False):
     with zipfile.ZipFile(path) as package, tempfile.TemporaryDirectory() as directory:
         libraries = [
             member
@@ -28,6 +28,13 @@ def check_package(path, readelf):
         ]
         if not libraries:
             raise ValueError(f"{path}: no SDK JNI library")
+        if require_all_abis:
+            abis = {Path(member.filename).parent.name for member in libraries}
+            missing = {"arm64-v8a", "armeabi-v7a", "x86_64", "x86"} - abis
+            if missing:
+                raise ValueError(
+                    f"{path}: missing SDK ABIs: {', '.join(sorted(missing))}"
+                )
         for member in libraries:
             library = Path(directory) / "libxmtp_sdk.so"
             with package.open(member) as source, library.open("wb") as destination:
@@ -55,6 +62,7 @@ def check_package(path, readelf):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("packages", nargs="*", type=Path, default=PACKAGES)
+    parser.add_argument("--require-all-abis", action="store_true")
     args = parser.parse_args()
     try:
         ndk = Path(os.environ["ANDROID_NDK_HOME"])
@@ -62,7 +70,7 @@ def main():
         if len(tools) != 1:
             raise ValueError(f"{ndk}: expected one NDK llvm-readelf tool")
         for package in args.packages:
-            check_package(package, tools[0])
+            check_package(package, tools[0], args.require_all_abis)
     except (
         KeyError,
         OSError,

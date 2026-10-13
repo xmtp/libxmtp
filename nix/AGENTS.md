@@ -83,6 +83,21 @@ the contract record, and all four `libxmtp_sdk.so` ABIs. `android-sdk-libs-fast`
 selects the host emulator ABI. The SDK Gradle build reads this layout. The
 mobile-stage command builds the SDK library AAR so platform helpers are included.
 
+`example-android-apk` builds the signed universal Messenger testing APK on
+macOS ARM64 and Linux x86_64. It uses the SDK version in `gradle.properties`, the
+four JNI libraries, a pinned Gradle distribution, and the public AOSP testing
+key under the separate `org.xmtp.android.example.testing` app ID. It builds the
+non-debuggable release variant with an HTTPS placeholder; testers must choose a
+server. The build has an empty Gradle home and a local replay proxy for hash-pinned
+downloads; it does not access external repositories. The Android build toolchain
+omits emulators and system images. Keep its source filter limited to APK inputs.
+
+After APK dependency or plugin changes, run
+`dev/nix-shell 'just example-android apk-update-deps'` to update the Gradle download
+list. This route uses strict Gradle verification and a fresh cache. Verify the
+result with `nix build --no-link .#example-android-apk`. Keep the Nix Gradle pin
+matched to the shared wrapper. Private signing keys must stay outside derivations.
+
 The Android minimum-platform CI caller sets `NIX_ANDROID_EMULATOR_API=23`.
 Only Linux x86_64 includes this default x86_64 system image. Other callers use
 API 34. The launcher checks the selected API and runs the existing clock sync.
