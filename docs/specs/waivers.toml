@@ -84,13 +84,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature."
 
 [[waiver]]
-id = "CONS-010"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "insert_newer_consent_record updates only state on replace and never consented_at_ns, and record equality ignores the timestamp, so a newer record with the same state never advances the merge."
-
-[[waiver]]
 id = "CONS-011"
 kind = "gap"
 owner = "protocol"
@@ -124,13 +117,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published."
-
-[[waiver]]
-id = "SYNC-022"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "An equal cycled_at_ns replaces the stored HMAC root key by arrival order rather than by the deterministic byte-order tie rule."
 
 [[waiver]]
 id = "AUTH-009"
