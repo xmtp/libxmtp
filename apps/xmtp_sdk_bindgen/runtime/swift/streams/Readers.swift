@@ -184,7 +184,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
             var previous: ConnectionState?
             func emit(_ current: ConnectionState) {
                 guard !completion.closed, previous != current else { return }
-                onConnectionStateChange(previous, current)
+                if current != .reconnecting { onConnectionStateChange(previous, current) }
                 previous = current
             }
             // The first state is the one read at subscription.

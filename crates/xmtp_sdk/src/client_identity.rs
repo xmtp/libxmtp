@@ -84,6 +84,7 @@ impl Client {
     #[sdk(immutable)]
     pub fn options(&self) -> crate::ClientOptions {
         let mut options = self.options.clone();
+        options.fork_recovery = None;
         if let Some(crate::BackendSource::Options { options: backend }) = &mut options.backend {
             backend.credential = None;
             backend.credentials = None;
