@@ -25,6 +25,36 @@ else
   startup_status=$?
 fi
 
+# Whether the requested services, with their dependencies, run this worktree's
+# backend image. Flags are dropped; a flag value makes `config` fail, and then
+# the answer is no. `config` has no --no-deps, so handle that flag here: only
+# the named services start, and only `backend` runs the image.
+needs_backend_image() {
+  local services=() arg no_deps=false
+  for arg in "$@"; do
+    case "${arg}" in
+      --no-deps) no_deps=true ;;
+      -*) ;;
+      *) services+=("${arg}") ;;
+    esac
+  done
+  if [ "${no_deps}" = true ]; then
+    case " ${services[*]-} " in *" backend "*) return 0 ;; *) return 1 ;; esac
+  fi
+  docker compose -f "$script_dir/compose.yml" -p "${XMTP_COMPOSE_PROJECT}" \
+    config --images ${services[@]+"${services[@]}"} 2>/dev/null |
+    grep -qxF -- "${XMTP_BACKEND_IMAGE}"
+}
+
+# This worktree's backend tag exists only after `just backend up` loads it, so a
+# bare `dev/docker/up` fails with a pull error from Compose. Name the fix, but
+# only for a start that needs that image: `db-up` does not.
+if [ "${XMTP_BACKEND_IMAGE:-}" = "xmtp-backend:${XMTP_COMPOSE_PROJECT}" ] &&
+  ! docker image inspect "${XMTP_BACKEND_IMAGE}" >/dev/null 2>&1 &&
+  needs_backend_image "$@"; then
+  echo "Backend image ${XMTP_BACKEND_IMAGE} is not loaded. Run 'just backend up' to build and load it." >&2
+fi
+
 # Keep the failed project's logs and state before a runner removes its containers.
 # Inspect only State: a full inspect would also retain environment credentials.
 # Diagnostics are best effort and must never replace Compose's failure status.

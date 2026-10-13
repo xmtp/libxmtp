@@ -92,31 +92,19 @@ pub(crate) fn checked_count(current: u64, added: usize, cap: u64) -> Result<u64,
 
 /// Apply the backend upload URL policy on both targets.
 pub(crate) fn secure_upload_url(url: &url::Url) -> Result<(), AttachmentError> {
-    let host = url.host().ok_or(AttachmentError::new(Cause::InsecureUrl))?;
-    let loopback = match host {
-        url::Host::Domain(name) => is_loopback_name(name),
-        url::Host::Ipv4(address) => address.is_loopback(),
-        url::Host::Ipv6(address) => address.is_loopback(),
-    };
-    if url.scheme() == "https" || (url.scheme() == "http" && loopback) {
-        Ok(())
-    } else {
-        Err(AttachmentError::new(Cause::InsecureUrl))
-    }
+    xmtp_content_types::remote_attachment::content_url_scheme(url.as_str())
+        .map(|_| ())
+        .map_err(|_| AttachmentError::new(Cause::InsecureUrl))
 }
 
 /// Check a published content URL without DNS or transfer policy.
 pub fn check_content_url(raw: &str) -> Result<String, AttachmentError> {
-    let url = url::Url::parse(raw).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
-    secure_upload_url(&url)?;
-    Ok(format!("{}://", url.scheme()))
+    xmtp_content_types::remote_attachment::content_url_scheme(raw)
+        .map(str::to_owned)
+        .map_err(|_| AttachmentError::new(Cause::InsecureUrl))
 }
 
-pub(crate) fn is_loopback_name(name: &str) -> bool {
-    name.strip_suffix('.')
-        .unwrap_or(name)
-        .eq_ignore_ascii_case("localhost")
-}
+pub(crate) use xmtp_content_types::remote_attachment::is_loopback_name;
 
 #[cfg(test)]
 mod tests {

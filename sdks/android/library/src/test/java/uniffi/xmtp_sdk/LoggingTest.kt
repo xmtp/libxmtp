@@ -93,3 +93,101 @@ class LoggingTest {
             }
         }
 }
+
+private class LogMailbox<T> {
+    private val channel = kotlinx.coroutines.channels.Channel<T>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+
+    fun push(value: T) {
+        check(channel.trySend(value).isSuccess)
+    }
+
+    suspend fun next(): T = withTimeout(30_000) { channel.receive() }
+
+    suspend fun waitForRelease(): T = channel.receive()
+
+    fun finish() {
+        channel.cancel()
+    }
+}
+
+private suspend fun emitContractLogs(count: Int) {
+    repeat(count) { index ->
+        if (index % 2 == 0) {
+            check(runCatching { localSignerFromPrivateKey(ByteArray(31)) }.isFailure)
+        } else {
+            check(runCatching { generateInboxId(PublicIdentity("invalid", PublicIdentityKind.ETHEREUM)) }.isFailure)
+        }
+    }
+}
+
+class LogDispatchContractTest {
+    // verifies: LOG-002, LOG-003, LOG-004, LOG-005, LOG-007, LOG-011, LOG-012, LOG-013
+    @Test(timeout = 180_000L)
+    fun generatedKotlinCallbacksKeepQueueOrderBoundAndGeneration() =
+        runBlocking {
+            withTimeout(150_000) {
+                for (oldSuccess in listOf(false, true)) {
+                    val records = LogMailbox<LogRecord>()
+                    val replies = LogMailbox<Boolean>()
+                    val active = AtomicInteger()
+                    val maximum = AtomicInteger()
+                    initLogging(LoggingOptions(level = LogLevel.ERROR))
+                    try {
+                        setLogSink(
+                            object : LogSink {
+                                override suspend fun log(record: LogRecord) {
+                                    val now = active.incrementAndGet()
+                                    maximum.updateAndGet { maxOf(it, now) }
+                                    records.push(record)
+                                    try {
+                                        check(replies.waitForRelease())
+                                    } finally {
+                                        active.decrementAndGet()
+                                    }
+                                }
+                            },
+                        )
+                        emitContractLogs(1)
+                        org.junit.Assert.assertEquals(0uL, records.next().droppedRecords)
+                        emitContractLogs(4099)
+                        replies.push(true)
+                        val second = records.next()
+                        org.junit.Assert.assertEquals(3uL, second.droppedRecords)
+                        assertTrue(second.fields["error"].orEmpty().contains("invalid local signer private key"))
+                        emitContractLogs(3)
+                        replies.push(false)
+                        val third = records.next()
+                        org.junit.Assert.assertEquals(5uL, third.droppedRecords)
+                        assertTrue(third.fields["error"].orEmpty().contains("invalid public identity"))
+                        emitContractLogs(2)
+                        replies.push(true)
+                        org.junit.Assert.assertEquals(1uL, records.next().droppedRecords)
+                        org.junit.Assert.assertEquals(1, maximum.get())
+                        val replacement = LogMailbox<Pair<Int, LogRecord>>()
+                        for (generation in 1..4) {
+                            setLogSink(null)
+                            setLogSink(
+                                object : LogSink {
+                                    override suspend fun log(record: LogRecord) {
+                                        check(active.get() == 0)
+                                        replacement.push(generation to record)
+                                    }
+                                },
+                            )
+                            emitContractLogs(4099)
+                        }
+                        org.junit.Assert.assertEquals(1, active.get())
+                        replies.push(oldSuccess)
+                        val (generation, record) = replacement.next()
+                        org.junit.Assert.assertEquals(4, generation)
+                        org.junit.Assert.assertEquals(3uL, record.droppedRecords)
+                        assertTrue(record.fields["error"].orEmpty().contains("invalid local signer private key"))
+                    } finally {
+                        replies.finish()
+                        setLogSink(null)
+                        initLogging(LoggingOptions(level = LogLevel.WARN))
+                    }
+                }
+            }
+        }
+}
