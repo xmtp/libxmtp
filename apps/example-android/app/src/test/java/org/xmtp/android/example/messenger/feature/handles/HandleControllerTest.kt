@@ -32,8 +32,10 @@ class HandleControllerTest {
         var available: suspend (String) -> List<String> = { emptyList() }
         var claim: suspend (String) -> Unit = {}
         var readFailure: (() -> Throwable)? = null
+        var read: suspend () -> Unit = {}
 
         override suspend fun handles(): OwnHandles {
+            read()
             readFailure?.let { throw it() }
             return OwnHandles(current, others)
         }
@@ -108,6 +110,18 @@ class HandleControllerTest {
         editor.type("nicky")
         editor.dispatch(HandleAction.Check)
         assertEquals(HandleStatus.Available("nicky"), editor.value.status)
+    }
+
+    @Test fun loadingOwnHandlesKeepsTheChangeTitle() {
+        val read = CompletableDeferred<Unit>()
+        val account = FakeAccount().apply { this.read = { read.await() } }
+        val editor = open(account, HandleMode.CHANGE)
+        // Handles that are still loading are not "no handle".
+        assertTrue(editor.value.loading)
+        assertEquals("Change handle", HandleCopy.screenTitle(editor.value))
+        read.complete(Unit)
+        assertFalse(editor.value.loading)
+        assertEquals("Choose handle", HandleCopy.screenTitle(editor.value))
     }
 
     @Test fun emptyEditorWaitsForInput() {
@@ -225,6 +239,24 @@ class HandleControllerTest {
         assertEquals("nick#2341", editor.value.current)
     }
 
+    @Test fun aClaimAnswerAfterCloseChangesNothing() {
+        // A claim that ignores cancellation, as a native call can, still answers after close.
+        var pending: Continuation<Unit>? = null
+        val account =
+            FakeAccount().apply {
+                available = { listOf("nick") }
+                claim = { suspendCoroutine { pending = it } }
+            }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        editor.close()
+        checkNotNull(pending).resume(Unit)
+        assertEquals(HandleState(), editor.value)
+        assertEquals(0, account.finished)
+    }
+
     @Test fun bareNameFreeIsOfferedAndClaimedOnlyWhenPicked() {
         val account = FakeAccount().apply { available = { listOf("nick", "nick#2341") } }
         val editor = open(account)
@@ -306,6 +338,33 @@ class HandleControllerTest {
             HandleStatus.Suggestions("nick#1337", listOf("nick#2341", "nick#0912"), 2, "nick#2341"),
             editor.value.status,
         )
+    }
+
+    @Test fun takenCodedSuggestionIsNotOfferedAgain() {
+        // The fresh answer for the name still lists the taken handle, as a lagging replica can.
+        var names = 0
+        val account =
+            FakeAccount().apply {
+                available = { name ->
+                    when {
+                        name == "nick#1337" -> emptyList()
+                        names++ == 0 -> listOf("nick#2341", "nick#0912")
+                        else -> listOf("nick#2341", "nick#5530", "nick#0912")
+                    }
+                }
+                claim = { throw taken() }
+            }
+        val editor = open(account)
+        editor.type("nick#1337")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(listOf("nick#2341"), account.claims)
+        assertEquals(listOf("nick#1337", "nick", "nick#1337", "nick"), account.lookups)
+        assertEquals(
+            HandleStatus.Suggestions("nick#1337", listOf("nick#5530", "nick#0912"), 2, "nick#5530"),
+            editor.value.status,
+        )
+        assertEquals(HandleNotice.Taken("nick#2341"), editor.value.notice)
     }
 
     @Test fun noSuggestionsOfferLookAgain() {

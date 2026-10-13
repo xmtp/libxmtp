@@ -34,10 +34,17 @@ answer, the read after a too-soon or limit answer, and the ownership check of
 earlier suggestions after a taken answer. The editor reads the handles this
 device knows once. A taken answer gets a new lookup that never offers the taken
 handle. A late answer applies only while its job is active, so an edit, open,
-or close drops it. `HandleControllerTest` now has 28 tests. The new or changed
+or close drops it. `HandleControllerTest` now has 31 tests. The new or changed
 tests, a failed own read, a claim and a change with no answer, taken during a
 claim, and an answer after close, each failed under their own mutation and
 passed after the source was restored.
+
+Review round 2 added three controller tests. A claim answer after close, before
+the next open, changes nothing and does not leave the editor. A taken coded
+suggestion is not offered again when the name lookup still lists it. The title
+stays Change handle while the own handles load. Each failed under its own
+mutation: no cancel in close, no taken-handle filter on the name lookup, and no
+loading clause in the title.
 
 `HandleStepInstrumentedTest` runs the production `AppGraph` and `RouteOwner`
 against the worktree backend. A new account opens Choose your handle, and Back
