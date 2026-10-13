@@ -1,4 +1,6 @@
 #[cfg(test)]
+mod handle_claims;
+#[cfg(test)]
 mod identity_invalid_mutations;
 mod verify_updates;
 pub use verify_updates::verify_updates;
