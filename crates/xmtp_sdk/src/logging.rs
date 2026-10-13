@@ -143,7 +143,7 @@ mod sink {
                 message: value.message,
                 fields: value.fields.into_iter().collect(),
                 timestamp: Timestamp(value.timestamp_ns),
-                dropped_records: value.dropped_records,
+                dropped_records: 0,
             }
         }
     }
