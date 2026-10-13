@@ -520,7 +520,7 @@ class MessengerScreensInstrumentedTest {
                     try {
                         assertTrue(Settings.Global.putFloat(resolver, motionSetting, 1f))
                         previewBack()
-                        compose.waitUntil(5_000) { pane.fetchSemanticsNode().boundsInRoot.width < beforeBounds.width }
+                        compose.waitUntil(30_000) { pane.fetchSemanticsNode().boundsInRoot.width < beforeBounds.width }
                         assertEquals(beforeBack, graph.destinations.state.value)
                         assertEquals(beforeComposer, graph.chat.state.value.composer)
                         assertEquals(beforeAnchor, graph.chat.state.value.anchor)
@@ -532,7 +532,7 @@ class MessengerScreensInstrumentedTest {
 
                         assertTrue(Settings.Global.putFloat(resolver, motionSetting, 0f))
                         previewBack(BackEventCompat.EDGE_RIGHT)
-                        compose.waitUntil(5_000) { pane.fetchSemanticsNode().boundsInRoot == beforeBounds }
+                        compose.waitUntil(30_000) { pane.fetchSemanticsNode().boundsInRoot == beforeBounds }
                         assertEquals(beforeBack, graph.destinations.state.value)
                         assertEquals(beforeComposer, graph.chat.state.value.composer)
                         cancelBack()

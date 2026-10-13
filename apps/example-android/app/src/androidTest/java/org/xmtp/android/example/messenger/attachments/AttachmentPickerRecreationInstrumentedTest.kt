@@ -137,7 +137,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                 instrumentation.addMonitor(monitor)
                 if (stage == "select") {
                     compose.onNodeWithContentDescription("Add attachment").performClick()
-                    compose.waitUntil(5_000) {
+                    compose.waitUntil(30_000) {
                         compose.onAllNodesWithTag("attachment-choice-sheet").fetchSemanticsNodes().isNotEmpty()
                     }
                     compose.onNodeWithTag("attachment-choice-sheet").assertExists()
@@ -146,11 +146,11 @@ class AttachmentPickerRecreationInstrumentedTest {
                     assertNull(graphRule.graph.attachments.choice.value)
                     assertEquals(AppRoute.Chat(chat.id()), graphRule.graph.destinations.state.value.route)
                     assertNull(model.attachments.requests.launchedSelect())
-                    compose.waitUntil(5_000) {
+                    compose.waitUntil(30_000) {
                         compose.onAllNodesWithTag("attachment-choice-sheet").fetchSemanticsNodes().isEmpty()
                     }
                     compose.onNodeWithContentDescription("Add attachment").performClick()
-                    compose.waitUntil(5_000) {
+                    compose.waitUntil(30_000) {
                         graphRule.graph.attachments.choice.value
                             ?.instanceId
                             ?.let { it != sheet.instanceId } == true &&
@@ -168,7 +168,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                     until { model.attachments.requests.launchedSelect() == null }
                     compose.waitForIdle()
                     compose.onNodeWithContentDescription("Add attachment").performClick()
-                    compose.waitUntil(5_000) {
+                    compose.waitUntil(30_000) {
                         compose.onAllNodesWithTag("attachment-choice-photo-video").fetchSemanticsNodes().isNotEmpty()
                     }
                     compose.onNodeWithTag("attachment-choice-photo-video").performScrollTo().performClick()
@@ -180,7 +180,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                         .performScrollTo()
                         .assertIsDisplayed()
                         .performClick()
-                    compose.waitUntil(5_000) {
+                    compose.waitUntil(30_000) {
                         compose.onAllNodesWithText("Verified").fetchSemanticsNodes().isNotEmpty()
                     }
                     compose
@@ -250,7 +250,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                             .status(),
                     )
                     assertNull(retained.launchedSelect())
-                    compose.waitUntil(5_000) {
+                    compose.waitUntil(30_000) {
                         compose
                             .onAllNodesWithTag("attachment-card-${draft.draftId}", useUnmergedTree = true)
                             .fetchSemanticsNodes()

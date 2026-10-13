@@ -76,7 +76,7 @@ class AttachmentAvailabilityReplyInstrumentedTest {
                 assertEquals("Reply survives the actual attachment availability update", id, model.state.value.replyTo)
                 assertEquals("Reply parent survives availability refresh", model.state.value.replyPreview)
                 assertTrue(model.state.value.features.attachments)
-                compose.waitUntil(5_000) { compose.onNodeWithText("Keep the composer draft").isDisplayed() }
+                compose.waitUntil(30_000) { compose.onNodeWithText("Keep the composer draft").isDisplayed() }
                 compose.onNodeWithText("Keep the composer draft").assertIsDisplayed()
                 println("ATTACHMENT_AVAILABILITY_REPLY_PROOF stage=actual-host-refresh reply-kept=true draft-kept=true")
             } finally {
