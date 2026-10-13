@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Brand colors are asset-backed; all other surfaces use system colors.
+/// Brand and high-contrast secondary labels are asset-backed; other surfaces use system colors.
 enum Theme {
 	static let tint = Color("AccentColor")
 	static let accentText = Color("AccentText")
+	static let secondaryLabel = Color("SecondaryLabel")
 	static let incomingBubble = Color("IncomingBubble")
 	static let minimumHitTarget: CGFloat = 44
 }

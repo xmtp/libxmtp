@@ -1,5 +1,6 @@
 export NIX_DEVSHELL := env("NIX_DEVSHELL", "ios")
 export XMTP_BACKEND_URL := env("XMTP_BACKEND_URL", "")
+export XMTP_ALLOW_PRIVATE_ATTACHMENTS := env("XMTP_ALLOW_PRIVATE_ATTACHMENTS", "")
 set shell := ["../../dev/nix-shell"]
 root := justfile_directory()
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
@@ -25,7 +26,9 @@ test-ui destination="platform=iOS Simulator,name=iPhone 17": build
 lint:
     python3.11 dev/test-lint.py
     swiftlint --strict
-    swiftformat --lint ExampleApp ExampleAppUITests Packages/ExampleKit
+    swiftformat --lint ExampleApp
+    swiftformat --lint ExampleAppUITests
+    swiftformat --lint Packages/ExampleKit
 
 format:
     swiftformat ExampleApp ExampleAppUITests Packages/ExampleKit

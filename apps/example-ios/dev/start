@@ -31,6 +31,21 @@ app="$root/apps/example-ios/.build/DerivedData/Build/Products/${CONFIGURATION:-D
 state="$(jq -r --arg id "$device" '.devices[][] | select(.udid == $id) | .state' <<< "$devices")"
 if [[ "$state" != Booted ]]; then xcrun simctl boot "$device"; fi
 xcrun simctl bootstatus "$device" -b
-if [[ "$headless" == false ]]; then open -a Simulator --args -CurrentDeviceUDID "$device"; fi
+if [[ "$headless" == false ]]; then
+  developer_dir="${DEVELOPER_DIR:-$(/usr/bin/xcode-select -p)}"
+  if [[ -d "$developer_dir/Applications/Simulator.app" ]]; then
+    open -a "$developer_dir/Applications/Simulator.app" --args -CurrentDeviceUDID "$device"
+  elif [[ -d "$developer_dir/../Applications/DeviceHub.app" ]]; then
+    open -a "$developer_dir/../Applications/DeviceHub.app" --args -CurrentDeviceUDID "$device"
+  else
+    open -a Simulator --args -CurrentDeviceUDID "$device"
+  fi
+fi
 xcrun simctl install "$device" "$app"
+# Private attachment access is an explicit caller opt-in.
+if [[ "${XMTP_ALLOW_PRIVATE_ATTACHMENTS:-}" == 1 ]]; then
+  export SIMCTL_CHILD_XMTP_ALLOW_PRIVATE_ATTACHMENTS=1
+else
+  unset SIMCTL_CHILD_XMTP_ALLOW_PRIVATE_ATTACHMENTS
+fi
 SIMCTL_CHILD_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" xcrun simctl launch "$device" org.xmtp.example.ios
