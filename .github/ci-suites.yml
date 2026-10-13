@@ -443,7 +443,7 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
-    kache: [sdk-browser-conformance, sdk-products-debug]
+    kache: [sdk-browser-conformance]
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core

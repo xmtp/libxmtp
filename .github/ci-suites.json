@@ -1044,8 +1044,7 @@
       },
       "covered_by": null,
       "kache": [
-        "sdk-browser-conformance",
-        "sdk-products-debug"
+        "sdk-browser-conformance"
       ],
       "cargo_roots": [],
       "crates": [],

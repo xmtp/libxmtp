@@ -10,7 +10,10 @@ root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 dev/worktree-env
 . dev/docker/load-env
-bash crates/xmtp_sdk/dev/check-wasm-init
+# The tests load the generated WASM and pure trees, which import the @ubjs
+# packages beside them.
+bash crates/xmtp_sdk/dev/link-runtime-packages \
+  target/sdk-generated/typescript-wasm target/sdk-generated/typescript-pure
 NODE_OPTIONS=--preserve-symlinks \
   sdks/browser/node_modules/.bin/vitest run \
   --config apps/xmtp_sdk_bindgen/runtime-tests/ts/vitest.config.mts \

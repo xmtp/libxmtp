@@ -8,11 +8,7 @@ env:
   SQLX_OFFLINE: 'true'
 jobs:
   proof:
-    name: Test (SDK ${{ matrix.target }})
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [bridge, browser]
+    name: Test (SDK browser)
     runs-on: blacksmith-16vcpu-ubuntu-2404
     environment:
       name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
@@ -30,7 +26,7 @@ jobs:
         kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
         kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-        kache-scope: ${{ matrix.target == 'browser' && 'sdk-browser-conformance' || 'sdk-products-debug' }}
+        kache-scope: sdk-browser-conformance
         kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - uses: ./.github/actions/setup-js
@@ -41,10 +37,12 @@ jobs:
     - name: Start local backend
       run: dev/nix-shell 'just backend up'
     - name: Bridge runtime unit tests
-      if: matrix.target == 'bridge'
+      id: bridge
       run: dev/nix-shell 'just sdk test-bridge'
+    # The platform proofs also run when the bridge tests fail, so one run
+    # reports both. They do not run when an earlier setup step failed.
     - name: Browser platform proofs
-      if: matrix.target == 'browser'
+      if: ${{ !cancelled() && steps.bridge.outcome != 'skipped' }}
       run: dev/nix-shell 'just sdk test-browser'
     - name: Dump Docker logs on failure
       if: failure()
