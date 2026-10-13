@@ -162,7 +162,7 @@ class GroupSettingsInstrumentedTest {
         compose.onNodeWithContentDescription("New message").performClick()
         button("Group").performClick()
         compose
-            .onNodeWithText("Inbox ID or Ethereum address")
+            .onNodeWithText("Handle, Ethereum address, or inbox ID")
             .performTextReplacement(member.inboxId())
         androidx.test.espresso.Espresso
             .closeSoftKeyboard()
@@ -355,7 +355,7 @@ class GroupSettingsInstrumentedTest {
             val group = appGroup(first)
             val added = second.inboxId()
             button("Add member").performClick()
-            settingsNode(hasText("Inbox ID")).performTextReplacement(added)
+            settingsNode(hasText("Handle, Ethereum address, or inbox ID")).performTextReplacement(added)
             androidx.test.espresso.Espresso
                 .closeSoftKeyboard()
             action(GroupAction.AddMember(added)) { button("Add member").performScrollTo().performClick() }

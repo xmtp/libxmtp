@@ -290,18 +290,7 @@ internal class ConversationsController(
                                         val group = (chat as? Conversation.Group)?.let { listGroupStateRead(it.group) }
                                         val common = group?.common ?: queries.state(chat)
                                         val alias = preferences.alias(owner.key.profileId, chat.id())
-                                        val title =
-                                            alias ?: when (chat) {
-                                                is Conversation.Group -> {
-                                                    group?.name?.ifBlank {
-                                                        "Group"
-                                                    } ?: "Group"
-                                                }
-
-                                                is Conversation.Dm -> {
-                                                    chat.dm.peerInboxId()?.take(12) ?: "Direct message"
-                                                }
-                                            }
+                                        val title = alias ?: chat.displayTitle(groupName = group?.name)
                                         val logical = logicalConversationKey(chat, own)
                                         val marker = session.preferences.marker(owner.key.profileId, logical)
                                         val unread = queries.count(chat, incomingSelection(own, marker.insertedAtNs))
@@ -324,7 +313,7 @@ internal class ConversationsController(
                                             common.consentState == ConsentState.UNKNOWN,
                                             chat.id().hashCode(),
                                             muted =
-                                                !common.notificationsEnabled,
+                                                notifications.muted(owner, logical),
                                             group =
                                                 group != null,
                                             alias =

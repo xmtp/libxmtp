@@ -329,7 +329,7 @@ class MessengerScreensInstrumentedTest {
                 screen("conversations")
                 compose.onNodeWithContentDescription("New message").performClick()
                 textAction("Group").performClick()
-                compose.onNodeWithText("Inbox ID or Ethereum address").performTextInput(second.inboxId())
+                compose.onNodeWithText("Handle, Ethereum address, or inbox ID").performTextInput(second.inboxId())
                 textAction("Check and add").performScrollTo().performClick()
                 until("native recipient resolved") { graph.createConversation.state.value.selectedRecipients.size == 1 }
                 screen("create")

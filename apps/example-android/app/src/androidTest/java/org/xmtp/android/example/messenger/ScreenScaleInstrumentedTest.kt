@@ -412,7 +412,7 @@ class ScreenScaleInstrumentedTest {
                 until("Create did not open") { model.state.value.screen == Screen.CREATE }
                 control(click("Direct message"))
                 control(click("Group")).performClick()
-                input("Inbox ID or Ethereum address", other.inboxId())
+                input("Handle, Ethereum address, or inbox ID", other.inboxId())
                 control(click("Check and add")).performClick()
                 until("The pasted native member did not resolve") {
                     model.createConversation.state.value.selectedRecipients.size == 1
@@ -473,7 +473,7 @@ class ScreenScaleInstrumentedTest {
                 control(click("Make admin") and hasAnyAncestor(hasTestTag(memberTag)))
                 control(click("Remove") and hasAnyAncestor(hasTestTag(memberTag)))
                 control(click("Add member")).performClick()
-                input("Inbox ID", other.inboxId())
+                input("Handle, Ethereum address, or inbox ID", other.inboxId())
                 control(click("Add member"))
                 control(click("Done")).performClick()
                 control(click("Edit name and description")).performClick()

@@ -79,21 +79,8 @@ internal class CreateConversationController(
                     .map { conversation ->
                         async {
                             reads.withPermit {
-                                when (conversation) {
-                                    is Conversation.Dm -> {
-                                        listOfNotNull(
-                                            conversation.dm.peerInboxId(),
-                                        ).map { RecipientUi(it, it.take(12)) }
-                                    }
-
-                                    is Conversation.Group -> {
-                                        conversation.members().take(50).map {
-                                            RecipientUi(
-                                                it.inboxId,
-                                                it.inboxId.take(12),
-                                            )
-                                        }
-                                    }
+                                conversation.members().take(50).map {
+                                    RecipientUi(it.inboxId, it.handle ?: it.inboxId.take(12))
                                 }
                             }
                         }
@@ -356,18 +343,16 @@ internal class CreateConversationController(
             }
             try {
                 val inbox =
-                    if (value.startsWith("0x")) {
-                        queries.resolveInbox(
-                            owner,
-                            value,
-                        ) ?: throw FeatureInputFailure("This address has no XMTP account.")
-                    } else {
-                        if (!value.matches(Regex("[0-9a-f]{64}"))) {
-                            throw FeatureInputFailure("Enter an Ethereum address or a lowercase inbox ID.")
-                        }
-                        value
+                    reads.withPermit { queries.resolveInbox(owner, value) }
+                        ?: throw FeatureInputFailure("No XMTP account matches this recipient.")
+                val handle =
+                    try {
+                        reads.withPermit { queries.inboxHandle(owner, inbox) }
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                        null
                     }
-                rows += RecipientUi(inbox, inbox.take(12), selected = true)
+                rows += RecipientUi(inbox, handle ?: inbox.take(12), selected = true)
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 rows +=

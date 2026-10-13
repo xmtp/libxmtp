@@ -314,7 +314,9 @@ internal class ChatController(
             if (!destinations.accepts(origin)) return
             val group = reads.withPermit { (chat as? Conversation.Group)?.let { conversations.groupState(it.group) } }
             val common = group?.common ?: conversations.state(chat)
-            val memberCount = reads.withPermit { chat.members().size }
+            val members = reads.withPermit { chat.members() }
+            val memberCount = members.size
+            val title = lists.row(id)?.alias ?: chat.displayTitle(group?.name, members)
             if (!destinations.accepts(origin)) return
             if (common.consentState == ConsentState.DENIED) throw FeatureInputFailure("This chat is blocked.")
             val logical = logicalConversationKey(chat, owner.client.inboxId())
@@ -339,7 +341,6 @@ internal class ChatController(
                             stored
                         }
                     }
-                val title = lists.row(id)?.title ?: group?.name?.ifBlank { "Group" } ?: id.take(12)
                 lists.prepareRequest(owner, id, title)
                 if (!same) {
                     atNewest = false
@@ -1667,6 +1668,7 @@ internal class ChatController(
             }
         val queued = overlay(chat)
         val consent = conversations.state(chat).consentState
+        val title = reads.withPermit { lists.row(chat.id())?.alias ?: chat.displayTitle() }
         val reply =
             resolveReply(
                 owner,
@@ -1690,6 +1692,7 @@ internal class ChatController(
             ui.update { currentUi ->
                 currentUi
                     .copy(
+                        title = title,
                         messages = timelineRows(owner, window.rows, queued.rows),
                         historyNotice = window.notice ?: if (changed || position.changed) "Position changed" else null,
                         hasOlder = window.hasOlder,

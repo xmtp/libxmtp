@@ -176,6 +176,7 @@ internal fun MessengerAvatar(
     val initials =
         title
             .trim()
+            .removePrefix("@")
             .split(Regex("\\s+"))
             .filter {
                 it.isNotEmpty()
