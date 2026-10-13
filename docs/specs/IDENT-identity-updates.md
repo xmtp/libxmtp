@@ -77,7 +77,7 @@ enum IdentifierKind {
   IDENTIFIER_KIND_UNSPECIFIED = 0; // Ethereum on old clients
   IDENTIFIER_KIND_ETHEREUM = 1;
   IDENTIFIER_KIND_PASSKEY = 2;
-  IDENTIFIER_KIND_HANDLE = 3;      // pending; lookups only (IDENT-077)
+  IDENTIFIER_KIND_HANDLE = 3;      // lookups only (IDENT-077)
 }
 
 // The first entry of any XID log. The XID must be deterministically derivable
@@ -124,8 +124,8 @@ message ChangeRecoveryAddress {
 
 // Claims a handle for the inbox. Section 10 states the rules.
 message ClaimHandle {
-  string handle = 1;               // pending
-  Signature signature = 2;         // pending
+  string handle = 1;
+  Signature signature = 2;
 }
 
 // A single identity operation
@@ -135,7 +135,7 @@ message IdentityAction {
     AddAssociation add = 2;
     RevokeAssociation revoke = 3;
     ChangeRecoveryAddress change_recovery_address = 4;
-    ClaimHandle claim_handle = 5;  // pending
+    ClaimHandle claim_handle = 5;
   }
 }
 
