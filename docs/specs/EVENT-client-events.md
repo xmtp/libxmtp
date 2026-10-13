@@ -32,13 +32,13 @@ Out of scope: durable message delivery and acknowledgement (PROC section 7), int
 | `PROC` | Owns durable delivery, delivery numbers (PROC-024), eligibility (PROC-025), and deletion (PROC-037). Events do not replace them. |
 | `CONS` | Owns consent records and their changes. CONS-041 gives an app access to consent and uses `consent.changed` for stored-state changes, subject to EVENT-030 and EVENT-031. |
 | `JOIN` | Owns the join from a Welcome (JOIN-045), replacing an ended group (JOIN-042), activating a restored group (JOIN-080), and the adder (JOIN-025). |
-| `GMOD` | Owns commits, removal, and leave (GMOD-031 to GMOD-033). |
+| `GMOD` | Owns commits, removal, and leave (GMOD-031 to GMOD-033), and the membership refresh that reads an inbox's newer identity state (GMOD-029). |
 | `META` | Owns components and their names (section 2, META-040), disappearing messages (META-050, META-051, META-063), and the protocol version floor (section 7, META-062). |
 | `PERM` | Owns the permission policy set and the admin lists. |
 | `DMS` | Owns stitched DMs (DMS-007, DMS-009). |
 | `SEND` | Owns message delivery status (SEND-003, SEND-009, SEND-013, SEND-016, SEND-018). |
 | `CTYPE` | Owns content type ids (CTYPE-001), deletion eligibility (CTYPE-018), and the reply and reaction encodings. |
-| `IDENT` | Owns installation keys (section 8), and installation addition and revocation (section 5, IDENT-044). |
+| `IDENT` | Owns installation keys (section 8), installation addition and revocation (section 5, IDENT-044), and handle claims and the handles of the association state (IDENT-082). |
 | `FORK` | Owns the fork state (FORK-040). |
 | `CONF` | Owns the blocked connection and the two conditions that set it (CONF-030, CONF-036). CONF-075 closes streams with network interest while EVENT-016 keeps event subscriptions open. |
 | `AUTH` | Owns credential lockout (AUTH-023) and replacing the credential (AUTH-024). |
@@ -67,6 +67,8 @@ Out of scope: durable message delivery and acknowledgement (PROC section 7), int
 Each row of the kind table names one change, the unit that gets one event, and the payload member that carries it. An app selects a kind through the typed `EventKind` filter. A kind is never removed and never changes meaning.
 
 One act can produce events of more than one kind. A commit that removes the own inbox produces `conversation.removed` and `conversation.membership_changed`. A commit that removes only this installation while the own inbox remains a member does not produce `conversation.membership_changed`. A deletion produces `message.received` for the deletion message and `message.deleted` for its target. Events from one transaction are emitted in the order of the kind table (EVENT-012).
+
+`handle.changed` reports a change to the display handle of the association state with the greatest sequence id that the client holds for an inbox, the own inbox included. When the client holds no association state for an inbox, the state it stores for that inbox is not a change and has no event, so loading the members of a new conversation does not emit one event for each member.
 
 | Kind | Emitted when | One event for each | Payload member |
 | --- | --- | --- | --- |
@@ -97,6 +99,7 @@ One act can produce events of more than one kind. A commit that removes the own 
 | `attachment.download_completed` | A download makes a plaintext file readable at its path under ATCH-051 | Download | `attachment_download_completed` |
 | `attachment.download_failed` | A download that emitted `attachment.download_started` ends without a plaintext file | Download | `attachment_download_failed` |
 | `attachment.deleted` | An app's request under ATCH-047 deletes at least one of the attachment key directory, the staged ciphertext, and the local attachment record | Request | `attachment_deleted` |
+| `handle.changed` | The client stores an association state that changes an inbox's display handle under EVENT-058 | Stored association state | `handle_changed` |
 
 The payload of every event, including `lagged`, is the `ClientEvent` below. The client and SDK use the typed `EventKind` set in this section.
 
@@ -130,6 +133,7 @@ dictionary ClientEvent {
   AttachmentRef attachment_download_completed;
   AttachmentFailed attachment_download_failed;
   AttachmentRef attachment_deleted;
+  HandleChanged handle_changed;
   Lagged lagged;
 };
 
@@ -142,7 +146,7 @@ enum EventKind {
   "conversation.fork_detected", "notifications.failed", "archive.restored",
   "connection.state_changed", "attachment.upload_started", "attachment.upload_completed",
   "attachment.upload_failed", "attachment.download_started", "attachment.download_completed",
-  "attachment.download_failed", "attachment.deleted", "lagged"
+  "attachment.download_failed", "attachment.deleted", "handle.changed", "lagged"
 };
 enum ConversationType { "group", "dm" };
 enum JoinOrigin { "created", "welcomed" };
@@ -236,6 +240,10 @@ dictionary AttachmentFailed {
   required DOMString content_digest;
   required DOMString cause;                       // an AttachmentFailureCause value (ATCH-060)
 };
+dictionary HandleChanged {
+  required DOMString inbox_id;                    // EVENT-058
+  required DOMString handle;                      // the display handle (EVENT-058)
+};
 dictionary Lagged { required unsigned long long discarded; };
 
 ```
@@ -279,6 +287,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 | EVENT-024 | Other payload members | The client MUST set each payload member in the member source table to the value that table names for it. | An app that reads a member it cannot trust re-reads everything, or acts on the wrong value. |
 | EVENT-026 | Observed HMAC epoch increase | When the current HMAC epoch under PUSH-258 is greater than the epoch the client recorded at startup or when it last emitted `hmac_keys.updated` for an epoch increase, an open client MUST emit exactly one `hmac_keys.updated` event for the current epoch without an app call or network request. It MUST NOT emit an epoch-change event for the startup epoch or for epochs reached while it was closed. | An app that caches the current conversation HMAC keys keeps the old keys after an epoch transition. |
 | EVENT-027 | Client connection state | The client MUST compute one connection state over its open app streams that hold network interest, using PROC section 6's states: `failed` if any is `failed`; else `reconnecting` if any is `reconnecting`; else `connecting` if any is `connecting`; else `connected`; and `closed` when none is open. When that state changes, the client MUST emit exactly one `connection.state_changed` event with the previous and current state. It MUST NOT emit when the state does not change. | An app cannot show that it is offline or that it recovered without a signal. |
+| EVENT-058 | Display handle change | When the client stores an association state for an inbox at a sequence id greater than that of every association state it already holds for that inbox, and the stored state has a display handle while the held state with the greatest sequence id has none or a different one, the client MUST emit exactly one `handle.changed` event with `inbox_id` set to that inbox's id and `handle` set to the stored state's display handle. The client MUST NOT emit `handle.changed` when it stores an association state for an inbox for which it holds none. | An app that shows an inbox's handle keeps showing the old handle after the inbox claims a new one. |
 
 ## 2. Emission and order
 
@@ -366,3 +375,5 @@ Filters do not read consent. A conversation whose consent is denied still produc
 In a stitched DM, a reply or reaction in one group can arrive before the message it names in another group. It then does not pass `references_own_messages`, and no later event reports it.
 
 Internal receivers, such as device sync and barriers, do not count toward the client connection state. That state can be `closed` while background work uses the network.
+
+A client stores a newer association state for an inbox only when it reads that inbox's identity updates for another reason, such as a membership refresh under GMOD-029, because a subscription causes no request (EVENT-013). Until then, a handle the inbox claimed has no `handle.changed` event on that client, and the client reports the older display handle.

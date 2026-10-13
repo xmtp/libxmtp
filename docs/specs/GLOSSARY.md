@@ -40,6 +40,9 @@ This file names things; it does not constrain them. Under SPEC-072 every obligat
 | Welcome | The MLS message that adds an installation to a group, inline or through a welcome pointer. |
 | Key package | An installation's published MLS credential and keys that let another member add it to a group. |
 | Identity update | A signed change to an inbox's association log. Owned by the `IDENT` spec. |
+| Handle | A public name, such as `nick` or `nick#2341`, that an inbox claims with a `ClaimHandle` action in its association log. Its grammar and the claim rules are stated by `IDENT` section 10. |
+| Name part | The text of a handle before its `#`, or the whole handle when it has no `#`. |
+| Display handle | The handle an inbox is shown by: the last of the handles in its association state (IDENT-082). An inbox that has claimed no handle has none. |
 | Commit-log entry | A signed record of a commit that a client publishes for fork detection. Owned by the `FORK` spec. |
 | Consent | An inbox's or conversation's state of allowed, denied, or unknown. Owned by the `CONS` spec. |
 | Content type | The typed encoding of a message payload. Owned by the `CTYPE` spec. |
