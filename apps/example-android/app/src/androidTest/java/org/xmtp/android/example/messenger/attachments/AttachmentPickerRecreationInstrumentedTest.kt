@@ -23,6 +23,7 @@ import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.*
 import org.xmtp.android.example.shared.AppRoute
 import org.xmtp.android.example.shared.MessengerAction
+import org.xmtp.android.example.shared.Screen
 import org.xmtp.android.example.shared.attachments.AttachmentSelection
 import uniffi.xmtp_sdk.*
 import java.io.File
@@ -42,6 +43,31 @@ class AttachmentPickerRecreationInstrumentedTest {
         withTimeout(30_000) {
             while (!check()) delay(20)
         }
+
+    private suspend fun awaitCurrentPickerTarget(
+        owner: ActiveSession,
+        chatId: String,
+    ) {
+        assertTrue("The picker session must still be current", model.session.accepts(owner.key))
+        assertEquals(AppRoute.Chat(chatId), graphRule.graph.destinations.state.value.route)
+        assertEquals("Chat open must bind the picker target", chatId, model.chat.currentConversation()?.id())
+        assertNull("Chat open must succeed before a picker action", model.chat.state.value.failure)
+        assertFalse("Chat open must finish before a picker action", model.chat.state.value.busy)
+        until {
+            assertTrue("The picker session must still be current", model.session.accepts(owner.key))
+            assertEquals(AppRoute.Chat(chatId), graphRule.graph.destinations.state.value.route)
+            assertEquals(chatId, model.chat.currentConversation()?.id())
+            assertNull("Chat open must succeed before a picker action", model.chat.state.value.failure)
+            currentChatTargetReady(model, graphRule.graph, owner, chatId) && model.state.value.chatState?.let {
+                it.conversationId == chatId && it.failure == null && !it.busy &&
+                    it.composer.enabled && !it.unknown && it.features.attachments
+            } == true
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Picker recreation").assertIsDisplayed()
+        compose.onNodeWithTag("message-composer").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Add attachment").assertIsDisplayed().assertIsEnabled()
+    }
 
     private suspend fun observed(check: suspend () -> Boolean): Boolean {
         repeat(100) {
@@ -78,6 +104,70 @@ class AttachmentPickerRecreationInstrumentedTest {
     @Test fun openDocumentResultSurvivesActualActivityRecreation() = runBlocking<Unit> { recreate("select") }
 
     @Test fun saveDestinationSurvivesRecreationAndCopiesSdkVerifiedBytes() = runBlocking<Unit> { recreate("save") }
+
+    @Test fun finishedFailedOpenDoesNotAdmitAPickerAction() =
+        runBlocking<Unit> {
+            val enabled = AndroidStreamLifecycle.enabled
+            val session = model.session
+            val lookup = model.chat.lookupConversation
+            val finished = model.chat.onOpenFinished
+            try {
+                AndroidStreamLifecycle.enabled = false
+                resumeStreams()
+                session.signOut()
+                session.connect(BuildConfig.XMTP_BACKEND_URL, "", true)
+                val owner = checkNotNull(session.active.value)
+                until { model.state.value.inbox == owner.client.inboxId() && model.state.value.features.attachments }
+                model.foreground(false)
+                val chat =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Picker recreation"),
+                    )
+                val opened = CompletableDeferred<Unit>()
+                model.chat.clear()
+                model.chat.lookupConversation = { current, id ->
+                    if (id == chat.id()) throw java.io.IOException("Picker target lookup failure")
+                    lookup(current, id)
+                }
+                model.chat.onOpenFinished = { if (it == chat.id()) opened.complete(Unit) }
+                model.dispatch(MessengerAction.OpenConversation(chat.id()))
+                withTimeout(30_000) { opened.await() }
+                assertEquals(
+                    "chat-open",
+                    model.chat.state.value.failure
+                        ?.code,
+                )
+                assertNull(model.chat.currentConversation())
+                until {
+                    model.state.value.chatState
+                        ?.failure
+                        ?.code == "chat-open"
+                }
+                assertEquals(chat.id(), model.state.value.conversationId)
+                assertEquals(Screen.TIMELINE, model.state.value.screen)
+                assertFalse(
+                    "A rendered failed chat must not be a current native target",
+                    currentChatTargetReady(model, graphRule.graph, owner, chat.id()),
+                )
+                var rejected = false
+                try {
+                    awaitCurrentPickerTarget(owner, chat.id())
+                } catch (_: AssertionError) {
+                    rejected = true
+                }
+                assertTrue("A finished failed open must not admit a picker action", rejected)
+                assertNull(graphRule.graph.attachments.choice.value)
+            } finally {
+                model.chat.lookupConversation = lookup
+                model.chat.onOpenFinished = finished
+                withContext(NonCancellable) {
+                    if (session.active.value != null || session.preferences.reset() != null) session.deleteAccount()
+                    session.signOut()
+                    AndroidStreamLifecycle.enabled = enabled
+                }
+            }
+        }
 
     private suspend fun recreate(stage: String) =
         coroutineScope {
@@ -133,6 +223,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                 model.chat.onOpenFinished = { if (it == chat.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(chat.id()))
                 withTimeout(30_000) { opened.await() }
+                awaitCurrentPickerTarget(owner, chat.id())
                 val token = model.chat.screenToken()
                 instrumentation.addMonitor(monitor)
                 if (stage == "select") {

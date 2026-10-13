@@ -686,6 +686,12 @@ class MessengerReviewInstrumentedTest {
                     )
                 for (action in actions) {
                     openChat(a.id())
+                    until("bound action target") {
+                        assertNull("Chat open must succeed before action dispatch", model.chat.state.value.failure)
+                        currentChatTargetReady(model, graphRule.graph, owner, a.id()) &&
+                            model.state.value.chatState
+                                ?.let { it.composer.enabled && !it.unknown } == true
+                    }
                     until("origin parent visible") {
                         model.state.value.messages
                             .any { it.id == target }
