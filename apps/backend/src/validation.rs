@@ -1,18 +1,26 @@
 use crate::db::Projection;
 use std::collections::HashSet;
 use tonic::Status;
-use xmtp_id::associations::{Identifier, MemberIdentifier};
+use xmtp_id::associations::{Handle, Identifier, MemberIdentifier};
 use xmtp_mls_validation::AssociationValidation;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 /// Parse and normalize one lookup key.
 ///
 /// Lookup normalization makes equivalent Ethereum and passkey identifiers map
-/// to one projection key. Signed identity fields must never pass through this
+/// to one projection key, and a handle in any ASCII letter case map to its one
+/// lowercase spelling. Signed identity fields must never pass through this
 /// function because changing their bytes would invalidate their signatures.
+/// The error messages are fixed, so no handle reaches a status or a log.
+// implements: API-299
 pub(crate) fn lookup_key(value: &str, kind: i32) -> Result<(String, i16), Status> {
     let kind = IdentifierKind::try_from(kind)
         .map_err(|_| Status::invalid_argument("unknown identifier kind"))?;
+    if kind == IdentifierKind::Handle {
+        let handle =
+            Handle::from_input(value).map_err(|_| Status::invalid_argument("malformed handle"))?;
+        return Ok(handle_key(&handle));
+    }
     let identifier = Identifier::from_proto(value, kind, None)
         .map_err(|_| Status::invalid_argument("malformed identifier"))?;
     Ok(identifier_key(&identifier))
@@ -31,6 +39,11 @@ fn identifier_key(identifier: &Identifier) -> (String, i16) {
     }
 }
 
+/// The projection key of a handle: its one spelling and the handle kind.
+fn handle_key(handle: &Handle) -> (String, i16) {
+    (handle.as_str().to_owned(), IdentifierKind::Handle as i16)
+}
+
 /// Convert a member identifier to the normalized projection key when supported.
 ///
 /// Invalid or unsupported member forms are omitted. Signed identity data is
@@ -45,6 +58,8 @@ fn member_key(member: &MemberIdentifier) -> Option<(String, i16)> {
 /// The result contains only identifiers that changed active status. It compares
 /// normalized keys, while also recovering unchanged aliases from the prior state
 /// so a projection update cannot remove an association that remains active.
+/// Each claimed handle is added, including a handle the inbox claims again.
+/// No handle is ever removed: an old handle still resolves to its inbox.
 pub(crate) fn projection(validation: &AssociationValidation) -> Projection {
     let active: HashSet<_> = validation
         .state
@@ -80,6 +95,7 @@ pub(crate) fn projection(validation: &AssociationValidation) -> Projection {
             .iter()
             .filter(|key| active.contains(*key) && !prior.contains(*key))
             .cloned()
+            .chain(validation.claimed_handles.iter().map(handle_key))
             .collect(),
         removed: changed
             .into_iter()
