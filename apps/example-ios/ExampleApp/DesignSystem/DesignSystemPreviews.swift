@@ -57,9 +57,8 @@ private struct DesignSystemPreview: View {
     DesignSystemPreview().environment(\.dynamicTypeSize, .accessibility3)
 }
 
-#Preview("Foundations · Accessible glass") {
+#Preview("Foundations · AX5 Dark") {
     DesignSystemPreview()
-        .environment(\.accessibilityReduceMotion, true)
-        .environment(\.accessibilityReduceTransparency, true)
-        .environment(\.colorSchemeContrast, .increased)
+        .environment(\.dynamicTypeSize, .accessibility5)
+        .preferredColorScheme(.dark)
 }

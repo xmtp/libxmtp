@@ -9,7 +9,7 @@ struct Avatar: View {
     @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
 
     private var palette: Int {
-        Int(SHA256.hash(data: Data(seed.utf8)).first ?? 0) % 6
+        Int(Array(SHA256.hash(data: Data(seed.utf8))).first ?? 0) % 6
     }
 
     var body: some View {
