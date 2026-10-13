@@ -12,7 +12,7 @@ Once you have the verified identities, you can create a new conversation, whethe
 
 `Client.canMessage(identities, backend)` works without a client on Browser and Node. Kotlin and Swift use `SDKClient.canMessage` with an explicit backend. An existing client also has `canMessage`. Browser and Node return a `Map`; Kotlin and Swift return a dictionary keyed by the identity identifier.
 
-A `PublicIdentity` can also name a [handle](/sdk/inboxes/#handles), such as `nick#2341`, with the kind `handle`. `canMessage` reports it under the key `handle:<handle>`, in lowercase, and `true` means that an inbox claimed the handle.
+A `PublicIdentity` can also name a [handle](/sdk/inboxes/#handles), such as `nick#2341`, with the kind `handle`. `canMessage` reports it under the key `handle:<handle>`, in lowercase. `true` means only that the backend names an inbox for the handle: the SDK does not check this answer against the inbox's identity log. `createDm` and `createGroup` check their own lookup answer before they use the inbox. See [Use a handle](#use-a-handle).
 
 ## Create a group
 
