@@ -88,6 +88,8 @@ const changeTo = async (handle: string) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // drop answers that a test queued and did not use
+  mocks.availableHandles.mockReset();
   mocks.minNameLength = 3;
   mocks.handle = "nick#2341";
   mocks.otherHandles = ["nick#0912", "nickm"];
@@ -168,11 +170,10 @@ describe("HandleSection", () => {
   });
 
   it("waits for a new pick when someone claims the chosen handle first", async () => {
-    mocks.availableHandles.mockResolvedValueOnce([
-      "nicky",
-      "nicky#0001",
-      "nicky#0002",
-    ]);
+    mocks.availableHandles
+      .mockResolvedValueOnce(["nicky", "nicky#0001", "nicky#0002"])
+      // the fresh answer after the claim: nicky#0001 is taken now
+      .mockResolvedValueOnce(["nicky#0002", "nicky#0003"]);
     mocks.claimHandle.mockRejectedValueOnce(new mocks.errors.HandleTaken());
     renderSection();
     await changeTo("nicky");
@@ -183,8 +184,8 @@ describe("HandleSection", () => {
       .getAllByRole<HTMLInputElement>("radio")
       .map((radio) => ({ value: radio.value, checked: radio.checked }));
     expect(radios).toEqual([
-      { value: "nicky#0001", checked: true },
-      { value: "nicky#0002", checked: false },
+      { value: "nicky#0002", checked: true },
+      { value: "nicky#0003", checked: false },
     ]);
     // the app claims only what the user picked (PD9)
     expect(mocks.claimHandle).toHaveBeenCalledTimes(1);

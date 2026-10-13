@@ -150,8 +150,12 @@ describe("HandleEditor", () => {
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
   });
 
-  it("pauses on a pick that someone claimed first, and lets the user pick again", async () => {
-    mocks.availableHandles.mockResolvedValueOnce(SUGGESTIONS);
+  it("pauses on a pick that someone claimed first, and shows fresh free handles", async () => {
+    // nick#0912 was free in the first answer, and is taken by the second
+    const fresh = ["nick#5530", "nick#6418", "nick#7001", "nick#8123"];
+    mocks.availableHandles
+      .mockResolvedValueOnce(SUGGESTIONS)
+      .mockResolvedValueOnce(fresh);
     const claim = vi.fn<(handle: string) => Promise<ClaimOutcome>>(
       async () => "taken",
     );
@@ -164,13 +168,34 @@ describe("HandleEditor", () => {
     await screen.findByText(
       "Someone claimed nick#2341 a moment before you. Pick another handle.",
     );
+    expect(mocks.availableHandles.mock.calls).toEqual([["nick"], ["nick"]]);
     expect(radios()).toEqual([
-      { value: "nick#0912", checked: true },
-      { value: "nick#5530", checked: false },
+      { value: "nick#5530", checked: true },
       { value: "nick#6418", checked: false },
+      { value: "nick#7001", checked: false },
     ]);
-    expect(button("Claim nick#0912")).toBeTruthy();
+    expect(button("Claim nick#5530")).toBeTruthy();
+    fireEvent.click(button("Show more"));
+    expect(radios().map((radio) => radio.value)).toEqual(fresh);
     // the app never claims a handle that the user did not choose (PD9)
+    expect(claim).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a retry when the lookup after a taken pick fails", async () => {
+    mocks.availableHandles
+      .mockResolvedValueOnce(SUGGESTIONS)
+      .mockRejectedValueOnce(new Error("offline"));
+    const claim = vi.fn<(handle: string) => Promise<ClaimOutcome>>(
+      async () => "taken",
+    );
+    renderEditor({ claim });
+    type("nick");
+    fireEvent.click(button("Continue"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Claim nick#2341" }),
+    );
+    await screen.findByText("Cannot check this handle. Try again.");
+    expect(screen.queryAllByRole("radio")).toEqual([]);
     expect(claim).toHaveBeenCalledTimes(1);
   });
 
