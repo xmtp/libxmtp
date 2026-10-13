@@ -66,6 +66,7 @@ describe("conversation sync", () => {
     expect(result.stderr.split("\n")).toContain(
       "Nonexistent flag: --abc\\u001b]0;evil\\u0007\\u202edef",
     );
+    // oxlint-disable-next-line no-control-regex
     expect(result.stderr).not.toMatch(/[\u001b\u0007\u202e]/);
   });
 });
