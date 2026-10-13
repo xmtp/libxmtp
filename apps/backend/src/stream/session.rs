@@ -319,9 +319,9 @@ impl Session {
     }
 
     /// Inspect already buffered input before failing an expired challenge.
-    /// Other frames remain ordered for later processing; inbound traffic is not activity.
+    /// Answer client Pings. Keep other frames ordered for later processing.
     /// Client EOF completes the session without an error.
-    // implements: API-255, API-257
+    // implements: API-255, API-256, API-257
     fn on_timer(
         &mut self,
         input: &mut BoxStream<'static, Result<api::SubscribeRequest, Status>>,
@@ -357,7 +357,14 @@ impl Session {
                             StreamEnd::Capacity,
                         ));
                     }
-                    pending_input.push_back(frame);
+                    if matches!(
+                        &frame.request,
+                        Some(api::subscribe_request::Request::Ping(_))
+                    ) {
+                        self.input(frame)?;
+                    } else {
+                        pending_input.push_back(frame);
+                    }
                 }
             }
             return Err(Status::deadline_exceeded("matching pong not received"));
