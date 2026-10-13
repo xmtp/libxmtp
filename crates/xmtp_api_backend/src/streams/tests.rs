@@ -68,6 +68,7 @@ fn messages_for(installation: [u8; 32], sequence: u64) -> wire::SubscribeStaticR
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn started_for(
     request: &wire::SubscribeStaticRequest,
     interval: u32,
