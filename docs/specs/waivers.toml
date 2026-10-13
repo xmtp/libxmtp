@@ -126,13 +126,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published."
 
 [[waiver]]
-id = "SYNC-022"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "An equal cycled_at_ns replaces the stored HMAC root key by arrival order rather than by the deterministic byte-order tie rule."
-
-[[waiver]]
 id = "AUTH-009"
 kind = "gap"
 owner = "backend"

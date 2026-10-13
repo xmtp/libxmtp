@@ -657,56 +657,63 @@ mod tests {
 
     // verifies: CONS-010
     #[xmtp_common::test(unwrap_try = true)]
-    async fn winning_time_survives_reopen_and_repeat() {
+    async fn received_consent_order_survives_reopen_and_repeat() {
         let path = xmtp_common::tmp_path();
-        let entity = "reopened-inbox";
+        let states = [
+            ConsentState::Unknown,
+            ConsentState::Allowed,
+            ConsentState::Denied,
+        ];
+        let mut expected = Vec::new();
         {
             let store = crate::TestDb::create_persistent_store(Some(path.clone())).await;
             let conn = store.db();
-            assert!(
-                conn.insert_newer_consent_record(record(
-                    ConsentType::InboxId,
-                    entity,
-                    ConsentState::Allowed,
-                    10,
-                ))?
-                .state_changed
-            );
-            // The same state at a later time moves the stored time only.
-            assert!(
-                !conn
-                    .insert_newer_consent_record(record(
-                        ConsentType::InboxId,
-                        entity,
-                        ConsentState::Allowed,
-                        30,
-                    ))?
-                    .state_changed
-            );
+            for entity_type in [ConsentType::InboxId, ConsentType::ConversationId] {
+                for (stored_index, stored_state) in states.iter().copied().enumerate() {
+                    for (received_index, received_state) in states.iter().copied().enumerate() {
+                        for received_time in [10, 20, 30] {
+                            let entity = format!(
+                                "{entity_type:?}-{stored_index}-{received_index}-{received_time}"
+                            );
+                            let first = record(entity_type, &entity, stored_state, 20);
+                            assert!(conn.insert_newer_consent_record(first.clone())?.applied);
+                            let received =
+                                record(entity_type, &entity, received_state, received_time);
+                            let wins = received_time > 20
+                                || (received_time == 20 && received_index > stored_index);
+                            let merged = conn.insert_newer_consent_record(received.clone())?;
+                            assert_eq!(merged.applied, wins);
+                            assert_eq!(
+                                merged.state_changed,
+                                wins && stored_state != received_state
+                            );
+                            expected.push(if wins { received } else { first });
+                        }
+                    }
+                }
+            }
         }
-        {
-            let store = crate::TestDb::create_persistent_store(Some(path)).await;
-            let conn = store.db();
+        let store = crate::TestDb::create_persistent_store(Some(path)).await;
+        let conn = store.db();
+        for winner in expected {
             let stored = conn
-                .get_consent_record(entity.into(), ConsentType::InboxId)?
+                .get_consent_record(winner.entity.clone(), winner.entity_type)?
                 .unwrap();
-            assert_eq!(stored.state, ConsentState::Allowed);
-            assert_eq!(stored.consented_at_ns, 30);
-            assert!(
-                !conn
-                    .insert_newer_consent_record(record(
-                        ConsentType::InboxId,
-                        entity,
-                        ConsentState::Denied,
-                        20,
-                    ))?
-                    .state_changed
+            assert_eq!(stored.state, winner.state);
+            assert_eq!(stored.consented_at_ns, winner.consented_at_ns);
+            assert!(!conn.insert_newer_consent_record(winner.clone())?.applied);
+            let older = record(
+                winner.entity_type,
+                &winner.entity,
+                ConsentState::Denied,
+                winner.consented_at_ns - 1,
             );
+            assert!(!conn.insert_newer_consent_record(older)?.applied);
             let stored = conn
-                .get_consent_record(entity.into(), ConsentType::InboxId)?
+                .get_consent_record(winner.entity.clone(), winner.entity_type)?
                 .unwrap();
-            assert_eq!(stored.state, ConsentState::Allowed);
-            assert_eq!(stored.consented_at_ns, 30);
+            assert_eq!(stored.state, winner.state);
+            assert_eq!(stored.consented_at_ns, winner.consented_at_ns);
         }
     }
 
