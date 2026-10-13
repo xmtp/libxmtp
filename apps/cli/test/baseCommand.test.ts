@@ -92,5 +92,10 @@ describe("error output", () => {
     expect(
       terminalSafeMessage("\u001b]0;evil\u0007 failed\nDatabase path: x"),
     ).toBe("\\u001b]0;evil\\u0007 failed\nDatabase path: x");
+    expect(
+      terminalSafeMessage(
+        "\u061c\u200b\u200e\u202e\u2060\u2066\u2069\ufeff failed",
+      ),
+    ).toBe("\\u061c\\u200b\\u200e\\u202e\\u2060\\u2066\\u2069\\ufeff failed");
   });
 });
