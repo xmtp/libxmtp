@@ -154,6 +154,43 @@ describe("HandleSection", () => {
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
+  // a first claim cannot be too soon: another installation claimed
+  const claimFirst = async () => {
+    mocks.handle = null;
+    mocks.otherHandles = [];
+    mocks.availableHandles.mockResolvedValueOnce(["nick"]);
+    mocks.claimHandle.mockRejectedValueOnce(new mocks.errors.HandleTooSoon());
+    renderSection();
+    fireEvent.change(screen.getByRole("textbox", { name: "Handle" }), {
+      target: { value: "nick" },
+    });
+    fireEvent.click(button("Continue"));
+    fireEvent.click(await screen.findByRole("button", { name: "Claim nick" }));
+  };
+
+  it("reads the inbox again after a too-soon first claim, and blocks the editor", async () => {
+    await claimFirst();
+    await screen.findByText(
+      "You changed your handle less than 7 days ago. Try again later.",
+    );
+    expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith(true);
+    expect(screen.getByText("Choose a handle")).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Handle" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("shows the handle that the network read finds after a too-soon first claim", async () => {
+    mocks.refresh.mockImplementationOnce(async () => {
+      mocks.handle = "nick#0412";
+    });
+    await claimFirst();
+    await screen.findByText("Your handle on this server");
+    expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith(true);
+    expect(screen.queryByText("Choose a handle")).toBeNull();
+  });
+
   it("shows when the handle changed less than 7 days ago", async () => {
     mocks.availableHandles.mockResolvedValueOnce(["nicky"]);
     mocks.claimHandle.mockRejectedValueOnce(new mocks.errors.HandleTooSoon());
