@@ -81,7 +81,7 @@ id = "IDENT-046"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature. No validator applies a ClaimHandle yet, so no claim signature is chain-checked."
+reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature."
 
 [[waiver]]
 id = "CONS-011"
