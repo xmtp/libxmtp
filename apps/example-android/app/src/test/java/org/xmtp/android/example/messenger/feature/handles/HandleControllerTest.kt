@@ -517,6 +517,42 @@ class HandleControllerTest {
         assertEquals(setOf("nick"), landed.times.keys)
     }
 
+    @Test fun changeWithNoAnswerChecksTheLogBeforeItOffersRetry() {
+        // The change landed before the failure: a success, with no retry.
+        val landed =
+            FakeAccount(current = "nick#2341").apply {
+                available = { listOf(it) }
+                claim = {
+                    others = listOfNotNull(current)
+                    current = it
+                    throw offline()
+                }
+            }
+        val editor = open(landed, HandleMode.CHANGE)
+        editor.type("nicky")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        editor.dispatch(HandleAction.ConfirmClaim)
+        assertEquals(listOf("nicky"), landed.claims)
+        assertNull(editor.value.notice)
+        assertEquals("nicky", editor.value.current)
+        assertEquals(1, landed.finished)
+        // The change did not land: the error shows, and the user can try again.
+        val lost =
+            FakeAccount(current = "nick#2341").apply {
+                available = { listOf(it) }
+                claim = { throw offline() }
+            }
+        val other = open(lost, HandleMode.CHANGE)
+        other.type("nicky")
+        other.dispatch(HandleAction.Check)
+        other.dispatch(HandleAction.Claim)
+        other.dispatch(HandleAction.ConfirmClaim)
+        assertEquals(HandleNotice.ClaimFailed("nicky"), other.value.notice)
+        assertEquals("nick#2341", other.value.current)
+        assertEquals(0, lost.finished)
+    }
+
     @Test fun switchBackThatFailsTheCurrentRulesShowsWhy() {
         val account =
             FakeAccount(current = "nick#2341", others = listOf("nickm", "nk"), minimum = 5).apply {
