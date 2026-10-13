@@ -68,8 +68,10 @@ success when the handle is now current.`;
     const handle = asciiLowercase(args.handle);
     const client = await this.initClient();
 
-    // The client loaded the inbox's identity updates when it was created.
-    const before = await client.inboxState(false);
+    // Read from the network: another installation can have changed the
+    // handle since this client's cached state, and the guard below and the
+    // switch-back message must see the current handles.
+    const before = await client.inboxState(true);
     // The backend admits a claim of the current handle. It changes nothing,
     // but it uses one of the 64 changes and starts the 7-day wait again.
     if (handle === before.handle) {
