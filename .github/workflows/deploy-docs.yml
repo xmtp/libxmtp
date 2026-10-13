@@ -4,9 +4,10 @@ name: Build and Deploy Docs
   workflow_dispatch: null
 permissions:
   contents: read
-concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: true
+# No workflow-level concurrency. A called workflow sees the caller's
+# github.ref, so a group on it would let a manual dispatch on trunk cancel the
+# docs jobs of a running merge run. ci.yml already replaces older pull
+# request runs. Only the Pages deploy is serialized, in its own job group.
 jobs:
   rust:
     uses: ./.github/workflows/docs-rust-reference.yml
@@ -160,6 +161,12 @@ jobs:
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted'
     needs: compose
+    # One deploy at a time, and a running deploy is never cancelled. A newer
+    # pending deploy replaces an older pending one, which GitHub reports as
+    # cancelled; the newer one publishes newer content.
+    concurrency:
+      group: pages-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write
@@ -187,8 +194,19 @@ jobs:
     - compose
     - deploy
     steps:
-    - env:
-        PASSED: ${{ needs.rust.result == 'success' && needs.site.result == 'success' && needs.compose.result == 'success' && (github.event_name
-          == 'pull_request' || (needs.swift.result == 'success' && needs.kotlin.result == 'success')) && (github.event_name != 'push'
-          || github.ref != 'refs/heads/self-hosted' || needs.deploy.result == 'success') }}
-      run: test "$PASSED" = true
+    - name: Check that every docs job passed
+      env:
+        RESULTS: ${{ toJSON(needs) }}
+        NATIVE: ${{ github.event_name != 'pull_request' }}
+        DEPLOY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/self-hosted' }}
+      # A cancelled deploy was replaced by a newer pending deploy.
+      run: |
+        jq -en \
+          --argjson results "$RESULTS" \
+          --argjson native "$NATIVE" \
+          --argjson deploy "$DEPLOY" '
+          def passed($job): $results[$job].result == "success";
+          passed("rust") and passed("site") and passed("compose")
+          and (($native | not) or (passed("swift") and passed("kotlin")))
+          and (($deploy | not) or passed("deploy")
+            or $results.deploy.result == "cancelled")'
