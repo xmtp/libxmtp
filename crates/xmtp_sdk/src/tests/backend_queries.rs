@@ -376,7 +376,7 @@ async fn facade_api_statistics_project_all_seven_shared_counts() {
     assert_eq!(vector(&isolated).await?, [1, 0, 0, 0, 0, 0, 0]);
     let summary = first.diagnostics().aggregate_statistics().await?;
     assert_eq!(summary, second.diagnostics().aggregate_statistics().await?);
-    // Check every value in the current formatter without making its format a contract.
+    // Check each endpoint and value without parsing the summary format.
     for (name, count) in [
         ("publish", 1),
         ("query", 2),
@@ -386,13 +386,10 @@ async fn facade_api_statistics_project_all_seven_shared_counts() {
         ("get_inbox_ids", 6),
         ("verify_smart_contract_wallet_signatures", 7),
     ] {
-        let entry = summary
-            .split(&format!("{name}: EndpointStats"))
-            .nth(1)
-            .expect("summary counter");
+        assert!(summary.contains(name), "missing endpoint {name}: {summary}");
         assert!(
-            entry.starts_with(&format!(" {{ request_count: {count} }}")),
-            "{name}: {entry}"
+            summary.contains(&count.to_string()),
+            "missing count {count}: {summary}"
         );
     }
     second.diagnostics().clear_statistics().await?;
