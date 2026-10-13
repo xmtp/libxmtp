@@ -50,3 +50,36 @@ import Testing
 	#expect(fence.reserveRestore() == nil)
 	#expect(fence.accepts(key))
 }
+
+@Test @MainActor func delayedSheetDismissDoesNotPopCreatedChat() {
+	let routes = RouteOwner()
+	routes.replace(.chats)
+	routes.show(.newConversation)
+	routes.back()
+	routes.show(.chat("created"))
+	let destinationToken = routes.token
+	routes.dismissSheet()
+	#expect(routes.current == .chat("created"))
+	#expect(routes.token == destinationToken)
+	routes.show(.newConversation)
+	routes.dismissSheet()
+	#expect(routes.sheet == nil)
+	#expect(routes.current == .chat("created"))
+}
+
+@Test @MainActor func samePathUpdateKeepsPresentedDestination() {
+	let fence = SessionFence()
+	let routes = RouteOwner()
+	guard let key = fence.replace(UUID()) else { Issue.record("No session"); return }
+	routes.replace(.chats)
+	routes.show(.newConversation)
+	let origin = DestinationOrigin(session: key, token: routes.token)
+	routes.setPath(routes.path)
+	#expect(routes.current == .newConversation)
+	#expect(routes.sheet == .newConversation)
+	#expect(routes.admit(origin, fence: fence))
+	routes.setPath([.settings])
+	#expect(routes.current == .settings)
+	#expect(routes.sheet == nil)
+	#expect(!routes.admit(origin, fence: fence))
+}

@@ -9,7 +9,7 @@ env -u LD xcodebuild build-for-testing \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath "$root/apps/example-ios/.build/DerivedData" \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
-  IPHONEOS_DEPLOYMENT_TARGET=26.0
+  SWIFT_SUPPRESS_WARNINGS=NO IPHONEOS_DEPLOYMENT_TARGET=26.0
 app="$root/apps/example-ios/.build/DerivedData/Build/Products/$configuration-iphonesimulator/XMTP Messenger.app"
 test -d "$app"
 printf '%s\n' "$app"

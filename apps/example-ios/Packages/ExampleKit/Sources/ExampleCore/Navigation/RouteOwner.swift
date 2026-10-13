@@ -46,7 +46,14 @@ public enum Route: Hashable, Codable, Sendable {
 		}
 	}
 
+	public func dismissSheet() {
+		guard sheet != nil else { return }
+		token += 1
+		sheet = nil
+	}
+
 	public func setPath(_ path: [Route]) {
+		guard self.path != path else { return }
 		token += 1; sheet = nil; self.path = path
 	}
 

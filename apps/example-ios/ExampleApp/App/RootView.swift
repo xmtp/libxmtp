@@ -10,7 +10,7 @@ struct RootView: View {
 		}
 		.sheet(isPresented: Binding(get: { graph.routes.sheet != nil }, set: {
 			if !$0 {
-				graph.routes.back()
+				graph.routes.dismissSheet()
 			}
 		})) {
 			NavigationStack {

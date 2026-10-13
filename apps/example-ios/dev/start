@@ -16,7 +16,7 @@ cd "$root"
 "$root/dev/worktree-env"
 # shellcheck source=/dev/null
 source "$root/dev/docker/load-env"
-printf 'Backend: %s\n' "$XMTP_BACKEND_URL"
+echo 'Using configured backend'
 devices="$(xcrun simctl list -j devices available)"
 device="$(jq -r --arg requested "${XMTP_IOS_SIMULATOR:-}" '
   [.devices | to_entries[] | select((.key | capture("iOS-(?<major>[0-9]+)").major | tonumber) >= 26) | .value[]
