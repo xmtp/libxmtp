@@ -15,8 +15,11 @@ const val MAX_HANDLE_CLAIMS = 64
 /** [CHOOSE] is the onboarding step after Join a server. [CHANGE] is the Settings screen. */
 enum class HandleMode { CHOOSE, CHANGE }
 
-/** As-you-type problems. The app checks them before it asks the server; the server decides the rest. */
-enum class HandleInputProblem { INVALID_CHARACTERS, START_WITH_LETTER, TOO_LONG, TOO_SHORT, BAD_CODE }
+/**
+ * Input problems. The app checks them before it asks the server; the server decides the rest.
+ * [CURRENT] is the inbox's current handle, which the editor finds when the user asks for a check.
+ */
+enum class HandleInputProblem { INVALID_CHARACTERS, START_WITH_LETTER, TOO_LONG, TOO_SHORT, BAD_CODE, CURRENT }
 
 /** The name part of a handle: the text before `#`. */
 fun handleName(handle: String): String = handle.substringBefore('#')
@@ -257,6 +260,7 @@ object HandleCopy {
             HandleInputProblem.TOO_LONG -> "Use $MAX_HANDLE_NAME_LENGTH characters or fewer before #."
             HandleInputProblem.TOO_SHORT -> "Use at least $minNameLength characters on this server."
             HandleInputProblem.BAD_CODE -> "After #, use exactly 4 digits, like ${handleName(input)}#0012."
+            HandleInputProblem.CURRENT -> "This is your current handle."
         }
 
     /** The character counter that [HandleInputProblem.TOO_LONG] shows. */
