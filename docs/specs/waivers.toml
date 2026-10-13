@@ -617,4 +617,3 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The client has no handle.changed kind, and the association state it stores carries no handles yet, so no event reports a change of an inbox's display handle."
-
