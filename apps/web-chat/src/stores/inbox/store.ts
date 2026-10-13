@@ -24,7 +24,7 @@ export type ConversationMetadata = {
 export type OwnHandles = {
   // the current (display) handle of the client's inbox
   handle: string | null;
-  // the inbox's other handles, newest first (IDENT-086)
+  // the inbox's other handles, newest first
   otherHandles: string[];
 };
 
@@ -457,7 +457,7 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
     },
     refreshInboxHandles: async (inboxId: string) => {
       // members() reads the newest identity state that the client holds, so
-      // a local read shows the inbox's new handle (IDENT-086)
+      // a local read shows the inbox's new handle
       const state = get();
       const conversations = Array.from(state.members)
         .filter(([, members]) => members.has(inboxId))

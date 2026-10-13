@@ -54,7 +54,7 @@ export const getInboxIdForHandleQuery = async (
 
 /**
  * Resolves a handle through the SDK, which checks the answer against the
- * inbox's own identity log (IDENT-085). An old handle resolves too; the result
+ * inbox's own identity log. An old handle resolves too; the result
  * carries the inbox's current handle, which the app shows (D32).
  */
 export const getInboxIdForHandle = async (

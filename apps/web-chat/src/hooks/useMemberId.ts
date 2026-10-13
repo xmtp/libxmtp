@@ -55,7 +55,7 @@ const lookUp = async (
 /**
  * Resolves what the user typed: an Ethereum address, an inbox ID, or a
  * handle. A handle resolves through the SDK, which checks the answer against
- * the inbox's identity log (IDENT-085).
+ * the inbox's identity log.
  */
 export const useMemberId = () => {
   const [memberId, setMemberId] = useState("");
