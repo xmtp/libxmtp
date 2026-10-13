@@ -156,10 +156,13 @@ final class CodecValidationTests: XCTestCase {
 			var legacy = try codec.encode(value)
 			legacy.parameters["scheme"] = bare
 			let raw = try encodeEncodedContent(content: legacy)
-			let decoded = try codec.decode(legacy)
+			let original = raw
+			let parameters = legacy.parameters
+			let decoded = try codec.decode(decodeEncodedContent(bytes: raw))
 			XCTAssertEqual(decoded.scheme, canonical)
 			XCTAssertEqual(legacy.parameters["scheme"], bare)
-			XCTAssertEqual(try encodeEncodedContent(content: legacy), raw)
+			XCTAssertEqual(legacy.parameters, parameters)
+			XCTAssertEqual(raw, original)
 			XCTAssertEqual(try codec.encode(decoded).parameters["scheme"], canonical)
 			var bareInput = value
 			bareInput.scheme = bare

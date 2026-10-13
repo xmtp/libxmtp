@@ -205,10 +205,17 @@ test("legacy schemes decode without changing stored parameters", () => {
       parameters: new Map(encoded.parameters).set("scheme", bare),
     };
     const raw = sdk.encodeEncodedContent(legacy);
-    const decoded = codec.decode(legacy);
+    const snapshot = {
+      ...legacy,
+      parameters: new Map(legacy.parameters),
+      content: legacy.content.slice(),
+    };
+    const original = raw.slice();
+    const decoded = codec.decode(sdk.decodeEncodedContent(raw));
     expect(decoded.scheme).toBe(canonical);
     expect(legacy.parameters.get("scheme")).toBe(bare);
-    expect(sdk.encodeEncodedContent(legacy)).toEqual(raw);
+    expect(legacy).toEqual(snapshot);
+    expect(raw).toEqual(original);
     expect(codec.encode(decoded).parameters.get("scheme")).toBe(canonical);
     expect(() => codec.encode({ ...value, scheme: bare })).toThrow(
       sdk.XmtpError.InvalidInput,

@@ -219,10 +219,13 @@ class CodecValidationTest : BaseInstrumentedTest() {
             val encoded = codec.encode(value)
             val legacy = encoded.copy(parameters = encoded.parameters + ("scheme" to bare))
             val raw = encodeEncodedContent(legacy)
-            val decoded = codec.decode(legacy)
+            val parameters = legacy.parameters.toMap()
+            val original = raw.copyOf()
+            val decoded = codec.decode(decodeEncodedContent(raw))
             assertEquals(canonical, decoded.scheme)
             assertEquals(bare, legacy.parameters["scheme"])
-            org.junit.Assert.assertArrayEquals(raw, encodeEncodedContent(legacy))
+            assertEquals(parameters, legacy.parameters)
+            org.junit.Assert.assertArrayEquals(original, raw)
             assertEquals(canonical, codec.encode(decoded).parameters["scheme"])
             assertThrows(XmtpException.InvalidInput::class.java) { codec.encode(value.copy(scheme = bare)) }
             if (bare ==
