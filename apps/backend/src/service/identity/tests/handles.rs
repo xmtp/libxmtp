@@ -274,7 +274,7 @@ async fn handle_rejection_reports_lowest_failing_index() {
 /// validator, then the name, then the interval, then taken.
 // verifies: API-223, API-296, API-297, API-298
 #[xmtp_common::test(unwrap_try = true)]
-async fn reason_order_follows_pd3() {
+async fn claim_reports_name_then_interval_then_taken() {
     let server = TestServer::new(|_| {}).await?;
     let owner = ClaimingInbox::registered(&server).await?;
     owner.publish_claim(&server, "nick").await?;
@@ -472,6 +472,41 @@ async fn retried_claim_is_a_duplicate_not_a_rejection() {
         stored[0].cursor.as_ref()?.sequence_id
     );
     assert_eq!(holders(&server, "nick").await?.len(), 1);
+    server.stop().await?;
+}
+
+/// A switch back to a handle the inbox already holds is admitted once the
+/// interval has passed: the inbox's own row does not make the handle taken.
+/// The handle keeps one unrevoked row for the inbox, now at the sequence id
+/// of the new claim, and both handles still resolve to the inbox.
+// verifies: API-296, IDENT-082
+#[xmtp_common::test(unwrap_try = true)]
+async fn switch_back_to_own_handle_is_admitted() {
+    let server = TestServer::new(|_| {}).await?;
+    let inbox = ClaimingInbox::registered(&server).await?;
+    inbox.publish_claim(&server, "alpha").await?;
+    server
+        .age_identity_history(&inbox.inbox_id, PAST_INTERVAL)
+        .await?;
+    inbox.publish_claim(&server, "beta").await?;
+    server
+        .age_identity_history(&inbox.inbox_id, PAST_INTERVAL)
+        .await?;
+
+    let switched = inbox.publish_claim(&server, "alpha").await?;
+    let sequence_id = i64::try_from(switched.envelope_metas[0].cursor.as_ref()?.sequence_id)?;
+    let rows: Vec<(Vec<u8>, i64, Option<i64>)> = sqlx::query_as(
+        "SELECT inbox_id, association_sequence_id, revocation_sequence_id
+         FROM identifier_association WHERE identifier = 'alpha' AND identifier_kind = 3",
+    )
+    .fetch_all(&server.backend.store.primary)
+    .await?;
+    assert_eq!(rows, [(hex::decode(&inbox.inbox_id)?, sequence_id, None)]);
+    let owner = Some(inbox.inbox_id.clone());
+    assert_eq!(
+        resolve(&server, &["alpha", "beta"]).await?,
+        [owner.clone(), owner]
+    );
     server.stop().await?;
 }
 
