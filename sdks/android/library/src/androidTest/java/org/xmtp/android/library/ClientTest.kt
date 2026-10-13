@@ -190,6 +190,7 @@ class ClientTest : BaseInstrumentedTest() {
 
             val refused =
                 options.copy(
+                    storage = StorageOptions(StorageLocation.InMemory),
                     registration = RegistrationOptions(auto = true),
                     handlers =
                         ClientHandlers(
