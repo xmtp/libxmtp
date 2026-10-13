@@ -55,6 +55,25 @@ async fn resolver_drops_answer_whose_state_lacks_the_handle() {
 
 // verifies: IDENT-085
 #[xmtp_common::test(unwrap_try = true)]
+async fn resolver_drops_answer_naming_an_inbox_with_no_log() {
+    tester!(alix, disable_workers);
+    let (client, script) = scripted_client(&alix).await?;
+    let handle = random_handle();
+    let unknown = random_handle();
+    // The backend names an inbox id that no identity log holds.
+    script.lock().lies.insert(
+        handle.to_string(),
+        hex::encode(xmtp_common::rand_vec::<32>()),
+    );
+
+    assert_eq!(
+        client.resolve_handles(&[handle, unknown]).await?,
+        vec![None, None]
+    );
+}
+
+// verifies: IDENT-085
+#[xmtp_common::test(unwrap_try = true)]
 async fn resolver_loads_updates_newer_than_the_cache() {
     tester!(alix);
     tester!(bo);
