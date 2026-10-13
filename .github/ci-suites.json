@@ -383,12 +383,14 @@
         "xmtp_sdk"
       ],
       "crates": [
+        "apps/backend/**",
         "crates/xmtp-workspace-hack/**",
         "crates/xmtp_api/**",
         "crates/xmtp_api_backend/**",
         "crates/xmtp_api_grpc/**",
         "crates/xmtp_archive/**",
         "crates/xmtp_attachments/**",
+        "crates/xmtp_attachments_server/**",
         "crates/xmtp_common/**",
         "crates/xmtp_configuration/**",
         "crates/xmtp_content_types/**",
