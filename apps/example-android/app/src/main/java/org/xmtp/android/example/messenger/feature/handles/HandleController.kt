@@ -57,9 +57,7 @@ internal class HandleController(
     private val lock = Any()
     private var account: HandleAccount? = null
 
-    // `opened` changes for each open and close. `request` changes for each edit, check and claim.
-    private var opened = 0L
-    private var request = 0L
+    // Each open and close cancels both jobs under [lock]; each edit, check, and claim cancels [work].
     private var load: Job? = null
     private var work: Job? = null
 
@@ -73,32 +71,37 @@ internal class HandleController(
             } catch (error: Exception) {
                 null
             } ?: DEFAULT_HANDLE_MIN_NAME_LENGTH
-        val token =
+        val job =
             synchronized(lock) {
                 load?.cancel()
                 work?.cancel()
                 this.account = account
                 ui.value = HandleState(mode = mode, loading = true, minNameLength = minimum)
-                ++opened
+                task { readOwn(account, mode, it) }.also { load = it }
             }
-        load =
-            scope.launch(dispatcher) {
-                val own =
-                    try {
-                        account.handles()
-                    } catch (error: Throwable) {
-                        if (error is CancellationException) throw error
-                        // The server decides every claim, so unknown handles show as none.
-                        OwnHandles(null, emptyList())
-                    }
-                val since = own.current?.let { claimDay(account, it) }
-                val applied =
-                    update(token) {
-                        it.copy(loading = false, current = own.current, currentSince = since, others = own.others)
-                    }
-                // An account that already has a handle needs no onboarding step.
-                if (applied && mode == HandleMode.CHOOSE && own.current != null) account.finish()
+        job.start()
+    }
+
+    private suspend fun readOwn(
+        account: HandleAccount,
+        mode: HandleMode,
+        job: Job,
+    ) {
+        val own =
+            try {
+                account.handles()
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                // The server decides every claim, so unknown handles show as none.
+                OwnHandles(null, emptyList())
             }
+        val since = own.current?.let { claimDay(account, it) }
+        val applied =
+            update(job) {
+                it.copy(loading = false, current = own.current, currentSince = since, others = own.others)
+            }
+        // An account that already has a handle needs no onboarding step.
+        if (applied && mode == HandleMode.CHOOSE && own.current != null) account.finish()
     }
 
     fun close() {
@@ -106,8 +109,6 @@ internal class HandleController(
             load?.cancel()
             work?.cancel()
             account = null
-            opened++
-            request++
             ui.value = HandleState()
         }
     }
@@ -190,7 +191,6 @@ internal class HandleController(
             if (!state.editable) return
             val input = normalizedHandleInput(value)
             work?.cancel()
-            request++
             ui.value =
                 state.copy(
                     input = input,
@@ -203,7 +203,7 @@ internal class HandleController(
     }
 
     private fun check(account: HandleAccount) {
-        val (token, step, input) =
+        val job =
             synchronized(lock) {
                 val state = ui.value
                 val ready =
@@ -223,9 +223,9 @@ internal class HandleController(
                 }
                 work?.cancel()
                 ui.value = state.copy(status = HandleStatus.Checking(state.input), confirm = null, notice = null)
-                Triple(opened, ++request, state.input)
+                task { answer(account, it, state.input) }.also { work = it }
             }
-        work = scope.launch(dispatcher) { answer(account, token, step, input) }
+        job.start()
     }
 
     /** A switch back to [handle], one of the inbox's other handles, asks for confirmation first (D34). */
@@ -245,22 +245,21 @@ internal class HandleController(
      */
     private suspend fun answer(
         account: HandleAccount,
-        token: Long,
-        step: Long,
+        job: Job,
         input: String,
         except: String? = null,
         notice: HandleNotice? = null,
     ) {
         try {
             val status = lookup(account, input, except)
-            update(token, step) { it.copy(claiming = null, status = status, notice = notice) }
+            update(job) { it.copy(claiming = null, status = status, notice = notice) }
         } catch (error: XmtpException.InvalidArgument) {
-            update(token, step) {
+            update(job) {
                 it.copy(claiming = null, status = HandleStatus.Editing, problem = HandleInputProblem.INVALID_CHARACTERS)
             }
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
-            update(token, step) {
+            update(job) {
                 it.copy(claiming = null, status = HandleStatus.Editing, notice = HandleNotice.CheckFailed)
             }
         }
@@ -285,56 +284,62 @@ internal class HandleController(
         account: HandleAccount,
         handle: String,
     ) {
-        val (token, step, previous) =
+        val job =
             synchronized(lock) {
                 val state = ui.value
                 if (!state.editable) return
                 work?.cancel()
                 ui.value = state.copy(claiming = handle, confirm = null, notice = null)
-                Triple(opened, ++request, state)
+                task { send(account, it, handle, state) }.also { work = it }
             }
-        work =
-            scope.launch(dispatcher) {
-                try {
-                    account.claimHandle(handle)
-                    claimed(account, token, step, handle)
-                } catch (error: XmtpException.HandleTaken) {
-                    // Show fresh suggestions and wait for the user's pick (PD9).
-                    val input =
-                        when (val status = previous.status) {
-                            is HandleStatus.Suggestions -> status.input
-                            is HandleStatus.Available -> status.handle
-                            else -> handle
-                        }
-                    answer(account, token, step, input, except = handle, notice = HandleNotice.Taken(handle))
-                } catch (error: XmtpException.HandleNotAllowed) {
-                    update(token, step) {
-                        if (handle in previous.others) {
-                            val short = handleName(handle).length < it.minNameLength
-                            it.copy(claiming = null, notice = HandleNotice.SwitchBackBlocked(handle, short))
-                        } else {
-                            it.copy(
-                                claiming = null,
-                                status = HandleStatus.Editing,
-                                notice = HandleNotice.NotAllowed(handleName(handle)),
-                            )
-                        }
-                    }
-                } catch (error: XmtpException.HandleTooSoon) {
-                    update(token, step) { blocked(it, tooSoon(account)) }
-                } catch (error: XmtpException.HandleLimitReached) {
-                    update(token, step) { blocked(it, HandleNotice.LimitReached) }
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    update(token, step) { it.copy(claiming = null, notice = HandleNotice.ClaimFailed(handle)) }
+        job.start()
+    }
+
+    /** Claim [handle] and show the server's answer. [previous] is the state before the claim. */
+    private suspend fun send(
+        account: HandleAccount,
+        job: Job,
+        handle: String,
+        previous: HandleState,
+    ) {
+        try {
+            account.claimHandle(handle)
+            claimed(account, job, handle)
+        } catch (error: XmtpException.HandleTaken) {
+            // Show fresh suggestions and wait for the user's pick (PD9).
+            val input =
+                when (val status = previous.status) {
+                    is HandleStatus.Suggestions -> status.input
+                    is HandleStatus.Available -> status.handle
+                    else -> handle
+                }
+            answer(account, job, input, except = handle, notice = HandleNotice.Taken(handle))
+        } catch (error: XmtpException.HandleNotAllowed) {
+            update(job) {
+                if (handle in previous.others) {
+                    val short = handleName(handle).length < it.minNameLength
+                    it.copy(claiming = null, notice = HandleNotice.SwitchBackBlocked(handle, short))
+                } else {
+                    it.copy(
+                        claiming = null,
+                        status = HandleStatus.Editing,
+                        notice = HandleNotice.NotAllowed(handleName(handle)),
+                    )
                 }
             }
+        } catch (error: XmtpException.HandleTooSoon) {
+            update(job) { blocked(it, tooSoon(account)) }
+        } catch (error: XmtpException.HandleLimitReached) {
+            update(job) { blocked(it, HandleNotice.LimitReached) }
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            update(job) { it.copy(claiming = null, notice = HandleNotice.ClaimFailed(handle)) }
+        }
     }
 
     private fun claimed(
         account: HandleAccount,
-        token: Long,
-        step: Long,
+        job: Job,
         handle: String,
     ) {
         val at = now()
@@ -344,7 +349,7 @@ internal class HandleController(
             // The claim is in the inbox's log. Only the "since" date is lost.
         }
         val applied =
-            update(token, step) { state ->
+            update(job) { state ->
                 state.copy(
                     claiming = null,
                     current = handle,
@@ -396,13 +401,20 @@ internal class HandleController(
         synchronized(lock) { ui.value = transform(ui.value) }
     }
 
+    /**
+     * A job for [block] that has not started. The caller stores it under [lock] and then starts
+     * it, so a cancel under [lock] always reaches the job before its answer can apply.
+     */
+    private fun task(block: suspend (Job) -> Unit): Job =
+        scope.launch(dispatcher, CoroutineStart.LAZY) { block(coroutineContext.job) }
+
+    /** Apply [transform] unless an open, close, edit, check, or claim has cancelled [job]. */
     private fun update(
-        token: Long,
-        step: Long? = null,
+        job: Job,
         transform: (HandleState) -> HandleState,
     ): Boolean =
         synchronized(lock) {
-            if (token != opened || (step != null && step != request)) return@synchronized false
+            if (!job.isActive) return@synchronized false
             ui.value = transform(ui.value)
             true
         }

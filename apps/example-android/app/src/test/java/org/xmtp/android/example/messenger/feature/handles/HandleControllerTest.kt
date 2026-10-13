@@ -211,6 +211,20 @@ class HandleControllerTest {
         assertEquals("nicky", editor.value.input)
     }
 
+    @Test fun anAnswerAfterCloseDoesNotReachTheNextAccount() {
+        var pending: Continuation<List<String>>? = null
+        val account = FakeAccount().apply { available = { suspendCoroutine { pending = it } } }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.close()
+        editor.open(FakeAccount(current = "nick#2341"), HandleMode.CHANGE)
+        checkNotNull(pending).resume(listOf("nick"))
+        assertEquals(HandleStatus.Editing, editor.value.status)
+        assertEquals("", editor.value.input)
+        assertEquals("nick#2341", editor.value.current)
+    }
+
     @Test fun bareNameFreeIsOfferedAndClaimedOnlyWhenPicked() {
         val account = FakeAccount().apply { available = { listOf("nick", "nick#2341") } }
         val editor = open(account)
