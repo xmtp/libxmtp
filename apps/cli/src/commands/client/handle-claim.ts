@@ -26,7 +26,9 @@ The backend decides each claim. If the handle is taken, not allowed, or you
 changed your handle too recently, the command fails and claims nothing. It
 never claims a different handle. Run 'xmtp client handle-available <name>'
 to find free handles. If the handle is already your current handle, the
-command fails before it asks the backend, and claims nothing.`;
+command fails before it asks the backend, and claims nothing. If the
+connection fails during the claim, the command reads the inbox from the
+backend, and reports success when the handle is now current.`;
 
   static examples = [
     {
@@ -81,6 +83,7 @@ command fails before it asks the backend, and claims nothing.`;
       flags.force,
     );
 
+    let landed;
     try {
       await client.claimHandle(args.handle);
     } catch (error) {
@@ -92,10 +95,16 @@ command fails before it asks the backend, and claims nothing.`;
       if (message !== undefined) {
         this.error(message);
       }
-      throw error;
+      // A transport error can arrive after the backend stored the claim. A
+      // second claim would then fail as too soon, so read the inbox's log:
+      // a claim that landed is a success.
+      landed = await client.inboxState(true).catch(() => undefined);
+      if (landed?.handle !== handle) {
+        throw error;
+      }
     }
 
-    const after = await client.inboxState(false);
+    const after = landed ?? (await client.inboxState(false));
     const fields = handleFields(after);
 
     if (this.jsonOutput) {

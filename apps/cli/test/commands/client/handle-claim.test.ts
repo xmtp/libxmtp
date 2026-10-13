@@ -213,6 +213,57 @@ describe("client handle-claim", () => {
     expect(result.stderr).not.toContain("\u0007");
   });
 
+  // A transport error can arrive after the backend stored the claim.
+  it("reports success when a failed claim landed", async () => {
+    const claimHandle = vi.fn(async (_handle: string) => {
+      throw new Error("transport closed");
+    });
+    const inboxState = vi
+      .fn()
+      .mockResolvedValueOnce({
+        inboxId: "inbox",
+        handle: undefined,
+        otherHandles: [],
+      })
+      .mockResolvedValueOnce({
+        inboxId: "inbox",
+        handle: "nick",
+        otherHandles: [],
+      });
+    const { command, log } = await mockedClaim(
+      ["Nick", "--force"],
+      inboxState,
+      claimHandle,
+    );
+
+    await command.run();
+
+    expect(claimHandle).toHaveBeenCalledOnce();
+    expect(inboxState).toHaveBeenLastCalledWith(true);
+    expect(log).toHaveBeenCalledExactlyOnceWith("Your handle is now nick.");
+  });
+
+  it("reports the error when a failed claim did not land", async () => {
+    const failure = new Error("transport closed");
+    const claimHandle = vi.fn(async (_handle: string) => {
+      throw failure;
+    });
+    const inboxState = vi.fn(async () => ({
+      inboxId: "inbox",
+      handle: undefined,
+      otherHandles: [],
+    }));
+    const { command, log } = await mockedClaim(
+      ["nick", "--force"],
+      inboxState,
+      claimHandle,
+    );
+
+    await expect(command.run()).rejects.toBe(failure);
+    expect(inboxState).toHaveBeenLastCalledWith(true);
+    expect(log).not.toHaveBeenCalled();
+  });
+
   it("reports a taken handle and never claims another one", async () => {
     const owner = await createRegisteredIdentity();
     const other = await createRegisteredIdentity();
