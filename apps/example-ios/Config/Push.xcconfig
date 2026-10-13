@@ -1,0 +1,2 @@
+#include "Release.xcconfig"
+// APNs is enabled with the push implementation.

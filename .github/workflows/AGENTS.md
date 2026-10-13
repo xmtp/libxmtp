@@ -86,6 +86,9 @@ build the products themselves.
   `check-consumers` and the AAR staged over the Nix libraries) and
   `sdk-emulator` (API 34 tests, then the API 23 smoke). App-only changes do not select SDK
   checks; SDK and shared toolchain changes select app compatibility checks.
+- `lint-example-ios.yml` owns example app lint. `test-example-ios.yml` owns
+  the Debug and Push builds, unit tests, simulator journeys, and Nix launch.
+  Keep both registered in `.github/ci-suites.yml`.
 - Benchmark workloads require an explicit command or a `workflow_dispatch`
   workflow. Do not include them in normal test suites or generated CI suites.
   `benchmark-example-android.yml` owns the manual Messenger benchmark.

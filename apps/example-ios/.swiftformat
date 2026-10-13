@@ -1,0 +1,3 @@
+--swiftversion 6.1
+--indent 4
+--exclude .build

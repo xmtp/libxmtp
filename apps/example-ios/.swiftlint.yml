@@ -1,0 +1,9 @@
+included:
+  - ExampleApp
+  - ExampleAppUITests
+  - Packages/ExampleKit/Sources
+  - Packages/ExampleKit/Tests
+excluded:
+  - .build
+disabled_rules:
+  - trailing_comma

@@ -1,0 +1,30 @@
+name: Lint iOS example
+on:
+  workflow_call:
+permissions:
+  contents: read
+env:
+  NIX_DEVSHELL: ios
+jobs:
+  lint:
+    name: Lint (iOS example)
+    runs-on: warp-macos-15-arm64-6x
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+          kache-scope: nix-only
+          kache-readonly: "true"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - uses: taiki-e/install-action@just
+      - name: Lint iOS example
+        run: dev/nix-shell 'just example-ios lint'

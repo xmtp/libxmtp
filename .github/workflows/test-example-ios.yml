@@ -1,0 +1,118 @@
+name: Test iOS example
+on:
+  workflow_call:
+permissions:
+  contents: read
+env:
+  NIX_DEVSHELL: ios
+jobs:
+  build:
+    name: Build and unit tests (iOS example)
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+          kache-scope: nix-only
+          kache-readonly: "true"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - uses: taiki-e/install-action@just
+      - name: Build Debug
+        run: dev/nix-shell 'just example-ios build'
+      - name: Compile Push configuration
+        run: CONFIGURATION=Push dev/nix-shell 'just example-ios build'
+      - name: Check default configuration entitlements
+        run: |
+          for configuration in Debug Release; do
+            settings=$(dev/nix-shell "env -u LD xcodebuild -showBuildSettings -project apps/example-ios/ExampleApp.xcodeproj -scheme ExampleApp -configuration $configuration -sdk iphonesimulator")
+            if printf '%s\n' "$settings" | grep -E '^[[:space:]]*CODE_SIGN_ENTITLEMENTS = .+'; then
+              echo "$configuration must not declare push entitlements"
+              exit 1
+            fi
+          done
+      - name: Lint and unit tests
+        run: dev/nix-shell 'just example-ios lint && just example-ios test'
+  journeys:
+    name: Journeys (iOS example)
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+          kache-scope: nix-only
+          kache-readonly: "true"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - uses: taiki-e/install-action@just
+      - name: Run simulator journeys
+        env:
+          XMTP_BACKEND_URL: http://127.0.0.1:5050
+        run: dev/nix-shell 'just backend ci just example-ios test-ui'
+      - name: Retain native service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-ios-journeys-backend-logs
+          path: ${{ runner.temp }}/backend-ci-logs
+          retention-days: 7
+  launch:
+    name: Nix launch (iOS example)
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+          kache-scope: nix-only
+          kache-readonly: "true"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - uses: taiki-e/install-action@just
+      - name: Launch simulator app
+        env:
+          XMTP_BACKEND_URL: http://127.0.0.1:5050
+        run: dev/nix-shell 'just backend ci nix run .#example-ios -- --headless'
+      - name: Retain native service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-ios-launch-backend-logs
+          path: ${{ runner.temp }}/backend-ci-logs
+          retention-days: 7
+  results:
+    name: iOS example results
+    if: always()
+    needs: [build, journeys, launch]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Require every iOS example job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'

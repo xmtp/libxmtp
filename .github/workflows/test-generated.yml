@@ -181,6 +181,12 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+  test_example_ios:
+    if: contains(fromJSON(inputs.suites), 'test_example_ios')
+    uses: ./.github/workflows/test-example-ios.yml
+    permissions:
+      contents: read
+    secrets: inherit
   required:
     name: Require selected suites
     if: always()
@@ -208,6 +214,7 @@ jobs:
     - test_ios
     - test_android
     - test_example_android
+    - test_example_ios
     steps:
     - name: Check that every selected suite passed
       env:

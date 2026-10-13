@@ -1,0 +1,46 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 77;
+ objects = {
+  A00000000000000000000001 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastSwiftUpdateCheck = 2600; LastUpgradeCheck = 2600; TargetAttributes = {A00000000000000000000002 = {CreatedOnToolsVersion = 26.0;}; A00000000000000000000003 = {CreatedOnToolsVersion = 26.0; TestTargetID = A00000000000000000000002;};};}; buildConfigurationList = A00000000000000000000010; compatibilityVersion = "Xcode 16.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A00000000000000000000004; minimizedProjectReferenceProxies = 1; preferredProjectObjectVersion = 77; productRefGroup = A00000000000000000000007; projectDirPath = ""; projectRoot = ""; packageReferences = (A00000000000000000000030); targets = (A00000000000000000000002, A00000000000000000000003);};
+  A00000000000000000000002 = {isa = PBXNativeTarget; buildConfigurationList = A00000000000000000000011; buildPhases = (A00000000000000000000020,A00000000000000000000021,A00000000000000000000022); buildRules = (); dependencies = (); fileSystemSynchronizedGroups = (A00000000000000000000005); name = ExampleApp; packageProductDependencies = (A00000000000000000000031,A00000000000000000000032); productName = "XMTP Messenger"; productReference = A00000000000000000000008; productType = "com.apple.product-type.application";};
+  A00000000000000000000003 = {isa = PBXNativeTarget; buildConfigurationList = A00000000000000000000012; buildPhases = (A00000000000000000000023,A00000000000000000000024,A00000000000000000000025); buildRules = (); dependencies = (A00000000000000000000040); fileSystemSynchronizedGroups = (A00000000000000000000006); name = ExampleAppUITests; packageProductDependencies = (); productName = ExampleAppUITests; productReference = A00000000000000000000009; productType = "com.apple.product-type.bundle.ui-testing";};
+  A00000000000000000000004 = {isa = PBXGroup; children = (A00000000000000000000005,A00000000000000000000006,A00000000000000000000050,A00000000000000000000051,A00000000000000000000052,A00000000000000000000007); sourceTree = "<group>";};
+  A00000000000000000000005 = {isa = PBXFileSystemSynchronizedRootGroup; path = ExampleApp; sourceTree = "<group>";};
+  A00000000000000000000006 = {isa = PBXFileSystemSynchronizedRootGroup; path = ExampleAppUITests; sourceTree = "<group>";};
+  A00000000000000000000007 = {isa = PBXGroup; children = (A00000000000000000000008,A00000000000000000000009); name = Products; sourceTree = "<group>";};
+  A00000000000000000000008 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "XMTP Messenger.app"; sourceTree = BUILT_PRODUCTS_DIR;};
+  A00000000000000000000009 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ExampleAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR;};
+  A00000000000000000000020 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+  A00000000000000000000021 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000033,A00000000000000000000034); runOnlyForDeploymentPostprocessing = 0;};
+  A00000000000000000000022 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+  A00000000000000000000023 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+  A00000000000000000000024 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+  A00000000000000000000025 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+  A00000000000000000000030 = {isa = XCLocalSwiftPackageReference; relativePath = Packages/ExampleKit;};
+  A00000000000000000000031 = {isa = XCSwiftPackageProductDependency; package = A00000000000000000000030; productName = ExampleCore;};
+  A00000000000000000000032 = {isa = XCSwiftPackageProductDependency; package = A00000000000000000000030; productName = ExampleSDK;};
+  A00000000000000000000033 = {isa = PBXBuildFile; productRef = A00000000000000000000031;};
+  A00000000000000000000034 = {isa = PBXBuildFile; productRef = A00000000000000000000032;};
+  A00000000000000000000040 = {isa = PBXTargetDependency; target = A00000000000000000000002; targetProxy = A00000000000000000000041;};
+  A00000000000000000000041 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000001; proxyType = 1; remoteGlobalIDString = A00000000000000000000002; remoteInfo = ExampleApp;};
+  A00000000000000000000050 = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Debug.xcconfig; sourceTree = "<group>";};
+  A00000000000000000000051 = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Release.xcconfig; sourceTree = "<group>";};
+  A00000000000000000000052 = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Push.xcconfig; sourceTree = "<group>";};
+  A00000000000000000000100 = {isa = XCBuildConfiguration;  buildSettings = {CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 6.0; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_TREAT_WARNINGS_AS_ERRORS = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; }; name = Debug;};
+  A00000000000000000000101 = {isa = XCBuildConfiguration;  buildSettings = {CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 6.0; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_TREAT_WARNINGS_AS_ERRORS = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; }; name = Release;};
+  A00000000000000000000102 = {isa = XCBuildConfiguration;  buildSettings = {CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 6.0; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_TREAT_WARNINGS_AS_ERRORS = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; }; name = Push;};
+  A00000000000000000000010 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000100,A00000000000000000000101,A00000000000000000000102); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+  A00000000000000000000110 = {isa = XCBuildConfiguration; baseConfigurationReference = A00000000000000000000050; buildSettings = {}; name = Debug;};
+  A00000000000000000000111 = {isa = XCBuildConfiguration; baseConfigurationReference = A00000000000000000000051; buildSettings = {}; name = Release;};
+  A00000000000000000000112 = {isa = XCBuildConfiguration; baseConfigurationReference = A00000000000000000000052; buildSettings = {}; name = Push;};
+  A00000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000110,A00000000000000000000111,A00000000000000000000112); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+  A00000000000000000000120 = {isa = XCBuildConfiguration; baseConfigurationReference = A00000000000000000000050; buildSettings = {PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = org.xmtp.example.ios.tests; TEST_TARGET_NAME = ExampleApp; }; name = Debug;};
+  A00000000000000000000121 = {isa = XCBuildConfiguration; baseConfigurationReference = A00000000000000000000051; buildSettings = {PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = org.xmtp.example.ios.tests; TEST_TARGET_NAME = ExampleApp; }; name = Release;};
+  A00000000000000000000122 = {isa = XCBuildConfiguration; baseConfigurationReference = A00000000000000000000052; buildSettings = {PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = org.xmtp.example.ios.tests; TEST_TARGET_NAME = ExampleApp; }; name = Push;};
+  A00000000000000000000012 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000120,A00000000000000000000121,A00000000000000000000122); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+ };
+ rootObject = A00000000000000000000001;
+}

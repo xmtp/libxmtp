@@ -153,6 +153,10 @@ path_groups:
     - "apps/example-android/**"
     - "nix/package/example-android-apk*"
     - "!**/*.md"
+  example_ios:
+    - "apps/example-ios/**"
+    - "nix/package/example-ios-run.nix"
+    - "!**/*.md"
   js_packages:
     - "sdks/{node,browser,agent}/**"
     - "apps/{cli,web-chat,docs}/**"
@@ -227,7 +231,7 @@ suites:
       # sdks/android/) runs its own suites, and an unknown path runs all.
       - "**/*.{nix,py,sh,toml,kt,swift}"
       - "{crates,apps}/**/*.rs"
-      - "{.editorconfig,sdks/ios/.swiftformat}"
+      - "{.editorconfig,sdks/ios/.swiftformat,apps/example-ios/.swiftformat}"
       - ".github/**"
       # `just lint-config` runs the tests of these tools.
       - "dev/{tests,agents,specs,release-tools,fly,ci}/**"
@@ -306,6 +310,19 @@ suites:
     path_filters:
       - "{Cargo.lock,deny.toml}"
       - "**/Cargo.toml"
+
+  lint_example_ios:
+    phase: lint
+    workflow: lint-example-ios.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: [nix-only]
+    path_filters:
+      - path_group: example_ios
+      - path_group: swift
+      - path_group: sdk_core
 
   # --- Rust ------------------------------------------------------------------
   check_rust:
@@ -594,3 +611,17 @@ suites:
       - path_group: example_android
       - path_group: android
       - path_group: sdk_core
+
+  test_example_ios:
+    phase: test
+    workflow: test-example-ios.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: [nix-only]
+    path_filters:
+      - path_group: example_ios
+      - path_group: swift
+      - path_group: sdk_core
+      - path_group: native_backend

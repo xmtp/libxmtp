@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+headless=false
+for argument in "$@"; do
+  case "$argument" in
+    --headless) headless=true ;;
+    *) echo "Usage: $0 [--headless]" >&2; exit 2 ;;
+  esac
+done
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo 'Run this from a libxmtp checkout.' >&2; exit 1; }
+if [[ ! -f "$root/apps/example-ios/dev/build" || ! -f "$root/sdks/ios/dev/bindings" ]]; then
+  echo 'Run this from a libxmtp checkout.' >&2
+  exit 1
+fi
+cd "$root"
+"$root/dev/worktree-env"
+# shellcheck source=/dev/null
+source "$root/dev/docker/load-env"
+printf 'Backend: %s\n' "$XMTP_BACKEND_URL"
+devices="$(xcrun simctl list -j devices available)"
+device="$(jq -r --arg requested "${XMTP_IOS_SIMULATOR:-}" '
+  [.devices | to_entries[] | select((.key | capture("iOS-(?<major>[0-9]+)").major | tonumber) >= 26) | .value[]
+   | select(.isAvailable) | select(if $requested == "" then (.name | startswith("iPhone")) else (.udid == $requested or .name == $requested) end)]
+  | first | .udid // empty' <<< "$devices")"
+if [[ -z "$device" ]]; then
+  echo 'No iOS 26 or later simulator runtime is installed.' >&2
+  exit 1
+fi
+"$root/apps/example-ios/dev/build"
+app="$root/apps/example-ios/.build/DerivedData/Build/Products/${CONFIGURATION:-Debug}-iphonesimulator/XMTP Messenger.app"
+state="$(jq -r --arg id "$device" '.devices[][] | select(.udid == $id) | .state' <<< "$devices")"
+if [[ "$state" != Booted ]]; then xcrun simctl boot "$device"; fi
+xcrun simctl bootstatus "$device" -b
+if [[ "$headless" == false ]]; then open -a Simulator --args -CurrentDeviceUDID "$device"; fi
+xcrun simctl install "$device" "$app"
+SIMCTL_CHILD_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" xcrun simctl launch "$device" org.xmtp.example.ios
