@@ -3,7 +3,7 @@ import { access, readFile, writeFile } from "node:fs/promises";
 import { Config, Errors } from "@oclif/core";
 import { describe, expect, it } from "vitest";
 
-import { formatStorageErrorMessage, terminalSafeMessage } from "@/baseCommand";
+import { formatStorageErrorMessage, terminalSafeText } from "@/baseCommand";
 import ConversationSync from "@/commands/conversation/sync";
 
 import { createTestIdentity, runCommand } from "./helpers.js";
@@ -89,12 +89,12 @@ describe("storage errors", () => {
 });
 
 describe("error output", () => {
-  it("escapes control characters in each line of an error message", () => {
+  it("puts untrusted text on one line, with each control character escaped", () => {
+    expect(terminalSafeText("\u001b]0;evil\u0007 failed\nforged\rline")).toBe(
+      "\\u001b]0;evil\\u0007 failed\\u000aforged\\u000dline",
+    );
     expect(
-      terminalSafeMessage("\u001b]0;evil\u0007 failed\nDatabase path: x"),
-    ).toBe("\\u001b]0;evil\\u0007 failed\nDatabase path: x");
-    expect(
-      terminalSafeMessage(
+      terminalSafeText(
         "\u061c\u200b\u200e\u202e\u2060\u2066\u2069\ufeff failed",
       ),
     ).toBe("\\u061c\\u200b\\u200e\\u202e\\u2060\\u2066\\u2069\\ufeff failed");
