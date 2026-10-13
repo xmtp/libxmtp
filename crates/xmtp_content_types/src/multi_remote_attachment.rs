@@ -53,10 +53,11 @@ impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
     }
 
     fn decode(content: EncodedContent) -> Result<MultiRemoteAttachment, CodecError> {
-        let decoded = MultiRemoteAttachment::decode(content.content.as_slice())
+        let mut decoded = MultiRemoteAttachment::decode(content.content.as_slice())
             .map_err(|e| CodecError::Decode(e.to_string()))?;
 
-        for attachment in &decoded.attachments {
+        for attachment in &mut decoded.attachments {
+            crate::remote_attachment::normalize_decoded_scheme(attachment);
             crate::remote_attachment::validate_remote_attachment(attachment)
                 .map_err(|reason| CodecError::Decode(reason.into()))?;
         }

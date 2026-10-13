@@ -260,3 +260,153 @@ fn envelope_conversion_does_not_fabricate_codec_input() {
         matches!(crate::decode_standard(invalid), Err(XmtpError::CodecDecodeFailed(details)) if details.code == "CodecDecodeFailed" && !details.retryable)
     );
 }
+
+// verifies: CTYPE-008, CTYPE-014, CTYPE-029
+#[xmtp_common::test(unwrap_try = true)]
+async fn legacy_attachment_schemes_keep_received_bytes_and_history() {
+    use xmtp_content_types::{
+        multi_remote_attachment::MultiRemoteAttachmentCodec,
+        remote_attachment::{RemoteAttachment, RemoteAttachmentCodec},
+    };
+    use xmtp_proto::xmtp::mls::message_contents::content_types::MultiRemoteAttachment;
+    let sender = Client::create(crate::generate_local_signer().await, options()).await?;
+    let receiver = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = sender
+        .conversations()
+        .create_group(vec![receiver.inbox_id()], None)
+        .await?;
+    let record = |url: &str, scheme: &str| RemoteAttachment {
+        url: url.into(),
+        scheme: scheme.into(),
+        content_digest: "ab".repeat(32),
+        secret: vec![1; 32],
+        salt: vec![2; 32],
+        nonce: vec![3; 12],
+        filename: Some("legacy.txt".into()),
+        content_length: Some(0),
+    };
+    let mut cases = Vec::new();
+    for (url, bare, canonical) in [
+        ("https://example.com/file", "https", "https://"),
+        ("http://localhost/file", "http", "http://"),
+    ] {
+        let mut wire = RemoteAttachmentCodec::encode(record(url, canonical))?;
+        wire.parameters.insert("scheme".into(), bare.into());
+        cases.push((wire, Some(canonical), false));
+    }
+    let multi = MultiRemoteAttachment {
+        attachments: vec![
+            record("https://example.com/file", "https"),
+            record("http://127.0.0.1/file", "http"),
+        ],
+    };
+    cases.push((
+        ProtoEncodedContent {
+            r#type: Some(MultiRemoteAttachmentCodec::content_type()),
+            content: multi.encode_to_vec(),
+            fallback: Some("legacy multiple".into()),
+            ..Default::default()
+        },
+        None,
+        false,
+    ));
+    let mut invalid = cases[1].0.clone();
+    invalid.content = b"http://example.com/file".to_vec();
+    cases.push((invalid, None, true));
+    receiver.conversations().sync_all(None).await?;
+    let peer = receiver
+        .conversations()
+        .get_by_id(group.id())
+        .await?
+        .expect("legacy receiver group");
+    let crate::Conversation::Group { group: peer } = peer else {
+        panic!("expected legacy group")
+    };
+    let reader = peer.message_reader(None).await?;
+    for (wire, scheme, invalid) in cases {
+        let encoded: crate::EncodedContent = wire.clone().try_into()?;
+        let id = group.send(encoded.clone(), None).await?;
+        receiver.conversations().sync_all(None).await?;
+        let sent = sender
+            .conversations()
+            .get_message_by_id(id.clone())
+            .await?
+            .expect("legacy sent message");
+        let lookup = receiver
+            .conversations()
+            .get_message_by_id(id.clone())
+            .await?
+            .expect("legacy lookup");
+        let history = peer
+            .messages(None)
+            .await?
+            .into_iter()
+            .find(|message| message.0.id == id)
+            .expect("legacy history");
+        let streamed = xmtp_common::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let message = reader.next().await?.expect("legacy stream item");
+                if message.0.id == id {
+                    break Ok::<_, XmtpError>(message);
+                }
+            }
+        })
+        .await??;
+        for message in [lookup, history, streamed] {
+            assert_eq!(message.0.id, id);
+            assert_eq!(message.0.raw_bytes, sent.0.raw_bytes);
+            assert_eq!(message.0.fallback, encoded.fallback);
+            let retained = message
+                .0
+                .encoded
+                .as_ref()
+                .expect("retained legacy envelope");
+            assert_eq!(retained.parameters, encoded.parameters);
+            assert_eq!(retained.content, encoded.content);
+            assert_eq!(retained.r#type.authority_id, encoded.r#type.authority_id);
+            assert_eq!(retained.r#type.type_id, encoded.r#type.type_id);
+            assert_eq!(retained.r#type.version_major, encoded.r#type.version_major);
+            assert_eq!(retained.r#type.version_minor, encoded.r#type.version_minor);
+            if invalid {
+                assert_retained(&message, &sent.0.raw_bytes, "CodecDecodeFailed", true);
+                continue;
+            }
+            let canonical = match message.0.content {
+                MessageContent::RemoteAttachment(value) => {
+                    assert_eq!(value.scheme, scheme.expect("single legacy scheme"));
+                    crate::encode_standard(crate::StandardContent::RemoteAttachment(value))?
+                }
+                MessageContent::MultiRemoteAttachment(value) => {
+                    assert_eq!(value.attachments[0].scheme, "https://");
+                    assert_eq!(value.attachments[1].scheme, "http://");
+                    crate::encode_standard(crate::StandardContent::MultiRemoteAttachment(value))?
+                }
+                other => panic!("legacy content did not decode: {other:?}"),
+            };
+            if scheme.is_some() {
+                assert_ne!(canonical.parameters["scheme"], encoded.parameters["scheme"]);
+            } else {
+                assert_ne!(canonical.content, encoded.content);
+            }
+        }
+    }
+    let good = group
+        .send_text("after legacy attachments".into(), None)
+        .await?;
+    receiver.conversations().sync_all(None).await?;
+    let next = xmtp_common::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let message = reader.next().await?.expect("continued stream");
+            if message.0.id == good {
+                break Ok::<_, XmtpError>(message);
+            }
+        }
+    })
+    .await??;
+    assert!(
+        matches!(next.0.content, MessageContent::Text(value) if value == "after legacy attachments")
+    );
+    reader.end().await?;
+    receiver.end().await?;
+    sender.end().await?;
+}

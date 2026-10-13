@@ -162,4 +162,46 @@ class CodecValidationTest {
             org.junit.Assert.assertFalse(details.message.isEmpty())
         }
     }
+
+    // verifies: CTYPE-014, CTYPE-026
+    @Test
+    fun legacySchemesKeepStoredParameters() {
+        val codec = RemoteAttachmentCodec()
+        for ((url, bare, canonical) in listOf(
+            Triple("https://example.test/file", "https", "https://"),
+            Triple("http://localhost/file", "http", "http://"),
+        )) {
+            val value =
+                RemoteAttachment(
+                    url,
+                    "ab".repeat(32),
+                    ByteArray(32) {
+                        1
+                    },
+                    ByteArray(32) { 2 },
+                    ByteArray(12) { 3 },
+                    canonical,
+                    null,
+                    null,
+                )
+            val encoded = codec.encode(value)
+            val legacy = encoded.copy(parameters = encoded.parameters + ("scheme" to bare))
+            val raw = encodeEncodedContent(legacy)
+            val decoded = codec.decode(legacy)
+            assertEquals(canonical, decoded.scheme)
+            assertEquals(bare, legacy.parameters["scheme"])
+            org.junit.Assert.assertArrayEquals(raw, encodeEncodedContent(legacy))
+            assertEquals(canonical, codec.encode(decoded).parameters["scheme"])
+            assertThrows(XmtpException.InvalidInput::class.java) { codec.encode(value.copy(scheme = bare)) }
+            if (bare ==
+                "http"
+            ) {
+                assertThrows(XmtpException.CodecDecodeFailed::class.java) {
+                    codec.decode(legacy.copy(content = "http://example.test/file".toByteArray()))
+                }
+            }
+            val reply = ReplyCodec().encode(ReplyContent("a".repeat(64), content = legacy))
+            assertEquals(canonical, codec.decode(ReplyCodec().decode(reply).content).scheme)
+        }
+    }
 }

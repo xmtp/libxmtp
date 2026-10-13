@@ -216,3 +216,45 @@ impl TestContentGenerator {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // verifies: CTYPE-014
+    #[xmtp_common::test(unwrap_try = true)]
+    fn remote_factories_use_valid_catalogue_fields() {
+        let urls = [
+            "https://example.test/file",
+            "http://localhost/file",
+            "http://127.0.0.1/file",
+            "http://[::1]/file",
+        ];
+        for url in urls {
+            let value = RemoteAttachmentCodec::decode(
+                TestContentGenerator::remote_attachment_content(url, "test.txt"),
+            )?;
+            assert_eq!(value.url, url);
+            assert_eq!(
+                value.scheme,
+                crate::remote_attachment::content_url_scheme(url)?
+            );
+            assert_eq!(value.secret.len(), 32);
+            assert_eq!(value.salt.len(), 32);
+            assert_eq!(value.nonce.len(), 12);
+        }
+        let multi = MultiRemoteAttachmentCodec::decode(
+            TestContentGenerator::multi_remote_attachment_content(
+                urls.into_iter().map(str::to_owned).collect(),
+            ),
+        )?;
+        assert_eq!(multi.attachments.len(), urls.len());
+        for (value, url) in multi.attachments.iter().zip(urls) {
+            assert_eq!(value.url, url);
+            assert_eq!(
+                value.scheme,
+                crate::remote_attachment::content_url_scheme(url)?
+            );
+        }
+    }
+}

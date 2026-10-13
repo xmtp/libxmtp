@@ -51,7 +51,10 @@ final class CodecValidationTests: XCTestCase {
 						timestamp.hasPrefix("1677") ? Int64.min : Int64.max,
 					)
 				} else {
-					XCTAssertThrowsError(try codec.decode(encoded))
+					XCTAssertThrowsError(try codec.decode(encoded)) { error in
+						guard case let XmtpError.CodecDecodeFailed(details) = error else { return XCTFail("Expected CodecDecodeFailed") }
+						XCTAssertEqual(details.code, "CodecDecodeFailed")
+					}
 				}
 			}
 		}
@@ -130,6 +133,44 @@ final class CodecValidationTests: XCTestCase {
 				XCTAssertFalse(details.retryable)
 				XCTAssertFalse(details.message.isEmpty)
 			}
+		}
+	}
+
+	// verifies: CTYPE-014, CTYPE-026
+	func testLegacySchemesKeepStoredParameters() throws {
+		let codec = RemoteAttachmentCodec()
+		for (url, bare, canonical) in [
+			("https://example.test/file", "https", "https://"),
+			("http://localhost/file", "http", "http://"),
+		] {
+			let value = RemoteAttachment(
+				url: url,
+				contentDigest: String(repeating: "ab", count: 32),
+				secret: Data(repeating: 1, count: 32),
+				salt: Data(repeating: 2, count: 32),
+				nonce: Data(repeating: 3, count: 12),
+				scheme: canonical,
+				contentLength: nil,
+				filename: nil,
+			)
+			var legacy = try codec.encode(value)
+			legacy.parameters["scheme"] = bare
+			let raw = try encodeEncodedContent(content: legacy)
+			let decoded = try codec.decode(legacy)
+			XCTAssertEqual(decoded.scheme, canonical)
+			XCTAssertEqual(legacy.parameters["scheme"], bare)
+			XCTAssertEqual(try encodeEncodedContent(content: legacy), raw)
+			XCTAssertEqual(try codec.encode(decoded).parameters["scheme"], canonical)
+			var bareInput = value
+			bareInput.scheme = bare
+			XCTAssertThrowsError(try codec.encode(bareInput))
+			if bare == "http" {
+				var publicHttp = legacy
+				publicHttp.content = Data("http://example.test/file".utf8)
+				XCTAssertThrowsError(try codec.decode(publicHttp))
+			}
+			let reply = try ReplyCodec().encode(ReplyContent(reference: String(repeating: "a", count: 64), content: legacy))
+			XCTAssertEqual(try codec.decode(ReplyCodec().decode(reply).content).scheme, canonical)
 		}
 	}
 }

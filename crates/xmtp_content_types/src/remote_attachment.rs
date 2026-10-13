@@ -35,6 +35,13 @@ pub fn is_loopback_name(name: &str) -> bool {
 }
 
 // implements: CTYPE-014
+pub(crate) fn normalize_decoded_scheme(value: &mut RemoteAttachment) {
+    if matches!(value.scheme.as_str(), "https" | "http") {
+        value.scheme.push_str("://");
+    }
+}
+
+// implements: CTYPE-014
 pub(crate) fn validate_remote_attachment(value: &RemoteAttachment) -> Result<(), &'static str> {
     use crate::encryption::{AES_GCM_NONCE_SIZE, HKDF_SALT_SIZE, SECRET_SIZE};
     const SHA256_HEX_LENGTH: usize = 64;
@@ -251,7 +258,7 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
         let url =
             String::from_utf8(encoded.content).map_err(|e| CodecError::Decode(e.to_string()))?;
 
-        let attachment = RemoteAttachment {
+        let mut attachment = RemoteAttachment {
             filename,
             url,
             content_digest,
@@ -261,6 +268,7 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
             scheme,
             content_length,
         };
+        normalize_decoded_scheme(&mut attachment);
         validate_remote_attachment(&attachment)
             .map_err(|reason| CodecError::Decode(reason.into()))?;
         Ok(attachment)
@@ -653,7 +661,6 @@ pub(crate) mod tests {
             ("http://example.com/file", "http://"),
             ("ftp://localhost/file", "ftp://"),
             ("https://example.com/file", "http://"),
-            ("https://example.com/file", "https"),
         ] {
             let mut value = sample();
             value.url = url.into();
@@ -705,5 +712,112 @@ pub(crate) mod tests {
                 "{field}"
             );
         }
+    }
+
+    // verifies: CTYPE-014
+    #[xmtp_common::test(unwrap_try = true)]
+    fn legacy_scheme_reads_normalize_without_changing_the_wire() {
+        use crate::multi_remote_attachment::MultiRemoteAttachmentCodec;
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use prost::Message;
+        use xmtp_proto::xmtp::mls::message_contents::content_types::MultiRemoteAttachment;
+        // Original wire fixture from commit 334dd7f45b915da51dfc4e7a2c66c01145241442.
+        let original = STANDARD.decode("CiQKCHhtdHAub3JnEhZyZW1vdGVTdGF0aWNBdHRhY2htZW50GAESUQoNY29udGVudERpZ2VzdBJAYWJjZDEyMzQ1Njc4OTBhYmNkMTIzNDU2Nzg5MGFiY2QxMjM0NTY3ODkwYWJjZDEyMzQ1Njc4OTBhYmNkMTIzNBJICgRzYWx0EkAwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyEiEKBW5vbmNlEhgwMzAzMDMwMzAzMDMwMzAzMDMwMzAzMDMSSgoGc2VjcmV0EkAwMTAxMDEwMTAxMDEwMTAxMDEwMTAxMDEwMTAxMDEwMTAxMDEwMTAxMDEwMTAxMDEwMTAxMDEwMTAxMDEwMTAxEg8KBnNjaGVtZRIFaHR0cHMSFQoNY29udGVudExlbmd0aBIEMTAyNBIKCghmaWxlbmFtZSIcaHR0cHM6Ly9leGFtcGxlLmNvbS9maWxlLnBkZg==")?;
+        let legacy = EncodedContent::decode(original.as_slice())?;
+        assert_eq!(legacy.parameters["scheme"], "https");
+        let decoded = RemoteAttachmentCodec::decode(legacy.clone())?;
+        assert_eq!(decoded.scheme, "https://");
+        assert_eq!(decoded.url, "https://example.com/file.pdf");
+        assert_eq!(legacy.parameters["scheme"], "https");
+        assert_eq!(
+            RemoteAttachmentCodec::encode(decoded)?.parameters["scheme"],
+            "https://"
+        );
+        for (url, bare, canonical) in [
+            ("https://example.com/file", "https", "https://"),
+            ("http://localhost/file", "http", "http://"),
+            ("http://127.0.0.1/file", "http", "http://"),
+            ("http://[::1]/file", "http", "http://"),
+        ] {
+            let value = RemoteAttachment {
+                url: url.into(),
+                content_digest: "ab".repeat(32),
+                secret: vec![1; 32],
+                salt: vec![2; 32],
+                nonce: vec![3; 12],
+                scheme: canonical.into(),
+                ..Default::default()
+            };
+            let mut legacy = RemoteAttachmentCodec::encode(value.clone())?;
+            legacy.parameters.insert("scheme".into(), bare.into());
+            let original = legacy.encode_to_vec();
+            let decoded = RemoteAttachmentCodec::decode(legacy.clone())?;
+            assert_eq!(decoded, value);
+            assert_eq!(legacy.encode_to_vec(), original);
+            assert_eq!(legacy.parameters["scheme"], bare);
+            assert_eq!(
+                RemoteAttachmentCodec::encode(decoded)?.parameters["scheme"],
+                canonical
+            );
+            let mut legacy_value = value.clone();
+            legacy_value.scheme = bare.into();
+            assert!(matches!(
+                RemoteAttachmentCodec::encode(legacy_value.clone()),
+                Err(CodecError::Encode(_))
+            ));
+            let multi = MultiRemoteAttachment {
+                attachments: vec![legacy_value],
+            };
+            assert!(matches!(
+                MultiRemoteAttachmentCodec::encode(multi.clone()),
+                Err(CodecError::Encode(_))
+            ));
+            let outer = EncodedContent {
+                r#type: Some(MultiRemoteAttachmentCodec::content_type()),
+                content: multi.encode_to_vec(),
+                ..Default::default()
+            };
+            let decoded = MultiRemoteAttachmentCodec::decode(outer.clone())?;
+            assert_eq!(decoded.attachments[0], value);
+            assert_eq!(outer.content, multi.encode_to_vec());
+            assert_eq!(
+                MultiRemoteAttachmentCodec::decode(MultiRemoteAttachmentCodec::encode(decoded)?)?
+                    .attachments[0]
+                    .scheme,
+                canonical
+            );
+        }
+        let value = RemoteAttachment {
+            url: "http://example.com/file".into(),
+            content_digest: "ab".repeat(32),
+            secret: vec![1; 32],
+            salt: vec![2; 32],
+            nonce: vec![3; 12],
+            scheme: "http".into(),
+            ..Default::default()
+        };
+        let valid = RemoteAttachment {
+            url: "https://example.com/file".into(),
+            scheme: "https://".into(),
+            ..value.clone()
+        };
+        let mut legacy = RemoteAttachmentCodec::encode(valid)?;
+        legacy.content = value.url.as_bytes().to_vec();
+        legacy.parameters.insert("scheme".into(), "http".into());
+        assert!(matches!(
+            RemoteAttachmentCodec::decode(legacy),
+            Err(CodecError::Decode(_))
+        ));
+        let multi = MultiRemoteAttachment {
+            attachments: vec![value],
+        };
+        assert!(matches!(
+            MultiRemoteAttachmentCodec::decode(EncodedContent {
+                r#type: Some(MultiRemoteAttachmentCodec::content_type()),
+                content: multi.encode_to_vec(),
+                ..Default::default()
+            }),
+            Err(CodecError::Decode(_))
+        ));
     }
 }

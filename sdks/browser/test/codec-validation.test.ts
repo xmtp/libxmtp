@@ -81,7 +81,10 @@ test("Actions expiry decode checks both fields at the signed range limits", () =
             ? -9223372036854775808n
             : 9223372036854775807n,
         );
-      } else expect(() => codec.decode(encoded)).toThrow();
+      } else
+        expect(() => codec.decode(encoded)).toThrow(
+          sdk.XmtpError.CodecDecodeFailed,
+        );
     }
   }
   const value = {
@@ -180,5 +183,52 @@ test("standalone codec failures have four distinct typed outcomes", () => {
       });
       expect(error.details.message).not.toBe("");
     }
+  }
+});
+
+// verifies: CTYPE-014, CTYPE-026
+test("legacy schemes decode without changing stored parameters", () => {
+  const codec = new sdk.RemoteAttachmentCodec();
+  for (const [url, bare, canonical] of [
+    ["https://example.test/file", "https", "https://"],
+    ["http://localhost/file", "http", "http://"],
+  ] as const) {
+    const value = {
+      url,
+      scheme: canonical,
+      contentDigest: "ab".repeat(32),
+      secret: new Uint8Array(32).fill(1),
+      salt: new Uint8Array(32).fill(2),
+      nonce: new Uint8Array(12).fill(3),
+    };
+    const encoded = codec.encode(value);
+    const legacy = {
+      ...encoded,
+      parameters: new Map(encoded.parameters).set("scheme", bare),
+    };
+    const raw = sdk.encodeEncodedContent(legacy);
+    const decoded = codec.decode(legacy);
+    expect(decoded.scheme).toBe(canonical);
+    expect(legacy.parameters.get("scheme")).toBe(bare);
+    expect(sdk.encodeEncodedContent(legacy)).toEqual(raw);
+    expect(codec.encode(decoded).parameters.get("scheme")).toBe(canonical);
+    expect(() => codec.encode({ ...value, scheme: bare })).toThrow(
+      sdk.XmtpError.InvalidInput,
+    );
+    if (bare === "http")
+      expect(() =>
+        codec.decode({
+          ...legacy,
+          content: new TextEncoder().encode("http://example.test/file"),
+        }),
+      ).toThrow(sdk.XmtpError.CodecDecodeFailed);
+    const nested = new sdk.ReplyCodec().encode({
+      kind: "reply",
+      reference: "a".repeat(64),
+      content: legacy,
+    });
+    expect(
+      codec.decode(new sdk.ReplyCodec().decode(nested).content).scheme,
+    ).toBe(canonical);
   }
 });
