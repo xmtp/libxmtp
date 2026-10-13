@@ -34,8 +34,12 @@ class HandleControllerTest {
         var available: suspend (String) -> List<String> = { emptyList() }
         var claim: suspend (String) -> Unit = {}
         var ownedFailure: (() -> Throwable)? = null
+        var readFailure: (() -> Throwable)? = null
 
-        override suspend fun handles(refresh: Boolean) = OwnHandles(current, others)
+        override suspend fun handles(refresh: Boolean): OwnHandles {
+            readFailure?.let { throw it() }
+            return OwnHandles(current, others)
+        }
 
         override fun minNameLength() = minimum
 
@@ -96,6 +100,62 @@ class HandleControllerTest {
     private fun HandleController.type(value: String) = dispatch(HandleAction.ChangeInput(value))
 
     private val HandleController.value get() = state.value
+
+    @Test fun failedOwnReadsShowTheLoadErrorAndBlockEveryClaim() {
+        val account =
+            FakeAccount(current = "nick#2341", others = listOf("nickm")).apply {
+                available = { listOf(it) }
+                readFailure = { offline() }
+            }
+        val editor = open(account, HandleMode.CHANGE)
+        // Unknown is not "no handle": the error shows in place of the handles.
+        assertTrue(editor.value.ownUnknown)
+        assertEquals(HandleNotice.LoadFailed, editor.value.notice)
+        assertEquals("Cannot load your handle. Try again.", HandleCopy.notice(editor.value.notice!!))
+        assertFalse(editor.value.loading)
+        assertFalse(editor.value.editable)
+        // No edit, switch back, check, or claim goes through.
+        editor.type("nicky")
+        assertEquals("", editor.value.input)
+        editor.dispatch(HandleAction.SwitchBack("nickm"))
+        assertNull(editor.value.confirm)
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(emptyList<String>(), account.lookups)
+        assertEquals(emptyList<String>(), account.claims)
+        // Retry with a working read shows the real handles.
+        account.readFailure = null
+        editor.dispatch(HandleAction.Retry)
+        assertFalse(editor.value.ownUnknown)
+        assertNull(editor.value.notice)
+        assertEquals("nick#2341", editor.value.current)
+        assertEquals(listOf("nickm"), editor.value.others)
+        assertTrue(editor.value.editable)
+    }
+
+    @Test fun onboardingWithFailedOwnReadsOffersNoClaim() {
+        val account =
+            FakeAccount().apply {
+                available = { listOf(it) }
+                readFailure = { offline() }
+            }
+        val editor = open(account)
+        assertTrue(editor.value.ownUnknown)
+        assertEquals(HandleNotice.LoadFailed, editor.value.notice)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(emptyList<String>(), account.lookups)
+        assertEquals(emptyList<String>(), account.claims)
+        assertEquals(0, account.finished)
+        // The inbox already has a handle, from another device: the step ends with no claim.
+        account.current = "nick#0412"
+        account.readFailure = null
+        editor.dispatch(HandleAction.Retry)
+        assertEquals("nick#0412", editor.value.current)
+        assertEquals(1, account.finished)
+        assertEquals(emptyList<String>(), account.claims)
+    }
 
     @Test fun emptyEditorWaitsForInput() {
         val account = FakeAccount()
