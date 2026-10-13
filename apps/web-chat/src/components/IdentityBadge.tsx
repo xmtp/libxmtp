@@ -7,12 +7,14 @@ import { shortAddress } from "@/helpers/strings";
 export type IdentityBadgeProps = {
   address: string;
   displayName: string | null;
+  // the current handle identifies the inbox when it has one
+  handle?: string | null;
   size?: "xs" | "sm" | "md" | "lg" | "xl";
   tooltip?: string;
 } & Pick<MantineStyleProps, "w">;
 
 export const IdentityBadge = forwardRef<HTMLDivElement, IdentityBadgeProps>(
-  ({ address, displayName, size = "lg", w, tooltip }, ref) => {
+  ({ address, displayName, handle, size = "lg", w, tooltip }, ref) => {
     const { setOpened } = useMemberPopover();
     return (
       <Tooltip
@@ -37,7 +39,7 @@ export const IdentityBadge = forwardRef<HTMLDivElement, IdentityBadgeProps>(
             e.stopPropagation();
             setOpened((o) => !o);
           }}>
-          {displayName || shortAddress(address)}
+          {handle || displayName || shortAddress(address)}
         </Badge>
       </Tooltip>
     );

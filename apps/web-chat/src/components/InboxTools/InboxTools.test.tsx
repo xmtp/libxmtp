@@ -1,6 +1,7 @@
 import { MantineProvider } from "@mantine/core";
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -9,7 +10,7 @@ import {
 import { Client, Timestamp } from "@xmtp/browser-sdk";
 import type * as SDK from "@xmtp/browser-sdk";
 import { MemoryRouter } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InboxTools } from "./InboxTools";
 
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   authCallback: vi.fn(),
   signMessageAsync: vi.fn(),
   latestInboxUpdatesCount: vi.fn(),
+  setMemberId: vi.fn(),
 }));
 vi.mock("@xmtp/browser-sdk", async (importOriginal) => ({
   ...(await importOriginal<typeof SDK>()),
@@ -37,7 +39,7 @@ vi.mock("@/hooks/useMemberId", () => ({
   useMemberId: () => ({
     inboxId: mocks.inboxId,
     memberId: mocks.inboxId,
-    setMemberId: vi.fn(),
+    setMemberId: mocks.setMemberId,
   }),
 }));
 vi.mock("@/hooks/useSettings", () => ({
@@ -86,6 +88,12 @@ beforeEach(() => {
   mocks.backendUrl = "https://one.example";
   vi.restoreAllMocks();
   mocks.latestInboxUpdatesCount.mockReset();
+  mocks.setMemberId.mockClear();
+});
+
+afterEach(() => {
+  // a failed test must not leave its view for the next test to find
+  cleanup();
 });
 
 describe("InboxTools query state", () => {
@@ -98,6 +106,7 @@ describe("InboxTools query state", () => {
     inboxId: mocks.inboxId,
     installations: [installation],
     identities: [],
+    otherHandles: [],
     recoveryIdentity: {
       identifier: "0x1234",
       kind: "ethereum" as const,
@@ -204,4 +213,27 @@ describe("InboxTools query state", () => {
     });
     unmount();
   });
+});
+
+describe("InboxTools member field", () => {
+  it("lowercases a handle typed with capitals and drops spaces", () => {
+    render(view());
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: " Ni ck #2341 " },
+    });
+    // the handle grammar is lowercase, so the raw input would be refused
+    expect(mocks.setMemberId).toHaveBeenCalledExactlyOnceWith("nick#2341");
+  });
+
+  // toLowerCase would fold U+212A KELVIN SIGN to "k" and look up "kate"
+  it.each(["\u212Aate", "\u0130nci"])(
+    "keeps a non-ASCII capital in %s, so the grammar refuses it",
+    (input) => {
+      render(view());
+      fireEvent.change(screen.getByRole("textbox"), {
+        target: { value: input },
+      });
+      expect(mocks.setMemberId).toHaveBeenCalledExactlyOnceWith(input);
+    },
+  );
 });

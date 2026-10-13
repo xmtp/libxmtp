@@ -30,6 +30,7 @@ export const IntentContent: React.FC<IntentContentProps> = ({
         <IdentityBadge
           address={senderMember ? getMemberAddress(senderMember) : ""}
           displayName={senderInboxId}
+          handle={senderMember?.handle}
           tooltip={senderMember ? undefined : MEMBER_NO_LONGER_IN_GROUP}
         />
         <Text size="sm">selected the</Text>

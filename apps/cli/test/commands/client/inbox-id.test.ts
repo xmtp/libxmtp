@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
+  randomHandleName,
   runWithIdentity,
 } from "../../helpers.js";
+
+interface InboxIdOutput {
+  identifier: string;
+  kind: string;
+  inboxId: string | null;
+  found: boolean;
+  handle: string | null;
+  otherHandles: string[];
+}
 
 describe("client inbox-id", () => {
   it("fetches inbox ID for a registered address", async () => {
@@ -85,5 +96,61 @@ describe("client inbox-id", () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("identifier");
+  });
+
+  it("finds the inbox that holds a handle and shows its handles", async () => {
+    const owner = await createIdentityWithHandle();
+    const user = await createRegisteredIdentity();
+
+    const byHandle = await runWithIdentity(user, [
+      "client",
+      "inbox-id",
+      "--identifier",
+      owner.handle.toUpperCase(),
+      "--kind",
+      "handle",
+      "--json",
+    ]);
+    expect(byHandle.exitCode).toBe(0);
+    expect(parseJsonOutput<InboxIdOutput>(byHandle.stdout)).toEqual({
+      identifier: owner.handle.toUpperCase(),
+      kind: "handle",
+      inboxId: owner.inboxId,
+      found: true,
+      handle: owner.handle,
+      otherHandles: [],
+    });
+
+    const byAddress = await runWithIdentity(user, [
+      "client",
+      "inbox-id",
+      "-i",
+      owner.address,
+      "--json",
+    ]);
+    expect(byAddress.exitCode).toBe(0);
+    expect(parseJsonOutput<InboxIdOutput>(byAddress.stdout).handle).toBe(
+      owner.handle,
+    );
+
+    const unclaimed = randomHandleName();
+    const missing = await runWithIdentity(user, [
+      "client",
+      "inbox-id",
+      "-i",
+      unclaimed,
+      "-k",
+      "handle",
+      "--json",
+    ]);
+    expect(missing.exitCode).toBe(0);
+    expect(parseJsonOutput<InboxIdOutput>(missing.stdout)).toEqual({
+      identifier: unclaimed,
+      kind: "handle",
+      inboxId: null,
+      found: false,
+      handle: null,
+      otherHandles: [],
+    });
   });
 });

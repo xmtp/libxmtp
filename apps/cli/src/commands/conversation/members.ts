@@ -10,6 +10,8 @@ Retrieves the list of members in a specific conversation (group or DM).
 
 For each member, the output includes:
 - Inbox ID
+- Current handle, such as nick#2341 (empty when the member has none)
+- Other handles, in JSON output only
 - Account identifiers (wallet addresses)
 - Installation IDs
 - Permission level (member, admin, super admin)
@@ -63,7 +65,7 @@ Use --sync to fetch the latest member list from the network before listing.`;
 
     const members = await conversation.members();
 
-    const output = await memberDetails(client, members);
+    const output = await memberDetails(client, members, this.jsonOutput);
 
     this.output(output);
   }

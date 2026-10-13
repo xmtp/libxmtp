@@ -164,6 +164,7 @@ test("configuration snapshots and diagnostic counters remain public", async () =
       "retention",
       "limits",
       "mls",
+      "handles",
       "smartContractWalletChains",
       "attachments",
       "applicationComponents",

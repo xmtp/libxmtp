@@ -22,23 +22,31 @@ import uniffi.xmtp_sdk.ClientEvent
 import uniffi.xmtp_sdk.Message
 import uniffi.xmtp_sdk.SDKClient
 
-/** Install an owned production graph before the Activity creates its controller. */
+/**
+ * Install an owned production graph before the Activity creates its controller. Tests start
+ * from Chats, so Choose your handle is off unless [offerHandleChoice] turns it on.
+ */
 internal class TestAppGraphRule(
     private val notificationTransport: PushTransport? = null,
     private val conversationQueries: ConversationQueries = XmtpQueries(),
+    private val offerHandleChoice: Boolean = false,
 ) : TestRule {
     val observers = TestGraphObservers()
     lateinit var graph: AppGraph
         private set
 
-    fun newShell(store: ViewModelStore): MessengerViewModel =
+    /** [saved] is the shell's saved state, such as the route of an earlier process. */
+    fun newShell(
+        store: ViewModelStore,
+        saved: SavedStateHandle = SavedStateHandle(),
+    ): MessengerViewModel =
         ViewModelProvider(
             store,
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     check(modelClass == MessengerViewModel::class.java)
-                    return MessengerViewModel(graph, SavedStateHandle()) as T
+                    return MessengerViewModel(graph, saved) as T
                 }
             },
         )[MessengerViewModel::class.java]
@@ -53,6 +61,7 @@ internal class TestAppGraphRule(
                     app,
                     sessionObservers = observers.fixed(),
                     conversationQueries = conversationQueries,
+                    offerHandleChoice = offerHandleChoice,
                 )
             } else {
                 AppGraph(
@@ -60,6 +69,7 @@ internal class TestAppGraphRule(
                     sessionObservers = observers.fixed(),
                     notificationTransport = notificationTransport,
                     conversationQueries = conversationQueries,
+                    offerHandleChoice = offerHandleChoice,
                 )
             }
         app.graph = graph
@@ -81,6 +91,7 @@ internal class TestAppGraphRule(
                             app,
                             sessionObservers = observers.fixed(),
                             conversationQueries = conversationQueries,
+                            offerHandleChoice = offerHandleChoice,
                         )
                     } else {
                         AppGraph(
@@ -88,6 +99,7 @@ internal class TestAppGraphRule(
                             sessionObservers = observers.fixed(),
                             notificationTransport = notificationTransport,
                             conversationQueries = conversationQueries,
+                            offerHandleChoice = offerHandleChoice,
                         )
                     }
                 app.graph = graph

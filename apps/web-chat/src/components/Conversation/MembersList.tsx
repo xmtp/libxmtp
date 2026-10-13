@@ -147,7 +147,9 @@ export const MembersList: React.FC<MembersListProps> = ({
                 conversationId={conversationId}
                 description={item.description}
                 displayName={item.displayName}
+                handle={item.handle ?? null}
                 inboxId={item.inboxId}
+                otherHandles={item.otherHandles}
                 permissionLevel={item.permissionLevel}
                 showDm={!(conversation instanceof Dm)}
               />

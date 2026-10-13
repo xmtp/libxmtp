@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { Member } from "@/components/Conversation/Member";
 import type { Member as MemberCardMember } from "@/components/Conversation/MemberCard";
 import type { MemberProfile } from "@/helpers/member";
+import { normalizeMemberInput } from "@/helpers/strings";
 import { useMemberId } from "@/hooks/useMemberId";
 
 const hasInboxId = (
@@ -13,9 +14,7 @@ const hasInboxId = (
   return members.some((member) => member.inboxId === inboxId);
 };
 
-export type PendingMember = MemberCardMember & {
-  inboxId: string;
-};
+export type PendingMember = MemberCardMember;
 
 export type AddMembersProps = {
   existingMembers: MemberProfile[];
@@ -38,12 +37,13 @@ export const AddMembers: React.FC<AddMembersProps> = ({
     address: memberIdAddress,
     description: memberIdDescription,
     avatar: memberIdAvatar,
+    handle: memberIdHandle,
   } = useMemberId();
   const error =
     memberIdInboxId &&
     (hasInboxId(existingMembers, memberIdInboxId) ||
       hasInboxId(addedMembers, memberIdInboxId))
-      ? "Duplicate address or inbox ID"
+      ? "This member is already in the list"
       : null;
 
   const handleAddMember = useCallback(() => {
@@ -54,6 +54,7 @@ export const AddMembers: React.FC<AddMembersProps> = ({
       displayName: memberIdDisplayName,
       avatar: memberIdAvatar,
       description: memberIdDescription,
+      handle: memberIdHandle,
     };
     setMemberId("");
     onMembersAdded?.([...addedMembers, member]);
@@ -64,6 +65,7 @@ export const AddMembers: React.FC<AddMembersProps> = ({
     memberIdDisplayName,
     memberIdDescription,
     memberIdAvatar,
+    memberIdHandle,
     onMembersAdded,
     setMemberId,
   ]);
@@ -82,7 +84,7 @@ export const AddMembers: React.FC<AddMembersProps> = ({
         <TextInput
           flex={1}
           size="sm"
-          label="Address or inbox ID"
+          label="Address, inbox ID, or handle"
           styles={{
             label: {
               marginBottom: "var(--mantine-spacing-xxs)",
@@ -91,7 +93,7 @@ export const AddMembers: React.FC<AddMembersProps> = ({
           error={memberIdError || error}
           value={memberId}
           onChange={(event) => {
-            setMemberId(event.target.value.toLowerCase().replace(/\s/g, ""));
+            setMemberId(normalizeMemberInput(event.target.value));
           }}
           onKeyDown={(event) => {
             if (event.key === " ") {
@@ -139,6 +141,8 @@ export const AddMembers: React.FC<AddMembersProps> = ({
                 address={member.address}
                 avatar={member.avatar}
                 description={member.description}
+                handle={member.handle}
+                inboxId={member.inboxId}
                 onClick={() => {
                   handleRemoveAddedMember(member.inboxId);
                 }}

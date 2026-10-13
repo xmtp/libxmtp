@@ -5,6 +5,7 @@ import org.json.JSONObject
 import org.xmtp.android.example.messenger.AppSession
 import org.xmtp.android.example.messenger.SecureSecretStore
 import org.xmtp.android.example.messenger.SessionKey
+import org.xmtp.android.example.messenger.feature.handles.HandleStepStore
 import org.xmtp.android.example.shared.Appearance
 import java.security.MessageDigest
 
@@ -13,7 +14,7 @@ class AppFeaturePreferences(
     context: Context,
     private val session: AppSession,
     private val secrets: SecureSecretStore,
-) {
+) : HandleStepStore {
     private val appearanceStore =
         context.applicationContext.getSharedPreferences(
             "messenger-appearance",
@@ -91,6 +92,26 @@ class AppFeaturePreferences(
         key: SessionKey,
         label: String,
     ) = write(key) { it.put("server-label", label.trim()) }
+
+    override fun handleStepDone(profile: String): Boolean =
+        synchronized(lock) { values(profile).optBoolean("handle-step-done") }
+
+    override fun finishHandleStep(key: SessionKey) = write(key) { it.put("handle-step-done", true) }
+
+    /** The time of each handle claim this device made, in milliseconds. Claims from other devices are absent. */
+    fun handleClaims(profile: String): Map<String, Long> =
+        synchronized(lock) {
+            val claims = values(profile).optJSONObject("handle-claims") ?: return@synchronized emptyMap()
+            claims.keys().asSequence().associateWith { claims.optLong(it) }
+        }
+
+    fun recordHandleClaim(
+        key: SessionKey,
+        handle: String,
+        atMs: Long,
+    ) = write(key) { data ->
+        data.put("handle-claims", (data.optJSONObject("handle-claims") ?: JSONObject()).put(handle, atMs))
+    }
 }
 
 data class ComposerDraft(

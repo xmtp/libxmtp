@@ -81,6 +81,39 @@ xmtp conversation messages <conversation-id>
 Use `--json` for machine-readable output and `xmtp <command> --help` for full
 command documentation.
 
+## Handles
+
+A handle is a public name, such as `nick` or `nick#2341`, that people on a
+backend use to find an inbox. Handles are public and permanent. An inbox can
+change its handle once every 7 days, up to 64 times in total. Its earlier
+handles stay with it and still find it.
+
+```bash
+xmtp client handle-available nick           # free handles, the bare name first
+xmtp client handle-claim nick#2341          # claim one, or switch back to an old one
+xmtp client inbox-id -i nick#2341 -k handle # the inbox that holds a handle
+xmtp conversations create-dm nick#2341 --identifier-kind handle
+```
+
+The backend decides each claim. `handle-claim` prints a plain message and
+exits with a nonzero code when the handle is taken, not allowed on the
+backend, or claimed less than 7 days after the last change, or when the inbox
+has used all 64 changes. It never claims a different handle. Run
+`handle-available` again to pick another one. It also refuses the inbox's
+current handle before it asks the backend: that claim changes nothing, but it
+counts as a change.
+
+Handle commands check the handle grammar before they ask the backend, and
+refuse other text with a plain message. Error output shows each control
+character in user input as a visible `\uXXXX` escape.
+
+Commands that take an identity accept a handle with `--identifier-kind handle`
+(`--kind handle` for `client inbox-id`): `can-message`, `conversations
+create-dm`, `create-group`, and `get-dm`, and `conversation add-members` and
+`remove-members`. JSON output of inbox states and members has `handle`, the
+current handle or `null`, and `otherHandles`. The `conversation members` table
+shows the current handle only.
+
 The `conversation messages` command accepts named standard content types with
 `--content-type` and `--exclude-content-type`. The old `custom` wildcard is
 removed. The CLI rejects `--content-type custom` and

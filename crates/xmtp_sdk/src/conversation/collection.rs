@@ -259,34 +259,23 @@ impl Conversations {
         .await
     }
 
+    /// The DM with an account or a handle, or `None`. A handle resolves
+    /// through the verified handle resolver before the DM is looked up.
     pub async fn get_dm_by_identity(
         &self,
         identity: PublicIdentity,
     ) -> Result<Option<Arc<Dm>>, XmtpError> {
         let client = self.client.clone();
-        let identifier = identity.to_core()?;
+        let target = identity.to_target()?;
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
-            let Some(peer) = client
-                .find_inbox_id_from_identifier(&client.context.db(), identifier)
+            let Some(group) = client
+                .find_dm_by_target(&target)
                 .await
                 .map_err(XmtpError::from_client)?
             else {
                 return Ok(None);
             };
-            let members = xmtp_mls::mls_common::group_metadata::DmMembers {
-                member_one_inbox_id: client.inbox_id(),
-                member_two_inbox_id: peer.as_str(),
-            };
-            let Some(stored) = client
-                .context
-                .db()
-                .find_active_dm_group(&members)
-                .map_err(XmtpError::from_core)?
-            else {
-                return Ok(None);
-            };
-            let group = client.group(&stored.id).map_err(XmtpError::from_core)?;
             Ok(Some(Arc::new(Dm::from_core(group, client_key).await?)))
         })
         .await
@@ -341,18 +330,17 @@ impl Conversations {
         .await
     }
 
-    /// Create a group from account identities. Hosts present this as a
-    /// `createGroup` overload or union.
+    /// Create a group from account identities and handles. Hosts present
+    /// this as a `createGroup` overload or union. Every handle resolves
+    /// through the verified handle resolver before the group exists, and all
+    /// members join in one commit.
     #[uniffi::method(default(options = None))]
     pub async fn create_group_with_identities(
         &self,
         members: Vec<PublicIdentity>,
         options: Option<CreateGroupOptions>,
     ) -> Result<Arc<Group>, XmtpError> {
-        let members = members
-            .iter()
-            .map(PublicIdentity::to_core)
-            .collect::<Result<Vec<_>, _>>()?;
+        let members = crate::signer::targets(&members)?;
         let (permissions, metadata) = options.unwrap_or_default().into_core()?;
         let client = self.client.clone();
         let client_key = self.client_key;
@@ -360,7 +348,7 @@ impl Conversations {
             self.client.context.clone(),
             Box::pin(async move {
                 let group = client
-                    .create_group_with_identifiers(&members, permissions, Some(metadata))
+                    .create_group_with_targets(&members, permissions, Some(metadata))
                     .await
                     .map_err(XmtpError::from_core)?;
                 Ok(Arc::new(Group::from_core(group, client_key).await?))
@@ -369,15 +357,17 @@ impl Conversations {
         .await
     }
 
-    /// Find or create a DM with an account identity. Hosts present this as a
-    /// `createDm` overload or union.
+    /// Find or create a DM with an account identity or a handle. Hosts
+    /// present this as a `createDm` overload or union. A handle resolves
+    /// through the verified handle resolver before the existing DM is looked
+    /// up.
     #[uniffi::method(default(options = None))]
     pub async fn create_dm_with_identity(
         &self,
         peer: PublicIdentity,
         options: Option<CreateDmOptions>,
     ) -> Result<Arc<Dm>, XmtpError> {
-        let peer = peer.to_core()?;
+        let peer = peer.to_target()?;
         let client = self.client.clone();
         let metadata = options.unwrap_or_default().into();
         let client_key = self.client_key;
@@ -385,7 +375,7 @@ impl Conversations {
             self.client.context.clone(),
             Box::pin(async move {
                 let group = client
-                    .find_or_create_dm_by_identity(peer, Some(metadata))
+                    .find_or_create_dm_by_target(&peer, metadata)
                     .await
                     .map_err(XmtpError::from_core)?;
                 Ok(Arc::new(Dm::from_core(group, client_key).await?))

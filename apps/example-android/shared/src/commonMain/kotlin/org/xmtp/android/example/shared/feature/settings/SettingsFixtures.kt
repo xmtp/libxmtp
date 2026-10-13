@@ -7,6 +7,8 @@ object SettingsFixtures {
     val populated =
         SettingsState(
             inbox = "sample-own-inbox",
+            handle = "nick#2341",
+            otherHandles = listOf("nick#0912", "nickm"),
             backend = "https://messenger.example.test",
             serverLabel = "Team server",
             notifications = CapabilityUi(true),

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
+  randomHandleName,
   runWithIdentity,
 } from "../../helpers.js";
 
@@ -15,6 +17,8 @@ interface GroupResult {
   memberCount: number;
   members: Array<{
     inboxId: string;
+    handle: string | null;
+    otherHandles: string[];
     accountIdentifiers: Array<{
       identifier: string;
       kind: string;
@@ -99,5 +103,55 @@ describe("conversations create-group", () => {
 
     const output = parseJsonOutput<GroupResult>(result.stdout);
     expect(output.memberCount).toBe(2);
+  });
+
+  it("creates a group from handles", async () => {
+    const creator = await createRegisteredIdentity();
+    const [member1, member2] = await Promise.all([
+      createIdentityWithHandle(),
+      createIdentityWithHandle(),
+    ]);
+
+    const result = await runWithIdentity(creator, [
+      "conversations",
+      "create-group",
+      member1.handle,
+      member2.handle,
+      "--identifier-kind",
+      "handle",
+      "--json",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const output = parseJsonOutput<GroupResult>(result.stdout);
+    expect(output.memberCount).toBe(3);
+    for (const member of [member1, member2]) {
+      expect(
+        output.members.find((entry) => entry.inboxId === member.inboxId)
+          ?.handle,
+      ).toBe(member.handle);
+    }
+  });
+
+  it("names only the handles that no inbox holds", async () => {
+    const creator = await createRegisteredIdentity();
+    const member = await createIdentityWithHandle();
+    const missing = [randomHandleName(), randomHandleName()];
+
+    const result = await runWithIdentity(creator, [
+      "conversations",
+      "create-group",
+      missing[0],
+      member.handle,
+      missing[1],
+      "--identifier-kind",
+      "handle",
+    ]);
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.split("\n")).toContain(
+      `No inbox has the handles ${missing[0]}, ${missing[1]}.`,
+    );
+    expect(result.stderr).not.toContain("USAGE");
   });
 });

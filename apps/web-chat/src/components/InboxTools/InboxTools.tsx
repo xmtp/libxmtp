@@ -24,7 +24,7 @@ import { WalletConnect } from "@/components/App/WalletConnect";
 import { InstallationTable } from "@/components/InboxTools/InstallationTable";
 import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { createEOASigner, createSCWSigner } from "@/helpers/createSigner";
-import { isValidInboxId } from "@/helpers/strings";
+import { isValidInboxId, normalizeMemberInput } from "@/helpers/strings";
 import { useEphemeralSigner } from "@/hooks/useEphemeralSigner";
 import { useMemberId } from "@/hooks/useMemberId";
 import { useSettings } from "@/hooks/useSettings";
@@ -291,7 +291,7 @@ export const InboxTools: React.FC = () => {
               <Stack gap="xs" mb="md">
                 <Group justify="space-between" align="center">
                   <Text size="sm" pl={4}>
-                    Enter an address or inbox ID
+                    Enter an address, inbox ID, or handle
                   </Text>
                   {memberIdError && (
                     <Text c="red.7" size="sm">
@@ -304,7 +304,9 @@ export const InboxTools: React.FC = () => {
                   error={!!memberIdError}
                   value={memberId}
                   onChange={(event) => {
-                    setMemberId(event.target.value);
+                    // as in the new-DM and add-members fields: a handle
+                    // typed with capitals still matches the handle grammar
+                    setMemberId(normalizeMemberInput(event.target.value));
                   }}
                 />
                 <Group justify="space-between" align="center">

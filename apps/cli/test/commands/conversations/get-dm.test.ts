@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
+  randomHandleName,
   runWithIdentity,
 } from "../../helpers.js";
 
@@ -106,5 +108,52 @@ describe("conversations get-dm", () => {
     ]);
 
     expect(result.exitCode).not.toBe(0);
+  });
+
+  it("gets a DM by handle", async () => {
+    const sender = await createRegisteredIdentity();
+    const recipient = await createIdentityWithHandle();
+
+    const createResult = await runWithIdentity(sender, [
+      "conversations",
+      "create-dm",
+      recipient.address,
+      "--json",
+    ]);
+    expect(createResult.exitCode).toBe(0);
+    const created = parseJsonOutput<DmResult>(createResult.stdout);
+
+    const getResult = await runWithIdentity(sender, [
+      "conversations",
+      "get-dm",
+      recipient.handle,
+      "--identifier-kind",
+      "handle",
+      "--json",
+    ]);
+
+    expect(getResult.exitCode).toBe(0);
+    const dm = parseJsonOutput<DmResult>(getResult.stdout);
+    expect(dm.id).toBe(created.id);
+    expect(dm.peerInboxId).toBe(recipient.inboxId);
+  });
+
+  it("names a handle that no inbox holds", async () => {
+    const sender = await createRegisteredIdentity();
+    const handle = randomHandleName();
+
+    const result = await runWithIdentity(sender, [
+      "conversations",
+      "get-dm",
+      handle,
+      "--identifier-kind",
+      "handle",
+    ]);
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.split("\n")).toContain(
+      `No inbox has the handle ${handle}.`,
+    );
+    expect(result.stderr).not.toContain("USAGE");
   });
 });

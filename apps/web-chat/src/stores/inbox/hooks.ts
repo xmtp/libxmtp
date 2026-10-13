@@ -107,6 +107,10 @@ export const useActions = () => {
     (state) => state.syncPermissions,
   );
   const syncMembers = useStore(inboxStore, (state) => state.syncMembers);
+  const refreshInboxHandles = useStore(
+    inboxStore,
+    (state) => state.refreshInboxHandles,
+  );
   const reset = useStore(inboxStore, (state) => state.reset);
 
   return {
@@ -122,6 +126,15 @@ export const useActions = () => {
     setLastSyncedAt,
     syncPermissions,
     syncMembers,
+    refreshInboxHandles,
     reset,
   };
+};
+
+export const useOwnHandlesState = () => {
+  return useStore(inboxStore, (state) => state.ownHandles);
+};
+
+export const useOwnHandlesFailed = () => {
+  return useStore(inboxStore, (state) => state.ownHandlesFailed);
 };

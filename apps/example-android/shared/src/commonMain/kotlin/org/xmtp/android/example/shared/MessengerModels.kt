@@ -4,6 +4,7 @@ import org.xmtp.android.example.shared.feature.chat.*
 import org.xmtp.android.example.shared.feature.connect.*
 import org.xmtp.android.example.shared.feature.conversations.*
 import org.xmtp.android.example.shared.feature.group.*
+import org.xmtp.android.example.shared.feature.handles.*
 import org.xmtp.android.example.shared.feature.settings.*
 
 enum class Screen {
@@ -16,6 +17,8 @@ enum class Screen {
     GROUP_FIELDS,
     MY_FIELDS,
     DRAFTS,
+    CHOOSE_HANDLE,
+    CHANGE_HANDLE,
 }
 
 data class ConversationRow(
@@ -151,6 +154,7 @@ data class MessengerState(
     val groupState: GroupState? = null,
     val settingsState: SettingsState? = null,
     val requestState: RequestState? = null,
+    val handleState: HandleState? = null,
 )
 
 sealed interface MessengerAction {
@@ -324,5 +328,9 @@ sealed interface MessengerAction {
 
     data class ShellFeature(
         val action: ShellAction,
+    ) : MessengerAction
+
+    data class HandleFeature(
+        val action: HandleAction,
     ) : MessengerAction
 }

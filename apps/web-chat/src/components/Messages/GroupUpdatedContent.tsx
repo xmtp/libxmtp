@@ -7,7 +7,11 @@ import { Identity } from "@/components/Identity";
 import { IdentityBadge } from "@/components/IdentityBadge";
 import { useConversationContext } from "@/contexts/ConversationContext";
 import { nsToDate } from "@/helpers/date";
-import { combineProfiles, useAllProfiles } from "@/helpers/member";
+import {
+  combineProfiles,
+  memberHandles,
+  useAllProfiles,
+} from "@/helpers/member";
 import { MEMBER_NO_LONGER_IN_GROUP, shortAddress } from "@/helpers/strings";
 import { getMemberAddress } from "@/helpers/xmtp";
 import { useConversation } from "@/hooks/useConversation";
@@ -35,6 +39,7 @@ const GroupMembersUpdatedContent: React.FC<GroupMembersAddedContentProps> = ({
             getMemberAddress(initiatedByMember),
             profiles.get(getMemberAddress(initiatedByMember)) ?? [],
           )}
+          {...memberHandles(initiatedByMember)}
           permissionLevel={initiatedByMember.permissionLevel}
           conversationId={conversationId}
           inboxId={initiatedBy}
@@ -70,6 +75,7 @@ const GroupMembersUpdatedContent: React.FC<GroupMembersAddedContentProps> = ({
             avatar={profile.avatar}
             description={profile.description}
             displayName={profile.displayName}
+            {...memberHandles(memberMember)}
             conversationId={conversationId}
             permissionLevel={memberMember.permissionLevel}
             inboxId={member}
@@ -112,6 +118,7 @@ const GroupMembersLeftContent: React.FC<
             avatar={profile.avatar}
             description={profile.description}
             displayName={profile.displayName}
+            {...memberHandles(memberMember)}
             conversationId={conversationId}
             permissionLevel={memberMember.permissionLevel}
             inboxId={member}
@@ -158,6 +165,7 @@ const GroupMembersPermissionsContent: React.FC<
             getMemberAddress(initiatedByMember),
             profiles.get(getMemberAddress(initiatedByMember)) ?? [],
           )}
+          {...memberHandles(initiatedByMember)}
           permissionLevel={initiatedByMember.permissionLevel}
           conversationId={conversationId}
           inboxId={initiatedBy}
@@ -196,6 +204,7 @@ const GroupMembersPermissionsContent: React.FC<
             avatar={profile.avatar}
             description={profile.description}
             displayName={profile.displayName}
+            {...memberHandles(memberMember)}
             conversationId={conversationId}
             permissionLevel={memberMember.permissionLevel}
             inboxId={member}
@@ -245,6 +254,7 @@ const GroupMetadataUpdatedContent: React.FC<
             getMemberAddress(initiatedByMember),
             profiles.get(getMemberAddress(initiatedByMember)) ?? [],
           )}
+          {...memberHandles(initiatedByMember)}
           permissionLevel={initiatedByMember.permissionLevel}
           conversationId={conversationId}
           inboxId={initiatedBy}

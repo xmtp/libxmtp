@@ -6,7 +6,9 @@ use xmtp_id::associations::{
 };
 use xmtp_id::key_package::VerifiedKeyPackageV2;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_mls::inbox_handles::{IdentityTarget, resolve_handles_with_verifier};
 use xmtp_proto::types::{ApiIdentifier, GroupId, InstallationId as CoreInstallationId};
+use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 use crate::{
     Backend, BackendSource, ConversationId, InboxId, InboxState, InstallationId,
@@ -16,6 +18,18 @@ use crate::{
 
 fn api(backend: &Backend) -> xmtp_api::ApiClientWrapper<xmtp_mls::XmtpApiClient> {
     xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default())
+}
+
+/// A store that lives only for one static call.
+async fn in_memory_store() -> Result<xmtp_db::DefaultStore, XmtpError> {
+    crate::client::open_store(
+        &crate::StorageOptions {
+            location: crate::StorageLocation::InMemory,
+            ..Default::default()
+        },
+        None,
+    )
+    .await
 }
 
 /// Read inbox update counts without opening a client or local storage.
@@ -51,42 +65,88 @@ pub struct MessageMetadataEntry {
 }
 
 #[xmtp_macro::sdk_export(client_static)]
-/// Returns one entry per core identity. Keys use `ethereum:<core text>` or
-/// `passkey:<lowercase core hex>`.
+/// Returns one entry per core identity. Keys use `ethereum:<core text>`,
+/// `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A handle is
+/// available when the backend names an inbox for it.
 pub async fn can_message_with_backend(
     backend: BackendSource,
     identities: Vec<PublicIdentity>,
 ) -> Result<HashMap<String, bool>, XmtpError> {
+    let targets = signer::targets(&identities)?;
     let backend = backend.resolve().await?;
-    let core = identities
-        .iter()
-        .map(PublicIdentity::to_core)
-        .collect::<Result<Vec<_>, _>>()?;
-    let ids: Vec<ApiIdentifier> = core.iter().cloned().map(Into::into).collect();
+    let ids: Vec<ApiIdentifier> = targets.iter().map(lookup).collect();
     let found = api(&backend)
         .get_inbox_ids(ids)
         .await
         .map_err(XmtpError::from_api)?;
-    Ok(signer::can_message_results(
-        core.into_iter()
-            .zip(found.into_iter().map(|inbox| inbox.is_some())),
-    ))
+    let mut accounts = Vec::new();
+    let mut handles = Vec::new();
+    for (target, inbox) in targets.into_iter().zip(found) {
+        match target {
+            IdentityTarget::Account(identifier) => accounts.push((identifier, inbox.is_some())),
+            IdentityTarget::Handle(handle) => handles.push((handle, inbox.is_some())),
+        }
+    }
+    let mut results = signer::can_message_results(accounts);
+    results.extend(signer::handle_results(handles));
+    Ok(results)
 }
 
+/// The `GetInboxIds` entry for a target.
+fn lookup(target: &IdentityTarget) -> ApiIdentifier {
+    match target {
+        IdentityTarget::Account(identifier) => identifier.clone().into(),
+        IdentityTarget::Handle(handle) => ApiIdentifier {
+            identifier: handle.to_string(),
+            identifier_kind: IdentifierKind::Handle,
+        },
+    }
+}
+
+/// The inbox of an account or a handle. An account with no live inbox gets
+/// the inbox ID it would create with nonce 0. A handle never derives an inbox
+/// ID: it resolves only when the inbox the backend names holds it in its own
+/// identity log, and fails with `IdentityNotFound` otherwise. An old handle
+/// of an inbox still resolves to it.
 #[xmtp_macro::sdk_export(client_static)]
 pub async fn inbox_id_for_with_backend(
     backend: BackendSource,
     identity: PublicIdentity,
 ) -> Result<InboxId, XmtpError> {
+    let target = identity.to_target()?;
     let backend = backend.resolve().await?;
-    let identifier = identity.to_core()?;
-    let found = api(&backend)
-        .get_inbox_ids(vec![identifier.clone().into()])
-        .await
-        .map_err(XmtpError::from_api)?;
-    let inbox = match found.into_iter().next().flatten() {
-        Some(value) => value,
-        None => identifier.inbox_id(0).map_err(XmtpError::from_core)?,
+    inbox_id_for_target(&api(&backend), target).await
+}
+
+/// [`inbox_id_for_with_backend`] through any API client.
+pub(crate) async fn inbox_id_for_target<A>(
+    api: &xmtp_api::ApiClientWrapper<A>,
+    target: IdentityTarget,
+) -> Result<InboxId, XmtpError>
+where
+    A: xmtp_mls::XmtpApi,
+{
+    let inbox = match target {
+        IdentityTarget::Account(identifier) => {
+            let found = api
+                .get_inbox_ids(vec![identifier.clone().into()])
+                .await
+                .map_err(XmtpError::from_api)?;
+            match found.into_iter().next().flatten() {
+                Some(value) => value,
+                None => identifier.inbox_id(0).map_err(XmtpError::from_core)?,
+            }
+        }
+        // implements: IDENT-085
+        IdentityTarget::Handle(handle) => {
+            let store = in_memory_store().await?;
+            resolve_handles_with_verifier(api, &store.db(), &[handle], api)
+                .await
+                .map_err(XmtpError::from_client)?
+                .pop()
+                .flatten()
+                .ok_or_else(XmtpError::handle_not_found)?
+        }
     };
     InboxId::try_from(inbox)
 }
@@ -101,14 +161,7 @@ pub async fn inbox_states_with_backend(
         .map(InboxId::checked)
         .collect::<Result<Vec<_>, _>>()?;
     let backend = backend.resolve().await?;
-    let store = crate::client::open_store(
-        &crate::StorageOptions {
-            location: crate::StorageLocation::InMemory,
-            ..Default::default()
-        },
-        None,
-    )
-    .await?;
+    let store = in_memory_store().await?;
     let api = api(&backend);
     let verifier = Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>;
     let states =
@@ -248,8 +301,9 @@ pub async fn revoke_installations_with_backend(
         .iter()
         .map(InstallationId::to_bytes)
         .collect::<Result<Vec<_>, _>>()?;
-    let backend = backend.resolve().await?;
+    // A signer that names a handle fails here, before any request.
     let identity = signer::identity(signer.clone()).await?.to_core()?;
+    let backend = backend.resolve().await?;
     let mut request = xmtp_mls::identity_updates::revoke_installations_with_verifier(
         &identity,
         inbox_id,
@@ -308,14 +362,7 @@ pub async fn revoke_installations_with_backend(
             .await
             .map_err(XmtpError::from_signature_request)?,
     }
-    let store = crate::client::open_store(
-        &crate::StorageOptions {
-            location: crate::StorageLocation::InMemory,
-            ..Default::default()
-        },
-        None,
-    )
-    .await?;
+    let store = in_memory_store().await?;
     xmtp_mls::identity_updates::apply_signature_request_with_verifier(
         &api,
         &store.db(),

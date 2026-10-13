@@ -1,6 +1,7 @@
 import { Badge, Box, Group, Stack, Text } from "@mantine/core";
 import { useCallback, useEffect, useMemo } from "react";
 
+import { ChooseHandlePrompt } from "@/components/Conversations/ChooseHandlePrompt";
 import { ConversationsList } from "@/components/Conversations/ConversationList";
 import { ConversationsMenu } from "@/components/Conversations/ConversationsMenu";
 import { HelpCard } from "@/components/Conversations/HelpCard";
@@ -64,6 +65,7 @@ export const ConversationsNavbar: React.FC = () => {
       withScrollArea={false}>
       <Stack gap={0} style={{ flexGrow: 1, minHeight: 0 }}>
         {!helpDmExists && <HelpCard />}
+        <ChooseHandlePrompt />
         {conversations.length === 0 ? (
           <Box
             display="flex"

@@ -176,8 +176,9 @@ impl Group {
         .await
     }
 
-    /// Add members by account identity. Hosts present this as an
-    /// `addMembers` overload or union.
+    /// Add members by account identity or handle. Hosts present this as an
+    /// `addMembers` overload or union. Every handle resolves through the
+    /// verified handle resolver first, and all members join in one commit.
     #[tracing::instrument(skip_all)]
     pub async fn add_members_by_identity(
         &self,
@@ -185,15 +186,12 @@ impl Group {
     ) -> Result<crate::MembershipResult, XmtpError> {
         let result = async {
             let group = self.inner.clone();
-            let members = members
-                .iter()
-                .map(PublicIdentity::to_core)
-                .collect::<Result<Vec<_>, _>>()?;
+            let members = crate::signer::targets(&members)?;
             on_sdk_worker(
                 self.inner.context.clone(),
                 Box::pin(async move {
                     group
-                        .add_members_by_identity(&members)
+                        .add_members_by_targets(&members)
                         .await
                         .map_err(XmtpError::from_core)?
                         .try_into()
@@ -208,22 +206,20 @@ impl Group {
         result
     }
 
-    /// Remove members by account identity. Hosts present this as a
-    /// `removeMembers` overload or union.
+    /// Remove members by account identity or handle. Hosts present this as
+    /// a `removeMembers` overload or union. Every handle resolves through the
+    /// verified handle resolver first, and all members leave in one commit.
     pub async fn remove_members_by_identity(
         &self,
         members: Vec<PublicIdentity>,
     ) -> Result<(), XmtpError> {
         let group = self.inner.clone();
-        let members = members
-            .iter()
-            .map(PublicIdentity::to_core)
-            .collect::<Result<Vec<_>, _>>()?;
+        let members = crate::signer::targets(&members)?;
         on_sdk_worker(
             self.inner.context.clone(),
             Box::pin(async move {
                 group
-                    .remove_members_by_identity(&members)
+                    .remove_members_by_targets(&members)
                     .await
                     .map_err(XmtpError::from_core)
             }),

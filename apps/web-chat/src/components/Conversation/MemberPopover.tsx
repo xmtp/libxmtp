@@ -57,17 +57,65 @@ export const useMemberPopover = () => {
   return context;
 };
 
-export type MemberPopoverProps = React.PropsWithChildren<{
+export type MemberPopoverIdentityProps = {
   address: string;
-  avatar: string | null;
-  conversationId: string;
-  description: string | null;
   displayName: string | null;
+  handle: string | null;
   inboxId: string;
-  permissionLevel: PermissionLevel;
-  position?: PopoverProps["position"];
-  showDm?: boolean;
-}>;
+  otherHandles: string[];
+};
+
+/**
+ * The text that identifies a member: the current handle when the member has
+ * one, with the inbox ID and the other handles as secondary text.
+ */
+export const MemberPopoverIdentity: React.FC<MemberPopoverIdentityProps> = ({
+  address,
+  displayName,
+  handle,
+  inboxId,
+  otherHandles,
+}) => {
+  if (!handle) {
+    return (
+      <Group w="100%" align="center" justify="center">
+        {displayName ? (
+          <BreakableText>{displayName}</BreakableText>
+        ) : (
+          <Tooltip label={<Text size="xs">{address}</Text>}>
+            <BreakableText>{shortAddress(address, 8)}</BreakableText>
+          </Tooltip>
+        )}
+      </Group>
+    );
+  }
+  return (
+    <Stack gap={2} w="100%" align="center">
+      <BreakableText fw={700}>{handle}</BreakableText>
+      <Tooltip label={<Text size="xs">{inboxId}</Text>}>
+        <Text size="xs" c="dimmed">
+          {shortAddress(inboxId, 8)}
+        </Text>
+      </Tooltip>
+      {otherHandles.length > 0 && (
+        <Text size="xs" c="dimmed" ta="center">
+          Other handles: {otherHandles.join(" · ")}
+        </Text>
+      )}
+    </Stack>
+  );
+};
+
+export type MemberPopoverProps = React.PropsWithChildren<
+  MemberPopoverIdentityProps & {
+    avatar: string | null;
+    conversationId: string;
+    description: string | null;
+    permissionLevel: PermissionLevel;
+    position?: PopoverProps["position"];
+    showDm?: boolean;
+  }
+>;
 
 export const MemberPopover: React.FC<MemberPopoverProps> = ({
   address,
@@ -76,7 +124,9 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
   conversationId,
   description,
   displayName,
+  handle,
   inboxId,
+  otherHandles,
   permissionLevel,
   position,
   showDm = true,
@@ -311,6 +361,15 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
                   </Menu.Item>
                 )}
                 {canManageMember && <Menu.Divider />}
+                {handle && (
+                  <Menu.Item
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopy(handle);
+                    }}>
+                    Copy handle
+                  </Menu.Item>
+                )}
                 <Menu.Item
                   onClick={(e) => {
                     e.stopPropagation();
@@ -339,15 +398,13 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
               </Menu.Dropdown>
             </Menu>
             <Avatar src={avatar} size="xl" radius="100%" variant="default" />
-            <Group w="100%" align="center" justify="center">
-              {displayName ? (
-                <BreakableText>{displayName}</BreakableText>
-              ) : (
-                <Tooltip label={<Text size="xs">{address}</Text>}>
-                  <BreakableText>{shortAddress(address, 8)}</BreakableText>
-                </Tooltip>
-              )}
-            </Group>
+            <MemberPopoverIdentity
+              address={address}
+              displayName={displayName}
+              handle={handle}
+              inboxId={inboxId}
+              otherHandles={otherHandles}
+            />
             {description && <Text size="xs">{description}</Text>}
             {showDm && (
               <Stack gap="0" w="100%">

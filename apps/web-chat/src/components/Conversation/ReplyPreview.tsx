@@ -59,6 +59,7 @@ export const ReplyPreview: React.FC<ReplyPreviewProps> = ({
               <IdentityBadge
                 address={fromMember ? getMemberAddress(fromMember) : ""}
                 displayName={message.senderInboxId}
+                handle={fromMember?.handle}
                 tooltip={fromMember ? undefined : MEMBER_NO_LONGER_IN_GROUP}
               />
             </Box>

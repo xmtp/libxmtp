@@ -7,6 +7,7 @@ export default class ClientInfo extends BaseCommand {
 Shows the client's identity information including:
 - Wallet address (derived from private key)
 - Inbox ID (XMTP network identifier)
+- Current handle and other handles, if the inbox has claimed any
 - Installation ID (unique to this device/instance)
 - Registration status
 - SDK version information
@@ -38,6 +39,7 @@ application instance using your identity.`;
     const properties = {
       address: client.identity.identifier,
       inboxId: client.inboxId,
+      ...this.handleOutput(await client.inboxState(false)),
       installationId: client.installationId,
       isRegistered: await client.isRegistered(),
       appVersion: client.appVersion,

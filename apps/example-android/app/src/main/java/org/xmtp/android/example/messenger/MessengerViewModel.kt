@@ -30,6 +30,7 @@ internal class MessengerViewModel(
     val createConversation = graph.createConversation
     val attachments = graph.attachments
     val projection = graph.projection
+    val handles = graph.handles
     private val savedStateBinding = graph.bindSavedState(savedStateHandle, viewModelScope)
     private val display =
         FeatureStateProjection(
@@ -44,6 +45,7 @@ internal class MessengerViewModel(
             notifications,
             graph.destinations,
             graph.navigationFailure,
+            handles,
             viewModelScope,
         )
     val state = display.state
@@ -93,6 +95,10 @@ internal class MessengerViewModel(
 
             is MessengerAction.ShellFeature -> {
                 graph.dispatch(action.action)
+            }
+
+            is MessengerAction.HandleFeature -> {
+                handles.dispatch(action.action)
             }
 
             is MessengerAction.Connect -> {
@@ -314,6 +320,14 @@ internal class MessengerViewModel(
 
             Screen.DRAFTS -> {
                 AppRoute.AttachmentRecovery
+            }
+
+            Screen.CHOOSE_HANDLE -> {
+                AppRoute.ChooseHandle
+            }
+
+            Screen.CHANGE_HANDLE -> {
+                AppRoute.ChangeHandle
             }
         }
     }

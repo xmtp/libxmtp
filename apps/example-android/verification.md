@@ -6,6 +6,59 @@ spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
 
+## Handle selection, 2026-10-13
+
+Choose your handle (onboarding) and Change handle (Settings) follow the
+approved handle designs. `HandleControllerTest` drives every editor state
+through the production `HandleController` with a fake account: empty, invalid
+grammar, too short, checking, a stale answer after an edit, a free bare name,
+suggestions and Show more, a taken coded handle, no free handle, taken during a
+claim with fresh suggestions, the first one selected, and no automatic claim,
+not allowed, too soon, the claim limit, a failed check, a claim with no answer,
+a switch back that fails the current rules, confirmation, Skip for now, and an
+account that already has a handle. Each of the 22 tests failed under its own
+mutation of the controller or the input check, and passed again after the
+source was restored.
+
+Review round 1 added three controller tests and one more page of Show more:
+typing the current handle or another handle of the inbox, which the server never
+lists as free; a too-soon answer when this device's last claim is older than
+7 days; and an `InvalidArgument` from the SDK during a check. `HandleStepTest`
+drives `HandleStep`, which keeps Choose your handle to one run for each account.
+Each new assertion failed under its own mutation, and the 23 earlier mutations
+still fail their tests.
+
+The PD15 cleanup removed the editor's extra reads and their tests: the network
+read and load error when the editor opens, the read after a claim with no
+answer, the read after a too-soon or limit answer, and the ownership check of
+earlier suggestions after a taken answer. The editor reads the handles this
+device knows once. A taken answer gets a new lookup that never offers the taken
+handle. A late answer applies only while its job is active, so an edit, open,
+or close drops it. `HandleControllerTest` now has 31 tests. The new or changed
+tests, a failed own read, a claim and a change with no answer, taken during a
+claim, and an answer after close, each failed under their own mutation and
+passed after the source was restored.
+
+Review round 2 added three controller tests. A claim answer after close, before
+the next open, changes nothing and does not leave the editor. A taken coded
+suggestion is not offered again when the name lookup still lists it. The title
+stays Change handle while the own handles load. Each failed under its own
+mutation: no cancel in close, no taken-handle filter on the name lookup, and no
+loading clause in the title.
+
+`HandleStepInstrumentedTest` runs the production `AppGraph` and `RouteOwner`
+against the worktree backend. A new account opens Choose your handle, and Back
+there returns false. A restart before Skip for now opens the step again, not
+the saved Settings route. After Skip for now, a restart opens Settings. It
+passed on an owned ARM64 API 34 emulator with no proxies. It failed under each
+of three mutations: Skip for now saves no flag, a saved route replaces the
+pending step, and Back on the step opens Chats.
+
+`ScreenScaleInstrumentedTest` now opens both handle screens, so the all-screens
+assertion covers eleven screens. The exporter allows their two screenshot
+names. Not run: the rest of app instrumentation, the scaled screen pass, and a
+manual walk-through on an emulator.
+
 ## Messenger redesign, 2026-10-10
 
 This section owns the architecture and design proof for the two redesign PRs.

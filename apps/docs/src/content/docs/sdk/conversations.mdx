@@ -12,6 +12,8 @@ Once you have the verified identities, you can create a new conversation, whethe
 
 `Client.canMessage(identities, backend)` works without a client on Browser and Node. Kotlin and Swift use `SDKClient.canMessage` with an explicit backend. An existing client also has `canMessage`. Browser and Node return a `Map`; Kotlin and Swift return a dictionary keyed by the identity identifier.
 
+A `PublicIdentity` can also name a [handle](/sdk/inboxes/#handles), such as `nick#2341`, with the kind `handle`. `canMessage` reports it under the key `handle:<handle>`, in lowercase. `true` means only that the backend names an inbox for the handle: the SDK does not check this answer against the inbox's identity log. `createDm` and `createGroup` check their own lookup answer before they use the inbox. See [Use a handle](#use-a-handle).
+
 ## Create a group
 
 The backend sets the group member limit. The default limit is 250 inboxes.
@@ -67,6 +69,10 @@ All four SDKs use `conversations.createDm(peer, options)`. Pass an inbox ID or a
 
 Different installations can create separate DMs for the same pair. XMTP stitches these records into one visible DM. A lookup can therefore return a different conversation ID. Do not key app state on a DM conversation ID. See [DM stitching](/sdk/push-notifications/#dm-stitching).
 
+## Use a handle
+
+`createDm`, `createGroup`, and `getDmByIdentity` take a handle as they take an account. One list of `PublicIdentity` values can mix handles and accounts. Before the SDK uses a lookup answer, it checks that the inbox's own identity log claimed the handle. An old handle reaches the inbox that claimed it. For a handle that no inbox claimed, `createDm` and `createGroup` fail with `IdentityNotFound`, and `getDmByIdentity` returns no DM.
+
 ## Agent helpers
 
-The Agent SDK adds `createDmWithAddress`, `createGroupWithAddresses`, and `addMembersWithAddresses`. `getSenderAddress()` resolves the first identifier for the sender and returns `undefined` when none exists.
+The Agent SDK adds `createDmWithAddress`, `createGroupWithAddresses`, and `addMembersWithAddresses`, and `createDmWithHandle`, `createGroupWithHandles`, and `addMembersWithHandles` for handles. `getSenderAddress()` resolves the first identifier for the sender and returns `undefined` when none exists.

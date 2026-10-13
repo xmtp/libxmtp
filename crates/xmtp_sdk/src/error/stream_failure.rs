@@ -278,6 +278,10 @@ impl XmtpError {
             | Self::MalformedEnvelope(details)
             | Self::PublishedButUnconfirmed(details)
             | Self::UserLimitExceeded(details)
+            | Self::HandleTaken(details)
+            | Self::HandleNotAllowed(details)
+            | Self::HandleTooSoon(details)
+            | Self::HandleLimitReached(details)
             | Self::Cancelled(details)
             | Self::Unknown(details) => details,
         }

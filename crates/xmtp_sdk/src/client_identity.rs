@@ -1,7 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use xmtp_id::associations::verify_signed_with_public_context;
-use xmtp_mls::context::{ForegroundCall, XmtpSharedContext};
+use xmtp_mls::{
+    context::{ForegroundCall, XmtpSharedContext},
+    inbox_handles::IdentityTarget,
+};
 
 use crate::CatchUpSummary;
 use crate::{
@@ -375,41 +378,97 @@ impl Client {
         Ok(result)
     }
 
+    /// The inbox of an account or a handle, or `None`. A handle resolves only
+    /// when the inbox the backend names holds it in its own identity log, and
+    /// an old handle of an inbox still resolves to it. This never derives an
+    /// inbox ID from a handle.
     pub async fn inbox_id_for(
         &self,
         identity: PublicIdentity,
     ) -> Result<Option<InboxId>, XmtpError> {
         let _call = self.ensure_open()?;
-        self.inner
-            .find_inbox_id_from_identifier(&self.inner.context.db(), identity.to_core()?)
-            .await
+        let found = match identity.to_target()? {
+            IdentityTarget::Account(identifier) => {
+                self.inner
+                    .find_inbox_id_from_identifier(&self.inner.context.db(), identifier)
+                    .await
+            }
+            IdentityTarget::Handle(handle) => self
+                .inner
+                .resolve_handles(std::slice::from_ref(&handle))
+                .await
+                .map(|mut found| found.pop().flatten()),
+        };
+        found
             .map_err(XmtpError::from_client)?
             .map(InboxId::try_from)
             .transpose()
     }
 
-    /// Returns one entry per core identity. Keys use `ethereum:<core text>` or
-    /// `passkey:<lowercase core hex>`.
+    /// Returns one entry per core identity. Keys use `ethereum:<core text>`,
+    /// `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A
+    /// handle is available when the backend names an inbox for it.
     pub async fn can_message(
         &self,
         identities: Vec<PublicIdentity>,
     ) -> Result<HashMap<String, bool>, XmtpError> {
         let _call = self.ensure_open()?;
-        let core = identities
-            .iter()
-            .map(PublicIdentity::to_core)
-            .collect::<Result<Vec<_>, _>>()?;
-        let answer = self
-            .inner
-            .can_message(&core)
-            .await
-            .map_err(XmtpError::from_client)?;
-        Ok(crate::signer::can_message_results(core.into_iter().map(
-            |key| {
+        let (accounts, handles) = signer::split_targets(signer::targets(&identities)?);
+        let mut results = if accounts.is_empty() && !handles.is_empty() {
+            HashMap::new()
+        } else {
+            let answer = self
+                .inner
+                .can_message(&accounts)
+                .await
+                .map_err(XmtpError::from_client)?;
+            signer::can_message_results(accounts.into_iter().map(|key| {
                 let available = answer.get(&key).copied().unwrap_or(false);
                 (key, available)
-            },
-        )))
+            }))
+        };
+        if !handles.is_empty() {
+            let owned = self
+                .inner
+                .handles_have_owner(&handles)
+                .await
+                .map_err(XmtpError::from_client)?;
+            results.extend(signer::handle_results(handles.into_iter().zip(owned)));
+        }
+        Ok(results)
+    }
+
+    /// The handles for `name` that no inbox holds, the name itself first.
+    /// `name` is a handle as a user typed it; its ASCII capitals become
+    /// lowercase. A name with a code checks only that handle. A name without
+    /// a code checks itself and 100 random codes in one lookup. Text outside
+    /// the handle grammar fails with `InvalidArgument`, before any request.
+    /// The SDK applies no other rule, so a claim of a returned handle can
+    /// still fail with `HandleNotAllowed`. An unregistered client can call it.
+    pub async fn available_handles(&self, name: String) -> Result<Vec<String>, XmtpError> {
+        let _call = self.ensure_open()?;
+        Ok(self
+            .inner
+            .available_handles(&name)
+            .await
+            .map_err(XmtpError::from_client)?
+            .into_iter()
+            .map(String::from)
+            .collect())
+    }
+
+    /// Claim `handle` for this inbox, signed by this installation's key. It
+    /// becomes the inbox's current handle, including when the inbox claimed
+    /// it before. Fails with `HandleTaken`, `HandleNotAllowed`,
+    /// `HandleTooSoon`, or `HandleLimitReached`, none of them retryable, and
+    /// with `InvalidArgument` for text outside the handle grammar.
+    pub async fn claim_handle(&self, handle: String) -> Result<(), XmtpError> {
+        let _call = self.ensure_open()?;
+        let handle = signer::handle_input(&handle)?;
+        self.inner
+            .claim_handle(&handle)
+            .await
+            .map_err(XmtpError::from_client)
     }
 
     pub async fn latest_inbox_updates_count(

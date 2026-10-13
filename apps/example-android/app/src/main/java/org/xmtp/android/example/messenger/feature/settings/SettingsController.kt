@@ -15,6 +15,7 @@ import org.xmtp.android.example.messenger.session.SessionCommands
 import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.feature.settings.*
 import uniffi.xmtp_sdk.inboxId
+import uniffi.xmtp_sdk.inboxState
 import java.util.concurrent.atomic.AtomicLong
 
 internal class SettingsController(
@@ -94,6 +95,13 @@ internal class SettingsController(
                     )
                 }
         val inbox = owner.client.inboxId()
+        val own =
+            try {
+                owner.client.inboxState(false)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                null
+            }
         val serverLabel = preferences.label(owner.key.profileId)
         val appearance = preferences.appearance()
         session.withCurrent(owner.key) {
@@ -101,6 +109,8 @@ internal class SettingsController(
                 it.copy(
                     inbox =
                     inbox,
+                    handle = if (own != null) own.handle else it.handle,
+                    otherHandles = own?.otherHandles ?: it.otherHandles,
                     backend =
                         owner.profile.backend,
                     serverLabel =

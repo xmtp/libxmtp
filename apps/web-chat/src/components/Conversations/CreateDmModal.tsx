@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { Modal } from "@/components/Modal";
+import { normalizeMemberInput } from "@/helpers/strings";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useConversations } from "@/hooks/useConversations";
 import { useMemberId } from "@/hooks/useMemberId";
@@ -76,7 +77,7 @@ export const CreateDmModal: React.FC = () => {
         <Box p="md">
           <TextInput
             size="sm"
-            label="Address or inbox ID"
+            label="Address, inbox ID, or handle"
             styles={{
               label: {
                 marginBottom: "var(--mantine-spacing-xxs)",
@@ -85,7 +86,7 @@ export const CreateDmModal: React.FC = () => {
             error={memberIdError}
             value={memberId}
             onChange={(event) => {
-              setMemberId(event.target.value.toLowerCase().replace(/\s/g, ""));
+              setMemberId(normalizeMemberInput(event.target.value));
             }}
             onKeyDown={(event) => {
               if (event.key === " ") {

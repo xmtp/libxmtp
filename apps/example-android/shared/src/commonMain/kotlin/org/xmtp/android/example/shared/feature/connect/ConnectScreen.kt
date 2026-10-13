@@ -1,6 +1,5 @@
 package org.xmtp.android.example.shared.feature.connect
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -42,16 +40,7 @@ fun ConnectScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Image(
-                xmtpLogo,
-                "XMTP",
-                Modifier.size(48.dp),
-                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary),
-            )
-            Text("XMTP", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.height(12.dp))
+        XmtpBrand()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("A place to connect.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text(

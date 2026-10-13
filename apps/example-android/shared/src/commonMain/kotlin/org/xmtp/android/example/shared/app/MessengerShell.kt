@@ -27,6 +27,9 @@ import org.xmtp.android.example.shared.feature.conversations.ConversationsScreen
 import org.xmtp.android.example.shared.feature.conversations.CreateConversationScreen
 import org.xmtp.android.example.shared.feature.conversations.RequestsScreen
 import org.xmtp.android.example.shared.feature.group.ConversationDetailsScreen
+import org.xmtp.android.example.shared.feature.handles.ChangeHandleScreen
+import org.xmtp.android.example.shared.feature.handles.ChooseHandleScreen
+import org.xmtp.android.example.shared.feature.handles.HandleCopy
 import org.xmtp.android.example.shared.feature.settings.SettingsScreen
 
 @Composable
@@ -43,6 +46,7 @@ fun MessengerShell(
             BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
                 val split =
                     maxWidth >= 840.dp && state.shell.route != AppRoute.Connect &&
+                        state.shell.route != AppRoute.ChooseHandle &&
                         state.shell.route != AppRoute.Requests &&
                         !state.conversations.unknownTab
                 if (split) {
@@ -141,7 +145,7 @@ private fun RouteContent(
     messageExtra: @Composable (MessageRow) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
-        if (route != AppRoute.Connect) ShellHeader(route, state, actions)
+        if (route != AppRoute.Connect && route != AppRoute.ChooseHandle) ShellHeader(route, state, actions)
         Box(Modifier.weight(1f)) {
             when (route) {
                 AppRoute.Connect -> {
@@ -185,6 +189,14 @@ private fun RouteContent(
 
                 AppRoute.Settings -> {
                     SettingsScreen(state.settings, actions.settings, actions.shell)
+                }
+
+                AppRoute.ChooseHandle -> {
+                    ChooseHandleScreen(state.handles, actions.handles)
+                }
+
+                AppRoute.ChangeHandle -> {
+                    ChangeHandleScreen(state.handles, actions.handles)
                 }
 
                 else -> {
@@ -244,6 +256,7 @@ private fun ShellHeader(
                         AppRoute.Settings -> "Settings"
                         is AppRoute.GroupFields, is AppRoute.OwnFields -> "Developer tools"
                         AppRoute.AttachmentRecovery -> "Attachment recovery"
+                        AppRoute.ChangeHandle -> HandleCopy.screenTitle(state.handles)
                         else -> "XMTP"
                     },
                     Modifier.weight(1f).padding(horizontal = 12.dp),

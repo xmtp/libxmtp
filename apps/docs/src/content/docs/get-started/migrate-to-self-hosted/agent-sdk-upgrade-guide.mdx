@@ -151,6 +151,8 @@ Read decoded content from `ctx.content` after a context type guard narrows its t
 
 The Agent helpers `createDmWithAddress`, `createGroupWithAddresses`, `addMembersWithAddresses`, and `getConversationContext` keep their names. They now call Node `createDm`, `createGroup`, `addMembers`, and `getById`. The Node option and result shapes changed. Do not pass old `Group<T>` or `Dm<T>` types. Ethereum addresses use viem `Hex`.
 
+Handles are new. `createDmWithHandle`, `createGroupWithHandles`, and `addMembersWithHandles` take handles such as `nick#2341`. See [Handles](/sdk/inboxes/#handles).
+
 ```ts source="migration-agent.ts" region="conversations"
 
 ```

@@ -76,8 +76,8 @@ pub use client::{
 };
 #[cfg(not(feature = "pure-only"))]
 pub use configuration::{
-    AttachmentsConfiguration, AuthConfiguration, LimitsConfiguration, MlsConfiguration,
-    RetentionConfiguration, ServerConfiguration, SigningKeyDescription,
+    AttachmentsConfiguration, AuthConfiguration, HandlesConfiguration, LimitsConfiguration,
+    MlsConfiguration, RetentionConfiguration, ServerConfiguration, SigningKeyDescription,
 };
 #[cfg(feature = "conformance")]
 pub use content::StandardCodecSample;
@@ -124,10 +124,10 @@ pub use events::{
     ConnectionStateChanged, ConsentChanged, ConsentEntityKind, ConversationJoined,
     ConversationPaused, ConversationRemoved, DeletionCause, EventConsentState, EventContentTypeId,
     EventConversationType, EventFilter, EventKind, EventListener, EventMessageStatus, EventReader,
-    GroupRef, HmacKeysUpdated, IdentityRegistered, InstallationRef, InstallationRevoked,
-    JoinOrigin, Lagged, ListenerError, ListenerId, LockoutChange, LockoutChanged,
-    MembershipChanged, MessageDeleted, MessageReceived, MessageRef, MessageStatusChanged,
-    MetadataChanged, NotificationsFailed, RejectionCause, RemovalCause,
+    GroupRef, HandleChanged, HmacKeysUpdated, IdentityRegistered, InstallationRef,
+    InstallationRevoked, JoinOrigin, Lagged, ListenerError, ListenerId, LockoutChange,
+    LockoutChanged, MembershipChanged, MessageDeleted, MessageReceived, MessageRef,
+    MessageStatusChanged, MetadataChanged, NotificationsFailed, RejectionCause, RemovalCause,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use identity::{
