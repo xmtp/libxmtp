@@ -618,9 +618,3 @@ owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The client has no handle.changed kind, and the association state it stores carries no handles yet, so no event reports a change of an inbox's display handle."
 
-[[waiver]]
-id = "EVENT-059"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No handle.changed events exist yet, so nothing orders them by the sequence id of the association state they report."

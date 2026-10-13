@@ -293,7 +293,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 
 An event for a change to stored state is emitted after the change is stored, so an app that reads again on an event sees the change. A change that is not stored, because a transaction failed or was retried, has no event.
 
-Order is kept where an app depends on it: within one group, within one consent entity, within one attachment key, and within one inbox's `handle.changed` events. Events for two groups, including two groups of one stitched DM, and a group's events relative to its consent events, can be emitted in either order, because the client changes them independently.
+Order is kept where an app depends on it: within one group, within one consent entity, and within one attachment key. Events for two groups, including two groups of one stitched DM, and a group's events relative to its consent events, can be emitted in either order, because the client changes them independently.
 
 Emission does not depend on why the change happened: a message stream, a sync call, a push-driven fetch, a background worker, or an app act all produce the same events.
 
@@ -310,7 +310,6 @@ An event subscription carries no network interest, so a server rejection does no
 | EVENT-055 | Shared lockout reaches every client | When client instances share one credential handle and that handle's lockout state changes, the client MUST emit `client.lockout_changed` on the event bus of every client instance that shares the handle. | Every client that shares the handle is locked out together; an app told about only one keeps retrying with the others. |
 | EVENT-056 | One client's events | An SDK MUST hand off to a subscription only the events emitted by the client instance on which the app created it, including when two client instances in one process share a database or a credential, other than the lockout event of EVENT-055. | An app with two accounts open shows one account's messages and consent changes under the other. |
 | EVENT-057 | Attachment event order | The client MUST emit the `attachment.*` events whose payloads carry the same `attachment_key` in the order it made the changes they report. | An app that receives `attachment.upload_completed` before `attachment.upload_started` shows a finished upload as running. |
-| EVENT-059 | Handle event order | The client MUST emit the `handle.changed` events whose payloads carry the same `inbox_id` in ascending order of the sequence ids of the association states they report. | An app that receives two handle changes reversed shows the older handle. |
 
 ## 3. Filters
 
