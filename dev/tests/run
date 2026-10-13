@@ -41,7 +41,10 @@ SUMMARY = "dev-tests-run-summary"
 
 
 def run_module(path):
-    """Import and run one module. Return (tests run, failure detail or None)."""
+    """Import and run one module.
+
+    Return (tests run, tests skipped, failure detail or None).
+    """
     output = io.StringIO()
     try:
         module = importlib.import_module(path.stem)
@@ -51,12 +54,15 @@ def run_module(path):
         raise
     except BaseException:  # noqa: BLE001
         # An import error, or a SystemExit from setUpModule or setUpClass.
-        return 0, output.getvalue() + traceback.format_exc()
+        return 0, 0, output.getvalue() + traceback.format_exc()
+    skipped = len(result.skipped)
     if not result.wasSuccessful():
-        return result.testsRun, output.getvalue()
+        return result.testsRun, skipped, output.getvalue()
     if result.testsRun == 0:
-        return 0, "No tests ran. Use unittest.TestCase classes.\n"
-    return result.testsRun, None
+        return 0, 0, "No tests ran. Use unittest.TestCase classes.\n"
+    if skipped and skipped == result.testsRun:
+        return result.testsRun, skipped, "Every test was skipped.\n"
+    return result.testsRun, skipped, None
 
 
 def run_directory(start):
@@ -78,11 +84,12 @@ def run_directory(start):
     for path in files:
         label = path.relative_to(ROOT).as_posix()
         started = time.monotonic()
-        count, detail = run_module(path)
+        count, skipped, detail = run_module(path)
         seconds = time.monotonic() - started
         total += count
         status = "ok" if detail is None else "FAIL"
-        print(f"{status:5} {label} ({count} tests, {seconds:.1f} s)", flush=True)
+        counts = f"{count} tests, {skipped} skipped, {seconds:.1f} s"
+        print(f"{status:5} {label} ({counts})", flush=True)
         if detail is not None:
             failed.append((label, detail))
     for label, detail in failed:
