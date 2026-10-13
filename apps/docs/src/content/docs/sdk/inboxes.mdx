@@ -373,9 +373,11 @@ When the client stores a newer identity state for an inbox with a different curr
 
 ### Find an inbox by handle
 
-A `PublicIdentity` with the kind `handle` names the inbox that claimed the handle. Calls that take a `PublicIdentity` to find an inbox also take a handle: `canMessage`, `inboxIdFor`, `getDmByIdentity`, `createDm`, `createGroup`, `addMembers`, and `removeMembers`. One list can mix handles and accounts. Before the SDK uses a lookup answer, it checks that the inbox's own identity log claimed the handle. An old handle finds the inbox too.
+A `PublicIdentity` with the kind `handle` names the inbox that claimed the handle. Calls that take a `PublicIdentity` to find an inbox also take a handle: `inboxIdFor`, `getDmByIdentity`, `createDm`, `createGroup`, `addMembers`, and `removeMembers`. One list can mix handles and accounts. Before one of these calls uses a lookup answer, the SDK checks that the inbox's own identity log claimed the handle. An old handle finds the inbox too.
 
-The SDK never derives an inbox ID from a handle. For a handle that no inbox claimed, `client.inboxIdFor` returns no inbox, static `inboxIdFor` fails with `IdentityNotFound`, and a call that creates a conversation or changes members fails with `IdentityNotFound`. `canMessage` reports a handle under the key `handle:<handle>`, in lowercase; `true` means that an inbox claimed it.
+The SDK never derives an inbox ID from a handle. For a handle that no inbox claimed, `client.inboxIdFor` returns no inbox, static `inboxIdFor` fails with `IdentityNotFound`, and a call that creates a conversation or changes members fails with `IdentityNotFound`.
+
+`canMessage` also takes a handle. It reports the handle under the key `handle:<handle>`, in lowercase. `true` means only that the backend names an inbox for the handle. `canMessage` gives you no inbox, so the SDK does not check this answer against an identity log. A `true` is enough to remove a taken handle from a list of candidates. To reach the inbox, use one of the calls above.
 
 A handle is not an account: it signs nothing. Client creation, `generateInboxId`, and the calls that add, remove, or change an account fail with `InvalidArgument` for a handle.
 
