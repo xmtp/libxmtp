@@ -86,7 +86,7 @@ export async function findByHandle(client: Client, typed: string) {
     kind: "handle",
   });
   if (inboxId === undefined) return undefined;
-  const [state] = await client.inboxStates([inboxId], true);
+  const [state] = await client.inboxStates([inboxId], false);
   // Show the current handle, also when the user typed an old one.
   return { inboxId, title: state?.handle ?? inboxId };
 }

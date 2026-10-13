@@ -4,7 +4,7 @@ import { XmtpError, type Agent } from "@xmtp/agent-sdk";
 /** Give the agent a handle for `name` once. The agent picks the code itself. */
 export async function claimAgentHandle(agent: Agent, name: string) {
   // Claims are permanent and limited. Keep the handle the agent already has.
-  const state = await agent.client.inboxState(true);
+  const state = await agent.client.inboxState(false);
   if (state.handle !== undefined) return state.handle;
 
   for (const handle of await agent.client.availableHandles(name)) {
