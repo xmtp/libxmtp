@@ -1,4 +1,5 @@
 import { Alert, Button, Group, Loader, Stack, Text } from "@mantine/core";
+import { XmtpError } from "@xmtp/browser-sdk";
 import { useCallback, useState } from "react";
 
 import { ConfirmHandleChange } from "@/components/Handles/ConfirmHandleChange";
@@ -10,6 +11,7 @@ import {
   splitHandle,
   type ClaimOutcome,
 } from "@/helpers/handles";
+import { asciiLowercase } from "@/helpers/strings";
 import { useOwnHandles } from "@/hooks/useOwnHandles";
 
 type Blocked = "tooSoon" | "limitReached";
@@ -49,6 +51,18 @@ export const HandleSection: React.FC = () => {
         outcome = "claimed";
       } catch (error) {
         outcome = claimFailure(error);
+        if (
+          outcome === "failed" &&
+          !(error instanceof XmtpError.InvalidArgument)
+        ) {
+          // A transport error can arrive after the backend stored the claim.
+          // A retry would then fail as too soon, so read the inbox's log: a
+          // claim that landed is a success.
+          const state = await client.inboxState(true).catch(() => undefined);
+          if (state?.handle === asciiLowercase(next)) {
+            outcome = "claimed";
+          }
+        }
       }
       if (outcome === "tooSoon" || outcome === "limitReached") {
         setBlocked(outcome);

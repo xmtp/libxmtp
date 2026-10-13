@@ -17,15 +17,23 @@ const mocks = vi.hoisted(() => {
   class HandleNotAllowed extends Error {}
   class HandleTooSoon extends Error {}
   class HandleLimitReached extends Error {}
+  class InvalidArgument extends Error {}
   return {
     errors: {
       HandleTaken,
       HandleNotAllowed,
       HandleTooSoon,
       HandleLimitReached,
+      InvalidArgument,
     },
     availableHandles: vi.fn<(name: string) => Promise<string[]>>(),
     claimHandle: vi.fn<(handle: string) => Promise<void>>(),
+    inboxState:
+      vi.fn<
+        (
+          refresh: boolean,
+        ) => Promise<{ handle?: string; otherHandles: string[] }>
+      >(),
     refresh: vi.fn(async () => {}),
     minNameLength: 3,
     handle: null as string | null,
@@ -40,6 +48,7 @@ vi.mock("@/contexts/XMTPContext", () => ({
   useClient: () => ({
     availableHandles: mocks.availableHandles,
     claimHandle: mocks.claimHandle,
+    inboxState: mocks.inboxState,
     serverConfiguration: { handles: { minNameLength: mocks.minNameLength } },
   }),
 }));
@@ -109,6 +118,38 @@ describe("HandleSection", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Claim nick" }));
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalled());
     expect(mocks.claimHandle).toHaveBeenCalledWith("nick");
+  });
+
+  // A transport error can arrive after the backend stored the claim.
+  it("treats a failed claim that landed as a success, with no retry", async () => {
+    mocks.availableHandles.mockResolvedValueOnce(["nicky"]);
+    mocks.claimHandle.mockRejectedValueOnce(new Error("transport closed"));
+    mocks.inboxState.mockResolvedValueOnce({
+      handle: "nicky",
+      otherHandles: ["nick#2341", "nick#0912", "nickm"],
+    });
+    renderSection();
+    await changeTo("nicky");
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalled());
+    expect(mocks.inboxState).toHaveBeenCalledExactlyOnceWith(true);
+    expect(mocks.claimHandle).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Cannot claim nicky. Try again.")).toBeNull();
+    // the editor closed, as after a claim that answered
+    expect(screen.queryByRole("textbox", { name: "Handle" })).toBeNull();
+  });
+
+  it("shows the error when a failed claim did not land", async () => {
+    mocks.availableHandles.mockResolvedValueOnce(["nicky"]);
+    mocks.claimHandle.mockRejectedValueOnce(new Error("transport closed"));
+    mocks.inboxState.mockResolvedValueOnce({
+      handle: "nick#2341",
+      otherHandles: ["nick#0912", "nickm"],
+    });
+    renderSection();
+    await changeTo("nicky");
+    await screen.findByText("Cannot claim nicky. Try again.");
+    expect(mocks.inboxState).toHaveBeenCalledExactlyOnceWith(true);
+    expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
   it("shows when the handle changed less than 7 days ago", async () => {
