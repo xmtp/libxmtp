@@ -14,6 +14,7 @@ import org.xmtp.android.example.messenger.app.DestinationScope
 import org.xmtp.android.example.messenger.data.xmtp.ChatQueries
 import org.xmtp.android.example.messenger.data.xmtp.ConversationQueries
 import org.xmtp.android.example.messenger.feature.AppFeaturePreferences
+import org.xmtp.android.example.messenger.feature.FeatureInputFailure
 import org.xmtp.android.example.messenger.feature.featureFailure
 import org.xmtp.android.example.messenger.metadata.MetadataEditorController
 import org.xmtp.android.example.messenger.notifications.NotificationController
@@ -383,6 +384,7 @@ internal class GroupController(
         if (!registered) return
         val actionJob =
             owner.work.launch(Dispatchers.IO) {
+                var pendingAction = action
                 try {
                     requireOrigin(origin)
                     when (action) {
@@ -424,16 +426,20 @@ internal class GroupController(
                         }
 
                         else -> {
-                            val memberId =
-                                when (action) {
-                                    is GroupAction.AddMember -> action.inboxId
-                                    is GroupAction.RemoveMember -> action.inboxId
-                                    is GroupAction.SetAdmin -> action.inboxId
-                                    else -> null
+                            pendingAction =
+                                if (action is GroupAction.AddMember) {
+                                    val inbox =
+                                        reads.withPermit { queries.resolveInbox(owner, action.inboxId) }
+                                            ?: throw FeatureInputFailure("No XMTP account matches this recipient.")
+                                    action.copy(inboxId = inbox)
+                                } else {
+                                    action
                                 }
+                            requireOrigin(origin)
+                            val memberId = memberId(pendingAction)
                             onCurrentScreen(owner, origin.token) {
                                 if (acceptsOrigin(origin)) {
-                                    val pending = PendingCommand(command, action, PendingPhase.WAITING)
+                                    val pending = PendingCommand(command, pendingAction, PendingPhase.WAITING)
                                     if (memberId != null) pendingMembers[memberId] = pending
                                     if (action == GroupAction.RequestRemoval) pendingLeaveCommand.set(pending)
                                     ui.update {
@@ -444,11 +450,11 @@ internal class GroupController(
                                     }
                                 }
                             }
-                            mutateGroup(origin, action, command)
+                            mutateGroup(origin, pendingAction, command)
                         }
                     }
                 } catch (error: Throwable) {
-                    changePending(command, origin, action, failed = true)
+                    changePending(command, origin, pendingAction, failed = true)
                     if (error is CancellationException) throw error
                     if (acceptsOrigin(origin)) {
                         ui.update {

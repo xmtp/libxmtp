@@ -134,7 +134,11 @@ fun ConversationDetailsScreen(
                     if (state.editing == GroupEdit.MEMBERS) {
                         OutlinedTextField(state.memberInput, {
                             action(GroupAction.ChangeMemberInput(it))
-                        }, label = { Text("Inbox ID") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                        }, label = {
+                            Text(
+                                "Handle, Ethereum address, or inbox ID",
+                            )
+                        }, modifier = Modifier.fillMaxWidth(), minLines = 2)
                         Action(
                             "Add member",
                             state.memberInput.isNotBlank() && !state.busy,

@@ -162,7 +162,7 @@ class GroupSettingsInstrumentedTest {
         compose.onNodeWithContentDescription("New message").performClick()
         button("Group").performClick()
         compose
-            .onNodeWithText("Inbox ID or Ethereum address")
+            .onNodeWithText("Handle, Ethereum address, or inbox ID")
             .performTextReplacement(member.inboxId())
         androidx.test.espresso.Espresso
             .closeSoftKeyboard()

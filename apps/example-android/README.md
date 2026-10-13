@@ -169,8 +169,10 @@ conversation data. Block changes native consent to Denied.
 Accept is required before composer, send, and outbound message or reaction
 actions. Copy, reactor lists, and Close remain available. Retained outbound
 callbacks also require accepted consent.
-New conversations accept lowercase inbox IDs or Ethereum addresses. Groups
-offer All members and Admins only presets.
+New conversations and Add member accept handles, Ethereum addresses, or inbox
+IDs. The app detects the input type: a `0x` prefix selects Ethereum, 64 hexadecimal
+characters select an inbox ID, and a handle resolves through the SDK.
+Groups offer All members and Admins only presets.
 
 Messages support text, replies, emoji reactions and remote deletion. “Sent”
 means that the SDK reports Published. It does not mean that a recipient read the

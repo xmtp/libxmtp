@@ -89,7 +89,7 @@ class XmtpQueries :
     override suspend fun resolveInbox(
         owner: ActiveSession,
         address: String,
-    ) = owner.client.inboxIdFor(PublicIdentity(address, PublicIdentityKind.ETHEREUM))
+    ) = resolveRecipient(address) { identity -> owner.client.inboxIdFor(identity) }
 
     override suspend fun create(
         owner: ActiveSession,

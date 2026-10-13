@@ -68,13 +68,13 @@ fun CreateConversationScreen(
                     OutlinedTextField(
                         value = state.recipients,
                         onValueChange = { action(CreateConversationAction.ChangeRecipients(it)) },
-                        label = { Text("Inbox ID or Ethereum address") },
+                        label = { Text("Handle, Ethereum address, or inbox ID") },
                         supportingText = {
                             Text(
                                 if (state.group) {
-                                    "Separate multiple IDs or addresses with commas."
+                                    "Separate multiple people with commas."
                                 } else {
-                                    "Paste one inbox ID or Ethereum address."
+                                    "Enter one handle, Ethereum address, or inbox ID."
                                 },
                             )
                         },
