@@ -63,13 +63,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "apply_readd_installations_intent removes a target whose key package fetch failed and records it in failed_installations instead of leaving it in place."
 
 [[waiver]]
-id = "FORK-070"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The node and wasm bindings expose no fork-recovery policy or response switch; only the mobile binding does."
-
-[[waiver]]
 id = "IDENT-045"
 kind = "gap"
 owner = "protocol"
@@ -240,39 +233,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Client processing logs still contain full installation identifiers."
 
 [[waiver]]
-id = "PROC-041"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The legacy SDK readers in sdks/ do not deliver a close notification with a reason for every stream end, until they are removed at cutover. The new SDK has linked tests for Node, the browser, Swift (ReaderTeardownTests: testAppErrorEndsTheReaderWithoutAcknowledgingTheItem, testCancellationReachesACooperativeOpen and testCloseWaitsForALateOpenToEndItsReader) and Kotlin (MessageStreamTest, MessageDeliveryFlowTest and DurableReplayTest). Kotlin reports Closed, not Failed, when a collector throws, by design."
-
-[[waiver]]
-id = "PROC-042"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current reader end does not give its stream the closed reason."
-
-[[waiver]]
 id = "PROC-043"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current reader has no close reason that classifies stream errors as retryable or terminal."
-
-[[waiver]]
-id = "PROC-044"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current reader has no connection-state subscription that delivers the state at subscription and ordered changes."
-
-[[waiver]]
-id = "PROC-045"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Legacy Swift and Kotlin V1 readers keep failed rows without a decoded custom value or typed failure details. The new SDK returns a failed custom item with ErrorDetails and keeps the stream open; linked Node, browser, Swift, and Kotlin tests cover that path."
 
 [[waiver]]
 id = "SEND-019"
@@ -392,102 +357,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Legacy SDK reply paths do not preserve outer bytes and fallback on every nested decode failure. The new SDK retains the outer reply as Unknown for a nested core or host codec failure. Linked Rust and four-host receive tests cover typed failure details and retained bytes."
-
-[[waiver]]
-id = "STORE-002"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
-
-[[waiver]]
-id = "STORE-004"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
-
-[[waiver]]
-id = "STORE-005"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
-
-[[waiver]]
-id = "STORE-006"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current iOS SDK falls back to the Documents directory instead of failing when no location can be derived; the façade SDKs fail."
-
-[[waiver]]
-id = "STORE-007"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDK `build` can open a new database; the façade `build` fails with a typed error."
-
-[[waiver]]
-id = "STORE-009"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current iOS and Android Client.dbPath return :memory: for in-memory storage instead of no path; the façade returns no path."
-
-[[waiver]]
-id = "STORE-010"
-kind = "untested"
-owner = "protocol"
-reason = "iOS Client.reconnectLocalDatabase and Android Client.reconnectLocalDatabase call FfiXmtpClient.dbReconnect, which reopens the client database; no test proves that it is the original file."
-
-[[waiver]]
-id = "STORE-011"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDKs ignore in-memory delete and drop only the connection before removing the file; the façade fails and closes first."
-
-[[waiver]]
-id = "STORE-017"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDKs ignore in-memory delete and drop only the connection before removing the file; the façade fails and closes first."
-
-[[waiver]]
-id = "STORE-018"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Android Client.deleteLocalDatabase ignores the Boolean from File(dbPath).delete(), so deletion can complete while the database file remains."
-
-[[waiver]]
-id = "IDENT-073"
-kind = "untested"
-owner = "protocol"
-reason = "The façade tests prove the order. The current iOS Client.create and Android Client.create call preAuthenticateToInboxCallback before handleSignature, but no test for these separate code paths asserts the order."
-
-[[waiver]]
-id = "IDENT-074"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current iOS and Android SDKs call the handler even when registration needs no signature; the façade SDKs call it only when a signature is needed."
-
-[[waiver]]
-id = "IDENT-075"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current iOS and Android SDKs propagate a failing handler without reporting a typed callback failure; the façade SDKs report a callback failure."
-
-[[waiver]]
-id = "IDENT-076"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The Node and browser SDKs accept no pre-authentication handler; the façade adds handlers.preAuthenticate."
 
 [[waiver]]
 id = "EVENT-001"
