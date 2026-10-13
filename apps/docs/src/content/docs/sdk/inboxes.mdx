@@ -375,7 +375,7 @@ When the client stores a newer identity state for an inbox with a different curr
 
 ### Find an inbox by handle
 
-A `PublicIdentity` with the kind `handle` names the inbox that claimed the handle. Calls that take a `PublicIdentity` to find an inbox also take a handle: `inboxIdFor`, `getDmByIdentity`, `createDm`, `createGroup`, `addMembers`, and `removeMembers`. One list can mix handles and accounts. Before one of these calls uses a lookup answer, the SDK checks that the inbox's own identity log claimed the handle. It checks any smart contract wallet signature in that log with the backend's verifier, as it does for every identity log, so it trusts the backend for those verdicts. An old handle finds the inbox too.
+A `PublicIdentity` with the kind `handle` names the inbox that claimed the handle. Calls that take a `PublicIdentity` to find an inbox also take a handle: `inboxIdFor`, `getDmByIdentity`, `createDm`, `createGroup`, `addMembers`, and `removeMembers`. One list can mix handles and accounts. Before one of these calls, `client.inboxIdFor` or static `inboxIdFor` included, uses a lookup answer, the SDK checks that the inbox's own identity log claimed the handle. On both the client and the static path, it checks any smart contract wallet signature in that log with the backend's verifier, as it does for every identity log, so it trusts the backend for those verdicts. An old handle finds the inbox too.
 
 The SDK never derives an inbox ID from a handle. For a handle that no inbox claimed, `client.inboxIdFor` returns no inbox, static `inboxIdFor` fails with `IdentityNotFound`, and a call that creates a conversation or changes members fails with `IdentityNotFound`.
 
