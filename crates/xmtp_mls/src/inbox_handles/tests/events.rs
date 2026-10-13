@@ -2,12 +2,8 @@
 //! state, only when the display handle changes.
 
 use super::{new_inbox_state, random_handle, state_with_handles};
-use crate::{
-    client::ClientError, context::XmtpSharedContext, identity_updates::store_association_state,
-    tester,
-};
+use crate::{context::XmtpSharedContext, identity_updates::store_association_state, tester};
 use xmtp_events::{ClientEvent, EventEnvelope, EventFilter, EventKind, HandleChanged};
-use xmtp_id::associations::AssociationState;
 
 fn handle_events<I>(drained: Vec<EventEnvelope<I>>) -> Vec<HandleChanged> {
     drained
@@ -19,7 +15,8 @@ fn handle_events<I>(drained: Vec<EventEnvelope<I>>) -> Vec<HandleChanged> {
         .collect()
 }
 
-fn changed(state: &AssociationState) -> HandleChanged {
+#[cfg(not(target_arch = "wasm32"))]
+fn changed(state: &xmtp_id::associations::AssociationState) -> HandleChanged {
     HandleChanged {
         inbox_id: state.inbox_id().to_owned(),
         handle: state
@@ -150,50 +147,63 @@ async fn older_state_stored_later_emits_nothing() {
 }
 
 // verifies: EVENT-059
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn handle_events_for_one_inbox_keep_sequence_order() {
+    use crate::{client::ClientError, state_tx::postcommit_test_hook};
+    use std::{sync::mpsc, time::Duration};
+    /// How long the first writer waits, after its commit, for the second
+    /// store to return. The second store cannot return before the first
+    /// writer's events are out, so with ordered emission this always elapses.
+    const SECOND_STORE_WAIT: Duration = Duration::from_millis(250);
+
     tester!(alix, disable_workers);
     let context = &alix.context;
     let events = context
         .events()
         .subscribe(EventFilter::new([EventKind::HandleChanged]), Some(10));
+    let base = new_inbox_state();
+    store_association_state(context, 3, &base)?;
+    let five = state_with_handles(&base, &["five"]);
+    let seven = state_with_handles(&base, &["five", "seven"]);
 
-    // Two tasks store sequence ids 5 and 7 of one inbox. The client
-    // serializes the two writes, so each round fixes one of the two commit
-    // orders. Each task reads the events right after its store returns.
-    for older_first in [true, false] {
-        let base = new_inbox_state();
-        store_association_state(context, 3, &base)?;
-        let five = state_with_handles(&base, &["five"]);
-        let seven = state_with_handles(&base, &["five", "seven"]);
-        let (first, second) = if older_first {
-            ((5, &five), (7, &seven))
-        } else {
-            ((7, &seven), (5, &five))
-        };
-        let first_stored = tokio::sync::Notify::new();
-        let first_task = async {
-            store_association_state(context, first.0, first.1)?;
-            let seen = handle_events(events.drain());
-            first_stored.notify_one();
-            Ok::<_, ClientError>(seen)
-        };
-        let second_task = async {
-            first_stored.notified().await;
-            store_association_state(context, second.0, second.1)?;
-            Ok::<_, ClientError>(handle_events(events.drain()))
-        };
-        let (first_seen, second_seen) = tokio::join!(first_task, second_task);
+    // Two threads store sequence ids 5 and 7 of one inbox. The first writer
+    // commits 5, then waits before its store returns while the second writer
+    // stores 7. An event emitted outside the write would let 7 overtake 5.
+    let (first_committed, first_has_committed) = mpsc::channel();
+    let (second_stored, second_has_stored) = mpsc::channel::<()>();
+    let (five_ref, seven_ref) = (&five, &seven);
+    std::thread::scope(|scope| {
+        let first = scope.spawn(move || {
+            let _hold = postcommit_test_hook::install(move || {
+                let _ = first_committed.send(());
+                let _ = second_has_stored.recv_timeout(SECOND_STORE_WAIT);
+            });
+            store_association_state(context, 5, five_ref)
+        });
+        let second = scope.spawn(move || {
+            first_has_committed
+                .recv()
+                .expect("the first writer commits");
+            let stored = store_association_state(context, 7, seven_ref);
+            let _ = second_stored.send(());
+            stored
+        });
+        first.join().expect("the first writer finishes")?;
+        second.join().expect("the second writer finishes")?;
+        Ok::<_, ClientError>(())
+    })?;
+    assert_eq!(
+        handle_events(events.drain()),
+        vec![changed(&five), changed(&seven)]
+    );
 
-        if older_first {
-            assert_eq!(first_seen?, vec![changed(&five)]);
-            assert_eq!(second_seen?, vec![changed(&seven)]);
-        } else {
-            assert_eq!(first_seen?, vec![changed(&seven)]);
-            assert!(
-                second_seen?.is_empty(),
-                "a store of 5 after 7 emits nothing"
-            );
-        }
-    }
+    // A store of 5 after 7 emits nothing.
+    let base = new_inbox_state();
+    store_association_state(context, 3, &base)?;
+    let five = state_with_handles(&base, &["five"]);
+    let seven = state_with_handles(&base, &["five", "seven"]);
+    store_association_state(context, 7, &seven)?;
+    store_association_state(context, 5, &five)?;
+    assert_eq!(handle_events(events.drain()), vec![changed(&seven)]);
 }
