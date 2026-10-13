@@ -183,18 +183,30 @@ async fn mixed_targets_treat_unknown_accounts_as_the_account_path_does() {
     bo.claim_handle(&handle).await?;
     wait_until_claim_visible(&alix, &handle).await;
     let bo_target = IdentityTarget::Handle(handle);
-    let unknown = IdentityTarget::Account(Identifier::rand_ethereum());
-    let address_not_found = |error: &ClientError| matches!(error, ClientError::Group(group) if matches!(**group, GroupError::AddressNotFound(_)));
+    let unknown_identifier = Identifier::rand_ethereum();
+    let unknown = IdentityTarget::Account(unknown_identifier.clone());
+    // Each failure names exactly the unknown account.
+    let missing = vec![unknown_identifier.to_string()];
+    let create_missing = |result: Result<(), ClientError>| match result {
+        Err(ClientError::Group(error)) => match *error {
+            GroupError::AddressNotFound(missing) => Some(missing),
+            _ => None,
+        },
+        _ => None,
+    };
 
     // Create: the account-only error, with or without a handle in the list.
     let account_only = alix
         .create_group_with_targets(std::slice::from_ref(&unknown), None, None)
         .await;
-    assert!(address_not_found(&account_only.unwrap_err()));
+    assert_eq!(
+        create_missing(account_only.map(drop)),
+        Some(missing.clone())
+    );
     let mixed = alix
         .create_group_with_targets(&[bo_target.clone(), unknown.clone()], None, None)
         .await;
-    assert!(address_not_found(&mixed.unwrap_err()));
+    assert_eq!(create_missing(mixed.map(drop)), Some(missing.clone()));
 
     // Add: the account-only error, and no commit.
     let group = alix
@@ -207,7 +219,7 @@ async fn mixed_targets_treat_unknown_accounts_as_the_account_path_does() {
     ] {
         assert!(matches!(
             group.add_members_by_targets(&targets).await,
-            Err(GroupError::AddressNotFound(_))
+            Err(GroupError::AddressNotFound(found)) if found == missing
         ));
     }
     assert_eq!(group.epoch().await?, epoch);
