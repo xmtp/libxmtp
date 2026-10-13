@@ -27,6 +27,8 @@ export function formatPublicIdentityKind(kind: PublicIdentityKind): string {
       return "Ethereum";
     case "passkey":
       return "Passkey";
+    case "handle":
+      return "Handle";
     default: {
       kind satisfies never;
       return "";

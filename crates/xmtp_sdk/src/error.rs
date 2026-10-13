@@ -1,3 +1,4 @@
+mod handles;
 mod wrappers;
 pub(crate) use wrappers::CoreError;
 #[cfg(all(test, not(target_arch = "wasm32"), not(feature = "pure-only")))]
@@ -156,6 +157,21 @@ pub enum XmtpError {
     /// The change would make the group larger than its member limit.
     #[error("user limit exceeded: {0:?}")]
     UserLimitExceeded(ErrorDetails),
+    /// Another inbox holds the handle. Not retryable; claim another handle.
+    #[error("handle taken: {0:?}")]
+    HandleTaken(ErrorDetails),
+    /// The deployment refuses the handle's name part. Not retryable; choose
+    /// another name.
+    #[error("handle not allowed: {0:?}")]
+    HandleNotAllowed(ErrorDetails),
+    /// The inbox claimed a handle too recently. Not retryable until the
+    /// deployment's interval between claims has passed.
+    #[error("handle claimed too soon: {0:?}")]
+    HandleTooSoon(ErrorDetails),
+    /// The inbox has made the most handle claims its identity log can hold.
+    /// Not retryable.
+    #[error("handle claim limit reached: {0:?}")]
+    HandleLimitReached(ErrorDetails),
     /// A binding operation was cancelled before it finished. Partial effects and
     /// retry safety depend on the operation. The browser runtime returns it.
     #[error("cancelled: {0:?}")]
@@ -551,6 +567,9 @@ impl XmtpError {
             xmtp_api::ApiError::Auth(auth) => Self::from_auth(*auth),
             xmtp_api::ApiError::Preflight(preflight) => Self::preflight_cause(preflight),
             xmtp_api::ApiError::InvalidRequest(_) => Self::invalid_argument(api.to_string()),
+            xmtp_api::ApiError::HandleRejected(rejection) => {
+                Self::from_handle_rejection(*rejection)
+            }
             other => Self::classify_sources(other).unwrap_or_else(|| {
                 Self::Unknown(Self::details(
                     "Unknown",
@@ -636,6 +655,7 @@ impl XmtpError {
             }
             ClientError::Api(api) => Self::api_cause(api),
             ClientError::Storage(storage) => Self::storage_cause(storage),
+            ClientError::Handle(handle) => Self::from_handle(handle),
             _ => return None,
         })
     }

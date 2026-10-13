@@ -5,6 +5,10 @@ use xmtp_id::associations::{Identifier, ident};
 pub enum PublicIdentityKind {
     Ethereum,
     Passkey,
+    /// A handle that an inbox claimed, such as `nick` or `nick#2341`. A
+    /// handle names an inbox, but it is not an account: it signs nothing, so
+    /// an account call fails with `InvalidArgument` for it.
+    Handle,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -14,10 +18,17 @@ pub struct PublicIdentity {
 }
 
 impl PublicIdentity {
+    /// The account this identity names. A handle is not an account, so it
+    /// fails with `InvalidArgument`, before any request.
     pub(crate) fn to_core(&self) -> Result<Identifier, XmtpError> {
         match self.kind {
             PublicIdentityKind::Ethereum => Identifier::eth(&self.identifier),
             PublicIdentityKind::Passkey => Identifier::passkey_str(&self.identifier, None),
+            PublicIdentityKind::Handle => {
+                return Err(XmtpError::invalid_argument(
+                    "a handle is not an account identity",
+                ));
+            }
         }
         .map_err(XmtpError::from_core)
     }

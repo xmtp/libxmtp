@@ -11,12 +11,14 @@ describe("memberDetails", () => {
         identities: [],
         permissionLevel: "member",
         consentState: "unknown",
+        otherHandles: [],
       },
       {
         inboxId: "second",
         identities: [],
         permissionLevel: "admin",
         consentState: "allowed",
+        otherHandles: [],
       },
     ];
     const states: InboxState[] = [
@@ -25,12 +27,14 @@ describe("memberDetails", () => {
         identities: [],
         installations: [{ id: "second-installation" }],
         recoveryIdentity: { identifier: "second", kind: "ethereum" },
+        otherHandles: [],
       },
       {
         inboxId: "first",
         identities: [],
         installations: [{ id: "first-installation" }],
         recoveryIdentity: { identifier: "first", kind: "ethereum" },
+        otherHandles: [],
       },
     ];
     const client = {

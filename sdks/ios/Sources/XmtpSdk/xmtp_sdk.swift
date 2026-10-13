@@ -1401,8 +1401,20 @@ public protocol ClientProtocol: AnyObject, Sendable {
     func appVersion()  -> String?
 
     /**
-     * Returns one entry per core identity. Keys use `ethereum:<core text>` or
-     * `passkey:<lowercase core hex>`.
+     * The handles for `name` that no inbox holds, the name itself first.
+     * `name` is a handle as a user typed it; its ASCII capitals become
+     * lowercase. A name with a code checks only that handle. A name without
+     * a code checks itself and 100 random codes in one lookup. Text outside
+     * the handle grammar fails with `InvalidArgument`, before any request.
+     * The SDK applies no other rule, so a claim of a returned handle can
+     * still fail with `HandleNotAllowed`. An unregistered client can call it.
+     */
+    func availableHandles(name: String) async throws  -> [String]
+
+    /**
+     * Returns one entry per core identity. Keys use `ethereum:<core text>`,
+     * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A
+     * handle is available when the backend names an inbox for it.
      */
     func canMessage(identities: [PublicIdentity]) async throws  -> [String: Bool]
 
@@ -1410,10 +1422,25 @@ public protocol ClientProtocol: AnyObject, Sendable {
 
     func changeRecoveryIdentifier(signer: Signer, identity: PublicIdentity) async throws
 
+    /**
+     * Claim `handle` for this inbox, signed by this installation's key. It
+     * becomes the inbox's current handle, including when the inbox claimed
+     * it before. Fails with `HandleTaken`, `HandleNotAllowed`,
+     * `HandleTooSoon`, or `HandleLimitReached`, none of them retryable, and
+     * with `InvalidArgument` for text outside the handle grammar.
+     */
+    func claimHandle(handle: String) async throws
+
     func decodeContent(encoded: EncodedContent) async throws  -> MessageContent
 
     func identity()  -> PublicIdentity
 
+    /**
+     * The inbox of an account or a handle, or `None`. A handle resolves only
+     * when the inbox the backend names holds it in its own identity log, and
+     * an old handle of an inbox still resolves to it. This never derives an
+     * inbox ID from a handle.
+     */
     func inboxIdFor(identity: PublicIdentity) async throws  -> InboxId?
 
     func inboxState(refreshFromNetwork: Bool) async throws  -> InboxState
@@ -1753,8 +1780,35 @@ open func appVersion() -> String?  {
 }
 
     /**
-     * Returns one entry per core identity. Keys use `ethereum:<core text>` or
-     * `passkey:<lowercase core hex>`.
+     * The handles for `name` that no inbox holds, the name itself first.
+     * `name` is a handle as a user typed it; its ASCII capitals become
+     * lowercase. A name with a code checks only that handle. A name without
+     * a code checks itself and 100 random codes in one lookup. Text outside
+     * the handle grammar fails with `InvalidArgument`, before any request.
+     * The SDK applies no other rule, so a claim of a returned handle can
+     * still fail with `HandleNotAllowed`. An unregistered client can call it.
+     */
+open func availableHandles(name: String)async throws  -> [String]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_client_available_handles(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(name)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Returns one entry per core identity. Keys use `ethereum:<core text>`,
+     * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A
+     * handle is available when the backend names an inbox for it.
      */
 open func canMessage(identities: [PublicIdentity])async throws  -> [String: Bool]  {
     return
@@ -1807,6 +1861,30 @@ open func changeRecoveryIdentifier(signer: Signer, identity: PublicIdentity)asyn
         )
 }
 
+    /**
+     * Claim `handle` for this inbox, signed by this installation's key. It
+     * becomes the inbox's current handle, including when the inbox claimed
+     * it before. Fails with `HandleTaken`, `HandleNotAllowed`,
+     * `HandleTooSoon`, or `HandleLimitReached`, none of them retryable, and
+     * with `InvalidArgument` for text outside the handle grammar.
+     */
+open func claimHandle(handle: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_client_claim_handle(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(handle)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_void,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_void,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_void,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
 open func decodeContent(encoded: EncodedContent)async throws  -> MessageContent  {
     return
         try  await uniffiRustCallAsync(
@@ -1833,6 +1911,12 @@ open func identity() -> PublicIdentity  {
 })
 }
 
+    /**
+     * The inbox of an account or a handle, or `None`. A handle resolves only
+     * when the inbox the backend names holds it in its own identity log, and
+     * an old handle of an inbox still resolves to it. This never derives an
+     * inbox ID from a handle.
+     */
 open func inboxIdFor(identity: PublicIdentity)async throws  -> InboxId?  {
     return
         try  await uniffiRustCallAsync(
@@ -2592,8 +2676,10 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
     func createDm(peer: InboxId, options: CreateDmOptions?) async throws  -> Dm
 
     /**
-     * Find or create a DM with an account identity. Hosts present this as a
-     * `createDm` overload or union.
+     * Find or create a DM with an account identity or a handle. Hosts
+     * present this as a `createDm` overload or union. A handle resolves
+     * through the verified handle resolver before the existing DM is looked
+     * up.
      */
 
     func createGroup(members: [InboxId], options: CreateGroupOptions?) async throws  -> Group
@@ -2601,8 +2687,10 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
     func createGroupOptimistic(options: CreateGroupOptions?) async throws  -> Group
 
     /**
-     * Create a group from account identities. Hosts present this as a
-     * `createGroup` overload or union.
+     * Create a group from account identities and handles. Hosts present
+     * this as a `createGroup` overload or union. Every handle resolves
+     * through the verified handle resolver before the group exists, and all
+     * members join in one commit.
      */
 
     func deleteMessage(id: MessageId) async throws  -> MessageId
@@ -2611,6 +2699,10 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
 
     func getById(id: ConversationId) async throws  -> Conversation?
 
+    /**
+     * The DM with an account or a handle, or `None`. A handle resolves
+     * through the verified handle resolver before the DM is looked up.
+     */
     func getDmByIdentity(identity: PublicIdentity) async throws  -> Dm?
 
     func getDmByInboxId(peer: InboxId) async throws  -> Dm?
@@ -2751,8 +2843,10 @@ open func createDm(peer: InboxId, options: CreateDmOptions? = nil)async throws  
 }
 
     /**
-     * Find or create a DM with an account identity. Hosts present this as a
-     * `createDm` overload or union.
+     * Find or create a DM with an account identity or a handle. Hosts
+     * present this as a `createDm` overload or union. A handle resolves
+     * through the verified handle resolver before the existing DM is looked
+     * up.
      */
 func createDmWithIdentity(peer: PublicIdentity, options: CreateDmOptions? = nil)async throws  -> Dm  {
     return
@@ -2806,8 +2900,10 @@ open func createGroupOptimistic(options: CreateGroupOptions? = nil)async throws 
 }
 
     /**
-     * Create a group from account identities. Hosts present this as a
-     * `createGroup` overload or union.
+     * Create a group from account identities and handles. Hosts present
+     * this as a `createGroup` overload or union. Every handle resolves
+     * through the verified handle resolver before the group exists, and all
+     * members join in one commit.
      */
 func createGroupWithIdentities(members: [PublicIdentity], options: CreateGroupOptions? = nil)async throws  -> Group  {
     return
@@ -2877,6 +2973,10 @@ open func getById(id: ConversationId)async throws  -> Conversation?  {
         )
 }
 
+    /**
+     * The DM with an account or a handle, or `None`. A handle resolves
+     * through the verified handle resolver before the DM is looked up.
+     */
 open func getDmByIdentity(identity: PublicIdentity)async throws  -> Dm?  {
     return
         try  await uniffiRustCallAsync(
@@ -5108,8 +5208,9 @@ public protocol GroupProtocol: AnyObject, Sendable {
     func addMembers(members: [InboxId]) async throws  -> MembershipResult
 
     /**
-     * Add members by account identity. Hosts present this as an
-     * `addMembers` overload or union.
+     * Add members by account identity or handle. Hosts present this as an
+     * `addMembers` overload or union. Every handle resolves through the
+     * verified handle resolver first, and all members join in one commit.
      */
 
     func addSuperAdmin(inboxId: InboxId) async throws
@@ -5226,8 +5327,9 @@ public protocol GroupProtocol: AnyObject, Sendable {
     func removeMembers(members: [InboxId]) async throws
 
     /**
-     * Remove members by account identity. Hosts present this as a
-     * `removeMembers` overload or union.
+     * Remove members by account identity or handle. Hosts present this as
+     * a `removeMembers` overload or union. Every handle resolves through the
+     * verified handle resolver first, and all members leave in one commit.
      */
 
     func removeSuperAdmin(inboxId: InboxId) async throws
@@ -5398,8 +5500,9 @@ open func addMembers(members: [InboxId])async throws  -> MembershipResult  {
 }
 
     /**
-     * Add members by account identity. Hosts present this as an
-     * `addMembers` overload or union.
+     * Add members by account identity or handle. Hosts present this as an
+     * `addMembers` overload or union. Every handle resolves through the
+     * verified handle resolver first, and all members join in one commit.
      */
 func addMembersByIdentity(members: [PublicIdentity])async throws  -> MembershipResult  {
     return
@@ -6024,8 +6127,9 @@ open func removeMembers(members: [InboxId])async throws   {
 }
 
     /**
-     * Remove members by account identity. Hosts present this as a
-     * `removeMembers` overload or union.
+     * Remove members by account identity or handle. Hosts present this as
+     * a `removeMembers` overload or union. Every handle resolves through the
+     * verified handle resolver first, and all members leave in one commit.
      */
 func removeMembersByIdentity(members: [PublicIdentity])async throws   {
     return
@@ -11469,6 +11573,134 @@ public func FfiConverterTypeGroupUpdated_lower(_ value: GroupUpdated) -> RustBuf
 }
 
 
+/**
+ * The current handle of an inbox changed: the client stored a newer
+ * association state for the inbox whose display handle differs.
+ */
+public struct HandleChanged: Equatable, Hashable {
+    public var inboxId: InboxId
+    /**
+     * The inbox's current handle.
+     */
+    public var handle: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(inboxId: InboxId,
+        /**
+         * The inbox's current handle.
+         */handle: String) {
+        self.inboxId = inboxId
+        self.handle = handle
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HandleChanged: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandleChanged: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandleChanged {
+        return
+            try HandleChanged(
+                inboxId: FfiConverterTypeInboxId.read(from: &buf),
+                handle: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HandleChanged, into buf: inout [UInt8]) {
+        FfiConverterTypeInboxId.write(value.inboxId, into: &buf)
+        FfiConverterString.write(value.handle, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandleChanged_lift(_ buf: RustBuffer) throws -> HandleChanged {
+    return try FfiConverterTypeHandleChanged.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandleChanged_lower(_ value: HandleChanged) -> RustBuffer {
+    return FfiConverterTypeHandleChanged.lower(value)
+}
+
+
+/**
+ * Handle settings the deployment applies when it admits a claim. They are
+ * for apps, for example to check a name as a user types it. The SDK never
+ * fails an operation or omits a handle because of them: the backend's
+ * answer when it admits a claim decides.
+ */
+public struct HandlesConfiguration: Equatable, Hashable {
+    /**
+     * The fewest characters a handle's name part, the text before `#`, can
+     * have in a new claim.
+     */
+    public var minNameLength: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The fewest characters a handle's name part, the text before `#`, can
+         * have in a new claim.
+         */minNameLength: UInt32) {
+        self.minNameLength = minNameLength
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HandlesConfiguration: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandlesConfiguration: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandlesConfiguration {
+        return
+            try HandlesConfiguration(
+                minNameLength: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HandlesConfiguration, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.minNameLength, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandlesConfiguration_lift(_ buf: RustBuffer) throws -> HandlesConfiguration {
+    return try FfiConverterTypeHandlesConfiguration.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandlesConfiguration_lower(_ value: HandlesConfiguration) -> RustBuffer {
+    return FfiConverterTypeHandlesConfiguration.lower(value)
+}
+
+
 public struct HmacKey: Equatable, Hashable {
     public var key: Data
     public var epoch: Int64
@@ -11736,15 +11968,35 @@ public struct InboxState: Equatable, Hashable {
     public var installations: [Installation]
     public var recoveryIdentity: PublicIdentity
     public var creationSignatureKind: SignatureKind?
+    /**
+     * The inbox's current handle: the one it claimed last, or `None` when
+     * it has claimed none. Show it as the text that identifies the inbox.
+     */
+    public var handle: String?
+    /**
+     * The inbox's other handles, the most recently claimed first. Each one
+     * still names the inbox. Show them only as secondary information.
+     */
+    public var otherHandles: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(inboxId: InboxId, identities: [PublicIdentity], installations: [Installation], recoveryIdentity: PublicIdentity, creationSignatureKind: SignatureKind?) {
+    public init(inboxId: InboxId, identities: [PublicIdentity], installations: [Installation], recoveryIdentity: PublicIdentity, creationSignatureKind: SignatureKind?,
+        /**
+         * The inbox's current handle: the one it claimed last, or `None` when
+         * it has claimed none. Show it as the text that identifies the inbox.
+         */handle: String?,
+        /**
+         * The inbox's other handles, the most recently claimed first. Each one
+         * still names the inbox. Show them only as secondary information.
+         */otherHandles: [String]) {
         self.inboxId = inboxId
         self.identities = identities
         self.installations = installations
         self.recoveryIdentity = recoveryIdentity
         self.creationSignatureKind = creationSignatureKind
+        self.handle = handle
+        self.otherHandles = otherHandles
     }
 
 
@@ -11767,7 +12019,9 @@ public struct FfiConverterTypeInboxState: FfiConverterRustBuffer {
                 identities: FfiConverterSequenceTypePublicIdentity.read(from: &buf),
                 installations: FfiConverterSequenceTypeInstallation.read(from: &buf),
                 recoveryIdentity: FfiConverterTypePublicIdentity.read(from: &buf),
-                creationSignatureKind: FfiConverterOptionTypeSignatureKind.read(from: &buf)
+                creationSignatureKind: FfiConverterOptionTypeSignatureKind.read(from: &buf),
+                handle: FfiConverterOptionString.read(from: &buf),
+                otherHandles: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
@@ -11777,6 +12031,8 @@ public struct FfiConverterTypeInboxState: FfiConverterRustBuffer {
         FfiConverterSequenceTypeInstallation.write(value.installations, into: &buf)
         FfiConverterTypePublicIdentity.write(value.recoveryIdentity, into: &buf)
         FfiConverterOptionTypeSignatureKind.write(value.creationSignatureKind, into: &buf)
+        FfiConverterOptionString.write(value.handle, into: &buf)
+        FfiConverterSequenceString.write(value.otherHandles, into: &buf)
     }
 }
 
@@ -12892,14 +13148,38 @@ public struct Member: Equatable, Hashable {
     public var identities: [PublicIdentity]
     public var permissionLevel: PermissionLevel
     public var consentState: ConsentState
+    /**
+     * The member's current handle, from the newest association state the
+     * client holds for the member, or `None` when it has claimed none. Show
+     * it as the text that identifies the member.
+     */
+    public var handle: String?
+    /**
+     * The member's other handles from that state, the most recently claimed
+     * first. Each one still names the member. Show them only as secondary
+     * information.
+     */
+    public var otherHandles: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(inboxId: InboxId, identities: [PublicIdentity], permissionLevel: PermissionLevel, consentState: ConsentState) {
+    public init(inboxId: InboxId, identities: [PublicIdentity], permissionLevel: PermissionLevel, consentState: ConsentState,
+        /**
+         * The member's current handle, from the newest association state the
+         * client holds for the member, or `None` when it has claimed none. Show
+         * it as the text that identifies the member.
+         */handle: String?,
+        /**
+         * The member's other handles from that state, the most recently claimed
+         * first. Each one still names the member. Show them only as secondary
+         * information.
+         */otherHandles: [String]) {
         self.inboxId = inboxId
         self.identities = identities
         self.permissionLevel = permissionLevel
         self.consentState = consentState
+        self.handle = handle
+        self.otherHandles = otherHandles
     }
 
 
@@ -12921,7 +13201,9 @@ public struct FfiConverterTypeMember: FfiConverterRustBuffer {
                 inboxId: FfiConverterTypeInboxId.read(from: &buf),
                 identities: FfiConverterSequenceTypePublicIdentity.read(from: &buf),
                 permissionLevel: FfiConverterTypePermissionLevel.read(from: &buf),
-                consentState: FfiConverterTypeConsentState.read(from: &buf)
+                consentState: FfiConverterTypeConsentState.read(from: &buf),
+                handle: FfiConverterOptionString.read(from: &buf),
+                otherHandles: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
@@ -12930,6 +13212,8 @@ public struct FfiConverterTypeMember: FfiConverterRustBuffer {
         FfiConverterSequenceTypePublicIdentity.write(value.identities, into: &buf)
         FfiConverterTypePermissionLevel.write(value.permissionLevel, into: &buf)
         FfiConverterTypeConsentState.write(value.consentState, into: &buf)
+        FfiConverterOptionString.write(value.handle, into: &buf)
+        FfiConverterSequenceString.write(value.otherHandles, into: &buf)
     }
 }
 
@@ -15396,6 +15680,7 @@ public struct ServerConfiguration: Equatable, Hashable {
     public var retention: RetentionConfiguration
     public var limits: LimitsConfiguration
     public var mls: MlsConfiguration
+    public var handles: HandlesConfiguration
     public var smartContractWalletChains: [String]
     /**
      * Omitted when the deployment offers no attachment service.
@@ -15408,7 +15693,7 @@ public struct ServerConfiguration: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(identifier: String, serverVersion: String, minLibxmtpVersion: String, auth: AuthConfiguration, retention: RetentionConfiguration, limits: LimitsConfiguration, mls: MlsConfiguration, smartContractWalletChains: [String],
+    public init(identifier: String, serverVersion: String, minLibxmtpVersion: String, auth: AuthConfiguration, retention: RetentionConfiguration, limits: LimitsConfiguration, mls: MlsConfiguration, handles: HandlesConfiguration, smartContractWalletChains: [String],
         /**
          * Omitted when the deployment offers no attachment service.
          */attachments: AttachmentsConfiguration?,
@@ -15422,6 +15707,7 @@ public struct ServerConfiguration: Equatable, Hashable {
         self.retention = retention
         self.limits = limits
         self.mls = mls
+        self.handles = handles
         self.smartContractWalletChains = smartContractWalletChains
         self.attachments = attachments
         self.applicationComponents = applicationComponents
@@ -15450,6 +15736,7 @@ public struct FfiConverterTypeServerConfiguration: FfiConverterRustBuffer {
                 retention: FfiConverterTypeRetentionConfiguration.read(from: &buf),
                 limits: FfiConverterTypeLimitsConfiguration.read(from: &buf),
                 mls: FfiConverterTypeMlsConfiguration.read(from: &buf),
+                handles: FfiConverterTypeHandlesConfiguration.read(from: &buf),
                 smartContractWalletChains: FfiConverterSequenceString.read(from: &buf),
                 attachments: FfiConverterOptionTypeAttachmentsConfiguration.read(from: &buf),
                 applicationComponents: FfiConverterSequenceTypeApplicationComponentDefinition.read(from: &buf)
@@ -15464,6 +15751,7 @@ public struct FfiConverterTypeServerConfiguration: FfiConverterRustBuffer {
         FfiConverterTypeRetentionConfiguration.write(value.retention, into: &buf)
         FfiConverterTypeLimitsConfiguration.write(value.limits, into: &buf)
         FfiConverterTypeMlsConfiguration.write(value.mls, into: &buf)
+        FfiConverterTypeHandlesConfiguration.write(value.handles, into: &buf)
         FfiConverterSequenceString.write(value.smartContractWalletChains, into: &buf)
         FfiConverterOptionTypeAttachmentsConfiguration.write(value.attachments, into: &buf)
         FfiConverterSequenceTypeApplicationComponentDefinition.write(value.applicationComponents, into: &buf)
@@ -17222,6 +17510,8 @@ public enum ClientEvent: Equatable, Hashable {
     )
     case attachmentDeleted(attachmentDeleted: AttachmentRef
     )
+    case handleChanged(handleChanged: HandleChanged
+    )
     case lagged(lagged: Lagged
     )
 
@@ -17326,7 +17616,10 @@ public struct FfiConverterTypeClientEvent: FfiConverterRustBuffer {
         case 27: return .attachmentDeleted(attachmentDeleted: try FfiConverterTypeAttachmentRef.read(from: &buf)
         )
 
-        case 28: return .lagged(lagged: try FfiConverterTypeLagged.read(from: &buf)
+        case 28: return .handleChanged(handleChanged: try FfiConverterTypeHandleChanged.read(from: &buf)
+        )
+
+        case 29: return .lagged(lagged: try FfiConverterTypeLagged.read(from: &buf)
         )
 
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -17472,8 +17765,13 @@ public struct FfiConverterTypeClientEvent: FfiConverterRustBuffer {
             FfiConverterTypeAttachmentRef.write(attachmentDeleted, into: &buf)
 
 
-        case let .lagged(lagged):
+        case let .handleChanged(handleChanged):
             writeInt(&buf, Int32(28))
+            FfiConverterTypeHandleChanged.write(handleChanged, into: &buf)
+
+
+        case let .lagged(lagged):
+            writeInt(&buf, Int32(29))
             FfiConverterTypeLagged.write(lagged, into: &buf)
 
         }
@@ -18904,6 +19202,7 @@ public enum EventKind: Equatable, Hashable {
     case attachmentDownloadCompleted
     case attachmentDownloadFailed
     case attachmentDeleted
+    case handleChanged
     case lagged
 
 
@@ -18980,7 +19279,9 @@ public struct FfiConverterTypeEventKind: FfiConverterRustBuffer {
 
         case 27: return .attachmentDeleted
 
-        case 28: return .lagged
+        case 28: return .handleChanged
+
+        case 29: return .lagged
 
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -19098,8 +19399,12 @@ public struct FfiConverterTypeEventKind: FfiConverterRustBuffer {
             writeInt(&buf, Int32(27))
 
 
-        case .lagged:
+        case .handleChanged:
             writeInt(&buf, Int32(28))
+
+
+        case .lagged:
+            writeInt(&buf, Int32(29))
 
         }
     }
@@ -22363,6 +22668,12 @@ public enum PublicIdentityKind: Equatable, Hashable {
 
     case ethereum
     case passkey
+    /**
+     * A handle that an inbox claimed, such as `nick` or `nick#2341`. A
+     * handle names an inbox, but it is not an account: it signs nothing, so
+     * an account call fails with `InvalidArgument` for it.
+     */
+    case handle
 
 
 
@@ -22388,6 +22699,8 @@ public struct FfiConverterTypePublicIdentityKind: FfiConverterRustBuffer {
 
         case 2: return .passkey
 
+        case 3: return .handle
+
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -22402,6 +22715,10 @@ public struct FfiConverterTypePublicIdentityKind: FfiConverterRustBuffer {
 
         case .passkey:
             writeInt(&buf, Int32(2))
+
+
+        case .handle:
+            writeInt(&buf, Int32(3))
 
         }
     }
@@ -24190,6 +24507,29 @@ enum XmtpError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     case UserLimitExceeded(ErrorDetails
     )
     /**
+     * Another inbox holds the handle. Not retryable; claim another handle.
+     */
+    case HandleTaken(ErrorDetails
+    )
+    /**
+     * The deployment refuses the handle's name part. Not retryable; choose
+     * another name.
+     */
+    case HandleNotAllowed(ErrorDetails
+    )
+    /**
+     * The inbox claimed a handle too recently. Not retryable until the
+     * deployment's interval between claims has passed.
+     */
+    case HandleTooSoon(ErrorDetails
+    )
+    /**
+     * The inbox has made the most handle claims its identity log can hold.
+     * Not retryable.
+     */
+    case HandleLimitReached(ErrorDetails
+    )
+    /**
      * A binding operation was cancelled before it finished. Partial effects and
      * retry safety depend on the operation. The browser runtime returns it.
      */
@@ -24392,10 +24732,22 @@ public struct FfiConverterTypeXmtpError: FfiConverterRustBuffer {
         case 55: return .UserLimitExceeded(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 56: return .Cancelled(
+        case 56: return .HandleTaken(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 57: return .Unknown(
+        case 57: return .HandleNotAllowed(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 58: return .HandleTooSoon(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 59: return .HandleLimitReached(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 60: return .Cancelled(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 61: return .Unknown(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
 
@@ -24686,13 +25038,33 @@ public struct FfiConverterTypeXmtpError: FfiConverterRustBuffer {
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Cancelled(v1):
+        case let .HandleTaken(v1):
             writeInt(&buf, Int32(56))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Unknown(v1):
+        case let .HandleNotAllowed(v1):
             writeInt(&buf, Int32(57))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .HandleTooSoon(v1):
+            writeInt(&buf, Int32(58))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .HandleLimitReached(v1):
+            writeInt(&buf, Int32(59))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .Cancelled(v1):
+            writeInt(&buf, Int32(60))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .Unknown(v1):
+            writeInt(&buf, Int32(61))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
         }
@@ -28749,8 +29121,9 @@ public func localSignerFromPrivateKey(key: Data)async throws  -> Signer  {
         )
 }
 /**
- * Returns one entry per core identity. Keys use `ethereum:<core text>` or
- * `passkey:<lowercase core hex>`.
+ * Returns one entry per core identity. Keys use `ethereum:<core text>`,
+ * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A handle is
+ * available when the backend names an inbox for it.
  */
 public func canMessageWithBackend(backend: BackendSource, identities: [PublicIdentity])async throws  -> [String: Bool]  {
     return
@@ -28767,6 +29140,13 @@ public func canMessageWithBackend(backend: BackendSource, identities: [PublicIde
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
+/**
+ * The inbox of an account or a handle. An account with no live inbox gets
+ * the inbox ID it would create with nonce 0. A handle never derives an inbox
+ * ID: it resolves only when the inbox the backend names holds it in its own
+ * identity log, and fails with `IdentityNotFound` otherwise. An old handle
+ * of an inbox still resolves to it.
+ */
 public func inboxIdForWithBackend(backend: BackendSource, identity: PublicIdentity)async throws  -> InboxId  {
     return
         try  await uniffiRustCallAsync(
@@ -29002,10 +29382,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_local_signer_from_private_key() != 30382) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_can_message_with_backend() != 36605) {
+    if (uniffi_xmtp_sdk_checksum_func_can_message_with_backend() != 19273) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 22458) {
+    if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 7019) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_inbox_states_with_backend() != 12284) {
@@ -29125,7 +29505,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_app_version() != 4853) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_can_message() != 18398) {
+    if (uniffi_xmtp_sdk_checksum_method_client_available_handles() != 13049) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_client_can_message() != 51852) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_catch_up_to_live() != 37718) {
@@ -29134,13 +29517,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_change_recovery_identifier() != 4646) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_method_client_claim_handle() != 40989) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_method_client_decode_content() != 41922) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_identity() != 61052) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_inbox_id_for() != 4254) {
+    if (uniffi_xmtp_sdk_checksum_method_client_inbox_id_for() != 1422) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_inbox_state() != 57646) {
@@ -29251,7 +29637,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm() != 578) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm_with_identity() != 18448) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm_with_identity() != 60772) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_group() != 23137) {
@@ -29260,7 +29646,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_optimistic() != 41274) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_with_identities() != 16919) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_with_identities() != 24231) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_delete_message() != 23841) {
@@ -29272,7 +29658,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_get_by_id() != 32520) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_identity() != 26592) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_identity() != 16124) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_inbox_id() != 61920) {
@@ -29476,7 +29862,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_add_members() != 43735) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_add_members_by_identity() != 16919) {
+    if (uniffi_xmtp_sdk_checksum_method_group_add_members_by_identity() != 10876) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_add_super_admin() != 2507) {
@@ -29587,7 +29973,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_remove_members() != 34386) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_remove_members_by_identity() != 46738) {
+    if (uniffi_xmtp_sdk_checksum_method_group_remove_members_by_identity() != 29488) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_remove_super_admin() != 29988) {
