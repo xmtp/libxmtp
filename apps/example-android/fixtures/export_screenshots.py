@@ -19,6 +19,8 @@ SCREENS = {
     "my_fields",
     "app_settings",
     "drafts",
+    "choose_handle",
+    "change_handle",
 }
 NAMES = {
     "setup.png",

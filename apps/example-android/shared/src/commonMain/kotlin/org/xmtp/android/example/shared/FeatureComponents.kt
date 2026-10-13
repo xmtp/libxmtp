@@ -1,6 +1,7 @@
 package org.xmtp.android.example.shared
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -12,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
@@ -61,6 +63,20 @@ internal val xmtpLogo =
                 ),
             fill = SolidColor(Color(0xFF182235)),
         ).build()
+
+/** The logo row at the top of the setup screens, with the space that follows it. */
+@Composable internal fun XmtpBrand() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Image(
+            xmtpLogo,
+            "XMTP",
+            Modifier.size(48.dp),
+            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary),
+        )
+        Text("XMTP", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+    }
+    Spacer(Modifier.height(12.dp))
+}
 
 @Composable internal fun CircleAction(
     label: String,

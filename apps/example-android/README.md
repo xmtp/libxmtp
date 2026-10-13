@@ -27,6 +27,7 @@ owners through constructors:
 | `feature/chat` | Own composer drafts, send state, history, and message actions. |
 | `feature/group` | Edit group settings, members, and application fields. |
 | `feature/settings` | Own app settings, sign out, and local reset actions. |
+| `feature/handles` | Check, suggest, and claim a handle in onboarding and Settings. |
 | `feature/attachments` | Own transfers, verified files, and pending device requests. |
 | `data/xmtp` | Implement query interfaces and required message projections. |
 | `data/profile` | Replay durable profile cleanup. |
@@ -133,6 +134,29 @@ Sign out stops the client and clears its credential. It keeps the wallet and SDK
 files. Delete my account removes the selected profile's local database, SDK
 attachment files, temporary sources, exported files and app records. This is a
 local device reset. A failed reset retains its cleanup record for Retry.
+
+## Handles
+
+A handle such as `nick` or `nick#2341` is a public name that people on the
+server use to find and message you. After Join a server, a new account opens
+Choose your handle. The step runs once for each account. Skip for now opens
+Chats, and an account that already has a handle never sees it.
+
+As you type, the app checks the handle grammar and the server's published
+minimum name length. Continue asks the server which handles are free. A free
+name shows Claim. A taken name shows three free `name#code` handles, and Show
+more adds three more. The app claims only the handle you pick. When another
+inbox claims your pick first, the app shows refreshed handles with the next one
+selected and waits for you. The server decides each claim: a refused name, a
+claim within 7 days of the last one, and the 64-claim limit each show as a
+message. A successful claim opens Chats.
+
+Settings shows your current handle as the profile title and your other handles
+below it. Change handle reuses the editor, lists your other handles with Use,
+and asks for confirmation before each claim. A switch back to an older handle
+is a new claim, so it must pass the server's current rules. The app records the
+time of each claim it makes, so it can show when you can change again. A claim
+from another device has no date on this one.
 
 ## Chat
 

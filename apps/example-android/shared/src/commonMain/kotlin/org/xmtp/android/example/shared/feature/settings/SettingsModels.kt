@@ -6,6 +6,10 @@ enum class NotificationPermission { UNKNOWN, GRANTED, DENIED }
 
 data class SettingsState(
     val inbox: String = "",
+    /** The inbox's current handle, shown as the profile title. */
+    val handle: String? = null,
+    /** The inbox's other handles, the most recently claimed first. */
+    val otherHandles: List<String> = emptyList(),
     val backend: String = "",
     val serverLabel: String = "",
     val notifications: CapabilityUi = CapabilityUi(),

@@ -17,6 +17,8 @@ import org.xmtp.android.example.messenger.feature.connect.ConnectController
 import org.xmtp.android.example.messenger.feature.conversations.ConversationsController
 import org.xmtp.android.example.messenger.feature.conversations.CreateConversationController
 import org.xmtp.android.example.messenger.feature.group.GroupController
+import org.xmtp.android.example.messenger.feature.handles.HandleController
+import org.xmtp.android.example.messenger.feature.handles.SessionHandleAccount
 import org.xmtp.android.example.messenger.feature.settings.SettingsController
 import org.xmtp.android.example.messenger.notifications.*
 import org.xmtp.android.example.messenger.platform.NotificationPermissionOwner
@@ -25,11 +27,17 @@ import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.attachments.AttachmentAction
 import org.xmtp.android.example.shared.feature.conversations.CreateConversationAction
 import org.xmtp.android.example.shared.feature.conversations.CreateStep
+import org.xmtp.android.example.shared.feature.handles.HandleMode
 import uniffi.xmtp_sdk.ConsentState
+import uniffi.xmtp_sdk.inboxState
 import java.io.Closeable
 import java.io.File
 
-/** Constructs the process owners before any session command can run. */
+/**
+ * Constructs the process owners before any session command can run. [offerHandleChoice]
+ * opens Choose your handle once for each account that has no handle; tests that start
+ * from Chats turn it off.
+ */
 internal class AppGraph(
     context: Context,
     sessionObservers: SessionObservers = SessionObservers(),
@@ -37,6 +45,7 @@ internal class AppGraph(
     private val conversationQueries: ConversationQueries = XmtpQueries(),
     private val chatQueries: ChatQueries = XmtpQueries(),
     backendProbe: BackendProbe = XmtpBackendProbe(),
+    private val offerHandleChoice: Boolean = true,
 ) : Closeable {
     private val context = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -65,6 +74,9 @@ internal class AppGraph(
         private set
     lateinit var projection: FeatureMessageHandler
         private set
+    lateinit var featurePreferences: AppFeaturePreferences
+        private set
+    val handles = HandleController(scope)
 
     val session: AppSession =
         AppSession(
@@ -75,6 +87,7 @@ internal class AppGraph(
             },
             projectionFactory = { owner ->
                 val preferences = AppFeaturePreferences(this.context, owner, owner.secrets)
+                featurePreferences = preferences
                 val composerDrafts = SecureComposerDrafts(owner, owner.secrets)
                 sends = SendCoordinator(owner.preferences, owner::accepts, owner::admit)
                 connect =
@@ -169,10 +182,13 @@ internal class AppGraph(
                 if (!destinations.sessionChanged(owner)) return@collectLatest
                 ready.value = null
                 failure.value = null
+                handles.close()
                 try {
                     projection.activate(owner)
                     if (owner != null && session.accepts(owner.key)) {
-                        destinations.restore(owner) { route -> canRestore(owner, route) }
+                        val chooseHandle = needsHandleChoice(owner)
+                        val start = if (chooseHandle) AppRoute.ChooseHandle else AppRoute.Chats
+                        destinations.restore(owner, start) { route -> !chooseHandle && canRestore(owner, route) }
                         if (session.accepts(owner.key)) ready.value = owner.key
                     }
                 } catch (error: Throwable) {
@@ -230,6 +246,14 @@ internal class AppGraph(
                                         attachments.refresh(owner, destination.token)
                                     }
 
+                                    AppRoute.ChooseHandle -> {
+                                        openHandles(owner, HandleMode.CHOOSE)
+                                    }
+
+                                    AppRoute.ChangeHandle -> {
+                                        openHandles(owner, HandleMode.CHANGE)
+                                    }
+
                                     AppRoute.Chats, AppRoute.Requests -> {
                                         conversations.showRequests(route == AppRoute.Requests)
                                         conversations.refresh(owner)
@@ -254,11 +278,44 @@ internal class AppGraph(
         connect.start()
     }
 
+    /** True when the account has no handle and has not claimed or skipped one in onboarding. */
+    private suspend fun needsHandleChoice(owner: ActiveSession): Boolean =
+        withContext(Dispatchers.IO) {
+            if (!offerHandleChoice || featurePreferences.handleStepDone(owner.key.profileId)) return@withContext false
+            val handle =
+                try {
+                    owner.client.inboxState(false).handle
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    return@withContext false
+                }
+            if (handle != null) featurePreferences.finishHandleStep(owner.key)
+            handle == null
+        }
+
+    private fun openHandles(
+        owner: ActiveSession,
+        mode: HandleMode,
+    ) {
+        val leave: () -> Unit =
+            if (mode == HandleMode.CHOOSE) {
+                { destinations.navigate(AppRoute.Chats) }
+            } else {
+                { destinations.back() }
+            }
+        handles.open(
+            SessionHandleAccount(owner, featurePreferences, destinations, destinations.capture(owner), mode, leave),
+            mode,
+        )
+    }
+
     private suspend fun canRestore(
         owner: ActiveSession,
         route: AppRoute,
     ): Boolean {
-        val id = RouteOwner.conversationId(route) ?: return route != AppRoute.Connect
+        val id =
+            RouteOwner.conversationId(route)
+                ?: return route != AppRoute.Connect && route != AppRoute.ChooseHandle
         val conversation = conversationQueries.find(owner, id) ?: return false
         return conversationQueries.state(conversation).consentState != ConsentState.DENIED
     }

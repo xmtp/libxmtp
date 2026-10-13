@@ -31,6 +31,7 @@ fun MessengerScreens(
         group = { action(MessengerAction.GroupFeature(it)) },
         settings = { action(MessengerAction.SettingsFeature(it)) },
         request = { action(MessengerAction.RequestFeature(it)) },
+        handles = { action(MessengerAction.HandleFeature(it)) },
     ),
     extraScreen,
     composerExtra,

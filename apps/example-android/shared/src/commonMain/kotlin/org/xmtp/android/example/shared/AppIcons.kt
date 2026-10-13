@@ -33,6 +33,7 @@ object AppIcons {
     val Search = outline("Search", "M16,10 A6,6 0,1 1,4,10 A6,6 0,1 1,16,10 M15,15 L21,21")
     val Reply = outline("Reply", "M9,5 L3,11 L9,17 M3,11 L14,11 Q20,11 20,19", autoMirror = true)
     val File = outline("File", "M6,3 L14,3 L19,8 L19,21 L6,21 Z M14,3 L14,8 L19,8")
+    val Check = outline("Check", "M5,12 L10,17 L19,7")
     val Settings =
         outline(
             "Settings",

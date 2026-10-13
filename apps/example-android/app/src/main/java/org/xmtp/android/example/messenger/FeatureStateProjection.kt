@@ -9,6 +9,7 @@ import org.xmtp.android.example.messenger.feature.connect.ConnectController
 import org.xmtp.android.example.messenger.feature.conversations.ConversationsController
 import org.xmtp.android.example.messenger.feature.conversations.CreateConversationController
 import org.xmtp.android.example.messenger.feature.group.GroupController
+import org.xmtp.android.example.messenger.feature.handles.HandleController
 import org.xmtp.android.example.messenger.feature.settings.SettingsController
 import org.xmtp.android.example.messenger.notifications.NotificationController
 import org.xmtp.android.example.shared.*
@@ -17,6 +18,7 @@ import org.xmtp.android.example.shared.feature.chat.ComposerState
 import org.xmtp.android.example.shared.feature.connect.ConnectState
 import org.xmtp.android.example.shared.feature.conversations.*
 import org.xmtp.android.example.shared.feature.group.GroupState
+import org.xmtp.android.example.shared.feature.handles.HandleState
 import org.xmtp.android.example.shared.feature.settings.SettingsState
 
 /** This facade derives display state. Each feature retains its own source state. */
@@ -32,6 +34,7 @@ internal class FeatureStateProjection(
     notifications: NotificationController,
     destinations: DestinationScope,
     navigationFailure: StateFlow<AppFailure?>,
+    handles: HandleController,
     scope: CoroutineScope,
 ) {
     private val sources =
@@ -50,6 +53,7 @@ internal class FeatureStateProjection(
             session.connection,
             session.error,
             navigationFailure,
+            handles.state,
         )
     private val changes: List<Flow<Any?>> = sources + session.preferences.pendingReset
     private val initialValues =
@@ -123,7 +127,8 @@ private fun projectFeatureState(
             )
         }
     val globalFailure = (values[13] as AppFailure?) ?: sessionFailure
-    val pendingReset = values[14] as Boolean
+    val handleState = values[14] as HandleState
+    val pendingReset = values[15] as Boolean
     val resetFailure =
         when {
             !pendingReset -> null
@@ -210,6 +215,10 @@ private fun projectFeatureState(
             AppRoute.Settings -> Screen.APP_SETTINGS
 
             AppRoute.AttachmentRecovery -> Screen.DRAFTS
+
+            AppRoute.ChooseHandle -> Screen.CHOOSE_HANDLE
+
+            AppRoute.ChangeHandle -> Screen.CHANGE_HANDLE
         }
     val failure =
         when (route) {
@@ -231,6 +240,11 @@ private fun projectFeatureState(
             AppRoute.Settings,
             AppRoute.AttachmentRecovery,
             -> settingsState.failure
+
+            // The handle screens show each failure in their own error box.
+            AppRoute.ChooseHandle,
+            AppRoute.ChangeHandle,
+            -> null
         } ?: (values[13] as AppFailure?) ?: sessionFailure
     return MessengerState(
         screen = screen,
@@ -253,6 +267,8 @@ private fun projectFeatureState(
                 -> groupState.busy
 
                 AppRoute.Settings, AppRoute.AttachmentRecovery -> settingsState.busy
+
+                AppRoute.ChooseHandle, AppRoute.ChangeHandle -> handleState.busy
             },
         error = failure?.message,
         pendingReset = pendingReset,
@@ -288,5 +304,6 @@ private fun projectFeatureState(
         groupState = groupState,
         settingsState = settingsState,
         requestState = requestState,
+        handleState = handleState,
     )
 }

@@ -6,6 +6,25 @@ spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
 
+## Handle selection, 2026-10-13
+
+Choose your handle (onboarding) and Change handle (Settings) follow the
+approved handle designs. `HandleControllerTest` drives every editor state
+through the production `HandleController` with a fake account: empty, invalid
+grammar, too short, checking, a stale answer after an edit, a free bare name,
+suggestions and Show more, a taken coded handle, no free handle, taken during a
+claim with the next suggestion selected and no automatic claim, not allowed,
+too soon, the claim limit, a failed check, a claim with no answer, a switch back
+that fails the current rules, confirmation, Skip for now, and an account that
+already has a handle. Each of the 22 tests failed under its own mutation of the
+controller or the input check, and passed again after the source was restored.
+
+`ScreenScaleInstrumentedTest` now opens both handle screens, so the all-screens
+assertion covers eleven screens. The exporter allows their two screenshot
+names. Not run: app instrumentation, the scaled screen pass, and a manual
+walk-through on an emulator. No emulator was available for this change, so the
+host tests above are the only runtime proof.
+
 ## Messenger redesign, 2026-10-10
 
 This section owns the architecture and design proof for the two redesign PRs.

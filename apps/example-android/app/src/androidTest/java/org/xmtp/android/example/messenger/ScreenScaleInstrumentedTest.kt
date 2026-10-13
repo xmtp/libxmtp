@@ -27,9 +27,9 @@ import org.xmtp.android.example.shared.metadata.FieldShape
 import uniffi.xmtp_sdk.*
 import java.util.UUID
 
-/** Actual 320 dp device layout, touch scrolling and 200% text on all nine screens. */
+/** Actual 320 dp device layout, touch scrolling and 200% text on all eleven screens. */
 class ScreenScaleInstrumentedTest {
-    private val graphRule = TestAppGraphRule()
+    private val graphRule = TestAppGraphRule(offerHandleChoice = true)
     val compose = createAndroidComposeRule<MainActivity>()
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
     private val captured = mutableSetOf<Screen>()
@@ -380,10 +380,17 @@ class ScreenScaleInstrumentedTest {
                 control(click("Join a server"))
                 capture(Screen.START)
                 control(click("Join a server")).performClick()
-                until("The actual profile did not connect") {
+                until("The new profile did not open Choose your handle") {
                     model.session.active.value != null &&
-                        model.state.value.screen == Screen.CONVERSATIONS
+                        model.state.value.screen == Screen.CHOOSE_HANDLE &&
+                        !model.handles.state.value.loading
                 }
+                input("Handle", "scale")
+                control(click("Continue"))
+                control(click("Skip for now"))
+                capture(Screen.CHOOSE_HANDLE)
+                control(click("Skip for now")).performClick()
+                until("Skip for now did not open Chats") { model.state.value.screen == Screen.CONVERSATIONS }
                 val owner = checkNotNull(model.session.active.value)
                 peer =
                     SDKClient.create(
@@ -586,6 +593,15 @@ class ScreenScaleInstrumentedTest {
                 model.dispatch(MessengerAction.Refresh)
                 control(hasContentDescription("Settings")).performClick()
                 until("App settings did not open") { model.state.value.screen == Screen.APP_SETTINGS }
+                control(click("Choose a handle")).performClick()
+                until("Choose handle did not open from Settings") {
+                    model.state.value.screen == Screen.CHANGE_HANDLE && !model.handles.state.value.loading
+                }
+                input("Handle", "scale")
+                control(click("Continue"))
+                capture(Screen.CHANGE_HANDLE)
+                control(hasContentDescription("Back")).performClick()
+                until("Settings did not return from Choose handle") { model.state.value.screen == Screen.APP_SETTINGS }
                 control(click("Draft recovery"))
                 control(click("Sign out"))
                 capture(Screen.APP_SETTINGS)

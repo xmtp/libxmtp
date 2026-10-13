@@ -4,6 +4,7 @@ import org.xmtp.android.example.shared.feature.chat.*
 import org.xmtp.android.example.shared.feature.connect.*
 import org.xmtp.android.example.shared.feature.conversations.*
 import org.xmtp.android.example.shared.feature.group.*
+import org.xmtp.android.example.shared.feature.handles.*
 import org.xmtp.android.example.shared.feature.settings.*
 
 data class MessengerUiState(
@@ -15,6 +16,7 @@ data class MessengerUiState(
     val group: GroupState = GroupState(),
     val settings: SettingsState = SettingsState(),
     val request: RequestState = RequestState(),
+    val handles: HandleState = HandleState(),
 )
 
 data class MessengerCallbacks(
@@ -26,6 +28,7 @@ data class MessengerCallbacks(
     val group: (GroupAction) -> Unit = {},
     val settings: (SettingsAction) -> Unit = {},
     val request: (RequestAction) -> Unit = {},
+    val handles: (HandleAction) -> Unit = {},
 )
 
 fun Screen.route(conversationId: String?): AppRoute =
@@ -39,6 +42,8 @@ fun Screen.route(conversationId: String?): AppRoute =
         Screen.GROUP_FIELDS -> conversationId?.let { AppRoute.GroupFields(it) } ?: AppRoute.Chats
         Screen.MY_FIELDS -> conversationId?.let { AppRoute.OwnFields(it) } ?: AppRoute.Chats
         Screen.DRAFTS -> AppRoute.AttachmentRecovery
+        Screen.CHOOSE_HANDLE -> AppRoute.ChooseHandle
+        Screen.CHANGE_HANDLE -> AppRoute.ChangeHandle
     }
 
 fun AppRoute.screen(): Screen =
@@ -52,6 +57,8 @@ fun AppRoute.screen(): Screen =
         is AppRoute.GroupFields -> Screen.GROUP_FIELDS
         is AppRoute.OwnFields -> Screen.MY_FIELDS
         AppRoute.AttachmentRecovery -> Screen.DRAFTS
+        AppRoute.ChooseHandle -> Screen.CHOOSE_HANDLE
+        AppRoute.ChangeHandle -> Screen.CHANGE_HANDLE
     }
 
 // This adapter supports the current Activity while it moves to feature states.
@@ -144,5 +151,6 @@ fun MessengerState.toUiState(): MessengerUiState {
                     failure = failure,
                 ),
         request = requestState ?: RequestState(conversationId = conversationId.orEmpty(), title = conversationTitle),
+        handles = handleState ?: HandleState(),
     )
 }
