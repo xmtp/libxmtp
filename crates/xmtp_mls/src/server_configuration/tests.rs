@@ -340,6 +340,7 @@ pub(crate) fn distinct_snapshot() -> ServerConfiguration {
             max_installations_per_inbox: 42,
             commit_log_enabled: Some(false),
         },
+        handles: xmtp_configuration::HandlesConfiguration { min_name_length: 5 },
         smart_contract_wallet_chains: vec!["eip155:1".to_owned(), "eip155:8453".to_owned()],
         attachments: None,
         application_components: vec![xmtp_configuration::ApplicationComponentDefinition {
@@ -387,6 +388,9 @@ max_query_topics = 17
 
 [mls]
 max_group_members = 23
+
+[handles]
+min_name_length = 5
 
 [chains]
 "eip155:1" = "http://127.0.0.1:8545"
@@ -479,6 +483,7 @@ in_dms = false
         assert_eq!(configuration.identifier, "org.example.distinct");
         assert_eq!(configuration.limits.max_query_topics, 17);
         assert_eq!(configuration.mls.max_group_members, 23);
+        assert_eq!(configuration.handles.min_name_length, 5);
         assert!(!configuration.auth.enabled);
         // The chain list round-trips too.
         assert_eq!(

@@ -215,3 +215,26 @@ max_response_bytes = 257
     );
     server.stop().await?;
 }
+
+/// The handle minimum the backend applies is the one it publishes: the
+/// configured value, or the default of 3 when none is configured. The
+/// `handles` message is set on every deployment and never carries 0.
+// verifies: CONF-017, CONF-069
+#[xmtp_common::test(unwrap_try = true)]
+async fn publishes_handles_min_name_length() {
+    for (toml, expected) in [("[handles]\nmin_name_length = 5\n", 5), ("", 3)] {
+        let server = TestServer::from_toml(toml).await?;
+        let published = server
+            .configuration()
+            .get_configuration(api::GetConfigurationRequest {})
+            .await?
+            .into_inner();
+        let handles = published.handles.expect("handles are published");
+        assert_eq!(handles.min_name_length, expected, "{toml:?}");
+        assert_eq!(
+            server.backend.config.handles.min_name_length, expected,
+            "{toml:?}"
+        );
+        server.stop().await?;
+    }
+}

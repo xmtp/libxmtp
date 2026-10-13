@@ -268,6 +268,15 @@ these values; clients read them and apply them locally.
 | `max_installations_per_inbox` | integer, 1 to 65535 | `10`    | Installations a client keeps for one inbox. Advisory.             |
 | `commit_log_enabled`          | boolean             | `true`  | Whether clients write and read the commit log on this deployment. |
 
+### `[handles]`
+
+Settings for handles, the public names an inbox claims. The backend publishes
+them, and applies them only when it admits a new claim.
+
+| Key               | Type             | Default | Purpose                                                                                              |
+| ----------------- | ---------------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| `min_name_length` | integer, 1 to 27 | `3`     | Shortest name part, the text before `#`, of a new claim. Handles claimed before a change stay valid. |
+
 ### `[[application_components]]`
 
 Group metadata fields the backend publishes for clients to register in the
@@ -351,7 +360,8 @@ The call needs no credential, so a client can learn what a deployment requires
 before it holds one. The response is built once at startup and does not change
 while the process runs. It carries the identifier, the backend version, the
 minimum client version, a summary of `[auth]`, the retention periods, the
-published limits, the `[mls]` policy, the configured chain IDs, the attachment
+published limits, the `[mls]` policy, the `[handles]` settings, the configured
+chain IDs, the attachment
 offer when configured, and the
 `[[application_components]]` table sorted by `component_id`.
 
