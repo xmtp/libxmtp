@@ -213,6 +213,34 @@ describe("client handle-claim", () => {
     expect(result.stderr).not.toContain("\u0007");
   });
 
+  it.each([
+    ["U+202E", "nick\u202Eeht", "nick\\u202eeht"],
+    ["U+2066", "nick\u2066x\u2069", "nick\\u2066x\\u2069"],
+  ])(
+    "prints no bidi formatting character from input with %s",
+    async (_name, input, shown) => {
+      const identity = createTestIdentity();
+      const result = await runCommand(
+        [
+          "client",
+          "handle-claim",
+          input,
+          "--wallet-key",
+          identity.walletKey,
+          "--db-encryption-key",
+          identity.dbEncryptionKey,
+          "--db-path",
+          identity.dbPath,
+        ],
+        { input: "" },
+      );
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(`${shown} is not a valid handle.`);
+      expect(result.stderr).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
+    },
+  );
+
   // A transport error can arrive after the backend stored the claim.
   it("reports success when a failed claim landed", async () => {
     const claimHandle = vi.fn(async (_handle: string) => {

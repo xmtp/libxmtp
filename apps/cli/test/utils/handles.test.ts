@@ -86,6 +86,7 @@ describe("claimFailureMessage", () => {
 const ESCAPE_INPUT = "\u001b]0;evil\u0007";
 // oxlint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+const BIDI = /[\u061c\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
 
 describe("handle input", () => {
   // without the m flag, $ matches only at the end of the input
@@ -115,6 +116,20 @@ describe("handle input", () => {
     expect(message).toMatch(/^\\u001b\]0;evil\\u0007 is not a valid handle\./);
     expect(invalidHandleMessage(ESCAPE_INPUT)).not.toMatch(CONTROL);
   });
+
+  // a bidi override or isolate can reorder the error line in a terminal
+  it.each([
+    ["U+202E", "nick\u202Eeht", "nick\\u202eeht"],
+    ["U+2066", "nick\u2066x\u2069", "nick\\u2066x\\u2069"],
+  ])(
+    "escapes bidi formatting characters in input with %s",
+    (_name, input, shown) => {
+      expect(() => publicIdentity(input, "handle")).toThrow(
+        `${shown} is not a valid handle.`,
+      );
+      expect(invalidHandleMessage(input)).not.toMatch(BIDI);
+    },
+  );
 
   it("lowercases ASCII letters only", () => {
     // U+212A KELVIN SIGN lowercases to an ASCII k in JavaScript; the SDK

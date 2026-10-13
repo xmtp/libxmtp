@@ -9,13 +9,22 @@ export function isTTY(): boolean {
 }
 
 /**
- * Text with each control character (C0, DEL, and C1) replaced by a visible
- * `\uXXXX` escape. Use it for user input in terminal output: an escape
- * sequence in the input could otherwise change the terminal or fake a line.
+ * Characters that user input must not put raw in terminal output: C0, DEL,
+ * and C1 controls, which can start escape sequences or fake a line, and the
+ * Unicode bidirectional and invisible formatting characters (U+061C,
+ * U+200B to U+200F, U+202A to U+202E, U+2060, U+2066 to U+2069, U+FEFF),
+ * which can reorder or hide text in a bidi-aware terminal.
+ */
+const UNSAFE_CHARACTERS =
+  // oxlint-disable-next-line no-control-regex
+  /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/g;
+
+/**
+ * Text with each unsafe character (see `UNSAFE_CHARACTERS`) replaced by a
+ * visible `\uXXXX` escape. Use it for user input in terminal output.
  */
 export function escapeControlCharacters(text: string): string {
-  // oxlint-disable-next-line no-control-regex
-  return text.replace(/[\u0000-\u001f\u007f-\u009f]/g, (character) => {
+  return text.replace(UNSAFE_CHARACTERS, (character) => {
     const code = character.charCodeAt(0).toString(16).padStart(4, "0");
     return `\\u${code}`;
   });
