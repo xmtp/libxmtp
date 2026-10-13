@@ -107,6 +107,9 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
     permissions: new Map(),
     sortedConversations: [],
     sortedMessages: new Map(),
+    // an explicit key: reset() merges the initial state, so a key that is
+    // absent here would keep the previous account's handles
+    ownHandles: undefined,
     addConversation: async (conversation: Conversation) => {
       const state = get();
       // update conversations state
