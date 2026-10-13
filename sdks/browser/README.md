@@ -4,12 +4,13 @@ Version 8 uses one generated package. The package owns its worker and OPFS
 storage. Apps use the public root. Pure codecs use the `/pure` entry.
 
 ```ts
-import { Client, XmtpError, type Signer } from "@xmtp/browser-sdk";
+import { Client, XmtpError } from "@xmtp/browser-sdk";
 import { initPureWasm, TextCodec } from "@xmtp/browser-sdk/pure";
 
 await initPureWasm();
 const encoded = new TextCodec().encode("hello"); // Synchronous after init.
 
+const signer = await Client.generateKeys();
 const client = await Client.create(signer, {
   backend: { url: "https://your-backend.example", appVersion: "my-app/1" },
   storage: { location: "default", label: "production" },
@@ -18,6 +19,11 @@ const group = await client.conversations.createGroup([]);
 await group.send(encoded, { shouldPush: true });
 await client.end();
 ```
+
+Save `await signer.toHex()` securely and restore it with
+`await LocalSigningKey.fromHex(saved)` on later starts. Import `LocalSigningKey`
+from the SDK. `toBytes()` and `fromBytes()` use 32-byte `Uint8Array` values.
+Keep signing keys separate from database encryption keys.
 
 A signer implements async `identity`, `kind`, and `sign` methods. Identity uses
 `{ identifier, kind: "ethereum" }`. An EOA kind uses `{ kind: "eoa" }`.

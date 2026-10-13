@@ -6,6 +6,7 @@ mod format;
 mod forwarding;
 mod kotlin_callbacks;
 mod kotlin_records;
+mod local_signing_key;
 mod logging_admission;
 mod markers;
 mod message_fields;
@@ -172,16 +173,19 @@ fn generate(
                 let binding = out.join("uniffi/xmtp_sdk/xmtp_sdk.kt");
                 let callbacks = kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?;
                 let callbacks = logging_admission::kotlin(&callbacks)?;
+                let callbacks = local_signing_key::kotlin(&callbacks)?;
                 let callbacks = native_visibility::kotlin(&callbacks, &metadata)?;
                 fs::write(&binding, kotlin_records::rewrite(&callbacks, &metadata)?)?;
             } else {
                 let binding = out.join("xmtp_sdk.swift");
                 fs::write(
                     &binding,
-                    format::swift_trailing_whitespace(&native_visibility::swift(
-                        &logging_admission::swift(&fs::read_to_string(&binding)?)?,
-                        &metadata,
-                    )?),
+                    format::swift_trailing_whitespace(&local_signing_key::swift(
+                        &native_visibility::swift(
+                            &logging_admission::swift(&fs::read_to_string(&binding)?)?,
+                            &metadata,
+                        )?,
+                    )),
                 )?;
             }
         }

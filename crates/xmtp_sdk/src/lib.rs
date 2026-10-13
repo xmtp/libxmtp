@@ -162,12 +162,12 @@ pub use notifications::{
 };
 #[cfg(not(feature = "pure-only"))]
 pub use preferences::{ConsentEntity, ConsentRecord, ConsentState, Preferences};
-pub use signer::{PublicIdentity, PublicIdentityKind, generate_inbox_id};
 #[cfg(not(feature = "pure-only"))]
 pub use signer::{
-    Signature, Signer, SignerError, SignerKind, SigningRequest, generate_local_signer,
-    local_signer_from_private_key,
+    LocalSigningKey, Signature, Signer, SignerError, SignerKind, SigningRequest, generate_keys,
+    generate_local_signer, local_signer_from_private_key,
 };
+pub use signer::{PublicIdentity, PublicIdentityKind, generate_inbox_id};
 #[cfg(not(feature = "pure-only"))]
 pub use state::{
     CommitLogForkStatus, ConversationDebugInfo, ConversationState, DisappearingSettings,

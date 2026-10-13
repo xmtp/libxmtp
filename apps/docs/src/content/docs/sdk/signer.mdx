@@ -17,10 +17,10 @@ All four use the same signer interface, so the rest of your XMTP integration is 
 
 ## Create a signer from a key pair
 
-Use `generateLocalSigner()` to generate a secp256k1 private key. It returns a
-signer that derives the Ethereum address and signs ERC-191 text. To reuse a stored
-32-byte private key, use `localSignerFromPrivateKey` instead. Store that key
-securely if the identity must survive an app restart.
+Use `Client.generateKeys()` (`SDKClient.generateKeys()` in Kotlin and Swift) to
+create a `LocalSigningKey`. It derives an Ethereum address, signs ERC-191 text,
+and can be passed directly to `Client.create()` or `SDKClient.create()`. No
+additional crypto package is needed. Generating a key does not contact a backend.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -40,18 +40,73 @@ securely if the identity must survive an app restart.
 <TabItem label="Kotlin">
 
 ```kotlin
-val signer = generateLocalSigner()
+val signer = SDKClient.generateKeys()
 ```
 
 </TabItem>
 <TabItem label="Swift">
 
 ```swift
-let signer = await generateLocalSigner()
+let signer = await SDKClient.generateKeys()
 ```
 
 </TabItem>
 </Tabs>
+
+## Save and restore a local key
+
+Save the private key securely before creating a persistent account. `toHex()`
+returns lowercase hex with a `0x` prefix; `toBytes()` returns a copy of the 32
+private-key bytes. `LocalSigningKey.fromHex()` and `fromBytes()` restore the same
+identity. Hex imports require `0x` followed by exactly 64 hexadecimal digits.
+Invalid lengths, invalid hex, zero, and out-of-range private keys fail with
+`InvalidInput`. All these methods are asynchronous.
+
+| SDK              | Byte type    |
+| ---------------- | ------------ |
+| Browser and Node | `Uint8Array` |
+| Kotlin           | `ByteArray`  |
+| Swift            | `Data`       |
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="signer-browser.ts" region="restore"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="signer-node.ts" region="restore"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val signer = LocalSigningKey.fromHex(saved)
+val keyBytes = signer.toBytes()
+val keyHex = signer.toHex()
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let signer = try await LocalSigningKey.fromHex(key: saved)
+let keyBytes = await signer.toBytes()
+let keyHex = await signer.toHex()
+```
+
+</TabItem>
+</Tabs>
+
+The exported value controls the account. Use the Keychain, an encrypted keystore,
+or another secret store. Keep it separate from the database encryption key.
+`toString()` and normal debug output do not export the private key; use `toHex()`
+explicitly.
 
 ## Use an external signer
 

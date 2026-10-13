@@ -381,8 +381,8 @@ class AppSession(
                         .read(
                             saved.id,
                             "wallet",
-                        ) ?: SecureRandom()
-                        .generateSeed(32)
+                        ) ?: SDKClient.generateKeys()
+                        .toBytes()
                         .also {
                             secrets
                                 .write(
@@ -448,7 +448,7 @@ class AppSession(
                             saved.inboxId != null,
                         attachments = AttachmentOptions(allowPrivateNetwork = allowPrivateNetwork),
                     )
-                val signer = localSignerFromPrivateKey(wallet)
+                val signer = LocalSigningKey.fromBytes(wallet)
                 if (!prepareStoredNotifications(saved, key, paths, options)) return
                 beforeClientBuild(url)
                 val client =

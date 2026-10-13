@@ -13,7 +13,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import uniffi.xmtp_sdk.*
 
-val signer = generateLocalSigner()
+val signer = SDKClient.generateKeys()
 val client = SDKClient.create(context, signer, ClientOptions(
     backend = BackendSource.Options(BackendOptions(url = backendUrl)),
     storage = StorageOptions(location = StorageLocation.Default),
@@ -26,6 +26,10 @@ try {
     withContext(NonCancellable) { client.end() }
 }
 ```
+
+Save `signer.toHex()` securely and restore it with `LocalSigningKey.fromHex(saved)`
+on later starts. `toBytes()` and `fromBytes()` use 32-byte `ByteArray` values.
+Keep signing keys separate from database encryption keys.
 
 The SDK supports Android API 23 and later. Enable
 `android.compileOptions.coreLibraryDesugaringEnabled = true` in the app. The

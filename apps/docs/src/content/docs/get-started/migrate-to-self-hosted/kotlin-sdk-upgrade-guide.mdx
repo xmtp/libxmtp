@@ -154,7 +154,7 @@ suspend fun open(context: Context, wallet: Signer, dbKey: ByteArray): SDKClient 
     )
 ```
 
-To reopen without signing, use `SDKClient.build(context, identity, options, inboxId)`. Without a `Context`, choose `Directory`, `Explicit`, or `InMemory`, or pass `defaultDirectory`. `Default` without a directory fails with `StorageLocationRequired`. For tests, `generateLocalSigner()` and `localSignerFromPrivateKey(key: ByteArray)` replace app use of the old `messages.PrivateKey` helper.
+To reopen without signing, use `SDKClient.build(context, identity, options, inboxId)`. Without a `Context`, choose `Directory`, `Explicit`, or `InMemory`, or pass `defaultDirectory`. `Default` without a directory fails with `StorageLocationRequired`. For tests, `SDKClient.generateKeys()` and `LocalSigningKey.fromBytes(key)` replace app use of the old `messages.PrivateKey` helper.
 
 The client now has an explicit lifetime. End it in `withContext(NonCancellable) { client.end() }`. Keep a strong reference to the client while using its messages. Message action helpers use that client reference.
 

@@ -199,6 +199,10 @@ public extension SDKClient {
         try await XmtpSdk.fetchServerConfiguration(backend: backend)
     }
 
+    static func `generateKeys`() async -> LocalSigningKey {
+        await XmtpSdk.generateKeys()
+    }
+
     static func `inboxIdFor`(identity: PublicIdentity, backend: BackendSource) async throws -> InboxId {
         try await XmtpSdk.inboxIdForWithBackend(backend: backend, identity: identity)
     }

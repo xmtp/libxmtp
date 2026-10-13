@@ -23,7 +23,7 @@ struct PreviewClientProvider<Content: View>: View {
 			}
 		}.task {
 			do {
-				let signer = await generateLocalSigner()
+				let signer = await SDKClient.generateKeys()
 				client = try await SDKClient.create(
 					signer: signer,
 					options: ClientOptions(

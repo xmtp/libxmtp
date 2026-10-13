@@ -344,9 +344,14 @@ pub(super) fn object(
         code,
         "const {key}Bindings = new WeakMap<{name}, B.{name}Like>();\nconst {key}Objects = new WeakMap<B.{name}Like, {name}>();\nlet new{name}!: () => {name};"
     )?;
+    let conformance = if name == "LocalSigningKey" {
+        " implements Signer"
+    } else {
+        ""
+    };
     writeln!(
         code,
-        "export class {name} {{\ndeclare readonly [objectBrand]: \"{name}\";\nstatic {{ new{name} = () => new {name}(); }}\nprivate constructor() {{}}"
+        "export class {name}{conformance} {{\ndeclare readonly [objectBrand]: \"{name}\";\nstatic {{ new{name} = () => new {name}(); }}\nprivate constructor() {{}}"
     )?;
     // Browser: the package storage admin opens without a Client.
     if target == Target::Browser && name == "Storage" {

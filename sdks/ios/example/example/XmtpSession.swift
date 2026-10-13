@@ -94,7 +94,7 @@ class XmtpSession {
 			throw XmtpSessionError.unableToLoadData
 		}
 		let credentials = try await ExampleCredentials.loadOrCreate(service: bundleId)
-		let signer = try await localSignerFromPrivateKey(key: credentials.signerKey)
+		let signer = try await LocalSigningKey.fromBytes(key: credentials.signerKey)
 		let backendUrl = ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"] ?? "http://localhost:5050"
 		client = try await SDKClient.create(
 			signer: signer,
