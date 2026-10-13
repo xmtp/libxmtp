@@ -450,6 +450,8 @@ Once an inbox's log reaches the deployment's `max_identity_entries`, no further 
 
 Only the backend checks that no two inboxes hold one handle (section 10). A backend that admits one handle for two inboxes is seen only by a client that derives the states of both inboxes, and IDENT-085 accepts an answer that names either of them, because the log of each claims the handle.
 
+Claim policy applies only when the backend admits a claim (IDENT-084). When a later release adds a name part to the reserved list, or a deployment raises its minimum name length, a handle claimed before the change stays with the inbox that claimed it. A lookup still resolves it (API-299), and IDENT-085 accepts the answer, because the inbox's log claims the handle. So an inbox that claimed `support` before a release reserved `support` keeps it, and every user who looks that handle up reaches that inbox. This is accepted: a change of policy must never stop a stored log from applying or a claimed handle from resolving. Only a release changes the reserved list ([API section 3.1](API-backend-api.md#31-admission)), so a name is protected only if the backend already reserves it when someone first tries to claim it.
+
 A claim does not name its deployment. A copy of an inbox's log on another deployment carries its claims there, and gives the inbox the same handles if that backend admits them. It gives no other inbox a handle.
 
 A client built before `ClaimHandle` rejects every update that carries one under IDENT-001. It cannot derive the association state of an inbox at or after that inbox's first claim, so it cannot resolve that inbox or check its installations in a group. This is accepted. A deployment can stop such clients first by raising its minimum client version (CONF-036).
