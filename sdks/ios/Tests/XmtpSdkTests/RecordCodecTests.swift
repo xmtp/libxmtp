@@ -40,7 +40,7 @@ final class RecordCodecTests: XCTestCase {
 	func testRemoteAttachmentLength() throws {
 		let codec = RemoteAttachmentCodec()
 		var value = RemoteAttachment(
-			url: "https://example.com/file", contentDigest: "deadbeef",
+			url: "https://example.com/file", contentDigest: "abababababababababababababababababababababababababababababababab",
 			secret: Data(repeating: 1, count: 32), salt: Data(repeating: 2, count: 32),
 			nonce: Data(repeating: 3, count: 12), scheme: "https://", contentLength: nil, filename: "file",
 		)

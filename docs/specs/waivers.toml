@@ -196,25 +196,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Restored conversations do not project the archived creator, arbitrary mutable attributes, or admin and super-admin lists. Their creator is unknown and their member and role lists are empty until validated activation. The group id, kind, DM pair, creation time, adder, disappearing scalar settings, and activity remain preserved. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
-id = "CTYPE-001"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Rust dispatch and the new SDK host registries match authority, type, and major version. The legacy SDKs in sdks/ key their registries by an identifier that includes the minor version until they are removed at cutover: Swift and Kotlin by authority:type:major.minor, and Node and browser by authority/type:major.minor (contentTypeToString)."
-
-[[waiver]]
 id = "CTYPE-003"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The Rust send path accepts raw bytes without requiring a complete typed envelope."
-
-[[waiver]]
-id = "CTYPE-009"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Legacy Swift and Kotlin registries can select the text codec when no codec matches. The new SDK uses CodecNotFound for a missing codec, CodecDecodeFailed for codec or decompression failure, and MalformedEnvelope for an incomplete or invalid envelope."
 
 [[waiver]]
 id = "CTYPE-010"
@@ -231,53 +217,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The legacy reaction encoder and the unrestricted raw-send path still permit publishing reaction major version 1."
 
 [[waiver]]
-id = "CTYPE-014"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Two gaps. The remote attachment decoder accepts a missing required parameter as an empty value. The Android and iOS SDK remote attachment codecs of the existing bindings, which the SDK façade replaces, reject an http:// URL to localhost or a loopback address that the parameters table admits."
-
-[[waiver]]
-id = "CTYPE-023"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs compress and decompress on the host with other formats; the Rust path replaces them in the SDK migration."
-
-[[waiver]]
-id = "CTYPE-024"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Legacy SDKs still compress and decompress on the host with other formats. The new SDK uses the bounded Rust decoder before host codecs, including nested reply content, and retains failure bytes when the compression algorithm is unknown."
-
-[[waiver]]
-id = "CTYPE-025"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Legacy SDK host decompression does not enforce the shared 16,777,216-byte bound on all paths. The new SDK uses the bounded Rust decoder for received and standalone content; a linked test covers output one byte above the bound."
-
-[[waiver]]
-id = "CTYPE-026"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The legacy SDKs in sdks/ remain until cutover: Node and browser expose no client-free Reply encoder, and Swift and Kotlin codecs are host-language classes whose envelopes can differ from the client's. The new SDK codecs are Rust-backed on every host."
-
-[[waiver]]
 id = "CTYPE-027"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The core reply decoder represents an unrecognized nested type as Custom. The new SDK converts a missing host codec to an Unknown reply body with the decompressed EncodedContent and original nested bytes. Legacy SDK reply paths remain outside this new SDK proof."
-
-[[waiver]]
-id = "CTYPE-029"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Legacy SDK reply paths do not preserve outer bytes and fallback on every nested decode failure. The new SDK retains the outer reply as Unknown for a nested core or host codec failure. Linked Rust and four-host receive tests cover typed failure details and retained bytes."
 
 [[waiver]]
 id = "EVENT-001"
@@ -320,13 +264,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "The Rust bus is per client and shared credentials fan out to each client's bus, but no SDK facade hands events to app subscriptions or verifies isolation when two clients share storage or credentials."
-
-[[waiver]]
-id = "CTYPE-030"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
 
 [[waiver]]
 id = "LOG-001"
@@ -498,10 +435,3 @@ kind = "gap"
 owner = "protocol"
 issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
 reason = "Restored conversations report an unknown creator until validated activation, including when the archive supplied a creator. Legacy getters use empty text; the new SDK uses its optional unknown value. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
-
-[[waiver]]
-id = "CTYPE-008"
-kind = "gap"
-owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "Legacy Swift and Kotlin V1 DecodedMessage paths retain a row with no decoded content after a decode failure, but do not expose the failure kind, diagnostics, or malformed envelope bytes to the app. Their history and delivery adapters retain the row, and delivery continues with normal acknowledgement timing. Core storage, V2 binding projections, and the new generated SDK remain subject to the requirement. The V1 gap ends when those SDKs are removed at cutover. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
