@@ -35,11 +35,13 @@ class HandleControllerTest {
         var claim: suspend (String) -> Unit = {}
         var ownedFailure: (() -> Throwable)? = null
         var readFailure: (() -> Throwable)? = null
+        var readGate: CompletableDeferred<Unit>? = null
 
         val reads = mutableListOf<Boolean>()
 
         override suspend fun handles(refresh: Boolean): OwnHandles {
             reads += refresh
+            readGate?.await()
             readFailure?.let { throw it() }
             return OwnHandles(current, others)
         }
@@ -103,6 +105,37 @@ class HandleControllerTest {
     private fun HandleController.type(value: String) = dispatch(HandleAction.ChangeInput(value))
 
     private val HandleController.value get() = state.value
+
+    @Test fun changeHandleWaitsForTheFirstReadBeforeAnyEdit() {
+        val gate = CompletableDeferred<Unit>()
+        val account =
+            FakeAccount(current = "nick#2341", others = listOf("nickm")).apply {
+                available = { listOf(it) }
+                readGate = gate
+            }
+        val editor = open(account, HandleMode.CHANGE)
+        assertTrue(editor.value.loading)
+        assertFalse(editor.value.editable)
+        assertEquals("Change handle", HandleCopy.screenTitle(editor.value))
+        // While the read runs, no edit, check, switch back, or claim goes through.
+        editor.type("nicky")
+        assertEquals("", editor.value.input)
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        editor.dispatch(HandleAction.SwitchBack("nickm"))
+        assertNull(editor.value.confirm)
+        assertEquals(emptyList<String>(), account.lookups)
+        assertEquals(emptyList<String>(), account.claims)
+        // The read finishes: the current handle shows, and editing works.
+        gate.complete(Unit)
+        assertFalse(editor.value.loading)
+        assertEquals("nick#2341", editor.value.current)
+        assertTrue(editor.value.editable)
+        editor.type("nicky")
+        assertEquals("nicky", editor.value.input)
+        editor.dispatch(HandleAction.SwitchBack("nickm"))
+        assertEquals("nickm", editor.value.confirm)
+    }
 
     @Test fun failedOwnReadsShowTheLoadErrorAndBlockEveryClaim() {
         val account =

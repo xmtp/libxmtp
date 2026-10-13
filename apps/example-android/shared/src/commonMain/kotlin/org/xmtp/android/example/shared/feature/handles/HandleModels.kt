@@ -185,7 +185,8 @@ data class HandleState(
 
     val canClaim: Boolean get() = editable && pick != null
 
-    val editable: Boolean get() = claiming == null && !blocked && !ownUnknown
+    /** The user can edit, check, switch back, or claim: the own handles are read, and nothing runs. */
+    val editable: Boolean get() = !loading && claiming == null && !blocked && !ownUnknown
 }
 
 sealed interface HandleAction {
@@ -250,10 +251,10 @@ object HandleCopy {
 
     /**
      * The Settings screen title: Choose handle for an inbox with no handle, else Change handle.
-     * Unknown handles are not "no handle", so they keep the Change title.
+     * Unknown or still loading handles are not "no handle", so they keep the Change title.
      */
     fun screenTitle(state: HandleState): String =
-        if (state.current == null && !state.ownUnknown) CHOOSE_SCREEN else CHANGE_SCREEN
+        if (state.current == null && !state.ownUnknown && !state.loading) CHOOSE_SCREEN else CHANGE_SCREEN
 
     fun supporting(minNameLength: Int): String =
         if (minNameLength >= MAX_HANDLE_NAME_LENGTH) {
