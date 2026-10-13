@@ -1,0 +1,95 @@
+#!/usr/bin/env python3.11
+"""Run every dev test module that `just lint-config` owns.
+
+Each start directory contributes its `test_*.py` files. A new test file in one
+of these directories runs without a recipe or workflow edit. The tests import
+sibling modules by bare name, so each directory goes first on `sys.path`.
+"""
+
+import importlib
+import io
+import sys
+import time
+import traceback
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+
+START_DIRS = (
+    "dev/tests",
+    "dev/specs",
+    "dev/agents",
+    "apps/example-android/fixtures",
+    "apps/example-android/performance",
+    "nix/lib",
+)
+
+# Files that match the pattern but are not unit tests. They are never imported.
+EXCLUDED = {
+    "dev/agents/test_outline.py": "needs the uv environment of `just agent-test`",
+    "apps/example-android/fixtures/test_metadata_create.py": (
+        "a PostgreSQL fixture runner that parses arguments when imported"
+    ),
+}
+
+
+def discover():
+    """Yield (start directory, test file) pairs in a stable order."""
+    for start in START_DIRS:
+        directory = ROOT / start
+        files = sorted(directory.glob("test_*.py"))
+        if not files:
+            raise SystemExit(f"{start} has no test_*.py files; update START_DIRS")
+        for path in files:
+            if path.relative_to(ROOT).as_posix() not in EXCLUDED:
+                yield directory, path
+
+
+def load(directory, path):
+    """Import one test module as a top-level module of its directory."""
+    name = path.stem
+    loaded = sys.modules.get(name)
+    if loaded is not None and Path(getattr(loaded, "__file__", "")) != path:
+        raise ImportError(
+            f"module name {name} is already loaded from {loaded.__file__}"
+        )
+    if str(directory) not in sys.path:
+        sys.path.insert(0, str(directory))
+    module = importlib.import_module(name)
+    return unittest.defaultTestLoader.loadTestsFromModule(module)
+
+
+def main():
+    failed = []
+    total = 0
+    for directory, path in discover():
+        label = path.relative_to(ROOT).as_posix()
+        output = io.StringIO()
+        started = time.monotonic()
+        try:
+            suite = load(directory, path)
+        except (Exception, SystemExit):  # noqa: BLE001
+            # Report every module that fails to import, then fail the run.
+            print(f"ERROR {label}: import failed", flush=True)
+            failed.append((label, traceback.format_exc()))
+            continue
+        result = unittest.TextTestRunner(stream=output, verbosity=0).run(suite)
+        seconds = time.monotonic() - started
+        total += result.testsRun
+        status = "ok" if result.wasSuccessful() else "FAIL"
+        skipped = f", {len(result.skipped)} skipped" if result.skipped else ""
+        print(
+            f"{status:5} {label} ({result.testsRun} tests{skipped}, {seconds:.1f} s)",
+            flush=True,
+        )
+        if not result.wasSuccessful():
+            failed.append((label, output.getvalue()))
+    for label, detail in failed:
+        print(f"\n===== {label}\n{detail}", file=sys.stderr)
+    print(f"{total} tests; {len(failed)} failed modules")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

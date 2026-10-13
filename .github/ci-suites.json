@@ -27,10 +27,10 @@
     "apps/.gitkeep",
     ".github/{CODEOWNERS,dependabot.yml}",
     ".github/ISSUE_TEMPLATE/**",
-    "dev/{fly,test}/**",
+    "dev/test/**",
     "dev/{ast-outline,bench,serena,flamegraph,llvm-cov,up,down,direnv-up,direnv-down,docs}",
-    "dev/{nix-up,nix-down,nix-status,nix-cache-up,ci-failure-markers}",
-    "dev/{ci,nix}/**"
+    "dev/{nix-up,nix-down,nix-status,nix-cache-up}",
+    "dev/nix/**"
   ],
   "suites": {
     "lint_workspace": {
@@ -119,13 +119,16 @@
         ".github/workflows/lint-config.yml"
       ],
       "paths": [
-        "**/*.{nix,py,sh,toml,kt,kts,swift}",
+        "**/*.{nix,py,rs,sh,toml,kt,kts,swift}",
         ".github/**",
         "apps/backend/backend.just",
+        "dev/ci-failure-markers",
+        "dev/docker/grafana/dashboards/backend.json",
         "dev/docker/{compose.yml,load-backend-image,load-env,up}",
         "dev/tls/**",
-        "dev/{tests,agents,specs,release-tools}/**",
+        "dev/{tests,agents,specs,release-tools,fly,ci}/**",
         "nix/fmt.nix",
+        "sdks/android/android.just",
         "{.editorconfig,sdks/ios/.swiftformat}"
       ]
     },

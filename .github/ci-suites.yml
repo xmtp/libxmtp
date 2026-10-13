@@ -72,10 +72,10 @@ neutral:
   - "apps/.gitkeep"
   - ".github/{CODEOWNERS,dependabot.yml}"
   - ".github/ISSUE_TEMPLATE/**"
-  - "dev/{fly,test}/**"
+  - "dev/test/**"
   - "dev/{ast-outline,bench,serena,flamegraph,llvm-cov,up,down,direnv-up,direnv-down,docs}"
-  - "dev/{nix-up,nix-down,nix-status,nix-cache-up,ci-failure-markers}"
-  - "dev/{ci,nix}/**"
+  - "dev/{nix-up,nix-down,nix-status,nix-cache-up}"
+  - "dev/nix/**"
 
 path_groups:
   # Suites that start the Docker stack test against a backend built from source.
@@ -172,15 +172,19 @@ suites:
     permissions: {contents: read}
     kache: []
     path_filters:
-      # treefmt formats these file types across the repository.
-      - "**/*.{nix,py,sh,toml,kt,kts,swift}"
+      # treefmt formats and checks these file types across the repository.
+      - "**/*.{nix,py,rs,sh,toml,kt,kts,swift}"
       - "{.editorconfig,sdks/ios/.swiftformat}"
       - ".github/**"
-      - "dev/{tests,agents,specs,release-tools}/**"
-      # dev/tests/test_{backend_image,docker_startup}.py check these files.
+      # `just lint-config` runs the tests of these tools.
+      - "dev/{tests,agents,specs,release-tools,fly,ci}/**"
+      - "dev/ci-failure-markers"
+      # The dev tests and the Fly dashboard test read these files.
       - "dev/docker/{compose.yml,load-backend-image,load-env,up}"
+      - "dev/docker/grafana/dashboards/backend.json"
       - "dev/tls/**"
       - "apps/backend/backend.just"
+      - "sdks/android/android.just"
       - "nix/fmt.nix"
   lint_proto:
     phase: lint
