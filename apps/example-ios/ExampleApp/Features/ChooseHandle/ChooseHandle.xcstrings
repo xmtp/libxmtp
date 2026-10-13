@@ -1,0 +1,216 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Choose your handle.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose your handle."
+          }
+        }
+      }
+    },
+    "Your handle is public. People on this server use it to find you and send you messages.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your handle is public. People on this server use it to find you and send you messages."
+          }
+        }
+      }
+    },
+    "Current handle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current handle"
+          }
+        }
+      }
+    },
+    "Yours since ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yours since "
+          }
+        }
+      }
+    },
+    "Your handle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your handle"
+          }
+        }
+      }
+    },
+    "New handle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New handle"
+          }
+        }
+      }
+    },
+    "Show more": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show more"
+          }
+        }
+      }
+    },
+    "Look again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Look again"
+          }
+        }
+      }
+    },
+    "They are still yours, and people can still find you by them. Switching back counts as a change.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They are still yours, and people can still find you by them. Switching back counts as a change."
+          }
+        }
+      }
+    },
+    "Your other handles": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your other handles"
+          }
+        }
+      }
+    },
+    "You can change your handle once every 7 days.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can change your handle once every 7 days."
+          }
+        }
+      }
+    },
+    "You can change your handle once every 7 days, up to 64 times in total.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can change your handle once every 7 days, up to 64 times in total."
+          }
+        }
+      }
+    },
+    "Skip for now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip for now"
+          }
+        }
+      }
+    },
+    "Choose handle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose handle"
+          }
+        }
+      }
+    },
+    "Change handle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change handle"
+          }
+        }
+      }
+    },
+    "Claim this handle?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claim this handle?"
+          }
+        }
+      }
+    },
+    "Change your handle?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change your handle?"
+          }
+        }
+      }
+    },
+    ") as your handle. You cannot change your handle again for 7 days.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ") as your handle. You cannot change your handle again for 7 days."
+          }
+        }
+      }
+    },
+    "Claiming ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claiming "
+          }
+        }
+      }
+    },
+    "Change to ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change to "
+          }
+        }
+      }
+    },
+    "Claim ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claim "
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

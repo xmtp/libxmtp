@@ -42,6 +42,46 @@ import Testing
 	#expect(fence.accepts(key))
 }
 
+@MainActor @Test func editingRecipientsDoesNotCancelInitialPeopleLoad() async {
+	let queries = DelayedPeopleQueries()
+	let origin = DestinationOrigin(session: SessionKey(profileID: UUID(), generation: 1), token: 0)
+	let store = NewConversationStore(queries: queries, origin: origin, admit: { _ in true }, finish: { _ in })
+	store.send(.load)
+	while queries.pending == nil {
+		await Task.yield()
+	}
+	store.send(.group(true))
+	store.send(.input("person"))
+	queries.pending?.resume(returning: [Recipient(inboxID: "peer", handle: "person")])
+	queries.pending = nil
+	await store.waitForBootstrap()
+	#expect(store.state.maximumMembers == 250)
+	#expect(!store.state.loadingPeople)
+	#expect(store.state.input == "person")
+	#expect(store.state.canContinue)
+}
+
+@MainActor private final class DelayedPeopleQueries: NewConversationQueries {
+	var pending: CheckedContinuation<[Recipient], Never>?
+	func people() async throws -> [Recipient] {
+		await withCheckedContinuation { pending = $0 }
+	}
+
+	func maximumMembers() async throws -> Int {
+		250
+	}
+
+	func resolve(_ input: String) async throws -> Recipient {
+		Recipient(inboxID: "peer", handle: input)
+	}
+
+	func create(recipients _: [String], group _: Bool, name _: String, description _: String,
+	            adminOnly _: Bool) async throws -> String
+	{
+		"conversation"
+	}
+}
+
 @MainActor @Test func directRestoreCannotReplaceBoundProfile() {
 	let fence = SessionFence()
 	guard let generation = fence.reserveRestore(),

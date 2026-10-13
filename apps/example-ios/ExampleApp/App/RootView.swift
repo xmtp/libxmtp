@@ -3,10 +3,18 @@ import SwiftUI
 
 struct RootView: View {
 	@Bindable var graph: AppGraph
+	@Namespace private var composeTransition
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 	var body: some View {
-		NavigationStack(path: Binding(get: { graph.routes.path }, set: { graph.routes.setPath($0) })) {
-			destination(graph.routes.root)
-				.navigationDestination(for: Route.self) { destination($0) }
+		Group {
+			if graph.isRestoring {
+				ProgressView()
+			} else {
+				NavigationStack(path: Binding(get: { graph.routes.path }, set: { graph.routes.setPath($0) })) {
+					destination(graph.routes.root)
+						.navigationDestination(for: Route.self) { destination($0) }
+				}
+			}
 		}
 		.sheet(isPresented: Binding(get: { graph.routes.sheet != nil }, set: {
 			if !$0 {
@@ -15,67 +23,107 @@ struct RootView: View {
 		})) {
 			NavigationStack {
 				if let route = graph.routes.sheet {
-					destination(route)
-						.toolbar {
+					destination(route).toolbar {
+						if route != .newConversation {
 							ToolbarItem(placement: .cancellationAction) {
-								Button(String(localized: "common.close", table: "Common")) { graph.routes.back() }.buttonStyle(.glass)
+								Button("Close", systemImage: "xmark") { graph.routes.back() }.labelStyle(.iconOnly).buttonStyle(.glass)
 							}
 						}
+					}
 				}
 			}
 		}
 		.tint(Theme.tint).messengerMotion()
+		.preferredColorScheme(graph.appearance == "dark" ? .dark : graph.appearance == "light" ? .light : nil)
+		.alert("Cannot open account", isPresented: Binding(get: { graph.error != nil }, set: {
+			if !$0 {
+				graph.error = nil
+			}
+		})) {
+			Button("Retry") { Task { await graph.bindSession() } }
+			Button("Cancel", role: .cancel) { graph.error = nil }
+		} message: { Text(graph.error ?? "") }
+		.task { await graph.restore() }
+		.onChange(of: graph.routes.token) { _, _ in Task { await graph.closeInactiveDestinations() } }
+		.onChange(of: graph.session.state) { _, _ in Task { await graph.bindSession() } }
 	}
 
 	@ViewBuilder private func destination(_ route: Route) -> some View {
-		if route == .connect {
-			VStack(spacing: 24) {
-				Image("Logo").resizable().scaledToFit().frame(width: 72, height: 72); Text("Join a server", tableName: "Foundation")
-					.font(.largeTitle.bold()); Text("Your server. Your conversations.", tableName: "Foundation")
-					.foregroundStyle(.secondary)
-			}
+		switch route {
+		case .connect: ConnectView(store: graph.connect)
+		case .chooseHandle, .changeHandle: handleDestination
+		case .chats: chatsDestination
+		case .requests: requestsDestination
+		case .settings: SettingsView(graph: graph)
+		case .newConversation: newMessageDestination
+		default: detailsDestination(route)
+		}
+	}
+
+	@ViewBuilder private var handleDestination: some View {
+		if let handles = graph.handles {
+			HandleView(store: handles)
+		}
+	}
+
+	@ViewBuilder private var chatsDestination: some View {
+		if let store = graph.conversations, let decisions = graph.requests {
+			ChatsView(store: store, decisions: decisions, onNavigate: graph.navigate,
+			          serverName: graph.serverName, composeNamespace: composeTransition)
+		}
+	}
+
+	@ViewBuilder private var requestsDestination: some View {
+		if let store = graph.requestConversations, let decisions = graph.requests {
+			RequestsView(store: store, decisions: decisions, onNavigate: graph.navigate)
+		}
+	}
+
+	@ViewBuilder private var newMessageDestination: some View {
+		if let store = graph.newConversation {
+			NewConversationView(store: store, onClose: { graph.routes.back() })
+				.modifier(ComposeDestination(namespace: composeTransition, reduceMotion: reduceMotion))
+		}
+	}
+
+	@ViewBuilder private func detailsDestination(_ route: Route) -> some View {
+		switch route {
+		case let .chat(id): ChatFeatureView(graph: graph, id: id)
+		case let .details(id): DetailsFeatureView(graph: graph, id: id)
+		case let .member(conversationID, inboxID): MemberFeatureView(
+				graph: graph,
+				conversationID: conversationID,
+				inboxID: inboxID,
+			)
+		case let .permissions(id): PermissionsFeatureView(graph: graph, id: id)
+		case let .disappearing(id): DisappearingFeatureView(graph: graph, id: id)
+		case let .sharedMedia(id): SharedMediaFeatureView(graph: graph, id: id)
+		case let .groupFields(id): GroupFieldsFeatureView(graph: graph, id: id)
+		case let .myFields(id): MyFieldsFeatureView(graph: graph, id: id)
+		default: messageDestination(route)
+		}
+	}
+
+	@ViewBuilder private func messageDestination(_ route: Route) -> some View {
+		switch route {
+		case let .reactions(conversationID, messageID, emoji):
+			ReactionsFeatureView(graph: graph, conversationID: conversationID, messageID: messageID, emoji: emoji)
+		case let .emojiPicker(conversationID, messageID):
+			EmojiPickerFeatureView(graph: graph, conversationID: conversationID, messageID: messageID)
+		case .attachmentRecovery: AttachmentRecoveryFeatureView(graph: graph)
+		default: EmptyView()
+		}
+	}
+}
+
+private struct ComposeDestination: ViewModifier {
+	let namespace: Namespace.ID
+	let reduceMotion: Bool
+	func body(content: Content) -> some View {
+		if reduceMotion {
+			content.transition(.opacity)
 		} else {
-			ContentUnavailableView(
-				title(route),
-				systemImage: "bubble.left.and.bubble.right",
-				description: Text("This screen is added in the next implementation stage.", tableName: "Foundation"),
-			).navigationTitle(title(route))
-		}
-	}
-
-	private func title(_ route: Route) -> String {
-		switch route {
-		case .connect: String(localized: "Join a server", table: "Foundation")
-		case .chooseHandle: String(localized: "Choose a handle", table: "Foundation")
-		case .chats: String(localized: "Chats", table: "Foundation")
-		case .requests: String(localized: "Message requests", table: "Foundation")
-		case .newConversation: String(localized: "New message", table: "Foundation")
-		case .settings: String(localized: "Settings", table: "Foundation")
-		case .changeHandle: String(localized: "Change handle", table: "Foundation")
-		default: detailTitle(route)
-		}
-	}
-
-	private func detailTitle(_ route: Route) -> String {
-		switch route {
-		case .chat: String(localized: "Conversation", table: "Foundation")
-		case .details: String(localized: "Details", table: "Foundation")
-		case .member: String(localized: "Member", table: "Foundation")
-		case .permissions: String(localized: "Permissions", table: "Foundation")
-		case .disappearing: String(localized: "Disappearing messages", table: "Foundation")
-		case .sharedMedia: String(localized: "Media and files", table: "Foundation")
-		case .groupFields: String(localized: "Group fields", table: "Foundation")
-		case .myFields: String(localized: "My fields", table: "Foundation")
-		default: actionTitle(route)
-		}
-	}
-
-	private func actionTitle(_ route: Route) -> String {
-		switch route {
-		case .reactions: String(localized: "Reactions", table: "Foundation")
-		case .emojiPicker: String(localized: "Choose a reaction", table: "Foundation")
-		case .attachmentRecovery: String(localized: "Attachment recovery", table: "Foundation")
-		default: String(localized: "XMTP Messenger", table: "Foundation")
+			content.navigationTransition(.zoom(sourceID: "new-message", in: namespace))
 		}
 	}
 }

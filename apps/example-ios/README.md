@@ -1,8 +1,6 @@
 # XMTP Messenger for iOS
 
-A SwiftUI foundation scaffold for iOS 26 and later. It uses this checkout's SDK.
-
-This revision launches the Join a server scaffold. Accounts, handles, conversations and the storage behavior below are planned follow-up work; they are not implemented by this foundation revision.
+A SwiftUI example for iOS 26 and later. It uses this checkout's SDK.
 
 ## Run
 
@@ -15,21 +13,21 @@ The launcher uses this worktree's backend URL. Set `XMTP_IOS_SIMULATOR` to a sim
 
 ## Code structure
 
-ExampleApp contains the Join a server scaffold, route placeholders, design tokens and assets. ExampleCore contains RouteOwner, SessionFence, session and destination identifiers, and the FeatureStore interface. ExampleSDK contains only a module marker. Platform storage, feature stores, SDK adapters and a session task scope are planned follow-up work.
+ExampleApp contains SwiftUI routes and platform storage. ExampleCore contains values, policies and stores. ExampleSDK maps the local SDK to Core protocols. The app uses one session scope and drops asynchronous completions from replaced sessions or destinations.
 
-## Connect (planned)
+## Connect
 
 Join a server with a loopback HTTP or remote HTTPS URL. Access tokens appear only when the server requires authentication. Accounts and encrypted messages remain on this device after sign-out. Delete local data removes the account from this device and can resume an interrupted removal.
 
-## Handles (planned)
+## Handles
 
 Choose a handle after joining, or skip and choose one in Settings. New message accepts handles, Ethereum addresses and inbox IDs. Current handles identify people throughout the app.
 
-## Local storage (planned)
+## Local storage
 
 Secrets are stored in this app's device-only Keychain. Each profile has an excluded-from-backup directory protected until first unlock. Preferences use AES-GCM and atomic writes. Sign-out removes credentials and exported files while retaining account keys and messages.
 
-## Optional notifications (planned)
+## Optional notifications
 
 Debug and Release builds leave APNs off. A signed device build needs a development team in gitignored Config/Local.xcconfig, release SDK bindings and an APNs-configured backend.
 
@@ -37,7 +35,7 @@ Debug and Release builds leave APNs off. A signed device build needs a developme
 
 Nix supplies SDK bindings and tools; Xcode builds as the invoking user into .build/DerivedData. `just example-ios build`, CI and the launcher use dev/build. Device builds require `sdks/ios/dev/bindings --release` and signing.
 
-## Manual checks for the planned full app
+## Manual checks
 
 - Compare each screen to the approved design in light and dark appearance.
 - Check VoiceOver, AX5 text, Increase Contrast, Reduce Transparency and Reduce Motion.
@@ -46,4 +44,8 @@ Nix supplies SDK bindings and tools; Xcode builds as the invoking user into .bui
 - Create a direct message and a group with handles and inbox IDs.
 - Confirm the launcher opens the correct worktree's backend.
 
-The recipes in AGENTS.md run the foundation host tests and a simulator smoke test that checks the Join a server scaffold. Feature journeys are planned follow-up work.
+The host tests and simulator journeys are run through the recipes in AGENTS.md.
+
+### Local attachment networking
+
+Private and loopback attachment destinations are blocked by default, including when the backend is local. For a trusted local development backend only, launch with `XMTP_ALLOW_PRIVATE_ATTACHMENTS=1`. The value must be exactly `1`, and the backend must be loopback. This opts into the SDK permission for **all private and loopback attachment destinations**, not just the backend origin. Do not enable it for untrusted conversations. The local J4 file journey opts in explicitly.
