@@ -5,7 +5,7 @@ import { escapeControlCharacters } from "./output.js";
 /**
  * The handle grammar (IDENT section 10): a name part, then an optional code.
  * It is the one rule a client may check; the backend applies the minimum
- * length and the reserved names (CONF-081).
+ * length and the reserved names.
  */
 const HANDLE_PATTERN = /^[a-z][a-z0-9_-]{0,26}(#[0-9]{4})?$/;
 
