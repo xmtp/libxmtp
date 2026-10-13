@@ -50,6 +50,10 @@ compose:
 check:
     node scripts/check-site.mjs --built
 
+# The site owner checks a composed current or staged artifact before routing changes.
+check-cutover origin="https://self-hosted-docs.xmtp.to" site="_site":
+    node scripts/check-cutover.mjs "{{ origin }}" "{{ site }}"
+
 # Check external URLs with the flags and HTML scope removed from docs CI.
 check-external:
     node scripts/site-freshness.mjs

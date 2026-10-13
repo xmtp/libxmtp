@@ -27,6 +27,7 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `just docs compose`: combine the site and generated references.
 - `dev/nix-shell 'just docs check'`: check source links and the composed artifact.
 - `dev/nix-shell 'just docs check-external'`: check external URLs with Lychee.
+- `dev/nix-shell 'just docs check-cutover'`: check the composed site origin, exports, and signature route. Pass the expected origin and staged site path to check a cutover candidate. This does not verify live DNS, certificates, or HTTP redirects.
 
 `just docs build` and `just docs check-examples` select each SDK product from its
 source manifest, then run its package tasks with the pnpm dependency graph. Do not

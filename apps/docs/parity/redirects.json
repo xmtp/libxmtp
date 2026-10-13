@@ -96,5 +96,6 @@
   "/network/network-nodes": "/protocol/overview/",
   "/network/run-a-node": "/deploy/overview/",
   "/protocol/signatures": "/sdk/use-signatures/",
-  "/protocol/xips": "/protocol/overview/"
+  "/protocol/xips": "/protocol/overview/",
+  "/signatures": "/sdk/use-signatures/"
 }
