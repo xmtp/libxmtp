@@ -397,29 +397,21 @@ internal class HandleController(
             }
         val earlier = (previous as? HandleStatus.Suggestions)?.handles.orEmpty()
         val candidates = earlier.filter { it != handle }
-        val still =
-            if (candidates.isEmpty()) {
-                candidates
-            } else {
-                try {
-                    val owned = account.owned(candidates)
-                    candidates.filter { it !in owned }
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    candidates
-                }
+        val still: List<String>
+        val fresh: List<String>
+        try {
+            still = if (candidates.isEmpty()) candidates else candidates - account.owned(candidates)
+            fresh =
+                if (still.size >= HANDLE_SUGGESTION_PAGE) emptyList() else account.availableHandles(handleName(input))
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            // Never show suggestions that were not checked again: they can be taken now too.
+            // Retry checks the input again.
+            update(token, step) {
+                it.copy(claiming = null, status = HandleStatus.Editing, notice = HandleNotice.CheckFailed)
             }
-        val fresh =
-            if (still.size >= HANDLE_SUGGESTION_PAGE) {
-                emptyList()
-            } else {
-                try {
-                    account.availableHandles(handleName(input))
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    emptyList()
-                }
-            }
+            return
+        }
         val handles = (still + fresh).filter { it != handle }.distinct()
         // The next one is the first remaining suggestion after the one that was taken.
         val position = earlier.indexOf(handle)

@@ -33,6 +33,7 @@ class HandleControllerTest {
         var held = emptySet<String>()
         var available: suspend (String) -> List<String> = { emptyList() }
         var claim: suspend (String) -> Unit = {}
+        var ownedFailure: (() -> Throwable)? = null
 
         override suspend fun handles(refresh: Boolean) = OwnHandles(current, others)
 
@@ -45,6 +46,7 @@ class HandleControllerTest {
 
         override suspend fun owned(handles: List<String>): Set<String> {
             ownedQueries += handles
+            ownedFailure?.let { throw it() }
             return handles.filterTo(mutableSetOf()) { it in held }
         }
 
@@ -364,6 +366,49 @@ class HandleControllerTest {
             editor.value.status,
         )
         assertEquals(HandleNotice.Taken("nick"), editor.value.notice)
+        assertEquals(listOf("nick"), account.claims)
+    }
+
+    @Test fun takenWithAFailedRecheckShowsTheNetworkErrorAndRetryChecksAgain() {
+        val free = listOf("nick#2341", "nick#0912", "nick#5530", "nick#6418")
+        val fresh = listOf("nick#5530", "nick#6418", "nick#7001")
+        val account =
+            FakeAccount().apply {
+                available = { if (lookups.size == 1) free else fresh }
+                claim = { throw taken() }
+                ownedFailure = { offline() }
+            }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        // The earlier suggestions were not checked again, so none of them shows.
+        assertEquals(HandleNotice.CheckFailed, editor.value.notice)
+        assertEquals(HandleStatus.Editing, editor.value.status)
+        assertNull(editor.value.claiming)
+        assertEquals("Cannot check this handle. Try again.", HandleCopy.notice(editor.value.notice!!))
+        // Retry asks the server again, and shows only its fresh answer. Nothing is claimed.
+        account.ownedFailure = null
+        editor.dispatch(HandleAction.Retry)
+        assertEquals(listOf("nick", "nick"), account.lookups)
+        assertEquals(HandleStatus.Suggestions("nick", fresh, 3, "nick#5530"), editor.value.status)
+        assertNull(editor.value.notice)
+        assertEquals(listOf("nick#2341"), account.claims)
+    }
+
+    @Test fun takenWithAFailedFreshLookupShowsTheNetworkError() {
+        var calls = 0
+        val account =
+            FakeAccount().apply {
+                available = { if (calls++ == 0) listOf("nick") else throw offline() }
+                claim = { throw taken() }
+            }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(HandleNotice.CheckFailed, editor.value.notice)
+        assertEquals(HandleStatus.Editing, editor.value.status)
         assertEquals(listOf("nick"), account.claims)
     }
 
