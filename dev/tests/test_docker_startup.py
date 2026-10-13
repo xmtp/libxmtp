@@ -36,6 +36,12 @@ if args[:1] == ["compose"]:
             print("fixture log failure", file=sys.stderr)
             sys.exit(12)
         print('backend | Error: relation "allocation_boundary" does not exist')
+    elif command[:2] == ["config", "--images"]:
+        # Only the backend and toxiproxy, which depends on it, need its image.
+        services = command[2:]
+        if not services or {"backend", "toxiproxy"} & set(services):
+            print(os.environ["XMTP_BACKEND_IMAGE"])
+        print("postgres:18.6")
     elif command[:1] == ["ps"]:
         if mode == "ps":
             print("fixture ps failure", file=sys.stderr)
@@ -49,6 +55,8 @@ if args[:1] == ["compose"]:
             print("owned-backend Exited (37)\nowned-db healthy")
     else:
         raise SystemExit("Unexpected Compose command: " + repr(command))
+elif args[:2] == ["image", "inspect"]:
+    sys.exit(0 if os.environ.get("IMAGE_PRESENT") else 1)
 elif args[:1] == ["inspect"]:
     container = args[-1]
     if mode == "inspect" and container == "owned-backend":
@@ -91,7 +99,14 @@ class DockerStartupTest(unittest.TestCase):
         self.runner.mkdir()
         self.calls = self.directory / "calls.jsonl"
 
-    def run_up(self, status=37, failure="", runner=True, **overrides):
+    def run_up(
+        self,
+        status=37,
+        failure="",
+        runner=True,
+        services=("backend", "replica"),
+        **overrides,
+    ):
         env = dict(
             os.environ,
             PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -106,7 +121,7 @@ class DockerStartupTest(unittest.TestCase):
             env["RUNNER_TEMP"] = str(self.runner)
         env.update(overrides)
         return subprocess.run(
-            ["bash", str(self.docker_dir / "up"), "backend", "replica"],
+            ["bash", str(self.docker_dir / "up"), *services],
             env=env,
             text=True,
             capture_output=True,
@@ -210,6 +225,34 @@ class DockerStartupTest(unittest.TestCase):
         self.assertEqual(second.returncode, 42, second.stderr)
         self.assertEqual(len(self.diagnostics()), 2)
         self.assertTrue((original / "compose.log").is_file())
+
+    def test_failure_without_the_worktree_image_names_the_recipe(self):
+        with (self.docker_dir / ".env").open("a") as env:
+            env.write(f"XMTP_BACKEND_IMAGE='xmtp-backend:{PROJECT}'\n")
+        missing = self.run_up()
+        self.assertEqual(missing.returncode, 37, missing.stderr)
+        self.assertIn(
+            f"xmtp-backend:{PROJECT} is not loaded. Run 'just backend up'",
+            missing.stderr,
+        )
+        loaded = self.run_up(IMAGE_PRESENT="1")
+        self.assertEqual(loaded.returncode, 37, loaded.stderr)
+        self.assertNotIn("just backend up", loaded.stderr)
+        # A start without the backend, such as `db-up`, fails for another reason.
+        database = self.run_up(services=("--wait-timeout", "5", "db", "replica"))
+        self.assertEqual(database.returncode, 37, database.stderr)
+        self.assertNotIn("just backend up", database.stderr)
+        # Toxiproxy depends on the backend, unless only it starts.
+        proxy = self.run_up(services=("toxiproxy",))
+        self.assertIn("Run 'just backend up'", proxy.stderr)
+        alone = self.run_up(services=("--no-deps", "toxiproxy"))
+        self.assertNotIn("just backend up", alone.stderr)
+        named = self.run_up(services=("--no-deps", "backend"))
+        self.assertIn("Run 'just backend up'", named.stderr)
+        self.calls.unlink()
+        started = self.run_up(status=0)
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.assertNotIn(["image"], [call[:1] for call in self.docker_calls()])
 
     def test_worktree_refusal_does_not_start_or_inspect_containers(self):
         result = self.run_up(WORKTREE_STATUS="65")

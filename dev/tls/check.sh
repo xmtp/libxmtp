@@ -18,13 +18,11 @@ case "${1:-}" in
 ' \
       "$script_dir/haproxy.cfg" >"$script_dir/.generated/short.cfg"
     restore() {
-      docker compose -f "$script_dir/compose.yml" -p libxmtp-tls \
-        up --detach --wait --force-recreate haproxy
+      "$script_dir/compose" up --detach --wait --force-recreate haproxy
     }
     trap restore EXIT
     XMTP_TLS_CONFIG="$script_dir/.generated/short.cfg" \
-      docker compose -f "$script_dir/compose.yml" -p libxmtp-tls \
-      up --detach --wait --force-recreate haproxy
+      "$script_dir/compose" up --detach --wait --force-recreate haproxy
     python3 "$script_dir/check.py" --short-timeout
     ;;
   *) echo "usage: $0 [--short-timeout]" >&2; exit 2 ;;

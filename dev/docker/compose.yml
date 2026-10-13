@@ -82,7 +82,10 @@ services:
       retries: 30
 
   backend:
-    image: ghcr.io/xmtp/backend:self-hosted      # loaded from `nix build .#backend-image-<arch>` by `just backend up`
+    # `just backend up` loads this worktree's Nix build under the tag that
+    # dev/worktree-env writes to .env, so each stack runs its own build. The
+    # default is the Nix archive's tag, for a run without .env.
+    image: ${XMTP_BACKEND_IMAGE:-ghcr.io/xmtp/backend:self-hosted}
     depends_on:
       db: { condition: service_healthy }
       replica: { condition: service_healthy }

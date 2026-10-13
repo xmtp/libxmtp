@@ -72,7 +72,7 @@ neutral:
   - "apps/.gitkeep"
   - ".github/{CODEOWNERS,dependabot.yml}"
   - ".github/ISSUE_TEMPLATE/**"
-  - "dev/{fly,tls,test}/**"
+  - "dev/{fly,test}/**"
   - "dev/{ast-outline,bench,serena,flamegraph,llvm-cov,up,down,direnv-up,direnv-down,docs}"
   - "dev/{nix-up,nix-down,nix-status,nix-cache-up,ci-failure-markers}"
   - "dev/{ci,nix}/**"
@@ -176,6 +176,10 @@ suites:
       - "{.editorconfig,sdks/ios/.swiftformat}"
       - ".github/**"
       - "dev/{tests,agents,specs,release-tools}/**"
+      # dev/tests/test_{backend_image,docker_startup}.py check these files.
+      - "dev/docker/{compose.yml,load-backend-image,load-env,up}"
+      - "dev/tls/**"
+      - "apps/backend/backend.just"
       - "nix/fmt.nix"
   lint_proto:
     phase: lint

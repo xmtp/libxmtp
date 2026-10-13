@@ -52,8 +52,8 @@ The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`
 Failed Compose startup retains project logs and container state under
 `$RUNNER_TEMP/backend-startup-logs`, or the printed temporary path for local runs.
 Use `XMTP_BACKEND_URL=http://127.0.0.1:5050` when local IPv6 forwarding fails.
-Ports above are the main checkout's. Every worktree gets its own Compose project
-and port block, so run `just backend status` for the checkout you are in. See the
+Ports above are the main checkout's. Every worktree gets its own Compose project,
+port block, and backend image tag, so run `just backend status` for the checkout you are in. See the
 `working-with-worktrees` skill.
 `just test` excludes backend database tests; run them with `just backend test`.
 

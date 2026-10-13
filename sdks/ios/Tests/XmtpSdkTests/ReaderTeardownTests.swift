@@ -374,4 +374,37 @@ final class ReaderTeardownTests: XCTestCase {
 		XCTAssertEqual(states.value.first, .connected, "The connected reader reported another state first")
 		withExtendedLifetime(owner) {}
 	}
+
+	// verifies: PROC-044
+	func testConnectionStateChangesKeepTheirOrder() async {
+		let owner = fakeOwner()
+		let pending = Shared<[ConnectionState]>([.reconnecting, .connected, .closed])
+		let states = Shared<[ConnectionState]>([])
+		let previous = Shared<[ConnectionState?]>([])
+		let stream = makeSDKMessageStream(open: {
+			ScriptedReader(read: {
+				try await pause(seconds: 10)
+				return nil
+			}, state: { .connected }, stateChanged: { _ in
+				var next = ConnectionState.closed
+				pending.update {
+					values in if !values.isEmpty {
+						next = values.removeFirst()
+					}
+				}
+				return next
+			})
+		}, owner: owner, onClose: nil, onConnectionStateChange: { old, current in
+			previous.update { $0.append(old) }
+			states.update { $0.append(current) }
+		})
+		let read = Task { try await stream.makeAsyncIterator().next() }
+		let ended = await eventually(seconds: 5) { states.value.last == .closed }
+		read.cancel()
+		await awaitEnd(read, "The ordered-state read")
+		XCTAssertTrue(ended, "The state monitor did not reach Closed")
+		XCTAssertEqual(states.value, [.connected, .reconnecting, .connected, .closed])
+		XCTAssertEqual(previous.value, [nil, .connected, .reconnecting, .connected])
+		withExtendedLifetime(owner) {}
+	}
 }
