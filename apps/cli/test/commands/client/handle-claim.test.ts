@@ -6,10 +6,36 @@ import ClientHandleClaim from "@/commands/client/handle-claim";
 
 import {
   createRegisteredIdentity,
+  createTestIdentity,
   parseJsonOutput,
   randomHandleName,
+  runCommand,
   runWithIdentity,
 } from "../../helpers.js";
+
+// an OSC sequence that sets the terminal title
+const ESCAPE_INPUT = "\u001b]0;evil\u0007";
+// oxlint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
+/** A handle-claim command with a mocked client. */
+async function mockedClaim(
+  argv: string[],
+  inboxState: ReturnType<typeof vi.fn>,
+  claimHandle: ReturnType<typeof vi.fn>,
+) {
+  const command = new ClientHandleClaim(
+    argv,
+    await Config.load({ root: process.cwd() }),
+  );
+  const initClient = vi.spyOn(command, "initClient").mockResolvedValue({
+    inboxState,
+    claimHandle,
+  } as unknown as XmtpClient);
+  const confirm = vi.spyOn(command, "confirmAction");
+  const log = vi.spyOn(command, "log").mockImplementation(() => undefined);
+  return { command, initClient, confirm, log };
+}
 
 interface ClaimOutput {
   inboxId: string;
@@ -139,6 +165,52 @@ describe("client handle-claim", () => {
     expect(log).toHaveBeenCalledExactlyOnceWith(
       "Your handle is now nick.\nOther handles: nick#0001",
     );
+  });
+
+  it("refuses text with control characters before any prompt or claim", async () => {
+    const claimHandle = vi.fn(async (_handle: string) => undefined);
+    const { command, initClient, confirm } = await mockedClaim(
+      [ESCAPE_INPUT],
+      vi.fn(),
+      claimHandle,
+    );
+
+    const error = await command.run().then(
+      () => undefined,
+      (failure: Error) => failure,
+    );
+
+    expect(error?.message).toMatch(/ is not a valid handle\./);
+    expect(error?.message).not.toMatch(CONTROL);
+    expect(initClient).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(claimHandle).not.toHaveBeenCalled();
+  });
+
+  it("prints no control character from a refused handle", async () => {
+    const identity = createTestIdentity();
+    const result = await runCommand(
+      [
+        "client",
+        "handle-claim",
+        ESCAPE_INPUT,
+        "--wallet-key",
+        identity.walletKey,
+        "--db-encryption-key",
+        identity.dbEncryptionKey,
+        "--db-path",
+        identity.dbPath,
+      ],
+      { input: "" },
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.split("\n")).toContain(
+      "\\u001b]0;evil\\u0007 is not a valid handle. Start with a letter, then use only lowercase letters, numbers, _ and -, 27 characters or fewer before #. After #, use exactly 4 digits, like nick#0012.",
+    );
+    expect(result.stdout).toBe("");
+    expect(result.stderr).not.toContain("\u001b");
+    expect(result.stderr).not.toContain("\u0007");
   });
 
   it("reports a taken handle and never claims another one", async () => {

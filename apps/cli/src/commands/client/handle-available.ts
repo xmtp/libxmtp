@@ -2,7 +2,11 @@ import { Args } from "@oclif/core";
 import { XmtpError } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
-import { asciiLowercase, invalidHandleMessage } from "@/utils/handles";
+import {
+  asciiLowercase,
+  invalidHandleMessage,
+  isValidHandle,
+} from "@/utils/handles";
 
 export default class ClientHandleAvailable extends BaseCommand {
   static description = `List free handles for a name.
@@ -47,6 +51,10 @@ one.`;
 
   async run(): Promise<void> {
     const { args } = await this.parse(ClientHandleAvailable);
+    // Check the grammar before any output shows the input.
+    if (!isValidHandle(args.name)) {
+      this.error(invalidHandleMessage(args.name));
+    }
     const client = await this.initClient();
 
     let handles: string[];

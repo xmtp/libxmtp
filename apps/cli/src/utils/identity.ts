@@ -1,8 +1,12 @@
-import { Flags } from "@oclif/core";
+import { Errors, Flags } from "@oclif/core";
 import type { PublicIdentity } from "@xmtp/node-sdk";
 
 import { identifierKindMap } from "@/utils/enums";
-import { asciiLowercase } from "@/utils/handles";
+import {
+  asciiLowercase,
+  invalidHandleMessage,
+  isValidHandle,
+} from "@/utils/handles";
 
 /** Identifier kinds that a command argument can name. */
 export const IDENTIFIER_KINDS = ["ethereum", "handle"] as const;
@@ -20,12 +24,16 @@ export const identifierKindFlag = Flags.option({
 /**
  * Make an SDK identity from command input. An address is lowercased. A
  * handle goes to the SDK as typed, because the SDK lowercases only ASCII
- * letters and rejects every other character.
+ * letters and rejects every other character. A handle outside the grammar
+ * fails here, with a plain message, before the SDK sees it.
  */
 export function publicIdentity(
   identifier: string,
   kind: IdentifierKind,
 ): PublicIdentity {
+  if (kind === "handle" && !isValidHandle(identifier)) {
+    throw new Errors.CLIError(invalidHandleMessage(identifier));
+  }
   return {
     kind: identifierKindMap[kind],
     identifier: kind === "handle" ? identifier : identifier.toLowerCase(),

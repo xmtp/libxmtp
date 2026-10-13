@@ -5,6 +5,7 @@ import {
   asciiLowercase,
   claimFailureMessage,
   handleFields,
+  invalidHandleMessage,
 } from "../../src/utils/handles.js";
 import { canMessageKey, publicIdentity } from "../../src/utils/identity.js";
 
@@ -80,7 +81,32 @@ describe("claimFailureMessage", () => {
   });
 });
 
+// an OSC sequence that sets the terminal title
+const ESCAPE_INPUT = "\u001b]0;evil\u0007";
+// oxlint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
 describe("handle input", () => {
+  it("refuses a handle outside the grammar before the SDK sees it", () => {
+    for (const input of [ESCAPE_INPUT, "Nick\u212A", "nick.eth"]) {
+      expect(() => publicIdentity(input, "handle")).toThrow(
+        "is not a valid handle.",
+      );
+    }
+  });
+
+  it("escapes control characters in the invalid-handle message", () => {
+    let message = "";
+    try {
+      publicIdentity(ESCAPE_INPUT, "handle");
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).not.toMatch(CONTROL);
+    expect(message).toMatch(/^\\u001b\]0;evil\\u0007 is not a valid handle\./);
+    expect(invalidHandleMessage(ESCAPE_INPUT)).not.toMatch(CONTROL);
+  });
+
   it("lowercases ASCII letters only", () => {
     // U+212A KELVIN SIGN lowercases to an ASCII k in JavaScript; the SDK
     // rejects it, so the CLI must not turn it into one.
@@ -88,9 +114,12 @@ describe("handle input", () => {
   });
 
   it("sends a handle to the SDK as typed and keys it by its canonical text", () => {
-    const identity = publicIdentity("NickK", "handle");
-    expect(identity).toEqual({ kind: "handle", identifier: "NickK" });
-    expect(canMessageKey(identity)).toBe("handle:nickK");
+    const identity = publicIdentity("Nick#2341", "handle");
+    expect(identity).toEqual({ kind: "handle", identifier: "Nick#2341" });
+    expect(canMessageKey(identity)).toBe("handle:nick#2341");
+    expect(canMessageKey({ kind: "handle", identifier: "Nick\u212A" })).toBe(
+      "handle:nick\u212A",
+    );
     expect(publicIdentity("0xABC", "ethereum")).toEqual({
       kind: "ethereum",
       identifier: "0xabc",

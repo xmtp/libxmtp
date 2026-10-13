@@ -3,7 +3,7 @@ import { access, readFile, writeFile } from "node:fs/promises";
 import { Errors } from "@oclif/core";
 import { describe, expect, it } from "vitest";
 
-import { formatStorageErrorMessage } from "@/baseCommand";
+import { formatStorageErrorMessage, terminalSafeMessage } from "@/baseCommand";
 
 import { createTestIdentity, runCommand } from "./helpers.js";
 
@@ -84,5 +84,13 @@ describe("storage errors", () => {
     expect(cliError.oclif.exit ?? 1).not.toBe(0);
     await expect(access(dbPath)).resolves.toBeUndefined();
     await expect(readFile(dbPath, "utf-8")).resolves.toBe(contents);
+  });
+});
+
+describe("error output", () => {
+  it("escapes control characters in each line of an error message", () => {
+    expect(
+      terminalSafeMessage("\u001b]0;evil\u0007 failed\nDatabase path: x"),
+    ).toBe("\\u001b]0;evil\\u0007 failed\nDatabase path: x");
   });
 });
