@@ -149,25 +149,25 @@ class RecipientHandlesInstrumentedTest {
                 val handle = claim(target, coded)
                 val conversation =
                     create(
-                        " " + handle.uppercase() + " ",
+                        " @" + handle.uppercase() + " ",
                         setOf(target.inboxId()),
                         handles =
                             mapOf(target.inboxId() to handle),
                     )
                 until("The conversation header did not show the current handle") {
                     model.chat.state.value.title ==
-                        handle
+                        "@" + handle
                 }
-                compose.onNodeWithText(handle).assertExists()
+                compose.onNodeWithText("@" + handle).assertExists()
                 assertEquals(target.inboxId(), (conversation as Conversation.Dm).dm.peerInboxId())
                 model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
                 until("Chats did not reopen") { model.state.value.screen == Screen.CONVERSATIONS }
                 model.conversations.refresh()
                 until("The conversation list did not show the current handle") {
                     model.conversations.state.value.rows
-                        .any { it.id == conversation.id() && it.title == handle }
+                        .any { it.id == conversation.id() && it.title == "@" + handle }
                 }
-                compose.onNodeWithText(handle).assertExists()
+                compose.onNodeWithText("@" + handle).assertExists()
             }
         }
 
@@ -205,7 +205,7 @@ class RecipientHandlesInstrumentedTest {
                     .displayName,
             )
             button("Add member").performClick()
-            compose.onNodeWithText(recipientLabel).performTextReplacement(addedHandle)
+            compose.onNodeWithText(recipientLabel).performTextReplacement("@" + addedHandle)
             androidx.test.espresso.Espresso
                 .closeSoftKeyboard()
             button("Add member").performClick()

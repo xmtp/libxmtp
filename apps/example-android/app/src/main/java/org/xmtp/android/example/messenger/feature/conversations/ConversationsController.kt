@@ -313,7 +313,7 @@ internal class ConversationsController(
                                             common.consentState == ConsentState.UNKNOWN,
                                             chat.id().hashCode(),
                                             muted =
-                                                !common.notificationsEnabled,
+                                                notifications.muted(owner, logical),
                                             group =
                                                 group != null,
                                             alias =

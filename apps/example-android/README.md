@@ -172,8 +172,10 @@ callbacks also require accepted consent.
 New conversations and Add member accept handles, Ethereum addresses, or inbox
 IDs. The app detects the input type: a `0x` prefix selects Ethereum, 64 hexadecimal
 characters select an inbox ID, and a handle resolves through the SDK.
+Handle input accepts an optional `@` prefix.
 Selected people, DM headers, conversation rows, and member details show the
-current handle when available, with the inbox ID as a fallback.
+current handle when available, with the inbox ID as a fallback. DM titles show
+handles with an `@` prefix.
 Groups offer All members and Admins only presets.
 
 Messages support text, replies, emoji reactions and remote deletion. “Sent”
@@ -262,6 +264,7 @@ The backend must also have its FCM channel configured.
 Open App settings and select Turn notifications on. This action asks for Android
 permission when required. The app shows the current token, permission and SDK
 registration state. Conversation details can enable or mute the conversation.
+The chat list shows Muted only for an explicit per-conversation mute choice.
 Sign out persists signed-out state before stopping owned jobs and unregistering.
 A failed unregister cannot reopen the signed-out account.
 

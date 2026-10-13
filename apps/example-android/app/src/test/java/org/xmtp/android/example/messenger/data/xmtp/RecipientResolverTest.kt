@@ -13,7 +13,7 @@ class RecipientResolverTest {
 
     @Test fun handlesUseTheVerifiedHandleLookupIncludingShortAndCodedNames() =
         runBlocking<Unit> {
-            for (input in listOf(" Nick ", "Nick#2341", "n")) {
+            for (input in listOf(" Nick ", "Nick#2341", "@Nick", "@Nick#2341", "n")) {
                 val lookedUp = mutableListOf<PublicIdentity>()
                 assertEquals(
                     inbox,
@@ -22,7 +22,10 @@ class RecipientResolverTest {
                         inbox
                     },
                 )
-                assertEquals(listOf(PublicIdentity(input.trim().lowercase(), PublicIdentityKind.HANDLE)), lookedUp)
+                assertEquals(
+                    listOf(PublicIdentity(input.trim().removePrefix("@").lowercase(), PublicIdentityKind.HANDLE)),
+                    lookedUp,
+                )
             }
         }
 
@@ -67,7 +70,18 @@ class RecipientResolverTest {
 
     @Test fun malformedHandlesAreRejectedBeforeLookup() =
         runBlocking<Unit> {
-            for (input in listOf("", "nick.eth", "ni ck", "nick#12", "n".repeat(28), "1nick")) {
+            for (input in listOf(
+                "",
+                "@",
+                "@@nick",
+                "@0xnick",
+                "@" + "a".repeat(64),
+                "nick.eth",
+                "ni ck",
+                "nick#12",
+                "n".repeat(28),
+                "1nick",
+            )) {
                 assertThrows(FeatureInputFailure::class.java) {
                     runBlocking<Unit> { resolveRecipient(input) { error("Malformed handle reached the network") } }
                 }

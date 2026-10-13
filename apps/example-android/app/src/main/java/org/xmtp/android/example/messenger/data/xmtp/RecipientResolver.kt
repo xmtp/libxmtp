@@ -33,9 +33,9 @@ internal suspend fun resolveRecipient(
             }
 
             else -> {
-                val handle = normalizedHandleInput(value)
+                val handle = normalizedHandleInput(value.removePrefix("@"))
                 // Existing handles remain valid lookup targets if claim policy later changes.
-                if (handleInputProblem(handle, minNameLength = 1) != null) {
+                if (handle.isEmpty() || handleInputProblem(handle, minNameLength = 1) != null) {
                     throw FeatureInputFailure(
                         "Enter a handle such as nick or nick#2341, an Ethereum address, or an inbox ID.",
                     )

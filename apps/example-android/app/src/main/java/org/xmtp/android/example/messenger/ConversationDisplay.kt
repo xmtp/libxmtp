@@ -24,6 +24,6 @@ internal suspend fun Conversation.displayTitle(
                     if (error is CancellationException) throw error
                     null
                 }
-            handle ?: peer?.take(12) ?: "Direct message"
+            handle?.let { "@$it" } ?: peer?.take(12) ?: "Direct message"
         }
     }

@@ -456,6 +456,12 @@ class NotificationController(
     internal var beforeConversationPreferenceLookup: suspend (ActiveSession, Conversation) -> Unit = { _, _ -> }
     internal var beforeConversationNotificationWrite: (Conversation) -> Unit = {}
 
+    /** Whether the user explicitly muted this logical conversation on this profile. */
+    internal suspend fun muted(
+        owner: ActiveSession,
+        logicalConversation: String,
+    ): Boolean = preferences.muted(owner.key.profileId, logicalConversation)
+
     suspend fun setConversationEnabled(
         owner: ActiveSession,
         conversation: Conversation,
