@@ -318,7 +318,7 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
-    kache: [nix-only]
+    kache: []
     path_filters:
       - path_group: example_ios
       - path_group: swift
@@ -619,7 +619,7 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
-    kache: [nix-only]
+    kache: []
     path_filters:
       - path_group: example_ios
       - path_group: swift
