@@ -132,35 +132,30 @@ export const HandleEditor: React.FC<HandleEditorProps> = ({
     }
   };
 
-  // Someone else claimed the pick first. Show the other free handles, with
-  // the next one selected, and wait for the user to pick again.
+  // Someone else claimed the pick first. The earlier answer can name other
+  // handles that are taken now, so ask the server again for the name. Show
+  // the fresh free handles, with the first one selected, and wait for the
+  // user to pick again.
   const handleTaken = async (handle: string) => {
     const request = ++generation.current;
     const notice = `Someone claimed ${handle} a moment before you. Pick another handle.`;
-    let taken = handle;
-    let candidates: string[] = [];
-    let index = 0;
-    if (phase.kind === "available") {
-      candidates = phase.others;
-    } else if (phase.kind === "suggestions") {
-      taken = phase.taken;
-      index = Math.max(0, phase.candidates.indexOf(handle));
-      candidates = phase.candidates.filter((other) => other !== handle);
-    }
-    if (candidates.length === 0) {
-      setPhase({ kind: "checking", query: splitHandle(handle).name });
-      try {
-        const free = await client.availableHandles(splitHandle(handle).name);
-        if (request !== generation.current) return;
-        candidates = free.filter((other) => other !== handle);
-      } catch {
-        if (request === generation.current) {
-          setPhase({ kind: "checkFailed", query: input });
-        }
-        return;
+    const taken = phase.kind === "suggestions" ? phase.taken : handle;
+    const { name } = splitHandle(handle);
+    setPhase({ kind: "checking", query: name });
+    try {
+      const free = await client.availableHandles(name);
+      if (request !== generation.current) return;
+      showChoices(
+        taken,
+        free.filter((other) => other !== handle),
+        0,
+        notice,
+      );
+    } catch {
+      if (request === generation.current) {
+        setPhase({ kind: "checkFailed", query: input });
       }
     }
-    showChoices(taken, candidates, index, notice);
   };
 
   const submitClaim = async (handle: string) => {
