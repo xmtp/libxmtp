@@ -21,6 +21,25 @@ export type ConversationMetadata = {
   imageUrl?: string;
 };
 
+export type OwnHandles = {
+  // the current (display) handle of the client's inbox
+  handle: string | null;
+  // the inbox's other handles, newest first (IDENT-086)
+  otherHandles: string[];
+};
+
+/** A DM's name: its peer's current handle, else the peer's inbox ID. */
+const dmName = async (
+  conversation: Dm,
+  members: Member[],
+): Promise<string | undefined> => {
+  const peerInboxId = await conversation.peerInboxId();
+  const peer =
+    members.find((m) => m.inboxId === peerInboxId) ??
+    members.find((m) => m.inboxId !== conversation.addedByInboxId);
+  return peer ? (peer.handle ?? peer.inboxId) : undefined;
+};
+
 // alias types for clarity
 type InboxId = string;
 type ConversationId = string;
@@ -49,6 +68,8 @@ export type InboxState = {
   sortedMessages: Map<ConversationId, XmtpMessage[]>;
   // the last attempted sync timestamp
   lastSyncedAt?: bigint;
+  // the handles of the client's inbox, once loaded
+  ownHandles?: OwnHandles;
 };
 
 export type InboxActions = {
@@ -70,6 +91,8 @@ export type InboxActions = {
   setLastSyncedAt: (timestamp: bigint) => void;
   syncPermissions: (conversationId: string) => Promise<void>;
   syncMembers: (conversationId: string) => Promise<void>;
+  refreshInboxHandles: (inboxId: string) => Promise<void>;
+  setOwnHandles: (handles: OwnHandles) => void;
   reset: () => void;
 };
 
@@ -107,14 +130,10 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
           imageUrl: snapshot.imageUrl,
         });
       } else if (conversation instanceof Dm) {
-        const member = members.find(
-          (m) => m.inboxId !== conversation.addedByInboxId,
-        );
-        if (member) {
+        const name = await dmName(conversation, members);
+        if (name) {
           // update metadata state
-          newMetadata.set(conversation.id, {
-            name: member.inboxId,
-          });
+          newMetadata.set(conversation.id, { name });
         }
       }
       // update last message state
@@ -188,14 +207,10 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
             imageUrl: snapshot.imageUrl,
           });
         } else if (conversation instanceof Dm) {
-          const member = members.find(
-            (m) => m.inboxId !== conversation.addedByInboxId,
-          );
-          if (member) {
+          const name = await dmName(conversation, members);
+          if (name) {
             // update metadata state
-            newMetadata.set(conversation.id, {
-              name: member.inboxId,
-            });
+            newMetadata.set(conversation.id, { name });
           }
         }
         const lastMessage = allLastMessages.get(conversation.id);
@@ -439,6 +454,52 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
         );
         set({ members: newMembers });
       }
+    },
+    refreshInboxHandles: async (inboxId: string) => {
+      // members() reads the newest identity state that the client holds, so
+      // a local read shows the inbox's new handle (IDENT-086)
+      const state = get();
+      const conversations = Array.from(state.members)
+        .filter(([, members]) => members.has(inboxId))
+        .map(([id]) => state.conversations.get(id))
+        .filter((conversation) => conversation !== undefined);
+      if (conversations.length === 0) {
+        return;
+      }
+      const updates = await Promise.all(
+        conversations.map(async (conversation) => {
+          const members = await conversation.members();
+          const name =
+            conversation instanceof Dm
+              ? await dmName(conversation, members)
+              : undefined;
+          return { conversation, members, name };
+        }),
+      );
+      // read the state again: other updates can land while members() runs
+      const latest = get();
+      const newMembers = new Map(latest.members);
+      const newMetadata = new Map(latest.metadata);
+      for (const { conversation, members, name } of updates) {
+        // skip a conversation that left the store, for example on a reset
+        if (latest.conversations.get(conversation.id) !== conversation) {
+          continue;
+        }
+        newMembers.set(
+          conversation.id,
+          new Map(members.map((m) => [m.inboxId, m])),
+        );
+        if (name) {
+          newMetadata.set(conversation.id, {
+            ...newMetadata.get(conversation.id),
+            name,
+          });
+        }
+      }
+      set({ members: newMembers, metadata: newMetadata });
+    },
+    setOwnHandles: (handles: OwnHandles) => {
+      set({ ownHandles: handles });
     },
     reset: () => {
       set(store.getInitialState());

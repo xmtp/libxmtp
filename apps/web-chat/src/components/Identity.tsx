@@ -22,6 +22,7 @@ export const Identity: React.FC<IdentityProps> = ({
       <IdentityBadge
         address={props.address}
         displayName={props.displayName}
+        handle={props.handle}
         size={size}
         w={w}
       />

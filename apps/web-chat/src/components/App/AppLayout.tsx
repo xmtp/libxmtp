@@ -7,6 +7,7 @@ import { AppHeader } from "@/components/App/AppHeader";
 import { Disclaimer } from "@/components/App/Disclaimer";
 import { ConversationsNavbar } from "@/components/Conversations/ConversationsNavbar";
 import { useXMTP } from "@/contexts/XMTPContext";
+import { useHandleSync } from "@/hooks/useOwnHandles";
 import { useRedirect } from "@/hooks/useRedirect";
 import {
   MainLayout,
@@ -22,6 +23,7 @@ export const AppLayout: React.FC = () => {
   const { client } = useXMTP();
   const { setRedirectUrl } = useRedirect();
   const [opened, { toggle }] = useDisclosure();
+  useHandleSync(client);
 
   useEffect(() => {
     if (!client) {

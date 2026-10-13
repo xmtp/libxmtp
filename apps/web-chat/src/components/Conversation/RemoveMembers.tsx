@@ -44,6 +44,8 @@ export const RemoveMembers: React.FC<RemoveMembersProps> = ({
               displayName={member.displayName}
               avatar={member.avatar}
               description={member.description}
+              handle={member.handle ?? null}
+              inboxId={member.inboxId}
               onClick={() => {
                 handleRestoreRemovedMember(member.inboxId);
               }}

@@ -11,6 +11,7 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
+import { HandleSection } from "@/components/Handles/HandleSection";
 import { InstallationTable } from "@/components/Identity/InstallationTable";
 import { Modal } from "@/components/Modal";
 import { useClient } from "@/contexts/XMTPContext";
@@ -66,6 +67,12 @@ export const IdentityModal: React.FC = () => {
             </Group>
           }>
           <Stack gap="md" p="md">
+            <Title order={4} ml="md">
+              Handle
+            </Title>
+            <Paper p="md" radius="md" withBorder>
+              <HandleSection />
+            </Paper>
             <Paper p="md" radius="md" withBorder>
               <Stack gap="md">
                 <Group gap="md" wrap="nowrap">
