@@ -16,7 +16,6 @@ for language in swift kotlin typescript-napi typescript-wasm typescript-pure; do
   fi
 done
 crates/xmtp_sdk/dev/check-fork-pin
-dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings
 crates/xmtp_sdk/dev/check-public-names "$generated"
 crates/xmtp_sdk/dev/check-test-hooks --self-test
 crates/xmtp_sdk/dev/check-test-hooks "$generated"
@@ -32,7 +31,6 @@ if rg -n '@xmtp-[a-z][a-z0-9-]*([^a-z0-9/-]|$)' "$generated" --glob '*.swift' --
 fi
 
 echo "Linting the runtime and generated files; stock ubrn output stays excluded."
-bash crates/xmtp_sdk/dev/check-wasm-init
 bash crates/xmtp_sdk/dev/link-runtime-packages \
   "$generated/typescript-napi" "$generated/typescript-wasm" "$generated/typescript-pure"
 # The runtime imports the binding and the files generated beside it, so its

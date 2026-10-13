@@ -94,10 +94,10 @@ redacted JSON reports when the reader-evidence change is present.
 Do not use commit IDs, run IDs, branch names, or shard numbers in a scope.
 The [pinned action guidance](https://github.com/kunobi-ninja/kache-action/blob/1a33fb2ff51be23eb9e87abeae6edb65be78f71c/README.md#manifest-vs-shards)
 separates build variants to keep their prefetch lists useful.
-Scopes follow outer Cargo build families. The SDK bridge proof and JavaScript
-SDK product builds share `sdk-products-debug`. The browser platform proof uses
-`sdk-browser-conformance` because it builds debug panic-test and release
-pure-codec fixtures with conformance features. The older SDK facade job uses
+Scopes follow outer Cargo build families. JavaScript SDK product builds share
+`sdk-products-debug`. The browser platform proof, which also runs the bridge
+tests, uses `sdk-browser-conformance` because it builds debug panic-test and
+release pure-codec fixtures with conformance features. The older SDK facade job uses
 `sdk-products-tests-conformance` because it combines product builds, Rust unit
 tests, and those browser fixtures. Node-only SDK builds share `sdk-native-debug`. Android staging and native Node release
 builds use separate release scopes. Default SDK tests, backend tests, native
@@ -174,6 +174,6 @@ needed for this rollout.
 | `test-ios.yml / swift` | `nix-only` | Protected push writer; otherwise reader |
 | `test-ios.yml / check-swift` | `bindings-check-${{ matrix.target }}` | Protected push writer; otherwise reader |
 | `test-node-sdk.yml / test` | `sdk-native-debug` | Protected push writer; otherwise reader |
-| `test-sdk-platform.yml / proof` | `sdk-products-debug` (`bridge` matrix target), `sdk-browser-conformance` (`browser` matrix target) | Protected push writer; otherwise reader |
+| `test-sdk-platform.yml / proof` | `sdk-browser-conformance` | Protected push writer; otherwise reader |
 | `test-sdk.yml / sdk` | `sdk-products-tests-conformance` | Protected push writer; otherwise reader |
 | `test-sdk.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
