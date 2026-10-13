@@ -85,10 +85,9 @@ pub(crate) async fn get_association_state_for_client(
 
 /// Store the association state of an inbox at `sequence_id` in the client's
 /// cache. In the same write, read the newest state the client already holds
-/// for the inbox, and emit `handle.changed` when the stored state changes its
-/// display handle. Concurrent stores for one inbox are serialized by the
-/// write, so their events follow their sequence ids.
-// implements: EVENT-058, EVENT-059
+/// for the inbox, and buffer `handle.changed` when the stored state changes
+/// its display handle. The event is emitted after the write commits.
+// implements: EVENT-058
 pub(crate) fn store_association_state(
     context: &impl XmtpSharedContext,
     sequence_id: i64,

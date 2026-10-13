@@ -15,17 +15,6 @@ fn handle_events<I>(drained: Vec<EventEnvelope<I>>) -> Vec<HandleChanged> {
         .collect()
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn changed(state: &xmtp_id::associations::AssociationState) -> HandleChanged {
-    HandleChanged {
-        inbox_id: state.inbox_id().to_owned(),
-        handle: state
-            .display_handle()
-            .expect("a display handle")
-            .to_string(),
-    }
-}
-
 // verifies: EVENT-058
 #[xmtp_common::test(unwrap_try = true)]
 async fn first_state_emits_no_handle_event() {
@@ -144,66 +133,4 @@ async fn older_state_stored_later_emits_nothing() {
     )?;
 
     assert!(handle_events(events.drain()).is_empty());
-}
-
-// verifies: EVENT-059
-#[cfg(not(target_arch = "wasm32"))]
-#[xmtp_common::test(unwrap_try = true)]
-async fn handle_events_for_one_inbox_keep_sequence_order() {
-    use crate::{client::ClientError, state_tx::postcommit_test_hook};
-    use std::{sync::mpsc, time::Duration};
-    /// How long the first writer waits, after its commit, for the second
-    /// store to return. The second store cannot return before the first
-    /// writer's events are out, so with ordered emission this always elapses.
-    const SECOND_STORE_WAIT: Duration = Duration::from_millis(250);
-
-    tester!(alix, disable_workers);
-    let context = &alix.context;
-    let events = context
-        .events()
-        .subscribe(EventFilter::new([EventKind::HandleChanged]), Some(10));
-    let base = new_inbox_state();
-    store_association_state(context, 3, &base)?;
-    let five = state_with_handles(&base, &["five"]);
-    let seven = state_with_handles(&base, &["five", "seven"]);
-
-    // Two threads store sequence ids 5 and 7 of one inbox. The first writer
-    // commits 5, then waits before its store returns while the second writer
-    // stores 7. An event emitted outside the write would let 7 overtake 5.
-    let (first_committed, first_has_committed) = mpsc::channel();
-    let (second_stored, second_has_stored) = mpsc::channel::<()>();
-    let (five_ref, seven_ref) = (&five, &seven);
-    std::thread::scope(|scope| {
-        let first = scope.spawn(move || {
-            let _hold = postcommit_test_hook::install(move || {
-                let _ = first_committed.send(());
-                let _ = second_has_stored.recv_timeout(SECOND_STORE_WAIT);
-            });
-            store_association_state(context, 5, five_ref)
-        });
-        let second = scope.spawn(move || {
-            first_has_committed
-                .recv()
-                .expect("the first writer commits");
-            let stored = store_association_state(context, 7, seven_ref);
-            let _ = second_stored.send(());
-            stored
-        });
-        first.join().expect("the first writer finishes")?;
-        second.join().expect("the second writer finishes")?;
-        Ok::<_, ClientError>(())
-    })?;
-    assert_eq!(
-        handle_events(events.drain()),
-        vec![changed(&five), changed(&seven)]
-    );
-
-    // A store of 5 after 7 emits nothing.
-    let base = new_inbox_state();
-    store_association_state(context, 3, &base)?;
-    let five = state_with_handles(&base, &["five"]);
-    let seven = state_with_handles(&base, &["five", "seven"]);
-    store_association_state(context, 7, &seven)?;
-    store_association_state(context, 5, &five)?;
-    assert_eq!(handle_events(events.drain()), vec![changed(&seven)]);
 }

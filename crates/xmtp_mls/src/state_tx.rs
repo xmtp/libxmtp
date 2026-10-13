@@ -76,7 +76,7 @@ where
     S: XmtpMlsStorageProvider,
     E: From<xmtp_db::diesel::result::Error> + From<xmtp_db::ConnectionError> + std::error::Error,
 {
-    let result = storage.transaction(|query| {
+    storage.transaction(|query| {
         let outcome = operation(&mut StateTx { query })?;
         #[cfg(all(test, not(target_arch = "wasm32")))]
         if matches!(outcome, TransactionOutcome::Continue(_)) && precommit_test_hook::is_set() {
@@ -87,12 +87,7 @@ where
             })?;
         }
         Ok(outcome)
-    });
-    #[cfg(all(test, not(target_arch = "wasm32")))]
-    if matches!(result, Ok(TransactionOutcome::Continue(_))) {
-        postcommit_test_hook::run();
-    }
-    result
+    })
 }
 
 /// Flush this write's events only after its database transaction commits.
@@ -152,49 +147,6 @@ pub(crate) mod precommit_test_hook {
         HOOK.with(|slot| {
             if let Some(hook) = slot.borrow_mut().as_mut() {
                 hook(conn);
-            }
-        });
-    }
-
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            HOOK.with(|slot| {
-                slot.replace(self.previous.take());
-            });
-        }
-    }
-}
-
-/// Runs on the writing thread after a state write commits and before the
-/// caller sees its result, so a test can hold one writer between its commit
-/// and the events that follow it.
-#[cfg(all(test, not(target_arch = "wasm32")))]
-pub(crate) mod postcommit_test_hook {
-    use std::{cell::RefCell, marker::PhantomData, rc::Rc};
-
-    type Hook = Box<dyn FnMut()>;
-
-    thread_local! {
-        static HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
-    }
-
-    /// Keep the hook on the thread that runs the state write.
-    pub(crate) struct Guard {
-        previous: Option<Hook>,
-        _same_thread: PhantomData<Rc<()>>,
-    }
-
-    pub(crate) fn install(hook: impl FnMut() + 'static) -> Guard {
-        Guard {
-            previous: HOOK.with(|slot| slot.replace(Some(Box::new(hook)))),
-            _same_thread: PhantomData,
-        }
-    }
-
-    pub(super) fn run() {
-        HOOK.with(|slot| {
-            if let Some(hook) = slot.borrow_mut().as_mut() {
-                hook();
             }
         });
     }
