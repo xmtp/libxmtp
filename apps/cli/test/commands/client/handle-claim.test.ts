@@ -1,5 +1,5 @@
 import { Config } from "@oclif/core";
-import { type Client as XmtpClient, XmtpError } from "@xmtp/node-sdk";
+import type { Client as XmtpClient } from "@xmtp/node-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ClientHandleClaim from "@/commands/client/handle-claim";
@@ -161,7 +161,7 @@ describe("client handle-claim", () => {
 
     await command.run();
 
-    expect(inboxState).toHaveBeenNthCalledWith(1, true);
+    expect(inboxState).toHaveBeenNthCalledWith(1, false);
     expect(claimHandle).toHaveBeenCalledExactlyOnceWith("nick");
     expect(log).toHaveBeenCalledExactlyOnceWith(
       "Your handle is now nick.\nOther handles: nick#0001",
@@ -242,74 +242,6 @@ describe("client handle-claim", () => {
     },
   );
 
-  // A transport error can arrive after the backend stored the claim.
-  it("reports success when a failed claim landed", async () => {
-    const claimHandle = vi.fn(async (_handle: string) => {
-      throw new Error("transport closed");
-    });
-    const inboxState = vi
-      .fn()
-      .mockResolvedValueOnce({
-        inboxId: "inbox",
-        handle: undefined,
-        otherHandles: [],
-      })
-      .mockResolvedValueOnce({
-        inboxId: "inbox",
-        handle: "nick",
-        otherHandles: [],
-      });
-    const { command, log } = await mockedClaim(
-      ["Nick", "--force"],
-      inboxState,
-      claimHandle,
-    );
-
-    await command.run();
-
-    expect(claimHandle).toHaveBeenCalledOnce();
-    // the guard reads the network state first
-    expect(inboxState).toHaveBeenNthCalledWith(1, true);
-    expect(inboxState).toHaveBeenLastCalledWith(true);
-    expect(log).toHaveBeenCalledExactlyOnceWith("Your handle is now nick.");
-  });
-
-  it("reports success when a retry of a claim that landed is too soon", async () => {
-    const claimHandle = vi.fn(async (_handle: string) => {
-      throw new XmtpError.HandleTooSoon({
-        code: "HandleTooSoon",
-        category: "identity",
-        retryable: false,
-        message: "HandleTooSoon",
-      });
-    });
-    // this device saw no handle; the network read shows the claim landed
-    const inboxState = vi
-      .fn()
-      .mockResolvedValueOnce({
-        inboxId: "inbox",
-        handle: undefined,
-        otherHandles: [],
-      })
-      .mockResolvedValueOnce({
-        inboxId: "inbox",
-        handle: "nick",
-        otherHandles: [],
-      });
-    const { command, log } = await mockedClaim(
-      ["nick", "--force"],
-      inboxState,
-      claimHandle,
-    );
-
-    await command.run();
-
-    // the guard reads the network state first
-    expect(inboxState).toHaveBeenNthCalledWith(1, true);
-    expect(inboxState).toHaveBeenLastCalledWith(true);
-    expect(log).toHaveBeenCalledExactlyOnceWith("Your handle is now nick.");
-  });
-
   it("reports the error when a failed claim did not land", async () => {
     const failure = new Error("transport closed");
     const claimHandle = vi.fn(async (_handle: string) => {
@@ -327,31 +259,7 @@ describe("client handle-claim", () => {
     );
 
     await expect(command.run()).rejects.toBe(failure);
-    // the guard reads the network state first
-    expect(inboxState).toHaveBeenNthCalledWith(1, true);
-    expect(inboxState).toHaveBeenLastCalledWith(true);
     expect(log).not.toHaveBeenCalled();
-  });
-
-  it("reads the network state, so a stale cache cannot hide the current handle", async () => {
-    const claimHandle = vi.fn(async (_handle: string) => undefined);
-    // another installation claimed nick; this client's cache still has the old handle
-    const inboxState = vi.fn(async (refreshFromNetwork: boolean) =>
-      refreshFromNetwork
-        ? { inboxId: "inbox", handle: "nick", otherHandles: ["nick#0001"] }
-        : { inboxId: "inbox", handle: "nick#0001", otherHandles: [] },
-    );
-    const { command } = await mockedClaim(
-      ["nick", "--force"],
-      inboxState,
-      claimHandle,
-    );
-
-    await expect(command.run()).rejects.toThrow(
-      "nick is already your current handle. Nothing was claimed.",
-    );
-    expect(inboxState).toHaveBeenCalledExactlyOnceWith(true);
-    expect(claimHandle).not.toHaveBeenCalled();
   });
 
   it("reports a taken handle and never claims another one", async () => {

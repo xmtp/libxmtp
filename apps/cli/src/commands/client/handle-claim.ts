@@ -1,5 +1,4 @@
 import { Args, Flags } from "@oclif/core";
-import { XmtpError } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 import {
@@ -27,10 +26,7 @@ The backend decides each claim. If the handle is taken, not allowed, or you
 changed your handle too recently, the command fails and claims nothing. It
 never claims a different handle. Run 'xmtp client handle-available <name>'
 to find free handles. If the handle is already your current handle, the
-command fails before it asks the backend, and claims nothing. If the
-connection fails during the claim, or the backend refuses it as too soon or
-over the limit, the command reads the inbox from the backend, and reports
-success when the handle is now current.`;
+command fails before it asks the backend, and claims nothing.`;
 
   static examples = [
     {
@@ -68,10 +64,7 @@ success when the handle is now current.`;
     const handle = asciiLowercase(args.handle);
     const client = await this.initClient();
 
-    // Read from the network: another installation can have changed the
-    // handle since this client's cached state, and the guard below and the
-    // switch-back message must see the current handles.
-    const before = await client.inboxState(true);
+    const before = await client.inboxState(false);
     // The backend admits a claim of the current handle. It changes nothing,
     // but it uses one of the 64 changes and starts the 7-day wait again.
     if (handle === before.handle) {
@@ -87,7 +80,6 @@ success when the handle is now current.`;
       flags.force,
     );
 
-    let landed;
     try {
       await client.claimHandle(args.handle);
     } catch (error) {
@@ -96,25 +88,13 @@ success when the handle is now current.`;
         args.handle,
         before.otherHandles,
       );
-      // A transport error can arrive after the backend stored the claim, and
-      // a retry of such a claim fails as too soon. Read the inbox's log for
-      // these: a claim that landed is a success.
-      const ambiguous =
-        message === undefined ||
-        error instanceof XmtpError.HandleTooSoon ||
-        error instanceof XmtpError.HandleLimitReached;
-      if (ambiguous) {
-        landed = await client.inboxState(true).catch(() => undefined);
+      if (message !== undefined) {
+        this.error(message);
       }
-      if (landed?.handle !== handle) {
-        if (message !== undefined) {
-          this.error(message);
-        }
-        throw error;
-      }
+      throw error;
     }
 
-    const after = landed ?? (await client.inboxState(false));
+    const after = await client.inboxState(false);
     const fields = handleFields(after);
 
     if (this.jsonOutput) {
