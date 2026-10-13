@@ -146,6 +146,12 @@
         "commit_log_enabled": true
       }
     },
+    "handles": {
+      "$ref": "#/$defs/HandlesConfig",
+      "default": {
+        "min_name_length": 3
+      }
+    },
     "application_components": {
       "description": "Group metadata fields clients register in the conversations they\ncreate. Published sorted by `component_id`.",
       "type": "array",
@@ -1305,6 +1311,20 @@
           "description": "Publish and read the remote commit log. False switches both off for\nevery client of this deployment.",
           "type": "boolean",
           "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "HandlesConfig": {
+      "type": "object",
+      "properties": {
+        "min_name_length": {
+          "description": "The shortest name part, the text before `#`, admitted in a new claim.\nA change applies only to later claims; handles claimed before it stay\nvalid.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1,
+          "maximum": 27,
+          "default": 3
         }
       },
       "additionalProperties": false

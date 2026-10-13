@@ -194,6 +194,10 @@ mod descriptor_tests {
             .expect("commit_log_enabled descriptor");
         assert_eq!(commit_log.proto3_optional, Some(true));
         assert_fields(
+            message("HandlesConfiguration"),
+            &[("min_name_length", 1, Uint32, Optional, None)],
+        );
+        assert_fields(
             message("GetConfigurationResponse"),
             &[
                 ("identifier", 1, String, Optional, None),
@@ -234,6 +238,13 @@ mod descriptor_tests {
                     Message,
                     Optional,
                     Some(".xmtp.backend.v1.AttachmentsConfiguration"),
+                ),
+                (
+                    "handles",
+                    11,
+                    Message,
+                    Optional,
+                    Some(".xmtp.backend.v1.HandlesConfiguration"),
                 ),
             ],
         );

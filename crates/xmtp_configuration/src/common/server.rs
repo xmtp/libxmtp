@@ -14,19 +14,19 @@
 //! backend applies at startup and a client applies before it stores an answer.
 
 use crate::{
-    BACKEND_DEFAULT_GROUP_MESSAGE_SECONDS, BACKEND_DEFAULT_KEY_PACKAGE_SECONDS,
-    BACKEND_DEFAULT_MAX_ENVELOPE_BYTES, BACKEND_DEFAULT_MAX_IDENTITY_ENTRIES,
-    BACKEND_DEFAULT_MAX_LOOKUP_IDENTIFIERS, BACKEND_DEFAULT_MAX_NEWEST_FULL_TOPICS,
-    BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS, BACKEND_DEFAULT_MAX_PING_BURST,
-    BACKEND_DEFAULT_MAX_PING_FRAMES_PER_SECOND, BACKEND_DEFAULT_MAX_PUBLISH_TOPICS,
-    BACKEND_DEFAULT_MAX_QUERY_LIMIT, BACKEND_DEFAULT_MAX_QUERY_TOPICS,
-    BACKEND_DEFAULT_MAX_REQUEST_BYTES, BACKEND_DEFAULT_MAX_RESPONSE_BYTES,
-    BACKEND_DEFAULT_MAX_SCW_SIGNATURES, BACKEND_DEFAULT_MAX_STATIC_TOPICS,
-    BACKEND_DEFAULT_MAX_STREAM_TOPICS, BACKEND_DEFAULT_MAX_UPDATE_ADDS,
-    BACKEND_DEFAULT_MAX_UPDATE_BURST, BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND,
-    BACKEND_DEFAULT_MAX_UPDATE_REMOVES, BACKEND_DEFAULT_QUERY_LIMIT,
-    BACKEND_DEFAULT_WELCOME_SECONDS, ENABLE_COMMIT_LOG, MAX_GROUP_SIZE,
-    MAX_INSTALLATIONS_PER_INBOX,
+    BACKEND_DEFAULT_GROUP_MESSAGE_SECONDS, BACKEND_DEFAULT_HANDLE_MIN_NAME_LENGTH,
+    BACKEND_DEFAULT_KEY_PACKAGE_SECONDS, BACKEND_DEFAULT_MAX_ENVELOPE_BYTES,
+    BACKEND_DEFAULT_MAX_IDENTITY_ENTRIES, BACKEND_DEFAULT_MAX_LOOKUP_IDENTIFIERS,
+    BACKEND_DEFAULT_MAX_NEWEST_FULL_TOPICS, BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS,
+    BACKEND_DEFAULT_MAX_PING_BURST, BACKEND_DEFAULT_MAX_PING_FRAMES_PER_SECOND,
+    BACKEND_DEFAULT_MAX_PUBLISH_TOPICS, BACKEND_DEFAULT_MAX_QUERY_LIMIT,
+    BACKEND_DEFAULT_MAX_QUERY_TOPICS, BACKEND_DEFAULT_MAX_REQUEST_BYTES,
+    BACKEND_DEFAULT_MAX_RESPONSE_BYTES, BACKEND_DEFAULT_MAX_SCW_SIGNATURES,
+    BACKEND_DEFAULT_MAX_STATIC_TOPICS, BACKEND_DEFAULT_MAX_STREAM_TOPICS,
+    BACKEND_DEFAULT_MAX_UPDATE_ADDS, BACKEND_DEFAULT_MAX_UPDATE_BURST,
+    BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND, BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
+    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS, ENABLE_COMMIT_LOG,
+    MAX_GROUP_SIZE, MAX_INSTALLATIONS_PER_INBOX,
 };
 
 /// How long after one refresh run ends before the next one starts, before
@@ -432,6 +432,25 @@ impl Default for MlsConfiguration {
     }
 }
 
+/// Handle settings the deployment applies when it admits a claim. They are
+/// published for apps, for example to hint at a name a user types. The client
+/// never applies them: it neither fails an operation nor hides a handle because
+/// of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HandlesConfiguration {
+    /// The shortest name part, the text before `#`, the backend admits in a
+    /// new claim.
+    pub min_name_length: u32,
+}
+
+impl Default for HandlesConfiguration {
+    fn default() -> Self {
+        Self {
+            min_name_length: BACKEND_DEFAULT_HANDLE_MIN_NAME_LENGTH,
+        }
+    }
+}
+
 /// Attachment storage offered by this deployment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AttachmentsConfiguration {
@@ -456,6 +475,7 @@ pub struct ServerConfiguration {
     pub retention: RetentionConfiguration,
     pub limits: LimitsConfiguration,
     pub mls: MlsConfiguration,
+    pub handles: HandlesConfiguration,
     /// Absent when attachment storage is not offered or its message is unusable.
     pub attachments: Option<AttachmentsConfiguration>,
     /// CAIP-2 chain ids this deployment verifies smart contract wallet

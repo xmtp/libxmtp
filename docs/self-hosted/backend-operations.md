@@ -147,6 +147,22 @@ compared. The backend does not yet reject requests by version.
 but does not enforce. `limits.max_request_bytes` and `limits.max_response_bytes`
 are capped at the fixed 25 MiB transport ceiling.
 
+`handles.min_name_length` is the shortest name part, the text before `#`, that
+the backend admits in a new handle claim. It is 1 to 27, and the default is 3.
+The backend publishes it, and applies it only when it admits a claim. A change
+applies only to later claims: a handle claimed before the change stays valid
+and still resolves.
+
+An inbox can make at most 64 handle claims, and each claim uses one entry of
+its identity log. At the default `limits.max_identity_entries` of 256, that
+leaves 192 entries for membership changes. If you lower
+`max_identity_entries`, fewer entries remain, and an inbox that fills its log
+can no longer revoke a lost installation.
+
+After the backend stores any handle claim, do not roll back to a backend build
+that predates handle claims. Such a build reads a stored claim as an action
+with no kind, so it rejects every later identity update of that inbox.
+
 `[[application_components]]` lists group metadata fields that clients register
 in the conversations they create. Startup refuses an ID outside
 `0xC000`–`0xFEFF`, a name that is empty, longer than 100 bytes, repeated, or

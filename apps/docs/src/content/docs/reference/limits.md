@@ -50,6 +50,20 @@ that follows that limit queues new requests until an existing stream closes.
 Long-lived subscriptions also consume HTTP/2 streams. This is not a per-caller
 request quota.
 
+## Handle limits
+
+The minimum name length is the backend's `handles.min_name_length`. An
+operator can change it from 1 to 27; a change applies only to later claims.
+
+| Limit                                               | Default |
+| --------------------------------------------------- | ------: |
+| Shortest name part, the text before `#`, in a claim |       3 |
+| Longest name part                                   |      27 |
+| Handle claims per inbox                             |      64 |
+
+Each claim uses one identity-update entry of the inbox. At the default of 256
+entries per inbox, 192 entries stay for membership changes.
+
 ## Client limits
 
 The first two values are defaults published in the backend's `[mls]`

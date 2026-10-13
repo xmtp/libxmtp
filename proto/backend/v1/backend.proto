@@ -467,6 +467,12 @@ message MlsConfiguration {
   optional bool commit_log_enabled = 3;
 }
 
+// Handle settings.
+message HandlesConfiguration {
+  // The shortest name part, the text before "#", the backend admits in a claim.
+  uint32 min_name_length = 1;
+}
+
 // One operator-defined application component. A client registers it in the
 // conversations the flags select; it carries no initial value.
 message ApplicationComponentDefinition {
@@ -507,6 +513,8 @@ message GetConfigurationResponse {
   xmtp.backend.v1.AttachmentsConfiguration attachments = 9;
   // Sorted by component_id ascending.
   repeated ApplicationComponentDefinition application_components = 10;
+  // Set on every deployment.
+  HandlesConfiguration handles = 11;
 }
 
 message CreateUploadRequest {
