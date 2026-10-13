@@ -72,8 +72,14 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// The Nix `xdbg` wrapper sets `XDBG_GIT_SHA` at run time, so the compiled
+/// binary carries no commit and caches across commits.
 pub fn get_version() -> String {
-    format!("{}-{}", env!("CARGO_PKG_VERSION"), env!("VERGEN_GIT_SHA"))
+    let sha = std::env::var("XDBG_GIT_SHA")
+        .ok()
+        .filter(|sha| !sha.is_empty())
+        .unwrap_or_else(|| env!("VERGEN_GIT_SHA").to_owned());
+    format!("{}-{sha}", env!("CARGO_PKG_VERSION"))
 }
 
 pub fn config() -> Result<&'static AppOpts> {
