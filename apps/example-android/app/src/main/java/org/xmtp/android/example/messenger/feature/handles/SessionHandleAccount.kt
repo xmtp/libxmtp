@@ -17,8 +17,8 @@ internal class SessionHandleAccount(
     private val mode: HandleMode,
     private val leave: () -> Unit,
 ) : HandleAccount {
-    override suspend fun handles(refresh: Boolean): OwnHandles {
-        val state = owner.client.inboxState(refresh)
+    override suspend fun handles(): OwnHandles {
+        val state = owner.client.inboxState(false)
         return OwnHandles(state.handle, state.otherHandles)
     }
 

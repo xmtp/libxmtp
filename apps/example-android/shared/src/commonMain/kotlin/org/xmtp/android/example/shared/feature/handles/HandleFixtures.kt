@@ -27,8 +27,6 @@ object HandleFixtures {
     val notAllowed = HandleState(input = "admin", notice = HandleNotice.NotAllowed("admin"))
     val noneFree = HandleState(input = "nick", status = HandleStatus.NoneFree("nick"))
     val checkFailed = HandleState(input = "nick", notice = HandleNotice.CheckFailed)
-    val loadFailed = HandleState(ownUnknown = true, notice = HandleNotice.LoadFailed)
-    val changeLoadFailed = loadFailed.copy(mode = HandleMode.CHANGE)
     val changeLoading = HandleState(mode = HandleMode.CHANGE, loading = true)
 
     private val change =

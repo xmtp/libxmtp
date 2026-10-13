@@ -19,7 +19,8 @@ internal data class OwnHandles(
 
 /** What the handle editor needs from one signed-in account. */
 internal interface HandleAccount {
-    suspend fun handles(refresh: Boolean): OwnHandles
+    /** The handles this device knows. It does not ask the network. */
+    suspend fun handles(): OwnHandles
 
     /** The server's published minimum. The editor uses it only to check typed input. */
     fun minNameLength(): Int
@@ -83,72 +84,24 @@ internal class HandleController(
                 ui.value = HandleState(mode = mode, loading = true, minNameLength = minimum)
                 ++opened
             }
-        load(account, token, mode)
-    }
-
-    private fun load(
-        account: HandleAccount,
-        token: Long,
-        mode: HandleMode,
-    ) {
         load =
             scope.launch(dispatcher) {
-                // Show the handles this device holds at once, then the newest from the network.
-                val local = read(account, refresh = false)
-                if (local != null) show(account, token, local, loading = true)
-                val own = read(account, refresh = true) ?: local
-                if (own == null) {
-                    // Unknown is not "no handle": the inbox can have one. Block every claim until a read works.
-                    update(token) { it.copy(loading = false, ownUnknown = true, notice = HandleNotice.LoadFailed) }
-                    return@launch
-                }
-                val applied = show(account, token, own, loading = false)
+                val own =
+                    try {
+                        account.handles()
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                        // The server decides every claim, so unknown handles show as none.
+                        OwnHandles(null, emptyList())
+                    }
+                val since = own.current?.let { claimDay(account, it) }
+                val applied =
+                    update(token) {
+                        it.copy(loading = false, current = own.current, currentSince = since, others = own.others)
+                    }
                 // An account that already has a handle needs no onboarding step.
                 if (applied && mode == HandleMode.CHOOSE && own.current != null) account.finish()
             }
-    }
-
-    /** Read the own handles again after [HandleNotice.LoadFailed]. */
-    private fun reload(account: HandleAccount) {
-        val token =
-            synchronized(lock) {
-                val state = ui.value
-                if (!state.ownUnknown || state.loading) return
-                load?.cancel()
-                ui.value = state.copy(loading = true)
-                opened
-            }
-        load(account, token, ui.value.mode)
-    }
-
-    private suspend fun read(
-        account: HandleAccount,
-        refresh: Boolean,
-    ): OwnHandles? =
-        try {
-            account.handles(refresh)
-        } catch (error: Throwable) {
-            if (error is CancellationException) throw error
-            null
-        }
-
-    private fun show(
-        account: HandleAccount,
-        token: Long,
-        own: OwnHandles,
-        loading: Boolean,
-    ): Boolean {
-        val since = own.current?.let { claimDay(account, it) }
-        return update(token) {
-            it.copy(
-                loading = loading,
-                current = own.current,
-                currentSince = since,
-                others = own.others,
-                ownUnknown = false,
-                notice = if (it.notice == HandleNotice.LoadFailed) null else it.notice,
-            )
-        }
     }
 
     fun close() {
@@ -220,7 +173,6 @@ internal class HandleController(
             HandleAction.Retry -> {
                 when (val notice = ui.value.notice) {
                     HandleNotice.CheckFailed -> check(account)
-                    HandleNotice.LoadFailed -> reload(account)
                     is HandleNotice.ClaimFailed -> claim(account, notice.handle)
                     else -> Unit
                 }

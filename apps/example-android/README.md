@@ -140,7 +140,7 @@ local device reset. A failed reset retains its cleanup record for Retry.
 A handle such as `nick` or `nick#2341` is a public name that people on the
 server use to find and message you. After Join a server, a new account opens
 Choose your handle. The step runs once for each account. Skip for now opens
-Chats, and an account that already has a handle never sees it.
+Chats. An account whose handle this device already knows does not see the step.
 
 As you type, the app checks the handle grammar and the server's published
 minimum name length. Continue asks the server which handles are free. A free

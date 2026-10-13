@@ -56,37 +56,32 @@ fun ChooseHandleScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        // An inbox whose handles are unknown can already have one: offer no claim until a read works.
-        if (!state.ownUnknown) {
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(
-                        HandleCopy.CARD_TITLE,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    HandleEditor(state, action)
-                }
+        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    HandleCopy.CARD_TITLE,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                HandleEditor(state, action)
             }
         }
         state.notice?.let { NoticeBox(it, state, action) }
-        if (!state.ownUnknown) {
-            Button(
-                onClick = { primary(state, action) },
-                enabled = state.canClaim || state.canCheck,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                if (state.claiming != null) {
-                    CircularProgressIndicator(
-                        Modifier.size(20.dp),
-                        color = LocalContentColor.current,
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(Modifier.width(12.dp))
-                }
-                Text(HandleCopy.primary(state), style = MaterialTheme.typography.titleMedium)
+        Button(
+            onClick = { primary(state, action) },
+            enabled = state.canClaim || state.canCheck,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+            shape = RoundedCornerShape(18.dp),
+        ) {
+            if (state.claiming != null) {
+                CircularProgressIndicator(
+                    Modifier.size(20.dp),
+                    color = LocalContentColor.current,
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(12.dp))
             }
+            Text(HandleCopy.primary(state), style = MaterialTheme.typography.titleMedium)
         }
         TextButton(
             onClick = { action(HandleAction.Skip) },
@@ -119,11 +114,6 @@ fun ChangeHandleScreen(
         if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         // Before the first read, the handles are unknown: show only the progress, no empty editor.
         if (state.loading && state.current == null && state.others.isEmpty()) return@Column
-        if (state.ownUnknown) {
-            // The current and other handles are unknown: show the error in their place, and no editor.
-            state.notice?.let { NoticeBox(it, state, action) }
-            return@Column
-        }
         state.current?.let { current ->
             HandleSection(HandleCopy.CURRENT_TITLE) {
                 Row(
@@ -414,12 +404,10 @@ private fun NoticeBox(
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 style = MaterialTheme.typography.bodyLarge,
             )
-            if (notice == HandleNotice.CheckFailed || notice == HandleNotice.LoadFailed ||
-                notice is HandleNotice.ClaimFailed
-            ) {
+            if (notice == HandleNotice.CheckFailed || notice is HandleNotice.ClaimFailed) {
                 TextButton(
                     onClick = { action(HandleAction.Retry) },
-                    enabled = state.claiming == null && state.status !is HandleStatus.Checking && !state.loading,
+                    enabled = state.claiming == null && state.status !is HandleStatus.Checking,
                     modifier = Modifier.heightIn(min = 48.dp),
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onErrorContainer),
                 ) { Text(HandleCopy.RETRY) }

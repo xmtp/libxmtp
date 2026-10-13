@@ -142,7 +142,6 @@ val messengerPreviewCases: List<MessengerPreviewCase> =
             "Handle not allowed" to HandleFixtures.notAllowed,
             "No free handle codes" to HandleFixtures.noneFree,
             "Handle check failed" to HandleFixtures.checkFailed,
-            "Own handles not loaded" to HandleFixtures.loadFailed,
         ).forEach { (name, state) ->
             add(
                 MessengerPreviewCase(
@@ -158,7 +157,6 @@ val messengerPreviewCases: List<MessengerPreviewCase> =
             "Handle switch back blocked" to HandleFixtures.switchBackBlocked,
             "All handle changes used" to HandleFixtures.limitReached,
             "Choose handle from Settings" to HandleFixtures.firstFromSettings,
-            "Own handles not loaded in Settings" to HandleFixtures.changeLoadFailed,
             "Loading own handles in Settings" to HandleFixtures.changeLoading,
         ).forEach { (name, state) ->
             add(

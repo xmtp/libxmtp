@@ -129,9 +129,6 @@ sealed interface HandleNotice {
     /** The availability check failed. Retry checks again. */
     data object CheckFailed : HandleNotice
 
-    /** The inbox's own handles could not be read. Retry reads them again. */
-    data object LoadFailed : HandleNotice
-
     /** The claim of [handle] failed with no answer from the server. Retry claims it again. */
     data class ClaimFailed(
         val handle: String,
@@ -157,11 +154,6 @@ data class HandleState(
     val claiming: String? = null,
     val confirm: String? = null,
     val notice: HandleNotice? = null,
-    /**
-     * Every read of the inbox's own handles failed, so its current and other handles are
-     * unknown. The editor allows no edit, switch back, or claim until a read works.
-     */
-    val ownUnknown: Boolean = false,
 ) {
     /** The server refused every new claim for this inbox. The editor stays read-only. */
     val blocked: Boolean get() = notice is HandleNotice.TooSoon || notice is HandleNotice.LimitReached
@@ -185,8 +177,8 @@ data class HandleState(
 
     val canClaim: Boolean get() = editable && pick != null
 
-    /** The user can edit, check, switch back, or claim: the own handles are read, and nothing runs. */
-    val editable: Boolean get() = !loading && claiming == null && !blocked && !ownUnknown
+    /** The user can edit, check, switch back, or claim: no claim runs, and the server allows new claims. */
+    val editable: Boolean get() = claiming == null && !blocked
 }
 
 sealed interface HandleAction {
@@ -245,16 +237,15 @@ object HandleCopy {
     const val CHANGE_SCREEN = "Change handle"
     const val NOT_ALLOWED_FIELD = "Choose a different name."
     const val CHECK_FAILED = "Cannot check this handle. Try again."
-    const val LOAD_FAILED = "Cannot load your handle. Try again."
     const val LIMIT_REACHED =
         "This inbox has used all 64 handle changes. Your current handle stays, and so do your other handles."
 
     /**
      * The Settings screen title: Choose handle for an inbox with no handle, else Change handle.
-     * Unknown or still loading handles are not "no handle", so they keep the Change title.
+     * Handles that are still loading are not "no handle", so they keep the Change title.
      */
     fun screenTitle(state: HandleState): String =
-        if (state.current == null && !state.ownUnknown && !state.loading) CHOOSE_SCREEN else CHANGE_SCREEN
+        if (state.current == null && !state.loading) CHOOSE_SCREEN else CHANGE_SCREEN
 
     fun supporting(minNameLength: Int): String =
         if (minNameLength >= MAX_HANDLE_NAME_LENGTH) {
@@ -312,10 +303,6 @@ object HandleCopy {
 
             HandleNotice.CheckFailed -> {
                 CHECK_FAILED
-            }
-
-            HandleNotice.LoadFailed -> {
-                LOAD_FAILED
             }
 
             is HandleNotice.ClaimFailed -> {
