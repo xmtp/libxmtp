@@ -4,6 +4,7 @@
   xmtp,
   stdenv,
   stdenvNoCC,
+  buildPackages,
   python3,
   cargo-zigbuild,
   glibcVersion ? null,
@@ -39,7 +40,9 @@ let
     // {
       pname = "xmtp-sdk-native-${target}";
       nativeBuildInputs =
-        xmtp.base.commonArgs.nativeBuildInputs ++ lib.optionals isGnu [ cargo-zigbuild ];
+        xmtp.base.commonArgs.nativeBuildInputs
+        ++ lib.optionals isGnu [ cargo-zigbuild ]
+        ++ lib.optionals android [ buildPackages.removeReferencesTo ];
       version = xmtp.mkVersion rust;
       src = source;
       cargoVendorDir = xmtp.base.mkCargoVendorDir rust;
@@ -61,8 +64,16 @@ let
         cp target/${target}/release/libxmtp_sdk.${
           if stdenv.hostPlatform.isDarwin then "dylib" else "so"
         } $out/lib/
+      ''
+      # OpenSSL embeds its compiler command, which names the NDK wrapper.
+      # Only OpenSSL_version(OPENSSL_CFLAGS) reads it, so the libraries
+      # need no NDK at run time. strip keeps it: the text is in .rodata.
+      + lib.optionalString android ''
+        remove-references-to -t ${stdenv.cc} $out/lib/libxmtp_sdk.so $out/lib/libxmtp_sdk.a
       '';
     }
+    # The NDK is already a build input, so this guard adds no fetch.
+    // lib.optionalAttrs android { disallowedRequisites = [ stdenv.cc ]; }
   );
 
 in

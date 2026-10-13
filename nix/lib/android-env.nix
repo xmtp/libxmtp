@@ -2,6 +2,7 @@
 # Used by both nix/shells/android.nix (dev shell) and nix/package/android.nix (build derivation).
 {
   lib,
+  path,
   androidenv,
   stdenv,
   writeShellScriptBin,
@@ -49,6 +50,16 @@ let
     emulatorVersion = "35.3.11";
   };
 
+  # composeAndroidPackages adds a system image for every platform version.
+  # Keep only the images that run-test-emulator can select, so platform 35
+  # stays for compileSdk without its system image.
+  emulatorApis = [ emulatorConfig.platformVersion ] ++ lib.optionals hasApi23Emulator [ "23" ];
+  emulatorRepo =
+    let
+      repo = lib.importJSON "${path}/pkgs/development/mobile/androidenv/repo.json";
+    in
+    repo // { images = lib.getAttrs emulatorApis repo.images; };
+
   # Compose Android packages for dev shell (includes emulator where available)
   composeDevPackages = androidenv.composeAndroidPackages (
     {
@@ -59,6 +70,7 @@ let
     }
     // lib.optionalAttrs hasEmulator {
       inherit (emulatorConfig) emulatorVersion;
+      repo = emulatorRepo;
       includeEmulator = true;
       includeSystemImages = true;
       systemImageTypes = [ emulatorConfig.systemImageType ];
