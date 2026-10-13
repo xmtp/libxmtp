@@ -41,3 +41,12 @@ import Testing
 	#expect(fence.reserveRestoreIfCurrent(generation) == nil)
 	#expect(fence.accepts(key))
 }
+
+@MainActor @Test func directRestoreCannotReplaceBoundProfile() {
+	let fence = SessionFence()
+	guard let generation = fence.reserveRestore(),
+	      let key = fence.bind(UUID(), reserved: generation)
+	else { Issue.record("Could not bind restored profile"); return }
+	#expect(fence.reserveRestore() == nil)
+	#expect(fence.accepts(key))
+}

@@ -47,6 +47,14 @@ struct RootView: View {
 		case .chats: "Chats"
 		case .requests: "Message requests"
 		case .newConversation: "New message"
+		case .settings: "Settings"
+		case .changeHandle: "Change handle"
+		default: detailTitle(route)
+		}
+	}
+
+	private func detailTitle(_ route: Route) -> String {
+		switch route {
 		case .chat: "Conversation"
 		case .details: "Details"
 		case .member: "Member"
@@ -55,11 +63,16 @@ struct RootView: View {
 		case .sharedMedia: "Media and files"
 		case .groupFields: "Group fields"
 		case .myFields: "My fields"
+		default: actionTitle(route)
+		}
+	}
+
+	private func actionTitle(_ route: Route) -> String {
+		switch route {
 		case .reactions: "Reactions"
 		case .emojiPicker: "Choose a reaction"
-		case .settings: "Settings"
-		case .changeHandle: "Change handle"
 		case .attachmentRecovery: "Attachment recovery"
+		default: "XMTP Messenger"
 		}
 	}
 }

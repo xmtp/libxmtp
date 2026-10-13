@@ -9,7 +9,10 @@ public enum Route: Hashable, Codable, Sendable {
 	case emojiPicker(conversationID: String, messageID: String)
 	case settings, changeHandle, attachmentRecovery
 	public var isSheet: Bool {
-		switch self { case .newConversation, .member, .reactions, .emojiPicker: true; default: false }
+		switch self {
+		case .newConversation, .member, .reactions, .emojiPicker: true
+		default: false
+		}
 	}
 }
 

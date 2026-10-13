@@ -31,7 +31,7 @@ public struct DestinationOrigin: Sendable {
 	}
 
 	public func reserveRestore() -> UInt64? {
-		guard !explicitlyReserved else { return nil }; generation += 1; profileID = nil; return generation
+		guard !explicitlyReserved, profileID == nil else { return nil }; generation += 1; profileID = nil; return generation
 	}
 
 	public func currentGeneration() -> UInt64 {

@@ -1,6 +1,8 @@
 # XMTP Messenger for iOS
 
-A SwiftUI example for iOS 26 and later. It uses this checkout's SDK.
+A SwiftUI foundation scaffold for iOS 26 and later. It uses this checkout's SDK.
+
+This revision launches the Join a server scaffold. Accounts, handles, conversations and the storage behavior below are planned follow-up work; they are not implemented by this foundation revision.
 
 ## Run
 
@@ -15,19 +17,19 @@ The launcher uses this worktree's backend URL. Set `XMTP_IOS_SIMULATOR` to a sim
 
 ExampleApp contains SwiftUI routes and platform storage. ExampleCore contains values, policies and stores. ExampleSDK maps the local SDK to Core protocols. The app uses one session scope and drops asynchronous completions from replaced sessions or destinations.
 
-## Connect
+## Connect (planned)
 
 Join a server with a loopback HTTP or remote HTTPS URL. Access tokens appear only when the server requires authentication. Accounts and encrypted messages remain on this device after sign-out. Delete local data removes the account from this device and can resume an interrupted removal.
 
-## Handles
+## Handles (planned)
 
 Choose a handle after joining, or skip and choose one in Settings. New message accepts handles, Ethereum addresses and inbox IDs. Current handles identify people throughout the app.
 
-## Local storage
+## Local storage (planned)
 
 Secrets are stored in this app's device-only Keychain. Each profile has an excluded-from-backup directory protected until first unlock. Preferences use AES-GCM and atomic writes. Sign-out removes credentials and exported files while retaining account keys and messages.
 
-## Optional notifications
+## Optional notifications (planned)
 
 Debug and Release builds leave APNs off. A signed device build needs a development team in gitignored Config/Local.xcconfig, release SDK bindings and an APNs-configured backend.
 
