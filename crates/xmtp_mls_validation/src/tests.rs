@@ -563,3 +563,52 @@ async fn freshness_reads_each_head_and_block_once() {
     assert_eq!(chain.heads.into_inner(), 2);
     assert_eq!(chain.timestamps.into_inner(), 3);
 }
+
+/// A claim a smart contract wallet signs carries an ERC-6492 signature like
+/// any other action: it counts toward the per-request signature limit, and
+/// its block must be fresh at admission.
+// verifies: IDENT-062
+#[xmtp_common::test(unwrap_try = true)]
+async fn claim_scw_signature_counts_for_limit_and_freshness() {
+    let claim = scw_claim_handle_update_at("nick", 0x57, 5);
+    assert_eq!(erc6492_signatures(&claim).count(), 1);
+    check_freshness(&claim, &TestChain::at(5 + MAX_BLOCK_AGE_SECS)).await?;
+    for head in [4, 5 + MAX_BLOCK_AGE_SECS + 1] {
+        assert!(
+            matches!(
+                check_freshness(&claim, &TestChain::at(head)).await,
+                Err(ValidationError::StaleBlock(5))
+            ),
+            "head {head}"
+        );
+    }
+}
+
+/// Admission reports the handle each new update claims, in order and with a
+/// switch back included, and none for an update that claims nothing.
+#[xmtp_common::test(unwrap_try = true)]
+async fn validation_reports_claimed_handle() {
+    use xmtp_id::associations::Handle;
+    let verifier = MockSmartContractSignatureVerifier::new(true);
+    let create = scw_create_inbox_update_at(1);
+    let claims = vec![
+        scw_claim_handle_update_at("nick", 0x57, 1),
+        scw_claim_handle_update_at("nick#0001", 0x58, 1),
+        scw_claim_handle_update_at("nick", 0x59, 1),
+    ];
+    let validation =
+        validate_identity_updates(vec![create.clone()], claims.clone(), &verifier).await?;
+    assert_eq!(
+        validation.claimed_handles,
+        [
+            Handle::parse("nick")?,
+            Handle::parse("nick#0001")?,
+            Handle::parse("nick")?
+        ]
+    );
+    assert!(validation.diff.new_members.is_empty());
+    assert!(validation.diff.removed_members.is_empty());
+
+    let created = validate_identity_updates(vec![], vec![create], &verifier).await?;
+    assert!(created.claimed_handles.is_empty());
+}

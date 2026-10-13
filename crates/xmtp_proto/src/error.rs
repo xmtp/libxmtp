@@ -122,6 +122,13 @@ pub enum ConversionError {
     /// Protobuf enum has unrecognized value. Not retryable.
     #[error("Unknown enum value {0}")]
     UnknownEnumValue(#[from] prost::UnknownEnumValue),
+    /// Identifier kind that cannot sign.
+    ///
+    /// The identifier kind is a handle or a value that `IdentifierKind` does
+    /// not list. Such an identifier cannot sign, so it cannot be an inbox's
+    /// initial or recovery identifier. Not retryable.
+    #[error("identifier kind {0} cannot sign")]
+    NonSigningIdentifierKind(i32),
     /// Ed25519 signature error.
     ///
     /// Ed25519 signature bytes invalid. Not retryable.

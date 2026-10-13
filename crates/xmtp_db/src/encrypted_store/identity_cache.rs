@@ -42,6 +42,11 @@ impl TryFrom<IdentifierKind> for StoredIdentityKind {
             IdentifierKind::Unspecified => {
                 Err(ConversionError::Unspecified("IdentifierKind::Unspecified"))
             }
+            // The cache maps account identifiers to inboxes. A handle is not
+            // one, so a handle lookup is never cached.
+            IdentifierKind::Handle => Err(ConversionError::NonSigningIdentifierKind(
+                IdentifierKind::Handle as i32,
+            )),
         }
     }
 }

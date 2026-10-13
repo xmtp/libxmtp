@@ -162,6 +162,11 @@ impl Identifier {
                 })?,
                 relying_party,
             }),
+            IdentifierKind::Handle => {
+                return Err(ConversionError::NonSigningIdentifierKind(
+                    IdentifierKind::Handle as i32,
+                ));
+            }
         };
         Ok(ident)
     }
@@ -339,6 +344,7 @@ impl TryFrom<ApiIdentifier> for Identifier {
                     .map_err(|_| DeserializationError::InvalidPasskey)?,
                 relying_party: None,
             }),
+            IdentifierKind::Handle => return Err(DeserializationError::HandleNotIdentifier),
         };
         Ok(ident)
     }

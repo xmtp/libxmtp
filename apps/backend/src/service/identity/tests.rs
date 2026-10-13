@@ -776,3 +776,61 @@ async fn identity_invalid_mutations_retired_signature_fails_replay() {
     assert_eq!(server.publish(vec![add]).await?.len(), 1);
     server.stop().await?;
 }
+
+/// A handle signs nothing, so a creation or a recovery change that names one
+/// as its identifier is refused on admission as an invalid identity update,
+/// not as a malformed payload, and nothing is stored.
+// verifies: IDENT-077
+#[xmtp_common::test(unwrap_try = true)]
+async fn handle_kind_outside_lookups_is_invalid_identity_update() {
+    let server = TestServer::new(|_| {}).await?;
+    let wallet = xmtp_cryptography::utils::generate_local_wallet();
+    let inbox_id = wallet.get_inbox_id(0);
+    let mut create = SignatureRequestBuilder::new(&inbox_id)
+        .create_inbox(wallet.identifier(), 0)
+        .build();
+    add_wallet_signature(&mut create, &wallet).await;
+    let create: IdentityUpdate = create.build_identity_update()?.into();
+    let mut change = SignatureRequestBuilder::new(&inbox_id)
+        .change_recovery_address(wallet.identifier().into(), Identifier::rand_ethereum())
+        .build();
+    add_wallet_signature(&mut change, &wallet).await;
+    let change: IdentityUpdate = change.build_identity_update()?.into();
+
+    let mut handle_creation = create.clone();
+    let Some(Kind::CreateInbox(action)) = &mut handle_creation.actions[0].kind else {
+        unreachable!("the request creates an inbox")
+    };
+    action.initial_identifier_kind = IdentifierKind::Handle.into();
+    let mut handle_recovery = change.clone();
+    let Some(Kind::ChangeRecoveryAddress(action)) = &mut handle_recovery.actions[0].kind else {
+        unreachable!("the request changes the recovery identifier")
+    };
+    action.new_recovery_identifier_kind = IdentifierKind::Handle.into();
+
+    for (case, update, stored) in [
+        ("creation", handle_creation, None),
+        ("recovery change", handle_recovery, Some(create)),
+    ] {
+        if let Some(stored) = stored {
+            server.publish(vec![identity_envelope(stored)]).await?;
+        }
+        let before = identity_rows(&server).await?;
+        let error = server
+            .publisher()
+            .publish(api::PublishRequest {
+                envelopes: vec![identity_envelope(update)],
+            })
+            .await
+            .expect_err(case);
+        assert_eq!(
+            rejection(&error)?,
+            Reason::InvalidIdentityUpdate,
+            "{case}: {error:?}"
+        );
+        assert_eq!(identity_rows(&server).await?, before, "{case}");
+    }
+    // The same change with its own kind is admitted.
+    server.publish(vec![identity_envelope(change)]).await?;
+    server.stop().await?;
+}

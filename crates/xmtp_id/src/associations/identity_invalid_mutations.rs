@@ -2,8 +2,8 @@
 //! association state or reach a chain verifier.
 
 use super::{
-    AccountId, Action, AddAssociation, AssociationError, IdentityUpdate, MemberIdentifier,
-    MemberKind, RevokeAssociation, SignatureKind, apply_update, get_state,
+    AccountId, Action, AddAssociation, AssociationError, ClaimHandle, CreateInbox, IdentityUpdate,
+    MemberIdentifier, MemberKind, RevokeAssociation, SignatureKind, apply_update, get_state,
     tests::new_test_inbox_with_installation,
     unverified::{UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedSignature},
     verified_signature::VerifiedSignature,
@@ -26,10 +26,11 @@ use xmtp_common::{RetryableError, rand_hexstring, rand_vec};
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::identity::associations::{
     AddAssociation as AddProto, ChangeRecoveryAddress as ChangeRecoveryProto,
-    CreateInbox as CreateInboxProto, IdentityAction as ActionProto,
-    IdentityUpdate as IdentityUpdateProto, MemberIdentifier as MemberIdentifierProto,
-    RecoverableEcdsaSignature, RevokeAssociation as RevokeProto, Signature, identity_action::Kind,
-    member_identifier, signature,
+    ClaimHandle as ClaimHandleProto, CreateInbox as CreateInboxProto, IdentifierKind,
+    IdentityAction as ActionProto, IdentityUpdate as IdentityUpdateProto,
+    MemberIdentifier as MemberIdentifierProto, RecoverableEcdsaSignature,
+    RevokeAssociation as RevokeProto, Signature, identity_action::Kind, member_identifier,
+    signature,
 };
 
 fn erc191() -> Signature {
@@ -344,4 +345,163 @@ fn retired_legacy_signature_is_rejected() {
             ..
         })]
     ));
+}
+
+/// An `Action::ClaimHandle` of `handle` signed by `signer`.
+fn claim(handle: &str, signer: &MemberIdentifier, kind: SignatureKind) -> Action {
+    Action::ClaimHandle(ClaimHandle {
+        handle: handle.to_string(),
+        signature: VerifiedSignature::new(signer.clone(), kind, rand_vec::<32>(), None),
+    })
+}
+
+/// A claim carries no other action, whatever the order and whatever the
+/// other action is, so one update passes the backend's interval between
+/// claims for one claim only. The whole update fails, and the state the
+/// caller holds stays as it was.
+// verifies: IDENT-002, IDENT-079
+#[xmtp_common::test(unwrap_try = true)]
+fn claim_with_another_action_is_rejected() {
+    let state = new_test_inbox_with_installation();
+    let inbox_id = state.inbox_id().to_string();
+    let wallet: MemberIdentifier = state.recovery_identifier().clone().into();
+    let installation = state.members_by_kind(MemberKind::Installation)[0]
+        .identifier
+        .clone();
+    let installation_claim = |handle| claim(handle, &installation, SignatureKind::InstallationKey);
+    let add = || {
+        Action::AddAssociation(AddAssociation {
+            existing_member_signature: VerifiedSignature::new(
+                wallet.clone(),
+                SignatureKind::Erc191,
+                rand_vec::<32>(),
+                None,
+            ),
+            ..Default::default()
+        })
+    };
+
+    for actions in [
+        vec![installation_claim("nick"), add()],
+        vec![add(), installation_claim("nick")],
+        vec![installation_claim("nick"), installation_claim("nick#0001")],
+    ] {
+        let result = apply_update(
+            state.clone(),
+            IdentityUpdate::new_test(actions, inbox_id.clone()),
+        );
+        assert!(
+            matches!(result, Err(AssociationError::ClaimNotAlone)),
+            "{result:?}"
+        );
+    }
+    assert!(state.handles().is_empty());
+    assert_eq!(state.handle_claims(), 0);
+
+    // An inbox exists before it claims: a claim beside its creation fails.
+    let create = CreateInbox::default();
+    let creator: MemberIdentifier = create.account_identifier.clone().into();
+    let created_inbox = create.account_identifier.inbox_id(create.nonce)?;
+    let result = get_state([IdentityUpdate::new_test(
+        vec![
+            Action::CreateInbox(create),
+            claim("nick", &creator, SignatureKind::Erc191),
+        ],
+        created_inbox,
+    )]);
+    assert!(
+        matches!(result, Err(AssociationError::ClaimNotAlone)),
+        "{result:?}"
+    );
+
+    // Each action alone applies, so the pair is what fails.
+    let claimed = apply_update(
+        state.clone(),
+        IdentityUpdate::new_test(vec![installation_claim("nick")], inbox_id.clone()),
+    )?;
+    assert_eq!(claimed.handle_claims(), 1);
+    apply_update(state, IdentityUpdate::new_test(vec![add()], inbox_id))?;
+}
+
+/// A claim outside the grammar is rejected when it is applied, and is never
+/// rewritten: `Nick` is not read as `nick`. The wire form decodes with the
+/// handle as carried, so the rejection is the validator's, not the decoder's.
+// verifies: IDENT-078
+#[xmtp_common::test(unwrap_try = true)]
+fn noncanonical_claim_is_rejected() {
+    let state = new_test_inbox_with_installation();
+    let inbox_id = state.inbox_id().to_string();
+    let installation = state.members_by_kind(MemberKind::Installation)[0]
+        .identifier
+        .clone();
+    for handle in ["Nick", "NICK#0001", "nick ", "nick#123", "1nick", ""] {
+        let result = apply_update(
+            state.clone(),
+            IdentityUpdate::new_test(
+                vec![claim(handle, &installation, SignatureKind::InstallationKey)],
+                inbox_id.clone(),
+            ),
+        );
+        assert!(
+            matches!(result, Err(AssociationError::InvalidHandle(_))),
+            "{handle:?}: {result:?}"
+        );
+    }
+
+    let action = ActionProto {
+        kind: Some(Kind::ClaimHandle(ClaimHandleProto {
+            handle: "Nick".into(),
+            signature: Some(erc191()),
+        })),
+    }
+    .encode_to_vec();
+    let decoded = decode(&identity_update(&inbox_id, vec![action]))?;
+    let [UnverifiedAction::ClaimHandle(claim)] = &decoded.actions[..] else {
+        panic!("the update decodes to one claim: {decoded:?}");
+    };
+    assert_eq!(claim.unsigned_action.handle, "Nick");
+}
+
+/// A handle signs nothing, so it is never an initial or a recovery identifier.
+/// A kind `IdentifierKind` does not list is rejected too, never read as
+/// Ethereum. The listed signing kinds still decode.
+// verifies: IDENT-077
+#[xmtp_common::test(unwrap_try = true)]
+fn handle_kind_is_rejected_outside_lookups() {
+    let address = rand_hexstring();
+    let actions = |kind: i32| {
+        [
+            Kind::CreateInbox(CreateInboxProto {
+                initial_identifier: address.clone(),
+                initial_identifier_signature: Some(erc191()),
+                initial_identifier_kind: kind,
+                ..Default::default()
+            }),
+            Kind::ChangeRecoveryAddress(ChangeRecoveryProto {
+                new_recovery_identifier: address.clone(),
+                existing_recovery_identifier_signature: Some(erc191()),
+                new_recovery_identifier_kind: kind,
+                ..Default::default()
+            }),
+        ]
+    };
+    let decode_action = |kind| {
+        let action = ActionProto { kind: Some(kind) }.encode_to_vec();
+        decode(&identity_update("inbox", vec![action]))
+    };
+
+    for kind in [IdentifierKind::Handle as i32, 4, -1] {
+        for action in actions(kind) {
+            let result = decode_action(action);
+            assert!(
+                matches!(result, Err(ConversionError::NonSigningIdentifierKind(k)) if k == kind),
+                "{kind}: {result:?}"
+            );
+        }
+    }
+    for kind in [IdentifierKind::Unspecified, IdentifierKind::Ethereum] {
+        for action in actions(kind as i32) {
+            decode_action(action)?;
+        }
+    }
 }

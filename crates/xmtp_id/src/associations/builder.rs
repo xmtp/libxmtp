@@ -11,16 +11,17 @@ use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 
 use super::{
-    AccountId, MemberIdentifier, MemberKind, SignatureError,
+    AccountId, Handle, MemberIdentifier, MemberKind, SignatureError,
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
-        UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
-        UnsignedRevokeAssociation,
+        UnsignedChangeRecoveryAddress, UnsignedClaimHandle, UnsignedCreateInbox,
+        UnsignedIdentityUpdate, UnsignedRevokeAssociation,
     },
     unverified::{
         NewUnverifiedSmartContractWalletSignature, UnverifiedAction, UnverifiedAddAssociation,
-        UnverifiedChangeRecoveryAddress, UnverifiedCreateInbox, UnverifiedIdentityUpdate,
-        UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
+        UnverifiedChangeRecoveryAddress, UnverifiedClaimHandle, UnverifiedCreateInbox,
+        UnverifiedIdentityUpdate, UnverifiedRevokeAssociation, UnverifiedSignature,
+        UnverifiedSmartContractWalletSignature,
     },
     verified_signature::VerifiedSignature,
 };
@@ -128,6 +129,20 @@ impl SignatureRequestBuilder {
             )]),
             unsigned_action: UnsignedAction::ChangeRecoveryAddress(UnsignedChangeRecoveryAddress {
                 new_recovery_identifier,
+            }),
+        });
+
+        self
+    }
+
+    /// Add a ClaimHandle action signed by `signer`, a current member of the
+    /// inbox. A claim must be the only action of its update, so a request with
+    /// a claim and any other action builds an update that no validator applies.
+    pub fn claim_handle(mut self, handle: Handle, signer: MemberIdentifier) -> Self {
+        self.actions.push(PendingIdentityAction {
+            pending_signatures: HashMap::from([(SignatureField::ExistingMember, signer)]),
+            unsigned_action: UnsignedAction::ClaimHandle(UnsignedClaimHandle {
+                handle: handle.into(),
             }),
         });
 
@@ -451,6 +466,21 @@ fn build_action(
                     unsigned_action,
                 },
             ))
+        }
+        UnsignedAction::ClaimHandle(unsigned_action) => {
+            let signer_identity = pending_action
+                .pending_signatures
+                .get(&SignatureField::ExistingMember)
+                .ok_or(SignatureRequestError::MissingSigner)?;
+            let signature = signatures
+                .get(signer_identity)
+                .cloned()
+                .ok_or(SignatureRequestError::MissingSigner)?;
+
+            Ok(UnverifiedAction::ClaimHandle(UnverifiedClaimHandle {
+                unsigned_action,
+                signature,
+            }))
         }
     }
 }

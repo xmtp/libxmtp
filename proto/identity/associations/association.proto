@@ -28,6 +28,9 @@ enum IdentifierKind {
   IDENTIFIER_KIND_UNSPECIFIED = 0; // Ethereum on old clients
   IDENTIFIER_KIND_ETHEREUM = 1;
   IDENTIFIER_KIND_PASSKEY = 2;
+  // A handle names an inbox in a lookup. It never signs, so it is never an
+  // initial or a recovery identifier.
+  IDENTIFIER_KIND_HANDLE = 3;
 }
 
 // single member that optionally indicates the member that added them
@@ -80,6 +83,13 @@ message ChangeRecoveryAddress {
   optional string relying_party = 4;
 }
 
+// Claims a handle for the inbox. A current member signs it, and it is the only
+// action of its update.
+message ClaimHandle {
+  string handle = 1;
+  Signature signature = 2;
+}
+
 // A single identity operation
 message IdentityAction {
   oneof kind {
@@ -87,6 +97,7 @@ message IdentityAction {
     AddAssociation add = 2;
     RevokeAssociation revoke = 3;
     ChangeRecoveryAddress change_recovery_address = 4;
+    ClaimHandle claim_handle = 5;
   }
 }
 
@@ -118,6 +129,10 @@ message AssociationState {
   IdentifierKind recovery_identifier_kind = 5;
   // Should be provided if identifier kind is passkey
   optional string relying_party = 6;
+  // Claimed handles in claim order. The last one is the display handle.
+  repeated string handles = 7;
+  // The number of ClaimHandle actions applied to produce this state.
+  uint32 handle_claims = 8;
 }
 
 /// state diff between two final AssociationStates
