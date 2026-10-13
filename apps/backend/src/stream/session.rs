@@ -20,6 +20,7 @@ use futures::{
 use prost::Message;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    ops::ControlFlow,
     sync::Arc,
 };
 use tokio::sync::mpsc;
@@ -213,7 +214,7 @@ impl Session {
 
     /// Serialize control, targets, history, live data, and timers in one owner.
     /// Target reads and history remain cancellable while input is processed.
-    // implements: API-250
+    // implements: API-250, API-259
     async fn run(
         &mut self,
         mut input: BoxStream<'static, Result<api::SubscribeRequest, Status>>,
@@ -292,7 +293,11 @@ impl Session {
                 // Resume fetching when outbound frames release capacity.
                 _ = mailbox.budget.wake.notified() => {},
                 // Send an idle keepalive or check the outstanding Pong deadline.
-                _ = timer => self.on_timer(&mut input, &mut pending_input)?,
+                _ = timer => {
+                    if self.on_timer(&mut input, &mut pending_input)?.is_break() {
+                        return Ok(());
+                    }
+                },
             }
         }
     }
@@ -315,34 +320,34 @@ impl Session {
 
     /// Inspect already buffered input before failing an expired challenge.
     /// Other frames remain ordered for later processing; inbound traffic is not activity.
+    /// Client EOF completes the session without an error.
     // implements: API-255, API-257
     fn on_timer(
         &mut self,
         input: &mut BoxStream<'static, Result<api::SubscribeRequest, Status>>,
         pending_input: &mut VecDeque<api::SubscribeRequest>,
-    ) -> Result<(), Status> {
+    ) -> Result<ControlFlow<()>, Status> {
         if self.static_subscription {
-            return self.wire_control(WireResponse::Static(api::SubscribeStaticResponse {
-                response: Some(api::subscribe_static_response::Response::Keepalive(
-                    api::subscribe_static_response::Keepalive {},
-                )),
-            }));
+            return self
+                .wire_control(WireResponse::Static(api::SubscribeStaticResponse {
+                    response: Some(api::subscribe_static_response::Response::Keepalive(
+                        api::subscribe_static_response::Keepalive {},
+                    )),
+                }))
+                .map(|_| ControlFlow::Continue(()));
         }
         if self.challenge.is_some() {
             let mut bytes = 0;
             while let Some(frame) = input.next().now_or_never() {
                 let Some(frame) = frame else {
-                    return Err(self.fail(
-                        Status::unavailable("request half-closed"),
-                        StreamEnd::Client,
-                    ));
+                    return Ok(ControlFlow::Break(()));
                 };
                 let frame = frame?;
                 if let Some(api::subscribe_request::Request::Pong(pong)) = &frame.request {
                     telemetry::stream_frame_received(MetricFrame::Pong);
                     self.pong(pong.nonce)?;
                     if self.challenge.is_none() {
-                        return Ok(());
+                        return Ok(ControlFlow::Continue(()));
                     }
                 } else {
                     bytes += frame.encoded_len();
@@ -375,7 +380,7 @@ impl Session {
             handed,
             deadline: None,
         });
-        Ok(())
+        Ok(ControlFlow::Continue(()))
     }
 
     // implements: API-258
@@ -892,3 +897,6 @@ fn metric_frame(value: &WireResponse) -> Option<MetricFrame> {
         }),
     }
 }
+
+#[cfg(test)]
+mod tests;

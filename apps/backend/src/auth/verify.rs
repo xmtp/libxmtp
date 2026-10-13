@@ -177,9 +177,6 @@ impl Verifier {
             return Err(Rejection::Malformed);
         }
         let keys = self.keys.0.load();
-        if header.kid.is_some() && !keys.iter().any(|key| key.alg == header.alg) {
-            return Err(Rejection::UnsupportedAlg);
-        }
         let key = select(&keys, header.kid.as_deref(), header.alg).ok_or(Rejection::Untrusted)?;
         match decode::<Value>(token, &key.key, &key.validation) {
             Ok(_) => {}
@@ -210,13 +207,11 @@ impl Verifier {
 
     /// Enforce strict JSON claim types and the documented error order.
     /// This must only receive claims whose signature has been verified.
-    // implements: AUTH-011, AUTH-012, AUTH-013
+    // implements: AUTH-011, AUTH-012, AUTH-013, AUTH-031
     fn check_claims(&self, value: Value) -> Result<AuthContext, Rejection> {
         let now = xmtp_common::time::now_secs() as u64;
-        let exp = value
-            .get("exp")
-            .and_then(numeric_date)
-            .ok_or(Rejection::Expired)?;
+        let exp = numeric_date(value.get("exp").ok_or(Rejection::Expired)?)
+            .ok_or(Rejection::Malformed)?;
         if exp < now.saturating_sub(self.config.leeway_seconds) {
             return Err(Rejection::Expired);
         }
@@ -226,16 +221,19 @@ impl Verifier {
                 return Err(Rejection::NotYetValid);
             }
         }
-        if let Some(allowed) = &self.config.audiences {
-            let audience = match value.get("aud") {
-                Some(Value::String(aud)) => vec![aud.as_str()],
-                Some(Value::Array(aud)) => aud
-                    .iter()
+        let audience = match value.get("aud") {
+            None => None,
+            Some(Value::String(aud)) => Some(vec![aud.as_str()]),
+            Some(Value::Array(aud)) => Some(
+                aud.iter()
                     .map(Value::as_str)
                     .collect::<Option<Vec<_>>>()
-                    .ok_or(Rejection::Audience)?,
-                _ => return Err(Rejection::Audience),
-            };
+                    .ok_or(Rejection::Malformed)?,
+            ),
+            _ => return Err(Rejection::Malformed),
+        };
+        if let Some(allowed) = &self.config.audiences {
+            let audience = audience.ok_or(Rejection::Audience)?;
             if !audience
                 .iter()
                 .any(|aud| allowed.iter().any(|allowed| allowed == aud))
@@ -243,14 +241,18 @@ impl Verifier {
                 return Err(Rejection::Audience);
             }
         }
+        let issuer = value
+            .get("iss")
+            .map(|issuer| issuer.as_str().ok_or(Rejection::Malformed))
+            .transpose()?;
         if let Some(allowed) = &self.config.issuers {
-            let issuer = value
-                .get("iss")
-                .and_then(Value::as_str)
-                .ok_or(Rejection::Issuer)?;
+            let issuer = issuer.ok_or(Rejection::Issuer)?;
             if !allowed.iter().any(|allowed| allowed == issuer) {
                 return Err(Rejection::Issuer);
             }
+        }
+        if value.get("sub").is_some_and(|sub| !sub.is_string()) {
+            return Err(Rejection::Malformed);
         }
         let claims: Claims = serde_json::from_value(value).map_err(|_| Rejection::Malformed)?;
         let scopes: BTreeSet<String> = match claims.scope {
@@ -277,15 +279,14 @@ impl Verifier {
     }
 }
 
-/// Match the JWT library's NumericDate representation, including fractional seconds.
-/// Strings and numbers outside the unsigned timestamp range are malformed.
+/// Parse finite NumericDate values that are not less than zero. Round fractional seconds.
+/// Reject strings and negative numbers. Use the largest timestamp for larger dates.
 fn numeric_date(value: &Value) -> Option<u64> {
     if let Some(seconds) = value.as_u64() {
         return Some(seconds);
     }
     let seconds = value.as_f64()?;
-    (seconds.is_finite() && seconds >= 0.0 && seconds < u64::MAX as f64)
-        .then(|| seconds.round() as u64)
+    (seconds.is_finite() && seconds >= 0.0).then(|| seconds.round() as u64)
 }
 
 #[cfg(test)]

@@ -872,3 +872,63 @@ async fn unknown_gap_capacity_fails_before_discarding_recovery_state() {
     );
     server.stop().await?;
 }
+
+// verifies: API-259
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn registered_session_half_close_with_outstanding_ping_completes_without_an_error() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::registered_session_half_close_with_outstanding_ping_completes_without_an_error",
+    ) else {
+        return;
+    };
+    let server = TestServer::new(|config| {
+        config.streams.keepalive_interval_ms = 20;
+        config.streams.max_pong_wait_ms = 1_000;
+    })
+    .await?;
+    let mut stream = Native::open(&server).await?;
+    let topic = support::topic(xmtp_proto::types::TopicKind::WelcomeMessagesV1, &[97; 32]);
+    stream
+        .update(1, vec![support::query_topic(topic, 0)], vec![])
+        .await?;
+    loop {
+        match stream.next().await? {
+            Frame::Applied(applied) => {
+                assert_eq!(applied.id, 1);
+                break;
+            }
+            Frame::Ping(ping) => {
+                stream
+                    .send(Input::Pong(api::Pong { nonce: ping.nonce }))
+                    .await?
+            }
+            frame => panic!("unexpected frame: {frame:?}"),
+        }
+    }
+    assert!(matches!(stream.next().await?, Frame::Ping(_)));
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+        1.0
+    );
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_topics_registered", &[]),
+        1.0
+    );
+    drop(stream.input);
+    assert!(terminal(&mut stream.output).await?.is_none());
+    xmtp_common::wait_for_eq(
+        || async { support::metrics::value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]) },
+        0.0,
+    )
+    .await?;
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_topics_registered", &[]),
+        0.0
+    );
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_ended_total", &[("reason", "client")]),
+        1.0
+    );
+    server.stop().await?;
+}

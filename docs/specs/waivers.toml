@@ -133,31 +133,10 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "An equal cycled_at_ns replaces the stored HMAC root key by arrival order rather than by the deterministic byte-order tie rule."
 
 [[waiver]]
-id = "AUTH-009"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A token carrying kid whose algorithm no loaded key uses is answered unsupported_alg before key selection, rather than untrusted."
-
-[[waiver]]
 id = "AUTH-035"
 kind = "untested"
 owner = "protocol"
 reason = "AuthHandle.inner.state in crates/xmtp_api_backend/src/middleware/auth.rs holds the shared failure count and lockout; no test drives failures from two clients sharing it."
-
-[[waiver]]
-id = "AUTH-031"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A non-numeric exp is reported expired and a non-numeric nbf, scope, or sub is reported malformed, rather than one classification for every wrong-typed claim."
-
-[[waiver]]
-id = "API-259"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A client half-close during the drain for an outstanding Ping ends the stream with UNAVAILABLE rather than completing cleanly."
 
 [[waiver]]
 id = "API-292"
