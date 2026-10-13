@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Prove the architecture checks reject forbidden imports and settings."""
+
 from pathlib import Path
 import subprocess
 import sys
@@ -18,9 +19,15 @@ with tempfile.NamedTemporaryFile(mode="w", suffix=".swift", dir=app) as source:
 config = root / "Config/Base.xcconfig"
 original = config.read_text()
 try:
-    config.write_text(original.replace("SWIFT_STRICT_CONCURRENCY = complete", "SWIFT_STRICT_CONCURRENCY = minimal"))
+    config.write_text(
+        original.replace(
+            "SWIFT_STRICT_CONCURRENCY = complete", "SWIFT_STRICT_CONCURRENCY = minimal"
+        )
+    )
     result = subprocess.run(lint, capture_output=True, text=True)
-    assert result.returncode != 0 and "SWIFT_STRICT_CONCURRENCY" in result.stderr, result
+    assert result.returncode != 0 and "SWIFT_STRICT_CONCURRENCY" in result.stderr, (
+        result
+    )
 finally:
     config.write_text(original)
 subprocess.run(lint, check=True)
