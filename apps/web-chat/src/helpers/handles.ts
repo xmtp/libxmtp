@@ -25,7 +25,7 @@ export const handleHint = (minNameLength: number) =>
 
 /**
  * Checks handle input as the user types: the grammar, then the published
- * minimum name length. This check is app-level only (CONF-081, D30): the SDK
+ * minimum name length. This check is app-level only (D30): the SDK
  * never applies the minimum, and the backend decides when the user claims.
  * Returns the message to show, or null when the input can be checked.
  */

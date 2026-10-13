@@ -11,7 +11,7 @@ export type Member = {
   displayName: string | null;
   avatar: string | null;
   description: string | null;
-  // the current handle identifies the inbox when it has one (IDENT-087)
+  // the current handle identifies the inbox when it has one
   handle: string | null;
   inboxId: string;
 };

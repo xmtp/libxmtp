@@ -7,7 +7,7 @@ import { shortAddress } from "@/helpers/strings";
 export type IdentityBadgeProps = {
   address: string;
   displayName: string | null;
-  // the current handle identifies the inbox when it has one (IDENT-087)
+  // the current handle identifies the inbox when it has one
   handle?: string | null;
   size?: "xs" | "sm" | "md" | "lg" | "xl";
   tooltip?: string;

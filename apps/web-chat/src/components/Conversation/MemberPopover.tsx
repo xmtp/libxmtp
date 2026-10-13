@@ -67,7 +67,7 @@ export type MemberPopoverIdentityProps = {
 
 /**
  * The text that identifies a member: the current handle when the member has
- * one, with the inbox ID and the other handles as secondary text (IDENT-087).
+ * one, with the inbox ID and the other handles as secondary text.
  */
 export const MemberPopoverIdentity: React.FC<MemberPopoverIdentityProps> = ({
   address,

@@ -37,7 +37,7 @@ export const useOwnHandles = () => {
 /**
  * Loads the client's own handles, and keeps member handles current: on each
  * `handle.changed` event it reads the members of every conversation that
- * holds that inbox again (EVENT-058).
+ * holds that inbox again.
  */
 export const useHandleSync = (client: Client | undefined) => {
   const { refreshInboxHandles } = useActions();
