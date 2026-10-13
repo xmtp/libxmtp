@@ -3,7 +3,7 @@ import { useCallback, useEffect } from "react";
 
 import { useClient } from "@/contexts/XMTPContext";
 import { useActions, useOwnHandlesState } from "@/stores/inbox/hooks";
-import { inboxStore } from "@/stores/inbox/store";
+import { inboxStore, type OwnHandles } from "@/stores/inbox/store";
 
 /**
  * The client whose handles the inbox store holds: the client of the mounted
@@ -13,17 +13,22 @@ import { inboxStore } from "@/stores/inbox/store";
  */
 let syncedClient: Client | undefined;
 
-/** Reads the handles of the client's inbox into the inbox store. */
+/**
+ * Reads the handles of the client's inbox into the inbox store. Returns the
+ * handles it stored, or `undefined` when it dropped the read.
+ */
 export const loadOwnHandles = async (
   client: Client,
   refreshFromNetwork: boolean = false,
-) => {
+): Promise<OwnHandles | undefined> => {
   const state = await client.inboxState(refreshFromNetwork);
-  if (client !== syncedClient) return;
-  inboxStore.getState().setOwnHandles({
+  if (client !== syncedClient) return undefined;
+  const handles = {
     handle: state.handle ?? null,
     otherHandles: state.otherHandles,
-  });
+  };
+  inboxStore.getState().setOwnHandles(handles);
+  return handles;
 };
 
 /** The current and other handles of the client's inbox. */
