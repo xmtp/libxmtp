@@ -242,7 +242,7 @@ describe("client handle-claim", () => {
     },
   );
 
-  it("reports the error when a failed claim did not land", async () => {
+  it("rethrows a claim error that has no CLI message", async () => {
     const failure = new Error("transport closed");
     const claimHandle = vi.fn(async (_handle: string) => {
       throw failure;
