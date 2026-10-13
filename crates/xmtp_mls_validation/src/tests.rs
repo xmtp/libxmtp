@@ -253,7 +253,7 @@ fn key_package_topic_length_is_separate_from_ciphersuite_validation() {
     let error = parse_envelope(envelope)
         .err()
         .expect("P-256 signature keys do not satisfy the 32-byte topic contract");
-    assert!(matches!(&error, ValidationError::Conversion(_)));
+    assert!(matches!(&error, ValidationError::InvalidTopic(_)));
     assert_eq!(error.reason(), Reason::MalformedPayload);
 }
 
@@ -374,7 +374,9 @@ async fn identity_signature_failure_precedes_state_application() {
 
 /// An uppercase recovery identifier is rejected when it is admitted and when a
 /// stored log carrying it is replayed, so no signer can be locked out of recovery.
-// verifies: IDENT-013
+/// The update names a valid topic, so the rejection is an invalid identity
+/// update, not a malformed payload.
+// verifies: IDENT-013, API-230
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_invalid_mutations_mixed_case_recovery_is_rejected() {
     let (create, change) = mixed_case_recovery_change().await;
@@ -389,17 +391,18 @@ async fn identity_invalid_mutations_mixed_case_recovery_is_rejected() {
                 .expect("a mixed-case recovery identifier must be rejected");
         assert!(matches!(
             error,
-            ValidationError::Conversion(ConversionError::InvalidValue {
+            ValidationError::IdentityEncoding(ConversionError::InvalidValue {
                 item: "ethereum identifier",
                 ..
             })
         ));
+        assert_eq!(error.reason(), Reason::InvalidIdentityUpdate);
         assert!(!error.is_retryable());
     }
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: TOPIC-002
+// verifies: TOPIC-002, API-230
 fn identity_topics_require_a_32_byte_hex_inbox() {
     let fixture = xmtp_proto::xmtp::identity::associations::IdentityUpdate {
         inbox_id: "11".repeat(31),
@@ -408,16 +411,18 @@ fn identity_topics_require_a_32_byte_hex_inbox() {
     let error = parse_envelope(identity_envelope(fixture))
         .err()
         .expect("identity topic identifiers must be 32 bytes");
+    assert!(matches!(&error, ValidationError::InvalidTopic(_)));
     assert_eq!(error.reason(), Reason::MalformedPayload);
 
     let fixture = xmtp_proto::xmtp::identity::associations::IdentityUpdate {
         inbox_id: "not-hex".into(),
         ..Default::default()
     };
-    assert!(matches!(
-        parse_envelope(identity_envelope(fixture)),
-        Err(ValidationError::Inbox(_))
-    ));
+    let error = parse_envelope(identity_envelope(fixture))
+        .err()
+        .expect("identity topic identifiers must be hexadecimal");
+    assert!(matches!(&error, ValidationError::Inbox(_)));
+    assert_eq!(error.reason(), Reason::MalformedPayload);
 }
 
 /// Reports a head stamped before its own earlier blocks, as separate reads
@@ -472,9 +477,10 @@ impl ChainBlocks for RoutelessChain {
 /// address, rejects it permanently before any chain access, even behind a
 /// well-formed signature and on a chain with no route, so an invalid update
 /// cannot buy RPC work or wait as retryable for ever. A well-formed one on
-/// that chain reaches it and stays retryable.
+/// that chain reaches it and stays retryable. Every malformed form fails its
+/// signature, whether or not it is a CAIP-10 account id at all.
 #[xmtp_common::test]
-// verifies: IDENT-060, IDENT-061
+// verifies: IDENT-060, IDENT-061, API-230
 async fn freshness_rejects_any_malformed_account_before_chain_access() {
     let chain = RoutelessChain::default();
     for malformed in [
@@ -483,6 +489,9 @@ async fn freshness_rejects_any_malformed_account_before_chain_access() {
         "eip155:1:1111111111111111111111111111111111111111",
         "eip155:1:0x111111111111111111111111111111111111111g",
         "eip155:1:0x11111111111111111111111111111111111111111",
+        "eip155:1:0x111111111111111111111111111111111111111!",
+        "EIP155:1:0x1111111111111111111111111111111111111111",
+        "eip155:1",
     ] {
         let update = with_second_signature(|scw| scw.account_id = malformed.into());
         let error = check_freshness(&update, &chain).await.expect_err(malformed);
