@@ -18,6 +18,7 @@ import org.xmtp.android.example.messenger.feature.conversations.ConversationsCon
 import org.xmtp.android.example.messenger.feature.conversations.CreateConversationController
 import org.xmtp.android.example.messenger.feature.group.GroupController
 import org.xmtp.android.example.messenger.feature.handles.HandleController
+import org.xmtp.android.example.messenger.feature.handles.HandleStep
 import org.xmtp.android.example.messenger.feature.handles.SessionHandleAccount
 import org.xmtp.android.example.messenger.feature.settings.SettingsController
 import org.xmtp.android.example.messenger.notifications.*
@@ -76,6 +77,7 @@ internal class AppGraph(
         private set
     lateinit var featurePreferences: AppFeaturePreferences
         private set
+    private lateinit var handleStep: HandleStep
     val handles = HandleController(scope)
 
     val session: AppSession =
@@ -88,6 +90,7 @@ internal class AppGraph(
             projectionFactory = { owner ->
                 val preferences = AppFeaturePreferences(this.context, owner, owner.secrets)
                 featurePreferences = preferences
+                handleStep = HandleStep(preferences, offerHandleChoice)
                 val composerDrafts = SecureComposerDrafts(owner, owner.secrets)
                 sends = SendCoordinator(owner.preferences, owner::accepts, owner::admit)
                 connect =
@@ -186,9 +189,14 @@ internal class AppGraph(
                 try {
                     projection.activate(owner)
                     if (owner != null && session.accepts(owner.key)) {
-                        val chooseHandle = needsHandleChoice(owner)
-                        val start = if (chooseHandle) AppRoute.ChooseHandle else AppRoute.Chats
-                        destinations.restore(owner, start) { route -> !chooseHandle && canRestore(owner, route) }
+                        val start =
+                            withContext(Dispatchers.IO) {
+                                handleStep.start(owner.key) { owner.client.inboxState(false).handle }
+                            }
+                        // A saved route does not replace Choose your handle while the step is pending.
+                        destinations.restore(owner, start) { route ->
+                            start != AppRoute.ChooseHandle && canRestore(owner, route)
+                        }
                         if (session.accepts(owner.key)) ready.value = owner.key
                     }
                 } catch (error: Throwable) {
@@ -278,21 +286,6 @@ internal class AppGraph(
         connect.start()
     }
 
-    /** True when the account has no handle and has not claimed or skipped one in onboarding. */
-    private suspend fun needsHandleChoice(owner: ActiveSession): Boolean =
-        withContext(Dispatchers.IO) {
-            if (!offerHandleChoice || featurePreferences.handleStepDone(owner.key.profileId)) return@withContext false
-            val handle =
-                try {
-                    owner.client.inboxState(false).handle
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    return@withContext false
-                }
-            if (handle != null) featurePreferences.finishHandleStep(owner.key)
-            handle == null
-        }
-
     private fun openHandles(
         owner: ActiveSession,
         mode: HandleMode,
@@ -304,7 +297,15 @@ internal class AppGraph(
                 { destinations.back() }
             }
         handles.open(
-            SessionHandleAccount(owner, featurePreferences, destinations, destinations.capture(owner), mode, leave),
+            SessionHandleAccount(
+                owner,
+                featurePreferences,
+                handleStep,
+                destinations,
+                destinations.capture(owner),
+                mode,
+                leave,
+            ),
             mode,
         )
     }

@@ -5,6 +5,7 @@ import org.json.JSONObject
 import org.xmtp.android.example.messenger.AppSession
 import org.xmtp.android.example.messenger.SecureSecretStore
 import org.xmtp.android.example.messenger.SessionKey
+import org.xmtp.android.example.messenger.feature.handles.HandleStepStore
 import org.xmtp.android.example.shared.Appearance
 import java.security.MessageDigest
 
@@ -13,7 +14,7 @@ class AppFeaturePreferences(
     context: Context,
     private val session: AppSession,
     private val secrets: SecureSecretStore,
-) {
+) : HandleStepStore {
     private val appearanceStore =
         context.applicationContext.getSharedPreferences(
             "messenger-appearance",
@@ -92,10 +93,10 @@ class AppFeaturePreferences(
         label: String,
     ) = write(key) { it.put("server-label", label.trim()) }
 
-    /** True after the account claimed or skipped a handle in onboarding. */
-    fun handleStepDone(profile: String): Boolean = synchronized(lock) { values(profile).optBoolean("handle-step-done") }
+    override fun handleStepDone(profile: String): Boolean =
+        synchronized(lock) { values(profile).optBoolean("handle-step-done") }
 
-    fun finishHandleStep(key: SessionKey) = write(key) { it.put("handle-step-done", true) }
+    override fun finishHandleStep(key: SessionKey) = write(key) { it.put("handle-step-done", true) }
 
     /** The time of each handle claim this device made, in milliseconds. Claims from other devices are absent. */
     fun handleClaims(profile: String): Map<String, Long> =

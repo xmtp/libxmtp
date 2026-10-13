@@ -35,14 +35,18 @@ internal class TestAppGraphRule(
     lateinit var graph: AppGraph
         private set
 
-    fun newShell(store: ViewModelStore): MessengerViewModel =
+    /** [saved] is the shell's saved state, such as the route of an earlier process. */
+    fun newShell(
+        store: ViewModelStore,
+        saved: SavedStateHandle = SavedStateHandle(),
+    ): MessengerViewModel =
         ViewModelProvider(
             store,
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     check(modelClass == MessengerViewModel::class.java)
-                    return MessengerViewModel(graph, SavedStateHandle()) as T
+                    return MessengerViewModel(graph, saved) as T
                 }
             },
         )[MessengerViewModel::class.java]
