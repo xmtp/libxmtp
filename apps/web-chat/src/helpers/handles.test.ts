@@ -1,7 +1,9 @@
+import { XmtpError, type ErrorDetails } from "@xmtp/browser-sdk";
 import { describe, expect, it } from "vitest";
 
 import {
   checkHandleInput,
+  claimFailure,
   handleHint,
   isValidHandle,
   splitHandle,
@@ -42,4 +44,31 @@ it("splits a handle into its name part and code", () => {
   expect(splitHandle("nick#2341")).toEqual({ name: "nick", code: "2341" });
   expect(splitHandle("nick")).toEqual({ name: "nick", code: undefined });
   expect(handleHint(5)).toBe("5 to 27 lowercase letters, numbers, _ or -.");
+});
+
+describe("claimFailure", () => {
+  const details = (code: string): ErrorDetails => ({
+    code,
+    category: "identity",
+    retryable: false,
+    message: code,
+  });
+
+  it("maps each SDK handle error to the answer that the app shows", () => {
+    expect(
+      claimFailure(new XmtpError.HandleTaken(details("HandleTaken"))),
+    ).toBe("taken");
+    expect(
+      claimFailure(new XmtpError.HandleNotAllowed(details("HandleNotAllowed"))),
+    ).toBe("notAllowed");
+    expect(
+      claimFailure(new XmtpError.HandleTooSoon(details("HandleTooSoon"))),
+    ).toBe("tooSoon");
+    expect(
+      claimFailure(
+        new XmtpError.HandleLimitReached(details("HandleLimitReached")),
+      ),
+    ).toBe("limitReached");
+    expect(claimFailure(new Error("offline"))).toBe("failed");
+  });
 });

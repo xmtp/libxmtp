@@ -126,6 +126,30 @@ describe("HandleSection", () => {
     expect(button("Use nickm")).toHaveProperty("disabled", true);
   });
 
+  it("waits for a new pick when someone claims the chosen handle first", async () => {
+    mocks.availableHandles.mockResolvedValueOnce([
+      "nicky",
+      "nicky#0001",
+      "nicky#0002",
+    ]);
+    mocks.claimHandle.mockRejectedValueOnce(new mocks.errors.HandleTaken());
+    renderSection();
+    await changeTo("nicky");
+    await screen.findByText(
+      "Someone claimed nicky a moment before you. Pick another handle.",
+    );
+    const radios = screen
+      .getAllByRole<HTMLInputElement>("radio")
+      .map((radio) => ({ value: radio.value, checked: radio.checked }));
+    expect(radios).toEqual([
+      { value: "nicky#0001", checked: true },
+      { value: "nicky#0002", checked: false },
+    ]);
+    // the app claims only what the user picked (PD9)
+    expect(mocks.claimHandle).toHaveBeenCalledTimes(1);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+
   it("explains a switch back that the current minimum refuses", async () => {
     mocks.minNameLength = 5;
     mocks.otherHandles = ["nick#0912", "nk"];
