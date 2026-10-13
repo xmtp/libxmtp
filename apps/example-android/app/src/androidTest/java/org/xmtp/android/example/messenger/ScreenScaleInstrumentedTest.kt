@@ -473,7 +473,7 @@ class ScreenScaleInstrumentedTest {
                 control(click("Make admin") and hasAnyAncestor(hasTestTag(memberTag)))
                 control(click("Remove") and hasAnyAncestor(hasTestTag(memberTag)))
                 control(click("Add member")).performClick()
-                input("Inbox ID", other.inboxId())
+                input("Handle, Ethereum address, or inbox ID", other.inboxId())
                 control(click("Add member"))
                 control(click("Done")).performClick()
                 control(click("Edit name and description")).performClick()
