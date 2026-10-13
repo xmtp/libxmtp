@@ -35,5 +35,7 @@ rust.cargoClippy (
     cargoClippyExtraArgs = "--no-deps -- -Dwarnings";
     doCheck = false;
     doInstallCargoArtifacts = false;
+    # A check result must name no store path, so it substitutes on a hit.
+    allowedReferences = [ ];
   }
 )

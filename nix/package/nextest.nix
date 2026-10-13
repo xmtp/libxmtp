@@ -61,6 +61,16 @@ rust.cargoNextest (
     # The dedicated backend workflow owns the PostgreSQL service suite.
     cargoNextestExtraArgs = "--profile ci -E 'not package(xmtp_backend)'";
     withLlvmCov = true;
+    # This value replaces Crane's default, so it restates it. The coverage
+    # report must name no store path: a reference keeps the result from
+    # substituting when that path is missing from the cache. The regex drops
+    # the records of store sources, such as Crane's dummy build script, whose
+    # mangled function names also hold the store hash. `allowedReferences`
+    # fails the build if a reference remains, and `test -s` fails it when the
+    # report is missing or empty.
+    cargoLlvmCovExtraArgs = "--lcov --output-path $out/coverage --ignore-filename-regex '^/nix/store/'";
+    postInstall = "test -s $out/coverage";
+    allowedReferences = [ ];
     doInstallCargoArtifacts = false;
     # most tests query docker
     __noChroot = true;

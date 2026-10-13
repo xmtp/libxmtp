@@ -65,6 +65,8 @@ rust.buildPackage (
     buildPhaseCargoCommand = "bash dev/check-validation all";
     doCheck = false;
     doInstallCargoArtifacts = false;
+    # A check result must name no store path, so it substitutes on a hit.
+    allowedReferences = [ ];
     doNotPostBuildInstallCargoBinaries = true;
     installPhaseCommand = "touch $out";
   }
