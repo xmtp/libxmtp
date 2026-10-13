@@ -17,7 +17,6 @@
     "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run,kache-env,kache-ci-config,kache-ci-policy,kache-darwin-wrapper}"
   ],
   "neutral": [
-    ".github/workflows/benchmark-example-android.yml",
     "**/{AGENTS,CLAUDE}.md",
     ".github/**/*.md",
     "{README,CONTRIBUTING,ONBOARDING,TEST_SCENARIOS}.md",
@@ -27,10 +26,10 @@
     "apps/.gitkeep",
     ".github/{CODEOWNERS,dependabot.yml}",
     ".github/ISSUE_TEMPLATE/**",
-    "dev/{fly,test}/**",
+    "dev/test/**",
     "dev/{ast-outline,bench,serena,flamegraph,llvm-cov,up,down,direnv-up,direnv-down,docs}",
-    "dev/{nix-up,nix-down,nix-status,nix-cache-up,ci-failure-markers}",
-    "dev/{ci,nix}/**"
+    "dev/{nix-up,nix-down,nix-status,nix-cache-up}",
+    "dev/nix/**"
   ],
   "suites": {
     "lint_workspace": {
@@ -57,10 +56,9 @@
       "paths": [
         "**/Cargo.toml",
         ".config/hakari.toml",
-        "apps/{chaos,db_tools,error_glossary,keepalive-probe,xmtp_debug}/**",
+        "apps/chaos/chaos.just",
         "crates/xmtp-workspace-hack/**",
-        "{Cargo.lock,rustfmt.toml,.clippy.toml,.taplo.toml,deny.toml}",
-        "{crates,apps}/**/*.rs"
+        "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
       ]
     },
     "lint_js": {
@@ -120,13 +118,24 @@
       ],
       "paths": [
         "**/*.{nix,py,sh,toml,kt,kts,swift}",
+        "**/.github/actions/setup-nix/README.md",
         ".github/**",
         "apps/backend/backend.just",
+        "apps/example-android/{dev/apk,example-android.just,app/build.gradle}",
+        "dev/ci-failure-markers",
+        "dev/docker/grafana/dashboards/backend.json",
         "dev/docker/{compose.yml,load-backend-image,load-env,up}",
+        "dev/js/**",
         "dev/tls/**",
-        "dev/{tests,agents,specs,release-tools}/**",
+        "dev/{tests,agents,specs,release-tools,fly,ci}/**",
         "nix/fmt.nix",
-        "{.editorconfig,sdks/ios/.swiftformat}"
+        "nix/lib/packages/pnpm.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/android/android.just",
+        "sdks/js.just",
+        "{.editorconfig,sdks/ios/.swiftformat}",
+        "{crates,apps}/**/*.rs",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ]
     },
     "lint_proto": {

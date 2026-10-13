@@ -80,20 +80,23 @@ _check-crate +crates:
 
 # --- LINT ---
 
-lint: lint-rust lint-config lint-markdown lint-proto spec-check
+# The CI lint suites lint_workspace, lint_js, lint_config, lint_proto, and
+# docs_quality, the WASM and SDK generator Clippy of check_rust, and
+# `spec-check`. It skips lint_ios, lint_android, and lint_example_android,
+# which need mobile toolchains.
+lint: _js-deps lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto docs::test docs::check-source spec-check
 
 lint-proto:
     buf lint proto
 
-lint-rust:
+# Clippy for the default members and the SDK generator, which is not one.
+# Format is checked once, by treefmt in `lint-config`.
+lint-rust: lint-rust-source
     dev/agent-run cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings
-    cargo fmt --check
-    cargo hakari generate --diff
-    cargo hakari manage-deps --dry-run
+    dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings
 
 # Source checks do not compile Rust or generate SDK products.
 lint-rust-source:
-    cargo fmt --check
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
 
@@ -101,23 +104,13 @@ lint-js-source:
     pnpm lint:source
     node --test dev/js/test-lint-source.mjs
 
-# Config linting: TOML, Nix, and shell scripts.
+# Config linting: TOML, Nix, and shell scripts, and the dev tool tests.
+# dev/tests/run finds test_*.py files; add a test without editing this recipe.
 lint-config: _js-deps lint-treefmt
     python3.11 -B dev/ci-suites check
-    python3.11 -B dev/tests/test_ci_suites.py
-    python3.11 -B dev/tests/test_ci_select.py
-    python3.11 -B dev/agents/test_kache_env.py
-    python3.11 dev/tests/test_android_release.py
-    python3.11 -B dev/tests/test_example_android_selection.py
-    python3.11 dev/tests/test_release_push.py
-    python3.11 dev/tests/test_android_clock.py
-    python3.11 dev/tests/test_android_emulator_start.py
-    python3.11 dev/tests/test_docker_startup.py
-    python3.11 -B dev/tests/test_backend_image.py
-    python3.11 -B apps/example-android/fixtures/test_metadata_backend.py
-    python3.11 -B apps/example-android/fixtures/test_export_screenshots.py
-    python3.11 -B -m unittest discover -s apps/example-android/performance -p 'test_*.py' -v
-    python3.11 nix/lib/test-android-emulator-platform.py
+    python3.11 -B dev/tests/run
+    node --test dev/fly/render-dashboard.test.mjs
+    pnpm --filter @xmtp/release-tools --fail-if-no-match run test
 
 lint-toml:
     taplo format --check --diff

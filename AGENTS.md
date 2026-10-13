@@ -35,9 +35,9 @@ just check crate <name>      # check one crate
 just test                    # test default members
 just test crate <name>       # test one crate
 just test workspace -p <name> <args> # focused nextest options and filters
-just lint                    # Rust, config, Markdown, and proto
+just lint                    # CI lint except lint_ios/android/example_android, plus spec-check
 dev/nix-shell 'just lint-js-source' # source Oxlint without generated SDK products
-dev/nix-shell 'just lint-rust-source' # Rust format and manifests, without Clippy
+dev/nix-shell 'just lint-rust-source' # Rust manifests, without Clippy
 just backend up              # shared services
 just backend status          # worktree ports and URLs
 just outline <paths...>      # declarations and line ranges
@@ -82,9 +82,12 @@ port block, and backend image tag, so run `just backend status` for the checkout
   raw log fetch. See the `check-ci` skill.
 - After changes to the CI failure filter, run
   `dev/nix-shell 'just ci-failures-filter-test'`. It checks local log fixtures.
-- `dev/nix-shell 'just lint-config'` also checks CI selection and summaries,
-  Android emulator startup, scoped test teardown, platform selection, clock
-  synchronization, and Docker startup diagnostics with local process fixtures.
+- `dev/nix-shell 'just lint-config'` checks Rust and config format with treefmt.
+  It also runs the dev tool tests: `dev/tests/run` runs every `test_*.py` in
+  the directories it lists, so a new test there needs no recipe edit. They
+  check CI selection and summaries, Android emulator startup, scoped test
+  teardown, platform selection, clock synchronization, and Docker startup
+  diagnostics with local process fixtures.
 
 ## Android release workflow
 

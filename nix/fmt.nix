@@ -15,9 +15,6 @@
           rustfmt = {
             enable = true;
             package = rustfmt;
-            excludes = [
-              "crates/xmtp-workspace-hack/*"
-            ];
           };
           ruff-format.enable = true;
           ruff-check.enable = true;

@@ -54,6 +54,10 @@ check:
 check-cutover origin="https://self-hosted-docs.xmtp.to" site="_site":
     node scripts/check-cutover.mjs "{{ origin }}" "{{ site }}"
 
+# Check the documentation source without a site build (docs_quality CI).
+check-source:
+    node scripts/check-site.mjs
+
 # Check external URLs with the flags and HTML scope removed from docs CI.
 check-external:
     node scripts/site-freshness.mjs

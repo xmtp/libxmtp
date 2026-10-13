@@ -62,7 +62,6 @@ shared:
   - "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run,kache-env,kache-ci-config,kache-ci-policy,kache-darwin-wrapper}"
 
 neutral:
-  - ".github/workflows/benchmark-example-android.yml"
   - "**/{AGENTS,CLAUDE}.md"
   - ".github/**/*.md"
   - "{README,CONTRIBUTING,ONBOARDING,TEST_SCENARIOS}.md"
@@ -72,10 +71,10 @@ neutral:
   - "apps/.gitkeep"
   - ".github/{CODEOWNERS,dependabot.yml}"
   - ".github/ISSUE_TEMPLATE/**"
-  - "dev/{fly,test}/**"
+  - "dev/test/**"
   - "dev/{ast-outline,bench,serena,flamegraph,llvm-cov,up,down,direnv-up,direnv-down,docs}"
-  - "dev/{nix-up,nix-down,nix-status,nix-cache-up,ci-failure-markers}"
-  - "dev/{ci,nix}/**"
+  - "dev/{nix-up,nix-down,nix-status,nix-cache-up}"
+  - "dev/nix/**"
 
 path_groups:
   # Suites that start the Docker stack test against a backend built from source.
@@ -146,12 +145,14 @@ suites:
     permissions: {contents: read}
     kache: []
     path_filters:
-      - "{crates,apps}/**/*.rs"
+      # `just lint-rust-source` checks the workspace manifests; treefmt in
+      # lint_config checks Rust format.
       - "**/Cargo.toml"
-      - "{Cargo.lock,rustfmt.toml,.clippy.toml,.taplo.toml,deny.toml}"
+      - "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
       - ".config/hakari.toml"
       - "crates/xmtp-workspace-hack/**"
-      - "apps/{chaos,db_tools,error_glossary,keepalive-probe,xmtp_debug}/**"
+      # No other suite owns this module; any `just` run parses it.
+      - "apps/chaos/chaos.just"
   lint_js:
     phase: lint
     workflow: lint-js.yml
@@ -172,15 +173,29 @@ suites:
     permissions: {contents: read}
     kache: []
     path_filters:
-      # treefmt formats these file types across the repository.
+      # treefmt formats and checks these file types across the repository.
+      # Every tracked Rust file is under crates/ or apps/ today. This rule
+      # does not select a Rust file elsewhere: a known path (for example under
+      # sdks/android/) runs its own suites, and an unknown path runs all.
       - "**/*.{nix,py,sh,toml,kt,kts,swift}"
+      - "{crates,apps}/**/*.rs"
       - "{.editorconfig,sdks/ios/.swiftformat}"
       - ".github/**"
-      - "dev/{tests,agents,specs,release-tools}/**"
-      # dev/tests/test_{backend_image,docker_startup}.py check these files.
+      # `just lint-config` runs the tests of these tools.
+      - "dev/{tests,agents,specs,release-tools,fly,ci}/**"
+      - "dev/ci-failure-markers"
+      # The dev tests and the Fly dashboard test read these files.
       - "dev/docker/{compose.yml,load-backend-image,load-env,up}"
+      - "dev/docker/grafana/dashboards/backend.json"
       - "dev/tls/**"
       - "apps/backend/backend.just"
+      - "sdks/android/android.just"
+      - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
+      # test_kache_env.py reads this neutral file. A neutral file selects a
+      # suite only through a pattern that starts with `**/`.
+      - "**/.github/actions/setup-nix/README.md"
+      # The release-tools tests and the release push test run its tools.
+      - path_group: js_workspace
       - "nix/fmt.nix"
   lint_proto:
     phase: lint
