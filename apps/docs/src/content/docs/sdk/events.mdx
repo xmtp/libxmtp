@@ -222,6 +222,7 @@ and `.messageStatusChanged` on Swift. Kotlin variants use names such as
 | `attachment.download_completed`     | `attachment_download_completed` | Download produced a readable plaintext file. `attachment_key`, `url`, `content_digest`.                                                                                         |
 | `attachment.download_failed`        | `attachment_download_failed`    | Started download failed. `attachment_key`, `url`, `content_digest`, `cause`.                                                                                                    |
 | `attachment.deleted`                | `attachment_deleted`            | Local attachment data deleted. `attachment_key`, `url`, `content_digest`.                                                                                                       |
+| `handle.changed`                    | `handle_changed`                | An inbox's current [handle](/sdk/inboxes/#handles) changed: the client stored a newer identity state for it. `inbox_id`, `handle`. The first state stored emits none.           |
 | `lagged`                            | `lagged`                        | This subscription discarded events. `discarded` is a `bigint` in JavaScript, `ULong` in Kotlin, and `UInt64` in Swift.                                                          |
 
 `conversation_type` is `group` or `dm`. Join `origin` is `created` or `welcomed`;

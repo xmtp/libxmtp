@@ -277,6 +277,11 @@ them, and applies them only when it admits a new claim.
 | ----------------- | ---------------- | ------- | ---------------------------------------------------------------------------------------------------- |
 | `min_name_length` | integer, 1 to 27 | `3`     | Shortest name part, the text before `#`, of a new claim. Handles claimed before a change stay valid. |
 
+The other claim limits, such as 64 claims per inbox, are fixed. See
+[Handle limits](/reference/limits/#handle-limits). After the backend stores a
+claim, do not roll back to a build without handles. See
+[Database and migrations](/deploy/overview/#database-and-migrations).
+
 ### `[[application_components]]`
 
 Group metadata fields the backend publishes for clients to register in the

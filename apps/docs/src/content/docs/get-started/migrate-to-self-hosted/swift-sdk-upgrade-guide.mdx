@@ -215,6 +215,8 @@ For a smart contract wallet, return `.scw(chainId:blockNumber:)` from `kind()`. 
 
 `InboxState` retains `inboxId`, `identities`, `installations`, `recoveryIdentity`, and `creationSignatureKind`. `Installation.createdAt` changes from `Date?` to `Timestamp?`. `KeyPackageStatus` has `lifetime: KeyPackageLifetime?` and `validationError: String?`. The lifetime has `notBefore` and `notAfter` as `UInt64` values.
 
+Handles are new. An inbox can claim a public name such as `nick#2341`, and a `PublicIdentity` of kind `.handle` finds that inbox. `SDKClient.inboxIdFor(identity:backend:)` never derives an inbox ID from a handle: it throws `XmtpError.IdentityNotFound` for a handle that no inbox claimed. `InboxState` and `Member` also have `handle` and `otherHandles`. See [Handles](/sdk/inboxes/#handles).
+
 ```swift title="Before"
 func lookup(client: Client, address: String) async throws -> (Bool, InboxId?) {
     let identity = PublicIdentity(kind: .ethereum, identifier: address)

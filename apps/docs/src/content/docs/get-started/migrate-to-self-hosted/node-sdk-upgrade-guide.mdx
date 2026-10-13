@@ -214,6 +214,11 @@ always present, has the new option shape, and omits backend credential
 sources, static credentials, and the storage encryption key. `isInMemory` and
 `storagePath` are new properties.
 
+Handles are new. An inbox can claim a public name such as `nick#2341`, and a
+`PublicIdentity` of kind `handle` finds that inbox. Static `Client.inboxIdFor`
+never derives an inbox ID from a handle: it fails with `IdentityNotFound` for a
+handle that no inbox claimed. See [Handles](/sdk/inboxes/#handles).
+
 ```ts source="migration-node.ts" region="identity-changes"
 
 ```

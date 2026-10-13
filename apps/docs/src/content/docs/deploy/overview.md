@@ -83,6 +83,13 @@ Each schema change adds a new migration. There is no supported in-place
 upgrade path yet, so a schema change can require a fresh database. Back up
 the database before deployment. Startup never deletes an existing database.
 
+After the backend stores a handle claim, do not roll back to a backend build
+that predates handles. That build cannot read a stored claim, so it rejects
+every later identity update of each inbox that claimed a handle. The minimum
+name length is the `handles.min_name_length` setting; see
+[Run the backend](/get-started/run-the-backend/#handles) and
+[Handle limits](/reference/limits/#handle-limits).
+
 ### Connection budget
 
 Without a replica, each instance uses up to `max_connections` pooled connections
