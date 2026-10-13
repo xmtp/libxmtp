@@ -18,8 +18,8 @@ use xmtp_id::associations::verify_updates;
 use xmtp_id::{
     AsIdRef, InboxIdRef,
     associations::{
-        AssociationError, AssociationState, Identifier, IdentityAction, InstallationKeyContext,
-        MemberIdentifier,
+        AssociationError, AssociationState, Handle, Identifier, IdentityAction,
+        InstallationKeyContext, MemberIdentifier,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
         get_state,
         unverified::{
@@ -568,6 +568,28 @@ where
             .server_configuration()
             .restrict(&mut signature_request);
 
+        Ok(signature_request)
+    }
+
+    /// Generate a `ClaimHandle` signature request for `handle`, signed by this
+    /// installation's key.
+    pub async fn claim_handle_request(
+        &self,
+        handle: Handle,
+    ) -> Result<SignatureRequest, ClientError> {
+        let installation_keys = &self.context.identity().installation_keys;
+        let installation_public_key = installation_keys.verifying_key();
+        let mut signature_request = SignatureRequestBuilder::new(self.context.inbox_id())
+            .claim_handle(handle, installation_public_key.into())
+            .build();
+        let signature = installation_keys
+            .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
+        signature_request
+            .add_signature(
+                UnverifiedSignature::new_installation_key(signature, installation_public_key),
+                &self.context.scw_verifier(),
+            )
+            .await?;
         Ok(signature_request)
     }
 

@@ -1,9 +1,7 @@
 //! `handle.changed`: emitted from the write that stores a newer association
 //! state, only when the display handle changes.
 
-use super::{
-    ClaimSigner::Installation, claim_for_test, new_inbox_state, random_handle, state_with_handles,
-};
+use super::{new_inbox_state, random_handle, state_with_handles};
 use crate::{
     client::ClientError, context::XmtpSharedContext, identity_updates::store_association_state,
     tester,
@@ -37,7 +35,7 @@ async fn first_state_emits_no_handle_event() {
     tester!(alix);
     tester!(bo);
     let handle = random_handle();
-    claim_for_test(&alix, &handle, Installation).await?;
+    alix.claim_handle(&handle).await?;
     let events = bo
         .context
         .events()
@@ -67,7 +65,7 @@ async fn peer_claim_emits_one_handle_changed() {
         .subscribe(EventFilter::new([EventKind::HandleChanged]), Some(10));
 
     let handle = random_handle();
-    claim_for_test(&alix, &handle, Installation).await?;
+    alix.claim_handle(&handle).await?;
     bo.inbox_addresses(true, vec![alix.inbox_id()]).await?;
 
     let expected = HandleChanged {
@@ -83,7 +81,7 @@ async fn peer_claim_emits_one_handle_changed() {
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn rename_emits_new_display_handle() {
-    use super::{ClaimSigner::Wallet, PAST_CLAIM_INTERVAL};
+    use super::{PAST_CLAIM_INTERVAL, claim_with_wallet};
     use crate::utils::test::backend::EphemeralBackend;
     // An inbox claims more than once, so the claims stay off the shared backend.
     let backend = EphemeralBackend::start("").await?;
@@ -91,7 +89,7 @@ async fn rename_emits_new_display_handle() {
     tester!(bo, backend: &backend, disable_workers);
     let first = random_handle();
     let second = random_handle();
-    claim_for_test(&alix, &first, Installation).await?;
+    alix.claim_handle(&first).await?;
     bo.inbox_addresses(true, vec![alix.inbox_id()]).await?;
     let events = bo
         .context
@@ -101,11 +99,11 @@ async fn rename_emits_new_display_handle() {
     backend
         .age_identity_history(alix.inbox_id(), PAST_CLAIM_INTERVAL)
         .await?;
-    claim_for_test(&alix, &second, Installation).await?;
+    alix.claim_handle(&second).await?;
     backend
         .age_identity_history(alix.inbox_id(), PAST_CLAIM_INTERVAL)
         .await?;
-    claim_for_test(&alix, &first, Wallet).await?;
+    claim_with_wallet(&alix, &first).await?;
     let switched_back = bo.inbox_addresses(true, vec![alix.inbox_id()]).await?;
     assert_eq!(switched_back[0].handles(), [second.clone(), first.clone()]);
     assert!(
@@ -116,7 +114,7 @@ async fn rename_emits_new_display_handle() {
     backend
         .age_identity_history(alix.inbox_id(), PAST_CLAIM_INTERVAL)
         .await?;
-    claim_for_test(&alix, &second, Wallet).await?;
+    claim_with_wallet(&alix, &second).await?;
     bo.inbox_addresses(true, vec![alix.inbox_id()]).await?;
     assert_eq!(
         handle_events(events.drain()),

@@ -2,19 +2,29 @@
 //! most once per inbox, because a claimed handle is permanent there. Tests
 //! that claim more than once use an ephemeral backend.
 
+mod claims;
 mod events;
 #[cfg(not(target_arch = "wasm32"))]
 mod members;
+mod resolver;
+mod routes;
+mod search;
 
 use crate::{
     client::ClientError, context::XmtpSharedContext, identity_updates::IdentityUpdates,
     utils::Tester,
 };
+use parking_lot::Mutex;
+use std::{collections::HashMap, sync::Arc};
 use xmtp_id::associations::{
     AssociationState, Identifier,
     builder::SignatureRequestBuilder,
     handle::Handle,
-    test_utils::{WalletTestExt, add_installation_key_signature, add_wallet_signature},
+    test_utils::{WalletTestExt, add_wallet_signature},
+};
+use xmtp_proto::{
+    api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire,
+    xmtp::identity::associations::IdentifierKind,
 };
 
 /// Longer than the backend's interval of 7 days between two claims by one
@@ -28,38 +38,18 @@ fn random_handle() -> Handle {
     Handle::parse(&format!("t{suffix}")).expect("a random handle matches the grammar")
 }
 
-/// The current member that signs a test claim.
-#[derive(Clone, Copy)]
-enum ClaimSigner {
-    Installation,
-    /// The tester's wallet. The signature text has one-second precision, so a
-    /// switch back to a handle in the same second by the same signer repeats
-    /// that signer's earlier signature, which replay protection rejects.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-    Wallet,
-}
-
-/// Claim `handle` for the tester's inbox.
-async fn claim_for_test(
-    tester: &Tester,
-    handle: &Handle,
-    signer: ClaimSigner,
-) -> Result<(), ClientError> {
+/// Claim `handle` for the tester's inbox, signed by the tester's wallet.
+/// `Client::claim_handle` signs with the installation key, and the signature
+/// text has one-second precision. So a switch back to a handle in the same
+/// second by that key repeats its earlier signature, which replay protection
+/// rejects. A second signer avoids that without a wait.
+#[cfg(not(target_arch = "wasm32"))]
+async fn claim_with_wallet(tester: &Tester, handle: &Handle) -> Result<(), ClientError> {
     let wallet = &tester.builder.owner;
-    let installation_keys = &tester.context.identity().installation_keys;
-    let member = match signer {
-        ClaimSigner::Installation => installation_keys.verifying_key().into(),
-        ClaimSigner::Wallet => wallet.member_identifier(),
-    };
     let mut request = SignatureRequestBuilder::new(tester.inbox_id())
-        .claim_handle(handle.clone(), member)
+        .claim_handle(handle.clone(), wallet.member_identifier())
         .build();
-    match signer {
-        ClaimSigner::Installation => {
-            add_installation_key_signature(&mut request, installation_keys).await
-        }
-        ClaimSigner::Wallet => add_wallet_signature(&mut request, wallet).await,
-    }
+    add_wallet_signature(&mut request, wallet).await;
     IdentityUpdates::new(&tester.context)
         .apply_signature_request(request)
         .await
@@ -76,4 +66,130 @@ fn state_with_handles(base: &AssociationState, handles: &[&str]) -> AssociationS
 /// A new inbox's association state, with no handles.
 fn new_inbox_state() -> AssociationState {
     AssociationState::new(Identifier::rand_ethereum(), 0, None).expect("a new inbox state")
+}
+
+/// What a [`ScriptedLookups`] client saw, and the inboxes it names falsely.
+#[derive(Default)]
+struct LookupScript {
+    /// Handle lookups answered with this inbox, as a lying backend would.
+    lies: HashMap<String, String>,
+    /// The number of entries in each `GetInboxIds` request, in order.
+    lookups: Vec<usize>,
+    /// The number of `Publish` requests.
+    publishes: usize,
+}
+
+/// A backend client that forwards every call to the shared backend. It
+/// records lookups and publishes, and can answer a handle lookup with a
+/// chosen inbox.
+#[derive(Clone)]
+struct ScriptedLookups {
+    inner: crate::utils::TestClient,
+    script: Arc<Mutex<LookupScript>>,
+}
+
+type ScriptedContext = Arc<
+    crate::context::XmtpMlsLocalContext<
+        ScriptedLookups,
+        xmtp_db::DefaultStore,
+        crate::utils::TestMlsStorage,
+    >,
+>;
+
+/// A second client of `base`'s inbox and database, whose requests go through
+/// a [`ScriptedLookups`].
+async fn scripted_client(
+    base: &Tester,
+) -> Result<
+    (crate::Client<ScriptedContext>, Arc<Mutex<LookupScript>>),
+    crate::builder::ClientBuilderError,
+> {
+    let script = Arc::new(Mutex::new(LookupScript::default()));
+    let api = ScriptedLookups {
+        inner: base.context.api().api_client.raw_for_test().clone(),
+        script: script.clone(),
+    };
+    let client = crate::builder::ClientBuilder::from_client(base.client.clone())
+        .api_client(api)
+        .with_allow_offline(Some(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    Ok((client, script))
+}
+
+#[xmtp_common::async_trait]
+impl XmtpBackendClient for ScriptedLookups {
+    type Error = ApiClientError;
+
+    async fn publish(
+        &self,
+        request: wire::PublishRequest,
+    ) -> Result<wire::PublishResponse, Self::Error> {
+        self.script.lock().publishes += 1;
+        self.inner.publish(request).await
+    }
+    async fn create_upload(
+        &self,
+        request: wire::CreateUploadRequest,
+    ) -> Result<wire::CreateUploadResponse, Self::Error> {
+        self.inner.create_upload(request).await
+    }
+    async fn query(&self, request: wire::QueryRequest) -> Result<wire::QueryResponse, Self::Error> {
+        self.inner.query(request).await
+    }
+    async fn query_newest(
+        &self,
+        request: wire::QueryNewestRequest,
+    ) -> Result<wire::QueryNewestResponse, Self::Error> {
+        self.inner.query_newest(request).await
+    }
+    async fn get_inbox_ids(
+        &self,
+        request: wire::GetInboxIdsRequest,
+    ) -> Result<wire::GetInboxIdsResponse, Self::Error> {
+        self.script.lock().lookups.push(request.requests.len());
+        let mut response = self.inner.get_inbox_ids(request).await?;
+        let script = self.script.lock();
+        for answer in &mut response.responses {
+            if answer.identifier_kind == IdentifierKind::Handle as i32
+                && let Some(inbox_id) = script.lies.get(&answer.identifier)
+            {
+                answer.inbox_id = Some(inbox_id.clone());
+            }
+        }
+        Ok(response)
+    }
+    async fn get_configuration(
+        &self,
+        request: wire::GetConfigurationRequest,
+    ) -> Result<wire::GetConfigurationResponse, Self::Error> {
+        self.inner.get_configuration(request).await
+    }
+    async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: wire::VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<wire::VerifySmartContractWalletSignaturesResponse, Self::Error> {
+        self.inner
+            .verify_smart_contract_wallet_signatures(request)
+            .await
+    }
+    async fn register(
+        &self,
+        request: wire::RegisterRequest,
+    ) -> Result<wire::RecipientState, Self::Error> {
+        self.inner.register(request).await
+    }
+    async fn unregister(
+        &self,
+        request: wire::UnregisterRequest,
+    ) -> Result<wire::UnregisterResponse, Self::Error> {
+        self.inner.unregister(request).await
+    }
+    async fn update_subscriptions(
+        &self,
+        request: wire::UpdateSubscriptionsRequest,
+    ) -> Result<wire::RecipientState, Self::Error> {
+        self.inner.update_subscriptions(request).await
+    }
 }

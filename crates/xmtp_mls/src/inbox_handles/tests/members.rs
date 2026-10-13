@@ -1,6 +1,6 @@
 //! Group members carry the handles of the newest association state held.
 
-use super::{ClaimSigner::Installation, PAST_CLAIM_INTERVAL, claim_for_test, random_handle};
+use super::{PAST_CLAIM_INTERVAL, random_handle};
 use crate::{context::XmtpSharedContext, tester, utils::test::backend::EphemeralBackend};
 use xmtp_db::prelude::*;
 use xmtp_mls_validation::commit::extract_group_membership;
@@ -16,15 +16,15 @@ async fn members_show_newest_handle_and_other_handles() {
     group.add_members(&[bo.inbox_id()]).await?;
 
     let (first, second, third) = (random_handle(), random_handle(), random_handle());
-    claim_for_test(&bo, &first, Installation).await?;
+    bo.claim_handle(&first).await?;
     backend
         .age_identity_history(bo.inbox_id(), PAST_CLAIM_INTERVAL)
         .await?;
-    claim_for_test(&bo, &second, Installation).await?;
+    bo.claim_handle(&second).await?;
     backend
         .age_identity_history(bo.inbox_id(), PAST_CLAIM_INTERVAL)
         .await?;
-    claim_for_test(&bo, &third, Installation).await?;
+    bo.claim_handle(&third).await?;
     alix.inbox_addresses(true, vec![bo.inbox_id()]).await?;
     let newest_sequence =
         alix.context.db().get_latest_sequence_id(&[bo.inbox_id()])?[bo.inbox_id()];
