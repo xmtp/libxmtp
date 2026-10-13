@@ -177,13 +177,7 @@ internal class HandleController(
             }
 
             is HandleAction.SwitchBack -> {
-                change { state ->
-                    if (state.mode != HandleMode.CHANGE || !state.editable || action.handle !in state.others) {
-                        state
-                    } else {
-                        state.copy(confirm = action.handle)
-                    }
-                }
+                change { switchBack(it, action.handle) ?: it }
             }
 
             HandleAction.ConfirmClaim -> {
@@ -239,6 +233,16 @@ internal class HandleController(
                         state.notice !is HandleNotice.NotAllowed &&
                         (state.status == HandleStatus.Editing || state.status is HandleStatus.NoneFree)
                 if (!ready) return
+                // The server lists no handle that this inbox holds as free, so the editor answers for those.
+                val own = state.copy(status = HandleStatus.Editing, notice = null)
+                if (state.input == state.current) {
+                    ui.value = own.copy(problem = HandleInputProblem.CURRENT)
+                    return
+                }
+                switchBack(own, state.input)?.let {
+                    ui.value = it
+                    return
+                }
                 work?.cancel()
                 ui.value = state.copy(status = HandleStatus.Checking(state.input), confirm = null, notice = null)
                 Triple(opened, ++request, state.input)
@@ -258,6 +262,17 @@ internal class HandleController(
                 }
             }
     }
+
+    /** A switch back to [handle], one of the inbox's other handles, asks for confirmation first (D34). */
+    private fun switchBack(
+        state: HandleState,
+        handle: String,
+    ): HandleState? =
+        if (state.mode == HandleMode.CHANGE && state.editable && handle in state.others) {
+            state.copy(confirm = handle)
+        } else {
+            null
+        }
 
     /** The bare name or the typed handle if it is free, else the free handles for its name part. */
     private suspend fun lookup(

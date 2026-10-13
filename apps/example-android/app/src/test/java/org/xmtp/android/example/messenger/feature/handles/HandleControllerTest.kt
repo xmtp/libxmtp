@@ -79,6 +79,8 @@ class HandleControllerTest {
 
     private fun offline() = XmtpException.RequestTimeout(details("RequestTimeout"))
 
+    private fun invalid() = XmtpException.InvalidArgument(details("InvalidArgument"))
+
     private fun open(
         account: FakeAccount,
         mode: HandleMode = HandleMode.CHOOSE,
@@ -235,7 +237,7 @@ class HandleControllerTest {
     }
 
     @Test fun takenNameShowsThreeSuggestionsAndShowMore() {
-        val free = listOf("nick#2341", "nick#0912", "nick#5530", "nick#6418", "nick#7702")
+        val free = listOf("nick#2341", "nick#0912", "nick#5530", "nick#6418", "nick#7702", "nick#8120", "nick#9031")
         val account = FakeAccount().apply { available = { free } }
         val editor = open(account)
         editor.type("nick")
@@ -246,14 +248,20 @@ class HandleControllerTest {
         assertTrue(status.more)
         assertEquals("nick is taken. These handles are free:", HandleCopy.suggestions("nick"))
         assertEquals("Claim nick#2341", HandleCopy.primary(editor.value))
+        // Each Show more adds 3 from the same answer, until the answer runs out.
         editor.dispatch(HandleAction.ShowMore)
         val more = editor.value.status as HandleStatus.Suggestions
-        assertEquals(free, more.visible)
-        assertFalse(more.more)
-        editor.dispatch(HandleAction.Select("nick#6418"))
-        assertEquals("nick#6418", editor.value.pick)
+        assertEquals(free.take(6), more.visible)
+        assertTrue(more.more)
+        editor.dispatch(HandleAction.ShowMore)
+        val all = editor.value.status as HandleStatus.Suggestions
+        assertEquals(free, all.visible)
+        assertFalse(all.more)
+        assertEquals(listOf("nick"), account.lookups)
+        editor.dispatch(HandleAction.Select("nick#9031"))
+        assertEquals("nick#9031", editor.value.pick)
         editor.dispatch(HandleAction.Claim)
-        assertEquals(listOf("nick#6418"), account.claims)
+        assertEquals(listOf("nick#9031"), account.claims)
     }
 
     @Test fun takenHandleWithACodeSuggestsCodesForItsName() {
@@ -416,6 +424,16 @@ class HandleControllerTest {
             "You changed your handle less than 7 days ago. Try again later.",
             HandleCopy.notice(other.value.notice!!),
         )
+        // This device's last claim is older than the interval, so another device made the newest one.
+        val stale =
+            FakeAccount(current = "nick#2341", others = listOf("nick#0912")).apply {
+                times["nick#2341"] = clock - 10 * day
+                claim = { throw tooSoon() }
+            }
+        val third = open(stale, HandleMode.CHANGE)
+        third.dispatch(HandleAction.SwitchBack("nick#0912"))
+        third.dispatch(HandleAction.ConfirmClaim)
+        assertEquals(HandleNotice.TooSoon(null, null), third.value.notice)
     }
 
     @Test fun claimLimitReachedBlocksEveryChange() {
@@ -448,6 +466,18 @@ class HandleControllerTest {
         editor.dispatch(HandleAction.Retry)
         assertNull(editor.value.notice)
         assertEquals(HandleStatus.Available("nick"), editor.value.status)
+    }
+
+    @Test fun inputTheSdkRejectsShowsAsAFieldError() {
+        val account = FakeAccount().apply { available = { throw invalid() } }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        // The input is wrong, so Retry would fail again: the field asks for another name.
+        assertEquals(HandleInputProblem.INVALID_CHARACTERS, editor.value.problem)
+        assertEquals(HandleStatus.Editing, editor.value.status)
+        assertNull(editor.value.notice)
+        assertFalse(editor.value.canCheck)
     }
 
     @Test fun claimWithNoAnswerChecksTheLogBeforeItOffersRetry() {
@@ -537,6 +567,52 @@ class HandleControllerTest {
         assertEquals("nicky", editor.value.current)
         assertEquals(listOf("nick#2341", "nick#0912"), editor.value.others)
         assertEquals(1, account.finished)
+    }
+
+    @Test fun typingTheCurrentHandleSaysItIsCurrent() {
+        val account =
+            FakeAccount(current = "nick#2341", others = listOf("nickm")).apply {
+                available = { listOf("${handleName(it)}#0412") }
+            }
+        val editor = open(account, HandleMode.CHANGE)
+        editor.type("nick#2341")
+        editor.dispatch(HandleAction.Check)
+        // The server lists no handle that this inbox holds as free, so the editor does not ask it.
+        assertEquals(emptyList<String>(), account.lookups)
+        assertEquals(HandleInputProblem.CURRENT, editor.value.problem)
+        assertEquals(HandleStatus.Editing, editor.value.status)
+        assertFalse(editor.value.canCheck)
+        assertFalse(editor.value.canClaim)
+        assertEquals(
+            "This is your current handle.",
+            HandleCopy.problem(HandleInputProblem.CURRENT, "nick#2341", editor.value.minNameLength),
+        )
+        editor.type("nick#2342")
+        assertNull(editor.value.problem)
+        assertTrue(editor.value.canCheck)
+    }
+
+    @Test fun typingAnOtherHandleOffersTheSwitchBack() {
+        val account =
+            FakeAccount(current = "nick#2341", others = listOf("nickm")).apply {
+                available = { listOf("${handleName(it)}#0412") }
+            }
+        val editor = open(account, HandleMode.CHANGE)
+        // Use offers only the inbox's own other handles.
+        editor.dispatch(HandleAction.SwitchBack("nick#2341"))
+        editor.dispatch(HandleAction.SwitchBack("someone"))
+        assertNull(editor.value.confirm)
+        // A typed other handle opens the same confirmation as Use. It is not offered as taken.
+        editor.type("nickm")
+        editor.dispatch(HandleAction.Check)
+        assertEquals(emptyList<String>(), account.lookups)
+        assertEquals("nickm", editor.value.confirm)
+        assertEquals(HandleStatus.Editing, editor.value.status)
+        assertEquals(emptyList<String>(), account.claims)
+        editor.dispatch(HandleAction.ConfirmClaim)
+        assertEquals(listOf("nickm"), account.claims)
+        assertEquals("nickm", editor.value.current)
+        assertEquals(listOf("nick#2341"), editor.value.others)
     }
 
     @Test fun skipLeavesOnboardingWithoutAClaim() {

@@ -153,7 +153,9 @@ message. A successful claim opens Chats.
 
 Settings shows your current handle as the profile title and your other handles
 below it. Change handle reuses the editor, lists your other handles with Use,
-and asks for confirmation before each claim. A switch back to an older handle
+and asks for confirmation before each claim. If you type one of your other
+handles, the editor asks to switch back to it, as Use does. If you type your
+current handle, the editor says so. A switch back to an older handle
 is a new claim, so it must pass the server's current rules. The app records the
 time of each claim it makes, so it can show when you can change again. A claim
 from another device has no date on this one.
