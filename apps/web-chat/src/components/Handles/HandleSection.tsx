@@ -36,7 +36,8 @@ const STILL_YOURS =
  */
 export const HandleSection: React.FC = () => {
   const client = useClient();
-  const { handle, otherHandles, loaded, refresh } = useOwnHandles();
+  const { handle, otherHandles, loaded, failed, refresh } = useOwnHandles();
+  const [retrying, setRetrying] = useState(false);
   const [editing, setEditing] = useState(false);
   const [blocked, setBlocked] = useState<Blocked | null>(null);
   const [switchBack, setSwitchBack] = useState<SwitchBack | null>(null);
@@ -108,6 +109,32 @@ export const HandleSection: React.FC = () => {
     },
     [claim],
   );
+
+  // Unknown handles are not "no handle": the inbox can have one, so offer no
+  // claim until a read works.
+  if (!loaded && failed) {
+    return (
+      <Alert color="red" variant="light">
+        <Stack gap="xs" align="flex-start">
+          <Text size="sm">Cannot load your handle. Try again.</Text>
+          <Button
+            size="xs"
+            variant="default"
+            loading={retrying}
+            onClick={() => {
+              setRetrying(true);
+              void refresh(true)
+                .catch(console.error)
+                .finally(() => {
+                  setRetrying(false);
+                });
+            }}>
+            Retry
+          </Button>
+        </Stack>
+      </Alert>
+    );
+  }
 
   if (!loaded) {
     return (

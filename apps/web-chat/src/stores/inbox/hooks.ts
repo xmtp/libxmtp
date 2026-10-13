@@ -134,3 +134,7 @@ export const useActions = () => {
 export const useOwnHandlesState = () => {
   return useStore(inboxStore, (state) => state.ownHandles);
 };
+
+export const useOwnHandlesFailed = () => {
+  return useStore(inboxStore, (state) => state.ownHandlesFailed);
+};

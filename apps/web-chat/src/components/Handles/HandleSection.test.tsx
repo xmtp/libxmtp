@@ -44,6 +44,8 @@ const mocks = vi.hoisted(() => {
     minNameLength: 3,
     handle: null as string | null,
     otherHandles: [] as string[],
+    loaded: true,
+    failed: false,
   };
 });
 vi.mock("@xmtp/browser-sdk", async (importOriginal) => ({
@@ -62,7 +64,8 @@ vi.mock("@/hooks/useOwnHandles", () => ({
   useOwnHandles: () => ({
     handle: mocks.handle,
     otherHandles: mocks.otherHandles,
-    loaded: true,
+    loaded: mocks.loaded,
+    failed: mocks.failed,
     refresh: mocks.refresh,
   }),
 }));
@@ -99,6 +102,8 @@ beforeEach(() => {
   mocks.minNameLength = 3;
   mocks.handle = "nick#2341";
   mocks.otherHandles = ["nick#0912", "nickm"];
+  mocks.loaded = true;
+  mocks.failed = false;
 });
 
 afterEach(() => {
@@ -106,6 +111,30 @@ afterEach(() => {
 });
 
 describe("HandleSection", () => {
+  it("shows a load error with Retry, and offers no claim, when the handles are unknown", async () => {
+    mocks.loaded = false;
+    mocks.failed = true;
+    mocks.handle = null;
+    mocks.otherHandles = [];
+    mocks.refresh.mockImplementationOnce(async () => {
+      mocks.loaded = true;
+      mocks.failed = false;
+      mocks.handle = "nick#2341";
+      return { handle: "nick#2341", otherHandles: [] };
+    });
+    renderSection();
+    expect(
+      screen.getByText("Cannot load your handle. Try again."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Choose a handle")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Handle" })).toBeNull();
+
+    fireEvent.click(button("Retry"));
+    await screen.findByText("Your handle on this server");
+    expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith(true);
+    expect(mocks.claimHandle).not.toHaveBeenCalled();
+  });
+
   it("shows the current handle first and the other handles after it", () => {
     renderSection();
     expect(screen.getByText("Your handle on this server")).toBeTruthy();

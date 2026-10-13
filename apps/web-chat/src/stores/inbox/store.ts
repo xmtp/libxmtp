@@ -70,6 +70,8 @@ export type InboxState = {
   lastSyncedAt?: bigint;
   // the handles of the client's inbox, once loaded
   ownHandles?: OwnHandles;
+  // the read of the own handles failed before any read worked
+  ownHandlesFailed: boolean;
 };
 
 export type InboxActions = {
@@ -93,6 +95,7 @@ export type InboxActions = {
   syncMembers: (conversationId: string) => Promise<void>;
   refreshInboxHandles: (inboxId: string) => Promise<void>;
   setOwnHandles: (handles: OwnHandles) => void;
+  setOwnHandlesFailed: () => void;
   reset: () => void;
 };
 
@@ -110,6 +113,7 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
     // an explicit key: reset() merges the initial state, so a key that is
     // absent here would keep the previous account's handles
     ownHandles: undefined,
+    ownHandlesFailed: false,
     addConversation: async (conversation: Conversation) => {
       const state = get();
       // update conversations state
@@ -502,7 +506,13 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
       set({ members: newMembers, metadata: newMetadata });
     },
     setOwnHandles: (handles: OwnHandles) => {
-      set({ ownHandles: handles });
+      set({ ownHandles: handles, ownHandlesFailed: false });
+    },
+    setOwnHandlesFailed: () => {
+      // handles that a read stored stay known
+      if (get().ownHandles === undefined) {
+        set({ ownHandlesFailed: true });
+      }
     },
     reset: () => {
       set(store.getInitialState());

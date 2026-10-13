@@ -2,7 +2,11 @@ import type { Client } from "@xmtp/browser-sdk";
 import { useCallback, useEffect } from "react";
 
 import { useClient } from "@/contexts/XMTPContext";
-import { useActions, useOwnHandlesState } from "@/stores/inbox/hooks";
+import {
+  useActions,
+  useOwnHandlesFailed,
+  useOwnHandlesState,
+} from "@/stores/inbox/hooks";
 import { inboxStore, type OwnHandles } from "@/stores/inbox/store";
 
 /**
@@ -21,7 +25,16 @@ export const loadOwnHandles = async (
   client: Client,
   refreshFromNetwork: boolean = false,
 ): Promise<OwnHandles | undefined> => {
-  const state = await client.inboxState(refreshFromNetwork);
+  let state;
+  try {
+    state = await client.inboxState(refreshFromNetwork);
+  } catch (error) {
+    // a failure for a client that is no longer current changes nothing
+    if (client === syncedClient) {
+      inboxStore.getState().setOwnHandlesFailed();
+    }
+    throw error;
+  }
   if (client !== syncedClient) return undefined;
   const handles = {
     handle: state.handle ?? null,
@@ -35,6 +48,7 @@ export const loadOwnHandles = async (
 export const useOwnHandles = () => {
   const client = useClient();
   const ownHandles = useOwnHandlesState();
+  const failed = useOwnHandlesFailed();
   const refresh = useCallback(
     (refreshFromNetwork: boolean = false) =>
       loadOwnHandles(client, refreshFromNetwork),
@@ -44,6 +58,8 @@ export const useOwnHandles = () => {
     handle: ownHandles?.handle ?? null,
     otherHandles: ownHandles?.otherHandles ?? [],
     loaded: ownHandles !== undefined,
+    // no read worked yet, and the last one failed: the handles are unknown
+    failed: ownHandles === undefined && failed,
     refresh,
   };
 };
