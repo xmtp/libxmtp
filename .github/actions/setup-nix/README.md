@@ -1,4 +1,22 @@
-# CI compiler cache
+# Setup Nix
+
+## Nix builds
+
+`setup-nix` sets `max-jobs = auto` and `cores = 0` on Linux and macOS: Nix
+builds one derivation per CPU at once, and each build may use all cores. Nix
+itself defaults to `max-jobs = 1`. Do not add a cap without evidence. A job
+gets a lower `max-jobs`, for that job alone, only when a failed run shows a
+kernel out-of-memory record, or when a measurement shows the job slower with
+`auto`. On Linux, a post step prints the kernel records that match
+`Out of memory: Killed process` or `oom-kill` when the job ends, also after a
+failure, and adds a warning when it finds one. On macOS, check memory pressure.
+
+The Nix store is not persisted between jobs. Each job substitutes from Cachix
+and cache.nixos.org, and Nix checks the signature of every path it adds.
+The `gradle-disk` input mounts the repo-wide `~/.gradle` sticky disk for CI
+Gradle jobs. CI jobs commit it, so release jobs do not mount it.
+
+## CI compiler cache
 
 `setup-nix` uses pinned Kache 1.0.0 and its private runtime directory.
 GitHub cache archives are disabled for the compiler store. Nix/Crane, Cachix,
@@ -12,12 +30,14 @@ The job summary reports the backend and whether remote writes are enabled.
 
 ## S3 coverage
 
-All 42 enabled `setup-nix` callers use S3 when the reader key pair is
-available. This includes callers that use the default `kache: true` setting.
-The nine callers with `kache: false` stay disabled and receive no S3 inputs.
-The 13 stable scope families follow the outer Cargo build variant. The action
-adds runner OS and architecture. All callers use `libxmtp/trusted`, prefetch expensive outputs, and do not pull the
-whole bucket at startup.
+Kache is off by default (`kache: "false"`). Only jobs that run cargo outside
+Nix set `kache: "true"`; Nix derivations cannot use Kache, so a job that only
+runs `nix build` gains nothing from it. The 21 enabled callers in the table
+below use S3 when the reader key pair is available. Every other caller passes
+no Kache input and selects no writer environment. The 11 stable scope
+families follow the outer Cargo build variant. The action adds runner OS and
+architecture. All callers use `libxmtp/trusted`, prefetch expensive outputs,
+and do not pull the whole bucket at startup.
 
 The resources are managed by
 [infrastructure PR #819](https://github.com/xmtplabs/infrastructure/pull/819)
@@ -69,8 +89,9 @@ Existing deployment jobs keep their deployment environment and URL. The
 names. Leave those environment secrets absent to use repository reader keys.
 Release jobs, jobs that build a selected ref, manual recovery, and native
 backend acceptance use `kache-readonly: true` and never select the writer
-environment. Source lint, docs quality and composition, and Nix output warming
-also remain readers because they do not need outer Cargo cache writes.
+environment. Source lint, docs quality and composition, Nix output warming,
+and the iOS and Android test jobs leave Kache off and select no writer
+environment, because they run no cargo outside Nix.
 Native backend acceptance receives only the Kache pair through an explicit
 secret map. Its Cachix and attachment S3 settings stay unchanged.
 
@@ -109,12 +130,10 @@ partition compiled artifacts: all callers share matching artifacts under
 debug build scopes as their writer jobs. An npm release still uses a debug
 Cargo build when its SDK generation command does not request `--profile release`.
 
-Jobs with no outer Cargo compilation share `nix-only`. This includes the
-Unix Node platform matrix and the iOS and Android jobs that build through Nix.
-They have no S3 compiler working set to separate by target. Nix-only jobs keep
-Nix/Crane and Cachix caching; S3 cannot cache output inside Nix derivations.
-The action appends runner OS and architecture to every scope. Node and browser
-test shards share the build scope without adding shard numbers.
+Jobs with no outer Cargo compilation leave Kache off. This includes the
+Unix Node platform matrix, the iOS and Android test jobs, and the lint jobs
+that build through Nix. They keep Nix/Crane and Cachix caching. Node and
+browser test shards share the build scope without adding shard numbers.
 
 To stop S3 use, remove both credential fields at both GitHub scopes. The jobs
 then use local-only Kache. Removing only the bucket while keeping credentials
@@ -129,50 +148,29 @@ start Kache or access S3.
 ## Caller scopes
 
 The action appends runner OS and architecture to each scope below.
-“Protected push writer” requires all event and branch checks above. Every
-other event is a reader. No new bucket, key pair, or repository variable is
-needed for this rollout.
+"Protected push writer" requires all event and branch checks above. Every
+other event is a reader. `dev/agents/test_kache_env.py` checks that this table
+lists exactly the callers with `kache: "true"`.
 
 | Workflow / job | Scope | Access |
 | --- | --- | --- |
-| `build-sdk-node-platforms.yml / unix` | `nix-only` | Reader |
 | `build-sdk-node-platforms.yml / assemble` | `sdk-native-release` | Reader |
 | `check-rust.yml / native` | `rust-clippy-native` | Protected push writer; otherwise reader |
 | `check-rust.yml / wasm` | `rust-clippy-wasm` | Protected push writer; otherwise reader |
 | `check-sdk-products.yml / generated` | `sdk-products-debug` | Protected push writer; otherwise reader |
 | `check-sdk-unit.yml / unit` | `sdk-tests-debug` | Protected push writer; otherwise reader |
 | `check-types.yml / check` | `sdk-products-debug` | Protected push writer; otherwise reader |
-| `deploy-docs.yml / swift` | `nix-only` | Protected push writer; otherwise reader |
-| `deploy-docs.yml / kotlin` | `nix-only` | Protected push writer; otherwise reader |
 | `deploy-docs.yml / site` | `sdk-products-debug` | Protected push writer; otherwise reader |
-| `deploy-docs.yml / compose` | `nix-only` | Reader |
 | `deploy-web-chat.yml / deploy` | `sdk-products-debug` | Reader |
-| `docs-quality.yml / quality` | `nix-only` | Reader |
 | `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer; otherwise reader |
-| `fh-cache.yml / build` | `nix-only` | Reader |
-| `lint-android.yml / lint` | `nix-only` | Reader |
-| `lint-config.yml / lint` | `nix-only` | Reader |
-| `lint-ios.yml / lint` | `nix-only` | Reader |
-| `lint-js.yml / lint` | `nix-only` | Reader |
-| `lint-proto.yml / lint` | `nix-only` | Reader |
-| `lint-workspace.yml / lint` | `nix-only` | Reader |
 | `manual-sdk-recovery.yml / recovery` | `sdk-native-debug` | Reader |
 | `release-agent-sdk.yml / build` | `sdk-native-debug` | Reader |
-| `release-android.yml / publish` | `nix-only` | Reader |
 | `release-browser-sdk.yml / build` | `sdk-products-debug` | Reader |
 | `release-cli.yml / build` | `sdk-native-debug` | Reader |
-| `release-ios.yml / build-and-package` | `nix-only` | Reader |
 | `test-agent-sdk.yml / test` | `sdk-native-debug` | Protected push writer; otherwise reader |
-| `test-android.yml / min-sdk-smoke` | `nix-only` | Protected push writer; otherwise reader |
-| `test-android.yml / unit-tests` | `nix-only` | Protected push writer; otherwise reader |
-| `test-android.yml / integration-tests` | `nix-only` | Protected push writer; otherwise reader |
-| `test-android.yml / check-android` | `nix-only` | Protected push writer; otherwise reader |
 | `test-android.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
 | `test-backend.yml / native` | `backend-tests-debug` | Reader |
 | `test-browser-sdk.yml / test` | `sdk-products-debug` | Protected push writer; otherwise reader |
-| `test-ios.yml / tests` | `nix-only` | Protected push writer; otherwise reader |
-| `test-ios.yml / swift` | `nix-only` | Protected push writer; otherwise reader |
-| `test-ios.yml / check-swift` | `bindings-check-${{ matrix.target }}` | Protected push writer; otherwise reader |
 | `test-node-sdk.yml / test` | `sdk-native-debug` | Protected push writer; otherwise reader |
 | `test-sdk-platform.yml / proof` | `sdk-products-debug` (`bridge` matrix target), `sdk-browser-conformance` (`browser` matrix target) | Protected push writer; otherwise reader |
 | `test-sdk.yml / sdk` | `sdk-products-tests-conformance` | Protected push writer; otherwise reader |

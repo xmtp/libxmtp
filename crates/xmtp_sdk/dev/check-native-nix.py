@@ -15,7 +15,6 @@ let
     ++ (if builtins.hasAttr "xmtp-sdk-ios-device" p
         then [ "xmtp-sdk-ios-device" "xmtp-sdk-ios-simulator" ] else []);
   inputs = d: {
-    jobs = d.CARGO_BUILD_JOBS or null;
     vendor = d.OPENSSL_NO_VENDOR or null;
     static = d.OPENSSL_STATIC or null;
     macos = d.MACOSX_DEPLOYMENT_TARGET or null;

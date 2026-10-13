@@ -24,9 +24,7 @@ jobs:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix
       with:
-        disk-key: rust
         kache: 'true'
-        docker-builder: 'true'
         github-token: ${{ github.token }}
         kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
         kache-s3-region: ${{ vars.KACHE_S3_REGION }}

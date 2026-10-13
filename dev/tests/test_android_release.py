@@ -320,7 +320,6 @@ class AndroidReleaseTest(unittest.TestCase):
 
     def test_build_gates_publication_and_keeps_tests(self):
         text = WORKFLOW.read_text()
-        self.assertIn('docker-builder: "true"', text)
         self.assertIn("just backend up", step("Start backend"))
         self.assertLess(
             text.index("- name: Start backend"), text.index("- name: Build and test")
@@ -348,10 +347,19 @@ class AndroidReleaseTest(unittest.TestCase):
             WORKFLOW.read_text(),
             r"uses: taiki-e/install-action@[0-9a-f]{40}(?:\s|$)",
         )
-        self.assertRegex(
-            (ROOT / ".github/actions/setup-nix/action.yml").read_text(),
-            r"uses: useblacksmith/setup-docker-builder@[0-9a-f]{40}(?:\s|$)",
-        )
+
+    def test_release_reads_no_sticky_disk(self):
+        # CI jobs commit the ~/.gradle disk; a release must not read a store
+        # that CI jobs write. Compose builds no image, so no buildx disk.
+        setup = yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]
+        inputs = [
+            item.get("with", {})
+            for item in setup
+            if item.get("uses") == "./.github/actions/setup-nix"
+        ]
+        self.assertEqual(len(inputs), 1)
+        self.assertEqual(inputs[0].get("gradle-disk", "false"), "false")
+        self.assertNotIn("docker-builder", inputs[0])
 
 
 if __name__ == "__main__":
