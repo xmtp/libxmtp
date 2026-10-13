@@ -376,26 +376,33 @@ async fn facade_api_statistics_project_all_seven_shared_counts() {
     assert_eq!(vector(&isolated).await?, [1, 0, 0, 0, 0, 0, 0]);
     let summary = first.diagnostics().aggregate_statistics().await?;
     assert_eq!(summary, second.diagnostics().aggregate_statistics().await?);
-    // Check each endpoint and value without parsing the summary format.
-    for (name, count) in [
-        ("publish", 1),
-        ("query", 2),
-        ("query_newest", 3),
-        ("subscribe", 4),
-        ("subscribe_static", 5),
-        ("get_inbox_ids", 6),
-        ("verify_smart_contract_wallet_signatures", 7),
+    assert!(!summary.is_empty());
+    for name in [
+        "publish",
+        "query",
+        "query_newest",
+        "subscribe",
+        "subscribe_static",
+        "get_inbox_ids",
+        "verify_smart_contract_wallet_signatures",
     ] {
         assert!(summary.contains(name), "missing endpoint {name}: {summary}");
-        assert!(
-            summary.contains(&count.to_string()),
-            "missing count {count}: {summary}"
-        );
     }
+    let isolated_summary = isolated.diagnostics().aggregate_statistics().await?;
     second.diagnostics().clear_statistics().await?;
     assert_eq!(vector(&first).await?, [0; 7]);
     assert_eq!(vector(&second).await?, [0; 7]);
     assert_eq!(vector(&isolated).await?, [1, 0, 0, 0, 0, 0, 0]);
+    let cleared_summary = first.diagnostics().aggregate_statistics().await?;
+    assert_ne!(summary, cleared_summary, "summary must track shared clear");
+    assert_eq!(
+        cleared_summary,
+        second.diagnostics().aggregate_statistics().await?
+    );
+    assert_eq!(
+        isolated_summary,
+        isolated.diagnostics().aggregate_statistics().await?
+    );
     for client in [first, second, isolated] {
         client.end().await?;
     }
