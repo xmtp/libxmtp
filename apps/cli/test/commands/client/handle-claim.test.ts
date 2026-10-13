@@ -72,6 +72,34 @@ describe("client handle-claim", () => {
     expect(result.stdout).toBe(`Your handle is now ${handle}.`);
   });
 
+  it("refuses the current handle and does not send a claim", async () => {
+    const identity = await createRegisteredIdentity();
+    const handle = `${randomHandleName()}#0042`;
+    const claimed = await runWithIdentity(identity, [
+      "client",
+      "handle-claim",
+      handle,
+      "--force",
+    ]);
+    expect(claimed.exitCode).toBe(0);
+
+    const result = await runWithIdentity(identity, [
+      "client",
+      "handle-claim",
+      handle.toUpperCase(),
+      "--force",
+    ]);
+
+    // A claim call here would reach the backend and fail with its answer:
+    // the 7-day wait, or a replayed signature when both claims are signed in
+    // the same second.
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toBe(
+      `${handle} is already your current handle. Nothing was claimed.`,
+    );
+    expect(await currentHandle(identity)).toBe(handle);
+  });
+
   it("reports a taken handle and never claims another one", async () => {
     const owner = await createRegisteredIdentity();
     const other = await createRegisteredIdentity();
