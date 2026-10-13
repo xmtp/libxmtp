@@ -102,6 +102,13 @@ identifier stays the same. A different identifier records a persistent conflict
 and stops backend operations. A later matching refresh does not clear that
 conflict. Use a database created for the intended deployment.
 
+:::caution[Converter release availability]
+The converter has landed in source, but `8.0.0-rc1` does not contain it.
+Use a newer validated release that exports `prepareMigrationArchive` before
+following the conversion steps below. Keep the old database and its key until
+you accept the imported result.
+:::
+
 ## The local database must be recreated
 
 A database created before the transition is rejected with this error:

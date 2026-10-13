@@ -150,7 +150,7 @@ when its database schema is compatible. Do not assume binary rollback reverses
 migrations. Use Managed Postgres backups to recover database state. Restore
 into a separate cluster and validate it before changing `XMTP_DATABASE_URL`.
 
-The current backend development rules allow edits to an existing migration.
-Such an edit can fail checksum validation against this persistent database.
-Resolve that with an explicit migration and data plan. Never reset this database
-automatically to make a deployment pass.
+Applied migrations are immutable. Add a new versioned migration when the schema
+changes. Compare the persistent database checksums before a deployment, and
+resolve differences with an explicit migration and data plan. Never reset this
+database automatically to make a deployment pass.

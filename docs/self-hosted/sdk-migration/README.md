@@ -46,7 +46,14 @@ The old standalone delete-payload codec is removed. Use the typed message
 delete action and read its typed result. The surviving
 `message_actions_use_ids_and_compression_is_opt_in` test checks this route.
 
-## Keep the existing database
+## Reopen a supported self-hosted database
+
+This section applies only to a database with a supported self-hosted schema.
+Do not open a pre-transition database directly with the new client. Close the
+legacy client and use `prepareMigrationArchive` from the normal SDK to convert
+its history and consent, then import into a new destination database. See the
+[legacy data guide](../../../apps/docs/src/pages/get-started/data-migration.md).
+Filename examples below do not prove that a legacy schema is supported.
 
 End the old client before opening the new client. An app must never open both
 clients on one database at the same time. Keep the existing encryption key on

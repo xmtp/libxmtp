@@ -129,9 +129,10 @@ Before publication:
 
 - Check CI on the source commit. The RC workflow does not require passing CI.
 - Check the npm tarballs, native binaries, browser worker, and WASM assets.
-- Check iOS SwiftPM and CocoaPods installation and Android Maven installation.
+- Check iOS SwiftPM installation and Android Maven installation.
 - Check messaging, storage reopen, and migration against the intended backend.
-- Resolve the recorded CocoaPods publish failure before accepting the iOS RC.
+- Check the iOS GitHub assets and SwiftPM checksum. The workflow prepares a
+  CocoaPods bundle, but it does not publish to CocoaPods trunk.
 
 Run the same command with `dry-run=false` to publish. Each SDK at `8.0.0`
 produces `8.0.0-rc1`. npm uses the `prerelease` tag. It does not replace
@@ -206,15 +207,19 @@ Dev versions from a branch such as `self-hosted` use `<version>-dev.<sha7>`.
 Dev versions from `main` use `<version>-pre.<timestamp>.dev.<sha7>`.
 Dev releases publish real packages; they are not a dry run.
 
-The scheduled nightly workflow still releases from `main`. Creating an 8.0
-release branch does not change the nightly source. Nightlies use the CI gate
-and pending-version calculation. RC and final releases use the SDK manifests.
+The scheduled nightly workflow selects `main`. Creating an 8.0 release branch
+does not change its source. The existing nightly plan and pending-version
+calculation are unchanged by the branch cutover. RC and final releases use the
+SDK manifests and need their own acceptance record.
+
+No package release is part of the current cutover. See
+[Main cutover](main-cutover.md) for the branch and website steps.
 
 ## SDK tags and package destinations
 
 | SDK | RC tag example | Package destination |
 | --- | --- | --- |
-| iOS | `ios-8.0.0-rc1` | SwiftPM, CocoaPods `XMTP`, and GitHub release assets |
+| iOS | `ios-8.0.0-rc1` | SwiftPM and GitHub release assets |
 | Android | `android-8.0.0-rc1` | Maven Central `org.xmtp:android` |
 | Node | `node-sdk-8.0.0-rc1` | npm `@xmtp/node-sdk` |
 | Browser | `browser-sdk-8.0.0-rc1` | npm `@xmtp/browser-sdk` |
