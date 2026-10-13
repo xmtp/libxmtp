@@ -69,4 +69,37 @@ describe("conversation sync", () => {
     // oxlint-disable-next-line no-control-regex
     expect(result.stderr).not.toMatch(/[\u001b\u0007\u202e]/);
   });
+
+  it.each([
+    ["LF", "\n", "\\u000a"],
+    ["CR", "\r", "\\u000d"],
+  ])(
+    "keeps a flag name with %s on one line of the error",
+    async (_name, lineBreak, shown) => {
+      const result = await runCommand([
+        "conversation",
+        "sync",
+        "id",
+        `--abc${lineBreak}forged line`,
+      ]);
+
+      expect(result.exitCode).not.toBe(0);
+      const lines = result.stderr.split(/\r?\n/);
+      expect(lines).toContain(`Nonexistent flag: --abc${shown}forged line`);
+      expect(lines.some((line) => line.startsWith("forged line"))).toBe(false);
+      expect(result.stderr).not.toContain("\r");
+    },
+  );
+
+  it("keeps the line breaks of a parse error with no user line break", async () => {
+    const result = await runCommand(["conversation", "sync"]);
+
+    expect(result.exitCode).not.toBe(0);
+    const lines = result.stderr.split("\n");
+    expect(lines).toContain("Missing 1 required arg:");
+    expect(lines.some((line) => /^id\s+The conversation ID/.test(line))).toBe(
+      true,
+    );
+    expect(lines).toContain("See more help with --help");
+  });
 });
