@@ -1,6 +1,6 @@
 //! Finding free handles.
 
-use super::{random_handle, scripted_client};
+use super::{random_handle, scripted_client, wait_until_claim_visible};
 use crate::{
     client::ClientError,
     inbox_handles::{HANDLE_SEARCH_CODES, HandleError},
@@ -32,6 +32,7 @@ async fn available_handles_one_lookup_bare_name_first() {
 
     // A held handle is not offered.
     bo.claim_handle(&name).await?;
+    wait_until_claim_visible(&bo, &name).await;
     let free = client.available_handles(name.as_str()).await?;
     assert!(!free.contains(&name));
     assert_eq!(free.len(), HANDLE_SEARCH_CODES);
