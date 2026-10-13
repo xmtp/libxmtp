@@ -2,7 +2,11 @@ import { Args } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
 import { conversationState } from "@/utils/conversation";
-import { identifierKindFlag, publicIdentity } from "@/utils/identity";
+import {
+  identifierKindFlag,
+  publicIdentity,
+  reportUnresolvedHandles,
+} from "@/utils/identity";
 import { memberDetails } from "@/utils/members";
 
 export default class ConversationsCreateDm extends BaseCommand {
@@ -55,8 +59,9 @@ Returns the DM's ID and details.`;
     const { args, flags } = await this.parse(ConversationsCreateDm);
     const client = await this.initClient();
 
-    const dm = await client.conversations.createDm(
-      publicIdentity(args.identifier, flags["identifier-kind"]),
+    const identity = publicIdentity(args.identifier, flags["identifier-kind"]);
+    const dm = await reportUnresolvedHandles(client, [identity], () =>
+      client.conversations.createDm(identity),
     );
 
     const state = await conversationState(dm);

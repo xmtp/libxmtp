@@ -4,6 +4,7 @@ import {
   createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
+  randomHandleName,
   runWithIdentity,
 } from "../../helpers.js";
 
@@ -130,5 +131,27 @@ describe("conversations create-group", () => {
           ?.handle,
       ).toBe(member.handle);
     }
+  });
+
+  it("names only the handles that no inbox holds", async () => {
+    const creator = await createRegisteredIdentity();
+    const member = await createIdentityWithHandle();
+    const missing = [randomHandleName(), randomHandleName()];
+
+    const result = await runWithIdentity(creator, [
+      "conversations",
+      "create-group",
+      missing[0],
+      member.handle,
+      missing[1],
+      "--identifier-kind",
+      "handle",
+    ]);
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.split("\n")).toContain(
+      `No inbox has the handles ${missing[0]}, ${missing[1]}.`,
+    );
+    expect(result.stderr).not.toContain("USAGE");
   });
 });

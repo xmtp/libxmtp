@@ -53,6 +53,13 @@ export function invalidHandleMessage(input: string): string {
   return `${escapeControlCharacters(input)} is not a valid handle. Start with a letter, then use only lowercase letters, numbers, _ and -, 27 characters or fewer before #. After #, use exactly 4 digits, like nick#0012.`;
 }
 
+/** The message for handles, in canonical text, that no inbox holds. */
+export function handleNotFoundMessage(handles: readonly string[]): string {
+  return handles.length === 1
+    ? `No inbox has the handle ${handles[0]}.`
+    : `No inbox has the handles ${handles.join(", ")}.`;
+}
+
 /**
  * The message for a failed claim of `input`, or `undefined` when the error
  * is not a handle failure. `ownOtherHandles` are the other handles of the

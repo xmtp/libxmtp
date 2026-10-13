@@ -4,6 +4,7 @@ import {
   createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
+  randomHandleName,
   runWithIdentity,
 } from "../../helpers.js";
 
@@ -91,5 +92,35 @@ describe("conversation remove-members", () => {
     const members = parseJsonOutput<Member[]>(membersResult.stdout);
     expect(members.length).toBe(2);
     expect(members.map((m) => m.inboxId)).not.toContain(member2.inboxId);
+  });
+
+  it("names a handle that no inbox holds", async () => {
+    const creator = await createRegisteredIdentity();
+    const member = await createRegisteredIdentity();
+    const handle = randomHandleName();
+
+    const groupResult = await runWithIdentity(creator, [
+      "conversations",
+      "create-group",
+      member.address,
+      "--json",
+    ]);
+    expect(groupResult.exitCode).toBe(0);
+    const group = parseJsonOutput<{ id: string }>(groupResult.stdout);
+
+    const removeResult = await runWithIdentity(creator, [
+      "conversation",
+      "remove-members",
+      group.id,
+      handle,
+      "--identifier-kind",
+      "handle",
+    ]);
+
+    expect(removeResult.exitCode).not.toBe(0);
+    expect(removeResult.stderr.split("\n")).toContain(
+      `No inbox has the handle ${handle}.`,
+    );
+    expect(removeResult.stderr).not.toContain("USAGE");
   });
 });
