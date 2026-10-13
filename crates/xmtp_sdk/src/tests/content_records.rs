@@ -108,7 +108,7 @@ fn standard_content_types_decode_to_records() {
         MessageContent::decode(MultiRemoteAttachmentCodec::encode(multi)?.encode_to_vec())?,
         MessageContent::MultiRemoteAttachment(value)
             if value.attachments.len() == 2
-                && value.attachments[0].content_digest == "digest"
+                && value.attachments[0].content_digest == "ab".repeat(32)
                 && value.attachments[1].url == "https://example.org/a"
     ));
 
