@@ -183,6 +183,7 @@ async fn end_waits_for_running_direct_call() {
     xmtp_common::time::timeout(Duration::from_secs(10), ending).await???;
 }
 
+// verifies: STORE-018
 #[cfg(unix)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn storage_delete_can_retry_after_file_removal_fails() {
@@ -399,6 +400,7 @@ async fn storage_pool_options_round_trip_and_reject_an_inverted_range() {
 }
 
 // Moved from the Kotlin conformance program (RetainedStorage.kt): a live
+// verifies: STORE-010
 // reconnect keeps the open store and its history; an ended client cannot reconnect.
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
@@ -435,4 +437,19 @@ async fn storage_reconnect_keeps_history_and_fails_after_end() {
         Err(XmtpError::ClientClosed(_))
     ));
     let _ = std::fs::remove_file(&path);
+}
+
+// verifies: STORE-009, STORE-011
+#[xmtp_common::test(unwrap_try = true)]
+async fn in_memory_delete_is_invalid_input_and_keeps_client_open() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let storage = client.storage();
+    assert_eq!(storage.path().await?, None);
+    assert!(
+        matches!(storage.delete().await, Err(XmtpError::InvalidInput(ref details))
+        if details.code == "InvalidInput" && !details.retryable)
+    );
+    assert!(client.is_registered().await?);
+    client.conversations().create_group(vec![], None).await?;
+    client.end().await?;
 }

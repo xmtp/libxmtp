@@ -41,7 +41,11 @@ final class InstalledClientTests: XCTestCase {
 			)
 			try await unexpected.end()
 			XCTFail("A failed preAuthenticate callback allowed registration")
-		} catch {}
+		} catch let XmtpError.CallbackFailed(details) {
+			XCTAssertEqual(details.code, "CallbackFailed")
+			XCTAssertEqual(details.category, .callback)
+			XCTAssertFalse(details.retryable)
+		}
 		XCTAssertEqual(calls.values, ["preAuthenticate"])
 	}
 
