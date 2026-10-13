@@ -153,6 +153,28 @@ fn query_row(topic: &Topic, sequence: u64) -> wire::ServerEnvelope {
     }
 }
 
+/// Wait until newest reads reach each target cursor.
+///
+/// The backend serves `QueryNewest` from its read pool. A replica can lag the
+/// primary, so a newest read right after a publish can miss the new row.
+async fn wait_for_newest<C: xmtp_proto::api_client::XmtpBackendClient>(
+    api: &ApiClientWrapper<C>,
+    targets: impl IntoIterator<Item = (Topic, Cursor)>,
+) -> Result<(), xmtp_common::time::Expired> {
+    let targets: Vec<_> = targets.into_iter().collect();
+    let topics: Vec<_> = targets.iter().map(|(topic, _)| topic.clone()).collect();
+    xmtp_common::wait_for_eq(
+        || async {
+            let newest = api.newest_topic_cursors(topics.clone()).await.unwrap();
+            targets
+                .iter()
+                .all(|(topic, cursor)| newest[topic] >= *cursor)
+        },
+        true,
+    )
+    .await
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_retries_identical_canonical_bytes_and_returns_metadata() {
     let envelope = welcome(1);
