@@ -336,6 +336,26 @@ in
     # Client subcommands (down, process, project, attach) reach a running
     # stack through PC_SOCKET_PATH and need no setup.
     case "''${1:-up}" in
+      xmtp-state)
+        # dev/services reads the stack state here, so the host needs no jq:
+        # `ready` (every service ready, every init process completed with
+        # exit code 0; `project is-ready` also passes while an init process
+        # runs), `failed` (an error, a skip, or a non-zero exit), or
+        # `waiting`. `xmtp-state names` prints every process name.
+        list="$(process-compose process list --output json 2>/dev/null)" || list='[]'
+        if [ "''${2:-}" = names ]; then
+          ${bin jq "jq"} -r '.[].name' <<<"$list"
+        else
+          ${bin jq "jq"} -r '
+            if any(.[]; .status == "Error" or .status == "Skipped"
+              or (.status == "Completed" and .exit_code != 0)) then "failed"
+            elif length > 0 and all(.[]; .status == "Disabled"
+              or (.status == "Completed" and .exit_code == 0)
+              or (.status == "Running" and .is_ready == "Ready")) then "ready"
+            else "waiting" end' <<<"$list"
+        fi
+        exit 0
+        ;;
       up | -*)
         if [ -z "''${XMTP_SERVICES_STATE:-}" ]; then
           parent="''${TMPDIR:-/tmp}"
