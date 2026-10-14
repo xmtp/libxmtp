@@ -43,13 +43,27 @@ def run(command, **kwargs):
 
 def nix_libraries(target, directory):
     """Build or substitute the Nix release libraries into out-links."""
-    attributes = (
-        {"ios": "ios-xcframeworks"}
-        if target == "ios"
-        else {abi: f"xmtp-sdk-android-{abi}" for abi in ANDROID}
-    )
-    for name, attribute in attributes.items():
-        run(["nix", "build", "--out-link", str(directory / name), f".#{attribute}"])
+    directory.mkdir(parents=True, exist_ok=True)
+    if target == "ios":
+        # The iOS outputs are keyed to one Xcode. sdks/ios/dev/bindings picks
+        # them as the iOS recipes do: the CI output when this Xcode matches or
+        # a cache holds it, else the `-local` output (an error in CI).
+        run(["sdks/ios/dev/bindings", "--release", "--build-only"])
+        link = directory / "ios"
+        if link.is_symlink():
+            link.unlink()
+        link.symlink_to(ROOT / "target/ios-sdk")
+        return
+    for abi in ANDROID:
+        run(
+            [
+                "nix",
+                "build",
+                "--out-link",
+                str(directory / abi),
+                f".#xmtp-sdk-android-{abi}",
+            ]
+        )
 
 
 def record(output, contract):

@@ -209,6 +209,9 @@ hand-maintained.
 - The Android and iOS native libraries have one producer, Nix. `dev/nix-shell
   'just sdk mobile-stage ios'` copies the release `.#ios-xcframeworks` into a
   SwiftPM package after checking its slices against `nix/sdk-platforms.json`.
+  It selects the output with `sdks/ios/dev/bindings --release --build-only`:
+  the CI output when this Xcode matches or a cache holds it, else the
+  `-local` output (an error in CI).
   `XMTP_SDK_BUILD=nix just sdk generate kotlin`, then `just sdk mobile-stage
   android`, assembles the AAR over the Nix JNI library of each ABI
   (`.#xmtp-sdk-android-<abi>`) after checking each library's receipt against
