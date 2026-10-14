@@ -125,6 +125,10 @@ struct GroupFieldEditor: View {
 	@State private var value = ""
 	@State private var key = ""
 	@State private var entryValue = ""
+	private var canonicalKey: String {
+		{ do { return try MetadataRules.key(key, shape: field.shape) } catch { return key } }()
+	}
+
 	var body: some View {
 		if !field.canWrite {
 			Text(metadataCopy(field.immutable && field
@@ -162,11 +166,13 @@ struct GroupFieldEditor: View {
 				TextField(metadataCopy("Value in hex"), text: $entryValue).textInputAutocapitalization(.never)
 					.autocorrectionDisabled()
 			}
-			Button(metadataCopy(field.shape == .byteMap && field.entries.contains { $0.key == key } ? "Update" : "Add")) {
+			Button(metadataCopy(field.shape == .byteMap && field.entries
+					.contains { $0.key == canonicalKey } ? "Update" : "Add"))
+			{
 				send(.entry(
 					field.id,
 					field.shape == .byteMap && field.entries.contains { $0.key == key } ? .update : .insert,
-					key,
+					canonicalKey,
 					entryValue,
 				))
 			}.buttonStyle(.glassProminent)
