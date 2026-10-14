@@ -79,6 +79,7 @@ extension SendCoordinatorTests {
 }
 
 @MainActor private final class ComposerRecoveryFixture {
+	var failAcceptedWrite = false
 	var acceptedCount = 0
 	var failRead = false
 	var saved = ComposerDraft()
@@ -92,7 +93,16 @@ extension SendCoordinatorTests {
 		},
 		write: { _, value in self.saved = value },
 	)
-	lazy var sends = SendDraftStore(read: { self.records }, write: { self.records = $0 })
+	lazy var sends = SendDraftStore(
+		read: { self.records },
+		write: {
+			if self.failAcceptedWrite,
+			   $0.contains(where: { $0.phase == .accepted })
+			{
+				throw ChatError.unavailable
+			}; self.records = $0
+		},
+	)
 	lazy var coordinator = SendCoordinator(drafts: sends, queries: queries, accepts: { true })
 
 	func reserve() {
@@ -114,5 +124,15 @@ extension SendCoordinatorTests {
 		)
 		composer.send(.allow(true))
 		return composer
+	}
+}
+
+extension SendCoordinatorTests {
+	@Test @MainActor func acceptedRecoveryDoesNotRetainClosedComposer() async {
+		let fixture = ComposerRecoveryFixture(); fixture.failAcceptedWrite = true
+		var composer: ComposerStore? = fixture.open(); weak var released: ComposerStore?
+		released = composer
+		composer?.send(.edit("kept")); composer?.send(.submit); await composer?.wait()
+		composer = nil; await Task.yield(); #expect(released == nil)
 	}
 }

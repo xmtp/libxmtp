@@ -139,11 +139,7 @@ struct ConversationRowView: View {
 			Avatar(seed: row.id, label: row.initials)
 			VStack(alignment: .leading, spacing: 4) {
 				HStack(alignment: .firstTextBaseline) {
-					if row.title.hasPrefix("@") {
-						HStack(spacing: 0) { Text("@"); HandleText(handle: row.title) }.font(.headline)
-					} else {
-						Text(row.title).font(.headline)
-					}
+					ConversationTitle(title: row.title).font(.headline)
 					Spacer(minLength: 8)
 					if let date = row.conversation.lastActivity {
 						Text(date, format: .dateTime.hour().minute()).font(.caption).foregroundStyle(.secondary)

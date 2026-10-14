@@ -84,6 +84,7 @@ public enum AttachmentAction: Sendable {
 	private let origin: DestinationOrigin
 	private let admit: (DestinationOrigin) -> Bool
 	private let allowed: () -> Bool
+	private let authorizeDownload: (() async throws -> Bool)?
 	private let changed: () async -> Void
 	private let tasks = InFlightTasks()
 	private var activeSends: Set<UUID> = []
@@ -101,6 +102,7 @@ public enum AttachmentAction: Sendable {
 		admit: @escaping (DestinationOrigin) -> Bool,
 		allowed: @escaping () -> Bool,
 		changed: @escaping () async -> Void = {},
+		authorizeDownload: (() async throws -> Bool)? = nil,
 	) {
 		self.gateway = gateway
 		self.staging = staging
@@ -111,6 +113,7 @@ public enum AttachmentAction: Sendable {
 		self.admit = admit
 		self.allowed = allowed
 		self.changed = changed
+		self.authorizeDownload = authorizeDownload
 	}
 
 	public func wait() async {
@@ -249,11 +252,11 @@ public enum AttachmentAction: Sendable {
 		_ = try await coordinator.queue(
 			draft: SendDraft(id: draft.id, conversationID: conversation), content: .attachment(draft.descriptor),
 			admission: { self.canSend(draft.id, generation: generation) },
-			acknowledge: { id in
+			acknowledge: { [drafts] id in
 				var accepted = draft
 				accepted.acceptedID = id
 				accepted.phase = .complete
-				try self.drafts.save(accepted)
+				try drafts.save(accepted)
 			},
 			beforeQueue: {
 				var queueing = draft
@@ -275,7 +278,12 @@ public enum AttachmentAction: Sendable {
 	}
 
 	private func download(_ id: String, descriptor: FileDescriptor) async throws {
-		guard allowed(), admit(origin) else { return }
+		guard allowed(), admit(origin), state.cards[id]?.phase != .downloading else { return }
+		if let authorizeDownload {
+			guard try await authorizeDownload() else { return }
+		}
+		try Task.checkCancellation()
+		guard allowed(), admit(origin), state.cards[id]?.phase != .downloading else { return }
 		apply { $0.cards[id] = FileCard(id: id, name: descriptor.filename ?? "File", length: descriptor.length,
 		                                phase: .downloading) }
 		let file = try await gateway.download(descriptor)

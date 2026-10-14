@@ -84,8 +84,8 @@ struct AttachmentCardView: View {
 	}
 
 	@ViewBuilder private var fileActions: some View {
-		Button(String(localized: "Open", table: "Attachments")) { open(save: false) }
-		Button(String(localized: "Save", table: "Attachments")) { open(save: true) }
+		Button(String(localized: "Open", table: "Attachments")) { open(save: false) }.disabled(!allowed)
+		Button(String(localized: "Save", table: "Attachments")) { open(save: true) }.disabled(!allowed)
 	}
 
 	private var status: String {
@@ -116,7 +116,7 @@ struct AttachmentCardView: View {
 	}
 
 	private func open(save: Bool) {
-		guard quickLook == nil, !exporting else { return }
+		guard allowed, quickLook == nil, !exporting else { return }
 		clearExport()
 		do { guard let file = store.verified.get(id),
 		           let profile = graph.active?.key.profileID else { return }

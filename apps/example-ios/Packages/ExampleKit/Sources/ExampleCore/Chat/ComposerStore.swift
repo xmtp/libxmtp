@@ -126,9 +126,15 @@ public enum ComposerAction: Sendable {
 		body(&state)
 	}
 
-	private func acknowledge(_ messageID: String, request: UUID, submitted: ComposerDraft) throws {
+	private static func acknowledge(
+		_ messageID: String,
+		request: UUID,
+		submitted: ComposerDraft,
+		id: String,
+		drafts: ComposerDraftStore,
+	) throws -> ComposerDraft? {
 		var current = try drafts.load(id)
-		guard current.requestID == request, current.submittedRevision == submitted.revision else { return }
+		guard current.requestID == request, current.submittedRevision == submitted.revision else { return nil }
 		current.acceptedID = messageID
 		try drafts.save(current, for: id)
 		if current.revision == submitted.revision {
@@ -139,7 +145,7 @@ public enum ComposerAction: Sendable {
 		}
 		current.release()
 		try drafts.save(current, for: id)
-		apply { $0.draft = current }
+		return current
 	}
 
 	private func releaseReservation(_ request: UUID) throws -> ComposerDraft? {
@@ -197,7 +203,12 @@ public enum ComposerAction: Sendable {
 					draft: send,
 					content: content,
 					admission: { self.admit(self.origin) },
-					acknowledge: { messageID in try self.acknowledge(messageID, request: request, submitted: submitted)
+					acknowledge: { [drafts, id, weak owner = self] messageID in
+						if let current = try Self
+							.acknowledge(messageID, request: request, submitted: submitted, id: id, drafts: drafts)
+						{
+							owner?.apply { $0.draft = current }
+						}
 					},
 				)
 				apply {

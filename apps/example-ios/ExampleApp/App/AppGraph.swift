@@ -19,6 +19,7 @@ import SwiftUI
 	var newConversation: NewConversationStore?
 	var preferences: ProfilePreferences?
 	var identityDirectory: IdentityDirectory?
+	var consentRevision: UInt64 = 0
 	var messageObservers: [UUID: @MainActor (String) async -> Void] = [:]
 	var isRestoring = true
 	var currentHandle: String?
@@ -194,6 +195,9 @@ import SwiftUI
 
 	private func projectEvent(_ event: SessionEvent, session key: SessionKey) async {
 		guard fence.accepts(key) else { return }
+		if case .changed = event {
+			consentRevision &+= 1
+		}
 		if case let .handleChanged(inboxID, handle, otherHandles) = event {
 			identityDirectory?.handleChanged(inboxID: inboxID, handle: handle, otherHandles: otherHandles)
 			if inboxID == active?.profile.inboxID {

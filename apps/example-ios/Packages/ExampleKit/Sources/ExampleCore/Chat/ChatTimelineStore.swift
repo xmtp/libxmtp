@@ -15,7 +15,9 @@ public struct ChatTimelineState: Equatable, Sendable {
 	public var anchorID: String?
 	public var atNewest = true
 	public var messages: [ChatMessage] {
-		window.rows.filter { $0.content != .reaction }.reversed() + pending.filter { $0.content != .reaction }.reversed()
+		var published = window.rows.filter { $0.content != .reaction }; published.reverse()
+		var queued = pending.filter { $0.content != .reaction }; queued.reverse()
+		return published + queued
 	}
 }
 
@@ -204,6 +206,7 @@ public enum ChatTimelineAction: Sendable {
 			skipped += page.skipped
 			if !page.rows.isEmpty || !page.hasMore {
 				apply {
+					$0.error = nil
 					$0.pending = page.rows
 					$0.pendingBefore = page.last
 					$0.morePending = page

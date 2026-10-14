@@ -49,8 +49,8 @@ import Foundation
 		let saved = accepted
 		let commit = AcceptedMessageCommit(
 			messageID: id,
-			persist: { try self.drafts.save(saved) },
-			verify: { try self.drafts.all().contains(saved) },
+			persist: { [drafts] in try drafts.save(saved) },
+			verify: { [drafts] in try drafts.all().contains(saved) },
 			acknowledge: { try acknowledge(id) },
 		)
 		known[draft.id] = commit

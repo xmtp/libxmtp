@@ -109,6 +109,7 @@ import SwiftUI
 			admit: valid,
 			allowed: { timeline.state.conversation?.consent == .allowed },
 			changed: { await timeline.refresh() },
+			authorizeDownload: { try await services.queries.conversation(id: id).consent == .allowed },
 		)
 	}
 

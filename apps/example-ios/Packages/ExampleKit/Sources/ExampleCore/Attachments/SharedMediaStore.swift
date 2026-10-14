@@ -18,6 +18,7 @@ public enum SharedMediaAction: Sendable {
 	private let queries: any ChatQueries
 	private let origin: DestinationOrigin
 	private let admit: (DestinationOrigin) -> Bool
+	private var revision: UInt64 = 0
 	private var task: Task<Void, Never>?
 	private let jobs = InFlightTasks()
 	public init(
@@ -33,21 +34,29 @@ public enum SharedMediaAction: Sendable {
 	}
 
 	public func send(_: SharedMediaAction) {
-		task?.cancel()
-		state.loading = true
+		guard admit(origin) else { return }
+		task?.cancel(); revision += 1
+		let expected = revision
+		state.allowed = false; state.error = nil; state.loading = true
 		task = jobs.start { [self] in
 			do {
 				let conversation = try await queries.conversation(id: id)
+				try Task.checkCancellation()
 				let rows = try await queries
 					.media(conversationID: id)
+				try Task.checkCancellation()
+				guard expected == revision else { return }
 				apply {
 					$0.allowed = conversation.consent == .allowed
 					$0.rows = rows
 					$0.loading = false
 				}
-			} catch { apply { $0.error = "Cannot load media and files. Try again."
-				$0.loading = false
-			} }
+			} catch is CancellationError {} catch {
+				guard expected == revision, !Task.isCancelled else { return }
+				apply { $0.error = "Cannot load media and files. Try again."
+					$0.loading = false
+				}
+			}
 		}
 	}
 

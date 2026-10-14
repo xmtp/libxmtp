@@ -2,6 +2,8 @@ import ExampleCore
 
 @MainActor final class ChatQueryFake: ChatQueries {
 	var historyHook: (() async throws -> ChatPage)?
+	var consent = ConversationConsent.allowed
+	var mediaHook: (() async throws -> [ChatMessage])?
 	var conversationHook: (() async throws -> Void)?
 	var beforeRequests: [Int64?] = []
 	var pendingHook: ((RecoveryPosition?) async throws -> PendingPage)?
@@ -11,7 +13,7 @@ import ExampleCore
 		-> Void = {}; var historyRead: (() async -> Void)?
 	func conversation(id: String) async throws -> ConversationRecord {
 		try await conversationHook?()
-		return ConversationRecord(id: id, kind: .dm)
+		return ConversationRecord(id: id, kind: .dm, consent: consent)
 	}
 
 	func history(id _: String, ascending: Bool, before: HistoryPosition?,
@@ -67,6 +69,6 @@ import ExampleCore
 	}
 
 	func media(conversationID _: String) async throws -> [ChatMessage] {
-		[]
+		try await mediaHook?() ?? []
 	}
 }

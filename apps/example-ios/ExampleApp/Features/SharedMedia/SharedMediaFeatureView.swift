@@ -61,12 +61,16 @@ struct SharedMediaFeatureView: View {
 					origin: origin,
 					admit: { graph.routes.admit($0, fence: graph.fence) },
 					allowed: { media.state.allowed },
+					authorizeDownload: { try await services.queries.conversation(id: id).consent == .allowed },
 				)
 				self.media = media; self.files = files
 				cleanupKey = UUID().uuidString; graph.session.scope
 					.setCleanup(for: cleanupKey) { await media.close(); await files.close() }
 				media.send(.load)
 			} catch { failure = "Cannot load media and files. Try again." }
+		}
+		.onChange(of: graph.consentRevision) { _, _ in
+			PreviewImages.shared.clear(); files?.verified.clear(); media?.send(.load)
 		}
 		.onDisappear {
 			PreviewImages.shared

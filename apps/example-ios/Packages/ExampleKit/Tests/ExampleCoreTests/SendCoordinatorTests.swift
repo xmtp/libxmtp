@@ -83,6 +83,7 @@ import Testing
 }
 
 @MainActor final class AttachmentGatewayFake: AttachmentGateway {
+	var downloads = 0
 	var uploads = 0
 	var discardHook: (() async throws -> Void)?
 	var uploadHook: (() async throws -> Void)?
@@ -105,7 +106,8 @@ import Testing
 	}
 
 	func download(_: FileDescriptor) async throws -> VerifiedFile {
-		VerifiedFile(
+		downloads += 1
+		return VerifiedFile(
 			url: URL(fileURLWithPath: "/tmp/test"),
 			mimeType: "image/png",
 			filename: "test.png",
