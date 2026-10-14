@@ -124,10 +124,16 @@ export SQLX_OFFLINE="${SQLX_OFFLINE:-true}"
 if [[ "${XMTP_NIX_WRAPPER_ID:-}" == "$identity" ]]; then
   exec "${command_args[@]}"
 fi
+# Source the environment with its own bash, the stdenv shell that it names
+# (CONFIG_SHELL), as `nix develop` does: the script needs bash 4 or later, and
+# the caller's `bash` can be macOS's 3.2, which stops at the first newer
+# construct before the caller's PATH is appended.
+shell="$(sed -n "s/^CONFIG_SHELL='\(.*\)'\$/\1/p" "$env_file" | head -n 1)"
+[[ -x "$shell" ]] || shell=bash
 # The environment makes a temporary directory per entry; remove it on exit,
 # as `nix develop` does.
 # shellcheck disable=SC2016
-exec bash -c '
+exec "$shell" --noprofile --norc -c '
   source "$1"
   trap "rm -rf \"\$NIX_BUILD_TOP\"" EXIT
   export XMTP_NIX_WRAPPER_ID="$2"

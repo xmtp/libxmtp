@@ -253,6 +253,37 @@ class NixWrapperTests(unittest.TestCase):
         self.assertEqual(self.run_wrapper("true").returncode, 0)
         self.assertEqual(len(self.calls()), 2)
 
+    def test_environment_runs_in_its_own_bash_and_keeps_host_tools(self):
+        # The environment names its stdenv bash (CONFIG_SHELL), sets PATH to
+        # its own directories, and appends the caller's PATH at the end, as
+        # `nix print-dev-env` does. The caller's `bash` here cannot run it (on
+        # macOS it is bash 3.2), and a host tool must still resolve.
+        real_bash = shutil.which("bash")
+        dev = self.root / "dev-env-bin"
+        dev.mkdir()
+        (dev / "bash").symlink_to(real_bash)
+        host = self.root / "host-bin"
+        host.mkdir()
+        # A host `bash` that runs scripts but cannot run the environment.
+        for name, body in (
+            ("bash", f'case "$1" in -c) exit 97 ;; esac\nexec {real_bash} "$@"'),
+            ("host-tool", "echo host tool"),
+        ):
+            (host / name).write_text(f"#!/bin/sh\n{body}\n")
+            (host / name).chmod(0o755)
+        (self.root / "bin/nix").write_text(
+            "#!/usr/bin/env bash\nset -eu\n"
+            'mkdir -p "$TEST_STORE"; ln -sfn "$TEST_STORE" "$3"\n'
+            f"printf '%s\\n' \"CONFIG_SHELL='{real_bash}'\" "
+            "'nix_saved_PATH=\"$PATH\"' "
+            f"\"PATH='{dev}'\" "
+            "'PATH=\"$PATH${nix_saved_PATH:+:$nix_saved_PATH}\"'\n"
+        )
+        self.env["PATH"] = f"{host}:{self.env['PATH']}"
+        result = self.run_wrapper("host-tool")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "host tool\n")
+
     def test_failed_evaluation_caches_nothing(self):
         self.env["TEST_NIX_FAIL"] = "1"
         self.assertNotEqual(self.run_wrapper("printf no").returncode, 0)
