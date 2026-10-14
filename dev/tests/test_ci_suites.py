@@ -143,7 +143,7 @@ class CompileTests(unittest.TestCase):
         for value in ("all", "None", "", None):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(
-                    SUITES.DeclarationError, "inherit, kache, cachix-pr, none"
+                    SUITES.DeclarationError, "inherit, kache, none, cachix-pr"
                 ):
                     self.compile(
                         lambda d: d["suites"]["lint_proto"].update(secrets=value)
