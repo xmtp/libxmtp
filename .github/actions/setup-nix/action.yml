@@ -120,8 +120,14 @@ runs:
     # give each build all cores (`cores = 0`). Nix defaults to max-jobs = 1.
     # Lower max-jobs for one job only after a kernel OOM record (above) or a
     # measurement shows that job slower with `auto`.
-    # Single-user install. Stay on 2.31.x: 2.34.4 breaks patches
-    # (https://github.com/nixos/nix/issues/15619).
+    # Single-user install. The pins stay on 2.31: a branch run on 2.34.7 (the
+    # newest version that nix-quick-install-action v35 ships) passed the
+    # macOS and Linux patch tests and the Darwin sandbox checks, but no first
+    # `nix build` of a job got faster (eval plus fetch: Linux -1 to +2 s,
+    # macOS +25 s, iOS -5 s), so it did not pay. Only 2.34.0-2.34.5 have the
+    # macOS patch bug (https://github.com/nixos/nix/issues/15619, fixed in
+    # 2.34.6 and 2.35.0); keep any new pin outside that range. Nix 2.34
+    # prints dry-run sizes with a unit per size (post-merge.yml reads them).
     - name: Install Nix (Linux)
       if: ${{ runner.os == 'Linux' }}
       uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
@@ -136,7 +142,7 @@ runs:
       if: ${{ runner.os != 'Linux' }}
       uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
       with:
-        # https://github.com/nixos/nix/issues/15619 2.34.4 causes patch failures
+        # See the Linux pin; the two pins move separately.
         install_url: https://releases.nixos.org/nix/nix-2.31.2/install
         github_access_token: ${{ inputs.github-token }}
         extra_nix_config: |
