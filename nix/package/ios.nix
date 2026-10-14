@@ -65,10 +65,16 @@ let
       '';
     };
   allTargets = [ host ] ++ xmtp.sdkPlatforms.apple;
-  fastTargets = [
-    host
-    "aarch64-apple-ios-sim"
-  ];
+  # The fast framework adds the simulator slice of the build host's CPU.
+  hostSimulators = builtins.filter (
+    target:
+    lib.hasPrefix "${pkgs.stdenv.hostPlatform.parsed.cpu.name}-" target && lib.hasSuffix "-sim" target
+  ) xmtp.sdkPlatforms.apple;
+  fastTargets =
+    assert lib.assertMsg (
+      builtins.length hostSimulators == 1
+    ) "nix/sdk-platforms.json needs one Apple simulator target for ${host}";
+    [ host ] ++ hostSimulators;
   releaseFramework = framework allTargets;
 in
 {
