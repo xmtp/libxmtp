@@ -320,6 +320,16 @@
           }
         }
       }
+    },
+    "Cannot remove this temporary file. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot remove this temporary file. Try again."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

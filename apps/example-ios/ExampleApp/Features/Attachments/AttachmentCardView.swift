@@ -70,11 +70,17 @@ struct AttachmentCardView: View {
 				}
 			}
 			.quickLookPreview($quickLook)
+			.onChange(of: quickLook) { previous, current in
+				if let previous, previous != current {
+					removeExport(previous)
+				}
+			}
 			.fileExporter(isPresented: $exporting, item: export, contentTypes: [.data], defaultFilename: card.name) { result in
 				if case .failure = result {
 					failure = "Cannot save this file. Try again."
 				}
-			}
+				clearExport()
+			} onCancellation: { clearExport() }
 	}
 
 	@ViewBuilder private var fileActions: some View {
@@ -98,7 +104,20 @@ struct AttachmentCardView: View {
 		}
 	}
 
+	private func removeExport(_ url: URL) {
+		do { try QuickLookExport.remove(url) } catch { failure = "Cannot remove this temporary file. Try again." }
+	}
+
+	private func clearExport() {
+		if let export {
+			removeExport(export.url)
+		}
+		export = nil
+	}
+
 	private func open(save: Bool) {
+		guard quickLook == nil, !exporting else { return }
+		clearExport()
 		do { guard let file = store.verified.get(id),
 		           let profile = graph.active?.key.profileID else { return }
 			let url = try QuickLookExport.copy(

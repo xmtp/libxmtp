@@ -15,6 +15,14 @@ struct ExportDocument: Transferable {
 }
 
 enum QuickLookExport {
+	static func remove(_ url: URL) throws {
+		let folder = url.deletingLastPathComponent()
+		guard UUID(uuidString: folder.lastPathComponent) != nil else { return }
+		if FileManager.default.fileExists(atPath: folder.path) {
+			try FileManager.default.removeItem(at: folder)
+		}
+	}
+
 	static func copy(_ file: VerifiedFile, directory: URL) throws -> URL {
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		let safeName = URL(fileURLWithPath: file.filename).lastPathComponent
