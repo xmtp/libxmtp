@@ -9,10 +9,10 @@ permissions:
 env:
   NIX_DEVSHELL: ios
 jobs:
-  build:
-    name: Build and unit tests (iOS example)
+  tests:
+    name: Tests (iOS example)
     runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
@@ -24,6 +24,8 @@ jobs:
         with:
           xcode-version: "26.3"
       - uses: taiki-e/install-action@just
+      - name: Check native Apple toolchain
+        run: dev/nix-shell 'bash dev/check-apple-toolchain'
       - name: Build Debug
         run: dev/nix-shell 'just example-ios build'
       - name: Compile Push configuration
@@ -39,23 +41,9 @@ jobs:
           done
       - name: Lint and unit tests
         run: dev/nix-shell 'just example-ios lint && just example-ios test'
-  journeys:
-    name: Journeys (iOS example)
-    runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          github-token: ${{ github.token }}
-          cache-mode: "ci"
-          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        with:
-          xcode-version: "26.3"
-      - uses: taiki-e/install-action@just
       - name: Run simulator journeys
         env:
+          XMTP_SERVICES_LOGS: ${{ runner.temp }}/backend-ci-logs/journeys
           XMTP_BACKEND_URL: http://127.0.0.1:5050
         run: dev/nix-shell 'just backend ci just example-ios test-ui'
       - name: Retain failed journey results
@@ -66,46 +54,15 @@ jobs:
           path: apps/example-ios/.build/DerivedData/Logs/Test
           include-hidden-files: true
           retention-days: 7
-      - name: Retain native service logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: example-ios-journeys-backend-logs
-          path: ${{ runner.temp }}/backend-ci-logs
-          retention-days: 7
-  launch:
-    name: Nix launch (iOS example)
-    runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          github-token: ${{ github.token }}
-          cache-mode: "ci"
-          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        with:
-          xcode-version: "26.3"
-      - uses: taiki-e/install-action@just
       - name: Launch simulator app
         env:
+          XMTP_SERVICES_LOGS: ${{ runner.temp }}/backend-ci-logs/launch
           XMTP_BACKEND_URL: http://127.0.0.1:5050
         run: dev/nix-shell 'just backend ci nix run .#example-ios -- --headless'
       - name: Retain native service logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: example-ios-launch-backend-logs
+          name: example-ios-backend-logs
           path: ${{ runner.temp }}/backend-ci-logs
           retention-days: 7
-  results:
-    name: iOS example results
-    if: always()
-    needs: [build, journeys, launch]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    steps:
-      - name: Require every iOS example job
-        env:
-          RESULTS: ${{ toJSON(needs) }}
-        run: echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'
