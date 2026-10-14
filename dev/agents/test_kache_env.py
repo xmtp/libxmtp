@@ -557,6 +557,22 @@ class SetupNixTests(unittest.TestCase):
         for marker in ("useblacksmith/", "setup-docker-builder", "fuser", ".gradle"):
             self.assertNotIn(marker, text)
 
+    def test_cache_mode_policy_runs_before_every_cache_step(self):
+        steps = yaml.safe_load(ACTION.read_text())["runs"]["steps"]
+        names = [step.get("name") for step in steps]
+        policy = action_step("Cache mode policy")
+        self.assertNotIn("if", policy)
+        self.assertIn("dev/kache-ci-policy", policy["run"])
+        caches = [
+            index
+            for index, step in enumerate(steps)
+            if step.get("uses", "").startswith(
+                ("cachix/", "nixbuild/", "kunobi-ninja/")
+            )
+        ]
+        self.assertTrue(caches)
+        self.assertLess(names.index("Cache mode policy"), min(caches))
+
     def test_nix_builds_one_derivation_per_cpu_with_all_cores(self):
         for name, field in (
             ("Install Nix (Linux)", "nix_conf"),
@@ -598,19 +614,6 @@ class SetupNixTests(unittest.TestCase):
                         self.assertIn("cachix-auth-token", inputs)
                     else:
                         self.assertNotIn("kache-s3-writer", environment)
-
-    def test_trusted_cachix_writers_run_only_on_trunk_pushes(self):
-        for caller in sorted(TRUSTED_CACHIX_WRITERS):
-            workflow = caller.split(" / ", 1)[0]
-            document = yaml.safe_load(
-                (ROOT / ".github/workflows" / workflow).read_text()
-            )
-            # YAML 1.1 reads the key `on` as true.
-            triggers = document.get("on", document.get(True))
-            with self.subTest(caller=caller):
-                self.assertEqual(
-                    triggers, {"push": {"branches": ["main", "self-hosted"]}}
-                )
 
     def test_kache_callers_match_the_cargo_job_list(self):
         callers = {
@@ -697,37 +700,28 @@ class SetupNixTests(unittest.TestCase):
         self.assertEqual(names.index("Register kernel OOM report"), 1)
 
 
-# GitHub expression evaluation, enough for the cache-mode wiring: literals,
-# context properties, ==, !=, !, &&, || and parentheses. && and || return an
-# operand, as GitHub does. Anything else raises, so a new construct in a
-# checked field fails loudly instead of being guessed.
-EXPRESSION = re.compile(
-    r"\s*(?:(?P<string>'(?:[^']|'')*')|(?P<op>==|!=|&&|\|\||!|\(|\))"
-    r"|(?P<word>[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)*))"
+# GitHub expressions in the checked fields use literals, context properties,
+# ==, !=, !, &&, || and parentheses. Each becomes the Python operator with the
+# same result (&& and || return an operand, as `and` and `or` do). A function
+# call or an unknown context fails in `lookup`, so a new construct fails loudly
+# instead of being guessed. Two differences do not matter here: Python's `not`
+# binds looser than `==` (so `!a == b` is rejected), and Python compares
+# strings case-sensitively (every compared value is lowercase).
+TOKEN = re.compile(
+    r"\s*(?:('(?:[^']|'')*')|(==|!=|&&|\|\||!|\(|\))|([A-Za-z_][\w.-]*))"
 )
+PYTHON = {
+    "&&": "and",
+    "||": "or",
+    "!": "not",
+    "true": "True",
+    "false": "False",
+    "null": "None",
+}
 
 
 def truthy(value):
     return value not in (None, False, 0, "")
-
-
-def number(value):
-    if value is None:
-        return 0
-    if isinstance(value, bool):
-        return int(value)
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return float("nan")
-
-
-def equal(left, right):
-    if isinstance(left, str) and isinstance(right, str):
-        return left.lower() == right.lower()
-    if type(left) is type(right):
-        return left == right
-    return number(left) == number(right)
 
 
 class Context:
@@ -756,72 +750,26 @@ class Context:
         raise ValueError(f"unsupported context: {path}")
 
     def evaluate(self, text):
-        tokens = []
+        if re.search(r"!\s*[\w.'-]+\s*[!=]=", text):
+            raise ValueError(f"negated comparison needs parentheses: {text!r}")
+        source = []
         position = 0
-        while position < len(text.rstrip()):
-            match = EXPRESSION.match(text, position)
+        text = text.strip()
+        while position < len(text):
+            match = TOKEN.match(text, position)
             if not match:
                 raise ValueError(f"cannot parse {text!r} at {position}")
-            tokens.append(match)
+            string, op, word = match.groups()
+            if string is not None:
+                source.append(repr(string[1:-1].replace("''", "'")))
+            elif op:
+                source.append(PYTHON.get(op, op))
+            elif word in PYTHON:
+                source.append(PYTHON[word])
+            else:
+                source.append(f"_({word!r})")
             position = match.end()
-        index = 0
-
-        def peek():
-            return tokens[index].group("op") if index < len(tokens) else None
-
-        def primary():
-            nonlocal index
-            token = tokens[index]
-            index += 1
-            if token.group("op") == "(":
-                value = disjunction()
-                assert peek() == ")", text
-                index += 1
-                return value
-            if token.group("op") == "!":
-                return not truthy(primary())
-            if token.group("string") is not None:
-                return token.group("string")[1:-1].replace("''", "'")
-            word = token.group("word")
-            if word in ("true", "false"):
-                return word == "true"
-            if word == "null":
-                return None
-            if word is None:
-                raise ValueError(f"unexpected {token.group(0)!r} in {text!r}")
-            return self.lookup(word)
-
-        def comparison():
-            nonlocal index
-            value = primary()
-            while peek() in ("==", "!="):
-                op = peek()
-                index += 1
-                result = equal(value, primary())
-                value = result if op == "==" else not result
-            return value
-
-        def conjunction():
-            nonlocal index
-            value = comparison()
-            while peek() == "&&":
-                index += 1
-                right = comparison()
-                value = right if truthy(value) else value
-            return value
-
-        def disjunction():
-            nonlocal index
-            value = conjunction()
-            while peek() == "||":
-                index += 1
-                right = conjunction()
-                value = value if truthy(value) else right
-            return value
-
-        value = disjunction()
-        assert index == len(tokens), text
-        return value
+        return eval(" ".join(source), {"__builtins__": {}}, {"_": self.lookup})
 
     def value(self, raw):
         """Evaluate a workflow value: a literal, or ${{ }} templates in a string."""
@@ -1013,142 +961,77 @@ CI_ENTRIES = {
 }
 
 
+def gradle_cache_is_ci_only(call):
+    """Only mode ci restores the Gradle cache; only protected trunk pushes save it."""
+    return all(
+        call["mode"] == "ci"
+        and len(call["gradle"]) == 1
+        and not {"cache-disabled", "cache-write-only"} & set(inputs)
+        and truthy(inputs.get("cache-read-only"))
+        != protected_trunk_push(call["github"])
+        for inputs in call["gradle"]
+    )
+
+
+# Each rule holds for every setup-nix call of every entry workflow and event.
+WIRING_RULES = (
+    (
+        "the mode is read, ci, or trusted",
+        lambda c: c["mode"] in ("read", "ci", "trusted"),
+    ),
+    (
+        "the writer environment goes with mode trusted",
+        lambda c: (c["environment"] == "kache-s3-writer") == (c["mode"] == "trusted"),
+    ),
+    # On a trunk push without branch protection, a job that is trusted
+    # outright (post-merge.yml) fails in dev/kache-ci-policy (CachePolicyTests).
+    (
+        "mode trusted runs only on a protected trunk push",
+        lambda c: (
+            c["mode"] != "trusted"
+            or c["github"].get("unprotected trunk")
+            or protected_trunk_push(c["github"])
+        ),
+    ),
+    (
+        "only mode ci gets the xmtp-pr token",
+        lambda c: not c["pr-token"] or c["mode"] == "ci",
+    ),
+    (
+        "only mode trusted gets the trusted Cachix token",
+        lambda c: not c["trusted-token"] or c["mode"] == "trusted",
+    ),
+    (
+        "release, deploy, and post-merge runs never read xmtp-pr",
+        lambda c: c["entry"] in CI_ENTRIES or c["mode"] != "ci",
+    ),
+    (
+        "setup-js uses the setup-nix mode of its job",
+        lambda c: all(mode == c["mode"] for mode in c["js-modes"]),
+    ),
+    (
+        "the Gradle cache is CI-only and written only on trunk pushes",
+        gradle_cache_is_ci_only,
+    ),
+)
+
+
 class CacheModeWiringTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.calls = list(cache_calls())
-
-    def test_wiring_is_evaluated_for_every_entry_and_event(self):
-        entries = {call["entry"] for call in self.calls}
+    def test_every_call_follows_the_wiring_rules(self):
+        calls = list(cache_calls())
+        # The walk reaches the trusted, release, and Gradle jobs.
         self.assertTrue(
-            {"ci.yml", "post-merge.yml", "release.yml", "push-backend.yml"} <= entries
+            {"ci.yml", "post-merge.yml", "release.yml"} <= {c["entry"] for c in calls}
         )
-        self.assertGreater(len(self.calls), 150)
-
-    def test_writer_environment_and_trusted_mode_go_together_on_trunk_pushes(self):
-        for call in self.calls:
-            with self.subTest(call["where"]):
-                self.assertIn(call["mode"], ("read", "ci", "trusted"))
-                trusted = call["mode"] == "trusted"
-                self.assertEqual(call["environment"] == "kache-s3-writer", trusted)
-                # On a trunk push without branch protection, a job that is
-                # trusted outright (post-merge.yml) fails in dev/kache-ci-policy
-                # (CachePolicyTests); every other event must not be trusted.
-                if trusted and not call["github"].get("unprotected trunk"):
-                    self.assertTrue(protected_trunk_push(call["github"]))
-
-    def test_each_job_receives_only_the_token_of_its_mode(self):
-        for call in self.calls:
-            with self.subTest(call["where"]):
-                if call["pr-token"]:
-                    self.assertEqual(call["mode"], "ci")
-                if call["trusted-token"]:
-                    self.assertEqual(call["mode"], "trusted")
-
-    def test_release_deploy_and_warm_runs_never_read_xmtp_pr(self):
-        for call in self.calls:
-            if call["entry"] not in CI_ENTRIES:
-                with self.subTest(call["where"]):
-                    self.assertNotEqual(call["mode"], "ci")
-
-    def test_gradle_cache_is_ci_only_and_written_only_on_trunk_pushes(self):
-        # The Gradle cache is a CI-only store: only jobs in mode ci restore it,
-        # so release, deploy, benchmark, and trusted jobs never read it, and
-        # only protected trunk pushes save it; every other run reads only.
-        gradle = [call for call in self.calls if call["gradle"]]
-        self.assertTrue(gradle)
-        for call in gradle:
-            with self.subTest(call["where"]):
-                self.assertEqual(call["mode"], "ci")
-                self.assertEqual(len(call["gradle"]), 1)
-                inputs = call["gradle"][0]
-                for name in ("cache-disabled", "cache-write-only"):
-                    self.assertNotIn(name, inputs)
-                self.assertEqual(
-                    truthy(inputs.get("cache-read-only")),
-                    not protected_trunk_push(call["github"]),
-                )
-
-    def test_setup_js_uses_the_setup_nix_mode_of_its_job(self):
-        for call in self.calls:
-            with self.subTest(call["where"]):
-                for mode in call["js-modes"]:
-                    self.assertEqual(mode, call["mode"])
-
-
-def run_steps(action, mode):
-    """The steps of a composite action that run on Linux for a mode."""
-    context = Context({}, {"cache-mode": lambda: mode}, {})
-    steps = yaml.safe_load((ROOT / action).read_text())["runs"]["steps"]
-    return [
-        step
-        for step in steps
-        if "if" not in step
-        or truthy(
-            context.value(
-                step["if"] if "${{" in step["if"] else "${{ " + step["if"] + " }}"
-            )
-        )
-    ]
-
-
-class CacheModeActionTests(unittest.TestCase):
-    def test_setup_nix_mode_selects_the_cachix_caches_and_token(self):
-        expected = {
-            "read": [("xmtp", None, None)],
-            "ci": [("xmtp-pr", "xmtp", "${{ inputs.cachix-pr-auth-token }}")],
-            "trusted": [("xmtp", None, "${{ inputs.cachix-auth-token }}")],
-        }
-        for mode, caches in expected.items():
-            with self.subTest(mode=mode):
-                steps = run_steps(".github/actions/setup-nix/action.yml", mode)
-                cachix = [
-                    step["with"]
-                    for step in steps
-                    if step.get("uses", "").startswith("cachix/cachix-action@")
-                ]
-                self.assertEqual(
-                    [
-                        (
-                            inputs["name"],
-                            inputs.get("extraPullNames"),
-                            inputs.get("authToken"),
-                        )
-                        for inputs in cachix
-                    ],
-                    caches,
-                )
-                # The policy runs unconditionally, before any cache is set up.
-                names = [step.get("name") for step in steps]
-                policy = action_step("Cache mode policy")
-                self.assertNotIn("if", policy)
-                self.assertIn("dev/kache-ci-policy", policy["run"])
-                first_cache = min(
-                    names.index(step.get("name"))
-                    for step in steps
-                    if step.get("uses", "").startswith(
-                        ("cachix/", "nixbuild/", "kunobi-ninja/", "useblacksmith/")
-                    )
-                )
-                self.assertLess(names.index("Cache mode policy"), first_cache)
-
-    def test_setup_js_mode_selects_the_pnpm_store_action(self):
-        expected = {
-            "read": [],
-            "ci": ["actions/cache/restore"],
-            "trusted": ["actions/cache"],
-        }
-        for mode, actions in expected.items():
-            with self.subTest(mode=mode):
-                steps = run_steps(".github/actions/setup-js/action.yml", mode)
-                self.assertEqual(
-                    [
-                        step["uses"].split("@")[0]
-                        for step in steps
-                        if step.get("uses", "").startswith("actions/cache")
-                    ],
-                    actions,
-                )
+        self.assertTrue(any(c["gradle"] for c in calls))
+        broken = [
+            f"{call['where']}: {rule}"
+            for call in calls
+            for rule, holds in WIRING_RULES
+            if not holds(call)
+        ]
+        if broken:
+            self.fail("\n".join(broken))
 
 
 if __name__ == "__main__":

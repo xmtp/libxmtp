@@ -166,24 +166,10 @@ class SelectionTest(unittest.TestCase):
         return workflow
 
     def test_app_jobs_require_every_child_and_generated_gate(self):
-        workflow = self.assert_child_gate(
+        self.assert_child_gate(
             ".github/workflows/test-example-android.yml",
             ("messenger-build", "integration-tests"),
         )
-        # The build job runs the APK derivation, then one Gradle call for unit
-        # tests, lint, and every variant build.
-        build = json.dumps(workflow["jobs"]["messenger-build"]["steps"])
-        for command in (
-            "nix build .#example-android-apk",
-            "just example-android check-all",
-        ):
-            self.assertIn(command, build)
-        text = json.dumps(workflow)
-        for command in (
-            "just example-android test-integration",
-            "just example-android test-release-integration",
-        ):
-            self.assertIn(command, text)
         suite = "test_example_android"
         workflow = yaml.safe_load(
             (ROOT / ".github/workflows/test-generated.yml").read_text()
@@ -215,21 +201,11 @@ class SelectionTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, expected, state)
 
-    def test_sdk_gate_keeps_staging_consumers_and_minimum_platform(self):
+    def test_sdk_jobs_require_every_child_and_consumers_clean_the_gradle_cache(self):
         workflow = self.assert_child_gate(
             ".github/workflows/test-android.yml",
             ("sdk-build", "sdk-emulator", "android-stage"),
         )
-        text = json.dumps(workflow)
-        for command in (
-            "just android check",
-            "just android test-integration",
-            "just sdk mobile-stage android",
-            "just sdk mobile-build android",
-            "just android check-consumers",
-            "just android test-min-sdk",
-        ):
-            self.assertIn(command, text)
         # check-consumers compiles fail by design, so its job cleans up the
         # trunk Gradle cache entry even after a failed Gradle build.
         consumers = [

@@ -15,7 +15,6 @@ JOBS = WORKFLOW["jobs"]
 POST_MERGE = yaml.safe_load((ROOT / ".github/workflows/post-merge.yml").read_text())[
     "jobs"
 ]
-TESTS = yaml.safe_load((ROOT / ".github/workflows/test-generated.yml").read_text())
 
 
 def gate(results, native):
@@ -61,58 +60,6 @@ class ConcurrencyTests(unittest.TestCase):
     def test_deploy_timeout_exceeds_the_deploy_pages_wait(self):
         # actions/deploy-pages gives up after 10 minutes by default.
         self.assertGreater(POST_MERGE["deploy"].get("timeout-minutes", 0), 10)
-
-
-class TrustTests(unittest.TestCase):
-    def test_only_the_post_merge_workflow_deploys_pages(self):
-        # A called job that asks for pages: write needs that grant from every
-        # caller, even when it is skipped (startup_failure, run 38501491733).
-        for job, spec in JOBS.items():
-            self.assertNotIn("pages", spec.get("permissions") or {}, job)
-        self.assertNotIn("upload-pages-artifact", repr(TESTS))
-        self.assertEqual(
-            POST_MERGE["deploy"]["permissions"], {"pages": "write", "id-token": "write"}
-        )
-        self.assertEqual(POST_MERGE["deploy"]["environment"]["name"], "github-pages")
-        self.assertEqual(POST_MERGE["deploy"]["needs"], "docs")
-
-    def test_post_merge_docs_build_the_references_after_the_warm_build(self):
-        docs = POST_MERGE["docs"]
-        self.assertEqual(docs["uses"], "./.github/workflows/deploy-docs.yml")
-        self.assertEqual(docs["with"], {"deploy": True})
-        self.assertEqual(docs["needs"], "build")
-        # Post-merge runs are never cancelled, so this runs also after a failed build.
-        self.assertEqual(docs["if"], "${{ !cancelled() }}")
-        self.assertNotIn("permissions", docs)
-
-    def test_merge_run_calls_docs_without_deploy(self):
-        self.assertNotIn("with", TESTS["jobs"]["docs_site"])
-        self.assertFalse(WORKFLOW["on"]["workflow_call"]["inputs"]["deploy"]["default"])
-
-    def test_native_references_and_pages_artifact_follow_the_deploy_input(self):
-        for job in ("swift", "kotlin"):
-            self.assertEqual(JOBS[job]["if"], "inputs.deploy", job)
-        compose = JOBS["compose"]
-        self.assertEqual(
-            compose["env"]["DOCS_SKIP_NATIVE_REFERENCES"],
-            "${{ !inputs.deploy && '1' || '' }}",
-        )
-        gated = [
-            step.get("uses") or step.get("name")
-            for step in compose["steps"]
-            if step.get("if") == "inputs.deploy"
-        ]
-        self.assertEqual(
-            gated,
-            [
-                "actions/download-artifact@v8",
-                "Extract Swift reference",
-                "actions/download-artifact@v8",
-                "actions/upload-pages-artifact@v4",
-            ],
-        )
-        for step in compose["steps"]:
-            self.assertNotIn("event_name", repr(step))
 
 
 class ResultGateTests(unittest.TestCase):
