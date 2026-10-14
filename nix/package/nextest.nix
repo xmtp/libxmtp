@@ -9,6 +9,7 @@
   cargo-llvm-cov,
   cargo-nextest,
   python3,
+  cacert,
   writeShellScript,
   services,
   ...
@@ -77,6 +78,10 @@ rust.mkCargoDerivation (
       cargo-nextest
       python3
     ];
+    # A reqwest client loads the system trust store when it is built (rustls
+    # platform verifier); a Linux sandbox has none, so cacert sets
+    # SSL_CERT_FILE.
+    nativeCheckInputs = [ cacert ];
     # Nextest redraws a progress bar by default, which garbles build logs.
     NEXTEST_SHOW_PROGRESS = "counter";
     buildPhaseCargoCommand = "mkdir -p $out";
