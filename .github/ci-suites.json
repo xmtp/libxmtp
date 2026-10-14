@@ -313,7 +313,7 @@
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "inherit",
+      "secrets": "cachix-pr",
       "permissions": {
         "contents": "read"
       },
@@ -1329,7 +1329,7 @@
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "inherit",
+      "secrets": "cachix-pr",
       "permissions": {
         "contents": "read"
       },

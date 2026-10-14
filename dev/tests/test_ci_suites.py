@@ -143,7 +143,7 @@ class CompileTests(unittest.TestCase):
         for value in ("all", "None", "", None):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(
-                    SUITES.DeclarationError, "inherit, kache, none"
+                    SUITES.DeclarationError, "inherit, kache, cachix-pr, none"
                 ):
                     self.compile(
                         lambda d: d["suites"]["lint_proto"].update(secrets=value)
@@ -164,6 +164,13 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(set(jobs["check_rust"]["secrets"]), set(SUITES.KACHE_SECRETS))
         self.assertEqual(jobs["docs_site"]["permissions"]["pages"], "write")
         self.assertEqual(jobs["test_ios"]["permissions"], {"contents": "read"})
+        for phase, name in (("lint", "lint_example_ios"), ("test", "test_example_ios")):
+            with self.subTest(suite=name):
+                phase_jobs = yaml.safe_load(SUITES.render_workflow(manifest, phase))["jobs"]
+                self.assertEqual(
+                    phase_jobs[name].get("secrets"),
+                    {"CACHIX_PR_AUTH_TOKEN": "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"},
+                )
 
 
 class ProductRenderTests(unittest.TestCase):
@@ -222,6 +229,12 @@ class ValidateTests(unittest.TestCase):
     def test_kache_secrets_need_workflow_declarations(self):
         manifest = copy.deepcopy(self.manifest)
         manifest["suites"]["test_xdbg"]["secrets"] = "kache"
+        errors = "\n".join(SUITES.validate(manifest))
+        self.assertIn("test-xdbg.yml must declare workflow_call secrets", errors)
+
+    def test_pr_cache_secrets_need_workflow_declarations(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["test_xdbg"]["secrets"] = "cachix-pr"
         errors = "\n".join(SUITES.validate(manifest))
         self.assertIn("test-xdbg.yml must declare workflow_call secrets", errors)
 

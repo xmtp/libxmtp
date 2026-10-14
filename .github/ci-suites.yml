@@ -32,6 +32,7 @@
 #                     it. A manual run runs every suite.
 #   disable_on_forks  true skips the suite for fork pull requests.
 #   secrets           `inherit` (all secrets), `kache` (only the Kache keys),
+#                     `cachix-pr` (only the PR-cache token),
 #                     or `none` (no secrets; the suite gets only GITHUB_TOKEN).
 #   permissions       Token permissions for the suite.
 #   covered_by        Optional. A suite whose run makes this one unnecessary.
@@ -316,7 +317,7 @@ suites:
     workflow: lint-example-ios.yml
     run_on: [ready_pr_push, merge]
     disable_on_forks: false
-    secrets: inherit
+    secrets: cachix-pr
     permissions: {contents: read}
     kache: []
     products: []
@@ -618,7 +619,7 @@ suites:
     workflow: test-example-ios.yml
     run_on: [ready_pr_push, merge]
     disable_on_forks: false
-    secrets: inherit
+    secrets: cachix-pr
     permissions: {contents: read}
     kache: []
     products: []

@@ -1,6 +1,9 @@
 name: Lint iOS example
 on:
   workflow_call:
+    secrets:
+      CACHIX_PR_AUTH_TOKEN:
+        required: false
 permissions:
   contents: read
 env:

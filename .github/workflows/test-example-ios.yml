@@ -1,6 +1,9 @@
 name: Test iOS example
 on:
   workflow_call:
+    secrets:
+      CACHIX_PR_AUTH_TOKEN:
+        required: false
 permissions:
   contents: read
 env:
@@ -55,6 +58,14 @@ jobs:
         env:
           XMTP_BACKEND_URL: http://127.0.0.1:5050
         run: dev/nix-shell 'just backend ci just example-ios test-ui'
+      - name: Retain failed journey results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-ios-journeys-results
+          path: apps/example-ios/.build/DerivedData/Logs/Test
+          include-hidden-files: true
+          retention-days: 7
       - name: Retain native service logs
         if: always()
         uses: actions/upload-artifact@v4

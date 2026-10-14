@@ -113,7 +113,10 @@ Gradle User Home, and no backend.
 packages, and path groups), Kache scopes, and policy (`run_on`, `disable_on_forks`,
 `secrets`, `permissions`, `covered_by`). Every suite key except `covered_by` is
 required; nothing has a default. `secrets` is `inherit`, `kache` (only the
-Kache keys), or `none`; use `none` for a suite whose workflows read no secret.
+Kache keys), `cachix-pr` (only `CACHIX_PR_AUTH_TOKEN`), or `none`; use `none`
+for a suite whose workflows read no secret. Example iOS suites use `cachix-pr`
+and declare that optional secret in their reusable workflows. They receive no
+release App or trusted-cache credentials.
 Edit only that file. Then run
 `dev/nix-shell 'python3.11 dev/ci-suites generate'` and commit the generated
 `.github/ci-suites.json`, `lint-generated.yml`, and `test-generated.yml`.

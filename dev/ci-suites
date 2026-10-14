@@ -57,8 +57,9 @@ TOP_KEYS = {
 # covered_by is the only optional suite key.
 REQUIRED_SUITE_KEYS = SUITE_KEYS - {"covered_by"}
 KACHE_SECRETS = ("KACHE_S3_ACCESS_KEY_ID", "KACHE_S3_SECRET_ACCESS_KEY")
-# inherit passes every secret, kache only the Kache keys, none no secret.
-SECRET_MODES = ("inherit", "kache", "none")
+# Scoped modes forward only their named cache credentials.
+SCOPED_SECRETS = {"kache": KACHE_SECRETS, "cachix-pr": ("CACHIX_PR_AUTH_TOKEN",)}
+SECRET_MODES = ("inherit", "kache", "none", "cachix-pr")
 GATE_RUNNER = "blacksmith-4vcpu-ubuntu-2404"
 # A products job compiles the group on most runs where it runs.
 PRODUCTS_RUNNER = "blacksmith-16vcpu-ubuntu-2404"
@@ -513,9 +514,9 @@ def render_workflow(manifest, phase):
         ]
         if suite["secrets"] == "inherit":
             lines.append("    secrets: inherit")
-        elif suite["secrets"] == "kache":
+        elif suite["secrets"] in SCOPED_SECRETS:
             lines.append("    secrets:")
-            lines += [f"      {s}: ${{{{ secrets.{s} }}}}" for s in KACHE_SECRETS]
+            lines += [f"      {s}: ${{{{ secrets.{s} }}}}" for s in SCOPED_SECRETS[suite["secrets"]]]
     lines += [
         "  required:",
         "    name: Require selected suites",
@@ -636,11 +637,11 @@ def validate(manifest, root: Path = ROOT, files=None):
                     errors.append(
                         f"{name}: {suite['workflow']} job {job_id} needs {scope}: {level}"
                     )
-        if suite["secrets"] == "kache":
+        if suite["secrets"] in SCOPED_SECRETS:
             declared = ((triggers or {}).get("workflow_call") or {}).get(
                 "secrets"
             ) or {}
-            missing = [s for s in KACHE_SECRETS if s not in declared]
+            missing = [s for s in SCOPED_SECRETS[suite["secrets"]] if s not in declared]
             if missing:
                 errors.append(
                     f"{name}: {suite['workflow']} must declare workflow_call secrets {missing}"

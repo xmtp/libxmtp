@@ -186,7 +186,8 @@ jobs:
     uses: ./.github/workflows/test-example-ios.yml
     permissions:
       contents: read
-    secrets: inherit
+    secrets:
+      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
   required:
     name: Require selected suites
     if: always()
