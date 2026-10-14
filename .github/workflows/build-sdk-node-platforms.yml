@@ -81,6 +81,22 @@ jobs:
             done <<< "$rejected"
             exit 1
           fi
+          # Every allowed target, exactly once, so a ref cannot drop a platform
+          # from the build, load, and assembly.
+          mismatched=$(jq -r --argjson targets "$ALLOWED_TARGETS" '
+            [.node[] | .target] as $listed
+            | if ($listed | sort) == ($targets | sort) then empty else
+                ($targets - $listed | map("missing target \(.)"))
+                + ($listed - $targets | map("extra target \(.)"))
+                + ($listed | group_by(.) | map(select(length > 1) | "duplicate target \(.[0])"))
+                | .[]
+              end' nix/sdk-platforms.json)
+          if [ -n "$mismatched" ]; then
+            while IFS= read -r item; do
+              echo "::error file=nix/sdk-platforms.json::$item: the Node platforms must be exactly ALLOWED_TARGETS"
+            done <<< "$mismatched"
+            exit 1
+          fi
           {
             echo "build=$(jq -c '[.node[] | select(.nixSystems != []) | {target, library, runner}]' nix/sdk-platforms.json)"
             echo "cargo=$(jq -c '[.node[] | select(.nixSystems == []) | {target, rustTarget, library, runner}]' nix/sdk-platforms.json)"
