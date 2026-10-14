@@ -516,7 +516,10 @@ def render_workflow(manifest, phase):
             lines.append("    secrets: inherit")
         elif suite["secrets"] in SCOPED_SECRETS:
             lines.append("    secrets:")
-            lines += [f"      {s}: ${{{{ secrets.{s} }}}}" for s in SCOPED_SECRETS[suite["secrets"]]]
+            lines += [
+                f"      {s}: ${{{{ secrets.{s} }}}}"
+                for s in SCOPED_SECRETS[suite["secrets"]]
+            ]
     lines += [
         "  required:",
         "    name: Require selected suites",

@@ -14,7 +14,7 @@ jobs:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
@@ -23,7 +23,7 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: "26.3"
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - name: Check native Apple toolchain
         run: dev/nix-shell 'bash dev/check-apple-toolchain'
       - name: Build Debug
@@ -50,7 +50,7 @@ jobs:
         run: dev/nix-shell 'just backend ci just example-ios test-ui'
       - name: Retain failed journey results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: example-ios-journeys-results
           path: apps/example-ios/.build/DerivedData/Logs/Test
@@ -63,7 +63,7 @@ jobs:
         run: dev/nix-shell 'just backend ci nix run .#example-ios -- --headless'
       - name: Retain native service logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: example-ios-backend-logs
           path: ${{ runner.temp }}/backend-ci-logs
