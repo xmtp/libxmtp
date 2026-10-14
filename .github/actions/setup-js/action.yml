@@ -13,6 +13,13 @@ inputs:
     description: "Use pnpm from the active Nix development shell"
     required: false
     default: "true"
+  filter:
+    description: >-
+      A pnpm filter for the install, such as "@xmtp/release-tools...". Empty
+      (the default) installs the whole workspace. pnpm also installs the root
+      project's dependencies with a filter.
+    required: false
+    default: ""
 runs:
   using: "composite"
   steps:
@@ -63,9 +70,13 @@ runs:
     - name: Install workspace dependencies (Nix)
       if: ${{ inputs.nix == 'true' }}
       shell: bash
-      run: dev/nix-shell --shell js-node 'pnpm install --frozen-lockfile --prefer-offline'
+      env:
+        PNPM_FILTER: ${{ inputs.filter }}
+      run: dev/nix-shell --shell js-node 'pnpm install --frozen-lockfile --prefer-offline ${PNPM_FILTER:+--filter "$PNPM_FILTER"}'
 
     - name: Install workspace dependencies
       if: ${{ inputs.nix != 'true' }}
       shell: bash
-      run: pnpm install --frozen-lockfile --prefer-offline
+      env:
+        PNPM_FILTER: ${{ inputs.filter }}
+      run: pnpm install --frozen-lockfile --prefer-offline ${PNPM_FILTER:+--filter "$PNPM_FILTER"}

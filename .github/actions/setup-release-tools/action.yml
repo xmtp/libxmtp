@@ -5,12 +5,20 @@ inputs:
     description: "Use pnpm from the active Nix development shell"
     required: false
     default: "false"
+  filter:
+    description: >-
+      The pnpm install filter. The default installs only the release tools
+      and the root project; a job that also builds or tests JavaScript passes
+      an empty value for the whole workspace.
+    required: false
+    default: "@xmtp/release-tools..."
 runs:
   using: "composite"
   steps:
     - uses: ./.github/actions/setup-js
       with:
         nix: ${{ inputs.nix }}
+        filter: ${{ inputs.filter }}
     - name: Add xmtp-release to PATH
       shell: bash
       run: |

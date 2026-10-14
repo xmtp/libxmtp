@@ -50,6 +50,9 @@ jobs:
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
           fetch-depth: 0
+          # Full history for the release tag, without blobs; git-cliff, which
+          # fails on a blobless clone, does not run here.
+          filter: blob:none
       - uses: ./.github/actions/setup-release-tools
       # No ~/.gradle disk: CI jobs commit it, and a release reads no store that
       # CI jobs write. Gradle downloads its distribution and dependencies.
@@ -95,20 +98,9 @@ jobs:
       - name: Build Android bindings
         run: NIX_DEVSHELL=android dev/nix-shell './sdks/android/dev/bindings --release'
 
-      - name: Build JVM test library
-        run: env -u LD_LIBRARY_PATH nix build .#xmtp-sdk-libs --out-link sdks/android/.build/test-host
-
+      # Publish only: CI tests the release commit (the Android suites), and a
+      # live-backend test here once failed a release.
       - uses: taiki-e/install-action@844d13d3ed6991e61a4ebc2c067073e3ed4f5ee1 # just
-      - name: Start backend
-        env:
-          NIX_DEVSHELL: android
-        run: dev/nix-shell 'just backend up'
-
-      - name: Build and test
-        env:
-          JAVA_TOOL_OPTIONS: "-Djna.library.path=${{ github.workspace }}/sdks/android/.build/test-host/lib"
-        run: NIX_DEVSHELL=android dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && cd sdks/android && ./gradlew :library:build'
-
       - name: Build example APK
         env:
           XMTP_EXAMPLE_VERSION: ${{ steps.version.outputs.version }}
@@ -124,7 +116,6 @@ jobs:
 
       - name: Publish
         env:
-          JAVA_TOOL_OPTIONS: "-Djna.library.path=${{ github.workspace }}/sdks/android/.build/test-host/lib"
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
