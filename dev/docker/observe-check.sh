@@ -11,15 +11,22 @@ xdbg="$(nix build --no-link --print-out-paths .#xdbg)" || { echo 'FAIL: build xd
 export OBSERVE_XDBG="$xdbg/bin/xdbg"
 # The wrapper labels the build with the flake's short revision: the first 7 hex
 # digits of HEAD, with `-dirty` for a dirty tree. In CI, HEAD is the merge commit.
+# The version keys stored state, so an inherited XDBG_GIT_SHA must not change it.
 revision="$(git rev-parse HEAD | cut -c1-7)"
-version_state="$(mktemp -d)"
-version="$(env -u RUST_LOG -u XDBG_GIT_SHA XDBG_DB_ROOT="$version_state" "$OBSERVE_XDBG" --version 2>&1)" \
-  || { echo "FAIL: xdbg --version: $version" >&2; exit 1; }
-rm -r "$version_state"
-case "$version" in
-  *"-$revision"*) echo "PASS: xdbg --version names $revision" ;;
-  *) echo "FAIL: xdbg --version does not name $revision: $version" >&2; exit 1 ;;
-esac
+check_version() {
+  local label="$1" state version
+  shift
+  state="$(mktemp -d)"
+  version="$(env -u RUST_LOG "$@" XDBG_DB_ROOT="$state" "$OBSERVE_XDBG" --version 2>&1)" \
+    || { echo "FAIL: xdbg --version ($label): $version" >&2; exit 1; }
+  rm -r "$state"
+  case "$version" in
+    *"-$revision"*) echo "PASS: xdbg --version ($label) names $revision" ;;
+    *) echo "FAIL: xdbg --version ($label) does not name $revision: $version" >&2; exit 1 ;;
+  esac
+}
+check_version "XDBG_GIT_SHA unset" -u XDBG_GIT_SHA
+check_version "XDBG_GIT_SHA=bogus" XDBG_GIT_SHA=bogus
 export OBSERVE_TEMPO_URL="http://127.0.0.1:${XMTP_TEMPO_PORT}"
 export OBSERVE_PROMETHEUS_URL="http://127.0.0.1:${XMTP_PROMETHEUS_PORT}"
 export OBSERVE_GRAFANA_URL="http://127.0.0.1:${XMTP_GRAFANA_PORT}"

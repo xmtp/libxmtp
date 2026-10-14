@@ -4,8 +4,9 @@
 # flake revision, so Cachix serves it across commits. Its store path changes
 # with the xdbg source closure, and with any workspace manifest, `Cargo.lock`,
 # or build script, because the dummy workspace keeps every manifest. The
-# wrapper is the only part that reads `xmtp.gitSha`; it sets `XDBG_GIT_SHA`,
-# which `get_version()` reads first.
+# wrapper is the only part that reads `xmtp.gitSha`. It always sets
+# `XDBG_GIT_SHA` to the build's commit, and `get_version()` reads the variable
+# only in this placeholder build.
 {
   lib,
   xmtp,
@@ -40,7 +41,8 @@ let
       };
       cargoVendorDir = base.mkCargoVendorDir rust;
       # `build.rs` skips vergen when this is set. A constant keeps the
-      # derivation the same across commits.
+      # derivation the same across commits. `get_version()` in
+      # `apps/xmtp_debug/src/main.rs` matches this placeholder.
       NIX_GIT_SHA = "nix";
       pname = "xdbg";
       cargoExtraArgs = "--locked -p xdbg";
@@ -58,8 +60,7 @@ runCommand "xdbg-${version}"
     meta.mainProgram = "xdbg";
   }
   ''
-    # An unset or empty XDBG_GIT_SHA gets the flake revision. The revision is
-    # hex, `<hex>-dirty`, or `unknown`, so it needs no quoting.
+    # The version keys stored state, so an inherited value must not override it.
     makeWrapper ${lib.getExe unwrapped} $out/bin/xdbg \
-      --run 'export XDBG_GIT_SHA=''${XDBG_GIT_SHA:-${xmtp.gitSha}}'
+      --set XDBG_GIT_SHA ${lib.escapeShellArg xmtp.gitSha}
   ''
