@@ -556,11 +556,18 @@ class StagingTests(unittest.TestCase):
                         if version:
                             subprocess.run(
                                 [
-                                    "node",
-                                    str(ROOT / "crates/xmtp_sdk/dev/stamp-package.mjs"),
+                                    str(
+                                        ROOT / "dev/release-tools/node_modules/.bin/tsx"
+                                    ),
+                                    str(ROOT / "dev/release-tools/src/cli.ts"),
+                                    "stamp-package",
+                                    "--dir",
                                     str(out / "node"),
+                                    "--version",
                                     version,
                                 ],
+                                # tsx reads the CLI's path aliases from here.
+                                cwd=ROOT / "dev/release-tools",
                                 check=True,
                                 capture_output=True,
                             )

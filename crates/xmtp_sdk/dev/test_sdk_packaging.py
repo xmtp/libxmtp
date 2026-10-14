@@ -14,8 +14,8 @@ from unittest.mock import Mock, patch
 import unittest
 
 from packaging_test_base import (
+    AndroidDependencyInputs,
     PackagingTestBase,
-    android_inputs,
     artifacts,
     mobile,
 )
@@ -23,7 +23,7 @@ from packaging_test_base import (
 
 class PackagingTests(
     PackagingTestBase,
-    android_inputs.AndroidDependencyInputs,
+    AndroidDependencyInputs,
     unittest.TestCase,
 ):
     def native_libraries(self):

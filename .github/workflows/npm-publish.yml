@@ -114,7 +114,7 @@ jobs:
         env:
           PACKAGE_DIRECTORY: ${{ inputs.package-dir }}
           PACKAGE_VERSION: ${{ inputs.version }}
-        run: node crates/xmtp_sdk/dev/stamp-package.mjs "$PACKAGE_DIRECTORY" "$PACKAGE_VERSION"
+        run: xmtp-release stamp-package --dir "$PACKAGE_DIRECTORY" --version "$PACKAGE_VERSION"
 
       - name: Determine NPM tag
         id: npm-tag

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { test } from 'node:test';
+import { test } from 'vitest';
 
 const source = readFileSync('apps/xmtp_sdk_bindgen/src/public_projection/policy.rs', 'utf8');
 const match = source.match(/const CREDENTIAL_GUARD: &str = r#"([\s\S]*?)"#;/);

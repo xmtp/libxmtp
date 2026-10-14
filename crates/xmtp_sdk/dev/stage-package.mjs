@@ -17,11 +17,15 @@ import {
   cpSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve, relative, delimiter } from "node:path";
+import { dirname, join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { checkGeneratedAssets } from "./check-generated-assets.mjs";
-import { stageNodePlatforms, usePlatformPackages } from "./node-platforms.mjs";
+import {
+  npmCli,
+  stageNodePlatforms,
+  usePlatformPackages,
+} from "./node-platforms.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const generated = resolve(
@@ -434,30 +438,12 @@ try {
   {
     // npm removes files such as package-lock.json from bundled dependencies.
     // Check the runtime files that npm ships, including its loaders and binaries.
-    const npmCandidates = [
-      process.env.XMTP_SDK_NPM_CLI
-        ? resolve(process.env.XMTP_SDK_NPM_CLI)
-        : undefined,
-      join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
-      resolve(
-        dirname(process.execPath),
-        "../lib/node_modules/npm/bin/npm-cli.js",
-      ),
-    ];
-    for (const directory of (process.env.PATH ?? "").split(delimiter)) {
-      const link = join(directory, "npm");
-      if (existsSync(link)) {
-        const cli = realpathSync(link);
-        if (cli.endsWith("npm-cli.js")) npmCandidates.push(cli);
-      }
-    }
-    const npmCli = npmCandidates.find((path) => path && existsSync(path));
-    if (!npmCli) throw new Error("SDK package staging cannot find npm-cli.js");
+    const npm = npmCli();
     const packed = JSON.parse(
       execFileSync(
         process.execPath,
         [
-          npmCli,
+          npm,
           "pack",
           realpathSync(destination),
           "--dry-run",

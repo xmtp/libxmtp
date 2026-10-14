@@ -25,10 +25,10 @@ Run commands from the repository root in the Nix shell. Run
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
   the worker and transport tests import it.
-- `dev/nix-shell 'just sdk check-package-scripts'` runs the normal packaging controls.
-  Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
-  which the main packaging suite loads as inherited test methods.
-  Both packaging suites share the fixture in `dev/packaging_test_base.py`.
+- `dev/nix-shell 'just sdk check-package-scripts'` runs every `dev/test_*.py`
+  (unittest discovery) and every `dev/test-*.mjs` (`node --test`); a new test
+  file runs without a recipe edit. The packaging suites share the fixture and
+  the Android dependency-input cases in `dev/packaging_test_base.py`.
 - Evaluation checks the native build inputs: `base.assertNativeEnv`
   (`nix/lib/base.nix`) fails evaluation of the host, Android, and iOS
   libraries, or of their dependency layers, without static vendored OpenSSL,
@@ -88,11 +88,11 @@ Run commands from the repository root in the Nix shell. Run
   (`sdk_conformance_*`) the default bindings omit. The public browser scenarios
   are in `sdks/browser/test`.
   The run starts `sdks/browser/test/platform/object-store/object-store.mjs`
-  (`dev/with-object-store`) for its download fixtures. The default ephemeral
+  (`with-object-store` beside it) for its download fixtures. The default ephemeral
   fixture port keeps `SDK_FIXTURE_URL` separate from native S3 on port 9067.
   The run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a small
   PUT response, count upload grants and object requests, and refuse selected
-  relayed backend URLs. It uses `protoc` from the Rust shell to replace only
+  relayed backend URLs. It uses `protoc` from the js shell to replace only
   the upload URL in a real backend response. Browser clients use its gRPC-web
   relay, which preserves gRPC status trailers. The Node tests in
   `sdks/node/test` do not use this fixture. The attachment end test starts its

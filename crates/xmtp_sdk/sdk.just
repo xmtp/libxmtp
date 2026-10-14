@@ -31,10 +31,14 @@ check-file-sizes:
 wasm-init:
     bash "{{ root }}/crates/xmtp_sdk/dev/check-wasm-init"
 
-# Bridge runtime unit tests in apps/xmtp_sdk_bindgen/runtime-tests/ts. Extra
-# arguments go to Vitest. Run `just sdk generate` first.
+# Bridge runtime unit tests in apps/xmtp_sdk_bindgen/runtime-tests/ts and the
+# generated conformance.gen.test.ts against the staged SDK. The generated test
+# also runs the real WASM worker proofs bridge.real.mts and
+# bridge.values.real.mts against this worktree's backend. The tests load the
+# generated WASM and pure trees, which link the @ubjs packages in their
+# node_modules. Extra arguments go to Vitest. Run `just sdk generate` first.
 test-bridge *args:
-    bash "{{ root }}/crates/xmtp_sdk/dev/run-bridge-tests" {{ args }}
+    {{ _env }} && cd "{{ root }}" && NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run --config apps/xmtp_sdk_bindgen/runtime-tests/ts/vitest.config.mts --browser.enabled=false {{ args }}
 
 # Browser platform proofs in sdks/browser/test/platform: real WASM workers,
 # Chromium storage, package, logging and bridge proofs, and the Vitest
@@ -67,24 +71,20 @@ render targets="swift,kotlin,node,browser" *args:
 stage target:
     cd "{{ root }}" && node crates/xmtp_sdk/dev/stage-package.mjs "{{ target }}"
 
+# Stage the public product, then pack, install, and smoke it (node or browser).
 package-smoke target="node":
-    cd "{{ root }}" && bash crates/xmtp_sdk/dev/package-smoke "{{ target }}"
+    cd "{{ root }}" && node crates/xmtp_sdk/dev/stage-package.mjs {{ quote(target) }}
+    cd "{{ root }}" && node crates/xmtp_sdk/dev/package-smoke.mjs {{ quote(target) }}
 
 # Check the real generation and mobile consumer build closures.
 check-generated-nix:
     cd "{{ root }}" && python3.11 -B crates/xmtp_sdk/dev/check-generated-nix.py
 
+# Every dev/test_*.py and dev/test-*.mjs, found by discovery. With no path,
+# `node --test` applies its default patterns; the grep fails when it ran none.
 check-package-scripts:
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-artifacts.py
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-packaging.py
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-native-build-context.py
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-staging.py
-    cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-node-platforms.mjs
-    cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-stamp-package.mjs
-    cd "{{ root }}" && node crates/xmtp_sdk/dev/test-credential-record.mjs
-    cd "{{ root }}" && node crates/xmtp_sdk/dev/test-callback-rejection.mjs
-    cd "{{ root }}" && node crates/xmtp_sdk/dev/test-pure-wasm.mjs
-    cd "{{ root }}" && node crates/xmtp_sdk/dev/test-generated-assets.mjs
+    cd "{{ root }}" && python3.11 -B -m unittest discover -s crates/xmtp_sdk/dev -p 'test_*.py'
+    cd "{{ root }}/crates/xmtp_sdk/dev" && set -o pipefail && node --test --test-reporter=spec | tee /dev/stderr | grep 'tests [1-9]' >/dev/null
 
 # Stage the iOS package or the Android AAR from the Nix release libraries
 # (target/sdk-packages/<target>). Android reads the Kotlin tree in

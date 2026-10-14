@@ -4,11 +4,11 @@
 # separate from the native S3 service used for real backend-signed uploads.
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/../../.." && pwd)"
-# The transfer relay uses the repository schema to change a grant URL.
-export SDK_PROTOC="${SDK_PROTOC:-$(NIX_DEVSHELL=rust dev/nix-shell 'command -v protoc')}"
+# The transfer relay runs protoc (from the js shell) on the repository schema to
+# change a grant URL, so run this from the repository root.
+here="$(cd "$(dirname "$0")" && pwd)"
 output="$(mktemp)"
-node "$root/sdks/browser/test/platform/object-store/object-store.mjs" "${SDK_OBJECT_STORE_PORT:-0}" >"$output" &
+node "$here/object-store.mjs" "${SDK_OBJECT_STORE_PORT:-0}" >"$output" &
 store=$!
 trap 'kill "$store" 2>/dev/null || true; rm -f "$output"' EXIT
 SDK_FIXTURE_URL=
