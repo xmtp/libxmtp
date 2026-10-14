@@ -88,7 +88,9 @@ if $refresh || [[ ! -s "$env_file" || ! -e "$profile" ]]; then
   mv "$temporary" "$env_file"
 else
   touch "$env_file"
-  touch -h "$profile" "$profile"-*-link
+  # -c: a concurrent evaluation of this key may have just replaced the links;
+  # GNU touch -h would fail on the missing path and end the wrapper.
+  touch -ch "$profile" "$profile"-*-link
 fi
 
 if $print_env; then

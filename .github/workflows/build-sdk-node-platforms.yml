@@ -179,6 +179,9 @@ jobs:
       - name: Pinned Rust toolchain
         shell: bash
         run: rustup toolchain install
+      # The key hashes this workflow as committed at `inputs.ref`, so callers
+      # must run it from that same commit (as release does); a run from another
+      # ref could cache a pair built by a different recipe under this key.
       - name: Source key
         id: key
         shell: bash
