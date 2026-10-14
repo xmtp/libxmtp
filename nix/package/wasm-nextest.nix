@@ -205,7 +205,8 @@ let
             echo "wasm-nextest: waiting for $lock"
             flock -x 9
           fi
-          ${services.checkCommand run}
+          # The services must not inherit the lock: a leaked child would hold it.
+          ${lib.removeSuffix "\n" (services.checkCommand run)} 9<&-
           ${import ../lib/junit.nix "target/nextest/ci/junit.xml"}
         '';
         inherit (xmtp.shellCommon.wasmEnv)
