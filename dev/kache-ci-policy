@@ -32,8 +32,8 @@ fi
 if [[ "$mode" != ci && "${XMTP_CACHIX_PR_TOKEN:-false}" == true ]]; then
   fail "cache-mode $mode must not receive the xmtp-pr token"
 fi
-if [[ "$mode" == read && "${XMTP_CACHIX_TOKEN:-false}" == true ]]; then
-  fail 'cache-mode read must not receive the trusted Cachix token'
+if [[ "$mode" != trusted && "${XMTP_CACHIX_TOKEN:-false}" == true ]]; then
+  fail "cache-mode $mode must not receive the trusted Cachix token"
 fi
 
 # Kache uploads need S3, an explicit writer opt-in, and mode trusted. Mode ci

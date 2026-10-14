@@ -42,9 +42,9 @@ when:
 - the mode is `trusted` and the event is not a protected push to `main` or
   `self-hosted`;
 - a `read` or `trusted` job receives the `xmtp-pr` token;
-- a `read` job receives the trusted token.
+- a `read` or `ci` job receives the trusted token.
 
-A `ci` job ignores `cachix-auth-token`. Fork and Dependabot runs have no
+Fork and Dependabot runs have no
 `xmtp-pr` token: they read both caches and push nothing.
 
 A writer job selects the writer environment `kache-s3-writer` exactly when

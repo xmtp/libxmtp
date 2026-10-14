@@ -242,7 +242,8 @@ class CachePolicyTests(unittest.TestCase):
     def test_each_mode_accepts_only_its_own_token(self):
         for mode, trusted, pr, allowed in (
             ("ci", "false", "true", True),
-            ("ci", "true", "true", True),
+            ("ci", "true", "true", False),
+            ("ci", "true", "false", False),
             ("trusted", "true", "false", True),
             ("read", "false", "false", True),
             ("read", "false", "true", False),
