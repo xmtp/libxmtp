@@ -105,7 +105,14 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 			defer { tasks.removeValue(forKey: taskID) }
 			do {
 				let records = try await queries.list(consent: consent, limit: requested)
-				let requests = try await queries.list(consent: .unknown, limit: 501)
+				let requests: [ConversationRecord]?
+				do {
+					requests = try await queries.list(consent: .unknown, limit: 501)
+				} catch is CancellationError {
+					throw CancellationError()
+				} catch {
+					requests = nil
+				}
 				try Task.checkCancellation()
 				apply(origin, request: requestRevision) { state in
 					// List reads may carry only IDs. Keep details until the current window refreshes.
@@ -118,8 +125,10 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 							return row(enriched)
 						}
 					state.hasMore = records.count == requested; state.loading = false
-					state.requestCount = requests.count >= 501 ? nil : ListRules
-						.requestCount(requests.filter { !preferences.dismissedRequests.contains($0.id) }.count)
+					state.requestCount = requests.flatMap { records in
+						records.count >= 501 ? nil : ListRules
+							.requestCount(records.filter { !preferences.dismissedRequests.contains($0.id) }.count)
+					}
 				}
 				await hydrate(origin: origin)
 			} catch {

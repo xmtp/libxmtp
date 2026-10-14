@@ -28,6 +28,7 @@ public enum SessionState: Equatable,
 @MainActor public final class SessionScope {
 	private var tasks: [Task<Void, Never>] = []
 	private var cleanups: [@MainActor @Sendable () async -> Void] = []
+	private var finalCleanups: [@MainActor @Sendable () async -> Void] = []
 	private var keyedCleanups: [String: @MainActor @Sendable () async -> Void] = [:]
 	public init() {}
 	@discardableResult public func add(_ operation: @escaping @MainActor @Sendable () async -> Void) -> Task<Void, Never> {
@@ -36,6 +37,10 @@ public enum SessionState: Equatable,
 
 	public func addCleanup(_ cleanup: @escaping @MainActor @Sendable () async -> Void) {
 		cleanups.append(cleanup)
+	}
+
+	public func addFinalCleanup(_ cleanup: @escaping @MainActor @Sendable () async -> Void) {
+		finalCleanups.append(cleanup)
 	}
 
 	@discardableResult public func setCleanup(
@@ -56,6 +61,7 @@ public enum SessionState: Equatable,
 	}
 
 	public func cancelAndWait() async {
+		let final = finalCleanups; finalCleanups = []
 		let pending = tasks; tasks = []; let pendingCleanups = cleanups +
 			Array(keyedCleanups.values); cleanups = []; keyedCleanups = [:]; pending
 			.forEach { $0.cancel() }; for cleanup in pendingCleanups
@@ -64,6 +70,9 @@ public enum SessionState: Equatable,
 		}
 		for task in pending {
 			await task.value
+		}
+		for cleanup in final {
+			await cleanup()
 		}
 	}
 }
@@ -234,9 +243,9 @@ public enum SessionState: Equatable,
 	}
 
 	public func continueReset() async throws {
+		var index = try files.loadIndex(); guard var journal = index.reset else { return }
 		let generation = fence.reserve()
 		do {
-			var index = try files.loadIndex(); guard var journal = index.reset else { return }
 			await close()
 			guard fence.currentGeneration() == generation else { throw SessionError.stale }
 			if journal.phase == .stopping {

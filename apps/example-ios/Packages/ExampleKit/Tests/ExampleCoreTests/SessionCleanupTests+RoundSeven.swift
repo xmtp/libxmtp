@@ -198,3 +198,29 @@ extension SessionCleanupTests {
 		factory.pending?.resume(returning: factory.client); factory.pending = nil
 	}
 }
+
+extension SessionCleanupTests {
+	@Test @MainActor func resetRetryIndexReadFailureKeepsLiveSessionAdmitted() async throws {
+		let files = RoundSevenFiles(); let factory = RoundSevenFactory(); let fence = SessionFence()
+		let session = SessionController(fence: fence, secrets: RoundSevenSecrets(), files: files, factory: factory)
+		try await session.connect(url: "http://localhost:5050", token: "fixture-token")
+		let info: SessionInfo
+		if case let .active(active) = session.state {
+			info = active
+		} else {
+			Issue.record("Expected active session"); return
+		}
+		files.index.reset = ResetJournal(profileID: info.profile.id, phase: .stopping)
+		files.failLoad = true
+		do {
+			try await session.continueReset(); Issue.record("Expected index read failure")
+		} catch {
+			#expect((error as? SessionError) == .message("Cannot read profile."))
+		}
+		#expect(fence.accepts(info.key)); #expect(session.state == .active(info))
+		#expect(session.client != nil); #expect(!factory.client.ended); #expect(files.removed.isEmpty)
+		files.failLoad = false
+		try await session.continueReset()
+		#expect(session.state == .signedOut); #expect(factory.client.ended); #expect(files.index.reset == nil)
+	}
+}
