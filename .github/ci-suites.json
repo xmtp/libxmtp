@@ -161,7 +161,7 @@
         ".github/workflows/lint-config.yml"
       ],
       "paths": [
-        "**/*.{nix,py,sh,toml,kt,kts,swift}",
+        "**/*.{nix,py,sh,toml,kt,swift}",
         "**/.github/actions/setup-nix/README.md",
         ".github/**",
         "apps/backend/backend.just",
@@ -1201,9 +1201,7 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-android-release"
-      ],
+      "kache": [],
       "products": [
         "sdk_android"
       ],

@@ -203,8 +203,7 @@ product, and docs site jobs build no SDK with cargo: they copy the Nix products
 (`XMTP_SDK_BUILD=nix`), so they leave Kache off, and so do the npm release
 jobs and the xmtp.chat deploy, which ship the same products. The older SDK
 facade job uses `sdk-products-tests-conformance` because it combines product
-builds, Rust unit tests, and browser fixtures. Android staging uses a separate
-release scope. Default SDK tests, backend tests, native Clippy, WASM Clippy,
+builds, Rust unit tests, and browser fixtures. Default SDK tests, backend tests, native Clippy, WASM Clippy,
 Cargo check, and Rust docs retain distinct scopes.
 
 A scope selects prefetch manifests and dependency shard indexes. It does not
@@ -241,6 +240,4 @@ stops running cargo.
 | `check-rust.yml / wasm` | `rust-clippy-wasm` | Protected push writer; otherwise reader |
 | `check-sdk-unit.yml / unit` | `sdk-tests-debug` | Protected push writer; otherwise reader |
 | `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer (CI merge run); reader inside `post-merge.yml` and otherwise |
-| `test-android.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
 | `test-sdk.yml / sdk` | `sdk-products-tests-conformance` | Protected push writer; otherwise reader |
-| `test-sdk.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |

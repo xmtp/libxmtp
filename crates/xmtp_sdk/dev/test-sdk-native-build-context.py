@@ -297,45 +297,6 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
         finally:
             self.patches[2].start()
 
-    def test_target_ranlib_path_version_and_bytes_change_cache_context(self):
-        tool = self.root / "llvm-ranlib"
-        tool.write_text("#!/bin/sh\nprintf 'LLVM ranlib one\\n'\n")
-        tool.chmod(0o755)
-        self.patches[2].stop()
-        try:
-            with patch.dict(os.environ, {"RANLIB_aarch64_linux_android": str(tool)}):
-                baseline = artifacts.build_context()
-                tool.write_text("#!/bin/sh\nprintf 'LLVM ranlib two\\n'\n")
-                self.assertNotEqual(artifacts.build_context(), baseline)
-                with (
-                    patch.object(artifacts.subprocess, "run") as version_probe,
-                    patch.object(
-                        artifacts.subprocess,
-                        "check_output",
-                        return_value=b"fixed rustc",
-                    ),
-                ):
-                    version_probe.return_value = subprocess.CompletedProcess(
-                        [], 0, b"version one", b""
-                    )
-                    stable_bytes = artifacts.build_context()
-                    version_probe.return_value = subprocess.CompletedProcess(
-                        [], 0, b"version two", b""
-                    )
-                    self.assertNotEqual(artifacts.build_context(), stable_bytes)
-                version = artifacts.build_context()
-                tool.write_text(
-                    "#!/bin/sh\nprintf 'LLVM ranlib two\\n'\n# changed bytes\n"
-                )
-                self.assertNotEqual(artifacts.build_context(), version)
-                before = artifacts.build_context()
-                os.environ["RANLIB_aarch64_linux_android"] = str(
-                    self.root / "other-ranlib"
-                )
-                self.assertNotEqual(artifacts.build_context(), before)
-        finally:
-            self.patches[2].start()
-
     def test_rustc_override_has_precedence_over_cargo_build_rustc(self):
         self.patches[2].stop()
         try:

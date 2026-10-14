@@ -242,16 +242,6 @@ def bindgen_route():
     return "cargo" if changed or added else "nix"
 
 
-def compiler_host():
-    """Read the host triple from the selected artifact compiler."""
-    compiler = os.environ.get("RUSTC") or os.environ.get("CARGO_BUILD_RUSTC") or "rustc"
-    identity = subprocess.check_output([compiler, "-vV"], cwd=ROOT).decode()
-    for line in identity.splitlines():
-        if line.startswith("host: "):
-            return line.removeprefix("host: ")
-    raise ValueError("Artifact compiler identity has no host triple")
-
-
 def build_context():
     """Include the compiler and target flags in the artifact cache key."""
     compiler_path = (
@@ -300,26 +290,8 @@ def build_context():
         or "_OPENSSL_" in name
         or name.endswith("_DEPLOYMENT_TARGET")
     }
-    archive_indexes = {}
-    for name, value in flags.items():
-        if name == "RANLIB" or name.startswith("RANLIB_"):
-            tool = Path(shutil.which(value) or ROOT / value)
-            identity = {"path": str(tool.resolve()), "bytes": None, "version": None}
-            if tool.is_file():
-                identity["bytes"] = digest(tool.resolve())
-                probe = subprocess.run(
-                    [str(tool), "--version"], cwd=ROOT, capture_output=True, check=False
-                )
-                identity["version"] = [
-                    probe.returncode,
-                    probe.stdout.decode(errors="replace"),
-                    probe.stderr.decode(errors="replace"),
-                ]
-            archive_indexes[name] = identity
     return hashlib.sha256(
-        json.dumps(
-            [compiler, compiler_bytes, flags, archive_indexes], sort_keys=True
-        ).encode()
+        json.dumps([compiler, compiler_bytes, flags], sort_keys=True).encode()
     ).hexdigest()
 
 

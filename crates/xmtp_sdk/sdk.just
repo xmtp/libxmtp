@@ -79,7 +79,6 @@ check-generated-nix:
 
 check-package-scripts:
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-artifacts.py
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-packaging.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-native-build-context.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-staging.py
@@ -92,10 +91,9 @@ check-package-scripts:
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-pure-wasm.mjs
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-generated-assets.mjs
 
-# Use the matching ios or android Nix shell. This does not switch a shipped SDK.
-mobile-build target:
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/mobile-package.py build "{{ target }}"
-
+# Stage the iOS package or the Android AAR from the Nix release libraries
+# (target/sdk-packages/<target>). Android reads the Kotlin tree in
+# target/sdk-generated: run `XMTP_SDK_BUILD=nix just sdk generate kotlin` first.
 mobile-stage target:
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/mobile-package.py stage "{{ target }}"
 
@@ -109,10 +107,6 @@ bench-check:
     cd "{{ root }}" && python3.11 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/benchmarks/bench.py check
     cd "{{ root }}" && node --test crates/xmtp_sdk/benchmarks/test_workload.mjs
-
-# Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
-check-android-toolchain:
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/check-android-toolchain.py
 
 # Run only migration in the existing Browser platform suite.
 test-browser-migration:

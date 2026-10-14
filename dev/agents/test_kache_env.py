@@ -512,9 +512,7 @@ KACHE_CALLERS = {
     "check-rust.yml / wasm": "rust-clippy-wasm",
     "check-sdk-unit.yml / unit": "sdk-tests-debug",
     "docs-rust-reference.yml / rust": "rust-reference",
-    "test-android.yml / android-stage": "sdk-android-release",
     "test-sdk.yml / sdk": "sdk-products-tests-conformance",
-    "test-sdk.yml / android-stage": "sdk-android-release",
 }
 
 

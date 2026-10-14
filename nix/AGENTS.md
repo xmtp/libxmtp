@@ -180,7 +180,8 @@ the render arguments. It does not compile a Windows SDK.
 `android-sdk-libs` combines generated Kotlin, runtime and Android sources,
 the contract record, and all four `libxmtp_sdk.so` ABIs. `android-sdk-libs-fast`
 selects the host emulator ABI. The SDK Gradle build reads this layout. The
-mobile-stage command builds the SDK library AAR so platform helpers are included.
+mobile-stage command assembles the SDK library AAR over the per-ABI libraries
+(`xmtp-sdk-android-<abi>`), so platform helpers are included.
 
 `example-android-apk` builds the signed universal Messenger testing APK on
 macOS ARM64 and Linux x86_64. It uses the SDK version in `gradle.properties`, the

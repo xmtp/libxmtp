@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Check config provenance, mobile features, and Android target tools."""
+"""Check config provenance and the mobile staging from Nix libraries."""
 
-import argparse
 import json
 import os
+import plistlib
 import signal
 from pathlib import Path
 import subprocess
 import shutil
+import sys
 import zipfile
 from unittest.mock import Mock, patch
 import unittest
 
-from mobile_package_test_fixtures import MobilePackageTestFixtures
 from packaging_test_base import (
     PackagingTestBase,
     android_inputs,
@@ -24,27 +24,51 @@ from packaging_test_base import (
 class PackagingTests(
     PackagingTestBase,
     android_inputs.AndroidDependencyInputs,
-    MobilePackageTestFixtures,
     unittest.TestCase,
 ):
+    def native_libraries(self):
+        """Nix-shaped JNI libraries with receipts that match the binding."""
+        for abi, triple in mobile.ANDROID.items():
+            folder = self.root / "mobile" / abi
+            (folder / "lib").mkdir(parents=True, exist_ok=True)
+            (folder / "lib/libxmtp_sdk.so").write_text(f"fixture library {abi}")
+            (folder / "native-provenance.json").write_text(
+                json.dumps(
+                    {
+                        "schema": 1,
+                        "source": artifacts.source_hash(),
+                        "target": triple,
+                        "profile": "release",
+                        "features": "",
+                    }
+                )
+            )
+
+    def ios_release(self, triples=None):
+        """A Nix-shaped `.#ios-xcframeworks` output."""
+        release = self.root / "mobile/ios/XmtpSdkFFI"
+        framework = release / "XmtpSdkFFI.xcframework"
+        framework.mkdir(parents=True, exist_ok=True)
+        libraries = []
+        for triple in mobile.IOS if triples is None else triples:
+            platform, variant, arch = mobile.apple_slice(triple)
+            library = {"SupportedPlatform": platform, "SupportedArchitectures": [arch]}
+            if variant:
+                library["SupportedPlatformVariant"] = variant
+            libraries.append(library)
+        with (framework / "Info.plist").open("wb") as plist:
+            plistlib.dump({"AvailableLibraries": libraries}, plist)
+        (release / "Sources/XmtpSdk").mkdir(parents=True, exist_ok=True)
+        (release / "Sources/XmtpSdk/xmtp_sdk.swift").write_text("fixture binding")
+
     def prepare_mobile_stage(self, target):
-        self.args.targets = ("swift",) if target == "ios" else ("kotlin",)
-        artifacts.build(self.args)
-        artifacts.render(self.args)
-        triples = mobile.IOS if target == "ios" else tuple(mobile.ANDROID.values())
-        for triple in triples:
-            args = argparse.Namespace(**vars(self.args))
-            args.artifacts = self.root / "mobile" / triple
-            args.rust_target = triple
-            args.skip_bindgen = True
-            artifacts.build(args)
         if target == "ios":
-            generated = self.args.out / "swift"
-            (generated / "xmtp_sdkFFI.h").write_text("fixture header")
-            (generated / "xmtp_sdkFFI.modulemap").write_text("fixture module")
-            (generated / "runtime").mkdir()
-            (generated / "runtime/Client.swift").write_text("fixture runtime")
-        if target == "android":
+            self.ios_release()
+        else:
+            self.args.targets = ("kotlin",)
+            artifacts.build(self.args)
+            artifacts.render(self.args)
+            self.native_libraries()
             self.seed_android_dependency_inputs()
         output = self.root / "products" / target
         if output.exists():
@@ -54,27 +78,22 @@ class PackagingTests(
         return output
 
     def mobile_tool(self, command, **kwargs):
-        if command[0] == "xcodebuild":
-            output = Path(command[command.index("-output") + 1])
-            output.mkdir(parents=True)
-            (output / "library").write_text("fixture xcframework")
-        else:
-            self.assertEqual(
-                command[:5],
-                [
-                    str(self.sdk_root / "gradlew"),
-                    "-p",
-                    str(self.sdk_root),
-                    ":library:assembleRelease",
-                    "--no-daemon",
-                ],
-            )
-            output = self.sdk_root / "library/build/outputs/aar"
-            output.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(output / "library-release.aar", "w") as archive:
-                archive.writestr("classes.jar", b"fixture classes")
-                for abi in mobile.ANDROID:
-                    archive.writestr(f"jni/{abi}/libxmtp_sdk.so", b"fixture native")
+        self.assertEqual(
+            command[:5],
+            [
+                str(self.sdk_root / "gradlew"),
+                "-p",
+                str(self.sdk_root),
+                ":library:assembleRelease",
+                "--no-daemon",
+            ],
+        )
+        output = self.sdk_root / "library/build/outputs/aar"
+        output.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(output / "library-release.aar", "w") as archive:
+            archive.writestr("classes.jar", b"fixture classes")
+            for abi in mobile.ANDROID:
+                archive.writestr(f"jni/{abi}/libxmtp_sdk.so", b"fixture native")
 
     def assemble_mobile(self, target, tool=None, sdk_root=None):
         if not isinstance(tool, Mock):
@@ -83,7 +102,7 @@ class PackagingTests(
             patch.object(mobile, "ROOT", self.root),
             patch.object(mobile, "run", tool),
             patch.object(
-                mobile.sys,
+                sys,
                 "argv",
                 [
                     "mobile-package.py",
@@ -91,7 +110,7 @@ class PackagingTests(
                     target,
                     "--generated",
                     str(self.args.out),
-                    "--artifacts",
+                    "--libraries",
                     str(self.root / "mobile"),
                     "--out",
                     str(self.root / "products"),
@@ -108,58 +127,99 @@ class PackagingTests(
             if path.is_file()
         }
 
-    def test_mobile_late_tool_failure_preserves_prior_and_cleans_fresh_stage(self):
-        for target in ("ios", "android"):
-            output = self.prepare_mobile_stage(target)
-            before = self.product_files(output)
+    def test_ios_stage_copies_the_release_framework_with_every_listed_slice(self):
+        output = self.prepare_mobile_stage("ios")
+        before = self.product_files(output)
+        self.ios_release(mobile.IOS[:-1])
+        with self.assertRaisesRegex(ValueError, "slices"):
+            self.assemble_mobile("ios")
+        self.assertEqual(self.product_files(output), before)
+        self.ios_release()
+        self.assemble_mobile("ios")
+        self.assertIn(".macOS(.v11)", (output / "Package.swift").read_text())
+        self.assertTrue((output / "Sources/XmtpSdk/xmtp_sdk.swift").is_file())
+        contract = json.loads((output / "sdk-contract.json").read_text())
+        self.assertEqual(contract["slices"], list(mobile.IOS))
 
-            def fail(command, **kwargs):
-                self.mobile_tool(command, **kwargs)
-                raise subprocess.CalledProcessError(1, command)
+    def test_android_stage_admits_only_matching_libraries(self):
+        output = self.prepare_mobile_stage("android")
+        receipt = (
+            self.root / "mobile" / next(iter(mobile.ANDROID)) / "native-provenance.json"
+        )
+        original = receipt.read_text()
+        for field, wrong in (
+            ("source", "wrong source"),
+            ("features", "conformance"),
+            ("profile", "debug"),
+            ("target", "wrong-target"),
+        ):
+            with self.subTest(field=field):
+                receipt.write_text(json.dumps({**json.loads(original), field: wrong}))
+                tool = Mock(side_effect=self.mobile_tool)
+                with self.assertRaisesRegex(
+                    ValueError, "mobile binding contract mismatch"
+                ):
+                    self.assemble_mobile("android", tool)
+                tool.assert_not_called()
+                self.assertTrue((output / "previous.txt").exists())
+        receipt.write_text(original)
+        self.assemble_mobile("android")
+        contract = json.loads((output / "sdk-contract.json").read_text())
+        self.assertEqual(set(contract["native"]), set(mobile.ANDROID.values()))
+        with zipfile.ZipFile(output / "xmtp-sdk.aar") as archive:
+            self.assertIn("classes.jar", archive.namelist())
 
-            with self.subTest(target=target, phase="late failure with prior product"):
-                with self.assertRaises(subprocess.CalledProcessError):
-                    self.assemble_mobile(target, fail)
+    def test_android_stage_rejects_a_stale_binding(self):
+        for path, content, message in (
+            (
+                "apps/xmtp_sdk_bindgen/template.txt",
+                "new template",
+                "binding generator mismatch",
+            ),
+            (
+                "crates/xmtp_sdk/uniffi.toml",
+                "changed configuration",
+                "binding source mismatch",
+            ),
+        ):
+            with self.subTest(changed=path):
+                self.prepare_mobile_stage("android")
+                original = (self.root / path).read_text()
+                (self.root / path).write_text(content)
+                tool = Mock(side_effect=self.mobile_tool)
+                with self.assertRaisesRegex(ValueError, message):
+                    self.assemble_mobile("android", tool)
+                tool.assert_not_called()
+                (self.root / path).write_text(original)
+
+    def test_android_late_tool_failure_preserves_prior_and_cleans_fresh_stage(self):
+        output = self.prepare_mobile_stage("android")
+        before = self.product_files(output)
+
+        def fail(command, **kwargs):
+            self.mobile_tool(command, **kwargs)
+            raise subprocess.CalledProcessError(1, command)
+
+        def missing_abi(command, **kwargs):
+            self.mobile_tool(command, **kwargs)
+            archive = self.sdk_root / "library/build/outputs/aar/library-release.aar"
+            with zipfile.ZipFile(archive, "w") as broken:
+                broken.writestr("classes.jar", b"fixture classes")
+
+        for tool, error in (
+            (fail, subprocess.CalledProcessError),
+            (missing_abi, ValueError),
+        ):
+            with self.subTest(tool=tool.__name__):
+                with self.assertRaises(error):
+                    self.assemble_mobile("android", tool)
                 self.assertEqual(self.product_files(output), before)
                 self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
-
-            if target == "android":
-
-                def missing_abi(command, **kwargs):
-                    self.mobile_tool(command, **kwargs)
-                    archive = (
-                        self.root
-                        / "sdks/android/library/build/outputs/aar/library-release.aar"
-                    )
-                    with zipfile.ZipFile(archive, "w") as broken:
-                        broken.writestr("classes.jar", b"fixture classes")
-
-                with self.subTest(target=target, phase="AAR missing ABI"):
-                    with self.assertRaisesRegex(ValueError, "AAR missing ABI"):
-                        self.assemble_mobile(target, missing_abi)
-                    self.assertEqual(self.product_files(output), before)
-                    self.assertEqual(
-                        list(output.parent.glob(".sdk-mobile-stage-*")), []
-                    )
-
-            with self.subTest(target=target, phase="success replaces prior product"):
-                # The fake Android tool rewrites the AAR after the missing-ABI run.
-                self.assemble_mobile(target)
-                self.assertFalse((output / "previous.txt").exists())
-                contract = json.loads((output / "sdk-contract.json").read_text())
-                self.assertTrue(contract["assets"])
-                for name, expected in contract["assets"].items():
-                    self.assertEqual(artifacts.digest(output / name), expected)
-                self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
-
-            with self.subTest(
-                target=target, phase="late failure without prior product"
-            ):
-                shutil.rmtree(output)
-                with self.assertRaises(subprocess.CalledProcessError):
-                    self.assemble_mobile(target, fail)
-                self.assertFalse(output.exists())
-                self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
+        self.assemble_mobile("android")
+        self.assertFalse((output / "previous.txt").exists())
+        contract = json.loads((output / "sdk-contract.json").read_text())
+        for name, expected in contract["assets"].items():
+            self.assertEqual(artifacts.digest(output / name), expected)
 
     def test_mobile_interruptions_preserve_prior_bytes(self):
         replace = os.replace
@@ -302,18 +362,6 @@ class PackagingTests(
                         )
                         shutil.rmtree(output)
 
-    def native_receipts(self, target="ios"):
-        native = json.loads((self.args.artifacts / "artifacts.json").read_text())[
-            "artifacts"
-        ]["native"]
-        native["features"] = ""
-        for triple in mobile.IOS if target == "ios" else tuple(mobile.ANDROID.values()):
-            folder = self.root / "mobile" / triple
-            folder.mkdir(parents=True, exist_ok=True)
-            (folder / "artifacts.json").write_text(
-                json.dumps({"artifacts": {"native": dict(native, target=triple)}})
-            )
-
     def test_source_identity_change_invalidates_build_and_recorded_source(self):
         path = self.root / "crates/xmtp_id/src/scw_verifier/chain_urls_default.json"
         path.parent.mkdir(parents=True)
@@ -330,102 +378,6 @@ class PackagingTests(
         new_record = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
         self.assertEqual(new_record["artifact"]["source"], artifacts.source_hash())
 
-    def test_swapped_mobile_targets_rejected_before_assembly(self):
-        for target in ("android", "ios"):
-            self.args.targets = ("kotlin",) if target == "android" else ("swift",)
-            artifacts.build(self.args)
-            artifacts.render(self.args)
-            self.native_receipts(target)
-            triples = (
-                tuple(mobile.ANDROID.values()) if target == "android" else mobile.IOS
-            )
-            for triple in triples:
-                wrong = triples[0] if triple != triples[0] else triples[-1]
-                folder = self.root / "mobile" / triple / "artifacts.json"
-                original = folder.read_text()
-                folder.write_text(
-                    (self.root / "mobile" / wrong / "artifacts.json").read_text()
-                )
-                with self.subTest(platform=target, expected=triple, wrong=wrong):
-                    with (
-                        patch.object(
-                            mobile.sys,
-                            "argv",
-                            [
-                                "mobile-package.py",
-                                "stage",
-                                target,
-                                "--generated",
-                                str(self.args.out),
-                                "--artifacts",
-                                str(self.root / "mobile"),
-                                "--out",
-                                str(self.root / "products"),
-                            ],
-                        ),
-                        patch.object(mobile, "run") as assembly,
-                    ):
-                        with self.assertRaisesRegex(
-                            ValueError, "mobile binding contract mismatch"
-                        ):
-                            mobile.main()
-                        assembly.assert_not_called()
-                    self.assertFalse((self.root / "products").exists())
-                folder.write_text(original)
-                mobile.preflight(self.args.out, self.root / "mobile", target)
-                print(
-                    "Swapped target rejected before assembly; restored:", target, triple
-                )
-
-    def test_actual_mobile_stage_rejects_stale_binding_generator(self):
-        def host_inputs():
-            swift = self.args.out / "swift"
-            (swift / "xmtp_sdkFFI.h").write_text("fixture header")
-            (swift / "xmtp_sdkFFI.modulemap").write_text("fixture module")
-            (swift / "runtime").mkdir(exist_ok=True)
-            (swift / "runtime/Client.swift").write_text("fixture runtime")
-            self.seed_android_dependency_inputs()
-
-        self.args.targets = ("swift", "kotlin")
-        artifacts.build(self.args)
-        artifacts.render(self.args)
-        host_inputs()
-        for platform in ("ios", "android"):
-            for triple in (
-                mobile.IOS if platform == "ios" else tuple(mobile.ANDROID.values())
-            ):
-                args = argparse.Namespace(**vars(self.args))
-                args.artifacts = self.root / "mobile" / triple
-                args.rust_target = triple
-                args.skip_bindgen = True
-                artifacts.build(args)
-            output = self.root / "products" / platform
-            output.mkdir(parents=True)
-            (output / "previous.bin").write_bytes(b"previous product")
-        original_receipts = {
-            path: path.read_bytes()
-            for path in (self.root / "mobile").rglob("artifacts.json")
-        }
-        self.assertEqual(len(original_receipts), 7)
-        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("new template")
-        for platform in ("ios", "android"):
-            output = self.root / "products" / platform
-            before = self.product_files(output)
-            with self.subTest(platform=platform):
-                with self.assertRaisesRegex(ValueError, "binding generator mismatch"):
-                    self.assemble_mobile(platform)
-                self.assertEqual(self.product_files(output), before)
-        before_calls = len(self.calls)
-        artifacts.build(self.args)
-        self.assertEqual(len(self.calls), before_calls + 1)
-        self.assertIn("xmtp-sdk-bindgen", self.calls[-1])
-        artifacts.render(self.args)
-        host_inputs()
-        for platform in ("ios", "android"):
-            self.assemble_mobile(platform)
-        for path, original in original_receipts.items():
-            self.assertEqual(path.read_bytes(), original)
-
     def test_render_rejects_a_stale_generator(self):
         self.args.targets = ("swift", "kotlin")
         artifacts.build(self.args)
@@ -433,111 +385,6 @@ class PackagingTests(
         (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("new template")
         with self.assertRaisesRegex(ValueError, "generator mismatch"):
             artifacts.render(self.args)
-
-    def test_render_without_build_keeps_stale_source_for_preflight(self):
-        self.args.targets = ("swift", "kotlin")
-        source = self.root / "crates/xmtp_sdk/src/lib.rs"
-        source.parent.mkdir(parents=True)
-        source.write_text("pub fn original() {}")
-        artifacts.build(self.args)
-        artifacts.render(self.args)
-        for platform in ("ios", "android"):
-            self.native_receipts(platform)
-            mobile.preflight(self.args.out, self.root / "mobile", platform)
-        generator = artifacts.source_hash(True)
-        source.write_text("pub fn changed() {}")
-        self.assertEqual(artifacts.source_hash(True), generator)
-        artifacts.render(self.args)
-        for platform in ("ios", "android"):
-            with self.subTest(platform=platform):
-                with self.assertRaisesRegex(ValueError, "binding source mismatch"):
-                    mobile.preflight(self.args.out, self.root / "mobile", platform)
-
-    def test_generator_only_change_reuses_verified_native_provenance(self):
-        self.args.targets = ("swift", "kotlin")
-        artifacts.build(self.args)
-        artifacts.render(self.args)
-        for platform in ("ios", "android"):
-            self.native_receipts(platform)
-            mobile.preflight(self.args.out, self.root / "mobile", platform)
-        native_receipts = {
-            path: path.read_bytes()
-            for path in (self.root / "mobile").rglob("artifacts.json")
-        }
-        self.assertEqual(len(native_receipts), 7)
-        manifest = self.args.artifacts / "artifacts.json"
-        native = json.loads(manifest.read_text())["artifacts"]["native"]
-        source = artifacts.source_hash()
-        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text(
-            "changed generator only"
-        )
-        self.assertEqual(artifacts.source_hash(), source)
-        calls = len(self.calls)
-        artifacts.build(self.args)
-        self.assertEqual(len(self.calls), calls + 1)
-        self.assertIn("xmtp-sdk-bindgen", self.calls[-1])
-        actual = json.loads(manifest.read_text())["artifacts"]["native"]
-        self.assertEqual(actual, native)
-        artifacts.render(self.args)
-        binding = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
-        fields = ("source", "features", "profile", "target")
-        self.assertEqual(
-            {field: binding["artifact"][field] for field in fields},
-            {field: native[field] for field in fields},
-        )
-        self.assertEqual(binding["generator"], artifacts.render_hash("swift"))
-        for path, original_receipt in native_receipts.items():
-            self.assertEqual(path.read_bytes(), original_receipt)
-        for platform in ("ios", "android"):
-            with self.subTest(platform=platform):
-                _, admitted = mobile.preflight(
-                    self.args.out, self.root / "mobile", platform
-                )
-                for triple, item in admitted.items():
-                    self.assertEqual(
-                        json.loads(
-                            native_receipts[
-                                self.root / "mobile" / triple / "artifacts.json"
-                            ]
-                        )["artifacts"]["native"],
-                        item,
-                    )
-        for platform, triples in (
-            ("ios", mobile.IOS),
-            ("android", tuple(mobile.ANDROID.values())),
-        ):
-            path = self.root / "mobile" / triples[0] / "artifacts.json"
-            original_receipt = path.read_bytes()
-            for field, wrong in (
-                ("source", "wrong source"),
-                ("features", "conformance"),
-                ("profile", "debug"),
-                ("target", "wrong target"),
-            ):
-                changed = json.loads(original_receipt)
-                changed["artifacts"]["native"][field] = wrong
-                path.write_text(json.dumps(changed))
-                with (
-                    self.subTest(platform=platform, rejected_field=field),
-                    self.assertRaisesRegex(
-                        ValueError, "mobile binding contract mismatch"
-                    ),
-                ):
-                    mobile.preflight(self.args.out, self.root / "mobile", platform)
-                path.write_bytes(original_receipt)
-        library = Path(next(iter(native["files"])))
-        original = library.read_bytes()
-        library.write_bytes(original + b"tampered native")
-        for platform in ("ios", "android"):
-            with (
-                self.subTest(platform=platform, rejected_field="native bytes"),
-                self.assertRaisesRegex(ValueError, "artifact mismatch"),
-            ):
-                mobile.preflight(self.args.out, self.root / "mobile", platform)
-        library.write_bytes(original)
-        artifacts.render(self.args)
-        for platform in ("ios", "android"):
-            mobile.preflight(self.args.out, self.root / "mobile", platform)
 
     def test_configuration_source_invalidates_cached_generator(self):
         path = self.root / "crates/xmtp_configuration/src/lib.rs"
@@ -550,76 +397,6 @@ class PackagingTests(
         self.assertNotEqual(artifacts.source_hash(True), before)
         artifacts.build(self.args)
         artifacts.render(self.args)
-
-    def test_config_only_change_invalidates_recorded_source(self):
-        artifacts.build(self.args)
-        artifacts.render(self.args)
-        self.native_receipts()
-        before = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
-        self.config.write_text("changed configuration only")
-        # The crate configuration is SDK source, not generator source.
-        self.assertNotEqual(artifacts.source_hash(), before["artifact"]["source"])
-        self.assertEqual(artifacts.render_hash("swift"), before["generator"])
-        with self.assertRaisesRegex(ValueError, "mobile binding source mismatch"):
-            mobile.preflight(self.args.out, self.root / "mobile", "ios")
-        artifacts.build(self.args)
-        artifacts.render(self.args)
-        with self.assertRaisesRegex(ValueError, "mobile binding contract mismatch"):
-            mobile.preflight(self.args.out, self.root / "mobile", "ios")
-        self.native_receipts()
-        mobile.preflight(self.args.out, self.root / "mobile", "ios")
-
-    def test_android_build_selects_all_four_ndk_target_tools(self):
-        tools = self.root / "ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
-        tools.mkdir(parents=True)
-        (tools / "llvm-ar").write_text("archiver")
-        (tools / "llvm-ranlib").write_text("archive index")
-        for triple in mobile.ANDROID.values():
-            target = (
-                "armv7a-linux-androideabi"
-                if triple == "armv7-linux-androideabi"
-                else triple
-            )
-            for suffix in ("23-clang", "23-clang++"):
-                (tools / (target + suffix)).write_text("compiler")
-        calls = []
-        with (
-            patch.dict(os.environ, {"ANDROID_NDK_HOME": str(self.root / "ndk")}),
-            patch.object(mobile.sys, "platform", "linux"),
-            patch.object(
-                mobile.sys,
-                "argv",
-                [
-                    "mobile-package.py",
-                    "build",
-                    "android",
-                    "--artifacts",
-                    str(self.root / "android"),
-                ],
-            ),
-            patch.object(
-                mobile,
-                "run",
-                side_effect=lambda command, **kw: calls.append((command, kw)),
-            ),
-        ):
-            mobile.main()
-        self.assertEqual(len(calls), 4)
-        self.assertEqual(
-            {command[command.index("--rust-target") + 1] for command, _ in calls},
-            set(mobile.ANDROID.values()),
-        )
-        for command, kwargs in calls:
-            triple = command[command.index("--rust-target") + 1]
-            target = triple.replace("-", "_")
-            env = kwargs["env"]
-            linker = env["CARGO_TARGET_" + target.upper() + "_LINKER"]
-            self.assertEqual(linker, env["CC_" + target])
-            self.assertTrue(linker.endswith("23-clang"))
-            self.assertTrue(env["CXX_" + target].endswith("23-clang++"))
-            self.assertEqual(env["AR_" + target], str(tools / "llvm-ar"))
-            self.assertEqual(env["RANLIB_" + target], str(tools / "llvm-ranlib"))
-            self.assertEqual(command[-1], str(self.root / "android" / triple))
 
 
 if __name__ == "__main__":
