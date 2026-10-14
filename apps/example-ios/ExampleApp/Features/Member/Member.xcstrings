@@ -51,12 +51,12 @@
         }
       }
     },
-    "Admins and super admins can change roles. Super admins cannot be changed here.": {
+    "Available actions follow the group permissions. Super admins cannot be changed here.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Admins and super admins can change roles. Super admins cannot be changed here."
+            "value": "Available actions follow the group permissions. Super admins cannot be changed here."
           }
         }
       }

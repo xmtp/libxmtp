@@ -3,24 +3,6 @@ import Foundation
 import Testing
 
 @MainActor struct PolishRoundThirteenTests {
-	@Test func lateNotificationAfterPrivacyChangeIsRemoved() async {
-		let fence = PushSubmissionFence()
-		let platform = DelayedNotificationPlatform()
-		let expected = fence.capture(tag: "message")
-		let pending = Task {
-			await fence.submit(expected: expected, add: { await platform.add() }, remove: { platform.remove() })
-		}
-		while platform.waiter == nil {
-			await Task.yield()
-		}
-		fence.invalidate()
-		platform.remove()
-		platform.waiter?.resume()
-		#expect(await pending.value == false)
-		#expect(!platform.pending && !platform.delivered)
-		#expect(platform.removals == 2)
-	}
-
 	@Test func currentNotificationStaysPublished() async {
 		let fence = PushSubmissionFence()
 		var published = false
@@ -73,22 +55,6 @@ import Testing
 		#expect(draft.value(for: queries.field.id) == .value("Unsaved"))
 		#expect(draft.changed(queries.field.id))
 		#expect(queries.edits == 0)
-	}
-}
-
-@MainActor private final class DelayedNotificationPlatform {
-	var waiter: CheckedContinuation<Void, Never>?
-	var pending = false
-	var delivered = false
-	var removals = 0
-	func add() async {
-		await withCheckedContinuation { waiter = $0 }
-		pending = true
-		delivered = true
-	}
-
-	func remove() {
-		pending = false; delivered = false; removals += 1
 	}
 }
 

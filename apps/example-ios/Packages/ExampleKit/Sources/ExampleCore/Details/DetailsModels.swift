@@ -113,8 +113,24 @@ public struct ConversationDetails: Equatable, Sendable {
 		return DisplayInitials.person(title, isInboxID: isInbox)
 	}
 
-	public func canManage(_ target: GroupMember, own: String) -> Bool {
-		members.contains { $0.id == own && $0.role != .member } && target.id != own && target.role != .superAdmin
+	public func canChangeRole(_ target: GroupMember, own: String) -> Bool {
+		canManage(target, own: own, kind: target.role == .admin ? .removeAdmin : .addAdmin)
+	}
+
+	public func canRemoveMember(_ target: GroupMember, own: String) -> Bool {
+		canManage(target, own: own, kind: .removeMember)
+	}
+
+	private func canManage(_ target: GroupMember, own: String, kind: GroupPermissionKind) -> Bool {
+		guard record.kind == .group, target.id != own, target.role != .superAdmin,
+		      members.contains(target), let actor = members.first(where: { $0.id == own }),
+		      let policy = policies.first(where: { $0.kind == kind && $0.field == nil })?.policy else { return false }
+		switch policy {
+		case .allow: return true
+		case .admin: return actor.role == .admin || actor.role == .superAdmin
+		case .superAdmin: return actor.role == .superAdmin
+		case .deny, .custom: return false
+		}
 	}
 
 	public func canChangePermissionPreset(own: String) -> Bool {

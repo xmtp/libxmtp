@@ -32,19 +32,28 @@ struct MemberFeatureView: View {
 						systemImage: Symbol.copy,
 					).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain)
 				} header: { Text(memberCopy("Inbox ID")) }
-				if details.canManage(member, own: graph.active?.profile.inboxID ?? "") {
-					Section { Button { store.send(.mutate(.admin(
-						member.id,
-						member.role != .admin,
-					))) } label: { Label(
-						memberCopy(member.role == .admin ? "Remove admin" : "Make admin"),
-						systemImage: "person.badge.key",
-					) }.buttonStyle(.plain)
-					Button(role: .destructive) { remove = true } label: { Label(
-						memberCopy("Remove from group"),
-						systemImage: "person.fill.xmark",
-					).foregroundStyle(.red) }.buttonStyle(.plain).accessibilityIdentifier("member.remove")
-					} footer: { Text(memberCopy("Admins and super admins can change roles. Super admins cannot be changed here.")) }
+				if details.canChangeRole(member, own: graph.active?.profile.inboxID ?? "") || details
+					.canRemoveMember(member, own: graph.active?.profile.inboxID ?? "")
+				{
+					Section {
+						if details.canChangeRole(member, own: graph.active?.profile.inboxID ?? "") {
+							Button { store.send(.mutate(.admin(
+								member.id,
+								member.role != .admin,
+							))) } label: { Label(
+								memberCopy(member.role == .admin ? "Remove admin" : "Make admin"),
+								systemImage: "person.badge.key",
+							) }.buttonStyle(.plain)
+						}
+						if details.canRemoveMember(member, own: graph.active?.profile.inboxID ?? "") {
+							Button(role: .destructive) { remove = true } label: { Label(
+								memberCopy("Remove from group"),
+								systemImage: "person.fill.xmark",
+							).foregroundStyle(.red) }.buttonStyle(.plain).accessibilityIdentifier("member.remove")
+						}
+					} footer: {
+						Text(memberCopy("Available actions follow the group permissions. Super admins cannot be changed here."))
+					}
 				}
 				if store.state.pendingRoles[inboxID] != nil || store.state.pendingRemoval.contains(inboxID) {
 					Text(memberCopy("Membership change pending"))
