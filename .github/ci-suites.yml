@@ -142,14 +142,13 @@ path_groups:
     - "sdks/ios/**"
     - "{Package.swift,Package.resolved,.spi.yml}"
     - "nix/lib/ios-env.nix"
-    - "nix/shells/ios.nix"
     - "nix/package/ios.nix"
     - "nix/lib/packages/{swiftformat,swiftlint}.nix"
     - "dev/check-apple-toolchain"
   android:
     - "sdks/android/**"
     - "nix/lib/android-*"
-    - "nix/shells/android.nix"
+    - "nix/shells/android{,-ci}.nix"
     - "nix/android-packages.nix"
     - "!docs/**"
   example_android:
@@ -315,7 +314,7 @@ suites:
     products: []
     path_filters:
       - cargo_package: ["@default-members", xmtp-sdk-bindgen]
-      - "{.clippy.toml,dev/wasm.just,nix/shells/wasm.nix}"
+      - "{.clippy.toml,dev/wasm.just}"
   check_sdk_unit:
     phase: test
     workflow: check-sdk-unit.yml
@@ -408,7 +407,7 @@ suites:
           - xmtp_sdk
       - path_group: docker_backend
       - "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
-      - "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix,nix/lib/junit.nix}"
+      - "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}"
       - "nix/services/**"
   test_xdbg:
     phase: test

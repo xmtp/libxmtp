@@ -101,13 +101,17 @@ sudo nix run nixpkgs#cachix -- use xmtp
 
 ## Available Dev Shells
 
-| Shell     | Command                 | Description                                  |
-| --------- | ----------------------- | -------------------------------------------- |
-| `default` | `nix develop`           | General Rust development for libxmtp         |
-| `android` | `nix develop .#android` | Android cross-compilation (NDK, cargo-ndk)   |
-| `ios`     | `nix develop .#ios`     | iOS/Swift builds (macOS only)                |
-| `js`      | `nix develop .#js`      | Node.js bindings development                 |
-| `wasm`    | `nix develop .#wasm`    | WebAssembly builds (wasm-pack, wasm-bindgen) |
+| Shell                 | Description                                                         |
+| --------------------- | ------------------------------------------------------------------- |
+| `default`             | Local development: the Rust core plus editor, debug, and iOS tools  |
+| `rust`                | The Rust core: one toolchain, cargo tools, Node, and pnpm (CI Rust) |
+| `android`             | The Rust core packages plus the Android SDK, NDK, and emulator      |
+| `android-ci`          | Slim Android CI shell, no Rust (Linux); `android-ci-emulator` adds the emulator |
+| `js`, `js-node`, `docs` | JavaScript and docs work, no Rust                                 |
+| `ios`, `wasm`         | Old names of `default` and `rust`                                   |
+
+Enter a shell with `dev/nix-shell --shell <name> '<command>'`; it caches the
+evaluated environment.
 
 ## Common Commands
 

@@ -12,7 +12,8 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 40
     env:
-      NIX_DEVSHELL: android
+      # The slim CI shell: no Rust toolchain, no emulator.
+      NIX_DEVSHELL: android-ci
     steps:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix
@@ -50,7 +51,8 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     env:
-      NIX_DEVSHELL: android
+      # The slim CI shell with the emulator; no Rust toolchain.
+      NIX_DEVSHELL: android-ci-emulator
     steps:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix

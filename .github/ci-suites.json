@@ -272,7 +272,6 @@
         "nix/lib/ios-env.nix",
         "nix/lib/packages/{swiftformat,swiftlint}.nix",
         "nix/package/ios.nix",
-        "nix/shells/ios.nix",
         "sdks/ios/**",
         "{Package.swift,Package.resolved,.spi.yml}"
       ]
@@ -361,7 +360,7 @@
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
-        "{.clippy.toml,dev/wasm.just,nix/shells/wasm.nix}"
+        "{.clippy.toml,dev/wasm.just}"
       ]
     },
     "check_sdk_unit": {
@@ -693,7 +692,7 @@
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
         "nix/services/**",
-        "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
+        "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
         "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       ]
     },
@@ -1184,7 +1183,6 @@
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/sdk-platforms.json",
-        "nix/shells/ios.nix",
         "sdks/ios/**",
         "{Cargo.toml,Cargo.lock}",
         "{Package.swift,Package.resolved,.spi.yml}"
@@ -1228,7 +1226,7 @@
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/sdk-platforms.json",
-        "nix/shells/android.nix",
+        "nix/shells/android{,-ci}.nix",
         "sdks/android/**",
         "{Cargo.toml,Cargo.lock}",
         "!docs/**"
@@ -1272,7 +1270,7 @@
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/sdk-platforms.json",
-        "nix/shells/android.nix",
+        "nix/shells/android{,-ci}.nix",
         "sdks/android/**",
         "{Cargo.toml,Cargo.lock}",
         "!**/*.md",

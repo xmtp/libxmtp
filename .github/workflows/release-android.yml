@@ -43,6 +43,9 @@ jobs:
   publish:
     needs: [check-push-permissions]
     runs-on: blacksmith-16vcpu-ubuntu-2404
+    env:
+      # The slim Android shell: the release builds no Rust.
+      NIX_DEVSHELL: android-ci
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -96,7 +99,7 @@ jobs:
         run: xmtp-release set-manifest-version --sdk android --version "$VERSION"
 
       - name: Build Android bindings
-        run: NIX_DEVSHELL=android dev/nix-shell './sdks/android/dev/bindings --release'
+        run: dev/nix-shell './sdks/android/dev/bindings --release'
 
       # Publish only: CI tests the release commit (the Android suites), and a
       # live-backend test here once failed a release.
@@ -121,7 +124,7 @@ jobs:
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
           SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
           MAVEN_PROFILE_ID: ${{ secrets.MAVEN_PROFILE_ID }}
-        run: NIX_DEVSHELL=android dev/nix-shell 'cd sdks/android && ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository'
+        run: dev/nix-shell 'cd sdks/android && ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository'
 
       - name: Prepare release tag
         env:

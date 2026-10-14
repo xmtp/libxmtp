@@ -1,79 +1,55 @@
+# Local Android work: the Rust core packages and environment of the `rust`
+# shell (not its CI and SDK tools), plus the Android SDK, NDK, emulator,
+# Kotlin, ktlint, JDK 21 (Gradle's JDK; the build targets Java 17), and
+# PostgreSQL for `psql`. CI Android jobs use the slim `android-ci` shells.
 {
   mkShell,
-  darwin,
   stdenv,
-  git,
-  python311,
   postgresql_18,
   grpc-health-probe,
   kotlin,
   ktlint,
-  jdk17,
-  openssl,
+  jdk21,
   lib,
   gnused,
   xmtp,
-  zlib,
-  kache,
 }:
 let
-  inherit (xmtp) androidEnv base shellCommon;
-
-  # Rust toolchain with Android cross-compilation targets
-  rust-android-toolchain = xmtp.mkNativeToolchain androidEnv.androidTargets [
-    "clippy-preview"
-    "rustfmt-preview"
-  ];
+  inherit (xmtp) androidEnv shellCommon;
 in
 mkShell (
-  {
+  shellCommon.rustShellEnv
+  // {
     meta.description = "Android Development environment for Android SDK and Emulator";
+
+    shellHook = shellCommon.rustShellHook;
 
     XMTP_DEV_SHELL = "android";
 
-    # Replace host overrides from an outer local or iOS shell.
-    shellHook =
-      shellCommon.compilerCacheHook
-      + lib.optionalString stdenv.isDarwin ''
-        export CC_aarch64_apple_darwin="${stdenv.cc}/bin/cc"
-        export CXX_aarch64_apple_darwin="${stdenv.cc}/bin/c++"
-        export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="${stdenv.cc}/bin/cc"
-      '';
-    OPENSSL_DIR = shellCommon.rustBase.env.OPENSSL_DIR;
     ANDROID_HOME = androidEnv.devPaths.home;
     ANDROID_SDK_ROOT = androidEnv.devPaths.home;
     ANDROID_NDK_HOME = androidEnv.devPaths.ndkHome;
     ANDROID_NDK_ROOT = androidEnv.devPaths.ndkHome;
     NDK_HOME = androidEnv.devPaths.ndkHome;
-    LD_LIBRARY_PATH = lib.makeLibraryPath [
-      openssl
-      zlib
+
+    inherit (shellCommon.rustBase) nativeBuildInputs;
+    buildInputs = shellCommon.rustCorePackages ++ [
+      # Gradle's JDK: Kotlin propagated JDK 21 to the front of PATH and
+      # JAVA_HOME in this shell, and CI and release Gradle builds ran on it.
+      jdk21
+      (shellCommon.mkTools "android" (
+        [
+          kotlin
+          ktlint
+          androidEnv.devComposition.androidsdk
+          gnused
+          # `psql` for the Messenger metadata fixtures.
+          postgresql_18
+          grpc-health-probe
+        ]
+        ++ lib.optionals androidEnv.hasEmulator [ androidEnv.emulator ]
+      ))
     ];
-
-    inherit (base.commonArgs) nativeBuildInputs;
-
-    buildInputs =
-      base.commonArgs.buildInputs
-      ++ [
-        rust-android-toolchain
-        kache
-        kotlin
-        ktlint
-        androidEnv.devComposition.androidsdk
-        jdk17
-        gnused
-        python311
-        postgresql_18
-        grpc-health-probe
-        # in-shell nix eval spawns git (fetchGit); system git crashes against the nix-store libs in LD_LIBRARY_PATH
-        git
-      ]
-      ++ lib.optionals androidEnv.hasEmulator [
-        androidEnv.emulator
-      ]
-      ++ lib.optionals stdenv.isDarwin [
-        darwin.cctools
-      ];
   }
   // lib.optionalAttrs androidEnv.hasEmulator {
     EMULATOR = "${androidEnv.emulator}";
