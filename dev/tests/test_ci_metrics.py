@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Check dev/ci/metrics against saved GitHub API responses and job logs."""
 
+import contextlib
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -99,18 +101,24 @@ def stamp(offset):
     return f"2026-10-13T{12 + offset // 3600:02d}:{offset // 60 % 60:02d}:{offset % 60:02d}Z"
 
 
-def push_run(run_id, sha=TRUNK, conclusion="success", tree="merge-tree"):
+def push_run(run_id, sha=TRUNK, conclusion="success", tree="merge-tree", created=None):
     return {
         "id": run_id,
         "event": "push",
         "conclusion": conclusion,
         "head_sha": sha,
+        "head_branch": "main",
         "path": ".github/workflows/ci.yml",
-        "created_at": stamp(0),
-        "run_started_at": stamp(0),
+        "run_attempt": 1,
+        "created_at": created or stamp(0),
+        "run_started_at": created or stamp(0),
         "updated_at": stamp(900),
         "head_commit": {"tree_id": tree},
     }
+
+
+# The push runs of the branch, which the change class of a merge run reads.
+BRANCH_RUNS = "actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100"
 
 
 TOOLS = "0" + "a" * 31
@@ -156,30 +164,41 @@ def merge_run_fixture(merge_tree="merge-tree", job_count=105):
     ]
     return {
         "runs": {},
-        "jobs": {"1": jobs, "2": [job(200, "detect-changes", 0, 30)], "3": []},
+        "jobs": {
+            "1": jobs,
+            "2": [job(200, "detect-changes", 0, 30)],
+            "3": [job(300, "detect-changes", 0, 30)],
+            "4": [],
+        },
         "logs": {
-            "200": f"2026-10-13T12:00:10.0000000Z HEAD is now at abcdef1 Merge {PR_HEAD} into {PR_BASE}\n",
+            "200": f"2026-10-13T12:00:10.0000000Z HEAD is now at abcdef0 Merge {PR_HEAD} into {PR_BASE}\n",
+            "300": f"2026-10-13T12:00:10.0000000Z HEAD is now at abcdef1 Merge {PR_HEAD} into {PR_BASE}\n",
             "900": NEXTEST_LOG,
             "901": WASM_LOG,
         },
         "api": {
             "actions/runs/1": push_run(1),
+            BRANCH_RUNS: {"workflow_runs": [push_run(1)]},
             f"commits/{TRUNK}?per_page=100": {
+                "parents": [{"sha": "9" * 40}],
                 "files": [
                     {"filename": "crates/xmtp_mls/src/a.rs", "status": "modified"}
-                ]
+                ],
             },
             f"commits/{TRUNK}/pulls": [
                 {"merge_commit_sha": "d" * 40, "head": {"sha": "e" * 40}},
                 {"merge_commit_sha": TRUNK, "head": {"sha": PR_HEAD}},
             ],
-            # The newest PR run was replaced before it started, so it has no jobs.
+            # The PR's last run that started is run 3. Run 4 was replaced
+            # before it started, so it has no jobs, and run 2 is older.
             f"actions/workflows/ci.yml/runs?event=pull_request&head_sha={PR_HEAD}&per_page=100": {
                 "workflow_runs": [
                     {"id": 2, "created_at": stamp(0)},
+                    {"id": 4, "created_at": stamp(9)},
                     {"id": 3, "created_at": stamp(5)},
                 ]
             },
+            "commits/abcdef0": {"commit": {"tree": {"sha": "stale-tree"}}},
             "commits/abcdef1": {"commit": {"tree": {"sha": merge_tree}}},
         },
     }
@@ -224,7 +243,8 @@ class Metrics(unittest.TestCase):
             output,
         )
         self.assertIn(
-            "median runner-min by class: Blacksmith 16 vCPU 114.0, Warp macOS 5.0",
+            "runner-min per run by class, mean (median): "
+            "Blacksmith 16 vCPU 114.0 (114.0), Warp macOS 5.0 (5.0)",
             output,
         )
         self.assertIn("merge tree equals the PR's last tested tree: 1 of 1", output)
@@ -292,6 +312,14 @@ class Metrics(unittest.TestCase):
                 [
                     {"filename": "README.md", "status": "modified"},
                     {"filename": "Cargo.lock", "status": "modified"},
+                ],
+                # A rename away from an entry point removes the entry point.
+                [
+                    {
+                        "filename": "crates/a/src/app.rs",
+                        "previous_filename": "crates/a/src/main.rs",
+                        "status": "renamed",
+                    }
                 ],
             ],
             "R": [
@@ -450,11 +478,125 @@ class Metrics(unittest.TestCase):
                 output = self.run_metrics(fixture, "runs", "5").stdout
                 self.assertIn("5 pull_request success class=? ", output)
 
+    def test_partial_file_list_with_an_l_file_is_l(self):
+        # The comparison is at its cap, but a listed file already proves L.
+        docs = [
+            {"filename": f"docs/page{i}.md", "status": "modified"} for i in range(350)
+        ]
+        docs[10] = {"filename": "Cargo.lock", "status": "modified"}
+        fixture = self.pr_run_fixture(docs, pr_head="f" * 40)
+        output = self.run_metrics(fixture, "runs", "5").stdout
+        self.assertIn("5 pull_request success class=L ", output)
+
     def test_pr_class_compares_an_older_head(self):
         compared = [{"filename": "crates/xmtp_mls/src/a.rs", "status": "modified"}]
         fixture = self.pr_run_fixture([], pr_head="f" * 40, compared=compared)
         output = self.run_metrics(fixture, "runs", "5").stdout
         self.assertIn("5 pull_request success class=R ", output)
+
+    def test_rerun_counts_each_job_once_and_wall_from_creation(self):
+        # Attempt 1 failed in the WASM job. Attempt 2 re-ran it and lists
+        # the other jobs again, with new IDs and the same times.
+        fixture = merge_run_fixture(job_count=5)
+        first = fixture["jobs"]["1"]
+        wasm = next(item for item in first if item["id"] == 901)
+        wasm["conclusion"] = "failure"
+        copies = [
+            dict(item, id=item["id"] + 1000, run_attempt=2)
+            for item in first
+            if item["id"] != 901
+        ]
+        rerun = job(911, "Test suites / test_wasm / Test (WASM)", 1260, 600)
+        rerun["run_attempt"] = 2
+        fixture["jobs"]["1"] = first + copies + [rerun]
+        fixture["logs"]["911"] = WASM_LOG.split("2026-10-13T12:01:02")[0]
+        run = dict(push_run(1), run_attempt=2, run_started_at=stamp(1200))
+        fixture["api"]["actions/runs/1"] = run
+        output = self.run_metrics(fixture, "runs", "1").stdout
+        first_line = output.splitlines()[0]
+        # Linux: 2 jobs of 1 min, 2 min, and two WASM attempts of 10 min.
+        # Wall: from creation (12:00:00) to the end of the rerun (12:31:00).
+        self.assertIn(
+            "1 push success class=R attempts=2 wall=31.0 Linux=24.0 macOS=5.0",
+            first_line,
+        )
+        # The latest attempt of the WASM job fetched its output.
+        self.assertIn("wasm=fetched", first_line)
+
+    def test_skipped_test_job_has_no_result(self):
+        fixture = merge_run_fixture()
+        wasm = next(item for item in fixture["jobs"]["1"] if item["id"] == 901)
+        wasm["conclusion"] = "skipped"
+        del fixture["logs"]["901"]
+        output = self.run_metrics(fixture, "runs", "1").stdout
+        self.assertIn("nextest=fetched wasm=-", output.splitlines()[0])
+        self.assertIn(
+            "merge runs that fetched the wasm output: 0 of 0 (1 without a result)",
+            output,
+        )
+
+    def test_merge_class_is_unknown_beyond_the_commit_file_cap(self):
+        fixture = merge_run_fixture()
+        docs = [{"filename": f"docs/p{i}.md", "status": "modified"} for i in range(100)]
+        fixture["api"][f"commits/{TRUNK}?per_page=100"] = {
+            "__pages__": [{"parents": [{"sha": "9" * 40}], "files": docs}] * 30
+        }
+        output = self.run_metrics(fixture, "runs", "1").stdout
+        self.assertIn("1 push success class=? ", output)
+
+    def test_limit_does_not_apply_to_run_ids(self):
+        output = self.run_metrics(
+            merge_run_fixture(), "runs", "--limit", "1", "1", "1"
+        ).stdout
+        self.assertIn("runs: 2 measured", output)
+
+    def test_merge_class_covers_commits_of_replaced_runs(self):
+        # Run 21 was replaced before it started. Run 20 started, so run 1
+        # tested every commit after run 20's head.
+        parent = "2" * 40
+        nix = [
+            {"filename": "flake.nix", "status": "modified"},
+            {"filename": "README.md", "status": "modified"},
+        ]
+        docs = [{"filename": f"docs/p{i}.md", "status": "modified"} for i in range(300)]
+        cases = (
+            ("3" * 40, nix, "N"),
+            # The comparison is at its cap, so the class is unknown.
+            ("3" * 40, docs, "?"),
+            # Run 20 tested the parent, so run 1 tested its head commit alone.
+            (parent, nix, "R"),
+        )
+        for previous, compared, expected in cases:
+            with self.subTest(previous=previous[:1], expected=expected):
+                fixture = merge_run_fixture()
+                fixture["api"][f"commits/{TRUNK}?per_page=100"]["parents"] = [
+                    {"sha": parent}
+                ]
+                fixture["api"][BRANCH_RUNS] = {
+                    "workflow_runs": [
+                        push_run(1),
+                        push_run(21, sha=parent, created="2026-10-13T11:58:00Z"),
+                        push_run(20, sha=previous, created="2026-10-13T11:50:00Z"),
+                    ]
+                }
+                fixture["jobs"]["21"] = []
+                fixture["jobs"]["20"] = [job(2000, "detect-changes", 0, 30)]
+                fixture["api"][f"compare/{previous}...{TRUNK}"] = {"files": compared}
+                output = self.run_metrics(fixture, "runs", "1").stdout
+                self.assertIn(f"1 push success class={expected} ", output)
+
+    def test_summary_leads_with_the_mean_runner_minutes(self):
+        # Runner minutes add across runs, so the mean is the cost per run.
+        reports = [
+            {"wall": wall, "system_min": {"Linux": wall}, "class_min": {}}
+            for wall in (1.0, 2.0, 9.0)
+        ]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            METRICS.summarize(reports, 0, 0)
+        self.assertIn(
+            "runner-min per run, mean (median): Linux 4.0 (2.0)", output.getvalue()
+        )
 
 
 if __name__ == "__main__":

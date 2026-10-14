@@ -2,10 +2,21 @@
 """Measure CI runs with read-only GitHub API calls.
 
 `runs` prints, for each run, the wall time, the runner minutes by runner
-class, the three slowest steps, and the change class of the commit diff. For a
+class, the three slowest steps, and the change class of the tested diff. For a
 merge run (a push run), it also prints whether the trunk tree equals the tree
 that the PR's last run tested, and whether the `nextest` and WASM test outputs
-were fetched or built. A summary of medians follows.
+were fetched or built. A summary follows.
+
+Wall time runs from the run's creation to the end of its last job. Runner
+minutes count every job that ran, in every attempt of the run: the jobs of a
+failed first attempt cost minutes too. A re-run attempt lists the jobs it
+reused from an earlier attempt again, with the same times; those count once.
+Test outputs and the PR checkout come from the latest attempt of each job.
+
+The change class of a merge run covers every commit since the previous push
+run on the branch that started: GitHub replaces a pending run, so a run tests
+the commits of the runs it replaced too. The class is `?` when GitHub lists
+only part of the diff.
 
     dev/ci/metrics runs 38294462023 38279019973
     dev/ci/metrics runs --workflow ci.yml --branch self-hosted --event push --limit 10
@@ -238,42 +249,103 @@ def pr_checkout(jobs):
     return None
 
 
+@functools.cache
 def run_jobs(run_id):
-    return [
-        job
-        for page in api_pages(f"actions/runs/{run_id}/jobs?per_page={PAGE}")
-        for job in page["jobs"]
-    ]
+    """Return every job that ran, in every attempt of a run.
+
+    A re-run attempt lists each job that it reused from an earlier attempt
+    again, under a new ID and with the same name and times. Keep the first.
+    """
+    pages = api_pages(f"actions/runs/{run_id}/jobs?per_page={PAGE}&filter=all")
+    jobs, seen = [], set()
+    listed = [job for page in pages for job in page["jobs"]]
+    for job in sorted(listed, key=lambda item: item.get("run_attempt", 1)):
+        key = (job["name"], job.get("started_at"), job.get("completed_at"))
+        if key not in seen:
+            seen.add(key)
+            jobs.append(job)
+    return jobs
+
+
+def latest_jobs(jobs):
+    """Return the job of the latest attempt for each job name."""
+    latest = {}
+    for job in jobs:
+        if job.get("run_attempt", 1) >= latest.get(job["name"], {}).get(
+            "run_attempt", 1
+        ):
+            latest[job["name"]] = job
+    return list(latest.values())
 
 
 def pr_files(checkout):
-    """Return the files of the PR diff that a run tested, or None if GitHub
-    lists only part of them."""
+    """Return the files of the PR diff that a run tested, and whether GitHub
+    listed all of them."""
     number = checkout["number"]
     if number is not None:
         pull = api(f"pulls/{number}")
         if pull["head"]["sha"] == checkout["head"]:
             pages = api_pages(f"pulls/{number}/files?per_page={PAGE}")
             files = [entry for page in pages for entry in page]
-            return files if len(files) == pull["changed_files"] else None
+            return files, len(files) == pull["changed_files"]
     # The PR has a newer head than this run. Three dots give the diff from
     # the merge base, which is the PR's diff, but list at most 300 files.
     compared = api(f"compare/{checkout['base']}...{checkout['head']}")
     files = compared.get("files", [])
-    return files if len(files) < COMPARE_FILE_CAP else None
+    return files, len(files) < COMPARE_FILE_CAP
+
+
+def started(run):
+    return any(job.get("steps") for job in run_jobs(run["id"]))
+
+
+def previous_tested_sha(run):
+    """Return the head of the previous push run on the branch that started.
+
+    Look in one page of runs. Return None if no such run is there.
+    """
+    workflow = run["path"].rsplit("/", 1)[-1]
+    listed = api(
+        f"actions/workflows/{workflow}/runs?branch={run['head_branch']}"
+        f"&event=push&per_page={PAGE}"
+    )["workflow_runs"]
+    earlier = [item for item in listed if item["created_at"] < run["created_at"]]
+    for item in sorted(earlier, key=lambda item: item["created_at"], reverse=True):
+        if started(item):
+            return item["head_sha"]
+    return None
+
+
+def push_files(run):
+    """Return the files that a push run tested, and whether GitHub listed all
+    of them."""
+    pages = api_pages(f"commits/{run['head_sha']}?per_page={PAGE}")
+    parents = [parent["sha"] for parent in pages[0].get("parents", [])] if pages else []
+    base = previous_tested_sha(run)
+    if base is None or parents == [base]:
+        # The run tested its head commit alone.
+        files = [entry for page in pages for entry in page.get("files", [])]
+        return files, len(files) < LISTED_FILE_CAP
+    # The run also tested the commits of the runs that it replaced.
+    files = api(f"compare/{base}...{run['head_sha']}").get("files", [])
+    return files, len(files) < COMPARE_FILE_CAP
 
 
 def run_class(run, jobs):
-    """Return the change class of the diff that a run tested, or `?`."""
+    """Return the change class of the diff that a run tested, or `?`.
+
+    An L file in a partial list proves class L. Any other class of a partial
+    list is unknown, because an unlisted file can raise it.
+    """
     if run["event"] == "pull_request":
-        checkout = pr_checkout(jobs)
-        files = pr_files(checkout) if checkout else None
+        checkout = pr_checkout(latest_jobs(jobs))
+        if checkout is None:
+            return "?"
+        files, complete = pr_files(checkout)
     else:
-        pages = api_pages(f"commits/{run['head_sha']}?per_page={PAGE}")
-        files = [entry for page in pages for entry in page.get("files", [])]
-        if len(files) >= LISTED_FILE_CAP:
-            files = None
-    return "?" if files is None else change_class(files)
+        files, complete = push_files(run)
+    kind = change_class(files)
+    return kind if complete or kind == "L" else "?"
 
 
 def tested_tree(run):
@@ -298,7 +370,7 @@ def tested_tree(run):
     for pr_run in sorted(
         listed["workflow_runs"], key=lambda item: item["created_at"], reverse=True
     ):
-        checkout = pr_checkout(run_jobs(pr_run["id"]))
+        checkout = pr_checkout(latest_jobs(run_jobs(pr_run["id"])))
         if checkout:
             tree = api(f"commits/{checkout['merge']}")["commit"]["tree"]["sha"]
             return "same" if tree == run["head_commit"]["tree_id"] else "differs"
@@ -314,7 +386,9 @@ def test_output(jobs, job_name, pattern):
     plan for the output (for example, a job that failed before `nix build`)
     gives `?`.
     """
-    job = next((job for job in jobs if job["name"].endswith(job_name)), None)
+    job = next(
+        (job for job in latest_jobs(jobs) if job["name"].endswith(job_name)), None
+    )
     if job is None or job.get("conclusion") == "skipped":
         return "-"
     section, fetched = None, False
@@ -342,7 +416,9 @@ def test_output(jobs, job_name, pattern):
 
 
 def measure(run, jobs):
-    start = run.get("run_started_at") or run["created_at"]
+    # Terms: wall time runs from run creation to run end. `run_started_at` is
+    # the start of the latest attempt only.
+    start = run["created_at"]
     ends = [job["completed_at"] for job in jobs if job.get("completed_at")]
     by_class, by_system, steps = {}, {}, []
     for job in jobs:
@@ -405,7 +481,7 @@ def runs(args):
         if run["conclusion"] == "cancelled":
             # GitHub cancels a pending run that a newer run replaces before
             # any job starts. Only a run with a started job was in progress.
-            if any(job.get("steps") for job in jobs):
+            if started(run):
                 cancelled_in_progress += 1
                 say(f"{run['id']} {run['event']} cancelled in progress class={kind}")
             else:
@@ -418,7 +494,12 @@ def runs(args):
         report["kind"] = kind
         line = (
             f"{run['id']} {run['event']} {run['conclusion']} class={kind} "
-            f"wall={report['wall']:.1f} "
+            + (
+                f"attempts={run['run_attempt']} "
+                if run.get("run_attempt", 1) > 1
+                else ""
+            )
+            + f"wall={report['wall']:.1f} "
             + " ".join(
                 f"{system}={minutes:.1f}"
                 for system, minutes in sorted(report["system_min"].items())
@@ -447,25 +528,42 @@ def summarize(reports, cancelled_in_progress, replaced):
     if not reports:
         return
     say(f"median wall: {statistics.median(r['wall'] for r in reports):.1f} min")
+    # Runner minutes are a cost that adds across runs, so the mean leads.
     for key, title in (
-        ("system_min", "runner-min"),
-        ("class_min", "runner-min by class"),
+        ("system_min", "runner-min per run, mean (median)"),
+        ("class_min", "runner-min per run by class, mean (median)"),
     ):
         names = sorted({name for r in reports for name in r[key]})
-        medians = ", ".join(
-            f"{name} {statistics.median(r[key].get(name, 0.0) for r in reports):.1f}"
+        values = {name: [r[key].get(name, 0.0) for r in reports] for name in names}
+        summary = ", ".join(
+            f"{name} {statistics.mean(values[name]):.1f} "
+            f"({statistics.median(values[name]):.1f})"
             for name in names
         )
-        say(f"median {title}: {medians}")
+        say(f"{title}: {summary}")
     merges = [r for r in reports if "tree" in r]
     if merges:
-        same = sum(r["tree"] == "same" for r in merges)
-        say(f"merge tree equals the PR's last tested tree: {same} of {len(merges)}")
+        say(
+            "merge tree equals the PR's last tested tree: "
+            + share([r["tree"] for r in merges], "same", ("same", "differs"))
+        )
         for name in TEST_OUTPUTS:
-            fetched = sum(r["outputs"][name] == "fetched" for r in merges)
             say(
-                f"merge runs that fetched the {name} output: {fetched} of {len(merges)}"
+                f"merge runs that fetched the {name} output: "
+                + share(
+                    [r["outputs"][name] for r in merges],
+                    "fetched",
+                    ("fetched", "built"),
+                )
             )
+
+
+def share(results, wanted, known):
+    """Count `wanted` among the runs with a known result; name the others."""
+    counted = [result for result in results if result in known]
+    text = f"{counted.count(wanted)} of {len(counted)}"
+    unknown = len(results) - len(counted)
+    return text + (f" ({unknown} without a result)" if unknown else "")
 
 
 def marker(args):
