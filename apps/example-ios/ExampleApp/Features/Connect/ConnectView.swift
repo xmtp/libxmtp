@@ -11,15 +11,17 @@ struct ConnectView: View {
 	@Environment(\.motionPolicy) private var motion
 	var body: some View {
 		ScrollView {
-			VStack(spacing: 28) {
+			VStack(spacing: store.state.requiresToken ? 16 : 28) {
 				VStack(spacing: 12) {
-					Image("Logo").resizable().scaledToFit().foregroundStyle(Theme.accentText).frame(width: 68, height: 68)
-						.accessibilityHidden(true).padding(.bottom, 6)
+					if !store.state.requiresToken {
+						Image("Logo").resizable().scaledToFit().foregroundStyle(Theme.accentText).frame(width: 68, height: 68)
+							.accessibilityHidden(true).padding(.bottom, 6)
+					}
 					Text("A place to connect.", tableName: "Connect")
 						.font(.system(size: heroTitleSize, weight: .bold))
 					Text("Join a server to start a conversation.", tableName: "Connect").font(.body)
 						.foregroundStyle(Theme.secondaryLabel)
-				}.frame(maxWidth: .infinity).padding(.top, 50)
+				}.frame(maxWidth: .infinity).padding(.top, store.state.requiresToken ? 4 : 50)
 				if store.session.state == .resetIncomplete {
 					recovery("Local deletion is incomplete", action: "Continue local data removal", send: .continueReset)
 				} else if store.session.state == .restoreFailed {
@@ -44,12 +46,6 @@ struct ConnectView: View {
 								localized("Server name"),
 								text: Binding(get: { store.state.serverName }, set: { store.send(.nameChanged($0)) }),
 							).focused($focusedField, equals: .name) }
-							if store.state.requiresToken {
-								Divider().padding(.leading, 16); field("Access token") { SecureField(
-									localized("Access token"),
-									text: Binding(get: { store.state.token }, set: { store.send(.tokenChanged($0)) }),
-								).focused($focusedField, equals: .token) }.transition(motion.transition)
-							}
 							Divider().padding(.leading, 16)
 							HStack(spacing: 10) {
 								if store.state.checking {
@@ -62,31 +58,26 @@ struct ConnectView: View {
 										"network"); Text(localized(store.state.ready ? "Server ready" : "Enter a server address"))
 								}
 								Spacer()
+								if store.state.ready, store.state.requiresToken {
+									Label(localized("Needs a token"), systemImage: "lock")
+										.font(.caption.weight(.semibold)).foregroundStyle(Color.secondary)
+										.padding(.horizontal, 12).padding(.vertical, 6)
+										.background(Color(.tertiarySystemFill), in: Capsule())
+								}
 								if !store.state.ready, !store.state.checking, store.state.error != nil {
 									Button(localized("Retry")) { focusedField = nil; store.send(.retryProbe) }
 										.buttonStyle(.glass).accessibilityIdentifier("retry-server-check")
 								}
-							}.font(.subheadline).foregroundStyle(store.state.error == nil ? .green : .red).padding(16)
+							}.font(.subheadline).foregroundStyle(store.state.error == nil ? .green : .red)
+								.padding(.horizontal, 16).padding(.vertical, store.state.requiresToken ? 12 : 16)
 						}.background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 24))
-						VStack(alignment: .leading, spacing: 8) {
-							Button { withAnimation(motion.animation) { advanced.toggle() } } label: {
-								HStack {
-									Text(localized("Advanced settings")); Spacer(); Image(systemName: "chevron.down")
-										.rotationEffect(.degrees(advanced ? 180 : 0))
-								}
-								.padding(.horizontal, 4).frame(minHeight: 38)
-								.foregroundStyle(Theme.accentText)
-							}.buttonStyle(.glass).frame(minHeight: Theme.minimumHitTarget)
-							if advanced {
-								Text("Use HTTPS for a remote backend.", tableName: "Connect").font(.footnote)
-									.foregroundStyle(Theme.secondaryLabel)
-									.padding(
-										.horizontal,
-										16,
-									).transition(motion.transition)
-							}
+						if store.state.requiresToken {
+							tokenCard.padding(.top, 4).transition(motion.transition)
 						}
-						Text("Use a server address from someone you trust.", tableName: "Connect").font(.footnote)
+						advancedSection
+						Text(localized(advanced
+								? "Use the full server address. Keep access tokens in the separate token field."
+								: "Use a server address from someone you trust.")).font(.footnote)
 							.foregroundStyle(Theme.secondaryLabel).padding(
 								.horizontal,
 								16,
@@ -132,6 +123,66 @@ struct ConnectView: View {
 					}
 				}
 			}
+	}
+
+	private var connectToAddress: String? {
+		guard let value = BackendURL.parse(store.state.address)?.value,
+		      var parts = URLComponents(string: value) else { return nil }
+		parts.scheme = parts.scheme?.lowercased()
+		if parts.port == nil {
+			parts.port = parts.scheme == "https" ? 443 : 80
+		}
+		return parts.string
+	}
+
+	private var advancedSection: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			if advanced {
+				Text(localized("Advanced")).font(.footnote.weight(.semibold))
+					.foregroundStyle(Theme.secondaryLabel).padding(.horizontal, 16)
+			}
+			VStack(spacing: 0) {
+				if advanced {
+					field("Connect to") {
+						if let address = connectToAddress {
+							Text(address).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+						} else {
+							Text(localized("Enter a server address")).foregroundStyle(Theme.secondaryLabel)
+						}
+					}.transition(motion.transition)
+					Divider().padding(.leading, 16)
+				}
+				Button { withAnimation(motion.animation) { advanced.toggle() } } label: {
+					HStack {
+						Text(localized(advanced ? "Hide advanced settings" : "Advanced settings"))
+						Spacer(); Image(systemName: "chevron.down").rotationEffect(.degrees(advanced ? 180 : 0))
+					}.foregroundStyle(Theme.accentText).frame(minHeight: Theme.minimumHitTarget)
+						.padding(.horizontal, 16).padding(.vertical, 4)
+				}.buttonStyle(.plain)
+					.accessibilityValue(localized(advanced ? "Expanded" : "Collapsed"))
+			}
+			.background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 24))
+		}
+	}
+
+	private var tokenCard: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			HStack(spacing: 12) {
+				Image(systemName: "key").font(.body).foregroundStyle(.white)
+					.frame(width: 30, height: 30)
+					.background(Theme.tint, in: .rect(cornerRadius: 8)).accessibilityHidden(true)
+				VStack(alignment: .leading, spacing: 4) {
+					Text(localized("Access token")).font(.caption).foregroundStyle(Theme.secondaryLabel)
+					SecureField(localized("Access token"), text: Binding(
+						get: { store.state.token }, set: { store.send(.tokenChanged($0)) },
+					)).focused($focusedField, equals: .token).font(.body)
+						.textInputAutocapitalization(.never).autocorrectionDisabled()
+				}
+			}.padding(.horizontal, 16).padding(.vertical, 12)
+				.background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 24))
+			Text(localized("Ask the server owner for an access token.")).font(.footnote)
+				.foregroundStyle(Theme.secondaryLabel).padding(.horizontal, 16)
+		}
 	}
 
 	private func field(_ title: String, @ViewBuilder content: () -> some View) -> some View {

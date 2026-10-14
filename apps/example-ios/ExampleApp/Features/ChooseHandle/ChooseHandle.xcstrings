@@ -210,6 +210,16 @@
           }
         }
       }
+    },
+    "Cannot save your preference. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot save your preference. Try again."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

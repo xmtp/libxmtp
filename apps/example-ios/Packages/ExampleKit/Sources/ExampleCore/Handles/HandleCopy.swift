@@ -21,6 +21,7 @@ public enum HandleCopy {
 			"This inbox has used all 64 handle changes. "
 				+ "Your current handle stays, and so do your other handles."
 		case .checkFailed: "Cannot check this handle. Try again."
+		case .skipFailed: "Cannot save your preference. Try again."
 		case let .recordFailed(handle):
 			"Your handle is \(handle), but its change date could not be saved. "
 				+ "Retry to save it on this device."

@@ -24,9 +24,7 @@ extension AppGraph {
 			admit: { [weak self] origin in guard let self else { return false }; return routes.admit(origin, fence: fence) },
 			finish: { [weak self] in
 				guard let self else { return }
-				do { try completeHandleSelection(mode, routes: routes, savePreference: preferences.skipHandle) } catch {
-					self.error = "Cannot save your preference. Try again."; return
-				}
+				completeHandleSelection(mode, routes: routes)
 				session.scope.add { [weak self] in
 					guard let self else { return }
 					do {
@@ -36,6 +34,7 @@ extension AppGraph {
 				}
 			},
 			sessionValid: { [weak self] key in self?.fence.accepts(key) == true },
+			persistSkip: preferences.skipHandle,
 		)
 		if let handles {
 			let scope = session.scope
@@ -87,10 +86,8 @@ extension AppGraph {
 @MainActor func completeHandleSelection(
 	_ mode: HandleMode,
 	routes: RouteOwner,
-	savePreference: () throws -> Void,
-) throws {
+) {
 	if mode == .choose {
-		try savePreference()
 		routes.replace(.chats)
 	} else {
 		routes.back()

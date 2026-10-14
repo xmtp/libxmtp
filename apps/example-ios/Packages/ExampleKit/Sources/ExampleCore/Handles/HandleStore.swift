@@ -8,6 +8,7 @@ import Observation
 	private let admit: @MainActor (DestinationOrigin) -> Bool
 	private let sessionValid: @MainActor (SessionKey) -> Bool
 	private let finish: @MainActor () -> Void
+	private let persistSkip: (@MainActor () throws -> Void)?
 	private var work: Task<Void, Never>?
 	private var load: Task<Void, Never>?
 	private var loadAttempt = 0
@@ -22,7 +23,9 @@ import Observation
 		admit: @escaping @MainActor (DestinationOrigin) -> Bool,
 		finish: @escaping @MainActor () -> Void,
 		sessionValid: (@MainActor (SessionKey) -> Bool)? = nil,
+		persistSkip: (@MainActor () throws -> Void)? = nil,
 	) {
+		self.persistSkip = persistSkip
 		self.sessionValid = sessionValid ?? { _ in admit(origin) }
 		self.account = account; self.origin = origin; self.admit = admit; self.finish = finish
 		state = HandleState(mode: mode); state.minimum = (1 ... 27).contains(account.minimum) ? account.minimum : 3
@@ -125,16 +128,11 @@ import Observation
 	private func retry() {
 		switch state.notice {
 		case .recordFailed: persistRecord()
+		case .skipFailed: skip()
 		case let .claimFailed(handle): claim(handle)
 		case .checkFailed: check()
 		default: break
 		}
-	}
-
-	private func skip() {
-		guard state.mode == .choose, state.claiming == nil, pendingRecord == nil, admit(origin) else { return }
-		cancel()
-		finish()
 	}
 
 	private func applyLoad(_ number: Int, _ body: (inout HandleState) -> Void) -> Bool {
@@ -272,6 +270,18 @@ import Observation
 }
 
 extension HandleStore {
+	private func skip() {
+		guard state.mode == .choose, state.claiming == nil, pendingRecord == nil,
+		      sessionValid(origin.session), admit(origin) else { return }
+		cancel()
+		do {
+			try persistSkip?()
+			if apply(attempt, { $0.notice = nil }) {
+				finish()
+			}
+		} catch { _ = apply(attempt) { $0.notice = .skipFailed } }
+	}
+
 	private func showMore() {
 		if case let .suggestions(input, handles, shown, selected) = state.status {
 			state.status = .suggestions(input: input, handles: handles, shown: min(shown + 3, handles.count), selected: selected)

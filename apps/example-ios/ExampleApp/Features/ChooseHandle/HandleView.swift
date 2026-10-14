@@ -144,7 +144,11 @@ private extension HandleView {
 				.padding(.horizontal, 16)
 		}
 		if let notice = store.state.notice {
-			Text(HandleCopy.notice(notice)).font(.subheadline).foregroundStyle(.red).padding(.horizontal, 16)
+			Text(String(localized: String.LocalizationValue(HandleCopy.notice(notice)), table: "ChooseHandle"))
+				.font(.subheadline).foregroundStyle(.red).padding(
+					.horizontal,
+					16,
+				)
 			if canRetry {
 				Button(String(localized: "Retry", table: "ChooseHandle")) { store.send(.retry) }
 					.padding(.horizontal, 16)
@@ -154,7 +158,7 @@ private extension HandleView {
 
 	var canRetry: Bool {
 		switch store.state.notice {
-		case .recordFailed, .claimFailed, .checkFailed: true
+		case .recordFailed, .claimFailed, .checkFailed, .skipFailed: true
 		default: false
 		}
 	}

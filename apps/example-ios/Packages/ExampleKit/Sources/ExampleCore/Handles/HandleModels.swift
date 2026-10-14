@@ -86,6 +86,7 @@ public enum HandleNotice: Equatable, Sendable {
 	case tooSoon(changed: Date?, next: Date?)
 	case limitReached
 	case checkFailed
+	case skipFailed
 	case claimFailed(String)
 	case recordFailed(String)
 	case switchBackBlocked(String, shorter: Bool)
