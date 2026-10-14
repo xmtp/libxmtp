@@ -20,6 +20,17 @@ that changes only the iOS release files. The push job checks this before it
 creates its token.
 Npm dry runs resolve the source but do not create an App token or push a tag.
 `just lint-config` checks the tag transfer with a local Git HTTP remote.
+The nightly libxmtp hub tag (`v<version>`, `release.yml`) uses the same tag
+push job, so a `v*` tag ruleset can list the App as its bypass actor.
+`check-release-push.yml` refuses a source commit that is not on `main`,
+`self-hosted`, or a `release/**` branch; dry runs skip that check.
+
+Every `setup-nix` call states its Cachix cache mode (`read`, `ci`, or
+`trusted`), and `setup-js` gets the same mode. Release, publish, deploy,
+schedule, and warm jobs use `read`; CI jobs use `ci`; writer jobs use the
+protected-push expression. See "Cache modes" in
+`.github/actions/setup-nix/README.md`. `dev/agents/test_kache_env.py` checks
+the wiring for every entry workflow and event.
 
 - Do not enable full Nix build logs by default in CI. For explicit debugging, run `nix log <drv-path>` or add `--print-build-logs` to a manual `nix build` command.
 - Pass JavaScript shard flags directly to the `just` recipe. An extra `--` is forwarded to Vitest and prevents sharding.
@@ -34,7 +45,7 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   current when native setup inputs change.
   The `native` job in `test-backend.yml` checks wrapper cleanup and the real S3
   contract. It also checks the owned loopback listeners and metrics endpoint.
-  It does not pass a cache-write token to setup-nix, and fork pull requests
+  It runs in cache mode `ci` without the `xmtp-pr` token, and fork pull requests
   skip it. Service logs are retained for 7 days.
 - The Linux job in `test-backend.yml` builds `.#backend-tests.x86_64-linux`.
   The derivation starts its own PostgreSQL primary, streaming replica, and

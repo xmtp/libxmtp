@@ -134,7 +134,9 @@ nix flake show
 - **CI caching** — [Cachix](https://cachix.org) stores built Nix derivations so
   CI and local builds skip redundant work. On every push to trunk,
   `.github/workflows/warm.yml` builds and pins the outputs in
-  `nix/ci-sets.nix`
+  `nix/ci-sets.nix`. Developers, release, and deploys read only the trusted
+  cache `xmtp`; pull request and merge-run jobs also read and write the
+  CI-only cache `xmtp-pr`
 
 ## Compiler cache
 

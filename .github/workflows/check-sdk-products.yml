@@ -23,6 +23,7 @@ jobs:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix
       with:
+        cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
         github-token: ${{ github.token }}
         kache: "true"
         kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
@@ -34,6 +35,8 @@ jobs:
         kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - uses: ./.github/actions/setup-js
+      with:
+        cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
       env:
         NIX_DEVSHELL: js
     - name: Check native Nix inputs

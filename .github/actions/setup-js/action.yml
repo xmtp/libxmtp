@@ -1,6 +1,14 @@
 name: "Setup JavaScript"
-description: "Restore the pnpm store and install the root workspace"
+description: "Restore the pnpm store by cache mode and install the root workspace"
 inputs:
+  cache-mode:
+    description: >-
+      The job's setup-nix cache mode; every job passes the same mode to both
+      actions. "read": no pnpm store restore, so pnpm downloads each tarball
+      and checks it against the lockfile. "ci": restore only. "trusted":
+      restore, and save pnpm-* entries.
+    required: false
+    default: "read"
   nix:
     description: "Use pnpm from the active Nix development shell"
     required: false
@@ -32,7 +40,19 @@ runs:
       shell: bash
       run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
+    # pnpm checks restored store files only against the store's own index,
+    # not against the lockfile, so only trusted jobs save the store, and
+    # release, publish, and deploy jobs (mode read) do not restore it.
     - name: Restore pnpm store
+      if: ${{ inputs.cache-mode == 'ci' }}
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ steps.nix-store.outputs.path || steps.host-store.outputs.path }}
+        key: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          pnpm-${{ runner.os }}-${{ runner.arch }}-
+    - name: Restore and save pnpm store
+      if: ${{ inputs.cache-mode == 'trusted' }}
       uses: actions/cache@v5
       with:
         path: ${{ steps.nix-store.outputs.path || steps.host-store.outputs.path }}

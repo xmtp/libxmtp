@@ -285,13 +285,112 @@ class ReleasePushTest(unittest.TestCase):
                         )
                         self.assertEqual(actual, expected)
 
+    def test_release_source_must_be_on_trunk_or_a_release_branch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("GIT_")
+            }
+            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+            def git(*args, cwd):
+                return subprocess.run(
+                    ["git", *args],
+                    cwd=cwd,
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+
+            work = root / "work"
+            work.mkdir()
+            git("init", "--initial-branch=main", cwd=work)
+            commits = {}
+            for branch in (
+                "main",
+                "self-hosted",
+                "release/1.0",
+                "feature",
+                "release-notes",
+            ):
+                if branch != "main":
+                    git("switch", "--quiet", "-C", branch, "main", cwd=work)
+                git(
+                    "-c",
+                    "user.name=T",
+                    "-c",
+                    "user.email=t@e",
+                    "-c",
+                    "commit.gpgSign=false",
+                    "commit",
+                    "--allow-empty",
+                    "-m",
+                    branch,
+                    cwd=work,
+                )
+                commits[branch] = git("rev-parse", "HEAD", cwd=work)
+            origin = root / "origin.git"
+            git("clone", "--quiet", "--bare", str(work), str(origin), cwd=root)
+            git("config", "uploadpack.allowFilter", "true", cwd=origin)
+            check = script(
+                "Check that the source is on a release branch",
+                ROOT / ".github/workflows/check-release-push.yml",
+            )
+            for branch, allowed in (
+                ("main", True),
+                ("self-hosted", True),
+                ("release/1.0", True),
+                ("feature", False),
+                ("release-notes", False),
+            ):
+                with self.subTest(branch=branch):
+                    # A shallow checkout of the source, as actions/checkout makes.
+                    clone = root / f"clone-{branch.replace('/', '-')}"
+                    git(
+                        "clone",
+                        "--quiet",
+                        "--depth=1",
+                        "--no-tags",
+                        f"file://{origin}",
+                        str(clone),
+                        "--branch",
+                        branch,
+                        cwd=root,
+                    )
+                    result = subprocess.run(
+                        ["bash", "-euc", check],
+                        cwd=clone,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        result.returncode == 0, allowed, result.stdout + result.stderr
+                    )
+                    self.assertEqual(
+                        git("rev-parse", "HEAD", cwd=clone), commits[branch]
+                    )
+
     def test_bundle_push_retains_commit_without_persisting_token(self):
-        for sdk in ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+        # libxmtp is the nightly hub tag of release.yml.
+        for sdk in [
+            "ios",
+            "android",
+            "node-sdk",
+            "browser-sdk",
+            "agent-sdk",
+            "cli",
+            "libxmtp",
+        ]:
             with self.subTest(sdk=sdk):
                 self.bundle_push(sdk)
 
     def bundle_push(self, sdk):
         requests = []
+        tag = "v1.2.3" if sdk == "libxmtp" else f"{sdk}-1.2.3"
         with tempfile.TemporaryDirectory(prefix="release-push-") as directory:
             root = Path(directory)
             source = root / "source"
@@ -325,7 +424,7 @@ class ReleasePushTest(unittest.TestCase):
                 git("add", "Package.swift")
                 git("-c", "commit.gpgSign=false", "commit", "-m", "release")
             expected = git("rev-parse", "HEAD").strip()
-            git("-c", "tag.gpgSign=false", "tag", f"{sdk}-1.2.3")
+            git("-c", "tag.gpgSign=false", "tag", tag)
             hook = source / ".git/hooks/pre-push"
             hook.write_text("#!/bin/sh\nexit 99\n")
             hook.chmod(0o755)
@@ -333,7 +432,7 @@ class ReleasePushTest(unittest.TestCase):
                 "bundle",
                 "create",
                 str(temporary / "release-tag/release.bundle"),
-                f"refs/tags/{sdk}-1.2.3",
+                f"refs/tags/{tag}",
             )
             remote = root / "fixture/repo.git"
             git("init", "--bare", str(remote))
@@ -411,9 +510,7 @@ class ReleasePushTest(unittest.TestCase):
                 )
                 self.assertEqual(
                     expected,
-                    git(
-                        "--git-dir=" + str(remote), "rev-parse", f"{sdk}-1.2.3"
-                    ).strip(),
+                    git("--git-dir=" + str(remote), "rev-parse", tag).strip(),
                 )
                 self.assertTrue(requests)
                 self.assertTrue(

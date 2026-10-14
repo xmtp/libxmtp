@@ -33,12 +33,16 @@ jobs:
           GIT_CONFIG_GLOBAL: /dev/null
         run: |
           set -euo pipefail
-          case "$SDK" in ios|android|node-sdk|browser-sdk|agent-sdk|cli) ;; *) exit 1 ;; esac
+          # The libxmtp hub tag (release.yml) is v<version>.
+          case "$SDK" in
+            libxmtp) TAG_REF="refs/tags/v${VERSION}" ;;
+            ios|android|node-sdk|browser-sdk|agent-sdk|cli) TAG_REF="refs/tags/${SDK}-${VERSION}" ;;
+            *) exit 1 ;;
+          esac
           if ! [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::Expected source commit must be a full SHA"
             exit 1
           fi
-          TAG_REF="refs/tags/${SDK}-${VERSION}"
           git check-ref-format "$TAG_REF"
           git init --bare "$RUNNER_TEMP/release-push.git"
           git --git-dir="$RUNNER_TEMP/release-push.git" fetch --no-tags \
@@ -84,7 +88,10 @@ jobs:
           set -euo pipefail
           AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::$AUTH_HEADER"
-          TAG_REF="refs/tags/${SDK}-${VERSION}"
+          case "$SDK" in
+            libxmtp) TAG_REF="refs/tags/v${VERSION}" ;;
+            *) TAG_REF="refs/tags/${SDK}-${VERSION}" ;;
+          esac
           GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" \
             GIT_CONFIG_VALUE_0="$AUTH_HEADER" \

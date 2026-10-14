@@ -489,7 +489,7 @@ suites:
     workflow: deploy-docs.yml
     run_on: [ready_pr_push, merge]
     disable_on_forks: false
-    secrets: inherit
+    secrets: kache
     permissions: {contents: read}
     kache: [rust-reference, sdk-products-debug]
     path_filters:

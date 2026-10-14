@@ -1077,7 +1077,7 @@
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "inherit",
+      "secrets": "kache",
       "permissions": {
         "contents": "read"
       },

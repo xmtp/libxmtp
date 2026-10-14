@@ -15,6 +15,9 @@ jobs:
         uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
+          cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          cachix-pr-auth-token: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
           kache: "true"
           kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
@@ -26,6 +29,8 @@ jobs:
           kache-readonly: "false"
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
+        with:
+          cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
       - name: Start backend
         run: just backend up
       - name: Run agent-sdk tests

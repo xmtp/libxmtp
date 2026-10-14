@@ -4,33 +4,27 @@ on:
   workflow_run:
     # NOTE: workflow_run requires explicit names — no wildcards.
     # When adding a new workflow that runs on main, add it here too.
+    # A called workflow (workflow_call only) never starts a run of its own.
     workflows:
       - "CI"
-      # Test orchestrator (covers test-workspace, test-node, test-wasm, etc.)
-      - "Test"
-      # Lint orchestrator (covers lint-workspace, lint-node, lint-config, etc.)
-      - "Lint"
-      # Release workflows
+      # Release workflows that start on their own or by hand. The per-SDK
+      # release workflows that release.yml calls report through "Release".
       - "Release"
-      - "Release iOS SDK"
-      - "Release Android SDK"
-      - "Release Node Bindings"
-      - "Release WASM Bindings"
-      - "Release Kotlin Bindings"
-      - "Build (and push/deploy) MLS Validation Service"
+      - "Release Agent SDK"
+      - "Release CLI"
       - "Release Notes"
       - "Create Release Branch"
-      # Docs & publishing
-      - "Deploy Docs to GitHub Pages"
-      - "NPM Publish"
-      # Monitoring & utilities
+      - "release-pr"
+      # Docs, deploys, and images
+      - "Warm Nix cache"
+      - "Build and Deploy Docs"
+      - "Deploy xmtp.chat"
+      - "Publish backend image"
+      - "Push keepalive-probe Image"
+      - "Push XDBG Image"
+      # Monitoring
       - "Ignored Tests Tracker"
       - "Lint Deny"
-      - "Error Glossary"
-      - "Nightly Automation"
-      - "Push XDBG Image"
-      - "Warm Nix cache"
-      - "Cleanup iOS Test Apps"
     types: [completed]
     branches: [main]
 

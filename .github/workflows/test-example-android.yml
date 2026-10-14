@@ -12,8 +12,9 @@ jobs:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix
       with:
+        cache-mode: "ci"
+        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
         github-token: ${{ github.token }}
-        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
     - name: Build and verify the signed universal APK
       run: nix build .#example-android-apk --no-link
   unit-tests:
@@ -24,9 +25,10 @@ jobs:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix
       with:
+        cache-mode: "ci"
+        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
         gradle-disk: 'true'
         github-token: ${{ github.token }}
-        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
     - uses: taiki-e/install-action@just
     - name: Start backend
       env:
@@ -48,9 +50,10 @@ jobs:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix
       with:
+        cache-mode: "ci"
+        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
         gradle-disk: 'true'
         github-token: ${{ github.token }}
-        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
     - uses: taiki-e/install-action@just
     - name: Start backend
       env:

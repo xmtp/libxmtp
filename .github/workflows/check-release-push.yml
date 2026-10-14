@@ -33,6 +33,24 @@ jobs:
         id: source
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # Releases publish only commits that are on trunk or a release branch.
+      # A dry run publishes nothing, so it may build any branch.
+      - name: Check that the source is on a release branch
+        if: ${{ inputs.dry-run != true }}
+        run: |
+          set -euo pipefail
+          # Commits only: the check needs history, not trees or blobs.
+          git fetch --quiet --no-tags --filter=tree:0 origin \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/heads/self-hosted:refs/remotes/origin/self-hosted' \
+            '+refs/heads/release/*:refs/remotes/origin/release/*'
+          branches=$(git for-each-ref --contains HEAD --format='%(refname:lstrip=3)' \
+            refs/remotes/origin/main refs/remotes/origin/self-hosted 'refs/remotes/origin/release/')
+          if [[ -z "$branches" ]]; then
+            echo "::error title=Release source::$(git rev-parse HEAD) is not on main, self-hosted, or a release/** branch"
+            exit 1
+          fi
+          echo "Release source is on: $(tr '\n' ' ' <<< "$branches")"
       - name: Verify release App permissions
         if: ${{ inputs.dry-run != true }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
