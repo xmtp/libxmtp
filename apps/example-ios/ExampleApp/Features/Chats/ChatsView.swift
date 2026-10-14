@@ -135,18 +135,21 @@ private struct ChatsEmptyState: View {
 				Text(String(localized: "chats.loading", table: "Chats")).font(.headline)
 			} else {
 				Image(systemName: searching ? "magnifyingglass" : "bubble.left.and.bubble.right")
-					.font(.largeTitle).foregroundStyle(.tint).accessibilityHidden(true)
+					.font(.largeTitle)
+					.foregroundStyle(searching ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+					.accessibilityHidden(true)
 				Text(String(localized: searching ? "chats.noMatches" : "chats.empty.title", table: "Chats"))
 					.font(.title2.bold())
 				Text(String(localized: searching ? "chats.noMatches.detail" : "chats.empty.detail", table: "Chats"))
-					.font(.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
+					.font(searching ? .body : .subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 				if !searching {
 					Button(String(localized: "chats.empty.action", table: "Chats"), action: start)
+						.font(.headline).controlSize(.large)
 						.buttonStyle(.glassProminent).padding(.top, 4)
 				}
 			}
 		}
-		.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.vertical, 48)
+		.frame(maxWidth: .infinity).padding(.horizontal, searching ? 24 : 16).padding(.vertical, 48)
 	}
 }
 

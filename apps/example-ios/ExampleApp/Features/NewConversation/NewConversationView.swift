@@ -7,7 +7,7 @@ struct NewConversationView: View {
 	@Environment(\.motionPolicy) private var motion
 	var body: some View {
 		Form { people; loadingAndError }
-			.contentMargins(.top, 12, for: .scrollContent)
+			.contentMargins(.top, 0, for: .scrollContent)
 			.listSectionSpacing(16)
 			.toolbar {
 				ToolbarItem(placement: .topBarLeading) {
