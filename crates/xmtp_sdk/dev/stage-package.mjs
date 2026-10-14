@@ -60,6 +60,28 @@ if (
   )
 )
   throw new Error("SDK generated contract mismatch");
+// target/sdk-generated is whatever the last generate wrote, so it must still
+// match this checkout: the library's source identity and the render identity
+// of its language. An explicit XMTP_SDK_GENERATED_DIR (a Nix output, or a
+// release render) names its own trees. Windows reads its commit identity.
+if (!process.env.XMTP_SDK_GENERATED_DIR) {
+  const [source, render] = execFileSync(
+    process.platform === "win32" ? "python" : "python3",
+    [join(root, "crates/xmtp_sdk/dev/sdk-artifacts.py"), "provenance"],
+    { cwd: root, encoding: "utf8" },
+  )
+    .trim()
+    .split(/\s+/);
+  trees.forEach((tree, i) => {
+    if (
+      contracts[i].artifact?.source !== source ||
+      contracts[i].generator !== render
+    )
+      throw new Error(
+        `${join(generated, tree)} was generated from other sources: run \`just sdk generate ${target}\``,
+      );
+  });
+}
 // A package ships only product libraries: no test exports such as
 // `conformance` (the Nix fixtures) in any tree.
 const productFeatures = {

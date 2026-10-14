@@ -140,6 +140,38 @@ class StagingTests(unittest.TestCase):
             "typescript-pure has features pure-only,conformance", result.stderr
         )
 
+    def test_stale_default_tree_is_rejected(self):
+        # Without XMTP_SDK_GENERATED_DIR, staging reads target/sdk-generated
+        # and compares its receipt with this checkout's identities.
+        tree = self.root / "target/sdk-generated/typescript-napi"
+        tree.mkdir(parents=True)
+        (tree / "index.ts").write_text("export const marker = 'sdk';")
+        (tree / "sdk-contract.json").write_text(
+            json.dumps(
+                {
+                    "contract": "stale",
+                    "generator": "an earlier render",
+                    "artifact": {"source": "an earlier source", "features": ""},
+                    "files": {
+                        "index.ts": hashlib.sha256(
+                            (tree / "index.ts").read_bytes()
+                        ).hexdigest()
+                    },
+                }
+            )
+        )
+        env = {k: v for k, v in os.environ.items() if k != "XMTP_SDK_GENERATED_DIR"}
+        env["XMTP_SDK_PACKAGES_DIR"] = str(self.root / "packages")
+        result = subprocess.run(
+            ["node", str(ROOT / "crates/xmtp_sdk/dev/stage-package.mjs"), "node"],
+            cwd=self.root,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("run `just sdk generate node`", result.stderr)
+
     def test_read_only_runtime_directories_stage(self):
         generated = self.root / "generated/typescript-napi"
         generated.mkdir(parents=True)
