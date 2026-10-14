@@ -17,8 +17,10 @@ Run commands from the repository root in the Nix shell. Run
   Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
   which the main packaging suite loads as inherited test methods.
   Both packaging suites share the fixture in `dev/packaging_test_base.py`.
-- `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs.
-  It does not compile a product.
+- Evaluation checks the native build inputs: `base.assertNativeEnv`
+  (`nix/lib/base.nix`) fails evaluation of the host, Android, and iOS
+  libraries, or of their dependency layers, without static vendored OpenSSL,
+  the macOS 11.0 floor, or the iOS 14 export.
 - SDK receipts record the closure identities that Nix computes at evaluation
   (`nix eval .#sdkProvenance`). `dev/sdk-artifacts.py` reads them with the same
   command, so both routes record the same values. Nix evaluates the git
@@ -35,8 +37,13 @@ Run commands from the repository root in the Nix shell. Run
 - `dev/nix-shell 'just sdk check-file-sizes'` checks the 1,000-line limit for every SDK source
   file. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
-- `dev/nix-shell 'just sdk lint'` checks file sizes, generated names, and TypeScript source.
-  Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
+- `dev/nix-shell 'just sdk lint'` runs `lint-source` and `lint-generated`.
+  `lint-source` needs no generated tree: file sizes, the test-hook self-test,
+  public names in the sources, and the runtime and template formats; CI runs
+  it before generating. `lint-generated` runs the table-driven
+  `dev/check-generated-surface`, test hooks, Oxlint (which forbids type
+  assertions in the bridge), and one `tsc` call. Run
+  `dev/nix-shell 'just sdk generate'` first. It stops when a generated target root is missing.
   The TypeScript runtime imports the binding, so the lint and the bridge tests
   read its copy in each generated tree; `apps/xmtp_sdk_bindgen/GENERATED_LINT.md`
   has the details. Each generated TypeScript tree links its `@ubjs` packages
@@ -44,7 +51,7 @@ Run commands from the repository root in the Nix shell. Run
   `apps/xmtp_sdk_bindgen/runtime/ts/tsconfig.json` resolves the binding in the
   generated Node tree.
   It also rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) in
-  the default bindings and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
+  every source file of the default trees and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
   in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
 - `dev/nix-shell 'just sdk test-bridge [vitest arguments]'` runs the bridge
@@ -230,12 +237,10 @@ Residual package review checks:
   private path override for the launcher proof. The normal path comes from
   the selected Node installation, including the Windows installation.
 
-- Use `dev/nix-shell 'just sdk check-native-nix'` to check the evaluated SDK
-  build inputs. Cargo uses its normal or caller-selected job count. Native stages use
-  vendored static OpenSSL. Apple stages keep macOS 11 and iOS 14 floors.
-  `just sdk check-package-scripts` checks this gate under Python optimization
-  with invalid inputs for each build stage.
-  This check does not prove archive linkage or installed package loading.
+- Cargo uses its normal or caller-selected job count. Native stages use
+  vendored static OpenSSL. Apple stages keep macOS 11 and iOS 14 floors; the
+  Nix evaluation asserts these inputs. They do not prove archive linkage or
+  installed package loading.
 Android staging dependency inputs:
 
 - The staging Gradle root is `crates/xmtp_sdk/packaging/android`. Keep its

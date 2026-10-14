@@ -24,10 +24,15 @@ jobs:
         cache-mode: ci
       env:
         NIX_DEVSHELL: js
-    - name: Check native Nix inputs
+    # Source checks first: they need no generated tree.
+    - name: Check SDK sources
       env:
         NIX_DEVSHELL: rust
-      run: dev/nix-shell 'just sdk check-native-nix'
+      run: dev/nix-shell 'just sdk lint-source'
+    - name: Check the generated SDK build closures
+      env:
+        NIX_DEVSHELL: rust
+      run: dev/nix-shell 'just sdk check-generated-nix'
     - name: Check package scripts
       env:
         NIX_DEVSHELL: rust
@@ -39,7 +44,7 @@ jobs:
     - name: Check generated SDK bindings and runtime
       env:
         NIX_DEVSHELL: rust
-      run: dev/nix-shell 'just sdk lint'
+      run: dev/nix-shell 'just sdk lint-generated'
     - name: Local installed Node ESM package smoke
       run: dev/nix-shell 'just sdk package-smoke node'
     - name: Local installed Browser pure and worker package smoke

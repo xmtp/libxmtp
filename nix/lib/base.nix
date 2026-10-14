@@ -121,11 +121,40 @@ let
       // overrides
     );
 
+  # Fail evaluation unless a shipped SDK library and its dependency layer
+  # build with static, unvendored OpenSSL, and with the Apple deployment floors
+  # (macOS 11.0; iOS 14 for a slice). Returns `drv`.
+  assertNativeEnv =
+    {
+      drv,
+      macos ? false,
+      ios ? false,
+    }:
+    let
+      problems =
+        phase: attrs:
+        lib.optional ((attrs.OPENSSL_NO_VENDOR or null) != "0") "${phase} OPENSSL_NO_VENDOR is not \"0\""
+        ++ lib.optional ((attrs.OPENSSL_STATIC or null) != "1") "${phase} OPENSSL_STATIC is not \"1\""
+        ++ lib.optional (
+          macos && (attrs.MACOSX_DEPLOYMENT_TARGET or null) != "11.0"
+        ) "${phase} MACOSX_DEPLOYMENT_TARGET is not 11.0"
+        ++ lib.optional (
+          ios
+          && !lib.hasInfix ''export IPHONEOS_DEPLOYMENT_TARGET="14"'' (
+            attrs.buildPhaseCargoCommand or (attrs.buildPhase or "")
+          )
+        ) "${phase} command does not export IPHONEOS_DEPLOYMENT_TARGET=14";
+      found = problems "build" drv ++ problems "dependency layer" drv.cargoArtifacts;
+    in
+    assert lib.assertMsg (found == [ ]) "${drv.name}: ${lib.concatStringsSep "; " found}";
+    drv;
+
 in
 {
   inherit
     commonArgs
     mkCargoVendorDir
     mkCargoArtifacts
+    assertNativeEnv
     ;
 }

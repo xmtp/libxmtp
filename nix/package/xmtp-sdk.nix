@@ -101,33 +101,37 @@ let
             cargo build --release --locked -p xmtp_sdk --lib --target ${target}
           '';
         in
-        iosRust.buildPackage (
-          common
-          // nativeArgs
-          // {
-            pname = "xmtp-sdk-ios-${target}";
-            src = sources.sdk iosRust;
-            cargoVendorDir = xmtp.base.mkCargoVendorDir iosRust;
-            CARGO_BUILD_TARGET = target;
-            XMTP_XCODE = xcode;
-            __noChroot = true;
-            cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust (
-              nativeArgs
-              // {
-                CARGO_BUILD_TARGET = target;
-                XMTP_XCODE = xcode;
-                __noChroot = true;
-                buildPhaseCargoCommand = command;
-              }
-            );
-            buildPhaseCargoCommand = command;
-            installPhaseCommand = ''
-              mkdir -p $out/lib
-              cp target/${target}/release/libxmtp_sdk.a $out/lib/
-              cp target/${target}/release/libxmtp_sdk.dylib $out/lib/
-            '';
-          }
-        )
+        xmtp.base.assertNativeEnv {
+          macos = true;
+          ios = true;
+          drv = iosRust.buildPackage (
+            common
+            // nativeArgs
+            // {
+              pname = "xmtp-sdk-ios-${target}";
+              src = sources.sdk iosRust;
+              cargoVendorDir = xmtp.base.mkCargoVendorDir iosRust;
+              CARGO_BUILD_TARGET = target;
+              XMTP_XCODE = xcode;
+              __noChroot = true;
+              cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust (
+                nativeArgs
+                // {
+                  CARGO_BUILD_TARGET = target;
+                  XMTP_XCODE = xcode;
+                  __noChroot = true;
+                  buildPhaseCargoCommand = command;
+                }
+              );
+              buildPhaseCargoCommand = command;
+              installPhaseCommand = ''
+                mkdir -p $out/lib
+                cp target/${target}/release/libxmtp_sdk.a $out/lib/
+                cp target/${target}/release/libxmtp_sdk.dylib $out/lib/
+              '';
+            }
+          );
+        }
       )
     );
   iosTargets = mkIosTargets xmtp.iosEnv.xcode.key;

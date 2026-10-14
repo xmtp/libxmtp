@@ -92,6 +92,10 @@ let
 
 in
 mkProvenance {
-  inherit compilation target;
+  compilation = xmtp.base.assertNativeEnv {
+    drv = compilation;
+    macos = stdenv.hostPlatform.isDarwin;
+  };
+  inherit target;
   inherit (sources) provenance;
 }
