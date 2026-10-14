@@ -10,12 +10,8 @@
   python3,
 }:
 let
-  androidTargets = [
-    "aarch64-linux-android"
-    "armv7-linux-androideabi"
-    "x86_64-linux-android"
-    "i686-linux-android"
-  ];
+  # The Android ABIs of the one platform list.
+  androidTargets = map (abi: abi.rustTarget) (lib.importJSON ../sdk-platforms.json).android;
   # Host architecture -> matching Android target (for fast single-target builds)
   hostArch = stdenv.hostPlatform.parsed.cpu.name;
   # The Android emulator is only available for x86_64-linux and *-darwin.

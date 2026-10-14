@@ -6,12 +6,16 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[3]
+# The Android ABIs of the one platform list.
+ANDROID = " ".join(
+    f'"xmtp-sdk-android-{abi["abi"]}"'
+    for abi in json.loads((ROOT / "nix/sdk-platforms.json").read_text())["android"]
+)
 EXPRESSION = r"""
 systems:
 let
   p = systems.${builtins.currentSystem};
-  names = [ "xmtp-sdk-android-arm64-v8a" "xmtp-sdk-android-armeabi-v7a"
-    "xmtp-sdk-android-x86" "xmtp-sdk-android-x86_64" ] ++ [ "xmtp-sdk-libs" "xmtp-sdk-bindgen" "xmtp-sdk-wasm" "xmtp-sdk-pure-wasm" ]
+  names = [ ANDROID ] ++ [ "xmtp-sdk-libs" "xmtp-sdk-bindgen" "xmtp-sdk-wasm" "xmtp-sdk-pure-wasm" ]
     ++ (if builtins.hasAttr "xmtp-sdk-ios-device" p
         then [ "xmtp-sdk-ios-device" "xmtp-sdk-ios-simulator" ] else []);
   inputs = d: {
@@ -25,7 +29,7 @@ in builtins.listToAttrs (map (name: {
   value = let compiler = p.${name}.compilation or p.${name};
     in { main = inputs compiler; deps = inputs compiler.cargoArtifacts; };
 }) names)
-"""
+""".replace("ANDROID", ANDROID)
 
 products = json.loads(
     subprocess.check_output(
