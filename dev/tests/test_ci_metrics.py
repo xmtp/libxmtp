@@ -20,7 +20,8 @@ LOADER.exec_module(METRICS)
 
 # A stand-in for `gh api`. It serves the fixture in CI_METRICS_FIXTURE and
 # pages job lists as GitHub does: 30 jobs per page unless `per_page` is set,
-# and only the first page unless `--paginate` is passed.
+# and only the first page unless `--paginate` is passed. A fixture value
+# {"__pages__": [...]} is a list endpoint with those pages.
 GH = r"""
 import json, os, re, sys
 from urllib.parse import parse_qs, urlsplit
@@ -53,7 +54,13 @@ elif log:
     sys.stdout.write(fixture["logs"][log.group(1)])
 elif path in fixture["api"]:
     response = fixture["api"][path]
-    print(json.dumps([response] if "--slurp" in flags else response))
+    if isinstance(response, dict) and "__pages__" in response:
+        pages = response["__pages__"]
+        if "--paginate" not in flags:
+            pages = pages[:1]
+    else:
+        pages = [response]
+    print(json.dumps(pages if "--slurp" in flags else pages[0]))
 else:
     print("unexpected gh call: " + " ".join(args), file=sys.stderr)
     raise SystemExit(1)
@@ -343,6 +350,107 @@ class Metrics(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("cannot read the log of job 8", result.stderr)
+
+    def test_marker_removes_terminal_controls(self):
+        # Any PR author writes the CI logs. Nothing in them may reach the
+        # terminal as a control sequence.
+        cases = {
+            "OSC 52 clipboard write": ("a\x1b]52;c;ZXZpbA==\x07b", "ab"),
+            "OSC 8 hyperlink": (
+                "\x1b]8;;https://x.test\x1b\\link\x1b]8;;\x1b\\ text",
+                "link text",
+            ),
+            "DCS string": ("a\x1bP1$qm\x1b\\b", "ab"),
+            "bare ESC": ("a\x1b", "a\\x1b"),
+            "C1 CSI": ("\u009b31mred", "\\x9b31mred"),
+            "BEL": ("ding\x07dong", "ding\\x07dong"),
+        }
+        for name, (payload, shown) in cases.items():
+            with self.subTest(name):
+                fixture = {
+                    "jobs": {},
+                    "api": {},
+                    "logs": {"7": f"2026-10-13T12:00:00.0000000Z match {payload}\n"},
+                }
+                output = self.run_metrics(fixture, "marker", "7", "match").stdout
+                self.assertEqual(
+                    output, f"2026-10-13T12:00:00.0000000Z match {shown}\n"
+                )
+
+    def test_runs_removes_terminal_controls_from_step_names(self):
+        fixture = merge_run_fixture()
+        wasm = next(item for item in fixture["jobs"]["1"] if item["id"] == 901)
+        wasm["steps"][0]["name"] = "evil\x1b]8;;https://x.test\x1b\\step\x07"
+        output = self.run_metrics(fixture, "runs", "1").stdout
+        self.assertIn("     600s Test (WASM) > evilstep\\x07\n", output)
+        self.assertNotRegex(output, "[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+    def test_test_output_is_unknown_without_a_nix_plan(self):
+        # The job failed before `nix build`, so the log says nothing about
+        # the output.
+        fixture = merge_run_fixture()
+        fixture["logs"]["900"] = "2026-10-13T12:01:00.0000000Z error: setup failed\n"
+        output = self.run_metrics(fixture, "runs", "1").stdout
+        self.assertIn("nextest=? wasm=built", output.splitlines()[0])
+
+    def pr_run_fixture(self, files, changed_files=None, pr_head=PR_HEAD, compared=None):
+        """A PR run of PR 77, and the PR's file pages of 100."""
+        run = dict(push_run(5, sha=PR_HEAD), event="pull_request")
+        return {
+            "jobs": {"5": [job(500, "detect-changes", 0, 30)]},
+            "logs": {
+                "500": (
+                    "2026-10-13T12:00:05.0000000Z  * [new ref]  "
+                    "refs/pull/77/merge -> refs/remotes/pull/77/merge\n"
+                    f"2026-10-13T12:00:10.0000000Z HEAD is now at abcdef1 Merge {PR_HEAD} into {PR_BASE}\n"
+                )
+            },
+            "api": {
+                "actions/runs/5": run,
+                "pulls/77": {
+                    "head": {"sha": pr_head},
+                    "changed_files": len(files)
+                    if changed_files is None
+                    else changed_files,
+                },
+                "pulls/77/files?per_page=100": {
+                    "__pages__": [files[i : i + 100] for i in range(0, len(files), 100)]
+                },
+                # GitHub's comparison lists at most 300 files.
+                f"compare/{PR_BASE}...{PR_HEAD}": {
+                    "files": (files if compared is None else compared)[:300]
+                },
+            },
+        }
+
+    def test_pr_class_reads_every_file_of_the_pr(self):
+        files = [
+            {"filename": f"docs/page{i}.md", "status": "modified"} for i in range(350)
+        ]
+        files[320] = {"filename": "Cargo.lock", "status": "modified"}
+        output = self.run_metrics(self.pr_run_fixture(files), "runs", "5").stdout
+        self.assertIn("5 pull_request success class=L ", output)
+
+    def test_pr_class_is_unknown_when_the_file_list_is_incomplete(self):
+        docs = [
+            {"filename": f"docs/page{i}.md", "status": "modified"} for i in range(350)
+        ]
+        cases = {
+            # GitHub lists 3000 files of a PR at most.
+            "PR files beyond the cap": self.pr_run_fixture(docs, changed_files=3500),
+            # The PR has a newer head, and the comparison is at its cap.
+            "comparison at its cap": self.pr_run_fixture(docs, pr_head="f" * 40),
+        }
+        for name, fixture in cases.items():
+            with self.subTest(name):
+                output = self.run_metrics(fixture, "runs", "5").stdout
+                self.assertIn("5 pull_request success class=? ", output)
+
+    def test_pr_class_compares_an_older_head(self):
+        compared = [{"filename": "crates/xmtp_mls/src/a.rs", "status": "modified"}]
+        fixture = self.pr_run_fixture([], pr_head="f" * 40, compared=compared)
+        output = self.run_metrics(fixture, "runs", "5").stdout
+        self.assertIn("5 pull_request success class=R ", output)
 
 
 if __name__ == "__main__":

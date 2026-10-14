@@ -43,9 +43,23 @@ PAGE = 100
 # A run lists at most this many pages when it searches for runs of one class.
 MAX_LIST_PAGES = 10
 MAX_MARKER_LINES = 200
+# GitHub lists at most this many files of a comparison, and of a commit or a
+# pull request through pagination.
+COMPARE_FILE_CAP = 300
+LISTED_FILE_CAP = 3000
 
 TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T[0-9:.]+Z ")
-ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# Terminal escape sequences: CSI; OSC, DCS, SOS, PM, and APC strings, which
+# end at BEL, at ST, or at the end of the line; and other ESC sequences.
+ESCAPE_SEQUENCE = re.compile(
+    r"\x1b\[[0-?]*[ -/]*[@-~]"
+    r"|\x1b[\]PX^_][^\x07\x1b]*(?:\x07|\x1b\\)?"
+    r"|\x1b[ -/]*[0-~]"
+)
+# C0 controls except tab, DEL, and C1 controls.
+CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f-\x9f]")
+# actions/checkout fetches refs/pull/N/merge into this ref.
+PULL_REF = re.compile(r"refs/remotes/pull/(\d+)/merge")
 # actions/checkout prints this line after it checks out refs/pull/N/merge.
 MERGE_CHECKOUT = re.compile(
     r"HEAD is now at ([0-9a-f]{7,40}) Merge ([0-9a-f]{40}) into ([0-9a-f]{40})"
@@ -69,8 +83,23 @@ L_NAMES = {"Cargo.lock", "Cargo.toml"}
 L_ENTRY_POINTS = re.compile(r"(^|/)src/(lib\.rs|main\.rs|bin/.+)$")
 
 
+def clean(text):
+    """Make text from a job log or from GitHub safe to print to a terminal.
+
+    Any PR author controls the CI logs and the job and step names. Remove the
+    escape sequences, then show every other control character as `\\xNN`.
+    """
+    return CONTROL.sub(
+        lambda match: f"\\x{ord(match.group()):02x}", ESCAPE_SEQUENCE.sub("", text)
+    )
+
+
+def say(text, file=None):
+    print(clean(text), file=file)
+
+
 def fail(message):
-    print(f"metrics: {message}", file=sys.stderr)
+    say(f"metrics: {message}", file=sys.stderr)
     raise SystemExit(1)
 
 
@@ -106,38 +135,27 @@ class LogUnavailable(Exception):
 
 
 def stamped_lines(job_id):
-    """Yield the lines of one job log without ANSI escapes."""
+    """Yield the lines of one job log, safe to print (see `clean`)."""
     args = ["gh", "api", *escape_flag(), f"repos/{REPO}/actions/jobs/{job_id}/logs"]
     with subprocess.Popen(
         args,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
         errors="replace",
     ) as process:
         for line in process.stdout:
-            yield ANSI.sub("", line.rstrip("\n"))
+            yield clean(line.rstrip("\n"))
         error = process.stderr.read().strip()
     if process.returncode != 0:
         raise LogUnavailable(f"cannot read the log of job {job_id}: {error}")
 
 
 def log_lines(job_id):
-    """Yield the lines of one job log without timestamps and ANSI escapes."""
+    """Yield the lines of one job log without timestamps."""
     for line in stamped_lines(job_id):
         yield TIMESTAMP.sub("", line)
-
-
-def first_match(job_id, pattern):
-    """Return the first match in a job log, or None if the log is missing."""
-    try:
-        for line in log_lines(job_id):
-            match = pattern.search(line)
-            if match:
-                return match
-    except LogUnavailable:
-        pass
-    return None
 
 
 def parse_time(text):
@@ -191,10 +209,31 @@ def change_class(files):
     return "R" if rust else "N" if nix else "0"
 
 
-def merge_checkout(jobs):
-    """Return the MERGE_CHECKOUT match of a PR run's detect-changes job."""
+def pr_checkout(jobs):
+    """Return the PR number and the merge, head, and base commits of a PR run.
+
+    The PR run's detect-changes job fetches and checks out refs/pull/N/merge.
+    """
     job = next((job for job in jobs if job["name"] == "detect-changes"), None)
-    return first_match(job["id"], MERGE_CHECKOUT) if job else None
+    if job is None:
+        return None
+    number = None
+    try:
+        for line in log_lines(job["id"]):
+            ref = PULL_REF.search(line)
+            if ref:
+                number = int(ref.group(1))
+            merge = MERGE_CHECKOUT.search(line)
+            if merge:
+                return {
+                    "number": number,
+                    "merge": merge.group(1),
+                    "head": merge.group(2),
+                    "base": merge.group(3),
+                }
+    except LogUnavailable:
+        pass
+    return None
 
 
 def run_jobs(run_id):
@@ -205,18 +244,34 @@ def run_jobs(run_id):
     ]
 
 
+def pr_files(checkout):
+    """Return the files of the PR diff that a run tested, or None if GitHub
+    lists only part of them."""
+    number = checkout["number"]
+    if number is not None:
+        pull = api(f"pulls/{number}")
+        if pull["head"]["sha"] == checkout["head"]:
+            pages = api_pages(f"pulls/{number}/files?per_page={PAGE}")
+            files = [entry for page in pages for entry in page]
+            return files if len(files) == pull["changed_files"] else None
+    # The PR has a newer head than this run. Three dots give the diff from
+    # the merge base, which is the PR's diff, but list at most 300 files.
+    compared = api(f"compare/{checkout['base']}...{checkout['head']}")
+    files = compared.get("files", [])
+    return files if len(files) < COMPARE_FILE_CAP else None
+
+
 def run_class(run, jobs):
+    """Return the change class of the diff that a run tested, or `?`."""
     if run["event"] == "pull_request":
-        checkout = merge_checkout(jobs)
-        if checkout is None:
-            return "?"
-        # Three dots: the diff from the merge base, which is the PR's diff.
-        # GitHub lists at most 300 files here.
-        return change_class(
-            api(f"compare/{checkout.group(3)}...{checkout.group(2)}").get("files", [])
-        )
-    pages = api_pages(f"commits/{run['head_sha']}?per_page={PAGE}")
-    return change_class([entry for page in pages for entry in page.get("files", [])])
+        checkout = pr_checkout(jobs)
+        files = pr_files(checkout) if checkout else None
+    else:
+        pages = api_pages(f"commits/{run['head_sha']}?per_page={PAGE}")
+        files = [entry for page in pages for entry in page.get("files", [])]
+        if len(files) >= LISTED_FILE_CAP:
+            files = None
+    return "?" if files is None else change_class(files)
 
 
 def tested_tree(run):
@@ -241,9 +296,9 @@ def tested_tree(run):
     for pr_run in sorted(
         listed["workflow_runs"], key=lambda item: item["created_at"], reverse=True
     ):
-        checkout = merge_checkout(run_jobs(pr_run["id"]))
+        checkout = pr_checkout(run_jobs(pr_run["id"]))
         if checkout:
-            tree = api(f"commits/{checkout.group(1)}")["commit"]["tree"]["sha"]
+            tree = api(f"commits/{checkout['merge']}")["commit"]["tree"]["sha"]
             return "same" if tree == run["head_commit"]["tree_id"] else "differs"
     return "unknown"
 
@@ -253,6 +308,9 @@ def test_output(jobs, job_name, pattern):
 
     Nix can plan to fetch an output and then build it, when a path in its
     closure cannot be substituted. So a build line wins over a fetch plan.
+    Nix prints nothing for a path that is already valid, so a log with no
+    plan for the output (for example, a job that failed before `nix build`)
+    gives `?`.
     """
     job = next((job for job in jobs if job["name"].endswith(job_name)), None)
     if job is None or job.get("conclusion") == "skipped":
@@ -278,7 +336,7 @@ def test_output(jobs, job_name, pattern):
                 fetched = True
     except LogUnavailable:
         return "?"
-    return "fetched" if fetched else "present"
+    return "fetched" if fetched else "?"
 
 
 def measure(run, jobs):
@@ -347,10 +405,10 @@ def runs(args):
             # any job starts. Only a run with a started job was in progress.
             if any(job.get("steps") for job in jobs):
                 cancelled_in_progress += 1
-                print(f"{run['id']} {run['event']} cancelled in progress class={kind}")
+                say(f"{run['id']} {run['event']} cancelled in progress class={kind}")
             else:
                 replaced += 1
-                print(
+                say(
                     f"{run['id']} {run['event']} cancelled before it started class={kind}"
                 )
             continue
@@ -372,21 +430,21 @@ def runs(args):
             line += f" tree={report['tree']} " + " ".join(
                 f"{k}={v}" for k, v in report["outputs"].items()
             )
-        print(line)
+        say(line)
         for duration, job, step in report["slowest"]:
-            print(f"  {duration:6.0f}s {job} > {step}")
+            say(f"  {duration:6.0f}s {job} > {step}")
         reports.append(report)
     summarize(reports, cancelled_in_progress, replaced)
 
 
 def summarize(reports, cancelled_in_progress, replaced):
-    print(
+    say(
         f"runs: {len(reports)} measured; cancelled in progress {cancelled_in_progress}; "
         f"cancelled before start {replaced}"
     )
     if not reports:
         return
-    print(f"median wall: {statistics.median(r['wall'] for r in reports):.1f} min")
+    say(f"median wall: {statistics.median(r['wall'] for r in reports):.1f} min")
     for key, title in (
         ("system_min", "runner-min"),
         ("class_min", "runner-min by class"),
@@ -396,14 +454,14 @@ def summarize(reports, cancelled_in_progress, replaced):
             f"{name} {statistics.median(r[key].get(name, 0.0) for r in reports):.1f}"
             for name in names
         )
-        print(f"median {title}: {medians}")
+        say(f"median {title}: {medians}")
     merges = [r for r in reports if "tree" in r]
     if merges:
         same = sum(r["tree"] == "same" for r in merges)
-        print(f"merge tree equals the PR's last tested tree: {same} of {len(merges)}")
+        say(f"merge tree equals the PR's last tested tree: {same} of {len(merges)}")
         for name in TEST_OUTPUTS:
             fetched = sum(r["outputs"][name] == "fetched" for r in merges)
-            print(
+            say(
                 f"merge runs that fetched the {name} output: {fetched} of {len(merges)}"
             )
 
@@ -415,14 +473,14 @@ def marker(args):
         for line in stamped_lines(args.job_id):
             if pattern.search(TIMESTAMP.sub("", line)):
                 if printed < args.max:
-                    print(line)
+                    say(line)
                     printed += 1
                 else:
                     extra += 1
     except LogUnavailable as error:
         fail(str(error))
     if extra:
-        print(
+        say(
             f"metrics: {extra} more matching lines not shown (--max {args.max})",
             file=sys.stderr,
         )
