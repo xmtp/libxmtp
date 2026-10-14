@@ -172,3 +172,29 @@ extension SessionCleanupTests {
 		#expect(store.state.token.isEmpty); #expect(secrets.values["credential"] != nil)
 	}
 }
+
+extension SessionCleanupTests {
+	@Test @MainActor func changedServerClearsSupersededJoiningState() async throws {
+		let files = RoundSevenFiles(); let secrets = RoundSevenSecrets(); let factory = RoundSevenFactory(); factory
+			.pause = true
+		let session = SessionController(fence: SessionFence(), secrets: secrets, files: files, factory: factory)
+		let store = ConnectStore(
+			probe: JoinProbe(),
+			session: session,
+			owner: RouteOwner(),
+			defaultURL: "http://localhost:5050",
+		)
+		store.send(.tokenChanged("fixture-token")); store.send(.join)
+		for _ in 0 ..< 10000 {
+			if factory.pending != nil {
+				break
+			}; await Task.yield()
+		}
+		try #require(factory.pending != nil)
+		store.send(.addressChanged("http://localhost:5051"))
+		try await Task.sleep(for: .milliseconds(400))
+		#expect(store.state.ready); #expect(!store.state.joining)
+		store.send(.tokenChanged("new-fixture-token")); #expect(store.state.canJoin)
+		factory.pending?.resume(returning: factory.client); factory.pending = nil
+	}
+}

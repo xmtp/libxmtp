@@ -38,6 +38,7 @@ extension AppGraph {
 					} catch {}
 				}
 			},
+			sessionValid: { [weak self] key in self?.fence.accepts(key) == true },
 		)
 		if let handles {
 			let scope = session.scope

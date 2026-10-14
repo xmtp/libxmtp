@@ -6,6 +6,7 @@ import Observation
 	private let account: any HandleAccount
 	private let origin: DestinationOrigin
 	private let admit: @MainActor (DestinationOrigin) -> Bool
+	private let sessionValid: @MainActor (SessionKey) -> Bool
 	private let finish: @MainActor () -> Void
 	private var work: Task<Void, Never>?
 	private var load: Task<Void, Never>?
@@ -20,7 +21,9 @@ import Observation
 		origin: DestinationOrigin,
 		admit: @escaping @MainActor (DestinationOrigin) -> Bool,
 		finish: @escaping @MainActor () -> Void,
+		sessionValid: (@MainActor (SessionKey) -> Bool)? = nil,
 	) {
+		self.sessionValid = sessionValid ?? { _ in admit(origin) }
 		self.account = account; self.origin = origin; self.admit = admit; self.finish = finish
 		state = HandleState(mode: mode); state.minimum = (1 ... 27).contains(account.minimum) ? account.minimum : 3
 	}
@@ -106,20 +109,6 @@ import Observation
 		state.status = .checking
 		state.notice = nil
 		launch { await self.answer($0, input: input) }
-	}
-
-	private func showMore() {
-		if case let .suggestions(input, handles, shown, selected) = state.status {
-			state.status = .suggestions(input: input, handles: handles, shown: min(shown + 3, handles.count), selected: selected)
-		}
-	}
-
-	private func select(_ handle: String) {
-		if state.editable, case let .suggestions(input, handles, shown, _) = state.status,
-		   handles.prefix(shown).contains(handle)
-		{
-			state.status = .suggestions(input: input, handles: handles, shown: shown, selected: handle)
-		}
 	}
 
 	private func claimSelection() {
@@ -234,8 +223,13 @@ import Observation
 		launch { number in
 			do {
 				try await self.account.claimHandle(handle: handle)
-				guard self.admit(self.origin), number == self.attempt, !Task.isCancelled else { return }
-				let now = Date(); self.pendingRecord = (handle, now)
+				guard self.sessionValid(self.origin.session) else { return }
+				let now = Date()
+				guard !self.closed, self.admit(self.origin), number == self.attempt, !Task.isCancelled else {
+					try self.account.recordClaim(handle: handle, at: now)
+					return
+				}
+				self.pendingRecord = (handle, now)
 				if self.apply(
 					number,
 					{
@@ -271,6 +265,22 @@ import Observation
 					}
 				}
 			}
+		}
+	}
+}
+
+extension HandleStore {
+	private func showMore() {
+		if case let .suggestions(input, handles, shown, selected) = state.status {
+			state.status = .suggestions(input: input, handles: handles, shown: min(shown + 3, handles.count), selected: selected)
+		}
+	}
+
+	private func select(_ handle: String) {
+		if state.editable, case let .suggestions(input, handles, shown, _) = state.status,
+		   handles.prefix(shown).contains(handle)
+		{
+			state.status = .suggestions(input: input, handles: handles, shown: shown, selected: handle)
 		}
 	}
 }

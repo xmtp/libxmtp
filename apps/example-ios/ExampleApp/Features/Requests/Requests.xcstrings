@@ -150,6 +150,16 @@
           }
         }
       }
+    },
+    "requests.retry": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

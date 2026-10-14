@@ -32,6 +32,7 @@ import Testing
 }
 
 @MainActor private final class HandleFake: HandleAccount {
+	var claimHook: (() async -> Void)?
 	var minimum = 3; var claimTimes: [String: Date] = [:]; var claims = 0; var recordFailures = 0; var records: [Date] =
 		[]; var error: HandleError?; var answers = [
 			"abc#0001",
@@ -48,7 +49,7 @@ import Testing
 	}
 
 	func claimHandle(handle _: String) async throws {
-		claims += 1; if let error {
+		claims += 1; await claimHook?(); if let error {
 			throw error
 		}
 	}
@@ -274,4 +275,32 @@ private actor DelayedIdentityQueries: IdentityQueries {
 	#expect(account.claimTimes["abc#0001"] == account.records.first)
 	#expect(finished == 1)
 	await store.close()
+}
+
+@MainActor @Test func successfulClaimPersistsAfterRouteCloses() async throws {
+	let account = HandleFake(); let gate = ReviewGate()
+	account.claimHook = { await gate.wait() }
+	let store = HandleStore(
+		account: account,
+		mode: .choose,
+		origin: DestinationOrigin(session: SessionKey(profileID: UUID(), generation: 1), token: 1),
+		admit: { _ in true },
+		finish: {},
+		sessionValid: { _ in true },
+	)
+	store.send(.changeInput("abc")); store.send(.check)
+	for _ in 0 ..< 10000 {
+		if store.state.status.pick != nil {
+			break
+		}; await Task.yield()
+	}
+	store.send(.claim)
+	for _ in 0 ..< 10000 {
+		if gate.started {
+			break
+		}; await Task.yield()
+	}
+	try #require(gate.started)
+	let closing = Task { await store.close() }; await Task.yield(); gate.release(); await closing.value
+	#expect(account.claimTimes["abc#0001"] != nil)
 }

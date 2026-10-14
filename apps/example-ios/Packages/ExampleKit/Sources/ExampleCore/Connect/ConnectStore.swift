@@ -94,7 +94,7 @@ public enum ConnectAction: Sendable { case appear, addressChanged(String), token
 	}
 
 	private func scheduleProbe() {
-		task?.cancel(); attempt += 1; state.error = nil; state.ready = false
+		task?.cancel(); attempt += 1; state.error = nil; state.ready = false; state.joining = false
 		guard let url = BackendURL.parse(state.address) else { state.checking = false; return }
 		state.checking = true; let expected = attempt; let route = owner.token; let generation = session.fence
 			.currentGeneration()

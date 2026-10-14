@@ -8,7 +8,12 @@ struct RequestsView: View {
 	var body: some View {
 		List {
 			Section {
-				if store.state.visibleRows.isEmpty {
+				if let error = store.state.error {
+					VStack(spacing: 12) {
+						Text(error).foregroundStyle(.secondary)
+						Button(copy("requests.retry")) { store.send(.load) }.disabled(store.state.loading)
+					}.frame(maxWidth: .infinity).padding(.vertical, 24).listRowSeparator(.hidden)
+				} else if store.state.visibleRows.isEmpty {
 					VStack(spacing: 12) {
 						if store.state.loading {
 							ProgressView()
