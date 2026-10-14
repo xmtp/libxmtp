@@ -60,6 +60,8 @@ let
             xmtp-sdk-node-linux-arm64-gnu
             xmtp-sdk-node-linux-arm64-musl
             android-sdk-libs
+            # release-android.yml (`just example-android apk`).
+            example-android-apk
             ;
         };
         # For the Android suites: the Kotlin tree, the JNI libraries (one ABI
