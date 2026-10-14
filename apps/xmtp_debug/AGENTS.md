@@ -12,7 +12,22 @@ dev/nix-shell 'cargo run -p xdbg -- --help'
 dev/nix-shell 'cargo run -p xdbg -- generate-api-key'
 dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 generate --entity identity --amount 5'
 dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 query all-key-packages'
+dev/nix-shell 'nix run .#xdbg -- --version'
 ```
+
+## Nix build
+
+- `.#xdbg.unwrapped` compiles with the constant `NIX_GIT_SHA=nix`, so its
+  store path does not change with the commit, and Cachix serves it across commits.
+- `.#xdbg` wraps it and always sets `XDBG_GIT_SHA` to the build's commit (the
+  flake's short revision), so an inherited value cannot override it.
+- The version also selects the storage bucket (the redb identity key and the
+  SQLite directory). `get_version()` reads `XDBG_GIT_SHA` only in the Nix
+  compile, whose compile-time SHA is the placeholder `nix`. Cargo builds ignore
+  the variable and keep their vergen SHA.
+- Do not read `self.rev` or the commit date in the compile.
+  `just backend observe-check` uses `.#xdbg` and checks that `--version` names
+  the commit.
 
 ## Backend options
 

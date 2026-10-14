@@ -72,8 +72,21 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// The version also keys stored identities and the SQLite directory.
+///
+/// The Nix compile sets `VERGEN_GIT_SHA` to the placeholder `nix`, so it caches
+/// across commits, and its wrapper always sets `XDBG_GIT_SHA` to the build's
+/// commit. Only that placeholder build reads `XDBG_GIT_SHA`; other builds keep
+/// their compile-time SHA, so an inherited variable cannot move their state.
 pub fn get_version() -> String {
-    format!("{}-{}", env!("CARGO_PKG_VERSION"), env!("VERGEN_GIT_SHA"))
+    // Matches `NIX_GIT_SHA` in `nix/package/xdbg.nix`.
+    const NIX_PLACEHOLDER_SHA: &str = "nix";
+    let compiled = env!("VERGEN_GIT_SHA");
+    let sha = match std::env::var("XDBG_GIT_SHA") {
+        Ok(sha) if compiled == NIX_PLACEHOLDER_SHA && !sha.is_empty() => sha,
+        _ => compiled.to_owned(),
+    };
+    format!("{}-{sha}", env!("CARGO_PKG_VERSION"))
 }
 
 pub fn config() -> Result<&'static AppOpts> {
