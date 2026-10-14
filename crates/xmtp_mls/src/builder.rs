@@ -775,6 +775,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
             foreground_calls: Default::default(),
+            #[cfg(any(test, target_arch = "wasm32"))]
+            message_clock: Default::default(),
             delivery_owner: Default::default(),
             identity_resolutions: Default::default(),
         });
