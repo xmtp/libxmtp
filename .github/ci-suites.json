@@ -39,6 +39,7 @@
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_sdk/**",
         "nix/android-packages.nix",
+        "nix/ci-sets.nix",
         "nix/lib/android-env.nix",
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",

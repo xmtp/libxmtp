@@ -166,6 +166,7 @@ products:
       - path_group: sdk_core
       - "nix/android-packages.nix"
       - "nix/lib/android-env.nix"
+      - "nix/ci-sets.nix"
 
 suites:
   # --- Lint ------------------------------------------------------------------
