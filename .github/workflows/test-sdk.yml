@@ -190,9 +190,14 @@ jobs:
           npm run build --prefix ubrn/typescript
           npm ci --prefix ubrn/runtimes/napi --ignore-scripts
           npm run build --prefix ubrn/runtimes/napi
+          # The Rust cache can restore target/, and `cp -R` into an existing
+          # directory nests the package one level down.
+          rm -rf target/sdk-runtimes
           mkdir -p target/sdk-runtimes
           cp -R ubrn/typescript target/sdk-runtimes/core
           cp -R ubrn/runtimes/napi target/sdk-runtimes/node
+          test -f target/sdk-runtimes/core/package.json
+          test -f target/sdk-runtimes/node/package.json
       - name: Use the package compiler Node version
         uses: actions/setup-node@v6
         with:
