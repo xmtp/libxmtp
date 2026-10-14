@@ -57,6 +57,20 @@ jobs:
             + ([.node[] | .target] - $targets | map("target \(.)"))
             + ([.node[] | .rustTarget] - $rustTargets | map("Rust target \(.)"))
             + ([.node[] | .library] - $libraries | map("library \(.)"))
+            # Each target must load on its own OS and architecture, and a
+            # Linux target in an image of its libc.
+            + [.node[] | select(
+                if (.target | startswith("linux-")) then
+                  (.loadRunner | test("ubuntu") | not)
+                  or ((.target | contains("arm64")) != (.loadRunner | contains("-arm")))
+                  or ((.target | endswith("-musl")) != ((.loadImage // "") | startswith("node:22.12.0-alpine@")))
+                  or ((.target | endswith("-gnu")) != ((.loadImage // "") | startswith("node:22.12.0-bookworm-slim@")))
+                elif (.target | startswith("win32-")) then
+                  (.loadRunner | startswith("windows-") | not) or .loadImage != null
+                else
+                  (.loadRunner | test("macos") | not) or .loadImage != null
+                end)
+              | "load platform \(.target) on \(.loadRunner) with \(.loadImage // "no image")"]
             | .[] | @json' nix/sdk-platforms.json)
           if [ -n "$rejected" ]; then
             while IFS= read -r item; do
