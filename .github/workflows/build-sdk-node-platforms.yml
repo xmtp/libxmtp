@@ -31,7 +31,26 @@ jobs:
           sparse-checkout-cone-mode: false
       - name: Read nix/sdk-platforms.json
         id: matrix
+        env:
+          # The list comes from the caller's ref, so runner labels and images
+          # must be in these fixed lists, and images are pinned by digest.
+          ALLOWED_RUNNERS: >-
+            ["blacksmith-16vcpu-ubuntu-2404", "ubuntu-24.04-arm", "ubuntu-latest",
+            "warp-macos-15-arm64-6x", "windows-latest"]
+          ALLOWED_IMAGES: >-
+            ["node:22.12.0-bookworm-slim@sha256:35531c52ce27b6575d69755c73e65d4468dba93a25644eed56dc12879cae9213",
+            "node:22.12.0-alpine@sha256:51eff88af6dff26f59316b6e356188ffa2c422bd3c3b76f2556a2e7e89d080bd"]
         run: |
+          rejected=$(jq -r --argjson runners "$ALLOWED_RUNNERS" --argjson images "$ALLOWED_IMAGES" '
+            ([.node[] | (.runner // empty), .loadRunner] - $runners | map("runner \(.)"))
+            + ([.node[] | .loadImage // empty] - $images | map("image \(.)"))
+            | .[]' nix/sdk-platforms.json)
+          if [ -n "$rejected" ]; then
+            while IFS= read -r item; do
+              echo "::error file=nix/sdk-platforms.json::$item is not in this workflow's allowlist"
+            done <<< "$rejected"
+            exit 1
+          fi
           {
             echo "build=$(jq -c '[.node[] | select(.nixSystems != []) | {target, library, runner}]' nix/sdk-platforms.json)"
             echo "cargo=$(jq -c '[.node[] | select(.nixSystems == []) | {target, rustTarget, library, runner}]' nix/sdk-platforms.json)"
