@@ -134,6 +134,15 @@ class ServicesTests(unittest.TestCase):
         self.assertIn(f"XMTP_S3_PORT={port} is in use", result.stderr)
         self.assertFalse((self.root / "ran").exists())
 
+    def test_duplicate_caller_ports_fail_before_any_service_starts(self):
+        (port,) = free_ports(1)
+        result = self.services_test(
+            "touch ran", XMTP_BACKEND_DB_PORT=str(port), XMTP_S3_PORT=str(port)
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"XMTP_S3_PORT={port} duplicates", result.stderr)
+        self.assertFalse((self.root / "ran").exists())
+
     def test_skipped_dependency_fails_without_running_the_command(self):
         state = self.root / "state"
         # initdb refuses a data directory that is not empty, so db-init fails

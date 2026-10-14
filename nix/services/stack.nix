@@ -90,6 +90,8 @@ let
         if not value:
             continue
         port = int(value)
+        if any(s.getsockname()[1] == port for s in held):
+            sys.exit(f"services: {name}={value} duplicates another service port")
         try:
             socket.create_connection(("127.0.0.1", port), 0.5).close()
             sys.exit(f"services: {name}={value} is in use")
