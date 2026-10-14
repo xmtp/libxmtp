@@ -180,6 +180,9 @@ jobs:
   deploy:
     name: Deploy docs to GitHub Pages
     needs: docs
+    # A failed build leg skips the jobs that need docs by default; deploy
+    # whenever docs succeeded.
+    if: ${{ !cancelled() && needs.docs.result == 'success' }}
     # The repository has one Pages site, so every ref shares one group. One
     # deploy runs at a time. queue: max keeps up to 100 pending deploys in
     # FIFO order instead of replacing them, and cancel-in-progress: false
