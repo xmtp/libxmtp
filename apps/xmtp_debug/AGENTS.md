@@ -19,10 +19,15 @@ dev/nix-shell 'nix run .#xdbg -- --version'
 
 - `.#xdbg.unwrapped` compiles with the constant `NIX_GIT_SHA=nix`, so its
   store path does not change with the commit, and Cachix serves it across commits.
-- `.#xdbg` wraps it and sets `XDBG_GIT_SHA` to the flake's short revision.
-  `get_version()` reads `XDBG_GIT_SHA` before the compile-time SHA.
+- `.#xdbg` wraps it. When `XDBG_GIT_SHA` is unset or empty, the wrapper sets it
+  to the build's commit (the flake's short revision). `get_version()` reads
+  `XDBG_GIT_SHA` before the compile-time SHA.
+- The version also selects the storage bucket (the redb identity key and the
+  SQLite directory). Do not set `XDBG_GIT_SHA` by hand, except to reuse the
+  state of another build on purpose.
 - Do not read `self.rev` or the commit date in the compile.
-  `just backend observe-check` uses `.#xdbg`.
+  `just backend observe-check` uses `.#xdbg` and checks that `--version` names
+  the commit.
 
 ## Backend options
 
