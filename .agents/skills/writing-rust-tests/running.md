@@ -95,7 +95,7 @@ just js test-node-sdk-ci
 
 ```bash
 dev/nix-shell 'just coverage'                    # full run; coverage/lcov and coverage/html
-dev/nix-shell 'just coverage --diff origin/main' # files changed since the merge base
+dev/nix-shell 'just coverage --diff' # files changed since the merge base with the trunk
 ```
 
 `CARGO_TEST_CMD="cargo llvm-cov nextest --no-fail-fast --no-report" just test` also works.

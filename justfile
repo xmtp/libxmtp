@@ -155,8 +155,8 @@ _test-workspace *args="":
 
 # Workspace coverage in this worktree's environment: coverage/lcov and
 # coverage/html. `--diff [BASE]` keeps only the Rust files changed since the
-# merge base with BASE (default origin/main, the trunk). Other arguments go to
-# `just test workspace`, for example `just coverage --diff origin/main -p xmtp_common`.
+# merge base with BASE (default origin/self-hosted, the trunk). Other arguments go to
+# `just test workspace`, for example `just coverage --diff origin/self-hosted -p xmtp_common`.
 [script("bash")]
 coverage *args:
     set -euo pipefail
@@ -164,7 +164,7 @@ coverage *args:
     base=""
     if [[ "${1:-}" == --diff ]]; then
       shift
-      base=origin/main
+      base=origin/self-hosted
       if [[ $# -gt 0 && "$1" != -* ]]; then base="$1"; shift; fi
     fi
     cargo llvm-cov clean --profraw-only --workspace

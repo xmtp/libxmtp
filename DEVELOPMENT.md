@@ -138,12 +138,12 @@ dev/nix-shell 'dev/agent-run cargo run -p xmtp-db-tools -- query-bench /path/to/
 ## Code coverage
 
 Generate LCOV and HTML reports under `coverage/`. `--diff` limits the report
-to the Rust files changed since the merge base with `origin/main` (or a given
+to the Rust files changed since the merge base with `origin/self-hosted` (or a given
 base):
 
 ```sh
 dev/nix-shell 'just coverage'
-dev/nix-shell 'just coverage --diff origin/main'
+dev/nix-shell 'just coverage --diff'
 ```
 
 CI also uses `cargo llvm-cov` and reports results to
