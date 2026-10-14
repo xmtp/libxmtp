@@ -21,7 +21,7 @@ Tests require `dev/nix-shell 'just backend up'`.
 ## Deployment
 
 `.github/workflows/deploy-web-chat.yml` builds this app under Nix and deploys
-`dist/` to Vercel on a push to `self-hosted`. The workflow stages the generated
+`dist/` to Vercel on a push to `main`. The workflow stages the generated
 browser package, including its worker, pure codecs, WASM assets, and pinned
 runtime. It copies the release-profile Nix browser trees (`XMTP_SDK_BUILD=nix`)
 and stops before the Vercel step unless both tree receipts record the release

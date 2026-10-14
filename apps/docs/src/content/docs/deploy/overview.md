@@ -68,7 +68,7 @@ caveats, and the ingress contract below, before you rely on it.
 
 Pull `ghcr.io/xmtp/backend` without registry credentials. The image is public.
 
-- `:self-hosted` moves with the `self-hosted` branch.
+- `:self-hosted` moves with the `main` branch.
 - `:sha-<commit>` is the immutable tag for a full commit SHA. Use it to pin a deployment.
 - The publish workflow builds Linux `amd64` and `arm64` images and publishes both tags as manifest lists. The container runtime selects the matching image.
 

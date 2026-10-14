@@ -4,8 +4,6 @@ Rust workspace. MLS messaging. SDKs: `sdks/{agent,android,browser,ios,node}`.
 
 ## Read first
 
-- `docs/self-hosted/agent-context.md` — self-hosted project rules.
-  Read it once at session start. Do not re-read it.
 - `docs/specs/` — approved specs. They win over code, plans, and XIPs. Read the
   ones that cover what you are working on, not all of them;
   `docs/specs/README.md` says which spec owns what.
@@ -63,6 +61,9 @@ port block, and backend image tag, so run `just backend status` for the checkout
 
 ## Rules
 
+- Branch from `origin/main` and target `main` for new PRs.
+- Changes that add, amend, or remove a spec requirement need an approved Ref
+  plan before implementation. Routine docs, CI, and tooling changes do not.
 - Rust tests use `#[xmtp_common::test(unwrap_try = true)]`, not `#[test]`, unless
   the package documents an exception to avoid a dependency cycle.
 - Prove that a new test can fail, in any language. Break the behavior it

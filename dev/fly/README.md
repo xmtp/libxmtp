@@ -79,7 +79,7 @@ client traces; backend traces alone cannot populate them.
 
 ## Deployments
 
-Every push to `self-hosted` publishes an immutable backend image, then calls
+Every push to `main` publishes an immutable backend image, then calls
 `deploy-backend-dev.yml`. That workflow serializes deploys and skips superseded
 commits. It deploys observability configuration, then the unauthenticated
 backend.
@@ -130,8 +130,8 @@ For the docs, verify xmtp.org in the XMTP organization Pages settings first.
 Set the repository Pages custom domain to xmtp.org before routing DNS to it.
 Use the provider-supported apex records for GitHub Pages and a www CNAME to
 xmtp.github.io. Confirm the new certificate, then enforce HTTPS. Keep the old
-docs hosts on their redirect service with valid TLS. See
-[the cutover runbook](../../docs/main-cutover.md) for checks and rollback.
+docs hosts on their redirect service with valid TLS. Check Pages settings
+for domain and certificate status.
 
 The docs workflow builds the site and full references on main pushes.
 Pull requests validate without publishing.

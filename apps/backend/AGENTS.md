@@ -50,7 +50,7 @@ For an explicit database-port override, set `XMTP_BACKEND_DB_PORT` and
 port for tests and SQL checks. Replica tests use `XMTP_BACKEND_REPLICA_PORT`.
 
 `dev/nix-shell 'just backend tls-check'` checks the local HTTPS ingress. See
-`docs/self-hosted/backend-operations.md` for its scope and the TLS runbook.
+`apps/docs/src/content/docs/deploy/overview.md` for the public ingress requirements.
 
 Set `XMTP_DATABASE_URL` and `XMTP_REPLICA_URL` for startup with the local config.
 Test and SQL recipes use this worktree's database unless `DATABASE_URL` is set.
@@ -111,7 +111,7 @@ See [observability](../../docs/backend-observability.md).
 architecture spec and observability guide; the catalogue test checks both.
 Backend metrics do not depend on trace sampling. Client span metrics do.
 
-See `docs/self-hosted/backend-operations.md` for image builds and deployment.
+See `dev/fly/README.md` for development image publication and deployment.
 
 `dev/nix-shell 'just backend ci COMMAND'` runs one command with fresh test
 services from `nix/services` (`nix run .#services-test`): PostgreSQL (no

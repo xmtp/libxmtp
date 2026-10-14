@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import { walkFiles } from "./validation-lib.mjs";
 
-const OLD_HOSTS = new Set(["docs.xmtp.org", "self-hosted-docs.xmtp.to"]);
+const OLD_HOSTS = new Set(["docs.xmtp.org"]);
 const DOCS_HOSTS = new Set([...OLD_HOSTS, "xmtp.org"]);
 
 export function redirectTarget(request, redirects) {

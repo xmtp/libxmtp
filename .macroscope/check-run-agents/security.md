@@ -9,8 +9,7 @@ conclusion: failure
 ## Security review
 
 Review changed trust boundaries and security assumptions. Read `AGENTS.md`,
-`docs/self-hosted/agent-context.md`, the relevant directory `AGENTS.md` files,
-and the owning specs in `docs/specs/`. Follow changed input through validation,
+the relevant directory `AGENTS.md` files, and the owning specs in `docs/specs/`. Follow changed input through validation,
 authorization, storage, and output before reporting a risk.
 
 Check for changes that let an unauthenticated or unauthorized actor publish,
