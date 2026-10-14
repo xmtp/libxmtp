@@ -42,7 +42,8 @@ Run commands from the repository root in the Nix shell. Run
   public names in the sources, and the runtime and template formats; CI runs
   it before generating. `lint-generated` runs the table-driven
   `dev/check-generated-surface`, test hooks, Oxlint (which forbids type
-  assertions in the bridge), and one `tsc` call. Run
+  assertions in the bridge; `as const` stays allowed), and two `tsc` calls
+  (the pure entry and the browser proofs get no Node types). Run
   `dev/nix-shell 'just sdk generate'` first. It stops when a generated target root is missing.
   The TypeScript runtime imports the binding, so the lint and the bridge tests
   read its copy in each generated tree; `apps/xmtp_sdk_bindgen/GENERATED_LINT.md`
@@ -51,8 +52,10 @@ Run commands from the repository root in the Nix shell. Run
   `apps/xmtp_sdk_bindgen/runtime/ts/tsconfig.json` resolves the binding in the
   generated Node tree.
   It also rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) in
-  every source file of the default trees and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
-  in test source sets.
+  every `.swift`, `.kt`, and `.ts` file of the default trees and in
+  `apps/xmtp_sdk_bindgen/runtime/`. The scan skips test sources (`*.test.*`,
+  `tests/`, `src/test/`, `Tests/`), such as the generated
+  `conformance.gen.test.ts`. Keep test hooks in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
 - `dev/nix-shell 'just sdk test-bridge [vitest arguments]'` runs the bridge
   runtime unit tests in `apps/xmtp_sdk_bindgen/runtime-tests/ts` and the
