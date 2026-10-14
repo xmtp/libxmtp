@@ -32,8 +32,16 @@ jobs:
       - name: Read nix/sdk-platforms.json
         id: matrix
         env:
-          # The list comes from the caller's ref, so runner labels and images
-          # must be in these fixed lists, and images are pinned by digest.
+          # The list comes from the caller's ref, so the values that reach
+          # runners, scripts, and actions must be in these fixed lists, and
+          # images are pinned by digest.
+          ALLOWED_TARGETS: >-
+            ["darwin-arm64", "linux-x64-gnu", "linux-x64-musl", "linux-arm64-gnu",
+            "linux-arm64-musl", "win32-x64-msvc"]
+          ALLOWED_RUST_TARGETS: >-
+            ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl",
+            "aarch64-unknown-linux-gnu", "aarch64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
+          ALLOWED_LIBRARIES: '["libxmtp_sdk.dylib", "libxmtp_sdk.so", "xmtp_sdk.dll"]'
           ALLOWED_RUNNERS: >-
             ["blacksmith-16vcpu-ubuntu-2404", "ubuntu-24.04-arm", "ubuntu-latest",
             "warp-macos-15-arm64-6x", "windows-latest"]
@@ -41,10 +49,15 @@ jobs:
             ["node:22.12.0-bookworm-slim@sha256:35531c52ce27b6575d69755c73e65d4468dba93a25644eed56dc12879cae9213",
             "node:22.12.0-alpine@sha256:51eff88af6dff26f59316b6e356188ffa2c422bd3c3b76f2556a2e7e89d080bd"]
         run: |
-          rejected=$(jq -r --argjson runners "$ALLOWED_RUNNERS" --argjson images "$ALLOWED_IMAGES" '
+          rejected=$(jq -r --argjson runners "$ALLOWED_RUNNERS" --argjson images "$ALLOWED_IMAGES" \
+            --argjson targets "$ALLOWED_TARGETS" --argjson rustTargets "$ALLOWED_RUST_TARGETS" \
+            --argjson libraries "$ALLOWED_LIBRARIES" '
             ([.node[] | (.runner // empty), .loadRunner] - $runners | map("runner \(.)"))
             + ([.node[] | .loadImage // empty] - $images | map("image \(.)"))
-            | .[]' nix/sdk-platforms.json)
+            + ([.node[] | .target] - $targets | map("target \(.)"))
+            + ([.node[] | .rustTarget] - $rustTargets | map("Rust target \(.)"))
+            + ([.node[] | .library] - $libraries | map("library \(.)"))
+            | .[] | @json' nix/sdk-platforms.json)
           if [ -n "$rejected" ]; then
             while IFS= read -r item; do
               echo "::error file=nix/sdk-platforms.json::$item is not in this workflow's allowlist"
