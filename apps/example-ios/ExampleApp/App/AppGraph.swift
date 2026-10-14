@@ -195,6 +195,11 @@ import SwiftUI
 
 	private func projectEvent(_ event: SessionEvent, session key: SessionKey) async {
 		guard fence.accepts(key) else { return }
+		if case let .messageDeleted(conversationID, messageID, _) = event {
+			ChatServices.messageDeleted(conversationID: conversationID, messageID: messageID, session: key)
+			await projectMessage(conversationID, session: key)
+			return
+		}
 		if case .changed = event {
 			consentRevision &+= 1
 		}

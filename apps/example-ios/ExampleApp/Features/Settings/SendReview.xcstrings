@@ -310,6 +310,86 @@
           }
         }
       }
+    },
+    "Deletion pending": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deletion pending"
+          }
+        }
+      }
+    },
+    "Deletion outcome unknown": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deletion outcome unknown"
+          }
+        }
+      }
+    },
+    "Check this chat before trying to delete again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check this chat before trying to delete again."
+          }
+        }
+      }
+    },
+    "Retry deletion": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry deletion"
+          }
+        }
+      }
+    },
+    "Clear saved deletion status": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear saved deletion status"
+          }
+        }
+      }
+    },
+    "Clearing this status does not undo the deletion.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clearing this status does not undo the deletion."
+          }
+        }
+      }
+    },
+    "Deletion is still pending.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deletion is still pending."
+          }
+        }
+      }
+    },
+    "Cannot load saved deletion status.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot load saved deletion status."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

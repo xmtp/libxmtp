@@ -144,6 +144,25 @@ public final class SDKConversationQueries: ConversationQueries, Sendable {
 	}
 }
 
+let sessionEventKinds: [EventKind] = [.handleChanged, .consentChanged, .messageDeleted]
+
+func sessionEvent(_ event: ClientEvent) -> SessionEvent? {
+	switch event {
+	case let .handleChanged(value):
+		.handleChanged(inboxID: value.inboxId, handle: value.handle, otherHandles: [])
+	case let .messageDeleted(value):
+		.messageDeleted(
+			conversationID: value.groupId.map { String(format: "%02x", $0) }.joined(),
+			messageID: value.messageId.map { String(format: "%02x", $0) }.joined(),
+			locallyDeleted: value.cause == .deletedLocally,
+		)
+	case .consentChanged, .lagged:
+		.changed
+	default:
+		nil
+	}
+}
+
 public extension SDKConversationQueries {
 	func readers(
 		projectMessage: @escaping @Sendable (String) async throws -> Void,
@@ -165,14 +184,11 @@ public extension SDKConversationQueries {
 				try await projectConversation(conversation.id())
 			}
 		}, events: {
-			let stream = try await self.client.events(EventFilter(kinds: [.handleChanged, .consentChanged]))
+			let stream = try await self.client.events(EventFilter(kinds: sessionEventKinds))
 			for try await event in stream {
 				try Task.checkCancellation()
-				switch event {
-				case let .handleChanged(value):
-					try await projectEvent(.handleChanged(inboxID: value.inboxId, handle: value.handle, otherHandles: []))
-				default:
-					try await projectEvent(.changed)
+				if let projection = sessionEvent(event) {
+					try await projectEvent(projection)
 				}
 			}
 		})

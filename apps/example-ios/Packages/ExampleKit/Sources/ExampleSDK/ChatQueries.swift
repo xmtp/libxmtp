@@ -89,6 +89,20 @@ func corePosition(_ value: MessageHistoryPosition?) -> HistoryPosition? {
 	) }
 }
 
+func enrichGroupMemberCount(_ record: ConversationRecord,
+                            lookup: @Sendable () async throws -> Int) async throws -> ConversationRecord
+{
+	var result = record
+	do {
+		result.memberCount = try await lookup()
+	} catch is CancellationError {
+		throw CancellationError()
+	} catch {
+		try Task.checkCancellation()
+	}
+	return result
+}
+
 public final class SDKChatQueries: ChatQueries, Sendable {
 	private let client: SDKClient
 	private let limiter: AsyncLimiter
@@ -115,7 +129,9 @@ public final class SDKChatQueries: ChatQueries, Sendable {
 				name: state.name,
 				consent: Self.consent(state.common.consentState),
 			)
-			record.memberCount = try await limiter.withPermit { try await value.members().count }
+			record = try await enrichGroupMemberCount(record) { [limiter] in
+				try await limiter.withPermit { try await value.members().count }
+			}
 		case let .dm(dm): let state = try await limiter.withPermit { try await dm.state() }
 			let peer = try await limiter
 				.withPermit { try await dm.peerInboxId() }
@@ -210,11 +226,12 @@ public final class SDKChatQueries: ChatQueries, Sendable {
 		try await get(conversationID).publishMessage(id: messageID)
 	}
 
-	public func delete(messageID: String) async throws {
+	/// Acceptance only. The Core coordinator persists and publishes the returned deletion ID.
+	public func delete(messageID: String) async throws -> String {
 		guard let message = try await client.conversations.getMessageById(id: messageID),
 		      message.senderInboxId == client.inboxId(),
 		      message.deliveryStatus == .published else { throw ChatError.rejected }
-		_ = try await message.delete()
+		return try await message.delete()
 	}
 
 	public func media(conversationID: String) async throws

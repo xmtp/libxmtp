@@ -3,7 +3,7 @@ import Foundation
 import UniformTypeIdentifiers
 import XmtpSdk
 
-func attachmentFailure(_ failure: AttachmentFailure) -> ExampleCore.AttachmentError {
+func attachmentFailure(_ failure: AttachmentFailure, retryable: Bool? = nil) -> ExampleCore.AttachmentError {
 	let message = switch failure.cause {
 	case .notOffered: "This server does not support file uploads."
 	case .tooLarge: "This file exceeds the server size limit."
@@ -14,7 +14,19 @@ func attachmentFailure(_ failure: AttachmentFailure) -> ExampleCore.AttachmentEr
 	case .credential: "File access was refused. Check your server access."
 	default: "The file operation failed. Try again."
 	}
-	return .failure(message: message, retryable: failure.retryable)
+	// The record's retryable flag describes credentials. Other pending failures
+	// use the SDK's stable cause table; thrown errors supply their own detail.
+	let canRetry = retryable ?? attachmentCanRetry(failure)
+	return .failure(message: message, retryable: canRetry)
+}
+
+private func attachmentCanRetry(_ failure: AttachmentFailure) -> Bool {
+	switch failure.cause {
+	case .localStorage, .backendUnavailable, .network, .targetRejected, .notFound, .deleted: true
+	case .credential: failure.retryable
+	case .httpStatus: failure.httpStatus.map { $0 == 408 || $0 == 429 || (500 ... 599).contains($0) } ?? false
+	default: false
+	}
 }
 
 public final class SDKAttachmentGateway: AttachmentGateway, Sendable {
@@ -90,10 +102,10 @@ public final class SDKAttachmentGateway: AttachmentGateway, Sendable {
 			return error
 		}
 		if case let XmtpError.Attachment(
-			_,
+			details,
 			failure,
 		) = error {
-			return attachmentFailure(failure)
+			return attachmentFailure(failure, retryable: details.retryable)
 		}
 		return ExampleCore.AttachmentError.failure(
 			message: "The file operation failed. Try again.",

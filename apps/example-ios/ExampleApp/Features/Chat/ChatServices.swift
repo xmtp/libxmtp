@@ -63,6 +63,11 @@ import SwiftUI
 		coordinator = SendCoordinator(drafts: sends, queries: queries, accepts: { graph.fence.accepts(active.key) })
 	}
 
+	static func messageDeleted(conversationID: String, messageID: String, session: SessionKey) {
+		guard let current, current.key == session else { return }
+		current.cache.markDeleted(conversationID: conversationID, messageID: messageID)
+	}
+
 	private static func composerName(_ id: String) -> String {
 		"composer-" + SHA256.hash(data: Data(id.utf8)).map { String(
 			format: "%02x",

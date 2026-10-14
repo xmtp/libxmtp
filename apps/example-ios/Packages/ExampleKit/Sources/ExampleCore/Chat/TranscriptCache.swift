@@ -97,6 +97,14 @@ import Foundation
 		return put(id, window: next, anchor: anchor)
 	}
 
+	public func markDeleted(conversationID: String, messageID: String) {
+		guard var window = values[conversationID],
+		      let index = window.rows.firstIndex(where: { $0.id == messageID }) else { return }
+		window.rows[index].content = .deleted
+		window.rows[index].reactions.removeAll()
+		values[conversationID] = window
+	}
+
 	private func touch(_ id: String) {
 		order.removeAll { $0 == id }
 		order.append(id)

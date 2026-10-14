@@ -21,5 +21,7 @@ public struct SessionReaders: Sendable {
 }
 
 public enum SessionEvent: Sendable {
-	case handleChanged(inboxID: String, handle: String?, otherHandles: [String]); case changed
+	case handleChanged(inboxID: String, handle: String?, otherHandles: [String])
+	case messageDeleted(conversationID: String, messageID: String, locallyDeleted: Bool)
+	case changed
 }

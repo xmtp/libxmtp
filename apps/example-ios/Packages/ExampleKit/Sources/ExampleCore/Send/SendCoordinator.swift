@@ -20,6 +20,18 @@ import Foundation
 		acknowledge: @escaping (String) throws -> Void = { _ in },
 		beforeQueue: () throws -> Void = {},
 	) async throws -> String {
+		try await queue(draft: draft, admission: admission, acknowledge: acknowledge, beforeQueue: beforeQueue) {
+			try await self.queries.queue(conversationID: draft.conversationID, content: content)
+		}
+	}
+
+	public func queue(
+		draft: SendDraft,
+		admission: @escaping () -> Bool,
+		acknowledge: @escaping (String) throws -> Void = { _ in },
+		beforeQueue: () throws -> Void = {},
+		accept: () async throws -> String,
+	) async throws -> String {
 		guard accepts(),
 		      admission() else { throw ChatError.stale }
 		guard active.insert(draft.id).inserted
@@ -42,7 +54,13 @@ import Foundation
 			try restore(previous, replacing: draft)
 			throw error
 		}
-		let id = try await queries.queue(conversationID: draft.conversationID, content: content)
+		let id: String
+		do { id = try await accept() } catch let error as ChatError
+			where error == .rejected || error == .unavailable || error == .stale
+		{
+			try restore(previous, replacing: draft)
+			throw error
+		}
 		var accepted = draft
 		accepted.phase = .accepted
 		accepted.messageID = id
@@ -61,6 +79,27 @@ import Foundation
 		// Acceptance is durable. A publication failure remains recoverable by its accepted message ID.
 		do { try await retry(conversationID: draft.conversationID, messageID: id, admission: admission) } catch { return id }
 		return id
+	}
+
+	public func delete(conversationID: String, messageID: String, admission: @escaping () -> Bool) async throws -> String {
+		guard accepts(), admission() else { throw ChatError.stale }
+		try recoverAccepted()
+		if let saved = try drafts.all().first(where: { $0.deletionTargetID == messageID }) {
+			guard saved.conversationID == conversationID, saved.phase == .accepted, let id = saved.messageID else {
+				throw ChatError.duplicate
+			}
+			do { try await retry(conversationID: conversationID, messageID: id, admission: admission) } catch { return id }
+			return id
+		}
+		return try await queue(draft: SendDraft(conversationID: conversationID, deletionTargetID: messageID),
+		                       admission: admission)
+		{
+			try await self.queries.delete(messageID: messageID)
+		}
+	}
+
+	public func deletionNeedsReview(messageID: String) throws -> Bool {
+		try drafts.all().contains { $0.deletionTargetID == messageID }
 	}
 
 	private func restore(_ previous: SendDraft?, replacing draft: SendDraft) throws {

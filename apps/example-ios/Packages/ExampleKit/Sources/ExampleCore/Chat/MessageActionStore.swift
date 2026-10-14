@@ -78,6 +78,24 @@ public struct MessageActionState: Equatable,
 		body(&state)
 	}
 
+	private func deletionNeedsReview(_ messageID: String) -> Bool {
+		do { return try coordinator.deletionNeedsReview(messageID: messageID) } catch { return true }
+	}
+
+	private func confirmDeletion(_ target: ChatMessage?) async throws {
+		if let row = target {
+			_ = try await coordinator.delete(conversationID: row.conversationID, messageID: row.id,
+			                                 admission: { self.admit(self.origin) && self.allowed })
+			let needsReview = deletionNeedsReview(row.id)
+			apply { $0.deleteTarget = nil; $0.busy = false
+				$0.error = needsReview ? "Deletion needs review in Settings." : nil
+			}
+		} else {
+			apply { $0.deleteTarget = nil; $0.busy = false; $0.error = nil }
+		}
+		await changed()
+	}
+
 	private func run(_ action: MessageAction, deleteTarget: ChatMessage? = nil) async {
 		do {
 			switch action {
@@ -100,10 +118,9 @@ public struct MessageActionState: Equatable,
 				)
 				let refreshed = try await queries.message(id: row.id)
 				apply { $0.message = refreshed }
-			case .confirmDelete: if let row = deleteTarget {
-					try await queries.delete(messageID: row.id)
-				}
-				apply { $0.deleteTarget = nil }
+			case .confirmDelete:
+				try await confirmDeletion(deleteTarget)
+				return
 			case let .retry(row): guard row.sender == own else { throw ChatError.rejected }
 				try await coordinator.retry(
 					conversationID: row.conversationID,
@@ -116,8 +133,13 @@ public struct MessageActionState: Equatable,
 				$0.error = nil
 			}
 			await changed()
-		} catch { apply { $0.busy = false
-			$0.error = "Cannot complete this message action. Try again."
-		} }
+		} catch {
+			if let row = deleteTarget, deletionNeedsReview(row.id) {
+				apply { $0.deleteTarget = nil; $0.busy = false; $0.error = "Deletion needs review in Settings." }
+				await changed()
+			} else {
+				apply { $0.busy = false; $0.error = "Cannot complete this message action. Try again." }
+			}
+		}
 	}
 }

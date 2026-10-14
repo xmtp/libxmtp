@@ -71,7 +71,7 @@ public enum ComposerAction: Sendable {
 	private func clearReview() {
 		do {
 			for draft in try sends.all()
-				where draft.conversationID == id && draft.phase == .queueing
+				where draft.conversationID == id && draft.phase == .queueing && draft.deletionTargetID == nil
 			{
 				try sends.remove(draft.id)
 			}
@@ -94,7 +94,7 @@ public enum ComposerAction: Sendable {
 	private func reload() {
 		do {
 			var saved = try drafts.load(id)
-			let references = try sends.all().filter { $0.conversationID == id }
+			let references = try sends.all().filter { $0.conversationID == id && $0.deletionTargetID == nil }
 			if let reference = references.first(where: { $0.id == saved.requestID && $0.phase == .accepted }),
 			   let acceptedID = reference.messageID
 			{

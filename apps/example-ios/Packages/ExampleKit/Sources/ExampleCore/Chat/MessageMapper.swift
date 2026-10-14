@@ -175,7 +175,8 @@ public protocol ChatQueries: Sendable {
 	func message(id: String) async throws -> ChatMessage?
 	func queue(conversationID: String, content: OutboundContent) async throws -> String
 	func publish(conversationID: String, messageID: String) async throws
-	func delete(messageID: String) async throws
+	/// Queue a deletion and return its accepted operation ID; publish that ID to confirm it.
+	func delete(messageID: String) async throws -> String
 	func media(conversationID: String) async throws -> [ChatMessage]
 }
 

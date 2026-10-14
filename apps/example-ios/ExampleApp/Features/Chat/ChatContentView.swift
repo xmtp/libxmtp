@@ -16,6 +16,7 @@ struct ChatContentView: View {
 	@State var photoPicker = false
 	@State var photo: PhotosPickerItem?
 	@State var error: String?
+	@State private var readingPosition = ScrollPosition(idType: String.self)
 	var timeline: ChatTimelineState {
 		runtime.timeline.state
 	}
@@ -76,6 +77,7 @@ struct ChatContentView: View {
 					}.scrollTargetLayout().padding(.horizontal, 16).padding(.bottom, 16)
 						.animation(motion.animation, value: timeline.messages.map(\.id))
 				}.defaultScrollAnchor(.bottom)
+					.scrollPosition($readingPosition)
 					.onScrollTargetVisibilityChange(idType: String.self) { ids in runtime.timeline.send(.visibleMessages(
 						ids,
 						foreground: scenePhase == .active,
@@ -90,12 +92,11 @@ struct ChatContentView: View {
 							) }
 						}
 					}
-					.onChange(of: timeline.target) { _, target in
-						if let target {
-							proxy.scrollTo(target, anchor: .center)
-						}
+					.task(id: timeline.target) {
+						guard let target = timeline.target, timeline.messages.contains(where: { $0.id == target }) else { return }
+						readingPosition.scrollTo(id: target, anchor: .center)
 					}
-				if !timeline.window
+				if !timeline.atNewest || !timeline.window
 					.atNewest
 				{
 					Button(String(localized: "Jump to latest", table: "Chat"), systemImage: "arrow.down") {

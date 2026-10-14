@@ -890,6 +890,16 @@
           }
         }
       }
+    },
+    "Deletion needs review in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deletion needs review in Settings."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

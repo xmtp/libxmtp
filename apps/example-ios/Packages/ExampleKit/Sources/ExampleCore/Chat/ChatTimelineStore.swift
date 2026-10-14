@@ -68,39 +68,59 @@ public enum ChatTimelineAction: Sendable {
 		guard admit(origin) else { return }
 		switch action {
 		case let .visibleMessages(ids, foreground):
-			let visible = Set(ids)
-			let anchor = state.messages.first { visible.contains($0.id) }?.id
-			let newest = state.messages.last.map { visible.contains($0.id) } ?? false
-			send(.visible(anchor, newest: newest, foreground: foreground))
+			receiveVisibility(ids, foreground: foreground)
 		case let .visible(id, newest, foreground):
-			state.atNewest = newest
-			if let id {
-				state.anchorID = id
-			}
-			do {
-				if let row = state.window.rows.first(where: { $0.id == id }),
-				   let position = row.position
-				{
-					try saveAnchor(ScrollAnchor(
-						messageID: row.id,
-						position: position,
-					))
-				}
-				if foreground, newest, state.window.atNewest, admit(origin),
-				   let marker = state.window.rows.map(\.insertedAt).max()
-				{
-					if let conversation = state.conversation {
-						try markRead(conversation, marker)
-					}
-				}
-			} catch { state.error = "Cannot save your reading position." }
+			updateReadingPosition(id, newest: newest, foreground: foreground)
 		default:
+			if case .newest = action {
+				state.target = nil
+				state.atNewest = true
+			}
 			job?.cancel()
 			pendingRevision += 1
 			let revision = pendingRevision
 			state.loading = true
 			job = jobs.start { await self.run(action, revision: revision) }
 		}
+	}
+
+	private func receiveVisibility(_ ids: [String], foreground: Bool) {
+		let visible = Set(ids)
+		guard !visible.isEmpty else { return }
+		if let target = state.target {
+			guard visible.contains(target) else { return }
+			state.target = nil
+		}
+		let anchor = state.messages.first { visible.contains($0.id) && !$0.content.isDeleted }?.id
+		let newest = state.messages.last.map { visible.contains($0.id) } ?? false
+		send(.visible(anchor, newest: newest, foreground: foreground))
+	}
+
+	private func updateReadingPosition(_ id: String?, newest: Bool, foreground: Bool) {
+		if let id, state.window.rows.first(where: { $0.id == id })?.content.isDeleted == true {
+			return
+		}
+		state.atNewest = newest
+		if let id {
+			state.anchorID = id
+		}
+		do {
+			if let row = state.window.rows.first(where: { $0.id == id }),
+			   let position = row.position
+			{
+				try saveAnchor(ScrollAnchor(
+					messageID: row.id,
+					position: position,
+				))
+			}
+			if foreground, newest, state.window.atNewest, admit(origin),
+			   let marker = state.window.rows.map(\.insertedAt).max()
+			{
+				if let conversation = state.conversation {
+					try markRead(conversation, marker)
+				}
+			}
+		} catch { state.error = "Cannot save your reading position." }
 	}
 
 	public func refresh() async {
@@ -136,7 +156,9 @@ public enum ChatTimelineAction: Sendable {
 				apply { $0.loading = false }
 				return
 			}
-			var window = try await historyWindow(action, pages: pages, revision: revision)
+			let anchor = readingAnchor(for: action)
+			var window = try await historyWindow(action, pages: pages, revision: revision, anchor: anchor)
+			let target = restorationTarget(for: action, anchor: anchor, window: &window)
 			try Task.checkCancellation()
 			try checkAdmission(revision)
 			if case .refresh = action {
@@ -145,14 +167,15 @@ public enum ChatTimelineAction: Sendable {
 				window = cache.put(
 					id,
 					window: window,
-					anchor: state.anchorID,
+					anchor: anchor?.messageID ?? state.anchorID,
 				)
 			}
-			apply { $0.conversation = conversation
-				$0.window = window
-				$0.loading = false
-				$0.error = nil
+			let preserveNewest = if case .refresh = action {
+				state.atNewest
+			} else {
+				false
 			}
+			publishWindow(window, conversation: conversation, target: target, preserveNewest: preserveNewest)
 			try await loadPending(before: nil, revision: revision)
 		} catch is CancellationError {} catch {
 			guard revision == pendingRevision, !Task.isCancelled else { return }
@@ -168,22 +191,16 @@ public enum ChatTimelineAction: Sendable {
 	}
 
 	private func historyWindow(_ action: ChatTimelineAction, pages: HistoryPages,
-	                           revision: UInt64) async throws -> HistoryWindow
+	                           revision: UInt64, anchor: ScrollAnchor?) async throws -> HistoryWindow
 	{
 		if case .older = action {
 			let page = try await pages.older(id: id, before: state.window.last)
 			try checkAdmission(revision)
 			return cache.append(id, page: page, anchor: state.window.rows.last?.id)
 		}
-		if case .load = action, let anchor = readAnchor() {
-			var window = try await pages.around(id: id, anchor: anchor.position)
+		if case .load = action, let anchor {
+			let window = try await pages.around(id: id, anchor: anchor.position)
 			try checkAdmission(revision)
-			let target = AnchorRestore.target(anchor, rows: window.rows)
-			window.changed = target.changed
-			if target.changed {
-				window.notice = "Position changed"
-			}
-			apply { $0.target = target.id }
 			return window
 		}
 		if case .refresh = action, !state.window.atNewest || !state.atNewest,
@@ -235,6 +252,52 @@ public enum ChatTimelineAction: Sendable {
 			{
 				$0.error = "Some stored pending messages cannot be read. Load more to continue."
 			}
+		}
+	}
+}
+
+private extension ChatTimelineStore {
+	func readingAnchor(for action: ChatTimelineAction) -> ScrollAnchor? {
+		if case .load = action {
+			return readAnchor()
+		}
+		if case .refresh = action, let id = state.anchorID,
+		   let position = state.window.rows.first(where: { $0.id == id })?.position
+		{
+			return ScrollAnchor(messageID: id, position: position)
+		}
+		return nil
+	}
+
+	func restorationTarget(for action: ChatTimelineAction, anchor: ScrollAnchor?,
+	                       window: inout HistoryWindow) -> (id: String?, changed: Bool)?
+	{
+		guard let anchor else { return nil }
+		let target = AnchorRestore.target(anchor, rows: window.rows)
+		if case .refresh = action, !target.changed {
+			return nil
+		}
+		window.changed = target.changed
+		if target.changed {
+			window.notice = "Position changed"
+		}
+		return target
+	}
+
+	func publishWindow(
+		_ window: HistoryWindow,
+		conversation: ConversationRecord,
+		target: (id: String?, changed: Bool)?,
+		preserveNewest: Bool,
+	) {
+		apply {
+			$0.conversation = conversation; $0.window = window
+			if let target {
+				$0.anchorID = target.id
+				$0.target = preserveNewest ? nil : target.id
+				$0.atNewest = preserveNewest
+			}
+			$0.loading = false; $0.error = nil
 		}
 	}
 }
