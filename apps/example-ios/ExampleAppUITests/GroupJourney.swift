@@ -17,19 +17,10 @@ import XmtpSdk
 	private func withPeers(_ body: ([SDKClient]) async throws -> Void) async throws {
 		let target = try BackendURL(backend)
 		var clients: [SDKClient] = []
-		do {
-			for _ in 0 ..< 3 {
-				try await clients.append(peer(target: target))
-			}
-			try await body(clients)
-			for client in clients {
-				try await client.end()
-			}
-		} catch { for client in clients {
-			do { try await client.end() } catch {}
+		for _ in 0 ..< 3 {
+			try await clients.append(peer(target: target))
 		}
-		throw error
-		}
+		try await body(clients)
 	}
 
 	private func peer(target: BackendURL) async throws -> SDKClient {
