@@ -28,7 +28,13 @@ s3 get-bucket-policy --bucket attachments | jq -e '.Policy | fromjson | .Stateme
 printf services_check >"$XMTP_SERVICES_STATE/object"
 s3 put-object --bucket attachments --key services_check --body "$XMTP_SERVICES_STATE/object" >/dev/null
 [ "$(curl -sf "$XMTP_S3_BASE_URL/services_check")" = services_check ]
-echo "s3: bucket, policy, CORS, public read"
+# VersityGW sends a body of 64 KiB or more with sendfile(2), which a Darwin
+# sandbox denies unless the derivation uses the services' sandbox profile.
+head -c 1048576 /dev/zero >"$XMTP_SERVICES_STATE/large"
+s3 put-object --bucket attachments --key services_check_large \
+  --body "$XMTP_SERVICES_STATE/large" >/dev/null
+[ "$(curl -sf "$XMTP_S3_BASE_URL/services_check_large" | wc -c)" -eq 1048576 ]
+echo "s3: bucket, policy, CORS, public read, large public read"
 
 curl -sf -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' "$ANVIL_URL" |

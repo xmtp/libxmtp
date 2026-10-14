@@ -85,8 +85,15 @@ rust.mkCargoDerivation (
     postInstall = "test -s $out/coverage";
     allowedReferences = [ ];
     doInstallCargoArtifacts = false;
-    # Some tests may still need the network. Old PR 17 of the Nix build plan
-    # removes this and sets __darwinAllowLocalNetworking.
-    __noChroot = true;
+  }
+  # The build runs in the sandbox, with the services' sandbox settings. On
+  # Darwin, the toxiproxy tests also need configd: toxiproxy_rust builds a
+  # reqwest 0.11 client, which reads the system proxy settings and panics when
+  # the sandbox denies that lookup.
+  // services.sandbox
+  // {
+    sandboxProfile = services.sandbox.sandboxProfile + ''
+      (allow mach-lookup (global-name "com.apple.SystemConfiguration.configd"))
+    '';
   }
 )

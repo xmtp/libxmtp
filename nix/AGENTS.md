@@ -65,12 +65,13 @@ every service (`dev/nix-shell 'just backend ci COMMAND'`).
 `legacyPackages.mkServices <backend>` gives these outputs for another backend
 binary, so a test derivation keys on the binary that it starts; `mkServices
 null` is the storage subset (PostgreSQL, replica, S3). Its `checkCommand` runs a
-check phase through `services-test`; a Darwin build needs
-`__darwinAllowLocalNetworking` or `__noChroot`. `checks.<system>.services`
-proves each service inside a build.
+check phase through `services-test`; the derivation merges its `sandbox`
+attributes (Darwin loopback networking, and `sendfile` for VersityGW, with no
+other host reachable). `checks.<system>.services` proves each service inside a
+build.
 
 `nextest.<system>` runs the workspace tests with the services of
-`mkServices xmtp-backend` inside the build, on free ports.
+`mkServices xmtp-backend` inside the sandbox, on free ports.
 
 `wasm-nextest-archive.<system>` compiles the WASM tests into one nextest
 archive. `wasm-nextest-part-<n>.<system>` runs slice `n` of 4 from it against

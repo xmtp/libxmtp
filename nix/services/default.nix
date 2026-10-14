@@ -28,6 +28,23 @@
           ../../dev/docker/toxiproxy/config.json
         ];
       };
+      # The sandbox settings of a derivation that runs the services. A Darwin
+      # sandbox denies loopback networking unless __darwinAllowLocalNetworking
+      # is set. It also checks sendfile(2) as outbound traffic from the
+      # socket's local address, which Nix's rules do not allow, so sendfile
+      # fails with EPERM; VersityGW (Go sends a file with sendfile) then ends
+      # a GetObject of 64 KiB or more with an empty body. The profile allows
+      # outbound traffic by local address, then denies every remote address
+      # except localhost, so the build still reaches no other host. A Linux
+      # build ignores both settings and has its own loopback.
+      sandbox = {
+        __darwinAllowLocalNetworking = true;
+        sandboxProfile = ''
+          (allow network-outbound (local ip "localhost:*"))
+          (deny network-outbound (remote ip "*:*"))
+          (allow network-outbound (remote ip "localhost:*"))
+        '';
+      };
       mkServices =
         backend:
         let
@@ -78,10 +95,10 @@
         in
         {
           inherit (outputs) package;
-          inherit test;
+          inherit test sandbox;
           # A check-phase command that runs `command` (a store script) with the
-          # services. The derivation must set __darwinAllowLocalNetworking
-          # (or __noChroot): a Darwin sandbox denies loopback networking.
+          # services. The derivation must include `sandbox` (or set
+          # __noChroot).
           checkCommand = command: ''
             HOME="$TMPDIR" XMTP_SERVICES_LOGS="$TMPDIR/services-logs" \
               XMTP_SERVICES_TEST_COMMAND=${command} ${lib.getExe test}
@@ -112,14 +129,9 @@
         services-test = services.test;
       };
       # Each service with its own client, inside a Nix build.
-      checks.services =
-        pkgs.runCommand "services-check"
-          {
-            __darwinAllowLocalNetworking = true;
-          }
-          ''
-            ${services.checkCommand (lib.getExe healthCheck)}
-            touch "$out"
-          '';
+      checks.services = pkgs.runCommand "services-check" sandbox ''
+        ${services.checkCommand (lib.getExe healthCheck)}
+        touch "$out"
+      '';
     };
 }

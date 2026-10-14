@@ -98,7 +98,6 @@ rust.mkCargoDerivation (
     doInstallCargoArtifacts = false;
     # A check result must name no store path, so it substitutes on a hit.
     allowedReferences = [ ];
-    # A Darwin sandbox denies loopback networking unless the derivation allows it.
-    __darwinAllowLocalNetworking = true;
   }
+  // services.sandbox
 )
