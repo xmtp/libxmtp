@@ -48,6 +48,8 @@ TOP_KEYS = {"version", "on_deleted_path", "shared", "neutral", "path_groups", "s
 # covered_by is the only optional suite key.
 REQUIRED_SUITE_KEYS = SUITE_KEYS - {"covered_by"}
 KACHE_SECRETS = ("KACHE_S3_ACCESS_KEY_ID", "KACHE_S3_SECRET_ACCESS_KEY")
+# inherit passes every secret, kache only the Kache keys, none no secret.
+SECRET_MODES = ("inherit", "kache", "none")
 GATE_RUNNER = "blacksmith-4vcpu-ubuntu-2404"
 PERMISSION_LEVELS = {"none": 0, "read": 1, "write": 2}
 
@@ -265,8 +267,8 @@ def compile_declaration(root: Path = ROOT, declaration=None):
             raise DeclarationError(f"Suite {name} run_on must use {', '.join(EVENT_KINDS)}")
         if not isinstance(suite["disable_on_forks"], bool):
             raise DeclarationError(f"Suite {name} disable_on_forks must be true or false")
-        if suite["secrets"] not in ("inherit", "kache"):
-            raise DeclarationError(f"Suite {name} secrets must be inherit or kache")
+        if suite["secrets"] not in SECRET_MODES:
+            raise DeclarationError(f"Suite {name} secrets must be one of {', '.join(SECRET_MODES)}")
         permissions = suite["permissions"]
         if not isinstance(permissions, dict) or not permissions or any(
             value not in ("read", "write", "none") for value in permissions.values()
@@ -353,7 +355,7 @@ def render_workflow(manifest, phase):
         lines += [f"      {key}: {value}" for key, value in suite["permissions"].items()]
         if suite["secrets"] == "inherit":
             lines.append("    secrets: inherit")
-        else:
+        elif suite["secrets"] == "kache":
             lines.append("    secrets:")
             lines += [f"      {s}: ${{{{ secrets.{s} }}}}" for s in KACHE_SECRETS]
     lines += [

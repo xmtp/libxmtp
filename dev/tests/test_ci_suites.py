@@ -107,6 +107,17 @@ class CompileTests(unittest.TestCase):
         self.assertEqual(packages, ["xmtp_id", "x", "y"])
         self.assertEqual(globs, ["a/**", "!a/skip/**", "b.md"])
 
+    def test_secret_modes_are_validated(self):
+        self.compile(lambda d: d["suites"]["lint_proto"].update(secrets="none"))
+        for value in ("all", "None", "", None):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    SUITES.DeclarationError, "inherit, kache, none"
+                ):
+                    self.compile(
+                        lambda d: d["suites"]["lint_proto"].update(secrets=value)
+                    )
+
     def test_every_suite_key_is_required(self):
         for key in sorted(SUITES.REQUIRED_SUITE_KEYS):
             with self.subTest(key=key):
@@ -137,6 +148,13 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("test_ios", lint)
         self.assertIn("test_ios", test)
         self.assertEqual(set(test["required"]["needs"]), set(test) - {"required"})
+
+    def test_suites_without_secrets_get_no_secrets_key(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["test_xdbg"]["secrets"] = "none"
+        jobs = yaml.safe_load(SUITES.render_workflow(manifest, "test"))["jobs"]
+        self.assertNotIn("secrets", jobs["test_xdbg"])
+        self.assertEqual(jobs["test_ios"]["secrets"], "inherit")
 
     def test_secrets_and_permissions_follow_the_declaration(self):
         jobs = self.jobs("test")

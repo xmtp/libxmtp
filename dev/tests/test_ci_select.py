@@ -92,6 +92,70 @@ class SelectionTests(unittest.TestCase):
         proto = selected(select(["crates/xmtp_proto/src/lib.rs"]))
         self.assertIn("test_validation", proto)
 
+    def test_backend_change_runs_backend_and_client_suites_only(self):
+        # A backend change runs the client suites that talk to the backend.
+        # The platform suites add wrapper code; the merge run covers them.
+        clients = {"test_workspace", "test_wasm", "test_node", "check_sdk_unit"}
+        platforms = {
+            "test_android",
+            "test_example_android",
+            "lint_example_android",
+            "test_ios",
+            "test_browser",
+            "test_agent",
+            "test_sdk_platform",
+        }
+        for path in (
+            "apps/backend/src/main.rs",
+            "nix/package/backend.nix",
+            "dev/docker/up",
+            "dev/docker/toxiproxy/config.json",
+            "dev/backend/local-s3.toml",
+        ):
+            with self.subTest(path=path):
+                suites = selected(select([path]))
+                self.assertTrue(clients | {"test_backend", "test_xdbg"} <= suites)
+                self.assertTrue(suites.isdisjoint(platforms))
+
+    def test_s3_cors_policy_selects_the_browser_attachment_test(self):
+        # Only the browser SDK uploads cross-origin to the stack's S3.
+        for path in ("dev/docker/s3/cors.json", "dev/docker/compose.yml"):
+            with self.subTest(path=path):
+                suites = selected(select([path]))
+                self.assertIn("test_browser", suites)
+                self.assertNotIn("test_android", suites)
+
+    def test_observability_files_select_only_their_checks(self):
+        for path, expected in [
+            (
+                "dev/docker/grafana/dashboards/backend.json",
+                {"test_xdbg", "lint_config"},
+            ),
+            ("dev/docker/observe-check.sh", {"test_xdbg", "lint_config"}),
+            ("dev/docker/prometheus/prometheus.yml", {"test_xdbg"}),
+            ("dev/docker/tempo/tempo.yaml", {"test_xdbg"}),
+        ]:
+            with self.subTest(path=path):
+                self.assertEqual(selected(select([path])), expected)
+
+    def test_tool_scripts_select_only_the_suites_that_run_them(self):
+        for path, expected in [
+            ("dev/js/lint-source.mjs", {"lint_js"}),
+            ("dev/js/test-lint-source.mjs", {"lint_js"}),
+            ("dev/release-tools/src/cli.ts", {"lint_js", "lint_config"}),
+        ]:
+            with self.subTest(path=path):
+                self.assertEqual(selected(select([path])), expected)
+
+    def test_dependency_changes_run_cargo_deny(self):
+        for path in ("Cargo.lock", "deny.toml", "crates/xmtp_mls/Cargo.toml"):
+            with self.subTest(path=path):
+                self.assertIn("lint_deny", selected(select([path])))
+                draft = select([path], payload=event(draft=True))
+                self.assertIn("lint_deny", selected(draft))
+        self.assertNotIn("lint_deny", selected(select(["README.md"])))
+        self.assertNotIn("lint_deny", selected(select(["crates/xmtp_mls/src/lib.rs"])))
+
     def test_neutral_markdown_selects_only_markdown_suites(self):
         result = select(["crates/xmtp_mls/AGENTS.md"])
         self.assertEqual(result["reasons"], [])
@@ -423,6 +487,37 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(self.gate(script, env), expected, state)
         env = {"SELECTED": "[]", "RESULTS": json.dumps(results)}
         self.assertEqual(self.gate(script, env), 0)
+
+    def test_cargo_deny_advisories_block_only_the_scheduled_run(self):
+        caller = self.generated["lint"]["jobs"]["lint_deny"]
+        self.assertNotIn("secrets", caller)
+        workflow = load(".github/workflows/lint-deny.yml")
+        triggers = workflow.get("on", workflow.get(True))
+        self.assertIn("workflow_call", triggers)
+        self.assertIn("schedule", triggers)
+        steps = {s.get("name"): s for s in workflow["jobs"]["deny"]["steps"]}
+        bans = steps["Check bans, licenses, and sources"]
+        advisories = steps["Check advisories"]
+        self.assertNotIn("if", advisories)
+
+        def evaluate(value, event_name):
+            if isinstance(value, bool):
+                return value
+            source = value.strip().removeprefix("${{").removesuffix("}}")
+            source = source.replace("github.event_name", repr(event_name))
+            return bool(eval(source, {"__builtins__": {}}, {}))
+
+        for event_name, runs_bans, advisories_block in [
+            ("pull_request", True, False),
+            ("push", True, False),
+            ("schedule", False, True),
+        ]:
+            with self.subTest(event=event_name):
+                self.assertEqual(evaluate(bans.get("if", True), event_name), runs_bans)
+                ignored = evaluate(
+                    advisories.get("continue-on-error", False), event_name
+                )
+                self.assertEqual(not ignored, advisories_block)
 
     def test_only_pull_request_runs_cancel_older_runs(self):
         cancel = self.workflow["concurrency"]["cancel-in-progress"]

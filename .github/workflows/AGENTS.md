@@ -73,7 +73,9 @@ without a host Gradle cache or a running backend.
 `.github/ci-suites.yml` declares every CI suite: its workflow, `path_filters` (globs, Cargo
 packages, and path groups), Kache scopes, and policy (`run_on`, `disable_on_forks`,
 `secrets`, `permissions`, `covered_by`). Every suite key except `covered_by` is
-required; nothing has a default. Edit only that file. Then run
+required; nothing has a default. `secrets` is `inherit`, `kache` (only the
+Kache keys), or `none`; use `none` for a suite whose workflows read no secret.
+Edit only that file. Then run
 `dev/nix-shell 'python3.11 dev/ci-suites generate'` and commit the generated
 `.github/ci-suites.json`, `lint-generated.yml`, and `test-generated.yml`.
 `just lint-config` runs `dev/ci-suites check`. It fails on stale generated
@@ -111,8 +113,15 @@ paths, policy exclusions, and the selected suites. Lists show up to 200
 entries. JSON path data goes through standard input to preserve quotes and
 line breaks and avoid environment size limits.
 
-Draft Cargo-Deny checks run for Cargo lock/manifests, deny configuration, or
-scanner workflow changes. Ready PRs keep all four Cargo-Deny checks.
+The `lint_deny` suite (`lint-deny.yml`) runs `just lint-deny` (cargo-deny
+bans, licenses, and sources) and the advisories check for Cargo lock and
+manifest or deny configuration changes, on drafts too, and on every merge. An
+advisory does not fail a pull request or merge; the daily scheduled run on the
+default branch fails on one. A backend change selects the backend suites and
+the client suites `test_workspace`, `test_wasm`, `test_node`, and
+`check_sdk_unit`; the Android, iOS, browser, agent, and SDK platform suites run
+on the merge. Android lint has no suite of its own: `check-android` in
+`test-android.yml` runs `gradlew build`, which includes it.
 Source lint does not generate SDK products or run compiler checks. Test owns
 full types, full lint, Clippy, SDK and runtime checks. Pull requests that only
 change Rust core crates omit the SDK and mobile suites; the merge run covers
