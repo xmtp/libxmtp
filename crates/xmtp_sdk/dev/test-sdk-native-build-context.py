@@ -3,8 +3,6 @@
 
 import json
 import os
-from pathlib import Path
-import shutil
 import subprocess
 from unittest.mock import patch
 import unittest
@@ -17,50 +15,38 @@ REAL_PROVENANCE = artifacts.provenance.__wrapped__
 
 
 class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
-    def test_identity_is_the_nix_evaluation_of_this_checkout(self):
-        evaluated = {"source": "closure", "generator": "bindgen closure"}
-        with (
-            patch.object(artifacts.sys, "platform", "linux"),
-            patch.object(
-                artifacts.subprocess,
-                "check_output",
-                return_value=json.dumps(evaluated).encode(),
-            ) as probe,
-        ):
-            self.assertEqual(REAL_PROVENANCE(), evaluated)
-        probe.assert_called_once_with(
-            ["nix", "eval", "--json", f"{self.root}#sdkProvenance"], cwd=self.root
-        )
-
-    def test_runtime_edit_changes_the_nix_generator_identity(self):
-        # A generated tree records the generator identity, and its render reads
-        # the language runtime. Evaluate a copy of this checkout's tracked files.
-        repository = Path(__file__).resolve().parents[3]
-        checkout = self.root / "checkout"
-        names = subprocess.check_output(
-            ["git", "ls-files", "-z"], cwd=repository
-        ).split(b"\0")
-        for name in filter(None, names):
-            source = repository / name.decode()
-            if source.is_file() and not source.is_symlink():
-                target = checkout / name.decode()
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, target)
-
-        def evaluate():
-            return json.loads(
-                subprocess.check_output(
-                    ["nix", "eval", "--json", f"path:{checkout}#sdkProvenance"],
-                    cwd=checkout,
-                )
+    def test_untracked_input_files_fail_before_the_nix_evaluation(self):
+        def git(*args):
+            return subprocess.check_output(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                cwd=self.root,
+                text=True,
             )
 
-        before = evaluate()
-        runtime = checkout / "apps/xmtp_sdk_bindgen/runtime/kotlin/SDKClient.kt"
-        runtime.write_text(runtime.read_text() + "\n// runtime edit\n")
-        after = evaluate()
-        self.assertEqual(after["source"], before["source"])
-        self.assertNotEqual(after["generator"], before["generator"])
+        git("init", "--quiet")
+        git("add", "--all")
+        git("commit", "--quiet", "--no-verify", "--no-gpg-sign", "-m", "fixture")
+        added = self.root / "crates/xmtp_sdk/src/added.rs"
+        added.parent.mkdir(parents=True, exist_ok=True)
+        added.write_text("pub fn added() {}")
+        real = subprocess.check_output
+        evaluated = {"source": "closure", "generator": "bindgen closure"}
+
+        def nix_or_git(command, **kwargs):
+            if command[0] == "nix":
+                return json.dumps(evaluated).encode()
+            return real(command, **kwargs)
+
+        with (
+            patch.object(artifacts.sys, "platform", "linux"),
+            patch.object(artifacts.subprocess, "check_output", side_effect=nix_or_git),
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "git add.*crates/xmtp_sdk/src/added.rs"
+            ):
+                REAL_PROVENANCE()
+            git("add", "--all")
+            self.assertEqual(REAL_PROVENANCE(), evaluated)
 
     def test_windows_identity_names_the_commit_and_uncommitted_inputs(self):
         def git(*args):
