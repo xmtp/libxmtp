@@ -166,7 +166,9 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(jobs["test_ios"]["permissions"], {"contents": "read"})
         for phase, name in (("lint", "lint_example_ios"), ("test", "test_example_ios")):
             with self.subTest(suite=name):
-                phase_jobs = yaml.safe_load(SUITES.render_workflow(manifest, phase))["jobs"]
+                phase_jobs = yaml.safe_load(SUITES.render_workflow(manifest, phase))[
+                    "jobs"
+                ]
                 self.assertEqual(
                     phase_jobs[name].get("secrets"),
                     {"CACHIX_PR_AUTH_TOKEN": "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"},
