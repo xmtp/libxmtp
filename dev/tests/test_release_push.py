@@ -170,6 +170,50 @@ class ReleasePushTest(unittest.TestCase):
                         )
                         self.assertEqual(actual, expected)
 
+    def test_release_source_is_the_checked_out_ref_not_the_caller(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("GIT_")
+            }
+            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+            git = git_runner(env, cwd=root)
+            git("init", "--initial-branch=caller")
+            for message in ("caller", "selected"):
+                if message == "selected":
+                    git("switch", "--quiet", "-c", "release")
+                git(
+                    "-c",
+                    "user.name=T",
+                    "-c",
+                    "user.email=t@example.com",
+                    "-c",
+                    "commit.gpgSign=false",
+                    "commit",
+                    "--allow-empty",
+                    "-m",
+                    message,
+                )
+            caller_sha = git("rev-parse", "caller")
+            output = root / "source-output"
+            subprocess.run(
+                [
+                    "bash",
+                    "-euc",
+                    script(
+                        "Resolve release source",
+                        ROOT / ".github/workflows/check-release-push.yml",
+                    ),
+                ],
+                cwd=root,
+                env=dict(env, GITHUB_SHA=caller_sha, GITHUB_OUTPUT=str(output)),
+                check=True,
+            )
+            # Every release caller builds, tags, and publishes this commit.
+            self.assertEqual(output.read_text(), f"sha={git('rev-parse', 'release')}\n")
+
     def test_release_source_must_be_on_trunk_or_a_release_branch(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
