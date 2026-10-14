@@ -21,14 +21,17 @@ dev/nix-shell 'just ios test-simulator "platform=iOS Simulator,name=iPhone 17"'
 dev/nix-shell 'just ios docs'
 dev/nix-shell 'just ios test all --filter XmtpSdkTests.RecordCodecTests/testRemoteAttachmentLength'
 NIX_DEVSHELL=ios dev/nix-shell 'ruby sdks/ios/script/test_podspec.rb'
+dev/nix-shell 'python3.11 -B dev/tests/test_ci_suites.py IosLifecycleSplitTests'
 ```
 
 The podspec test needs an existing Ruby runtime with `cocoapods-core`. Use the
 same Ruby runtime as CocoaPods. It checks source selection, invalid receipts,
 and simulator exclusions. It does not install or download a pod.
 
-The recipe test checks the real Just commands without compiling the SDK.
-The `test` recipe forwards extra Swift test arguments after its mode.
+`IosLifecycleSplitTests` reads the iOS test recipes with `just --dry-run`, so it
+does not compile the SDK. It checks that `test-lifecycle` selects the same
+tests that `test skip-lifecycle` skips. It also checks that the `test` recipe
+forwards extra Swift test arguments after its mode. `just lint-config` runs it.
 
 `check-consumer` stages a consumer package of the root package under
 `target/sdk-ios-consumer`. It runs `Tests/Consumer/main.swift` as a bare
