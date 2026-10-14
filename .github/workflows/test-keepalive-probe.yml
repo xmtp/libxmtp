@@ -17,5 +17,3 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Check keepalive-probe compiles
         run: nix build --no-link .#cargo-clippy.x86_64-linux.keepalive-probe
-      - name: Warm sticky disk with build deps
-        run: dev/ci/warm-deps .#cargo-clippy.x86_64-linux.keepalive-probe

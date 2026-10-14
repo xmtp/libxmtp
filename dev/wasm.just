@@ -18,6 +18,3 @@ test *args="":
 
 nix-test:
     nix build --print-build-logs --no-link .#wasm-nextest.{{ nix_system }} --option sandbox relaxed
-
-test-ci: nix-test
-    dev/ci/warm-deps .#wasm-nextest.{{ nix_system }}

@@ -86,7 +86,7 @@ Nix derivations give hermetic builds:
 
 ```bash
 just nix-test          # native tests through Nix
-just wasm test-ci
+just wasm nix-test
 just node test-ci
 ```
 
