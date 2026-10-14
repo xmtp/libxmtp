@@ -388,6 +388,9 @@ class NotificationController(
         reconcile(owner)
     }
 
+    // Instrumented tests wait for setup writes before testing group push admission.
+    internal val isIdle: Boolean get() = pendingPrivacyWrites.get() == 0 && !registration.isLocked
+
     internal var beforePrivacyWrite: suspend (String) -> Unit = {}
 
     private fun beginPrivacyWrite() {
