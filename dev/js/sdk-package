@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Stage a public generated SDK and copy its complete product for local imports.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

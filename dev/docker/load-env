@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Load this worktree's stack settings, without overriding the caller.
 #
 # Source this; do not execute it. It is the one loader of dev/docker/.env:

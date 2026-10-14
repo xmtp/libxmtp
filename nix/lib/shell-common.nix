@@ -28,6 +28,7 @@
   protolint,
   taplo,
   shellcheck,
+  ruff,
   nixfmt,
   lldb,
   vscode-extensions,
@@ -222,6 +223,8 @@ rec {
   lintTools = [
     taplo
     shellcheck
+    # dev/tests/test_script_lint.py lints extensionless Python scripts.
+    ruff
     nixfmt
   ];
 

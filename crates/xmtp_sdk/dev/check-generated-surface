@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 """Check the generated SDK surface: one table of rules over the default trees.
 
 usage: check-generated-surface [generated-dir]
@@ -41,39 +41,73 @@ def tree_files(trees, suffixes=None):
 #   present - the pattern matches each scope binding;
 #   block   - each scope binding has the block, and the block lacks `inner`.
 RULES = [
-    ("conformance-only exports stay out of the default bindings",
-     "absent", (NATIVE, None), r"sdkConformance|sdk_conformance"),
-    ("generated public names use stock ID casing",
-     "absent", (ALL, SOURCES), r"[a-z]ID\b"),
-    ("no metadata marker leaks into the bindings (@xmtp-org/pkg is a path)",
-     "absent", (ALL, SOURCES), r"@xmtp-[a-z][a-z0-9-]*([^a-z0-9/-]|$)"),
-    ("TypeScript WASM does not export Storage.reconnect",
-     "absent", (("typescript-wasm",), None), r"uniffi_xmtp_sdk_fn_method_storage_reconnect"),
-    ("EncodedContent omits compression", "block", {
-        "swift": r"public struct EncodedContent:.*?\n}\n",
-        "kotlin": r"data class EncodedContent \(.*?\n\)",
-        "typescript-napi": r"export type EncodedContent = \{.*?\n}",
-        "typescript-wasm": r"export type EncodedContent = \{.*?\n}",
-    }, None, r"\bcompression\b"),
-    ("Storage.path is async", "present", {
-        "swift": r"\bfunc path\(\)\s*async\s+throws\b",
-        "kotlin": r"\bsuspend fun `path`\(",
-        "typescript-napi": r"\bpath\([^\n]*\)[^\n]*:\s*Promise<string\s*\|\s*undefined>",
-        "typescript-wasm": r"\bpath\([^\n]*\)[^\n]*:\s*Promise<string\s*\|\s*undefined>",
-    }, None),
-    ("Message lifts use the host class", "present", {
-        "swift": re.escape("return Message(data: builtinValue)"),
-        "kotlin": re.escape("return Message(builtinValue)"),
-        "typescript-napi": r"const FfiConverterTypeMessage = (?s:.*)return new Message\(intermediate\)(?s:.*)new FfiConverterArray\(FfiConverterTypeMessage\)",
-        "typescript-wasm": r"const FfiConverterTypeMessage = (?s:.*)return new Message\(intermediate\)(?s:.*)new FfiConverterArray\(FfiConverterTypeMessage\)",
-    }, None),
+    (
+        "conformance-only exports stay out of the default bindings",
+        "absent",
+        (NATIVE, None),
+        r"sdkConformance|sdk_conformance",
+    ),
+    (
+        "generated public names use stock ID casing",
+        "absent",
+        (ALL, SOURCES),
+        r"[a-z]ID\b",
+    ),
+    (
+        "no metadata marker leaks into the bindings (@xmtp-org/pkg is a path)",
+        "absent",
+        (ALL, SOURCES),
+        r"@xmtp-[a-z][a-z0-9-]*([^a-z0-9/-]|$)",
+    ),
+    (
+        "TypeScript WASM does not export Storage.reconnect",
+        "absent",
+        (("typescript-wasm",), None),
+        r"uniffi_xmtp_sdk_fn_method_storage_reconnect",
+    ),
+    (
+        "EncodedContent omits compression",
+        "block",
+        {
+            "swift": r"public struct EncodedContent:.*?\n}\n",
+            "kotlin": r"data class EncodedContent \(.*?\n\)",
+            "typescript-napi": r"export type EncodedContent = \{.*?\n}",
+            "typescript-wasm": r"export type EncodedContent = \{.*?\n}",
+        },
+        None,
+        r"\bcompression\b",
+    ),
+    (
+        "Storage.path is async",
+        "present",
+        {
+            "swift": r"\bfunc path\(\)\s*async\s+throws\b",
+            "kotlin": r"\bsuspend fun `path`\(",
+            "typescript-napi": r"\bpath\([^\n]*\)[^\n]*:\s*Promise<string\s*\|\s*undefined>",
+            "typescript-wasm": r"\bpath\([^\n]*\)[^\n]*:\s*Promise<string\s*\|\s*undefined>",
+        },
+        None,
+    ),
+    (
+        "Message lifts use the host class",
+        "present",
+        {
+            "swift": re.escape("return Message(data: builtinValue)"),
+            "kotlin": re.escape("return Message(builtinValue)"),
+            "typescript-napi": r"const FfiConverterTypeMessage = (?s:.*)return new Message\(intermediate\)(?s:.*)new FfiConverterArray\(FfiConverterTypeMessage\)",
+            "typescript-wasm": r"const FfiConverterTypeMessage = (?s:.*)return new Message\(intermediate\)(?s:.*)new FfiConverterArray\(FfiConverterTypeMessage\)",
+        },
+        None,
+    ),
 ]
 
 
 def main():
     missing = [tree for tree in ALL if not (ROOT / tree).is_dir()]
     if missing:
-        sys.exit(f"missing {', '.join(missing)} under {ROOT}: run `just sdk generate` first")
+        sys.exit(
+            f"missing {', '.join(missing)} under {ROOT}: run `just sdk generate` first"
+        )
     failures = []
     for description, kind, scope, *rest in RULES:
         if kind == "absent":

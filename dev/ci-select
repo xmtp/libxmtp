@@ -201,9 +201,7 @@ def select_suites(
         and not (fork and suite["disable_on_forks"])
     }
     selected = eligible if reasons else matched & eligible
-    selected = {
-        name for name in selected if SUITES[name]["covered_by"] not in selected
-    }
+    selected = {name for name in selected if SUITES[name]["covered_by"] not in selected}
     # A suite whose group does not run builds the products itself.
     waited = {group for name in selected for group in SUITES[name]["products"]}
     if fork or dependabot:
@@ -223,7 +221,9 @@ def select_suites(
         "deleted_paths": sorted(deleted),
         "shared_paths": shared,
         "unknown_paths": unknown,
-        "policy_excluded": sorted((matched | (set(SUITES) if reasons else set())) - eligible),
+        "policy_excluded": sorted(
+            (matched | (set(SUITES) if reasons else set())) - eligible
+        ),
         "suites": {
             phase: [n for n in SUITES if n in selected and SUITES[n]["phase"] == phase]
             for phase in ("lint", "test")
@@ -325,7 +325,9 @@ def main():
     with open(env["GITHUB_OUTPUT"], "a") as output:
         for phase, names in result["suites"].items():
             output.write(f"{phase}_suites={json.dumps(names, separators=(',', ':'))}\n")
-        output.write(f"products={json.dumps(result['products'], separators=(',', ':'))}\n")
+        output.write(
+            f"products={json.dumps(result['products'], separators=(',', ':'))}\n"
+        )
     with open(env["GITHUB_STEP_SUMMARY"], "a") as output:
         output.write(summary(result))
 

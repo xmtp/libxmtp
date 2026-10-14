@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 """Load a Nix-built backend image archive into Docker under one image reference.
 
 Usage: dev/docker/load-backend-image ARCHIVE IMAGE

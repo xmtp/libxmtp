@@ -6,7 +6,7 @@ _env := ". " + root + "/dev/docker/load-env"
 
 # Build selected artifacts, then render only the selected target roots.
 generate targets="swift,kotlin,node,browser":
-    bash "{{ root }}/crates/xmtp_sdk/dev/generate" --targets "{{ targets }}"
+    "{{ root }}/crates/xmtp_sdk/dev/generate" --targets "{{ targets }}"
 
 # Source checks that need no generated tree. CI runs them before generating.
 lint-source:
@@ -19,7 +19,7 @@ lint-source:
 # Check generated names, test hooks, and the TypeScript bridge we maintain.
 # Run `just sdk generate` first: it reads every generated target root.
 lint-generated:
-    bash "{{ root }}/crates/xmtp_sdk/dev/lint-generated"
+    "{{ root }}/crates/xmtp_sdk/dev/lint-generated"
 
 lint: lint-source lint-generated
 
@@ -29,7 +29,7 @@ check-file-sizes:
 
 # Import the staged WASM package and initialize its UniFFI player in Node.
 wasm-init:
-    bash "{{ root }}/crates/xmtp_sdk/dev/check-wasm-init"
+    "{{ root }}/crates/xmtp_sdk/dev/check-wasm-init"
 
 # Bridge runtime unit tests in apps/xmtp_sdk_bindgen/runtime-tests/ts and the
 # generated conformance.gen.test.ts against the staged SDK. The generated test
@@ -44,11 +44,11 @@ test-bridge *args:
 # Chromium storage, package, logging and bridge proofs, and the Vitest
 # Playwright suite. Copies the Nix-built panic and pure codec fixtures.
 test-browser:
-    bash "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests"
+    "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests"
 
 # Run only the real-worker and Chromium log queue proofs.
 test-browser-logging: wasm-init
-    cd "{{ root }}" && bash crates/xmtp_sdk/dev/copy-browser-fixtures
+    cd "{{ root }}" && crates/xmtp_sdk/dev/copy-browser-fixtures
     cd "{{ root }}" && NIX_DEVSHELL=js "{{ root }}/dev/nix-shell" 'NODE_OPTIONS=--preserve-symlinks sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/bridge.log.real.mts'
     cd "{{ root }}" && NIX_DEVSHELL=js "{{ root }}/dev/nix-shell" 'NODE_OPTIONS= sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/logging.chromium.mts'
 
@@ -105,4 +105,4 @@ bench-check:
 
 # Run only migration in the existing Browser platform suite.
 test-browser-migration:
-    bash "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests" migration
+    "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests" migration

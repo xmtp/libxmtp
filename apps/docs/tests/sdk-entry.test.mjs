@@ -19,7 +19,7 @@ test("SDK entries support each isolated cutover graph", () => {
             scripts: {
               build:
                 sdk === generated
-                  ? `bash ../../dev/js/sdk-package ${sdk}`
+                  ? `../../dev/js/sdk-package ${sdk}`
                   : "tsdown",
             },
           }),

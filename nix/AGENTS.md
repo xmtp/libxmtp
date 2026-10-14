@@ -20,12 +20,12 @@ build with any Xcode. A new Xcode changes `xcode` and every
 The focused Rust shell and Android host builds use the Nix toolchain.
 They must replace native compiler and linker overrides from an outer local or
 iOS shell. Otherwise, Xcode's linker uses Nix's SDK without its library search paths.
-Run `dev/nix-shell 'bash dev/check-apple-toolchain'` in the local shell and
-`NIX_DEVSHELL=rust dev/nix-shell 'bash dev/check-apple-toolchain'` for the Nix SDK.
+Run `dev/nix-shell 'dev/check-apple-toolchain'` in the local shell and
+`NIX_DEVSHELL=rust dev/nix-shell 'dev/check-apple-toolchain'` for the Nix SDK.
 Also check a shell transition with
-`dev/nix-shell 'dev/nix-shell --shell rust "bash dev/check-apple-toolchain"'`.
+`dev/nix-shell 'dev/nix-shell --shell rust "dev/check-apple-toolchain"'`.
 Also check the Android shell transition with
-`dev/nix-shell 'dev/nix-shell --shell android "bash dev/check-apple-toolchain"'`.
+`dev/nix-shell 'dev/nix-shell --shell android "dev/check-apple-toolchain"'`.
 The check links `iconv`; a basic libc link does not detect mixed toolchains.
 
 ## Build isolation

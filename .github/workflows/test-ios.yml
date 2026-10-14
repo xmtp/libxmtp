@@ -28,7 +28,7 @@ jobs:
           xcode-version: "26.3"
       - uses: taiki-e/install-action@just
       - name: Check native Apple toolchain
-        run: dev/nix-shell 'bash dev/check-apple-toolchain'
+        run: dev/nix-shell 'dev/check-apple-toolchain'
       # The tracked Swift under sdks/ios/Sources must match the generated
       # Swift: a changed, deleted, or new file fails.
       - name: Build the iOS bindings and check the tracked Swift

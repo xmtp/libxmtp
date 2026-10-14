@@ -11,7 +11,7 @@ case "${1:-all}" in
   *) echo "Expected all or migration" >&2; exit 2 ;;
 esac
 if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
-  exec env NIX_DEVSHELL=js dev/nix-shell "bash crates/xmtp_sdk/dev/run-browser-platform-tests ${1:-all}"
+  exec env NIX_DEVSHELL=js dev/nix-shell "crates/xmtp_sdk/dev/run-browser-platform-tests ${1:-all}"
 fi
 . dev/docker/load-env
 platform=sdks/browser/test/platform
@@ -29,8 +29,8 @@ if [ "${1:-all}" = all ] || [ "${1:-all}" = migration ]; then
 fi
 if [ "${1:-all}" = migration ]; then exit 0; fi
 
-bash crates/xmtp_sdk/dev/check-wasm-init
-bash crates/xmtp_sdk/dev/copy-browser-fixtures
+crates/xmtp_sdk/dev/check-wasm-init
+crates/xmtp_sdk/dev/copy-browser-fixtures
 # `just sdk test-bridge` runs bridge.real.mts and bridge.values.real.mts
 # through the generated conformance.gen.test.ts.
 NODE_OPTIONS="--preserve-symlinks --expose-gc" \
@@ -42,11 +42,11 @@ NODE_OPTIONS="--preserve-symlinks --expose-gc" \
 NODE_OPTIONS=--preserve-symlinks \
   sdks/node/node_modules/.bin/tsx "$platform/bridge.log.real.mts"
 for proof in bridge storage package logging; do
-  NODE_OPTIONS= sdks/node/node_modules/.bin/tsx "$platform/$proof.chromium.mts"
+  NODE_OPTIONS='' sdks/node/node_modules/.bin/tsx "$platform/$proof.chromium.mts"
 done
 export VITE_XMTP_BACKEND_URL="${XMTP_BACKEND_URL:?load the worktree backend URL}"
 # The loopback object store serves download fixtures and relays the backend.
 SDK_RELAY_TARGET="$XMTP_BACKEND_URL" NODE_OPTIONS=--preserve-symlinks \
-  bash sdks/browser/test/platform/object-store/with-object-store \
+  sdks/browser/test/platform/object-store/with-object-store \
   sdks/browser/node_modules/.bin/vitest run \
   --config "$platform/vitest.browser.config.mts"

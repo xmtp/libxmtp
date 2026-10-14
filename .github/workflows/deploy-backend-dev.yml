@@ -46,12 +46,12 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           node --test dev/fly/render-dashboard.test.mjs
-          bash dev/fly/deploy-observability
+          dev/fly/deploy-observability
       - name: Deploy backend commit
         if: steps.current.outputs.deploy == 'true'
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: bash dev/fly/deploy-backend "ghcr.io/xmtp/backend:sha-$GITHUB_SHA"
+        run: dev/fly/deploy-backend "ghcr.io/xmtp/backend:sha-$GITHUB_SHA"
       - name: Check deployed services
         if: steps.current.outputs.deploy == 'true'
         env:

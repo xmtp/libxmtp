@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 """Check ephemeral backend dependency boundaries and test recipe environments."""
 
 import os
@@ -12,7 +12,9 @@ import sys
 # from the worktree's slot, so only the main checkout gets 55432. Match the
 # shape rather than one literal; the override case below still pins an exact
 # value, which is what actually needs guarding.
-DEFAULT_DATABASE_URL_PATTERN = r"^postgres://xmtp:xmtp@(localhost|127\.0\.0\.1):\d+/xmtp_backend$"
+DEFAULT_DATABASE_URL_PATTERN = (
+    r"^postgres://xmtp:xmtp@(localhost|127\.0\.0\.1):\d+/xmtp_backend$"
+)
 
 
 def main():
@@ -57,7 +59,9 @@ def main():
         if test_stack is not None:
             env["RUST_MIN_STACK"] = test_stack
         env["EXPECTED_TEST_STACK"] = test_stack or "8388608"
-        env["CARGO_TEST_CMD"] = shlex.join([str(Path(__file__).resolve()), "--assert-env"])
+        env["CARGO_TEST_CMD"] = shlex.join(
+            [str(Path(__file__).resolve()), "--assert-env"]
+        )
         subprocess.run(
             ["dev/nix-shell", f"just test {target}"], cwd=root, env=env, check=True
         )

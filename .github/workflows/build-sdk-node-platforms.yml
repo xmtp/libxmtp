@@ -291,7 +291,7 @@ jobs:
       - name: Assemble the full public product
         env:
           XMTP_SDK_NODE_PLATFORMS_DIR: target/sdk-node-platforms
-        run: dev/nix-shell 'bash dev/js/sdk-package node'
+        run: dev/nix-shell 'dev/js/sdk-package node'
       - name: Check installed aggregate Node ESM package
         run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs node'
       - uses: actions/upload-artifact@v7

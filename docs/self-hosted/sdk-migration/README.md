@@ -151,10 +151,10 @@ the package first with `dev/nix-shell 'just ios build'`,
 each host:
 
 ```sh
-dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples swift'
-dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples kotlin'
-dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples node'
-dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples browser'
+dev/nix-shell 'docs/self-hosted/sdk-migration/check-examples swift'
+dev/nix-shell 'docs/self-hosted/sdk-migration/check-examples kotlin'
+dev/nix-shell 'docs/self-hosted/sdk-migration/check-examples node'
+dev/nix-shell 'docs/self-hosted/sdk-migration/check-examples browser'
 ```
 
 The script does not overwrite an existing file. It removes only the copy that

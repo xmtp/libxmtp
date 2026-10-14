@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Stage matched generated Kotlin and Android JNI libraries.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"

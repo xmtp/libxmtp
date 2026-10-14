@@ -200,7 +200,7 @@ hand-maintained.
   and installs it in an empty consumer. It checks a codec round trip without
   package receipts or runtime asset hashes. Browser smoke also loads its worker.
   Package configuration and asset identity are checked during staging and tests.
-  SDK package builds use `bash ../../dev/js/sdk-package node|browser`
+  SDK package builds use `../../dev/js/sdk-package node|browser`
   from the SDK directory. The helper stages a public manifest and copies the
   complete product into the SDK's `dist` directory for workspace imports.
   Release jobs pack `target/sdk-packages/<target>` directly. Private staging
