@@ -127,7 +127,7 @@ let
     );
   iosTargets = mkIosTargets xmtp.iosEnv.xcode.key;
   iosTargetsLocal = mkIosTargets "local";
-  ubrn = pkgs.callPackage ../lib/packages/ubrn.nix { };
+  ubrn = xmtp.ubrn;
   nativeLibrary = "${nativeBuild}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"}";
   mkRender =
     language: artifact: pure:

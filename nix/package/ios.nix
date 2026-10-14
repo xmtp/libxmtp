@@ -4,13 +4,13 @@
   stdenv,
   pkgs,
   xmtp,
+  sdk,
   # true: the -local outputs, for a Mac whose Xcode is not `xmtp.iosEnv.xcode`.
   # They skip the Xcode check, and caches do not hold them.
   local ? false,
   ...
 }:
 let
-  sdk = pkgs.callPackage ./xmtp-sdk.nix { };
   version = "8.0.0";
   host = pkgs.stdenv.hostPlatform.rust.rustcTarget;
   xcode = if local then "local" else xmtp.iosEnv.xcode.key;
@@ -33,24 +33,6 @@ let
     passthru = {
       rendering = sdk.generatedSwift.rendering;
       provenanceSource = sdk.provenanceSource;
-    };
-  };
-  mkIos = targetList: {
-    targets = lib.genAttrs targetList native;
-    inherit swiftBindings;
-    aggregate = stdenv.mkDerivation {
-      pname = "xmtp-sdk-apple-libs";
-      inherit version;
-      dontUnpack = true;
-      passthru = { inherit swiftBindings; };
-      installPhase = ''
-        mkdir -p "$out/swift"
-        ${lib.concatMapStringsSep "\n" (target: ''
-          mkdir -p "$out/${target}"
-          ln -s ${native target}/lib/libxmtp_sdk.a "$out/${target}/libxmtp_sdk.a"
-        '') targetList}
-        cp -r ${swiftBindings}/swift/. "$out/swift/"
-      '';
     };
   };
   framework =
@@ -90,8 +72,7 @@ let
   releaseFramework = framework allTargets;
 in
 {
-  inherit mkIos swiftBindings;
-  inherit (mkIos allTargets) targets aggregate;
+  inherit swiftBindings;
   devFast = framework fastTargets;
   release = stdenv.mkDerivation {
     pname = "xmtp-sdk-ios-release";

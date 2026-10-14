@@ -21,7 +21,7 @@
         lib.remove hostTarget (map (platform: platform.rustTarget) platforms)
       );
       packageSet = rustTarget: if rustTarget == hostTarget then pkgs else crossPkgs.${rustTarget};
-      runtime = pkgs.callPackage ./lib/packages/ubrn.nix { };
+      runtime = pkgs.xmtp.ubrn;
       mkSdkNode =
         p:
         p.callPackage ./package/node.nix {

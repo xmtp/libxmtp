@@ -22,7 +22,7 @@
       "target": "linux-x64-musl",
       "rustTarget": "x86_64-unknown-linux-musl",
       "library": "libxmtp_sdk.so",
-      "nixSystems": ["aarch64-darwin", "x86_64-linux", "aarch64-linux"],
+      "nixSystems": ["x86_64-linux", "aarch64-linux"],
       "runner": "blacksmith-16vcpu-ubuntu-2404",
       "loadRunner": "ubuntu-latest",
       "loadImage": "node:22.12.0-alpine@sha256:51eff88af6dff26f59316b6e356188ffa2c422bd3c3b76f2556a2e7e89d080bd"
@@ -40,7 +40,7 @@
       "target": "linux-arm64-musl",
       "rustTarget": "aarch64-unknown-linux-musl",
       "library": "libxmtp_sdk.so",
-      "nixSystems": ["aarch64-darwin", "x86_64-linux", "aarch64-linux"],
+      "nixSystems": ["x86_64-linux", "aarch64-linux"],
       "runner": "ubuntu-24.04-arm",
       "loadRunner": "ubuntu-24.04-arm",
       "loadImage": "node:22.12.0-alpine@sha256:51eff88af6dff26f59316b6e356188ffa2c422bd3c3b76f2556a2e7e89d080bd"

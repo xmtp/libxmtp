@@ -29,6 +29,12 @@
     # The test services (nix/services). The project has no release after
     # 0.1.0, so pin a revision.
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake/142d4b084026e91d9ab5822639d308aca5fb1b2b";
+    # The bindgen fork. Its revision must equal Cargo.toml
+    # [workspace.metadata.xmtp-sdk-fork]; `nix/lib/packages/ubrn.nix` checks it.
+    ubrn-src = {
+      url = "github:neekolas/uniffi-bindgen-react-native/ac44bb3bf53aa4360dda933faacedf35370588ec";
+      flake = false;
+    };
   };
 
   outputs =
@@ -41,7 +47,6 @@
       ];
       imports = [
         ./nix/lib
-        flake-parts.flakeModules.easyOverlay
         inputs.treefmt-nix.flakeModule
         ./nix/musl-docker.nix
         ./nix/ci-checks.nix
@@ -59,6 +64,22 @@
           system,
           ...
         }:
+        let
+          sdk = pkgs.callPackage ./nix/package/xmtp-sdk.nix { };
+          # stdenvNoCC avoids Nix's apple-sdk and cc-wrapper, which inject
+          # -mmacos-version-min flags that conflict with iOS cross-compilation.
+          # The builds are impure (__noChroot) and use the system Xcode SDK
+          # through ios-env.nix.
+          ios = pkgs.callPackage ./nix/package/ios.nix {
+            stdenv = pkgs.stdenvNoCC;
+            inherit sdk;
+          };
+          iosLocal = pkgs.callPackage ./nix/package/ios.nix {
+            stdenv = pkgs.stdenvNoCC;
+            inherit sdk;
+            local = true;
+          };
+        in
         {
           _module.args.pkgs = lib.mkForce (self.lib.mkXmtpPkgs { inherit system; });
           devShells = {
@@ -75,69 +96,32 @@
           };
           packages = {
             kache = pkgs.kache;
-            xmtp-sdk-libs = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).libs;
-            xmtp-sdk-pure-wasm = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).pureWasm;
-            xmtp-sdk-wasm = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).wasm;
-            xmtp-sdk-bindgen = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).bindgen;
-            xmtp-sdk-generated = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generated;
-            xmtp-sdk-generated-swift = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generatedSwift;
-            xmtp-sdk-generated-kotlin = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generatedKotlin;
-            xmtp-sdk-generated-node = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generatedNode;
-            xmtp-sdk-generated-browser = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generatedBrowser;
-            ubrn = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).cli;
-            ubjs-core = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).core;
-            ubjs-node = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).node;
-            ubjs-wasm = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).wasm;
+            xmtp-sdk-libs = sdk.libs;
+            xmtp-sdk-pure-wasm = sdk.pureWasm;
+            xmtp-sdk-wasm = sdk.wasm;
+            xmtp-sdk-bindgen = sdk.bindgen;
+            xmtp-sdk-generated = sdk.generated;
+            xmtp-sdk-generated-swift = sdk.generatedSwift;
+            xmtp-sdk-generated-kotlin = sdk.generatedKotlin;
+            xmtp-sdk-generated-node = sdk.generatedNode;
+            xmtp-sdk-generated-browser = sdk.generatedBrowser;
+            ubjs-core = pkgs.xmtp.ubrn.core;
+            ubjs-node = pkgs.xmtp.ubrn.node;
+            ubjs-wasm = pkgs.xmtp.ubrn.wasm;
             inherit (pkgs)
               napi-rs-cli
               wasm-bindgen-cli
               ;
           }
           // lib.optionalAttrs pkgs.stdenv.isDarwin {
-            xmtp-sdk-ios-device =
-              (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).iosTargets.aarch64-apple-ios;
-            xmtp-sdk-ios-simulator =
-              (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).iosTargets.aarch64-apple-ios-sim;
-            # stdenvNoCC is passed to callPackage (for the aggregate derivation).
-            # This avoids Nix's apple-sdk and cc-wrapper,
-            # which inject -mmacos-version-min flags that
-            # conflict with iOS cross-compilation. The builds are impure (__noChroot)
-            # and use the system Xcode SDK directly via ios-env.nix paths.
-            ios-libs =
-              (pkgs.callPackage ./nix/package/ios.nix {
-                stdenv = pkgs.stdenvNoCC;
-              }).aggregate;
-            # iOS bindings - simulator + host macOS only (fast dev/CI builds)
-            ios-libs-fast =
-              (
-                (pkgs.callPackage ./nix/package/ios.nix {
-                  stdenv = pkgs.stdenvNoCC;
-                }).mkIos
-                [
-                  "aarch64-apple-darwin"
-                  "aarch64-apple-ios-sim"
-                ]
-              ).aggregate;
-            ios-xcframeworks =
-              (pkgs.callPackage ./nix/package/ios.nix {
-                stdenv = pkgs.stdenvNoCC;
-              }).release;
-            ios-xcframeworks-fast =
-              (pkgs.callPackage ./nix/package/ios.nix {
-                stdenv = pkgs.stdenvNoCC;
-              }).devFast;
+            xmtp-sdk-ios-device = sdk.iosTargets.aarch64-apple-ios;
+            xmtp-sdk-ios-simulator = sdk.iosTargets.aarch64-apple-ios-sim;
+            ios-xcframeworks = ios.release;
+            ios-xcframeworks-fast = ios.devFast;
             # For a Mac whose Xcode is not the CI Xcode (`lib.xcode`):
             # sdks/ios/dev/bindings selects these. Caches do not hold them.
-            ios-xcframeworks-local =
-              (pkgs.callPackage ./nix/package/ios.nix {
-                stdenv = pkgs.stdenvNoCC;
-                local = true;
-              }).release;
-            ios-xcframeworks-fast-local =
-              (pkgs.callPackage ./nix/package/ios.nix {
-                stdenv = pkgs.stdenvNoCC;
-                local = true;
-              }).devFast;
+            ios-xcframeworks-local = iosLocal.release;
+            ios-xcframeworks-fast-local = iosLocal.devFast;
           };
         };
     };

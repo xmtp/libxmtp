@@ -17,7 +17,7 @@ let
   abi = if builtins.match "aarch64-.*" builtins.currentSystem != null
     then "arm64-v8a" else "x86_64";
   names = [ "xmtp-sdk-generated-kotlin" "android-sdk-libs-fast" ]
-    ++ (if builtins.hasAttr "ios-libs" p then [ "xmtp-sdk-generated-swift" ] else []);
+    ++ (if builtins.hasAttr "ios-xcframeworks" p then [ "xmtp-sdk-generated-swift" ] else []);
 in {
   inherit names abi;
   outputs = builtins.listToAttrs (map (name: { inherit name; value = toString p.${name}; }) names);

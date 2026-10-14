@@ -34,8 +34,7 @@
     {
       packages = {
         xmtp-backend = pkgs.callPackage ./package/backend.nix { };
-        backend-image = backendImage "x86_64-unknown-linux-musl" "amd64";
-        backend-image-x86_64-unknown-linux-musl = self'.packages.backend-image;
+        backend-image-x86_64-unknown-linux-musl = backendImage "x86_64-unknown-linux-musl" "amd64";
         backend-image-aarch64-unknown-linux-musl = backendImage "aarch64-unknown-linux-musl" "arm64";
       }
       // lib.mapAttrs' (target: crossPkgs: {

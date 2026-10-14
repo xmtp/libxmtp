@@ -77,6 +77,8 @@ let
       # Node platforms, Android ABIs, Apple slices, and the glibc floor.
       # Scripts and workflows read the same file.
       sdkPlatforms = lib.importJSON ../sdk-platforms.json;
+      # The `@ubjs` runtimes of the pinned bindgen fork, built on the host.
+      ubrn = host.callPackage ./packages/ubrn.nix { src = inputs.ubrn-src; };
       gitSha = self.shortRev or self.dirtyShortRev or "unknown";
       gitCommitDate = self.lastModifiedDate or "";
     };

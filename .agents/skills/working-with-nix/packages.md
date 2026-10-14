@@ -9,8 +9,8 @@ All `nix build .#<package>` outputs defined in `flake.nix`.
 | `xmtp-sdk-wasm`                  | `nix build .#xmtp-sdk-wasm`                  | Generated worker WASM                       |
 | `android-sdk-libs`               | `nix build .#android-sdk-libs`               | All Android targets (.so + Kotlin bindings) |
 | `android-sdk-libs-fast`          | `nix build .#android-sdk-libs-fast`          | Host-matching Android target only           |
-| `ios-libs`                       | `nix build .#ios-libs`                       | All iOS targets (macOS only)                |
-| `ios-libs-fast`                  | `nix build .#ios-libs-fast`                  | Simulator + host macOS only                 |
+| `ios-xcframeworks`               | `nix build .#ios-xcframeworks`               | Release XCFramework package (macOS only)    |
+| `ios-xcframeworks-fast`          | `nix build .#ios-xcframeworks-fast`          | Simulator + host macOS only                 |
 | `wasm-bindgen-cli`               | `nix build .#wasm-bindgen-cli`               | WASM bindings CLI tool                      |
 
 ## Key Files
@@ -19,7 +19,7 @@ All `nix build .#<package>` outputs defined in `flake.nix`.
 | --------------------------------- | ---------------------------------------------------------- |
 | `nix/package/xmtp-sdk.nix`        | Generated SDK WASM build                                   |
 | `nix/package/android.nix`         | Android build derivation (all targets + aggregate)         |
-| `nix/package/ios.nix`             | iOS build derivation (all targets + aggregate, macOS only) |
+| `nix/package/ios.nix`             | iOS XCFrameworks and Swift bindings (macOS only)           |
 | `nix/package/xmtp-sdk-native.nix` | Native SDK libraries; the host one is `xmtp-sdk-libs`      |
 | `nix/lib/mobile-common.nix`       | Shared build args for iOS/Android                          |
 | `nix/lib/filesets.nix`            | Source filtering for hermetic builds                       |

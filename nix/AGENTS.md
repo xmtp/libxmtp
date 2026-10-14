@@ -113,6 +113,25 @@ trust service or fast replica replay. Build it with `nix build --no-link .#backe
 `test-backend.yml` builds it on Linux and, in the `Native backend contract`
 job, on macOS.
 
+## Bindgen fork pin
+
+The `ubrn-src` flake input is the bindgen fork. Evaluation reads its
+`Cargo.lock` with no build. `nix/lib/packages/ubrn.nix` fails evaluation
+unless the input revision equals `Cargo.toml [workspace.metadata.xmtp-sdk-fork]`
+and `Cargo.lock` takes `ubrn_bindgen`, `ubrn_common`, and `uniffi-runtime-wasm`
+from the fork at that revision. To bump the fork:
+
+1. Set the new revision in `Cargo.toml` (the three dependencies and
+   `[workspace.metadata.xmtp-sdk-fork]`), and update `Cargo.lock`.
+2. Set the same revision in the `ubrn-src` URL in `flake.nix`, and run
+   `dev/nix-shell 'nix flake lock'` (or `nix flake update ubrn-src`). Do not use
+   the deprecated `--update-input`; it changes nothing for a revision-pinned URL.
+3. Update the `npmDepsHash` values in `nix/lib/packages/ubrn.nix` if the fork's
+   npm locks changed.
+4. Check with
+   `nix eval --option allow-import-from-derivation false --raw .#ubjs-node.drvPath`.
+5. Commit `flake.nix`, `flake.lock`, `Cargo.toml`, and `Cargo.lock` together.
+
 ## Generated SDK preparation
 
 `xmtp-sdk-generated` includes the native, worker, and pure roots with matched

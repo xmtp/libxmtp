@@ -15,7 +15,6 @@ for language in swift kotlin typescript-napi typescript-wasm typescript-pure; do
     exit 1
   fi
 done
-crates/xmtp_sdk/dev/check-fork-pin
 crates/xmtp_sdk/dev/check-public-names "$generated"
 crates/xmtp_sdk/dev/check-test-hooks --self-test
 crates/xmtp_sdk/dev/check-test-hooks "$generated"
