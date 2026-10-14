@@ -134,7 +134,7 @@ let
     stdenvNoCC.mkDerivation {
       pname = "xmtp-sdk-render-${language}";
       version = xmtp.mkVersion rust;
-      src = sources.generationSource (if language == "swift" then "swift" else "all");
+      src = sources.generationSource language;
       nativeBuildInputs = [
         bindgen
         rustToolchain
@@ -174,7 +174,9 @@ let
     stdenvNoCC.mkDerivation {
       pname = "xmtp-sdk-generated${name}";
       version = xmtp.mkVersion rust;
-      src = sources.provenanceSource;
+      # The receipt takes the evaluation-time identities, so the tree keys on
+      # the closure sources and not on the whole workspace.
+      dontUnpack = true;
       nativeBuildInputs = [ pkgs.python3 ];
       dontFixup = true;
       buildPhase = ''
@@ -184,7 +186,8 @@ let
           cp -R ${renders.${language}}/. "$out/${language}/"
         '') languages}
         chmod -R u+w "$out"
-        python3 crates/xmtp_sdk/dev/record-generated.py "$out" \
+        python3 ${../../crates/xmtp_sdk/dev/record-generated.py} "$out" \
+          --source ${sources.provenance.source} --generator ${sources.provenance.generator} \
           ${lib.concatMapStringsSep " " (role: "--${role} ${binaries.${role}}") roles}
         ${lib.optionalString (runtimeNames != [ ]) ''
           mkdir -p "$out/runtimes"
@@ -195,7 +198,6 @@ let
       '';
       installPhase = "true";
       passthru = {
-        provenanceSource = sources.provenanceSource;
         rendering =
           if builtins.length languages == 1 then
             renders.${builtins.head languages}
@@ -236,9 +238,6 @@ in
     iosTargetsLocal
     nativeBuild
     ;
-  generationSource = sources.generationSource;
-  inherit (sources)
-    provenanceSource
-    ;
+  inherit (sources) provenance;
   runtimes = ubrn;
 }

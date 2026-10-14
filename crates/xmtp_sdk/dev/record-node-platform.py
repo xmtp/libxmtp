@@ -44,23 +44,28 @@ def main():
     rust_target, library = PLATFORMS[args.target]
     addon = f"uniffi-runtime-napi.{args.target}.node"
     if args.native_provenance:
+        # A Nix pair names the SDK closure identity of its evaluation, and a
+        # cargo pair (Windows) names its commit. Staging checks both once,
+        # against the release binding and the release commit.
         native = json.loads(args.native_provenance.read_text())
         if native.get("schema") != 1:
             raise ValueError("invalid Node native provenance schema")
         verify_pair_bytes(native, library, args.library, "native library")
+        identity = {"source": native["source"]}
     else:
         native = json.loads(args.native_artifacts.read_text())["artifacts"]["native"]
         artifacts.verify(native)
         if str(args.library.resolve()) not in native["files"]:
             raise ValueError("Node library is not in its build receipt")
+        if not native["source"].startswith("commit:"):
+            raise ValueError("cargo Node library does not name its commit")
+        identity = {"commit": native["source"].removeprefix("commit:")}
     if (
-        native["source"] != artifacts.source_hash()
-        or native["generator"] != artifacts.source_hash(True)
-        or native["target"] != rust_target
+        native["target"] != rust_target
         or native["features"]
         or native["profile"] != "release"
     ):
-        raise ValueError("Node native library source or build contract mismatch")
+        raise ValueError("Node native library build contract mismatch")
     receipt = json.loads(args.runtime_provenance.read_text())
     if (
         receipt.get("schema") != 1
@@ -102,8 +107,7 @@ def main():
                     "schema": 1,
                     "target": args.target,
                     "rustTarget": rust_target,
-                    "source": native["source"],
-                    "generator": native["generator"],
+                    **identity,
                     "features": "",
                     "profile": "release",
                     "runtimeRevision": revision,

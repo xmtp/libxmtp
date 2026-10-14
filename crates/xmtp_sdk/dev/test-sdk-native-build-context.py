@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check native build context: source fingerprint, compiler inputs, and deployment floors."""
+"""Check native build context: source identity, compiler inputs, and deployment floors."""
 
 import json
 import os
@@ -10,14 +10,40 @@ import unittest
 from packaging_test_base import PackagingTestBase, artifacts
 
 
+# The fixture base replaces this; keep the real function for its own tests.
+REAL_PROVENANCE = artifacts.provenance.__wrapped__
+
+
 class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
-    def test_git_and_filtered_source_have_same_fingerprint(self):
-        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
-        subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
-        expected = (artifacts.source_hash(), artifacts.source_hash(True))
-        (self.root / ".git").rename(self.root / ".git-hidden")
-        actual = (artifacts.source_hash(), artifacts.source_hash(True))
-        self.assertEqual(actual, expected)
+    def test_identity_is_the_nix_evaluation_of_this_checkout(self):
+        evaluated = {"source": "closure", "generator": "bindgen closure"}
+        with (
+            patch.object(artifacts.sys, "platform", "linux"),
+            patch.object(
+                artifacts.subprocess,
+                "check_output",
+                return_value=json.dumps(evaluated).encode(),
+            ) as probe,
+        ):
+            self.assertEqual(REAL_PROVENANCE(), evaluated)
+        probe.assert_called_once_with(
+            ["nix", "eval", "--json", f"{self.root}#sdkProvenance"], cwd=self.root
+        )
+
+    def test_windows_identity_names_the_commit(self):
+        with (
+            patch.object(artifacts.sys, "platform", "win32"),
+            patch.object(
+                artifacts.subprocess, "check_output", return_value="abc123\n"
+            ) as probe,
+        ):
+            self.assertEqual(
+                REAL_PROVENANCE(),
+                {"source": "commit:abc123", "generator": "commit:abc123"},
+            )
+        probe.assert_called_once_with(
+            ["git", "rev-parse", "HEAD"], cwd=self.root, text=True
+        )
 
     def test_unqualified_compiler_inputs_change_native_cache_admission(self):
         names = (

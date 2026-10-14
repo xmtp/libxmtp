@@ -141,6 +141,10 @@ try {
       contracts[0],
       runtimeRevision,
       sourceManifest.name,
+      execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: root,
+        encoding: "utf8",
+      }).trim(),
     );
   }
   const compile = mkdtempSync(join(output, ".sdk-compile-"));

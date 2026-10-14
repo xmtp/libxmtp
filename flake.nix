@@ -82,6 +82,10 @@
         in
         {
           _module.args.pkgs = lib.mkForce (self.lib.mkXmtpPkgs { inherit system; });
+          # The SDK closure identities (`nix/lib/sdk-sources.nix`). The cargo
+          # route reads them with `nix eval .#sdkProvenance`, so both routes
+          # record the same values.
+          legacyPackages.sdkProvenance = sdk.provenance;
           devShells = {
             rust = pkgs.callPackage ./nix/shells/rust.nix { };
             default = pkgs.callPackage ./nix/shells/local.nix { };

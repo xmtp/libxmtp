@@ -354,42 +354,31 @@ class PackagingTests(
                 json.dumps({"artifacts": {"native": dict(native, target=triple)}})
             )
 
-    def test_live_compile_inputs_invalidate_build_and_recorded_source(self):
-        for name in artifacts.COMPILE_INPUTS:
-            with self.subTest(input=name):
-                path = self.root / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("original embedded data")
-                artifacts.build(self.args)
-                artifacts.render(self.args)
-                before = artifacts.source_hash()
-                binaries = {
-                    role: Path(next(iter(item["files"])))
-                    for role, item in json.loads(
-                        (self.args.artifacts / "artifacts.json").read_text()
-                    )["artifacts"].items()
-                }
-                receipt.record(self.args.out, binaries)
-                old_record = json.loads(
-                    (self.args.out / "swift/sdk-contract.json").read_text()
-                )
-                before_calls = len(self.calls)
-                path.write_text("changed embedded data only")
-                self.assertNotEqual(artifacts.source_hash(), before)
-                receipt.record(self.args.out, binaries)
-                new_record = json.loads(
-                    (self.args.out / "swift/sdk-contract.json").read_text()
-                )
-                self.assertNotEqual(
-                    new_record["artifact"]["source"], old_record["artifact"]["source"]
-                )
-                artifacts.build(self.args)
-                self.assertEqual(len(self.calls), before_calls + 2)
-                path.write_text("original embedded data")
-                artifacts.build(self.args)
-                artifacts.render(self.args)
-                self.assertEqual(artifacts.source_hash(), before)
-                print("Embedded input changed source hash and rebuild; restored:", name)
+    def test_source_identity_change_invalidates_build_and_recorded_source(self):
+        path = self.root / "crates/xmtp_id/src/scw_verifier/chain_urls_default.json"
+        path.parent.mkdir(parents=True)
+        path.write_text("original embedded data")
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        before = artifacts.source_hash()
+        binaries = {
+            role: Path(next(iter(item["files"])))
+            for role, item in json.loads(
+                (self.args.artifacts / "artifacts.json").read_text()
+            )["artifacts"].items()
+        }
+        receipt.record(self.args.out, binaries)
+        old_record = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
+        before_calls = len(self.calls)
+        path.write_text("changed embedded data only")
+        self.assertNotEqual(artifacts.source_hash(), before)
+        receipt.record(self.args.out, binaries)
+        new_record = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
+        self.assertNotEqual(
+            new_record["artifact"]["source"], old_record["artifact"]["source"]
+        )
+        artifacts.build(self.args)
+        self.assertEqual(len(self.calls), before_calls + 2)
 
     def test_swapped_mobile_targets_rejected_before_assembly(self):
         for target in ("android", "ios"):
@@ -547,7 +536,7 @@ class PackagingTests(
         self.assertEqual(actual, native)
         artifacts.render(self.args)
         binding = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
-        self.assertEqual(binding["artifact"], native)
+        self.assertEqual(binding["artifact"], artifacts.receipt_artifact(native))
         self.assertEqual(binding["generator"], artifacts.source_hash(True))
         for path, original_receipt in native_receipts.items():
             self.assertEqual(path.read_bytes(), original_receipt)
@@ -614,7 +603,7 @@ class PackagingTests(
         artifacts.build(self.args)
         artifacts.render(self.args)
 
-    def test_config_only_change_invalidates_cli_and_recorded_contract(self):
+    def test_config_only_change_invalidates_recorded_source(self):
         artifacts.build(self.args)
         artifacts.render(self.args)
         self.native_receipts()
@@ -635,8 +624,11 @@ class PackagingTests(
         recorded_after = json.loads(
             (self.args.out / "swift/sdk-contract.json").read_text()
         )
-        self.assertNotEqual(recorded_before["contract"], recorded_after["contract"])
-        self.assertNotEqual(before["generator"], recorded_after["generator"])
+        # The crate configuration is SDK source, not generator source.
+        self.assertNotEqual(
+            recorded_before["artifact"]["source"], recorded_after["artifact"]["source"]
+        )
+        self.assertEqual(before["generator"], recorded_after["generator"])
         with self.assertRaisesRegex(ValueError, "mobile binding contract mismatch"):
             mobile.preflight(self.args.out, self.root / "mobile", "ios")
         self.config.write_text(original)

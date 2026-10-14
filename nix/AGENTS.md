@@ -44,7 +44,11 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
 - The Rust shell provides sqlx-cli. Keep its version aligned with the backend SQLx dependency.
 - SDK compiler sources use a dummy workspace and restore the selected local
   dependency graph. Keep embedded SDK data and bindgen templates in the real
-  compiler source. Provenance wrappers keep the complete source identity.
+  compiler source. Provenance is an evaluation-time digest of the SDK and
+  bindgen closure sources (`lib/sdk-sources.nix`, `.#sdkProvenance`). Receipts
+  record it and name files by name, so a product references no source and
+  keeps its path on a commit outside the closure. The cargo route reads the
+  same digest with `nix eval`; Windows builds name the commit.
 - Checks that compile some packages use `xmtp.filesets.mkClosureSource`. It
   restores the Cargo path-dependency closure of its roots over the dummy
   workspace. `dev = true` adds the roots' dev-dependencies and test data.

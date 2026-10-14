@@ -24,7 +24,6 @@ in {
   native = toString p.xmtp-sdk-libs;
   bindgen = toString p.xmtp-sdk-bindgen;
   android = toString p.${"xmtp-sdk-android-${abi}"};
-  source = toString p.xmtp-sdk-generated-kotlin.src;
 }
 """
 
@@ -52,7 +51,7 @@ def receipt(tree, source, generator, native, bindgen, excluded=()):
         "features": "",
         "profile": "release",
         "target": "",
-        "files": {str(native): digest(native)},
+        "files": {native.name: digest(native)},
     }
     if record["artifact"] != expected_artifact or record["generator"] != generator:
         raise ValueError(f"{tree}: native artifact or source identity differs")
@@ -80,9 +79,9 @@ def require(tree, names):
 
 
 def check_products(products):
-    source_root = Path(products["source"])
+    # The products must name the SDK closure identities of this checkout.
     spec = importlib.util.spec_from_file_location(
-        "artifacts", source_root / "crates/xmtp_sdk/dev/sdk-artifacts.py"
+        "artifacts", ROOT / "crates/xmtp_sdk/dev/sdk-artifacts.py"
     )
     artifacts = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(artifacts)
@@ -128,7 +127,7 @@ def check_products(products):
     provenance = json.loads(
         (Path(products["android"]) / "native-provenance.json").read_text()
     )
-    if provenance["source"] != source or provenance["generator"] != generator:
+    if provenance["source"] != source or "generator" in provenance:
         raise ValueError(
             "Android fast native provenance differs from Kotlin source identity"
         )

@@ -3,6 +3,7 @@
 
 import argparse
 from contextlib import contextmanager
+import functools
 import hashlib
 import json
 import os
@@ -15,71 +16,35 @@ import time
 
 ROOT = Path(__file__).resolve().parents[3]
 TARGETS = ("swift", "kotlin", "node", "browser")
-# Live data embedded by the SDK dependency graph through include_str!.
-COMPILE_INPUTS = (
-    "crates/xmtp_legacy_migration/browser-storage.js",
-    "crates/xmtp_attachments/src/address-registry.txt",
-    "crates/xmtp_id/src/scw_verifier/chain_urls_default.json",
-    "crates/xmtp_id/src/scw_verifier/signature_validation.hex",
-)
 
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def source_hash(generator=False):
-    if (ROOT / ".git").exists():
-        paths = (
-            subprocess.check_output(
-                ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-                cwd=ROOT,
-            )
-            .decode()
-            .split("\0")
+@functools.cache
+def provenance():
+    """Return the SDK closure identities that Nix computes at evaluation.
+
+    `nix/lib/sdk-sources.nix` defines them, so the Nix and cargo routes record
+    the same values. Nix evaluates the git checkout: an untracked file joins
+    the identity after `git add`. Windows has no Nix; its builds name the
+    commit instead.
+    """
+    if sys.platform == "win32":
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip()
+        return {"source": f"commit:{commit}", "generator": f"commit:{commit}"}
+    return json.loads(
+        subprocess.check_output(
+            ["nix", "eval", "--json", f"{ROOT}#sdkProvenance"], cwd=ROOT
         )
-    else:
-        paths = [
-            str(path.relative_to(ROOT)) for path in ROOT.rglob("*") if path.is_file()
-        ]
-    selected = []
-    for name in paths:
-        if not name:
-            continue
-        path = ROOT / name
-        if not path.is_file():
-            continue
-        if generator:
-            keep = name.startswith(
-                ("apps/xmtp_sdk_bindgen/", "crates/xmtp_configuration/")
-            ) or name in (
-                "Cargo.lock",
-                "Cargo.toml",
-                "crates/xmtp_sdk/uniffi.toml",
-            )
-        else:
-            keep = (
-                (
-                    name.split("/")[0] in ("crates", "apps", "bindings", "proto")
-                    and (
-                        path.suffix in (".rs", ".proto", ".sql")
-                        or path.name == "Cargo.toml"
-                    )
-                )
-                or name in COMPILE_INPUTS
-                or name
-                in (
-                    "Cargo.toml",
-                    "Cargo.lock",
-                    "flake.lock",
-                    "rust-toolchain.toml",
-                    ".cargo/config.toml",
-                    "crates/xmtp_sdk/uniffi.toml",
-                )
-            )
-        if keep:
-            selected.append((name, digest(path)))
-    return hashlib.sha256(json.dumps(sorted(selected)).encode()).hexdigest()
+    )
+
+
+def source_hash(generator=False):
+    return provenance()["generator" if generator else "source"]
 
 
 def compiler_host():
@@ -353,6 +318,16 @@ def staged_output(output, prefix=".sdk-mobile-stage-"):
             shutil.rmtree(stage)
 
 
+def receipt_artifact(record):
+    """A receipt names artifact files by name, never by a local or store path."""
+    fields = ("source", "generator", "features", "profile", "target")
+    return {field: record[field] for field in fields} | {
+        "files": {
+            Path(path).name: checksum for path, checksum in record["files"].items()
+        }
+    }
+
+
 def target_languages(target):
     if target == "browser":
         return ("typescript-wasm", "typescript-pure")
@@ -445,7 +420,7 @@ def render(args):
                     {
                         "contract": contract,
                         "generator": generator,
-                        "artifact": selected[artifact],
+                        "artifact": receipt_artifact(selected[artifact]),
                         "files": files,
                     },
                     indent=2,

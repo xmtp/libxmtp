@@ -7,7 +7,6 @@
   stdenv,
   stdenvNoCC,
   buildPackages,
-  python3,
   cargo-zigbuild,
   android ? false,
 }:
@@ -16,7 +15,7 @@ let
   rust = xmtp.craneLib.overrideToolchain xmtp.hostToolchain;
   sources = import ../lib/sdk-sources.nix { inherit lib xmtp; };
   source = sources.sdk rust;
-  mkProvenance = import ../lib/sdk-provenance.nix { inherit stdenvNoCC python3; };
+  mkProvenance = import ../lib/sdk-provenance.nix { inherit stdenvNoCC; };
   isGnu = stdenv.hostPlatform.isLinux && stdenv.hostPlatform.isGnu;
   buildTarget = target + lib.optionalString isGnu ".${xmtp.sdkPlatforms.glibcFloor}";
   special = {
@@ -89,5 +88,5 @@ let
 in
 mkProvenance {
   inherit compilation target;
-  source = sources.provenanceSource;
+  inherit (sources) provenance;
 }

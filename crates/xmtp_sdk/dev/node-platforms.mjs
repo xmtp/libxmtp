@@ -8,25 +8,29 @@ const platformList = JSON.parse(
 );
 export const NODE_PLATFORMS = Object.freeze(
   Object.fromEntries(
-    platformList.node.map(({ target, rustTarget, library }) => [
+    platformList.node.map(({ target, rustTarget, library, nixSystems }) => [
       target,
-      [rustTarget, library],
+      [rustTarget, library, nixSystems.length === 0],
     ]),
   ),
 );
 const hash = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 
+// A Nix pair names the SDK closure identity, which must equal the binding's.
+// A cargo pair (no Nix system builds it) names its commit, which must be the
+// release commit.
 export function stageNodePlatforms(
   input,
   output,
   binding,
   runtimeRevision,
   packageName,
+  releaseCommit,
 ) {
   const platforms = {};
   const exports = {};
-  for (const [target, [rustTarget, library]] of Object.entries(
+  for (const [target, [rustTarget, library, cargoBuilt]] of Object.entries(
     NODE_PLATFORMS,
   )) {
     const root = join(input, target);
@@ -37,8 +41,9 @@ export function stageNodePlatforms(
       receipt.schema !== 1 ||
       receipt.target !== target ||
       receipt.rustTarget !== rustTarget ||
-      receipt.source !== binding.artifact.source ||
-      receipt.generator !== binding.generator ||
+      (cargoBuilt
+        ? receipt.commit !== releaseCommit || "source" in receipt
+        : receipt.source !== binding.artifact.source || "commit" in receipt) ||
       receipt.features !== binding.artifact.features ||
       receipt.profile !== "release" ||
       binding.artifact.profile !== "release" ||

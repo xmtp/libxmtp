@@ -13,9 +13,12 @@ Run commands from the repository root in the Nix shell. Run
   Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
   which the main packaging suite loads as inherited test methods.
   Both packaging suites share the fixture in `dev/packaging_test_base.py`.
-- `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
-  the checkout source identity with the generated and native Nix source filters.
+- `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs.
   It does not compile a product.
+- SDK receipts record the closure identities that Nix computes at evaluation
+  (`nix eval .#sdkProvenance`). `dev/sdk-artifacts.py` reads them with the same
+  command, so both routes record the same values. Nix evaluates the git
+  checkout: `git add` a new file before a cargo build records it.
 - `dev/nix-shell 'just sdk check-generated-nix'` checks the real generated SDK and
   Android fast/full build closures. Native generated products exclude SDK
   WASM builds. Android uses selected Kotlin. Apple uses selected Swift.

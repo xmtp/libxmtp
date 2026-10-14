@@ -7,14 +7,31 @@ import importlib.util
 import json
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location(
-    "artifacts", Path(__file__).with_name("sdk-artifacts.py")
-)
-artifacts = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(artifacts)
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def record(generated, binaries, profile="release", features="", target=""):
+def checkout_identity():
+    """Read the SDK closure identities of this checkout through `sdk-artifacts.py`."""
+    spec = importlib.util.spec_from_file_location(
+        "artifacts", Path(__file__).with_name("sdk-artifacts.py")
+    )
+    artifacts = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(artifacts)
+    return artifacts.source_hash(), artifacts.source_hash(True)
+
+
+def record(
+    generated,
+    binaries,
+    profile="release",
+    features="",
+    target="",
+    source=None,
+    generator=None,
+):
+    """Write each tree's receipt. Nix passes the evaluation-time identities."""
     trees = [
         tree
         for tree in generated.iterdir()
@@ -31,8 +48,8 @@ def record(generated, binaries, profile="release", features="", target=""):
     for role in {"bindgen", *roles.values()}:
         if not binaries.get(role):
             raise ValueError(f"generated record requires {role} artifact")
-    source = artifacts.source_hash()
-    generator = artifacts.source_hash(True)
+    if source is None or generator is None:
+        source, generator = checkout_identity()
     records = {
         role: {
             "source": source,
@@ -44,7 +61,7 @@ def record(generated, binaries, profile="release", features="", target=""):
             else "",
             "profile": profile,
             "target": target if role == "native" else "",
-            "files": {str(path.resolve()): artifacts.digest(path)},
+            "files": {Path(path).name: digest(path)},
         }
         for role, path in binaries.items()
         if path
@@ -54,8 +71,7 @@ def record(generated, binaries, profile="release", features="", target=""):
             {
                 role: {
                     "files": {
-                        Path(path).name: checksum
-                        for path, checksum in item["files"].items()
+                        name: checksum for name, checksum in item["files"].items()
                     },
                     "generator": generator,
                 }
@@ -67,7 +83,7 @@ def record(generated, binaries, profile="release", features="", target=""):
     for tree in trees:
         role = roles[tree.name]
         files = {
-            str(path.relative_to(tree)): artifacts.digest(path)
+            str(path.relative_to(tree)): digest(path)
             for path in sorted(tree.rglob("*"))
             if path.is_file()
             and path.name != "sdk-contract.json"
@@ -95,6 +111,9 @@ def main():
     parser.add_argument("--profile", choices=("debug", "release"), default="release")
     parser.add_argument("--features", default="")
     parser.add_argument("--target", default="")
+    # Nix passes both identities; other callers read them from the checkout.
+    parser.add_argument("--source")
+    parser.add_argument("--generator")
     args = parser.parse_args()
     record(
         args.generated,
@@ -102,6 +121,8 @@ def main():
         args.profile,
         args.features,
         args.target,
+        args.source,
+        args.generator,
     )
 
 

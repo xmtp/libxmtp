@@ -25,11 +25,9 @@ class GeneratedRecords(unittest.TestCase):
             binary.write_bytes(role.encode())
             self.binaries[role] = binary
         self.identity = patch.object(
-            receipt.artifacts,
-            "source_hash",
-            side_effect=lambda generator=False: (
-                "generator-source" if generator else "native-source"
-            ),
+            receipt,
+            "checkout_identity",
+            return_value=("native-source", "generator-source"),
         )
         self.identity.start()
 
@@ -59,11 +57,7 @@ class GeneratedRecords(unittest.TestCase):
                 self.assertEqual(record["generator"], "generator-source")
                 self.assertEqual(
                     record["artifact"]["files"],
-                    {
-                        str(self.binaries["native"]): hashlib.sha256(
-                            b"native"
-                        ).hexdigest(),
-                    },
+                    {"native.bin": hashlib.sha256(b"native").hexdigest()},
                 )
                 self.assertEqual(
                     record["files"],
@@ -88,10 +82,21 @@ class GeneratedRecords(unittest.TestCase):
             record = self.read(language)
             self.assertEqual(
                 record["artifact"]["files"],
-                {
-                    str(self.binaries[role]): hashlib.sha256(role.encode()).hexdigest(),
-                },
+                {f"{role}.bin": hashlib.sha256(role.encode()).hexdigest()},
             )
+
+    def test_nix_identities_are_recorded_without_reading_the_checkout(self):
+        self.trees(LANGUAGES[:1])
+        arguments = ["record-generated.py", str(self.generated)]
+        for role in ("native", "bindgen"):
+            arguments.extend([f"--{role}", str(self.binaries[role])])
+        arguments += ["--source", "closure", "--generator", "bindgen closure"]
+        with patch("sys.argv", arguments):
+            receipt.main()
+        record = self.read(LANGUAGES[0])
+        self.assertEqual(record["artifact"]["source"], "closure")
+        self.assertEqual(record["generator"], "bindgen closure")
+        self.identity.target.checkout_identity.assert_not_called()
 
     def test_missing_artifact_roles_fail_before_receipts_are_written(self):
         self.trees(LANGUAGES)

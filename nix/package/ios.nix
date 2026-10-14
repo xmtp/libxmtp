@@ -32,7 +32,6 @@ let
     installPhase = "true";
     passthru = {
       rendering = sdk.generatedSwift.rendering;
-      provenanceSource = sdk.provenanceSource;
     };
   };
   framework =

@@ -548,6 +548,20 @@ class ArtifactTests(unittest.TestCase):
                     any(command[0] == "dev/agent-run" for command in self.calls[calls:])
                 )
 
+    def test_receipts_name_artifact_files_without_local_paths(self):
+        self.render_all_targets()
+        for language in ("typescript-napi", "typescript-wasm", "typescript-pure"):
+            with self.subTest(language=language):
+                record = json.loads(
+                    (self.args.out / language / "sdk-contract.json").read_text()
+                )
+                self.assertEqual(
+                    set(record["artifact"]),
+                    {"source", "generator", "features", "profile", "target", "files"},
+                )
+                for name in record["artifact"]["files"]:
+                    self.assertEqual(Path(name).name, name)
+
     def test_partial_native_render_does_not_need_unselected_wasm_index_entries(self):
         self.render_all_targets()
         before = {
@@ -585,8 +599,7 @@ class NodePlatformReceiptTests(unittest.TestCase):
                 json.dumps(
                     {
                         "schema": 1,
-                        "source": artifacts.source_hash(),
-                        "generator": artifacts.source_hash(True),
+                        "source": "closure",
                         "target": "x86_64-unknown-linux-gnu",
                         "features": "",
                         "profile": "release",
@@ -627,6 +640,44 @@ class NodePlatformReceiptTests(unittest.TestCase):
                 )
 
             self.assertEqual(record().returncode, 0)
+            pair = json.loads(
+                (root / "out/linux-x64-gnu/sdk-node-platform.json").read_text()
+            )
+            self.assertEqual(pair["source"], "closure")
+            self.assertNotIn("commit", pair)
+            # A cargo pair names the commit of its build record instead.
+            index = root / "artifacts.json"
+            cargo = args[: args.index("--native-provenance")] + [
+                "--native-artifacts",
+                str(index),
+                *args[args.index("--runtime-provenance") :],
+            ]
+            native_record = {
+                "source": "commit:abc123",
+                "target": "x86_64-unknown-linux-gnu",
+                "features": "",
+                "profile": "release",
+                "files": {str(library.resolve()): artifacts.digest(library)},
+            }
+            index.write_text(json.dumps({"artifacts": {"native": native_record}}))
+            built = subprocess.run(
+                cargo, cwd=artifacts.ROOT, capture_output=True, text=True
+            )
+            self.assertEqual(built.returncode, 0, built.stderr)
+            pair = json.loads(
+                (root / "out/linux-x64-gnu/sdk-node-platform.json").read_text()
+            )
+            self.assertEqual(pair["commit"], "abc123")
+            self.assertNotIn("source", pair)
+            index.write_text(
+                json.dumps(
+                    {"artifacts": {"native": dict(native_record, source="closure")}}
+                )
+            )
+            rejected = subprocess.run(
+                cargo, cwd=artifacts.ROOT, capture_output=True, text=True
+            )
+            self.assertIn("does not name its commit", rejected.stderr)
             library.write_bytes(b"replaced SDK library")
             rejected = record()
             self.assertNotEqual(rejected.returncode, 0)

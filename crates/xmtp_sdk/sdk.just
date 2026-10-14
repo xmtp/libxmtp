@@ -66,7 +66,6 @@ package-smoke target="node":
 # Evaluate native build inputs. This command does not compile a product.
 check-native-nix:
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/check-native-nix.py
-    cd "{{ root }}" && python3.11 -B crates/xmtp_sdk/dev/check-source-nix.py
 
 # Check the real generation and mobile consumer build closures.
 check-generated-nix:
