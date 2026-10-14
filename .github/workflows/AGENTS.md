@@ -32,6 +32,13 @@ protected-push expression. See "Cache modes" in
 `.github/actions/setup-nix/README.md`. `dev/agents/test_kache_env.py` checks
 the wiring for every entry workflow and event.
 
+Product groups (`products:` in `.github/ci-suites.yml`) each get one generated
+`products_<group>` job in `test-generated.yml`. It builds
+`.#ciSets.x86_64-linux.<group>` (listed in `nix/ci-sets.nix`) in mode `ci`, so
+the suites that wait for the group substitute the products from `xmtp-pr`. A
+suite still builds every product it uses: when the group did not run, its jobs
+build the products themselves.
+
 - Do not enable full Nix build logs by default in CI. For explicit debugging, run `nix log <drv-path>` or add `--print-build-logs` to a manual `nix build` command.
 - Pass JavaScript shard flags directly to the `just` recipe. An extra `--` is forwarded to Vitest and prevents sharding.
 - Failed Compose startup retains project logs and container state in

@@ -37,6 +37,8 @@
 #   covered_by        Optional. A suite whose run makes this one unnecessary.
 #   kache             The Kache scopes the workflows use, or []. Generation
 #                     checks them.
+#   products          The product groups the suite waits for, or []. Only test
+#                     suites can wait: the products jobs run in the test phase.
 #   path_filters      The filters described above, or [].
 #
 # A changed file that matches `shared` runs every suite. A file that matches no
@@ -45,6 +47,16 @@
 # A pull request that deletes or renames a file also runs the suites in
 # `on_deleted_path`, which check that every rule still names real files.
 # A `!` exclusion in a path group applies to the whole suite that uses it.
+#
+# `products` maps a product group name to its `path_filters` (the suite
+# syntax). nix/ci-sets.nix lists the group's flake outputs as
+# `ciSets.x86_64-linux.<group>`. test-generated.yml gets one job,
+# `products_<group>`, that builds the group once (mode ci, so it pushes to
+# xmtp-pr), and each suite that waits for the group needs that job. A run
+# builds a group when a selected suite waits for it and a changed file matches
+# its filters, or on a full run. Fork pull requests and Dependabot runs get no
+# Cachix token, so they build no group. A suite whose group did not run builds
+# the products itself, so a filter that is too narrow costs time, not coverage.
 version: 1
 
 on_deleted_path: [lint_config]
@@ -145,6 +157,8 @@ path_groups:
     - "sdks/{node,browser,agent}/**"
     - "apps/{cli,web-chat,docs}/**"
 
+products: {}
+
 suites:
   # --- Lint ------------------------------------------------------------------
   lint_workspace:
@@ -155,6 +169,7 @@ suites:
     secrets: none
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       # `just lint-rust-source` checks the workspace manifests; treefmt in
       # lint_config checks Rust format.
@@ -172,6 +187,7 @@ suites:
     secrets: none
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - path_group: js_workspace
       - path_group: js_packages
@@ -187,6 +203,7 @@ suites:
     secrets: none
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       # treefmt formats and checks these file types across the repository.
       # Every tracked Rust file is under crates/ or apps/ today. This rule
@@ -220,6 +237,7 @@ suites:
     secrets: none
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - "proto/**"
   docs_quality:
@@ -230,6 +248,7 @@ suites:
     secrets: kache
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - path_group: js_workspace
       # markdownlint reads every Markdown file.
@@ -247,6 +266,7 @@ suites:
     secrets: none
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - path_group: swift
   lint_deny:
@@ -257,6 +277,7 @@ suites:
     secrets: none
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - "{Cargo.lock,deny.toml}"
       - "**/Cargo.toml"
@@ -268,6 +289,7 @@ suites:
     secrets: none
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - path_group: example_android
       - path_group: android
@@ -282,6 +304,7 @@ suites:
     secrets: kache
     permissions: {contents: read}
     kache: [rust-clippy-native, rust-clippy-wasm]
+    products: []
     path_filters:
       - cargo_package: ["@default-members", xmtp-sdk-bindgen]
       - "{.clippy.toml,dev/wasm.just,nix/shells/wasm.nix}"
@@ -293,6 +316,7 @@ suites:
     secrets: kache
     permissions: {contents: read}
     kache: [sdk-tests-debug]
+    products: []
     path_filters:
       - cargo_package: xmtp_sdk
       - path_group: docker_backend
@@ -305,6 +329,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: [backend-tests-debug]
+    products: []
     path_filters:
       - cargo_package: xmtp_backend
       - path_group: docker_backend
@@ -321,6 +346,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - cargo_package: [xmtp_mls_validation, xmtp_id, xmtp_proto]
       - "{dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
@@ -332,6 +358,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - cargo_package: "@default-members"
       - path_group: docker_backend
@@ -345,6 +372,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - cargo_package: keepalive-probe
       - "{nix/package/keepalive-probe-check.nix,nix/ci-checks.nix}"
@@ -356,6 +384,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - cargo_package:
           - xmtp_mls
@@ -379,6 +408,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - cargo_package: xdbg
       # The observability job runs xdbg against the Docker stack and checks
@@ -397,6 +427,7 @@ suites:
     permissions: {contents: read}
     covered_by: docs_site
     kache: [rust-reference]
+    products: []
     path_filters:
       - cargo_package: ["@default-members", error_glossary]
       - "{docs/error_glossary.md,dev/gen-error-glossary}"
@@ -410,6 +441,7 @@ suites:
     secrets: kache
     permissions: {contents: read}
     kache: [sdk-products-debug]
+    products: []
     path_filters:
       - path_group: js_workspace
       - path_group: js_packages
@@ -422,6 +454,7 @@ suites:
     secrets: kache
     permissions: {contents: read}
     kache: [sdk-products-debug]
+    products: []
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -436,6 +469,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: [sdk-native-debug]
+    products: []
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -450,6 +484,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: [sdk-native-debug]
+    products: []
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -463,6 +498,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: [sdk-products-debug]
+    products: []
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -480,6 +516,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: [sdk-browser-conformance]
+    products: []
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -492,6 +529,7 @@ suites:
     secrets: kache
     permissions: {contents: read}
     kache: [rust-reference, sdk-products-debug]
+    products: []
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -511,6 +549,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - path_group: sdk_core
       - path_group: swift
@@ -522,6 +561,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: [sdk-android-release]
+    products: []
     path_filters:
       # check-android runs `gradlew build`, which includes Android Lint and
       # Spotless, so no separate Android lint suite exists.
@@ -535,6 +575,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - path_group: example_android
       - path_group: android

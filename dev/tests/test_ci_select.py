@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check CI suite selection, result gates, and decision summaries."""
 
+import copy
 import importlib.machinery
 import importlib.util
 import json
@@ -294,6 +295,79 @@ class SelectionTests(unittest.TestCase):
         self.assertIn("&lt;img src=x&gt;", text)
         self.assertIn("\\nCI_PATH_DATA.proto", text)
         self.assertNotIn("<img src=x>", text)
+
+
+def with_groups():
+    """Two groups: test_android waits for both, test_example_android for one."""
+    manifest = copy.deepcopy(SELECTOR.MANIFEST)
+    manifest["products"] = {
+        "alpha": {"cargo_roots": [], "crates": [], "paths": ["crates/xmtp_sdk/**"]},
+        "beta": {
+            "cargo_roots": [],
+            "crates": [],
+            "paths": ["sdks/android/**", "!sdks/android/**/*.md"],
+        },
+    }
+    for name, suite in manifest["suites"].items():
+        suite["products"] = []
+    manifest["suites"]["test_android"]["products"] = ["alpha", "beta"]
+    manifest["suites"]["test_example_android"]["products"] = ["beta"]
+    return mock.patch.multiple(SELECTOR, MANIFEST=manifest, SUITES=manifest["suites"])
+
+
+class ProductSelectionTests(unittest.TestCase):
+    kotlin = "sdks/android/library/src/main/java/Client.kt"
+    sdk = "crates/xmtp_sdk/src/client.rs"
+
+    def test_groups_need_a_waiting_suite_and_a_matching_path(self):
+        with with_groups():
+            for files, expected in [
+                ([self.kotlin], ["beta"]),
+                # One suite that waits for two groups.
+                ([self.kotlin, self.sdk], ["alpha", "beta"]),
+                # test_android runs, but no path matches beta's filters.
+                ([self.sdk], ["alpha"]),
+                ([self.sdk.replace("client.rs", "AGENTS.md")], []),
+                (["sdks/android/README.md"], []),
+                # No selected suite waits for a group.
+                (["crates/xmtp_mls/src/client.rs"], []),
+                (["apps/example-android/app/build.gradle"], []),
+            ]:
+                with self.subTest(files=files):
+                    result = select(files)
+                    self.assertEqual(result["products"], expected)
+
+    def test_full_runs_build_every_group_a_selected_suite_waits_for(self):
+        with with_groups():
+            for result, expected in [
+                (select(["proto/a.proto"]), ["alpha", "beta"]),
+                (select(["docs/a.md"], name="push", payload={}), ["alpha", "beta"]),
+                (
+                    select(
+                        None, name="workflow_dispatch", payload={}, outcome="skipped"
+                    ),
+                    ["alpha", "beta"],
+                ),
+                # A draft runs only lint suites, which wait for no group.
+                (select(["proto/a.proto"], payload=event(draft=True)), []),
+            ]:
+                with self.subTest(kind=result["event_kind"]):
+                    self.assertEqual(result["products"], expected)
+
+    def test_forks_and_dependabot_build_no_group(self):
+        dependabot = event() | {"sender": {"login": "dependabot[bot]"}}
+        human = event() | {"sender": {"login": "octocat"}}
+        with with_groups():
+            for payload, files, expected in [
+                (event(fork=True), [self.kotlin], []),
+                (event(fork=True), ["proto/a.proto"], []),
+                (dependabot, [self.kotlin, self.sdk], []),
+                (human, [self.kotlin], ["beta"]),
+            ]:
+                with self.subTest(payload=payload.get("sender"), files=files):
+                    result = select(files, payload=payload)
+                    self.assertIn("test_android", selected(result))
+                    self.assertEqual(result["products"], expected)
 
 
 class MatchTests(unittest.TestCase):

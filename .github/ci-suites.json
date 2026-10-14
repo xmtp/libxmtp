@@ -31,6 +31,7 @@
     "dev/{nix-up,nix-down,nix-status,nix-cache-up}",
     "dev/nix/**"
   ],
+  "products": {},
   "suites": {
     "lint_workspace": {
       "phase": "lint",
@@ -47,6 +48,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -76,6 +78,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -110,6 +113,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -154,6 +158,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -179,6 +184,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -214,6 +220,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -245,6 +252,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -270,6 +278,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -314,6 +323,7 @@
         "rust-clippy-native",
         "rust-clippy-wasm"
       ],
+      "products": [],
       "cargo_roots": [
         "@default-members",
         "xmtp-sdk-bindgen"
@@ -372,6 +382,7 @@
       "kache": [
         "sdk-tests-debug"
       ],
+      "products": [],
       "cargo_roots": [
         "xmtp_sdk"
       ],
@@ -434,6 +445,7 @@
       "kache": [
         "backend-tests-debug"
       ],
+      "products": [],
       "cargo_roots": [
         "xmtp_backend"
       ],
@@ -489,6 +501,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [
         "xmtp_id",
         "xmtp_mls_validation",
@@ -530,6 +543,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [
         "@default-members"
       ],
@@ -591,6 +605,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [
         "keepalive-probe"
       ],
@@ -628,6 +643,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [
         "xmtp_api",
         "xmtp_api_backend",
@@ -699,6 +715,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [
         "xdbg"
       ],
@@ -761,6 +778,7 @@
       "kache": [
         "rust-reference"
       ],
+      "products": [],
       "cargo_roots": [
         "@default-members",
         "error_glossary"
@@ -818,6 +836,7 @@
       "kache": [
         "sdk-products-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -861,6 +880,7 @@
       "kache": [
         "sdk-products-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -905,6 +925,7 @@
       "kache": [
         "sdk-native-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -955,6 +976,7 @@
       "kache": [
         "sdk-native-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -998,6 +1020,7 @@
       "kache": [
         "sdk-products-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1043,6 +1066,7 @@
       "kache": [
         "sdk-browser-conformance"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1086,6 +1110,7 @@
         "rust-reference",
         "sdk-products-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1132,6 +1157,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1174,6 +1200,7 @@
       "kache": [
         "sdk-android-release"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1212,6 +1239,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
