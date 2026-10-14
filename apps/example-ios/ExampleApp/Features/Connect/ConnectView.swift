@@ -158,6 +158,7 @@ struct ConnectView: View {
 						Spacer(); Image(systemName: "chevron.down").rotationEffect(.degrees(advanced ? 180 : 0))
 					}.foregroundStyle(Theme.accentText).frame(minHeight: Theme.minimumHitTarget)
 						.padding(.horizontal, 16).padding(.vertical, 4)
+						.contentShape(Rectangle())
 				}.buttonStyle(.plain)
 					.accessibilityValue(localized(advanced ? "Expanded" : "Collapsed"))
 			}
