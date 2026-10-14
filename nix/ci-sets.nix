@@ -51,7 +51,8 @@ let
           }
         );
         # The arm64 Node pairs are cross outputs of this system. Release
-        # builds them on arm64 runners until it takes these outputs.
+        # builds them natively on arm64 runners (the aarch64-linux set) until
+        # it takes these outputs.
         release = mkSet pkgs "release" {
           inherit (p)
             xmtp-sdk-node-linux-x64-gnu
@@ -95,6 +96,26 @@ let
           inherit (p)
             ios-xcframeworks
             xmtp-sdk-node-darwin-arm64
+            ;
+        };
+      };
+    # The native arm64 Linux builds: the arm64 leg of push-backend.yml (the
+    # backend image) and the linux-arm64 legs of build-sdk-node-platforms.yml
+    # (the Node pairs, in the rust shell). Both run on ubuntu-24.04-arm.
+    aarch64-linux =
+      { pkgs, self', ... }:
+      let
+        p = self'.packages;
+      in
+      {
+        dev = mkSet pkgs "dev" {
+          shell-rust = self'.devShells.rust.inputDerivation;
+        };
+        release = mkSet pkgs "release" {
+          inherit (p)
+            backend-image-aarch64-unknown-linux-musl
+            xmtp-sdk-node-linux-arm64-gnu
+            xmtp-sdk-node-linux-arm64-musl
             ;
         };
       };
