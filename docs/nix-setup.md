@@ -53,7 +53,9 @@ eval "$(direnv hook bash)"
 ```
 
 direnv automatically loads the default Nix dev shell when you `cd` into the
-repo. Run `direnv allow` to authorize it and `direnv deny` to revoke.
+repo. Run `direnv allow` to authorize it and `direnv deny` to revoke. `.envrc`
+loads the environment that `dev/nix-shell` caches, so direnv and the wrapper
+share one evaluation; `dev/nix-shell --refresh true` evaluates it again.
 
 The default shell is also used by Zed's Rust language server and default agent
 commands. This keeps native compiler, linker, and SDK settings consistent. Do not
