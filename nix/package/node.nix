@@ -47,6 +47,12 @@ runCommand "xmtp-sdk-node-${napiTarget}"
       cp ${ubrnNative}/runtime-provenance.json "$out/runtime/runtime-provenance.json"
       chmod u+w "$out/lib/${library}" "$out/runtime/${addon}"
     ''
+    # The glibc host library keeps its static symbol table, because the
+    # bindgen reads UniFFI metadata from it (`xmtp-sdk-native.nix`). The
+    # shipped copy does not need it.
+    + lib.optionalString (stdenv.hostPlatform.isLinux && stdenv.hostPlatform.isGnu) ''
+      ${stdenv.cc.bintools}/bin/${stdenv.cc.bintools.targetPrefix}strip --strip-unneeded "$out/lib/${library}"
+    ''
     + lib.optionalString stdenv.hostPlatform.isMusl ''
       patchelf --remove-rpath "$out/lib/${library}"
       patchelf --remove-rpath "$out/runtime/${addon}"
