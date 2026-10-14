@@ -45,6 +45,9 @@ let
               xmtp-sdk-generated-node
               xmtp-sdk-generated-browser
               xmtp-sdk-generated-kotlin
+              # The browser platform proofs copy these test fixtures.
+              xmtp-sdk-wasm-fixture-panic
+              xmtp-sdk-pure-fixture-codec
               xmtp-backend
               backend-image-x86_64-unknown-linux-musl
               ;
