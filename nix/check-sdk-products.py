@@ -20,6 +20,10 @@ let
     ++ (if builtins.hasAttr "ios-xcframeworks" p then [ "xmtp-sdk-generated-swift" ] else []);
 in {
   inherit names abi;
+  # Every output the check reads. The renders and the fast consumer only
+  # build from the host library, the bindgen, and the Android ABI library, so
+  # those are not in the outputs' runtime closures.
+  read = names ++ [ "xmtp-sdk-libs" "xmtp-sdk-bindgen" "xmtp-sdk-android-${abi}" ];
   outputs = builtins.listToAttrs (map (name: { inherit name; value = toString p.${name}; }) names);
   native = toString p.xmtp-sdk-libs;
   bindgen = toString p.xmtp-sdk-bindgen;
@@ -148,8 +152,10 @@ def main():
         )
     )
     print(json.dumps(products, indent=2), flush=True)
+    # Realize every store path the check reads; on CI they substitute from
+    # the sdk_android products job.
     subprocess.run(
-        ["nix", "build", "--no-link", *[".#" + name for name in products["names"]]],
+        ["nix", "build", "--no-link", *[".#" + name for name in products["read"]]],
         cwd=ROOT,
         check=True,
     )
