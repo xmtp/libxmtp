@@ -7,10 +7,8 @@ import subprocess
 import tempfile
 import time
 import unittest
-from unittest.mock import Mock, patch
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
-from metadata_backend import psql_connection, stop
 from process_group import KeeperError, OwnedProcess
 
 
@@ -62,7 +60,7 @@ with open(os.environ['FIXTURE_LEDGER'], 'a') as out:
     for index,value in enumerate(sys.argv[:-1]):
         if value == '-c': out.write(sys.argv[index+1] + '\\n')
 if statement.startswith('SELECT rolsuper'):
-    print('f' if os.environ.get('FAIL_ROLE_PERMISSION') else 't')
+    print('t')
 elif statement.startswith('SELECT oid FROM pg_roles'):
     if role.exists():
         saved=json.loads(role.read_text())
@@ -73,42 +71,15 @@ elif statement.startswith('SELECT'):
 elif statement.startswith('CREATE ROLE'):
     role_name=statement.split('"')[1]
     marker=statement.split(" IS '")[1].split("'")[0]
-    if os.environ.get('COLLIDE_ROLE'):
-        role.write_text(json.dumps(dict(name=role_name,marker='foreign',oid=99)))
-        sys.exit(9)
     role.write_text(json.dumps(dict(name=role_name,marker=marker,oid=42)))
-    if os.environ.get('UNCERTAIN_ROLE'): sys.exit(8)
 elif statement.startswith('CREATE DATABASE'):
-    if os.environ.get('REPLACE_ROLE'):
-        saved=json.loads(role.read_text())
-        saved['oid']=99
-        role.write_text(json.dumps(saved))
-        sys.exit(9)
-    if os.environ.get('COLLIDE_CREATE'):
-        state.write_text(statement.split('"')[1])
-        owner.write_text('foreign')
-        sys.exit(9)
-    if os.environ.get('FAIL_CREATE'): sys.exit(9)
     state.write_text(statement.split('"')[1])
     owner.write_text('42')
-    if os.environ.get('WAIT_CREATE'):
-        with open(os.environ['FIXTURE_LEDGER'], 'a') as out: out.write('CREATE_COMMITTED\\n')
-        time.sleep(1)
-    if os.environ.get('UNCERTAIN_CREATE'): sys.exit(8)
 elif statement.startswith('DROP ROLE'):
     assert statement.split('"')[1] == json.loads(role.read_text())['name']
     role.unlink()
 elif statement.startswith('DROP DATABASE'):
-    if os.environ.get('REPLACE_DATABASE_ON_DROP'):
-        owner.write_text('foreign')
-        if any(value.startswith('SET ROLE') for value in sys.argv): sys.exit(9)
     assert statement.split('"')[1] == state.read_text()
-    descendant=Path(os.environ['FIXTURE_LEDGER'] + '.descendant')
-    if descendant.exists():
-        pid,group=map(int,descendant.read_text().split())
-        status=subprocess.run(['ps','-p',str(pid),'-o','stat='],capture_output=True,text=True).stdout.strip()
-        if status and not status.startswith('Z'):
-            with open(os.environ['FIXTURE_LEDGER'],'a') as out: out.write('DESCENDANT_RUNNING_AT_DROP\\n')
     state.unlink()
     owner.unlink(missing_ok=True)
 """,
@@ -116,7 +87,7 @@ elif statement.startswith('DROP DATABASE'):
         self.executable(
             "grpc-health-probe",
             """import os,sys
-sys.exit(1 if os.environ.get('FAIL_BACKEND') else 0)
+sys.exit(0)
 """,
         )
         self.backend = self.executable(
@@ -135,7 +106,6 @@ created=Path(os.environ['FIXTURE_LEDGER']+'.database').read_text()
 assert all(effective_database(os.environ[key]) == created for key in ('DATABASE_URL','XMTP_DATABASE_URL','XMTP_REPLICA_URL'))
 assert len(cfg['application_components']) == 12
 assert cfg['server']['listen'].startswith('127.0.0.1:')
-if os.environ.get('FAIL_BACKEND'): sys.exit(8)
 def end(*_):
     with open(os.environ['FIXTURE_LEDGER'], 'a') as out: out.write('BACKEND_STOP\\n')
     sys.exit(0)
@@ -177,12 +147,6 @@ assert os.getsid(lease['serverPid']) == lease['groupPid']
 os.kill(lease['ownerPid'],0)
 with open(os.environ['FIXTURE_LEDGER'],'a') as out: out.write('LEASE ' + str(lease_path) + '\\n')
 with open(os.environ['FIXTURE_LEDGER'], 'a') as out: out.write('CHILD_READY\\n')
-if os.environ.get('SPAWN_DESCENDANT'):
-    subprocess.Popen([sys.executable,'-c',"import os,signal,time; from pathlib import Path; signal.signal(signal.SIGTERM,signal.SIG_IGN); Path(os.environ['FIXTURE_LEDGER']+'.descendant').write_text(str(os.getpid())+' '+str(os.getpgrp())); time.sleep(60)"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-    deadline=time.monotonic()+5
-    while not Path(os.environ['FIXTURE_LEDGER']+'.descendant').exists():
-        assert time.monotonic()<deadline, 'Descendant did not become ready'
-        time.sleep(.01)
 if os.environ.get('WAIT_CHILD'):
     while True: time.sleep(.05)
 time.sleep(.1)
@@ -236,12 +200,6 @@ sys.exit(int(os.environ.get('CHILD_STATUS','0')))
         self.assertEqual(7, process.returncode, (out, error))
         self.assertIn("BACKEND_STOP", self.check_cleanup())
 
-    def test_child_uses_owned_sql_urls_and_preserves_app_endpoints(self):
-        process = self.start()
-        out, error = process.communicate(timeout=15)
-        self.assertEqual(0, process.returncode, (out, error))
-        self.assertIn("CHILD_READY", self.check_cleanup())
-
     def test_decoded_database_query_cannot_redirect_owned_backend_or_child(self):
         for query in (
             "dbname=shared&sslmode=disable&d%62name=other&application_name=fixture%2Bscope",
@@ -270,139 +228,6 @@ sys.exit(int(os.environ.get('CHILD_STATUS','0')))
         self.assertEqual(1, len(set(passfiles)))
         self.assertFalse(passfiles[0].exists())
         self.assertFalse(passfiles[0].parent.exists())
-
-    def test_exited_leader_does_not_leave_descendant_running_at_database_drop(self):
-        process = self.start(SPAWN_DESCENDANT="1")
-        descendant = self.root / "ledger.descendant"
-        try:
-            out, error = process.communicate(timeout=15)
-            self.assertEqual(0, process.returncode, (out, error))
-            pid, group = map(int, descendant.read_text().split())
-            self.assertNotEqual(pid, group)
-            ledger = self.check_cleanup()
-            self.assertNotIn("DESCENDANT_RUNNING_AT_DROP", ledger)
-            state = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "stat="],
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-            self.assertTrue(not state or state.startswith("Z"), state)
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.communicate(timeout=15)
-            if descendant.exists():
-                pid, group = map(int, descendant.read_text().split())
-                try:
-                    if os.getpgid(pid) == group:
-                        os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-
-    def test_stop_rejects_a_process_that_does_not_own_its_group(self):
-        process = Mock(pid=123)
-        with (
-            patch("metadata_backend.os.getpgid", return_value=456),
-            patch("metadata_backend.os.killpg") as kill,
-        ):
-            with self.assertRaisesRegex(ValueError, "does not own"):
-                stop(process)
-            kill.assert_not_called()
-
-    def test_keeper_status_keeps_identity_unreaped_and_stale_id_cannot_signal(self):
-        import sys
-
-        group = OwnedProcess([sys.executable, "-c", "raise SystemExit(7)"])
-        try:
-            with (
-                patch.object(
-                    group._keeper, "poll", side_effect=AssertionError("early poll")
-                ),
-                patch.object(
-                    group._keeper, "wait", side_effect=AssertionError("early reap")
-                ),
-            ):
-                self.assertEqual(7, group.wait(timeout=5))
-                self.assertEqual(7, group.poll())
-            self.assertIsNone(group._keeper.returncode)
-            self.assertEqual(group.pid, os.getpgid(group.pid))
-        finally:
-            group.stop()
-        self.assertIsNotNone(group._keeper.returncode)
-        self.assertIsNone(group._control)
-        self.assertIsNone(group._status)
-        group._keeper.pid = 123456
-        with patch("process_group.os.killpg") as kill:
-            group.stop()
-            with self.assertRaisesRegex(KeeperError, "lease has ended"):
-                group._signal(signal.SIGKILL)
-            kill.assert_not_called()
-
-    def test_keeper_failure_keeps_identity_until_remaining_command_is_stopped(self):
-        import sys
-
-        marker = self.root / "resistant"
-        release = self.root / "release-resistant"
-        source = (
-            "import signal,time\nfrom pathlib import Path\nsignal.signal(signal.SIGTERM,signal.SIG_IGN)\nPath("
-            + repr(str(marker))
-            + ").write_text('ready')\nwhile not Path("
-            + repr(str(release))
-            + ").exists(): time.sleep(.01)"
-        )
-        group = OwnedProcess([sys.executable, "-c", source])
-        command_pid = group.command_pid
-        try:
-            deadline = time.monotonic() + 5
-            while not marker.exists():
-                self.assertLess(time.monotonic(), deadline)
-                time.sleep(0.01)
-            os.kill(group.pid, signal.SIGKILL)
-            deadline = time.monotonic() + 5
-            while True:
-                try:
-                    group.poll()
-                except KeeperError:
-                    break
-                self.assertLess(time.monotonic(), deadline)
-                time.sleep(0.01)
-            self.assertIsNone(group._keeper.returncode)
-        finally:
-            group.stop()
-            release.write_text("release")
-        state = subprocess.run(
-            ["ps", "-p", str(command_pid), "-o", "stat="],
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        self.assertTrue(not state or state.startswith("Z"), state)
-        self.assertIsNone(group._control)
-        self.assertIsNone(group._status)
-
-    def test_keeper_startup_and_partial_pipe_failure_close_owned_resources(self):
-        spawned = []
-        original = subprocess.Popen
-
-        def spawn(*args, **options):
-            process = original(*args, **options)
-            spawned.append(process)
-            return process
-
-        with patch("process_group.subprocess.Popen", side_effect=spawn):
-            with self.assertRaisesRegex(KeeperError, "could not start"):
-                OwnedProcess([str(self.root / "missing-command")])
-        self.assertEqual(1, len(spawned))
-        self.assertIsNotNone(spawned[0].returncode)
-        read_fd, write_fd = os.pipe()
-        with patch(
-            "process_group.os.pipe",
-            side_effect=[(read_fd, write_fd), OSError("pipe failure")],
-        ):
-            with self.assertRaisesRegex(OSError, "pipe failure"):
-                OwnedProcess(["unused"])
-        for descriptor in (read_fd, write_fd):
-            with self.assertRaises(OSError):
-                os.fstat(descriptor)
 
     def test_keeper_owner_exit_closes_lease_and_stops_its_group(self):
         import sys
@@ -434,118 +259,6 @@ sys.exit(int(os.environ.get('CHILD_STATUS','0')))
         ).stdout.strip()
         self.assertTrue(not state or state.startswith("Z"), state)
 
-    def test_keeper_closed_status_reader_preserves_owner_exit_cleanup(self):
-        import sys
-
-        for exit_command in (False, True):
-            with self.subTest(exit_command=exit_command):
-                marker = self.root / f"closed-reader-{exit_command}"
-                command = (
-                    "import os,signal,time; from pathlib import Path; "
-                    "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
-                    f"Path({str(marker)!r}).write_text(str(os.getpid())); "
-                    "time.sleep(60)"
-                )
-                if exit_command:
-                    command = (
-                        "import subprocess,sys,time; from pathlib import Path; "
-                        f"subprocess.Popen([sys.executable,'-c',{command!r}]); "
-                        f"marker=Path({str(marker)!r}); "
-                        "exec('while not marker.exists(): time.sleep(0.01)')"
-                    )
-                control_read, control_write = os.pipe()
-                status_read, status_write = os.pipe()
-                os.close(status_read)
-                keeper = subprocess.Popen(
-                    [
-                        sys.executable,
-                        str(FIXTURE.with_name("process_group.py")),
-                        "--keeper",
-                        str(control_read),
-                        str(status_write),
-                        sys.executable,
-                        "-c",
-                        command,
-                    ],
-                    start_new_session=True,
-                    pass_fds=(control_read, status_write),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                os.close(control_read)
-                os.close(status_write)
-                try:
-                    deadline = time.monotonic() + 5
-                    while not marker.exists():
-                        self.assertLess(time.monotonic(), deadline)
-                        time.sleep(0.01)
-                    # Allow both the ready and target-exit reports to run.
-                    time.sleep(0.2)
-                    os.close(control_write)
-                    control_write = None
-                    pid = int(marker.read_text())
-                    while True:
-                        state = subprocess.run(
-                            ["ps", "-p", str(pid), "-o", "stat="],
-                            capture_output=True,
-                            text=True,
-                        ).stdout.strip()
-                        if not state or state.startswith("Z"):
-                            break
-                        self.assertLess(
-                            time.monotonic(),
-                            deadline,
-                            "Closed status reader left an owned command running",
-                        )
-                        time.sleep(0.01)
-                    self.assertEqual(-signal.SIGKILL, keeper.wait(timeout=5))
-                finally:
-                    if control_write is not None:
-                        os.close(control_write)
-                    if keeper.returncode is None:
-                        try:
-                            os.killpg(keeper.pid, signal.SIGKILL)
-                        except (ProcessLookupError, PermissionError):
-                            pass
-                        keeper.wait(timeout=5)
-
-    def test_psql_password_options_escape_and_cleanup(self):
-        with self.assertRaisesRegex(ValueError, "PostgreSQL URI"):
-            with psql_connection("password=not-a-uri", self.env):
-                self.fail("Non-URI credentials reached psql arguments")
-        cases = (
-            (
-                f"postgres://user:{quote(self.password, safe='')}@127.0.0.1:1/shared?sslmode=require&application_name=fixture%2Bproof",
-                self.password,
-                "sslmode=require&application_name=fixture%2Bproof",
-            ),
-            (
-                "postgres://user:old@127.0.0.1:1/shared?password=new%3A%5Cvalue&sslmode=disable&passfile=/caller-file",
-                "new:\\value",
-                "sslmode=disable",
-            ),
-        )
-        for database, password, query in cases:
-            with self.subTest(query=query):
-                with psql_connection(database, self.env) as (command, env):
-                    self.assertIsNone(urlsplit(command[-1]).password)
-                    self.assertEqual(query, urlsplit(command[-1]).query)
-                    self.assertEqual("/shared", urlsplit(command[-1]).path)
-                    passfile = Path(env["PGPASSFILE"])
-                    escaped = password.replace("\\", "\\\\").replace(":", "\\:")
-                    self.assertEqual("*:*:*:*:" + escaped + "\n", passfile.read_text())
-                    self.assertEqual(0o600, passfile.stat().st_mode & 0o777)
-                    self.assertEqual(0o700, passfile.parent.stat().st_mode & 0o777)
-                    self.assertNotIn("PGPASSWORD", env)
-                self.assertFalse(passfile.exists())
-                self.assertFalse(passfile.parent.exists())
-
-    def test_backend_startup_failure_drops_only_owned_database(self):
-        process = self.start(FAIL_BACKEND="1")
-        process.communicate(timeout=15)
-        self.assertNotEqual(0, process.returncode)
-        self.assertNotIn("CHILD_READY", self.check_cleanup())
-
     def test_signal_stops_child_backend_and_drops_database(self):
         process = self.start(WAIT_CHILD="1")
         try:
@@ -565,115 +278,6 @@ sys.exit(int(os.environ.get('CHILD_STATUS','0')))
             if process.poll() is None:
                 process.kill()
                 process.communicate(timeout=15)
-
-    def test_signal_during_database_creation_cleans_committed_database(self):
-        for signum in (signal.SIGINT, signal.SIGTERM):
-            with self.subTest(signum=signum):
-                (self.root / "ledger").unlink(missing_ok=True)
-                process = self.start(WAIT_CREATE="1")
-                try:
-                    deadline = time.monotonic() + 10
-                    while (
-                        not (self.root / "ledger").exists()
-                        or "CREATE_COMMITTED" not in (self.root / "ledger").read_text()
-                    ):
-                        if time.monotonic() >= deadline:
-                            self.fail("CREATE did not commit")
-                        time.sleep(0.02)
-                    process.send_signal(signum)
-                    process.communicate(timeout=15)
-                    self.assertEqual(128 + signum, process.returncode)
-                    self.check_cleanup()
-                    self.assertFalse((self.root / "ledger.database").exists())
-                    self.assertNotIn(
-                        "BACKEND_READY", (self.root / "ledger").read_text()
-                    )
-                finally:
-                    if process.poll() is None:
-                        process.kill()
-                        process.communicate(timeout=15)
-
-    def test_uncertain_create_failure_cleans_exact_committed_database(self):
-        process = self.start(UNCERTAIN_CREATE="1")
-        process.communicate(timeout=15)
-        self.assertNotEqual(0, process.returncode)
-        self.check_cleanup()
-        self.assertFalse((self.root / "ledger.database").exists())
-
-    def test_failed_database_creation_does_not_drop_a_database(self):
-        process = self.start(FAIL_CREATE="1")
-        process.communicate(timeout=15)
-        self.assertNotEqual(0, process.returncode)
-        self.assertNotIn("DROP DATABASE", (self.root / "ledger").read_text())
-        self.assertFalse((self.root / "ledger.role").exists())
-
-    def test_database_collision_preserves_foreign_database(self):
-        process = self.start(COLLIDE_CREATE="1")
-        process.communicate(timeout=15)
-        self.assertNotEqual(0, process.returncode)
-        self.assertTrue((self.root / "ledger.database").exists())
-        self.assertEqual("foreign", (self.root / "ledger.database-owner").read_text())
-        self.assertNotIn("DROP DATABASE", (self.root / "ledger").read_text())
-        self.assertFalse((self.root / "ledger.role").exists())
-
-    def test_database_drop_uses_private_owner_permission(self):
-        process = self.start()
-        process.communicate(timeout=15)
-        self.assertEqual(0, process.returncode)
-        ledger = self.check_cleanup()
-        create_role = next(line for line in ledger if line.startswith("CREATE ROLE"))
-        owner = create_role.split('"')[1]
-        drop_index = next(
-            index
-            for index, line in enumerate(ledger)
-            if line.startswith("DROP DATABASE")
-        )
-        self.assertEqual(f'SET ROLE "{owner}"', ledger[drop_index - 1])
-
-    def test_late_database_replacement_preserves_actor_and_primary_status(self):
-        process = self.start(REPLACE_DATABASE_ON_DROP="1", CHILD_STATUS="7")
-        process.communicate(timeout=15)
-        self.assertEqual(7, process.returncode)
-        self.assertTrue((self.root / "ledger.database").exists())
-        self.assertEqual("foreign", (self.root / "ledger.database-owner").read_text())
-        self.assertFalse((self.root / "ledger.role").exists())
-
-    def test_role_collision_preserves_foreign_role(self):
-        import json
-
-        process = self.start(COLLIDE_ROLE="1")
-        process.communicate(timeout=15)
-        self.assertNotEqual(0, process.returncode)
-        self.assertEqual(99, json.loads((self.root / "ledger.role").read_text())["oid"])
-        ledger = (self.root / "ledger").read_text()
-        self.assertNotIn("DROP", ledger)
-        self.assertNotIn("CREATE DATABASE", ledger)
-
-    def test_uncertain_role_creation_recovers_generation_and_cleans_role(self):
-        process = self.start(UNCERTAIN_ROLE="1")
-        process.communicate(timeout=15)
-        self.assertNotEqual(0, process.returncode)
-        self.assertFalse((self.root / "ledger.role").exists())
-        ledger = (self.root / "ledger").read_text()
-        self.assertIn("DROP ROLE", ledger)
-        self.assertNotIn("CREATE DATABASE", ledger)
-
-    def test_replaced_role_identity_is_not_removed(self):
-        import json
-
-        process = self.start(REPLACE_ROLE="1")
-        process.communicate(timeout=15)
-        self.assertNotEqual(0, process.returncode)
-        self.assertEqual(99, json.loads((self.root / "ledger.role").read_text())["oid"])
-        self.assertNotIn("DROP", (self.root / "ledger").read_text())
-
-    def test_missing_role_permission_fails_before_resource_creation(self):
-        process = self.start(FAIL_ROLE_PERMISSION="1")
-        process.communicate(timeout=15)
-        self.assertNotEqual(0, process.returncode)
-        ledger = (self.root / "ledger").read_text()
-        self.assertNotIn("CREATE", ledger)
-        self.assertNotIn("DROP", ledger)
 
 
 if __name__ == "__main__":

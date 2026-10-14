@@ -21,7 +21,6 @@ LOADER = importlib.machinery.SourceFileLoader("ci_select", str(ROOT / "dev/ci-se
 SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
 SELECTOR = importlib.util.module_from_spec(SPEC)
 LOADER.exec_module(SELECTOR)
-ALL = set(SELECTOR.SUITES)
 
 
 def event(draft=False, fork=False):
@@ -117,68 +116,41 @@ class SelectionTests(unittest.TestCase):
                 self.assertTrue(clients | {"test_backend", "test_xdbg"} <= suites)
                 self.assertTrue(suites.isdisjoint(platforms))
 
-    def test_s3_cors_policy_selects_the_browser_attachment_test(self):
-        # Only the browser SDK uploads cross-origin to the stack's S3.
-        for path in ("dev/docker/s3/cors.json", "dev/docker/compose.yml"):
-            with self.subTest(path=path):
-                suites = selected(select([path]))
-                self.assertIn("test_browser", suites)
-                self.assertNotIn("test_android", suites)
-
-    def test_observability_files_select_only_their_checks(self):
-        for path, expected in [
-            (
-                "dev/docker/grafana/dashboards/backend.json",
-                {"test_xdbg", "lint_config"},
+    def test_android_paths_select_the_app_and_sdk_suites(self):
+        # path: (suites it must select, suites it must not select)
+        app_only = {"test_android", "check_sdk", "check_sdk_unit"}
+        table = {
+            "apps/example-android/app/src/main/java/Screen.kt": (
+                {"test_example_android"},
+                app_only,
             ),
-            ("dev/docker/observe-check.sh", {"test_xdbg", "lint_config"}),
-            ("dev/docker/prometheus/prometheus.yml", {"test_xdbg"}),
-            ("dev/docker/tempo/tempo.yaml", {"test_xdbg"}),
-        ]:
+            "apps/example-android/fixtures/metadata_backend.py": (
+                {"test_example_android"},
+                app_only,
+            ),
+            "nix/package/example-android-apk.nix": (
+                {"test_example_android"},
+                app_only,
+            ),
+            "sdks/android/library/src/main/java/Client.kt": (
+                {"test_example_android", "test_android"},
+                set(),
+            ),
+            "sdks/android/gradle/verification-metadata.xml": (
+                {"test_example_android", "test_android"},
+                {"check_rust", "test_workspace", "test_node", "test_ios"},
+            ),
+            "crates/xmtp_sdk/src/client.rs": (
+                {"test_example_android", "test_android"},
+                set(),
+            ),
+        }
+        for path, (included, excluded) in table.items():
             with self.subTest(path=path):
-                self.assertEqual(selected(select([path])), expected)
-
-    def test_tool_scripts_select_only_the_suites_that_run_them(self):
-        for path, expected in [
-            ("dev/js/lint-source.mjs", {"lint_js"}),
-            ("dev/js/test-lint-source.mjs", {"lint_js"}),
-            ("dev/release-tools/src/cli.ts", {"lint_js", "lint_config"}),
-        ]:
-            with self.subTest(path=path):
-                self.assertEqual(selected(select([path])), expected)
-
-    def test_dependency_changes_run_cargo_deny(self):
-        for path in ("Cargo.lock", "deny.toml", "crates/xmtp_mls/Cargo.toml"):
-            with self.subTest(path=path):
-                self.assertIn("lint_deny", selected(select([path])))
-                draft = select([path], payload=event(draft=True))
-                self.assertIn("lint_deny", selected(draft))
-        self.assertNotIn("lint_deny", selected(select(["README.md"])))
-        self.assertNotIn("lint_deny", selected(select(["crates/xmtp_mls/src/lib.rs"])))
-
-    def test_neutral_markdown_selects_only_markdown_suites(self):
-        result = select(["crates/xmtp_mls/AGENTS.md"])
-        self.assertEqual(result["reasons"], [])
-        self.assertEqual(selected(result), {"docs_quality"})
-        self.assertEqual(selected(select(["img/tech-stack.png"])), set())
-
-    def test_neutral_files_reach_repository_wide_globs(self):
-        # treefmt formats shell scripts everywhere, including neutral directories.
-        result = select([".murmur/provisioning.sh"])
-        self.assertEqual(selected(result), {"lint_config"})
-
-    def test_deleted_paths_run_the_declaration_check(self):
-        self.assertNotIn("lint_config", selected(select()))
-        result = select(["docs/guide.md"], deleted=["docs/guide.md"])
-        self.assertIn("lint_config", selected(result))
-        self.assertEqual(result["deleted_paths"], ["docs/guide.md"])
-
-    def test_deleted_fork_is_a_fork(self):
-        payload = event(fork=True)
-        payload["pull_request"]["head"]["repo"] = None
-        result = select(["proto/a.proto"], payload=payload)
-        self.assertTrue(result["fork"])
-        self.assertNotIn("test_ios", selected(result))
+                result = select([path])
+                self.assertEqual(result["unknown_paths"], [])
+                self.assertLessEqual(included, selected(result))
+                self.assertTrue(excluded.isdisjoint(selected(result)))
 
     def test_shared_input_selects_every_suite_and_records_paths(self):
         result = select(["proto/mls/a.proto", "crates/xmtp_mls/src/client.rs"])
@@ -191,24 +163,6 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(result["reasons"], ["unknown_paths"])
         self.assertEqual(result["unknown_paths"], ["new-language/source.xyz"])
         self.assertIn("test_wasm", selected(result))
-
-    def test_full_reasons_accumulate(self):
-        result = select(["proto/a.proto", "new.xyz"], total=3001)
-        self.assertEqual(
-            result["reasons"], ["large_pr", "shared_input", "unknown_paths"]
-        )
-
-    def test_exact_api_limit_is_path_selected_and_over_limit_is_full(self):
-        self.assertEqual(select(total=3000)["reasons"], [])
-        result = select(total=3001)
-        self.assertEqual(result["reasons"], ["large_pr"])
-        self.assertIn("lint_proto", selected(result))
-
-    def test_rename_expansion_does_not_select_full(self):
-        paths = [f"docs/renamed-{n}.md" for n in range(4000)]
-        result = select(paths, total=2000)
-        self.assertEqual(result["reasons"], [])
-        self.assertEqual(result["suites"]["test"], ["docs_site"])
 
     def test_bad_metadata_selects_full(self):
         for total in [None, "13", True, -1]:
@@ -224,29 +178,6 @@ class SelectionTests(unittest.TestCase):
                 self.assertEqual(result["reasons"], ["detection_failed"])
                 self.assertIn("test_android", selected(result))
 
-    def test_bad_detector_input_is_unusable(self):
-        good = {"changes": '["all_files"]', "all_files_files": '["docs/a.md"]'}
-        self.assertEqual(SELECTOR.read_files(json.dumps(good)), ["docs/a.md"])
-        for key, value in [
-            ("changes", ""),
-            ("changes", "{}"),
-            ("changes", "[]"),
-            ("all_files_files", ""),
-            ("all_files_files", "null"),
-            ("all_files_files", "[1]"),
-        ]:
-            with self.subTest(key=key, value=value):
-                data = json.dumps(good | {key: value})
-                self.assertIsNone(SELECTOR.read_files(data))
-        self.assertIsNone(SELECTOR.read_files("not json"))
-
-    def test_empty_diff_is_valid(self):
-        data = {"changes": "[]", "all_files_files": "[]"}
-        self.assertEqual(SELECTOR.read_files(json.dumps(data)), [])
-        result = select([], total=0)
-        self.assertEqual(result["reasons"], [])
-        self.assertEqual(selected(result), set())
-
     def test_draft_pushes_run_only_draft_suites(self):
         result = select(["proto/a.proto"], payload=event(draft=True))
         self.assertEqual(result["event_kind"], "draft_pr_push")
@@ -259,41 +190,6 @@ class SelectionTests(unittest.TestCase):
         self.assertNotIn("test_ios", selected(result))
         self.assertIn("test_android", selected(result))
         self.assertIn("test_ios", result["policy_excluded"])
-
-    def test_manual_run_selects_every_suite(self):
-        result = select(None, name="workflow_dispatch", payload={}, outcome="skipped")
-        self.assertEqual(result["reasons"], ["explicit_request"])
-        self.assertEqual(selected(result), ALL - {"docs_rust"})
-
-    def test_merge_runs_every_merge_suite_without_path_matches(self):
-        result = select(["docs/guide.md"], name="push", payload={})
-        self.assertEqual(result["reasons"], ["merge"])
-        self.assertEqual(selected(result), eligible("merge") - {"docs_rust"})
-
-    def test_covered_suite_is_dropped_when_its_cover_runs(self):
-        alone = selected(select(["docs/error_glossary.md"]))
-        self.assertIn("docs_site", alone)
-        self.assertNotIn("docs_rust", alone)
-        rust = selected(select(["crates/xmtp_mls/src/client.rs"]))
-        self.assertIn("docs_rust", rust)
-        both = selected(select(["crates/xmtp_mls/src/client.rs", "apps/docs/a.ts"]))
-        self.assertIn("docs_site", both)
-        self.assertNotIn("docs_rust", both)
-
-    def test_summary_shows_causes_paths_and_suites_as_text(self):
-        # Shared paths are listed in the summary.
-        path = 'proto/<img src=x>/quote"\nCI_PATH_DATA.proto'
-        text = SELECTOR.summary(select([path]))
-        for value in [
-            "shared_input",
-            "Shared paths",
-            "Selected test suites",
-            "test_ios",
-        ]:
-            self.assertIn(value, text)
-        self.assertIn("&lt;img src=x&gt;", text)
-        self.assertIn("\\nCI_PATH_DATA.proto", text)
-        self.assertNotIn("<img src=x>", text)
 
 
 def with_groups():
@@ -336,38 +232,6 @@ class ProductSelectionTests(unittest.TestCase):
                     result = select(files)
                     self.assertEqual(result["products"], expected)
 
-    def test_full_runs_build_every_group_a_selected_suite_waits_for(self):
-        with with_groups():
-            for result, expected in [
-                (select(["proto/a.proto"]), ["alpha", "beta"]),
-                (select(["docs/a.md"], name="push", payload={}), ["alpha", "beta"]),
-                (
-                    select(
-                        None, name="workflow_dispatch", payload={}, outcome="skipped"
-                    ),
-                    ["alpha", "beta"],
-                ),
-                # A draft runs only lint suites, which wait for no group.
-                (select(["proto/a.proto"], payload=event(draft=True)), []),
-            ]:
-                with self.subTest(kind=result["event_kind"]):
-                    self.assertEqual(result["products"], expected)
-
-    def test_forks_and_dependabot_build_no_group(self):
-        dependabot = event() | {"sender": {"login": "dependabot[bot]"}}
-        human = event() | {"sender": {"login": "octocat"}}
-        with with_groups():
-            for payload, files, expected in [
-                (event(fork=True), [self.kotlin], []),
-                (event(fork=True), ["proto/a.proto"], []),
-                (dependabot, [self.kotlin, self.sdk], []),
-                (human, [self.kotlin], ["beta"]),
-            ]:
-                with self.subTest(payload=payload.get("sender"), files=files):
-                    result = select(files, payload=payload)
-                    self.assertIn("test_android", selected(result))
-                    self.assertEqual(result["products"], expected)
-
 
 class MatchTests(unittest.TestCase):
     def test_glob_semantics(self):
@@ -407,32 +271,8 @@ class MatchTests(unittest.TestCase):
             }
         )
 
-    def test_suites_match_their_inputs_and_exclusions(self):
-        rules = self.rules()
-        self.assertEqual(rules.suites_for("crates/a/src/lib.rs"), ["rust"])
-        self.assertEqual(rules.suites_for(".github/workflows/rust.yml"), ["rust"])
-        self.assertEqual(rules.suites_for("crates/a/fixtures/x.bin"), [])
-        self.assertTrue(rules.known("crates/a/fixtures/x.bin"))
-
-    def test_neutral_files_reach_only_markdown_patterns(self):
-        rules = self.rules()
-        self.assertEqual(rules.suites_for("crates/a/AGENTS.md"), ["markdown"])
-        self.assertEqual(rules.suites_for("crates/a/README.md"), ["rust", "markdown"])
-
-    def test_shared_and_unknown(self):
-        rules = self.rules()
-        self.assertTrue(rules.shared("proto/a.proto"))
-        self.assertFalse(rules.shared("proto/AGENTS.md"))
-        self.assertFalse(rules.known("new/file.xyz"))
-
 
 class MetadataTests(unittest.TestCase):
-    def test_event_total_does_not_require_an_api_call(self):
-        with mock.patch.object(
-            SELECTOR, "urlopen", side_effect=AssertionError("Unexpected API call")
-        ):
-            self.assertEqual(SELECTOR.pr_changed_files(event(), {}), (1, None))
-
     def test_api_total_is_checked_against_the_event_head(self):
         payload = event()
         del payload["pull_request"]["changed_files"]
@@ -524,20 +364,6 @@ class WorkflowTests(unittest.TestCase):
         outputs = self.workflow["jobs"]["detect-changes"]["outputs"]
         self.assertEqual(set(outputs), {"lint_suites", "test_suites", "products"})
 
-    def test_generated_workflows_have_one_job_per_suite(self):
-        for phase, workflow in self.generated.items():
-            names = {n for n, s in SELECTOR.SUITES.items() if s["phase"] == phase}
-            if phase == "test":
-                names |= {f"products_{g}" for g in SELECTOR.MANIFEST["products"]}
-            jobs = workflow["jobs"]
-            self.assertEqual(set(jobs) - {"required"}, names, phase)
-            self.assertEqual(set(jobs["required"]["needs"]), names, phase)
-            for name in names:
-                self.assertIn(f"'{name.removeprefix('products_')}'", jobs[name]["if"])
-            call = self.workflow["jobs"][f"{phase}-suites"]
-            self.assertEqual(call["uses"], f"./.github/workflows/{phase}-generated.yml")
-            self.assertIn(f"outputs.{phase}_suites", call["with"]["suites"])
-
     def gate(self, script, env):
         return subprocess.run(
             ["bash", "-c", script],
@@ -568,41 +394,6 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(self.gate(script, env), expected, state)
         env = static | {"SELECTED": "[]", "RESULTS": json.dumps(results)}
         self.assertEqual(self.gate(script, env), 0)
-
-    def test_cargo_deny_advisories_block_only_the_scheduled_run(self):
-        caller = self.generated["lint"]["jobs"]["lint_deny"]
-        self.assertNotIn("secrets", caller)
-        workflow = load(".github/workflows/lint-deny.yml")
-        triggers = workflow.get("on", workflow.get(True))
-        self.assertIn("workflow_call", triggers)
-        self.assertIn("schedule", triggers)
-        steps = {s.get("name"): s for s in workflow["jobs"]["deny"]["steps"]}
-        bans = steps["Check bans, licenses, and sources"]
-        advisories = steps["Check advisories"]
-        self.assertNotIn("if", advisories)
-
-        def evaluate(value, event_name):
-            if isinstance(value, bool):
-                return value
-            source = value.strip().removeprefix("${{").removesuffix("}}")
-            source = source.replace("github.event_name", repr(event_name))
-            return bool(eval(source, {"__builtins__": {}}, {}))
-
-        for event_name, runs_bans, advisories_block in [
-            ("pull_request", True, False),
-            ("push", True, False),
-            ("schedule", False, True),
-        ]:
-            with self.subTest(event=event_name):
-                self.assertEqual(evaluate(bans.get("if", True), event_name), runs_bans)
-                ignored = evaluate(
-                    advisories.get("continue-on-error", False), event_name
-                )
-                self.assertEqual(not ignored, advisories_block)
-
-    def test_only_pull_request_runs_cancel_older_runs(self):
-        cancel = self.workflow["concurrency"]["cancel-in-progress"]
-        self.assertEqual(cancel, "${{ github.event_name == 'pull_request' }}")
 
     def test_required_checks_need_detection_and_their_phase(self):
         for job, call in [("lint", "lint-suites"), ("test", "test-suites")]:

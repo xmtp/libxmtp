@@ -35,7 +35,7 @@ jobs:
       name: web-chat
       url: ${{ steps.deploy.outputs.url }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Check for a newer commit
         id: current
         env:
@@ -51,7 +51,7 @@ jobs:
         if: steps.current.outputs.deploy == 'true'
         with:
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
         if: steps.current.outputs.deploy == 'true'
       - uses: ./.github/actions/setup-js
         if: steps.current.outputs.deploy == 'true'

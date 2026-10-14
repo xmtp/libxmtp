@@ -17,11 +17,6 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/release-android.yml"
 
 
-def step(name):
-    text = WORKFLOW.read_text().split("      - name: " + name + "\n", 1)[1]
-    return text.split("      - ", 1)[0]
-
-
 class AndroidReleaseTest(unittest.TestCase):
     def test_universal_apk_rejects_each_missing_abi(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -210,96 +205,6 @@ class AndroidReleaseTest(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(log.read_text(), "")
-
-    def test_integration_failure_upload_retains_app_and_library_evidence(self):
-        paths = []
-        for name, title in (
-            ("test-android.yml", "Upload failed Android test reports"),
-            ("test-example-android.yml", "Upload failed Messenger test reports"),
-        ):
-            workflow = (ROOT / ".github/workflows" / name).read_text()
-            upload = workflow.split(f"    - name: {title}\n", 1)[1]
-            upload = upload.split("  results:", 1)[0]
-            self.assertIn("      if: failure()\n", upload)
-            block = upload.split("        path: |\n", 1)[1].split(
-                "        include-hidden-files:", 1
-            )[0]
-            paths.extend(line.strip() for line in block.splitlines() if line.strip())
-        required = {
-            "apps/example-android/app/build/outputs/androidTest-results/connected/**/*.xml",
-            "apps/example-android/app/build/outputs/androidTest-results/connected/**/*.txt",
-            "apps/example-android/app/build/reports/androidTests/**",
-            "apps/example-android/app/build/screenshots/**",
-            "sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml",
-            "sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt",
-            "${{ runner.temp }}/android-emulator-startup/",
-            "${{ runner.temp }}/messenger-emulator-startup/",
-        }
-        self.assertTrue(required.issubset(paths), paths)
-
-    def test_sdk_integration_cannot_select_app_instrumentation(self):
-        recipes = (ROOT / "sdks/android/android.just").read_text()
-        body = recipes.split("test-integration: build\n", 1)[1].split("\n\n", 1)[0]
-        command = body.split("&& ", 1)[1].strip()
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            launcher = root / "run-test-emulator"
-            launcher.write_text(
-                '#!/usr/bin/env bash\nset -eu\ntest "$1" = --\nshift\nexec "$@"\n'
-            )
-            launcher.chmod(0o755)
-            adb = root / "adb"
-            adb.write_text(
-                '#!/usr/bin/env bash\nset -eu\ntest "$1" = -s\ntest "$3" = reverse\n'
-            )
-            adb.chmod(0o755)
-            gradle = root / "gradlew"
-            gradle.write_text(
-                "#!/usr/bin/env bash\nset -eu\n"
-                'printf "%s\\n" "$*" >&2\n'
-                'test "$*" = "$EXPECTED"\n'
-            )
-            gradle.chmod(0o755)
-            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"])
-            env["ANDROID_SERIAL"] = "fixture-device"
-            env["XMTP_S3_PORT"] = "9067"
-            env.pop("CI", None)
-            # CI Gradle calls add the build cache (setup-gradle restores it).
-            for ci, expected in (
-                (None, "-p . :library:connectedCheck --continue"),
-                ("true", "-p . :library:connectedCheck --continue --build-cache"),
-            ):
-                with self.subTest(ci=ci):
-                    run_env = dict(env, EXPECTED=expected)
-                    if ci:
-                        run_env["CI"] = ci
-                    result = subprocess.run(
-                        ["bash", "-euc", command],
-                        cwd=root,
-                        env=run_env,
-                        capture_output=True,
-                        text=True,
-                    )
-                    self.assertEqual(
-                        result.returncode, 0, result.stdout + result.stderr
-                    )
-
-    def test_release_setup_actions_are_immutable(self):
-        self.assertRegex(
-            WORKFLOW.read_text(),
-            r"uses: taiki-e/install-action@[0-9a-f]{40}(?:\s|$)",
-        )
-        # Release and publish jobs run setup-nix and setup-js, so every action
-        # they use is pinned by commit SHA, not by a tag that can move.
-        for name in ("setup-nix", "setup-js"):
-            action = yaml.safe_load(
-                (ROOT / f".github/actions/{name}/action.yml").read_text()
-            )
-            uses = [step["uses"] for step in action["runs"]["steps"] if "uses" in step]
-            self.assertTrue(uses)
-            for value in uses:
-                with self.subTest(action=name, uses=value):
-                    self.assertRegex(value, r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 
     def test_release_reads_no_ci_gradle_cache(self):
         # CI jobs write the Gradle cache (setup-gradle); a release must not

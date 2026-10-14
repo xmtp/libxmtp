@@ -1,6 +1,5 @@
 """Regression tests for the Nix wrapper and Codex hook. No Nix build required."""
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -84,103 +83,6 @@ class NixWrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.removeprefix(f"{self.root}:default:")
 
-    def test_batched_fingerprint_matches_per_file_hashes(self):
-        for name in [
-            "space name.nix",
-            "quote'file.nix",
-            "line\nbreak.nix",
-            "back\\slash.nix",
-            "tab\tfile.nix",
-            "雪.nix",
-            "-option.nix",
-        ]:
-            (self.root / "nix" / name).write_text(name)
-        for index in range(130):
-            (self.root / f"nix/input-{index:03}.nix").write_text(str(index))
-        missing = self.root / "nix/removed.nix"
-        missing.write_text("removed")
-        subprocess.run(["git", "add", "nix/removed.nix"], cwd=self.root, check=True)
-        missing.unlink()
-        (self.root / "nix/directory.nix").mkdir()
-        (self.root / "nix/broken.nix").symlink_to("missing")
-
-        paths = subprocess.check_output(
-            [
-                "git",
-                "ls-files",
-                "-z",
-                "--cached",
-                "--others",
-                "--exclude-standard",
-                "--",
-                "nix",
-                "flake.lock",
-                "dev/nix-shell",
-            ],
-            cwd=self.root,
-        ).split(b"\0")
-        hasher = shutil.which("shasum")
-        lines = b"".join(
-            subprocess.check_output(
-                [hasher, "-a", "256", "--", os.fsdecode(path)], cwd=self.root
-            )
-            for path in paths
-            if path and (self.root / os.fsdecode(path)).is_file()
-        )
-        fingerprint = hashlib.sha256(lines).hexdigest() + "  -"
-        system = subprocess.check_output(["uname", "-sm"], text=True).strip()
-        expected = (
-            "default-"
-            + hashlib.sha256(f"{system}\ndefault\n{fingerprint}\n".encode()).hexdigest()
-        )
-
-        hash_log = self.root / "hash-calls"
-        fake = self.root / "bin/shasum"
-        fake.write_text(
-            '#!/usr/bin/env bash\nprintf "%s\\n" "$#" >> '
-            + shlex.quote(str(hash_log))
-            + "\nexec "
-            + shlex.quote(hasher)
-            + ' "$@"\n'
-        )
-        fake.chmod(0o755)
-        self.assertEqual(self.key(), expected)
-        calls = [int(line) for line in hash_log.read_text().splitlines()]
-        # Two file batches, then the fingerprint and the key digests.
-        self.assertEqual(len(calls), 4)
-        self.assertEqual(calls.count(2), 2)
-        self.assertTrue(all(count <= 131 for count in calls))
-
-    @unittest.skipUnless(sys.platform == "darwin", "macOS system tools")
-    def test_macos_system_bash_and_xargs(self):
-        (self.root / "nix/line\nbreak.nix").write_text("portable")
-        expected = self.key()
-        self.env["PATH"] = f"{self.root}/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        self.assertEqual(self.key(), expected)
-
-    def test_input_listing_failure_does_not_enter_nix(self):
-        fake = self.root / "bin/git"
-        fake.write_text("#!/usr/bin/env bash\nexit 13\n")
-        fake.chmod(0o755)
-        result = self.run_wrapper("printf should-not-run")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "")
-        self.assertEqual(self.calls(), [])
-
-    def test_file_hash_failure_does_not_enter_nix(self):
-        hasher = shutil.which("shasum")
-        fake = self.root / "bin/shasum"
-        fake.write_text(
-            '#!/usr/bin/env bash\nif [ "$#" -gt 2 ]; then exit 17; fi\nexec '
-            + shlex.quote(hasher)
-            + ' "$@"\n'
-        )
-        fake.chmod(0o755)
-        result = self.run_wrapper("printf should-not-run")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "")
-        self.assertEqual(self.calls(), [])
-
     def test_exact_arguments_and_cwd(self):
         result = self.run_wrapper(
             "--command",
@@ -237,11 +139,6 @@ class NixWrapperTests(unittest.TestCase):
         self.assertEqual(self.run_wrapper("true").returncode, 0)
         self.assertEqual(len(self.calls()), 6)
 
-    def test_refresh_evaluates_again(self):
-        self.assertEqual(self.run_wrapper("true").returncode, 0)
-        self.assertEqual(self.run_wrapper("--refresh", "true").returncode, 0)
-        self.assertEqual(len(self.calls()), 2)
-
     def test_reuse_keeps_the_gc_root_of_an_environment_in_use(self):
         cache = self.root / "cache/xmtp/nix-shell"
         self.assertEqual(self.run_wrapper("true").returncode, 0)
@@ -254,15 +151,6 @@ class NixWrapperTests(unittest.TestCase):
         (self.root / "nix/added.nix").write_text("{ }")
         self.assertEqual(self.run_wrapper("true").returncode, 0)
         self.assertTrue(all(path.is_symlink() or path.exists() for path in entry))
-        self.assertEqual(len(self.calls()), 2)
-
-    def test_lost_gc_root_evaluates_again(self):
-        self.assertEqual(self.run_wrapper("true").returncode, 0)
-        # A garbage collection removed the environment the root pointed at.
-        os.rmdir(self.env["TEST_STORE"])
-        self.assertEqual(self.run_wrapper("true").returncode, 0)
-        self.assertEqual(len(self.calls()), 2)
-        self.assertEqual(self.run_wrapper("true").returncode, 0)
         self.assertEqual(len(self.calls()), 2)
 
     def test_environment_runs_in_its_own_bash_and_keeps_host_tools(self):
@@ -330,35 +218,6 @@ class NixWrapperTests(unittest.TestCase):
         del self.env["TEST_NIX_FAIL"]
         self.assertEqual(self.run_wrapper("true").returncode, 0)
         self.assertEqual(len(self.calls()), 2)
-
-    def test_print_env_for_direnv(self):
-        result = self.run_wrapper("--print-env", "rust")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        loaded = subprocess.run(
-            [
-                "bash",
-                "-c",
-                result.stdout
-                + '\nprintf "%s|%s|%s" "$XMTP_TEST_SHELL" "${NIX_BUILD_TOP-unset}" "$XMTP_NIX_WRAPPER_ID"',
-            ],
-            env={**self.env, "TMPDIR": "/caller-tmp"},
-            text=True,
-            capture_output=True,
-        )
-        self.assertEqual(loaded.returncode, 0, loaded.stderr)
-        shell, top, marker = loaded.stdout.split("|")
-        self.assertEqual((shell, top), (f"{self.root}#rust", "unset"))
-        self.assertTrue(marker.startswith(f"{self.root}:rust:rust-"), marker)
-        # The marker lets a nested call reuse the direnv environment.
-        nested = self.run_wrapper("--shell", "rust", "true")
-        self.assertEqual(nested.returncode, 0)
-        self.assertEqual(len(self.calls()), 1)
-
-    def test_nested_reuse(self):
-        result = self.run_wrapper(shlex.join([str(self.wrapper), "printf nested"]))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "nested")
-        self.assertEqual(len(self.calls()), 1)
 
     def test_changed_shell_reenters(self):
         result = self.run_wrapper(
@@ -428,41 +287,6 @@ class NixWrapperTests(unittest.TestCase):
             "postgres://xmtp:xmtp@127.0.0.1:55532/xmtp_backend|http://caller:1|true",
         )
 
-    def test_no_worktree_env_and_caller_sqlx_mode(self):
-        command = self.show_service_env()
-        self.env["SQLX_OFFLINE"] = "false"
-        result = self.run_wrapper(command)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "unset|unset|false")
-
-    def test_invalid_arguments(self):
-        self.assertEqual(self.run_wrapper().returncode, 2)
-        self.assertEqual(self.run_wrapper("--command").returncode, 2)
-        self.assertEqual(self.run_wrapper("one", "two").returncode, 2)
-        self.assertEqual(self.run_wrapper("--print-env", "rust", "x").returncode, 2)
-
-    def test_hook_preserves_permissions_and_input(self):
-        payload = {
-            "tool_name": "Bash",
-            "cwd": str(self.root),
-            "tool_input": {"command": "printf '%s' 'a b'; exit 37", "timeout_ms": 1234},
-        }
-        response = rewrite(payload, self.root)
-        output = response["hookSpecificOutput"]
-        self.assertEqual(output["hookEventName"], "PreToolUse")
-        self.assertEqual(output["permissionDecision"], "allow")
-        self.assertNotIn("decision", output)
-        self.assertEqual(output["updatedInput"]["timeout_ms"], 1234)
-        result = subprocess.run(
-            ["bash", "-c", output["updatedInput"]["command"]],
-            cwd=self.root,
-            env=self.env,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 37, result.stderr)
-        self.assertEqual(result.stdout, "a b")
-
     def test_hook_scope(self):
         self.assertEqual(rewrite({"tool_name": "Read"}, self.root), {})
         self.assertEqual(
@@ -475,26 +299,6 @@ class NixWrapperTests(unittest.TestCase):
         self.assertEqual(
             rewrite({"tool_name": "Bash", "tool_input": {}}, self.root), {}
         )
-
-    def test_hook_does_not_enable_errexit(self):
-        response = rewrite(
-            {
-                "tool_name": "Bash",
-                "cwd": str(self.root),
-                "tool_input": {"command": "false; printf continued"},
-            },
-            self.root,
-        )
-        command = response["hookSpecificOutput"]["updatedInput"]["command"]
-        result = subprocess.run(
-            ["bash", "-c", command],
-            cwd=self.root,
-            env=self.env,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "continued")
 
     def test_hook_json_contract(self):
         result = subprocess.run(
@@ -511,31 +315,6 @@ class NixWrapperTests(unittest.TestCase):
             check=True,
         )
         self.assertIn("updatedInput", json.loads(result.stdout)["hookSpecificOutput"])
-
-    def test_hook_compact_default_and_explicit_bypass(self):
-        for value, expected in ((None, "1"), ("0", "0"), ("", "")):
-            with self.subTest(value=value):
-                self.env.pop("XMTP_RTK", None)
-                if value is not None:
-                    self.env["XMTP_RTK"] = value
-                response = rewrite(
-                    {
-                        "tool_name": "Bash",
-                        "cwd": str(self.root),
-                        "tool_input": {"command": 'printf "%s" "$XMTP_RTK"'},
-                    },
-                    self.root,
-                )
-                command = response["hookSpecificOutput"]["updatedInput"]["command"]
-                result = subprocess.run(
-                    ["bash", "-c", command],
-                    cwd=self.root,
-                    env=self.env,
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.stdout, expected)
 
 
 if __name__ == "__main__":

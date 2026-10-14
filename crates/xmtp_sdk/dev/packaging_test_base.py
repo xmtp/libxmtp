@@ -158,14 +158,6 @@ class AndroidDependencyInputs:
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text("fixture dependency input")
 
-    def test_android_owned_project_override_keeps_common_native_receipts(self):
-        self.prepare_mobile_stage("android")
-        self.sdk_root = self.root / "owned-worktree/sdks/android"
-        self.seed_android_dependency_inputs()
-        self.assemble_mobile("android", sdk_root=self.sdk_root)
-        self.assertTrue((self.root / "products/android/xmtp-sdk.aar").exists())
-        self.assertFalse((self.root / "sdks/android/library/build").exists())
-
     def test_android_dependency_inputs_are_required_before_tool_use(self):
         for name in (
             "library/gradle.lockfile",

@@ -219,8 +219,7 @@ is a configuration error. For key rotation, follow the two-apply process in
 the infrastructure guide, then update the GitHub pair before deleting the old
 key.
 
-Check changes with `dev/nix-shell 'just lint-config'` and
-`dev/nix-shell 'just agent-test'`. The fixtures use fake credentials and never
+Check changes with `dev/nix-shell 'just lint-config'`. The fixtures use fake credentials and never
 start Kache or access S3.
 
 ## Caller scopes

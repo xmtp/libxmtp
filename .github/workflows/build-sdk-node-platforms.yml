@@ -24,7 +24,7 @@ jobs:
       cargo: ${{ steps.matrix.outputs.cargo }}
       load: ${{ steps.matrix.outputs.load }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
           sparse-checkout: nix/sdk-platforms.json
@@ -129,7 +129,7 @@ jobs:
         # them; the arm64 load jobs still test them on arm64.
         include: ${{ fromJSON(needs.plan.outputs.build) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-nix
@@ -144,7 +144,7 @@ jobs:
         run: |
           nix build .#xmtp-sdk-node-"$TARGET" --out-link target/sdk-node-pair
           dev/nix-shell --shell js-node 'python3.11 crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-pair/lib/"$LIBRARY" --addon target/sdk-node-pair/runtime/uniffi-runtime-napi."$TARGET".node --native-provenance target/sdk-node-pair/native-provenance.json --runtime-provenance target/sdk-node-pair/runtime/runtime-provenance.json'
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sdk_node_pair_${{ matrix.target }}
           path: target/sdk-node-platforms
@@ -165,7 +165,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.cargo) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
       # The pair is cached by the source key of its SDK inputs, build recipe
@@ -205,7 +205,7 @@ jobs:
         with:
           targets: ${{ matrix.rustTarget }}
           workspaces: .
-      - uses: crazy-max/ghaction-chocolatey@v4
+      - uses: crazy-max/ghaction-chocolatey@dfdcf5bba9c0a16358a21c13a06ec5c89024b3ac # v4
         if: steps.restore.outputs.cache-hit != 'true'
         with:
           args: install protoc
@@ -256,7 +256,7 @@ jobs:
         with:
           path: target/sdk-node-platforms/${{ matrix.target }}
           key: ${{ steps.restore.outputs.cache-primary-key }}
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sdk_node_pair_${{ matrix.target }}
           path: target/sdk-node-platforms
@@ -272,7 +272,7 @@ jobs:
       # The common binding is the release-profile Nix tree that CI tested.
       XMTP_SDK_BUILD: nix
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-nix
@@ -283,7 +283,7 @@ jobs:
       - uses: ./.github/actions/setup-js
         with:
           cache-mode: ${{ inputs.cache-mode }}
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: sdk_node_pair_*
           merge-multiple: true
@@ -294,7 +294,7 @@ jobs:
         run: dev/nix-shell 'dev/js/sdk-package node'
       - name: Check installed aggregate Node ESM package
         run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs node'
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sdk_node_public
           path: target/sdk-packages/node
@@ -311,14 +311,14 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.load) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: sdk_node_public
           path: target/sdk-packages/node
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22.12.0"
       - name: Installed package on Linux without build-host libraries

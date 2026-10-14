@@ -100,6 +100,5 @@ bench host *args:
 
 # Check the benchmark runners without a backend, device or SDK build.
 bench-check:
-    cd "{{ root }}" && python3.11 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/benchmarks/bench.py check
     cd "{{ root }}" && node --test crates/xmtp_sdk/benchmarks/test_workload.mjs

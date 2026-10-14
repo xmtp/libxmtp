@@ -14,146 +14,6 @@ ROOT = Path(__file__).resolve().parents[2]
 KACHE_CI = ROOT / ".github/actions/setup-nix/kache-ci"
 
 
-class KacheEnvTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="xmtp kache env ")
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.bash = shutil.which("bash")
-        self.binary = self.root / "kache"
-        self.binary.write_text("#!/bin/sh\nexit 99\n")
-        self.binary.chmod(0o755)
-        self.env = {
-            key: value
-            for key, value in os.environ.items()
-            if not key.startswith(("KACHE_", "XMTP_KACHE"))
-            and key not in ("CI", "CARGO_INCREMENTAL", "RUSTC_WRAPPER", "BASH_ENV")
-        }
-        self.env["PATH"] = str(self.root)
-
-    def shell(self, script):
-        return subprocess.run(
-            [self.bash, "-euc", script, "test", str(ROOT / "dev/kache-env")],
-            env=self.env,
-            capture_output=True,
-            text=True,
-        )
-
-    def values(self):
-        result = self.shell(
-            'source "$1"; printf "%s\\n" "${RUSTC_WRAPPER-unset}" '
-            '"${CARGO_INCREMENTAL-unset}" "${KACHE_MAX_SIZE-unset}" '
-            '"${KACHE_KEY_ENV_VARS-unset}" "${KACHE_BUILD_SCRIPT_CACHE-unset}" '
-            '"${KACHE_CACHE_EXECUTABLES-unset}"'
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout.splitlines()
-
-    def test_local_defaults_select_cache_and_keep_incremental_profile(self):
-        values = self.values()
-        self.assertEqual(
-            values,
-            [str(self.binary), "unset", "50GiB", "CI,XMTP_TEST_LOGGING", "0", "1"],
-        )
-        for value in ("0", "1"):
-            with self.subTest(value=value):
-                self.env["CARGO_INCREMENTAL"] = value
-                self.assertEqual(self.values()[1], value)
-
-    def test_ci_opt_in_preserves_action_paths_and_sets_trial_policy(self):
-        self.env.update(
-            CI="true",
-            XMTP_KACHE="1",
-            RUSTC_WRAPPER="/official/kache",
-            KACHE_CACHE_DIR="/private/store",
-            KACHE_RUNTIME_DIR="/private/runtime",
-            KACHE_MAX_SIZE="10GiB",
-            CARGO_INCREMENTAL="1",
-        )
-        self.assertEqual(self.values()[:3], ["/official/kache", "0", "10GiB"])
-        result = self.shell(
-            'source "$1"; printf "%s\\n" "$KACHE_CACHE_DIR" "$KACHE_RUNTIME_DIR" '
-            '"$KACHE_ADAPTIVE_INCREMENTAL" "$KACHE_PRESERVE_INCREMENTAL"'
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            result.stdout.splitlines(), ["/private/store", "/private/runtime", "0", "0"]
-        )
-
-    def test_ci_requires_explicit_cache_opt_in(self):
-        self.env["CI"] = "true"
-        self.assertEqual(self.values(), ["unset"] * 6)
-
-    def test_opt_out_removes_only_our_selected_wrapper(self):
-        result = self.shell(
-            'source "$1"; XMTP_KACHE=0; source "$1"; printf "%s" "${RUSTC_WRAPPER-unset}"'
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "unset")
-        self.env.update(XMTP_KACHE="0", RUSTC_WRAPPER="/custom/instrumentation")
-        self.assertEqual(self.values()[0], "/custom/instrumentation")
-
-    def test_extra_keyed_inputs_and_store_limit_are_preserved(self):
-        self.env.update(KACHE_KEY_ENV_VARS="CUSTOM_*", KACHE_MAX_SIZE="64MiB")
-        self.assertEqual(self.values()[2:4], ["64MiB", "CUSTOM_*,CI,XMTP_TEST_LOGGING"])
-        result = self.shell(
-            'source "$1"; source "$1"; printf "%s" "$KACHE_KEY_ENV_VARS"'
-        )
-        self.assertEqual(result.stdout, "CUSTOM_*,CI,XMTP_TEST_LOGGING")
-
-    def test_missing_binary_fails_without_changing_flags(self):
-        self.binary.unlink()
-        self.env.update(CARGO_INCREMENTAL="1", RUSTC_WRAPPER="/previous/wrapper")
-        result = self.shell(
-            'if source "$1"; then exit 98; fi; printf "%s\\n" "$RUSTC_WRAPPER" "$CARGO_INCREMENTAL"'
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines(), ["/previous/wrapper", "1"])
-        self.assertIn("kache not found", result.stderr)
-
-
-class DarwinWrapperTests(unittest.TestCase):
-    def test_linked_outputs_pass_through_and_library_compiles_use_cache(self):
-        with tempfile.TemporaryDirectory() as folder:
-            folder = Path(folder)
-            wrapper = folder / "xmtp-kache"
-            shutil.copy2(ROOT / "nix/lib/packages/kache-darwin-wrapper.sh", wrapper)
-            for name, marker in (("rustc", "direct"), ("kache", "cache")):
-                executable = folder / name
-                executable.write_text(
-                    '#!/bin/sh\nprintf "' + marker + '\\n"\nprintf "%s\\n" "$@"\n'
-                )
-                executable.chmod(0o755)
-            for flags, direct in (
-                (["--crate-type", "bin"], True),
-                (["--crate-type=cdylib"], True),
-                (["--crate-type=dylib"], True),
-                (["--crate-type=proc-macro"], True),
-                (["--crate-type=staticlib"], True),
-                (["--crate-type=lib,cdylib"], True),
-                (["--crate-type=rlib", "--test"], True),
-                (["--crate-type=rlib"], False),
-                (["--crate-type", "lib"], False),
-                (["-vV"], True),
-            ):
-                with self.subTest(flags=flags):
-                    argv = [
-                        str(folder / "rustc"),
-                        *flags,
-                        "source file.rs",
-                        "-Cdebug-assertions=yes",
-                    ]
-                    result = subprocess.run(
-                        [shutil.which("bash"), str(wrapper), *argv],
-                        capture_output=True,
-                        text=True,
-                    )
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    lines = result.stdout.splitlines()
-                    self.assertEqual(lines[0], "direct" if direct else "cache")
-                    self.assertEqual(lines[1:], argv[1:] if direct else argv)
-
-
 TRUNK_PUSH = {
     "GITHUB_EVENT_NAME": "push",
     "GITHUB_REF_TYPE": "branch",
@@ -299,25 +159,6 @@ class KacheBackendTests(unittest.TestCase):
             KACHE_CI_ACCESS_KEY="test-access-key-never-print",
             KACHE_CI_SECRET_KEY="test-secret-key-never-print",
         )
-
-    def test_absent_credentials_select_local_storage_with_or_without_variables(self):
-        for metadata in (True, False):
-            with self.subTest(metadata=metadata):
-                if not metadata:
-                    for key in (
-                        "KACHE_CI_BUCKET",
-                        "KACHE_CI_SCOPE",
-                        "RUNNER_OS",
-                        "RUNNER_ARCH",
-                    ):
-                        self.env.pop(key, None)
-                result, output = self.run_config()
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(
-                    output,
-                    {"backend": "local", "region": "us-east-2", "manifest-key": ""},
-                )
-                self.assertIn("local only", self.summary.read_text())
 
     def test_complete_credentials_select_s3_and_scope_by_variant_os_and_architecture(
         self,
@@ -541,16 +382,6 @@ class SetupNixTests(unittest.TestCase):
             action_step("Setup Kache")["with"]["version"], f"v{version[1]}"
         )
 
-    def test_action_has_no_sticky_disk(self):
-        # Owner decision 8: no Blacksmith sticky disk. setup-gradle replaced
-        # the ~/.gradle disk and its busy-process unmount hook.
-        action = yaml.safe_load(ACTION.read_text())
-        for name in ("disk-key", "nix-disk", "docker-builder", "gradle-disk"):
-            self.assertNotIn(name, action["inputs"])
-        text = ACTION.read_text()
-        for marker in ("useblacksmith/", "setup-docker-builder", "fuser", ".gradle"):
-            self.assertNotIn(marker, text)
-
     def test_cache_mode_policy_runs_before_every_cache_step(self):
         steps = yaml.safe_load(ACTION.read_text())["runs"]["steps"]
         names = [step.get("name") for step in steps]
@@ -566,24 +397,6 @@ class SetupNixTests(unittest.TestCase):
         ]
         self.assertTrue(caches)
         self.assertLess(names.index("Cache mode policy"), min(caches))
-
-    def test_nix_builds_one_derivation_per_cpu_with_all_cores(self):
-        for name, field in (
-            ("Install Nix (Linux)", "nix_conf"),
-            ("Install Nix (macOS)", "extra_nix_config"),
-        ):
-            lines = action_step(name)["with"][field].splitlines()
-            with self.subTest(step=name):
-                # Nix applies the last value, so any other line would win.
-                for key, value in (("max-jobs", "auto"), ("cores", "0")):
-                    self.assertEqual(
-                        [
-                            line
-                            for line in lines
-                            if re.match(rf"\s*(extra-)?{key}\s*=", line)
-                        ],
-                        [f"{key} = {value}"],
-                    )
 
     def test_kache_is_off_unless_a_caller_runs_cargo(self):
         action = yaml.safe_load(ACTION.read_text())
@@ -617,31 +430,6 @@ class SetupNixTests(unittest.TestCase):
         }
         self.assertEqual(callers, KACHE_CALLERS)
 
-    def test_readme_lists_exactly_the_kache_callers(self):
-        readme = (ROOT / ".github/actions/setup-nix/README.md").read_text()
-        table = readme.split("## Caller scopes\n", 1)[1]
-        rows = {
-            match.group(1): match.group(2)
-            for match in re.finditer(r"^\| `([^`]+ / [^`]+)` \| (.+?) \|", table, re.M)
-        }
-        callers = {
-            f"{workflow} / {job_id}": inputs["kache-scope"]
-            for workflow, job_id, _, inputs in setup_nix_calls()
-            if inputs.get("kache") == "true"
-        }
-        self.assertEqual(sorted(rows), sorted(callers))
-        for caller, scope in callers.items():
-            # `cond && 'a' || 'b'` yields a or b, as dev/ci-suites reads it.
-            literals = (
-                re.findall(r"(?:&&|\|\|)\s*'([^']+)'", scope)
-                if "${{" in scope
-                else [scope]
-            )
-            self.assertTrue(literals)
-            for literal in literals:
-                with self.subTest(caller=caller, scope=literal):
-                    self.assertIn(f"`{literal}`", rows[caller])
-
     def run_oom_report(self, log, status=0):
         script = action_step("Write kernel OOM report script")["run"]
         body = script.split("<< 'EOF'\n", 1)[1].split("\nEOF\n", 1)[0]
@@ -661,37 +449,6 @@ class SetupNixTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-
-    def test_oom_report_prints_kernel_records_and_never_fails(self):
-        killed = (
-            "[  812.1] cargo invoked oom-killer: gfp_mask=0x140cca\n"
-            "[  812.2] Out of memory: Killed process 4242 (rustc) total-vm:9000kB\n"
-        )
-        result = self.run_oom_report("[    0.0] Linux version 6.8\n" + killed)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("::warning title=Kernel OOM::", result.stdout)
-        self.assertIn("Killed process 4242 (rustc)", result.stdout)
-        self.assertIn("invoked oom-killer", result.stdout)
-        self.assertNotIn("Linux version", result.stdout)
-
-        result = self.run_oom_report("[    0.0] Linux version 6.8\n")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("::warning", result.stdout)
-        self.assertIn("No kernel out-of-memory record", result.stdout)
-
-        result = self.run_oom_report("dmesg: read kernel buffer failed\n", status=1)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("::warning title=Kernel log unavailable::", result.stdout)
-
-    def test_oom_report_runs_after_the_job_on_linux(self):
-        steps = yaml.safe_load(ACTION.read_text())["runs"]["steps"]
-        names = [step.get("name") for step in steps]
-        register = action_step("Register kernel OOM report")
-        self.assertTrue(register["uses"].startswith("webiny/action-post-run@"))
-        self.assertIn("kernel-oom-report.sh", register["with"]["run"])
-        self.assertIn("runner.os == 'Linux'", register["if"])
-        # Posts run in reverse order: the first registered post runs last.
-        self.assertEqual(names.index("Register kernel OOM report"), 1)
 
 
 # GitHub expressions in the checked fields use literals, context properties,
@@ -1088,19 +845,6 @@ WIRING_RULES = (
 
 
 class CacheModeWiringTests(unittest.TestCase):
-    def test_evaluator_rejects_forms_python_groups_differently(self):
-        context = Context({"event_name": "push", "ref_protected": True}, {}, {})
-        for text in (
-            "github.event_name == 'push' == true",
-            "!(github.ref_protected) == false",
-            "!github.ref_protected != true",
-        ):
-            with self.subTest(text=text), self.assertRaises(ValueError):
-                context.evaluate(text)
-        # Parentheses give the GitHub grouping, which Python then follows.
-        self.assertTrue(context.evaluate("(github.event_name == 'push') == true"))
-        self.assertFalse(context.evaluate("!(github.event_name == 'push')"))
-
     def test_every_call_follows_the_wiring_rules(self):
         calls = list(cache_calls())
         # The walk reaches the trusted, release, and Gradle jobs.

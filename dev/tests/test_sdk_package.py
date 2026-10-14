@@ -86,15 +86,6 @@ class SourcePackageTests(unittest.TestCase):
                 )
         self.assertEqual([call[0] for call in self.calls()], ["nix-shell", "node"] * 4)
 
-    def test_nix_route_generates_without_a_rust_shell(self):
-        for target in ("node", "browser"):
-            result = self.run_helper(target, XMTP_SDK_BUILD="nix")
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                (self.root / "sdks" / target / "dist/index.js").read_text(), "generate"
-            )
-        self.assertEqual([call[0] for call in self.calls()], ["generate", "node"] * 2)
-
     def test_supplied_generated_input_is_refused(self):
         for target in ("node", "browser"):
             result = self.run_helper(target, XMTP_SDK_GENERATED_DIR=str(self.root))

@@ -43,7 +43,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix),
     # and sdks/ios/dev/bindings fails in CI with another. The image default is
     # older.
@@ -56,13 +56,13 @@ jobs:
       with:
         cache-mode: ${{ inputs.deploy && 'read' || 'ci' }}
         github-token: ${{ github.token }}
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - run: just ios docs apps/docs/generated/reference/swift
     - name: Archive Swift reference
       env:
         COPYFILE_DISABLE: '1'
       run: tar -cf "${RUNNER_TEMP}/docs-swift.tar" -C apps/docs/generated/reference/swift .
-    - uses: actions/upload-artifact@v7
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: docs-swift
         path: ${{ runner.temp }}/docs-swift.tar
@@ -75,14 +75,14 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 45
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     - uses: ./.github/actions/setup-nix
       with:
         cache-mode: ${{ inputs.deploy && 'read' || 'ci' }}
         github-token: ${{ github.token }}
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - run: just android docs-generated
-    - uses: actions/upload-artifact@v7
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: docs-kotlin
         path: sdks/android/library/build/dokka/html
@@ -94,7 +94,7 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       with:
         fetch-depth: 0
         filter: blob:none
@@ -102,13 +102,13 @@ jobs:
       with:
         cache-mode: ${{ inputs.deploy && 'read' || 'ci' }}
         github-token: ${{ github.token }}
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - uses: ./.github/actions/setup-js
       with:
         cache-mode: ${{ inputs.deploy && 'read' || 'ci' }}
     - run: just docs check-agent-docs
     - run: just docs build
-    - uses: actions/upload-artifact@v7
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: docs-site
         path: apps/docs/dist
@@ -132,24 +132,24 @@ jobs:
       NIX_DEVSHELL: docs
       DOCS_SKIP_NATIVE_REFERENCES: ${{ !inputs.deploy && '1' || '' }}
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     - uses: ./.github/actions/setup-nix
       with:
         cache-mode: ${{ inputs.deploy && 'read' || 'ci' }}
         github-token: ${{ github.token }}
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - uses: ./.github/actions/setup-js
       with:
         cache-mode: ${{ inputs.deploy && 'read' || 'ci' }}
-    - uses: actions/download-artifact@v8
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
       with:
         name: docs-site
         path: apps/docs/dist
-    - uses: actions/download-artifact@v8
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
       with:
         name: docs-rust
         path: apps/docs/generated/reference/rust
-    - uses: actions/download-artifact@v8
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
       if: inputs.deploy
       with:
         name: docs-swift
@@ -161,7 +161,7 @@ jobs:
         tar -xf "${RUNNER_TEMP}/docs-swift/docs-swift.tar" -C apps/docs/generated/reference/swift
 
         '
-    - uses: actions/download-artifact@v8
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
       if: inputs.deploy
       with:
         name: docs-kotlin
@@ -172,7 +172,7 @@ jobs:
       run: just docs test-browser
     - name: Check accessibility against the production baseline
       run: dev/nix-shell 'cd apps/docs && node scripts/check-lighthouse.mjs'
-    - uses: actions/upload-artifact@v7
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       if: always()
       with:
         name: docs-browser-results
@@ -182,7 +182,7 @@ jobs:
 
           '
         if-no-files-found: ignore
-    - uses: actions/upload-pages-artifact@v4
+    - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
       if: inputs.deploy
       with:
         path: apps/docs/_site

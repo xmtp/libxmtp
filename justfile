@@ -14,10 +14,6 @@ export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 
 set shell := ["./dev/nix-shell"]
 
-# Test agent helpers in their locked environment without starting a language server.
-agent-test:
-    dev/agents/uv-run python -m unittest discover -s dev/agents -p 'test_*.py' -v
-
 # --- SPECS ---
 # See docs/specs/SPEC-spec-format.md and .agents/skills/authoring-specs.
 

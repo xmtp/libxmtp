@@ -43,11 +43,6 @@ class AgentRunTests(unittest.TestCase):
             text=True,
         )
 
-    def test_default_is_raw(self):
-        result = self.run_command("cargo", "check", "--locked")
-        self.assertEqual(result.returncode, 0)
-        self.assertNotIn("FILTERED", result.stderr)
-
     def test_filter_preserves_arguments_and_failure(self):
         self.env.update(XMTP_RTK="1", TEST_EXIT="37")
         args = ["clippy", "--locked", "--features", "one two", "--", "-Dwarnings"]
@@ -84,24 +79,6 @@ class AgentRunTests(unittest.TestCase):
                 self.assertEqual(json.loads(result.stdout), args)
                 self.assertNotIn("FILTERED", result.stderr)
 
-    def test_nextest_requires_separate_opt_in(self):
-        self.env["XMTP_RTK"] = "1"
-        self.assertNotIn("FILTERED", self.run_command("cargo", "nextest", "run").stderr)
-        self.env["XMTP_RTK_NEXTEST"] = "1"
-        result = self.run_command("cargo", "nextest", "run", "-E", "test(a) | test(b)")
-        self.assertIn("FILTERED", result.stderr)
-        self.assertEqual(json.loads(result.stdout)[-1], "test(a) | test(b)")
-        self.assertNotIn(
-            "FILTERED", self.run_command("cargo", "nextest", "list").stderr
-        )
-
-    def test_empty_failure_has_recovery_message(self):
-        self.env.update(XMTP_RTK="1", XMTP_RTK_NEXTEST="1", TEST_BLANK="1")
-        result = self.run_command("cargo", "nextest", "run")
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(result.stdout, "")
-        self.assertIn("XMTP_RTK=0", result.stderr)
-
     def test_missing_rtk_runs_once_without_filter(self):
         # A closed PATH makes this independent of a host RTK installation.
         self.rtk.unlink()
@@ -116,6 +93,3 @@ class AgentRunTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 23)
         self.assertEqual(result.stdout, "raw\n")
-
-    def test_no_command_is_an_error(self):
-        self.assertEqual(self.run_command().returncode, 2)

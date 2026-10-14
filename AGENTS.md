@@ -88,9 +88,9 @@ port block, and backend image tag, so run `just backend status` for the checkout
 - `dev/nix-shell 'just lint-config'` checks Rust and config format with treefmt.
   It also runs the dev tool tests: `dev/tests/run` runs every `test_*.py` in
   the directories it lists, so a new test there needs no recipe edit. They
-  check CI selection and summaries, Android emulator startup, scoped test
-  teardown, platform selection, clock synchronization, and Docker startup
-  diagnostics with local process fixtures.
+  check CI selection, result gates, action pins, release pushes, cache modes,
+  Android emulator startup and teardown, and Docker startup diagnostics with
+  local process fixtures.
 
 ## Android release workflow
 

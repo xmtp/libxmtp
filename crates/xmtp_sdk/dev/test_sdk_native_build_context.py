@@ -56,45 +56,6 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
                 (self.root / name).write_text("not an input")
             self.assertEqual(REAL_PROVENANCE(), evaluated)
 
-    def test_windows_identity_names_the_commit_and_uncommitted_inputs(self):
-        def git(*args):
-            return subprocess.check_output(
-                ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                cwd=self.root,
-                text=True,
-            ).strip()
-
-        def identity():
-            with patch.object(artifacts.sys, "platform", "win32"):
-                value = REAL_PROVENANCE()
-            self.assertEqual(value["source"], value["generator"])
-            return value["source"]
-
-        source = self.root / "crates/xmtp_sdk/src/lib.rs"
-        source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text("pub fn committed() {}")
-        git("init", "--quiet")
-        git("add", "--all")
-        git("commit", "--quiet", "--no-verify", "--no-gpg-sign", "-m", "fixture")
-        clean = f"commit:{git('rev-parse', 'HEAD')}"
-        self.assertEqual(identity(), clean)
-        # Files outside the SDK inputs, such as a runtime checkout, do not count.
-        (self.root / "ubrn").mkdir()
-        (self.root / "ubrn/file.txt").write_text("other checkout")
-        self.assertEqual(identity(), clean)
-        source.write_text("pub fn edited() {}")
-        edited = identity()
-        self.assertTrue(edited.startswith(clean + "+dirty:"), edited)
-        source.write_text("pub fn committed() {}")
-        added = self.root / "apps/xmtp_sdk_bindgen/runtime/swift/new.swift"
-        added.parent.mkdir(parents=True, exist_ok=True)
-        added.write_text("// first")
-        untracked = identity()
-        self.assertTrue(untracked.startswith(clean + "+dirty:"), untracked)
-        self.assertNotEqual(untracked, edited)
-        added.write_text("// second")
-        self.assertNotIn(identity(), (clean, edited, untracked))
-
     def test_source_key_follows_sdk_inputs_not_commits(self):
         def git(*args):
             return subprocess.check_output(
@@ -208,29 +169,22 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
         finally:
             self.patches[2].start()
 
-    def test_apple_native_build_pins_supported_deployment_floors(self):
-        with (
-            patch.object(artifacts.sys, "platform", "darwin"),
-            patch.dict(
-                os.environ,
-                {
-                    "MACOSX_DEPLOYMENT_TARGET": "14.0",
-                    "IPHONEOS_DEPLOYMENT_TARGET": "17",
-                },
-            ),
-        ):
-            artifacts.build(self.args)
-            self.assertEqual(os.environ["MACOSX_DEPLOYMENT_TARGET"], "11.0")
-            self.assertEqual(os.environ["IPHONEOS_DEPLOYMENT_TARGET"], "14")
-
-    def test_cargo_compiler_inputs_change_native_cache_admission(self):
+    def test_selected_rustc_changes_native_cache_admission(self):
+        """The selected rustc, its version, and its bytes key the native build."""
         names = ("RUSTC", "CARGO_BUILD_RUSTC")
         environment = {
             key: value for key, value in os.environ.items() if key not in names
         }
         compiler = self.root / "fixture-rustc"
-        compiler.write_text("#!/bin/sh\nprintf 'v1\\n'\n")
-        compiler.chmod(0o755)
+        version_file = self.root / "fixture-rustc-version"
+
+        # The version lives in a separate file, so a version change keeps the
+        # compiler bytes and a bytes change keeps the version.
+        def write(version, note=""):
+            version_file.write_text(version + "\n")
+            compiler.write_text(f"#!/bin/sh\ncat '{version_file}'\n# {note}\n")
+            compiler.chmod(0o755)
+
         self.patches[2].stop()
         try:
             for name in names:
@@ -238,80 +192,23 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
                     self.subTest(input=name),
                     patch.dict(os.environ, environment, clear=True),
                 ):
+                    write("v1")
                     self.args.artifacts = self.root / name
                     artifacts.build(self.args)
-                    before = json.loads(
-                        (self.args.artifacts / "artifacts.json").read_text()
-                    )
-                    calls = len(self.calls)
-                    os.environ[name] = str(compiler)
-                    artifacts.build(self.args)
-                    after = json.loads(
-                        (self.args.artifacts / "artifacts.json").read_text()
-                    )
-                    self.assertNotEqual(
-                        before["artifacts"]["native"]["key"],
-                        after["artifacts"]["native"]["key"],
-                    )
-                    self.assertEqual(len(self.calls), calls + 2)
+                    for change in ("select", "version", "bytes"):
+                        calls = len(self.calls)
+                        if change == "select":
+                            os.environ[name] = str(compiler)
+                        elif change == "version":
+                            write("v2")
+                        else:
+                            write("v2", "same version, other bytes")
+                        artifacts.build(self.args)
+                        self.assertEqual(len(self.calls), calls + 2, change)
                     calls = len(self.calls)
                     artifacts.build(self.args)
                     self.assertEqual(len(self.calls), calls)
-        finally:
-            self.patches[2].start()
-
-    def test_selected_compiler_version_changes_rebuild_without_path_change(self):
-        environment = {
-            key: value
-            for key, value in os.environ.items()
-            if key not in ("RUSTC", "CARGO_BUILD_RUSTC")
-        }
-        compiler = self.root / "fixture-rustc"
-        compiler.write_text("#!/bin/sh\nprintf 'fixture rustc version one\\n'\n")
-        compiler.chmod(0o755)
-        self.patches[2].stop()
-        try:
-            for variable in ("RUSTC", "CARGO_BUILD_RUSTC"):
-                with (
-                    self.subTest(input=variable),
-                    patch.dict(os.environ, environment, clear=True),
-                ):
-                    os.environ[variable] = str(compiler)
-                    self.args.artifacts = self.root / variable
-                    artifacts.build(self.args)
-                    calls = len(self.calls)
-                    compiler.write_text("#!/bin/sh\nprintf 'v2\\n'\n")
-                    artifacts.build(self.args)
-                    self.assertEqual(len(self.calls), calls + 2)
-                    compiler.write_text("#!/bin/sh\nprintf 'v1\\n'\n")
-        finally:
-            self.patches[2].start()
-
-    def test_selected_compiler_bytes_change_rebuild_with_same_version(self):
-        compiler = self.root / "fixture-rustc"
-        compiler.write_text(
-            "#!/bin/sh\nprintf 'same version\\n'\n# original compiler\n"
-        )
-        compiler.chmod(0o755)
-        self.patches[2].stop()
-        try:
-            with patch.dict(os.environ, {"RUSTC": str(compiler)}):
-                artifacts.build(self.args)
-                calls = len(self.calls)
-                compiler.write_text(
-                    "#!/bin/sh\nprintf 'same version\\n'\n# changed compiler\n"
-                )
-                artifacts.build(self.args)
-                self.assertEqual(len(self.calls), calls + 2)
-                calls = len(self.calls)
-                artifacts.build(self.args)
-                self.assertEqual(len(self.calls), calls)
-        finally:
-            self.patches[2].start()
-
-    def test_rustc_override_has_precedence_over_cargo_build_rustc(self):
-        self.patches[2].stop()
-        try:
+            # RUSTC wins over CARGO_BUILD_RUSTC, as in cargo.
             with (
                 patch.dict(
                     os.environ,

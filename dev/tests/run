@@ -27,13 +27,6 @@ START_DIRS = (
     "nix/lib",
 )
 
-# Files that match the pattern but are not unit tests. They are never imported.
-EXCLUDED = {
-    "apps/example-android/fixtures/test_metadata_create.py": (
-        "a PostgreSQL fixture runner that parses arguments when imported"
-    ),
-}
-
 # The last stdout line of a directory process: tests run and failed modules.
 SUMMARY = "dev-tests-run-summary"
 
@@ -66,11 +59,7 @@ def run_module(path):
 def run_directory(start):
     """Run the modules of one start directory in this process."""
     directory = ROOT / start
-    files = [
-        path
-        for path in sorted(directory.glob("test_*.py"))
-        if path.relative_to(ROOT).as_posix() not in EXCLUDED
-    ]
+    files = sorted(directory.glob("test_*.py"))
     failed = []
     if not files:
         failed.append((start, "No test_*.py files. Update START_DIRS.\n"))

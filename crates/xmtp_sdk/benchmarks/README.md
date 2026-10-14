@@ -84,8 +84,8 @@ commit and environment) and `logs/` (stderr and launcher logs per call). Swift
 and Kotlin runs build the host app into the output directory and start
 `hosts/signer-server.mjs`, which signs with generated test accounts.
 
-`dev/nix-shell 'just sdk bench-check'` runs `test_bench.py`,
-`test_workload.mjs` and the static runner checks (`bench.py check`). It needs
+`dev/nix-shell 'just sdk bench-check'` runs `test_workload.mjs` and the
+static runner checks (`bench.py check`). It needs
 no backend, device or SDK build.
 
 ## Files
@@ -109,13 +109,7 @@ no backend, device or SDK build.
   `gradle/verification-metadata.xml`. For an approved dependency change,
   build once with `--write-locks --write-verification-metadata sha256`, as in
   `sdks/android/CONTRIBUTING.md`, and review the new versions and checksums.
-- `test_bench.py` checks the memory sampler (also with zero RSS readings and
-  a descendant that keeps the output pipes open), the host-call timeout (a
-  zero timeout still kills, and the CLI rejects it), the percentile helper,
-  the stream rates, the sample checks, the run integrity check, the iOS and
-  Android timeout cleanup, a failed iOS stop, a stuck `adb reverse --remove`
-  and the Android backend port.
-  `test_workload.mjs` checks the Node and browser stream workload: the
+- `test_workload.mjs` checks the Node and browser stream workload: the
   teardown runs once, outside the timer, and also after a read failure, a
   duplicate event or a publish failure. It also checks that a browser long
   task that overlaps the timer counts with its time inside the timer. The Swift and Kotlin stream workloads

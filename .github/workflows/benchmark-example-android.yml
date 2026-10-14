@@ -9,11 +9,11 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 240
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     - uses: ./.github/actions/setup-nix
       with:
         github-token: ${{ github.token }}
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - name: Start backend
       env:
         NIX_DEVSHELL: android
@@ -31,7 +31,7 @@ jobs:
       run: dev/nix-shell 'just example-android performance'
     - name: Upload performance proof
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: messenger-api34-performance
         retention-days: 7

@@ -51,7 +51,7 @@ jobs:
     env:
       NIX_DEVSHELL: ios
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
@@ -139,7 +139,7 @@ jobs:
     outputs:
       version: ${{ needs.build-and-package.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
           fetch-depth: 0
@@ -236,7 +236,7 @@ jobs:
     outputs:
       version: ${{ needs.prepare-release.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

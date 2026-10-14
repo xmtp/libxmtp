@@ -14,7 +14,7 @@ jobs:
       # The slim CI shell: no Rust toolchain, no emulator.
       NIX_DEVSHELL: android-ci
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     - uses: ./.github/actions/setup-nix
       with:
         cache-mode: "ci"
@@ -29,7 +29,7 @@ jobs:
     # restored Gradle User Home, and needs no backend.
     - name: Build and verify the signed universal APK
       run: nix build .#example-android-apk --no-link
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - name: Start backend
       run: dev/nix-shell 'just backend up'
     # One Gradle call: unit tests, Spotless, Android Lint, and every variant
@@ -41,7 +41,7 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 45
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     - uses: ./.github/actions/setup-nix
       with:
         cache-mode: "ci"
@@ -52,7 +52,7 @@ jobs:
         # CI-only Gradle cache: protected trunk pushes write it, and every
         # other run only reads it. Release and deploy jobs never restore it.
         cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - name: Start backend
       env:
         NIX_DEVSHELL: android-ci-emulator
@@ -81,7 +81,7 @@ jobs:
       run: dev/nix-shell 'just example-android test-release-integration'
     - name: Upload failed Messenger test reports
       if: failure()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: messenger-integration-failures
         retention-days: 7
