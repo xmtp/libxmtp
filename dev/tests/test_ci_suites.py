@@ -169,6 +169,11 @@ class RenderTests(unittest.TestCase):
                     self.assertNotIn("secrets", job)
                 elif suite["secrets"] == "kache":
                     self.assertEqual(set(job["secrets"]), set(SUITES.KACHE_SECRETS))
+                elif suite["secrets"] == "cachix-pr":
+                    self.assertEqual(
+                        job["secrets"],
+                        {"CACHIX_PR_AUTH_TOKEN": "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"},
+                    )
                 else:
                     self.assertEqual(job["secrets"], "inherit")
         self.assertEqual(jobs["docs_site"]["permissions"]["pages"], "write")
