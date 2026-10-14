@@ -1,5 +1,5 @@
 use futures::{StreamExt, stream};
-use toxiproxy_rust::proxy::Proxy;
+use xmtp_common::toxiproxy::Proxy;
 
 // _note:_ cannot use async fn in native b/c it creates lifetime errors in
 // tester

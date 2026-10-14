@@ -37,7 +37,7 @@ use std::{
 };
 use tokio::{runtime::Handle, sync::OnceCell};
 xmtp_common::if_native! {
-    use toxiproxy_rust::proxy::{Proxy, ProxyPack};
+    use xmtp_common::toxiproxy::Proxy;
     use xmtp_proto::api_client::{ToxicProxies, ToxicTestClient};
 }
 use xmtp_api::{ApiError, XmtpApi};

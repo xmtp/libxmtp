@@ -36,7 +36,6 @@ test-utils = [
   "dep:futures-executor",
   "dep:mockall",
   "dep:rstest",
-  "dep:toxiproxy_rust",
 ]
 bench = [
   "test-utils",
@@ -120,7 +119,6 @@ rstest = { workspace = true, features = ["async-timeout"], optional = true }
 criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { workspace = true, optional = true }
-toxiproxy_rust = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "fmt",
@@ -161,7 +159,6 @@ openmls_basic_credential.workspace = true
 proptest.workspace = true
 rstest = { workspace = true, features = ["async-timeout"] }
 rstest_reuse.workspace = true
-toxiproxy_rust.workspace = true
 wasm-bindgen-test.workspace = true
 xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_backend = { workspace = true, features = ["test-utils"] }

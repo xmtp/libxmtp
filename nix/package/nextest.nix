@@ -95,14 +95,6 @@ rust.mkCargoDerivation (
     allowedReferences = [ ];
     doInstallCargoArtifacts = false;
   }
-  # The build runs in the sandbox, with the services' sandbox settings. On
-  # Darwin, the toxiproxy tests also need configd: toxiproxy_rust builds a
-  # reqwest 0.11 client, which reads the system proxy settings and panics when
-  # the sandbox denies that lookup.
+  # The build runs with the services' sandbox settings.
   // services.sandbox
-  // {
-    sandboxProfile = services.sandbox.sandboxProfile + ''
-      (allow mach-lookup (global-name "com.apple.SystemConfiguration.configd"))
-    '';
-  }
 )

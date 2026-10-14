@@ -15,4 +15,4 @@ just test workspace -p xmtp_api_grpc streams::   # one module
 ## Gotchas
 
 - Needs `just backend up` (`backend`, `toxiproxy`).
-- `test-utils` pulls `toxiproxy_rust`. Fault tests talk to the `toxiproxy` container.
+- `test-utils` enables the native `xmtp_common` proxy client. Fault tests talk to the `toxiproxy` container.
