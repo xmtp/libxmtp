@@ -5,6 +5,7 @@ import Observation
 	/// Enqueue synchronously after admission. Completion must be delivered on the main actor.
 	func post(tag: String, route: PushRoute, completion: @escaping @MainActor (Bool) -> Void)
 	func remove(tag: String)
+	func remove(conversationID: String)
 	func removeAll()
 }
 
@@ -29,6 +30,7 @@ import Observation
 	private var explicitRegistrationRetry = false
 	private var privacyRevision: UInt64 = 0
 	private var pendingPrivacyWrites = 0
+	private let conversationPrivacy = PushConversationPrivacy()
 	private var posting: Set<String> = []
 	public let owner: PushOwner
 
@@ -150,23 +152,6 @@ import Observation
 		}
 	}
 
-	private func statusText(_ result: PushRegistrationState) -> String {
-		if settingSaveFailed {
-			return "Cannot save notification setting. Try again."
-		}
-		guard notificationsEnabled else { return "Off" }
-		guard permitted() else { return "Off: iOS permission is required" }
-		if tokenRegistrationFailed {
-			return "APNs registration failed. Try again."
-		}
-		guard token != nil else { return "Waiting for APNs token" }
-		switch result {
-		case .enabled: return "On"
-		case .disabled: return "Off"
-		case let .failed(reason): return reason
-		}
-	}
-
 	public func setEnabled(_ value: Bool) {
 		guard configured, valid else { return }
 		invalidatePrivacy()
@@ -190,8 +175,8 @@ import Observation
 		admit: @MainActor () -> Bool = { true },
 	) async -> Bool {
 		guard configured, valid, admit() else { return false }
-		pendingPrivacyWrites += 1; invalidatePrivacy()
-		defer { pendingPrivacyWrites -= 1; privacyRevision &+= 1 }
+		conversationPrivacy.begin(id); publisher.remove(conversationID: id)
+		defer { conversationPrivacy.end(id) }
 		do {
 			guard let conversation = try await gateway.conversation(id: id), valid, admit() else { return false }
 			try await gateway.setEnabled(value, conversationID: id)
@@ -226,12 +211,16 @@ import Observation
 	}
 
 	public func receive(_ envelope: PushEnvelope, lease: PushLease) async -> Bool {
-		guard lease.active, enabled, pendingPrivacyWrites == 0, !posting.contains(envelope.tag),
+		let conversationID = envelope.kind == .group ? envelope.identifier : nil
+		let conversationRevision = conversationPrivacy.revision(for: conversationID)
+		guard conversationPrivacy.admits(conversationID, revision: conversationRevision), lease.active, enabled,
+		      pendingPrivacyWrites == 0, !posting.contains(envelope.tag),
 		      !preferences.hasPosted(envelope.tag) else { return false }
 		let revision = privacyRevision
 		do {
 			guard let route = try await route(for: envelope, lease: lease) else { return false }
-			guard lease.active, enabled, pendingPrivacyWrites == 0, revision == privacyRevision,
+			guard conversationPrivacy.admits(conversationID, revision: conversationRevision),
+			      lease.active, enabled, pendingPrivacyWrites == 0, revision == privacyRevision,
 			      !posting.contains(envelope.tag), !preferences.hasPosted(envelope.tag) else { return false }
 			posting.insert(envelope.tag)
 			let waiter = PushPostWaiter()
@@ -241,7 +230,8 @@ import Observation
 					publisher.post(tag: envelope.tag, route: route) { [weak self] success in
 						guard let self else { waiter.finish(false); return }
 						posting.remove(envelope.tag)
-						var keep = success && lease.active && enabled && pendingPrivacyWrites == 0 && revision == privacyRevision
+						var keep = success && lease.active && enabled && pendingPrivacyWrites == 0 && revision == privacyRevision &&
+							conversationPrivacy.admits(conversationID, revision: conversationRevision)
 						if keep {
 							do { try preferences.recordPosted(envelope.tag) } catch { keep = false }
 						}
@@ -273,12 +263,34 @@ import Observation
 	}
 
 	public func tap(_ route: PushRoute) async -> PushRoute? {
-		guard enabled, route.profileID == owner.session.profileID, pendingPrivacyWrites == 0 else { return nil }
+		let conversationRevision = conversationPrivacy.revision(for: route.conversationID)
+		guard conversationPrivacy.admits(route.conversationID, revision: conversationRevision), enabled,
+		      route.profileID == owner.session.profileID, pendingPrivacyWrites == 0 else { return nil }
 		let revision = privacyRevision
 		if let id = route.conversationID {
 			do { guard try await admittedConversation(id) != nil else { return nil } } catch { return nil }
 		}
-		return enabled && pendingPrivacyWrites == 0 && revision == privacyRevision ? route : nil
+		return enabled && pendingPrivacyWrites == 0 && revision == privacyRevision &&
+			conversationPrivacy.admits(route.conversationID, revision: conversationRevision) ? route : nil
+	}
+}
+
+private extension PushController {
+	func statusText(_ result: PushRegistrationState) -> String {
+		if settingSaveFailed {
+			return "Cannot save notification setting. Try again."
+		}
+		guard notificationsEnabled else { return "Off" }
+		guard permitted() else { return "Off: iOS permission is required" }
+		if tokenRegistrationFailed {
+			return "APNs registration failed. Try again."
+		}
+		guard token != nil else { return "Waiting for APNs token" }
+		switch result {
+		case .enabled: return "On"
+		case .disabled: return "Off"
+		case let .failed(reason): return reason
+		}
 	}
 }
 

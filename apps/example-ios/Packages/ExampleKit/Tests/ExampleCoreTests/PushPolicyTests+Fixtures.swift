@@ -123,6 +123,8 @@ import Testing
 		removed.insert(tag)
 	}
 
+	func remove(conversationID _: String) {}
+
 	func removeAll() {}
 }
 

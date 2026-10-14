@@ -238,6 +238,7 @@ import UserNotifications
 	private let center = UNUserNotificationCenter.current()
 	private let submission = PushSubmissionFence()
 	func post(tag: String, route: PushRoute, completion: @escaping @MainActor (Bool) -> Void) {
+		let expected = submission.capture(tag: tag, conversationID: route.conversationID)
 		let content = UNMutableNotificationContent(); content.title = String(
 			localized: "XMTP Messenger",
 			table: "Push",
@@ -246,9 +247,9 @@ import UserNotifications
 		var info = ["push-profile": route.profileID.uuidString]
 		if let id = route.conversationID {
 			info["push-conversation"] = id
+			info["push-conversation-revision"] = String(expected.conversationRevision)
 		}
 		content.userInfo = info
-		let expected = submission.capture(tag: tag)
 		Task { @MainActor in
 			let pending = await center.pendingNotificationRequests()
 			let delivered = await center.deliveredNotifications()
@@ -273,6 +274,25 @@ import UserNotifications
 		submission.invalidate(tag: tag)
 		center.removePendingNotificationRequests(withIdentifiers: [tag]); center
 			.removeDeliveredNotifications(withIdentifiers: [tag])
+	}
+
+	func remove(conversationID: String) {
+		submission.invalidate(conversationID: conversationID)
+		let expected = submission.capture(tag: "conversation:" + conversationID, conversationID: conversationID)
+		Task { @MainActor in
+			let pending = await center.pendingNotificationRequests()
+			let delivered = await center.deliveredNotifications()
+			let tags = (pending + delivered.map(\.request)).filter { request in
+				let info = request.content.userInfo
+				return submission.shouldRemoveNotification(
+					conversationID: info["push-conversation"] as? String,
+					revision: (info["push-conversation-revision"] as? String).flatMap(UInt64.init),
+					before: expected,
+				)
+			}.map(\.identifier)
+			center.removePendingNotificationRequests(withIdentifiers: tags)
+			center.removeDeliveredNotifications(withIdentifiers: tags)
+		}
 	}
 
 	func removeAll() {
