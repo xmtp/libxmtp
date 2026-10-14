@@ -20,6 +20,7 @@ import org.xmtp.android.example.shared.feature.group.GroupAction
 import uniffi.xmtp_sdk.*
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 
 class NotificationGroupActionInstrumentedTest {
     private val transport =
@@ -35,10 +36,11 @@ class NotificationGroupActionInstrumentedTest {
 
     private suspend fun until(
         stage: String,
+        timeoutMs: Long = 30_000,
         check: () -> Boolean,
     ) {
         try {
-            withTimeout(30_000) { while (!check()) delay(20) }
+            withTimeout(timeoutMs) { while (!check()) delay(20) }
         } catch (error: TimeoutCancellationException) {
             throw AssertionError("Stage: $stage", error)
         }
@@ -51,6 +53,7 @@ class NotificationGroupActionInstrumentedTest {
         val session = app.session
         val store = ViewModelStore()
         val releases = mutableListOf<CompletableDeferred<Unit>>()
+        val beforeEvent = graphRule.observers.beforeEvent
         var model: MessengerViewModel? = null
         var peer: SDKClient? = null
 
@@ -69,12 +72,23 @@ class NotificationGroupActionInstrumentedTest {
             until("current SDK owner projection") { fresh.state.value.inbox == owner.client.inboxId() }
             fresh.foreground(false)
             owner.work.async { notifications.setEnabled(owner, true) }.await()
+            // The native consent event can change privacyRevision after createGroup returns.
+            val allowedConversations = ConcurrentHashMap.newKeySet<String>()
+            graphRule.observers.beforeEvent = { current, event ->
+                if (current.key == owner.key && event is ClientEvent.ConsentChanged &&
+                    event.consentChanged.entityKind == ConsentEntityKind.CONVERSATION &&
+                    event.consentChanged.state == EventConsentState.ALLOWED
+                ) {
+                    allowedConversations.add(event.consentChanged.entity)
+                }
+            }
             val group =
                 owner.client.conversations.createGroup(
                     emptyList(),
                     CreateGroupOptions(name = "Before edit", description = "Before description"),
                 )
             val groupId = group.id()
+            until("group creation consent admitted", timeoutMs = 10_000) { groupId in allowedConversations }
             fresh.dispatch(MessengerAction.ShellFeature(ShellAction.Navigate(AppRoute.ConversationDetails(groupId))))
             until("actual group details") {
                 fresh.group.state.value.conversationId == groupId &&
@@ -92,6 +106,7 @@ class NotificationGroupActionInstrumentedTest {
                 index: Int,
                 verifyPaused: suspend () -> Unit,
             ) {
+                until("notification setup idle", timeoutMs = 10_000) { notifications.isIdle }
                 val entered = CompletableDeferred<Unit>()
                 val release = CompletableDeferred<Unit>().also(releases::add)
                 val finished = CompletableDeferred<Unit>()
@@ -155,6 +170,7 @@ class NotificationGroupActionInstrumentedTest {
             println("GROUP_PUSH_ADMISSION membership=$membership native_writes_complete=true captured_posts=$posts")
         } finally {
             releases.forEach { it.complete(Unit) }
+            graphRule.observers.beforeEvent = beforeEvent
             withContext(NonCancellable) {
                 model?.group?.beforeGroupWrite = { _, _ -> }
                 model?.group?.onGroupActionFinished = {}
