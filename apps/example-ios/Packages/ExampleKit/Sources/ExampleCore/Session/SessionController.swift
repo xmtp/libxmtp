@@ -253,7 +253,6 @@ public enum SessionState: Equatable,
 		}
 	}
 
-
 	private func close() async {
 		if let closing {
 			await closing.value; return
@@ -322,7 +321,10 @@ public enum SessionState: Equatable,
 
 extension SessionController {
 	private func open(
-		_ profile: BackendProfile, generation: UInt64, token: String?, createSecrets: Bool,
+		_ profile: BackendProfile,
+		generation: UInt64,
+		token: String?,
+		createSecrets: Bool,
 		completionIsCurrent: (@MainActor () -> Bool)? = nil,
 	) async throws {
 		try Task.checkCancellation()
