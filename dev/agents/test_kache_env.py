@@ -1059,8 +1059,25 @@ WIRING_RULES = (
         lambda c: c["entry"] in CI_ENTRIES or c["mode"] != "ci",
     ),
     (
-        "setup-js uses the setup-nix mode of its job",
-        lambda c: all(mode == c["mode"] for mode in c["js-modes"]),
+        "setup-js uses the setup-nix mode of its job, or saves the pnpm store "
+        "in a post-merge job with mode read, no writer environment, and no token",
+        lambda c: all(
+            mode == c["mode"]
+            or (
+                mode == "trusted"
+                and c["entry"] == "post-merge.yml"
+                and c["mode"] == "read"
+                and not c["environment"]
+                and not c["trusted-token"]
+                and not c["pr-token"]
+            )
+            for mode in c["js-modes"]
+        ),
+    ),
+    # Package install scripts run arbitrary code.
+    (
+        "a job with the trusted Cachix token installs no packages",
+        lambda c: not c["trusted-token"] or not c["js-modes"],
     ),
     (
         "the Gradle cache is CI-only and written only on trunk pushes",
