@@ -1,0 +1,76 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Other handles": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other handles"
+          }
+        }
+      }
+    },
+    "Remove admin": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove admin"
+          }
+        }
+      }
+    },
+    "Make admin": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make admin"
+          }
+        }
+      }
+    },
+    "Remove from group": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove from group"
+          }
+        }
+      }
+    },
+    "Remove from group?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove from group?"
+          }
+        }
+      }
+    },
+    "Admins and super admins can change roles. Super admins cannot be changed here.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admins and super admins can change roles. Super admins cannot be changed here."
+          }
+        }
+      }
+    },
+    "Member no longer in this group": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Member no longer in this group"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

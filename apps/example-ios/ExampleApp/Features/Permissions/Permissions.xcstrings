@@ -1,0 +1,166 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Members can update group details and add people.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Members can update group details and add people."
+          }
+        }
+      }
+    },
+    "Only admins can update group details and add people.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only admins can update group details and add people."
+          }
+        }
+      }
+    },
+    "Shown when the policies match no preset.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown when the policies match no preset."
+          }
+        }
+      }
+    },
+    "Who can change group settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Who can change group settings"
+          }
+        }
+      }
+    },
+    "A preset makes several policy changes. If one change fails, this screen shows the policies that the group has now.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A preset makes several policy changes. If one change fails, this screen shows the policies that the group has now."
+          }
+        }
+      }
+    },
+    "Current policies": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current policies"
+          }
+        }
+      }
+    },
+    "Only super admins can change permissions.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only super admins can change permissions."
+          }
+        }
+      }
+    },
+    "Add members": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add members"
+          }
+        }
+      }
+    },
+    "Remove members": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove members"
+          }
+        }
+      }
+    },
+    "Add admins": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add admins"
+          }
+        }
+      }
+    },
+    "Remove admins": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove admins"
+          }
+        }
+      }
+    },
+    "Image": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image"
+          }
+        }
+      }
+    },
+    "App data": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App data"
+          }
+        }
+      }
+    },
+    "Metadata": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metadata"
+          }
+        }
+      }
+    },
+    "Add or remove admins": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add or remove admins"
+          }
+        }
+      }
+    },
+    "Name, description, image": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name, description, image"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

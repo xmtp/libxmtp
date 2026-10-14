@@ -92,6 +92,8 @@ public enum SessionState: Equatable,
 	public let fence: SessionFence
 	public private(set) var client: (any SessionClient)?
 	public let scope = SessionScope()
+	public private(set) var backgroundOnly = false
+	public var beforeEnd: (@MainActor () async -> Void)?
 	private var closing: Task<Void, Never>?
 	private var restoring = false
 	private var recoveryProfile: BackendProfile?
@@ -103,11 +105,13 @@ public enum SessionState: Equatable,
 	}
 
 	public func restore() async {
+		// Foreground intent survives an in-flight background-only open.
+		backgroundOnly = false
 		if case .active = state {
-			return
+			backgroundOnly = false; return
 		}
 		guard !restoring else { return }
-		restoring = true; defer { restoring = false }
+		restoring = true; defer { restoring = false }; backgroundOnly = false
 		var expected = fence.currentGeneration()
 		do {
 			let index = try files.loadIndex()
@@ -127,7 +131,7 @@ public enum SessionState: Equatable,
 	/// Retry is an explicit user action; automatic-restore precedence must not block it.
 	public func retryRestore() async {
 		guard !restoring else { return }
-		let generation = fence.reserve()
+		let generation = fence.reserve(); backgroundOnly = false
 		restoring = true; defer { restoring = false }
 		do {
 			let index = try files.loadIndex()
@@ -146,7 +150,48 @@ public enum SessionState: Equatable,
 		} catch { apply(generation) { $0 = .restoreFailed } }
 	}
 
-	// Restores existing local state only. UI collectors must wait until foreground promotion.
+	/// Restores existing local state only. UI collectors must wait until foreground promotion.
+	public func restoreForPush() async -> SessionInfo? {
+		if case let .active(info) = state, fence.accepts(info.key) {
+			return info
+		}
+		guard !restoring else { return nil }
+		restoring = true; defer { restoring = false }
+		var reservedKey: SessionKey?
+		var restoredProfile: BackendProfile?
+		do {
+			let index = try files.loadIndex()
+			guard index.signedIn, index.reset == nil, let profile = index.profiles.first(where: { $0.id == index.activeID }),
+			      profile.inboxID != nil, profile.identity != nil, try files.databaseExists(profile.id),
+			      let generation = fence.reserveRestore() else { return nil }
+			reservedKey = SessionKey(profileID: profile.id, generation: generation)
+			restoredProfile = profile
+			_ = try BackendURL(profile.url)
+			backgroundOnly = true
+			try await open(profile, generation: generation, token: nil, createSecrets: false)
+			guard case let .active(info) = state, fence.accepts(info.key) else { return nil }
+			let fresh = try files.loadIndex()
+			guard fresh.signedIn, fresh.reset == nil, fresh.activeID == profile.id else { await close(); return nil }
+			return info
+		} catch {
+			if let key = reservedKey, fence.currentGeneration() == key.generation {
+				await close()
+				guard fence.currentGeneration() == key.generation else { return nil }
+				_ = fence.releaseRestore(key)
+				recoveryProfile = restoredProfile
+				backgroundOnly = false
+				state = .restoreFailed
+			}
+			return nil
+		}
+	}
+
+	public func pushSessionIsCurrent(_ key: SessionKey) -> Bool {
+		guard fence.accepts(key) else { return false }
+		do {
+			let index = try files.loadIndex(); return index.signedIn && index.reset == nil && index.activeID == key.profileID
+		} catch { return false }
+	}
 
 	public func connect(
 		url: String,
@@ -160,7 +205,7 @@ public enum SessionState: Equatable,
 		let existing = index.profiles.first { BackendURL.parse($0.url)?.value == backend.value }
 		var profile = existing ?? BackendProfile(url: backend.value)
 		profile.name = name
-		let generation = fence.reserve(); onReserved?(generation); state = .opening
+		let generation = fence.reserve(); onReserved?(generation); backgroundOnly = false; state = .opening
 		var missingDatabase = false
 		do {
 			index.signedIn = false
@@ -196,6 +241,7 @@ public enum SessionState: Equatable,
 		let teardown = Task { @MainActor in
 			defer { closing = nil }
 			await scope.cancelAndWait()
+			await beforeEnd?()
 			do { try await old?.disableNotifications() } catch { /* Local disable happens before the network call. */ }
 			do { try await old?.end() } catch { /* Closing is best effort; local cleanup must continue. */ }
 		}

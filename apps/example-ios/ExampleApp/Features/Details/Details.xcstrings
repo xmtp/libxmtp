@@ -1,0 +1,356 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Direct message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct message"
+          }
+        }
+      }
+    },
+    "Add member": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add member"
+          }
+        }
+      }
+    },
+    "Disappearing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disappearing"
+          }
+        }
+      }
+    },
+    "Local name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local name"
+          }
+        }
+      }
+    },
+    "Name on this device": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name on this device"
+          }
+        }
+      }
+    },
+    "Use a local name to find this conversation. Other people do not see this name.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a local name to find this conversation. Other people do not see this name."
+          }
+        }
+      }
+    },
+    "Notifications": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        }
+      }
+    },
+    "Notifications are not configured in this build.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications are not configured in this build."
+          }
+        }
+      }
+    },
+    "Pending": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pending"
+          }
+        }
+      }
+    },
+    "Members": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Members"
+          }
+        }
+      }
+    },
+    "Membership changes stay pending until the group confirms them.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Membership changes stay pending until the group confirms them."
+          }
+        }
+      }
+    },
+    "Shared media and files": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared media and files"
+          }
+        }
+      }
+    },
+    "Media and files": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media and files"
+          }
+        }
+      }
+    },
+    "Group settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group settings"
+          }
+        }
+      }
+    },
+    "Developer tools": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer tools"
+          }
+        }
+      }
+    },
+    "Raw metadata fields for this conversation.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raw metadata fields for this conversation."
+          }
+        }
+      }
+    },
+    "Block conversation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block conversation"
+          }
+        }
+      }
+    },
+    "Leave group": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave group"
+          }
+        }
+      }
+    },
+    "details.localRemovalFootnote": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block removes this conversation from Chats. It does not delete its messages. Leave requests your removal from the group. You leave when the group confirms the change."
+          }
+        }
+      }
+    },
+    "Details": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        }
+      }
+    },
+    "Group name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group name"
+          }
+        }
+      }
+    },
+    "Edit group": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit group"
+          }
+        }
+      }
+    },
+    "Leave group?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave group?"
+          }
+        }
+      }
+    },
+    "Block conversation?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block conversation?"
+          }
+        }
+      }
+    },
+    "Cannot save local name. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot save local name. Try again."
+          }
+        }
+      }
+    },
+    "Handle, Ethereum address, or inbox ID": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handle, Ethereum address, or inbox ID"
+          }
+        }
+      }
+    },
+    "The app finds the inbox for a handle or an address before it adds the member. A handle can start with @.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app finds the inbox for a handle or an address before it adds the member. A handle can start with @."
+          }
+        }
+      }
+    },
+    "Found": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Found"
+          }
+        }
+      }
+    },
+    "No XMTP account matches this recipient.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No XMTP account matches this recipient."
+          }
+        }
+      }
+    },
+    "Enter a handle, Ethereum address, or inbox ID.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a handle, Ethereum address, or inbox ID."
+          }
+        }
+      }
+    },
+    "Enter an Ethereum address with 0x followed by 40 hexadecimal characters.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter an Ethereum address with 0x followed by 40 hexadecimal characters."
+          }
+        }
+      }
+    },
+    "An inbox ID must contain 64 hexadecimal characters.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An inbox ID must contain 64 hexadecimal characters."
+          }
+        }
+      }
+    },
+    "Enter a handle such as nick or nick#2341, an Ethereum address, or an inbox ID.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a handle such as nick or nick#2341, an Ethereum address, or an inbox ID."
+          }
+        }
+      }
+    },
+    "No XMTP account has this handle.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No XMTP account has this handle."
+          }
+        }
+      }
+    },
+    "This address has no XMTP account.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This address has no XMTP account."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

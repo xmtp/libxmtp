@@ -1,6 +1,7 @@
 import SwiftUI
 
 @main struct ExampleApp: App {
+	@UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 	@State private var graph: AppGraph?
 	@State private var failure: String?
 	var body: some Scene {
@@ -20,11 +21,10 @@ import SwiftUI
 					}
 				} else {
 					ProgressView()
-						.task {
-							do { try UITestHooks.resetIfRequested(); graph = try AppGraph() } catch {
-								failure = String(localized: "Cannot open local account storage.", table: "Foundation")
-							}
-						}
+						.task { do { graph = try AppDelegate.ensureGraph() } catch { failure = String(
+							localized: "Cannot open local account storage.",
+							table: "Foundation",
+						) } }
 				}
 			}
 		}

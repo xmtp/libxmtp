@@ -1,12 +1,15 @@
 import CryptoKit
 import ExampleCore
 import Foundation
+import Observation
 
-@MainActor final class ProfilePreferences: ConversationPreferences {
+@MainActor @Observable final class ProfilePreferences: ConversationPreferences, PushPreferences {
 	private let directory: URL
 	private let key: SymmetricKey
 	private var values: FeaturePreferences
 	private var notificationMutes: [String: Bool] = [:]
+	private var postedPushes = PushReceiptWindow()
+	private var pushEnabled = false
 	private var readMarkers: [String: Int64] = [:]
 	var dismissedRequests: Set<String> {
 		values.dismissedRequests
@@ -14,10 +17,6 @@ import Foundation
 
 	var skippedHandle: Bool {
 		values.skippedHandle
-	}
-
-	var serverLabel: String? {
-		values.serverLabel
 	}
 
 	var claimTimes: [String: Date] {
@@ -36,7 +35,44 @@ import Foundation
 			values = FeaturePreferences()
 		}
 		notificationMutes = try read([String: Bool].self, named: "notifications") ?? [:]
+		pushEnabled = try read(Bool.self, named: "notifications-enabled") ?? false
+		if let receipts = try read(PushReceiptWindow.self, named: "notification-receipts") {
+			postedPushes = receipts
+		} else if let legacy = try read([String].self, named: "notifications-posted") {
+			for tag in legacy {
+				postedPushes.record(tag)
+			}
+			try write(postedPushes, named: "notification-receipts")
+			try remove(named: "notifications-posted")
+		}
 		readMarkers = try read([String: Int64].self, named: "read-markers") ?? [:]
+	}
+
+	var serverLabel: String? {
+		values.serverLabel
+	}
+
+	func setServerLabel(_ label: String?) throws {
+		var next = values; next.serverLabel = label; try save(next)
+	}
+
+	var notificationsEnabled: Bool {
+		pushEnabled
+	}
+
+	func setNotificationsEnabled(_ enabled: Bool) throws {
+		try write(enabled, named: "notifications-enabled"); pushEnabled = enabled
+	}
+
+	func hasPosted(_ tag: String) -> Bool {
+		postedPushes.contains(tag)
+	}
+
+	func recordPosted(_ tag: String) throws {
+		var next = postedPushes
+		next.record(tag)
+		try write(next, named: "notification-receipts")
+		postedPushes = next
 	}
 
 	func alias(for id: String) -> String? {
@@ -53,10 +89,6 @@ import Foundation
 
 	func dismissRequest(_ id: String) throws {
 		var next = values; next.dismissedRequests.insert(id); try save(next)
-	}
-
-	func setServerLabel(_ label: String?) throws {
-		var next = values; next.serverLabel = label; try save(next)
 	}
 
 	func skipHandle() throws {
@@ -124,9 +156,9 @@ import Foundation
 }
 
 private struct FeaturePreferences: Codable {
+	var serverLabel: String?
 	var aliases: [String: String] = [:]
 	var dismissedRequests: Set<String> = []
 	var skippedHandle = false
-	var serverLabel: String?
 	var claimTimes: [String: Date] = [:]
 }

@@ -13,7 +13,7 @@ struct MotionPolicy: Equatable, Sendable {
 }
 
 extension EnvironmentValues {
-	@Entry var motionPolicy: MotionPolicy = .init()
+	@Entry var motionPolicy = MotionPolicy()
 }
 
 private struct MessengerMotion: ViewModifier {

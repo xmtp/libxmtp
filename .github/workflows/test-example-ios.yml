@@ -30,7 +30,7 @@ jobs:
         run: dev/nix-shell 'just example-ios build'
       - name: Compile Push configuration
         run: CONFIGURATION=Push dev/nix-shell 'just example-ios build'
-      - name: Check default configuration entitlements
+      - name: Check configuration entitlements
         run: |
           for configuration in Debug Release; do
             settings=$(dev/nix-shell "env -u LD xcodebuild -showBuildSettings -project apps/example-ios/ExampleApp.xcodeproj -scheme ExampleApp -configuration $configuration -sdk iphonesimulator")
@@ -39,6 +39,8 @@ jobs:
               exit 1
             fi
           done
+          push_settings=$(dev/nix-shell "env -u LD xcodebuild -showBuildSettings -project apps/example-ios/ExampleApp.xcodeproj -scheme ExampleApp -configuration Push -sdk iphonesimulator")
+          printf '%s\n' "$push_settings" | grep -Eq '^[[:space:]]*CODE_SIGN_ENTITLEMENTS = ExampleApp/Resources/ExampleApp-Push.entitlements[[:space:]]*$'
       - name: Lint and unit tests
         run: dev/nix-shell 'just example-ios lint && just example-ios test'
       - name: Run simulator journeys

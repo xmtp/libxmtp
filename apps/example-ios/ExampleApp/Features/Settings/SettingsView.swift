@@ -27,7 +27,7 @@ struct SettingsView: View {
 		Form {
 			profileSection
 			serverSection
-			Section("Notifications") { Text("Off: APNs is not configured") }
+			PushSettingsSection(coordinator: graph.push)
 			appearanceSection
 			privacySection
 			SendReviewSection(graph: graph)

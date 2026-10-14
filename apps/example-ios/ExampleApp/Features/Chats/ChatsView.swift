@@ -14,6 +14,8 @@ struct ChatsView: View {
 	var onNavigate: (Route) -> Void
 	var serverName = ""
 	var composeNamespace: Namespace.ID?
+	var selectedID: String?
+	var onMute: ((String, Bool) -> Void)?
 	var body: some View {
 		List {
 			Button { onNavigate(.requests) } label: {
@@ -36,10 +38,26 @@ struct ChatsView: View {
 			}
 			ForEach(Array(store.state.visibleRows.enumerated()), id: \.element.id) { index, row in
 				Button { onNavigate(.chat(row.id)) } label: { ConversationRowView(row: row) }
+					.listRowBackground(selectedID == row.id ? Theme.tint.opacity(0.12) : Color.clear)
+					.accessibilityAddTraits(selectedID == row.id ? .isSelected : [])
 					.onAppear { store.send(.visible(start: index, count: 1)) }
-					.swipeActions {
+					.swipeActions(edge: .trailing) {
 						Button(String(localized: "chats.block", table: "Chats"), role: .destructive) {
 							decisions.send(.requestBlock(row.id))
+						}
+						if let onMute {
+							Button {
+								onMute(row.id, row.muted)
+							} label: {
+								Label(
+									row.muted ? String(localized: "chats.unmute", defaultValue: "Unmute", table: "Chats") : String(
+										localized: "chats.mute",
+										defaultValue: "Mute",
+										table: "Chats",
+									),
+									systemImage: row.muted ? "bell" : "bell.slash",
+								)
+							}
 						}
 					}
 					.contextMenu {

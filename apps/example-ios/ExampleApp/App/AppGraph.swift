@@ -11,6 +11,7 @@ import SwiftUI
 	let files: ProfileFiles
 	let session: SessionController
 	let reads = AsyncLimiter(4)
+	var push: PushCoordinator?
 	var connect: ConnectStore
 	var conversations: ConversationsStore?
 	var requestConversations: ConversationsStore?
@@ -34,6 +35,7 @@ import SwiftUI
 		connect = ConnectStore(probe: SDKBackendProbe(), session: session, owner: routes)
 		// Session restore owns unreadable-index recovery; this is temporary UI styling only.
 		appearance = "system"
+		push = PushCoordinator(graph: self)
 	}
 
 	var serverName: String {
@@ -57,6 +59,7 @@ import SwiftUI
 	}
 
 	func bindSession() async {
+		guard !session.backgroundOnly else { return }
 		guard let info = active else {
 			if session.state == .signedOut {
 				do { appearance = try files.loadIndex().appearance } catch {
@@ -71,7 +74,7 @@ import SwiftUI
 			appearance = try files.loadIndex().appearance
 			try removeAbandonedAttachments(info)
 			let prefs = try loadPreferences(info)
-			guard fence.accepts(info.key),
+			guard await fence.afterCurrent(info.key, operation: { await push?.bind(preferences: prefs) }),
 			      bound == info.key, active?.key == info.key else { return }
 			preferences = prefs
 			installStores(info, preferences: prefs)
@@ -117,7 +120,15 @@ import SwiftUI
 		identityDirectory = IdentityDirectory(queries: identities, valid: { [weak self] in
 			self?.fence.accepts(info.key) == true
 		})
-		let queries = SDKConversationQueries(client: client, limiter: reads, identityDirectory: identityDirectory)
+		let privacyChange: @MainActor @Sendable (Bool) -> Void = { [weak controller = push?.controller] beginning in
+			if beginning {
+				controller?.beginPrivacyChange()
+			} else {
+				controller?.endPrivacyChange()
+			}
+		}
+		let queries = SDKConversationQueries(client: client, limiter: reads, identityDirectory: identityDirectory,
+		                                     privacyChange: privacyChange)
 		conversations = ConversationsStore(session: info.key, fence: fence, routes: routes, queries: queries,
 		                                   preferences: prefs, ownInboxID: info.profile.inboxID ?? "")
 		requestConversations = ConversationsStore(session: info.key, fence: fence, routes: routes, queries: queries,

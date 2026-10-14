@@ -11,6 +11,7 @@ import XmtpSdk
 		self.allowPrivateAttachments = allowPrivateAttachments
 	}
 
+	public var notificationPreflight: @MainActor (UUID) -> Bool = { _ in true }
 	public func client(for key: SessionKey) -> SDKClient? {
 		clients[key]
 	}
@@ -38,6 +39,29 @@ import XmtpSdk
 			credentials: source,
 			allowPrivateAttachments: allowPrivateAttachments,
 		)
+		if let inbox = profile.inboxID, let identity = profile.identity, notificationPreflight(profile.id) {
+			var quiet = options
+			quiet.workers = WorkerOptions(intervals: [WorkerInterval(
+				kind: .taskRunner,
+				intervalNs: nil,
+				jitterNs: nil,
+				enabled: false,
+			)])
+			let preflight = try await SDKClient.build(
+				identity: PublicIdentity(identifier: identity, kind: .ethereum),
+				options: quiet,
+				inboxId: inbox,
+			)
+			do {
+				if try preflight.notificationState() != .disabled {
+					do { try await preflight.disableNotifications() } catch { /* Verify local disable even if offline. */ }
+					guard try preflight.notificationState() == .disabled
+					else { throw SessionError.message("Cannot turn stored notifications off") }
+				}
+				try await preflight.end()
+			} catch { do { try await preflight.end() } catch {}; throw error }
+			guard fence.accepts(key) else { throw SessionError.stale }
+		}
 		let client: SDKClient
 		do {
 			if let inbox = profile.inboxID, let identity = profile.identity {

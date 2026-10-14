@@ -61,6 +61,11 @@ public struct DestinationOrigin: Sendable {
 		generation == key.generation && profileID == key.profileID
 	}
 
+	/// A suspended preparation cannot authorize installation into a replacement session.
+	public func afterCurrent(_ key: SessionKey, operation: @MainActor () async -> Void) async -> Bool {
+		guard accepts(key) else { return false }; await operation(); return accepts(key)
+	}
+
 	public func withCurrent<T>(_ key: SessionKey, _ body: () -> T) -> T? {
 		guard accepts(key) else { return nil }; return body()
 	}

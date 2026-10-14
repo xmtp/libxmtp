@@ -31,15 +31,18 @@ public final class SDKConversationQueries: ConversationQueries, Sendable {
 	private let client: SDKClient
 	private let limiter: AsyncLimiter
 	private let identityDirectory: IdentityDirectory?
+	private let privacyChange: @MainActor @Sendable (Bool) -> Void
 
 	public init(
 		client: SDKClient,
 		limiter: AsyncLimiter,
 		identityDirectory: IdentityDirectory? = nil,
+		privacyChange: @escaping @MainActor @Sendable (Bool) -> Void = { _ in },
 	) {
 		self.client = client
 		self.limiter = limiter
 		self.identityDirectory = identityDirectory
+		self.privacyChange = privacyChange
 	}
 
 	public func list(consent: ConversationConsent, limit: Int) async throws -> [ConversationRecord] {
@@ -124,7 +127,14 @@ public final class SDKConversationQueries: ConversationQueries, Sendable {
 		guard let value = try await limitedConversationLookup(limiter: limiter, lookup: {
 			try await self.client.conversations.getById(id: id)
 		}) else { return }
-		try await value.updateConsentState(state: Self.sdkConsent(consent))
+		await privacyChange(true)
+		do {
+			try await value.updateConsentState(state: Self.sdkConsent(consent))
+		} catch {
+			await privacyChange(false)
+			throw error
+		}
+		await privacyChange(false)
 	}
 
 	private static func sdkConsent(_ value: ConversationConsent) -> ConsentState {
