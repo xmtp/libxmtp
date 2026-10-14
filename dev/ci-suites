@@ -424,8 +424,22 @@ def validate(manifest, root: Path = ROOT, files=None):
         triggers = document.get("on", document.get(True))
         if not isinstance(triggers, dict) or "workflow_call" not in triggers:
             errors.append(f"{name}: {suite['workflow']} is not a reusable workflow")
-        elif (triggers["workflow_call"] or {}).get("inputs"):
-            errors.append(f"{name}: {suite['workflow']} must not take inputs")
+        else:
+            # The generated caller passes no inputs; an optional input keeps its default.
+            inputs = (triggers["workflow_call"] or {}).get("inputs") or {}
+            required = sorted(key for key, spec in inputs.items() if (spec or {}).get("required"))
+            if required:
+                errors.append(f"{name}: {suite['workflow']} must not require inputs {required}")
+        # GitHub rejects the whole run when a called job asks for more than the
+        # suite grants, even when that job's `if` skips it.
+        for job_id, job in (document.get("jobs") or {}).items():
+            permissions = job.get("permissions") or {}
+            if not isinstance(permissions, dict):
+                errors.append(f"{name}: {suite['workflow']} job {job_id} must list permission scopes")
+                continue
+            for scope, level in permissions.items():
+                if PERMISSION_LEVELS[level] > PERMISSION_LEVELS[suite["permissions"].get(scope, "none")]:
+                    errors.append(f"{name}: {suite['workflow']} job {job_id} needs {scope}: {level}")
         if suite["secrets"] == "kache":
             declared = ((triggers or {}).get("workflow_call") or {}).get("secrets") or {}
             missing = [s for s in KACHE_SECRETS if s not in declared]

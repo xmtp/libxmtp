@@ -39,7 +39,7 @@ dev/nix-shell 'gh run download <run-id> --name docs-site --dir apps/docs/dist'
 dev/nix-shell 'gh run download <run-id> --name docs-rust --dir apps/docs/generated/reference/rust'
 ```
 
-For the pull request setup, compose and check without Kotlin and Swift references.
+For the pull request and merge run setup, compose and check without Kotlin and Swift references.
 Keep the same setting for `check-external`, because it composes the site again:
 
 ```sh

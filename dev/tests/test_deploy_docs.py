@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the docs workflow concurrency and its result gate."""
+"""Check the docs workflow, its result gate, and the warm Pages deploy."""
 
 import json
 import os
@@ -12,14 +12,15 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/deploy-docs.yml").read_text())
 JOBS = WORKFLOW["jobs"]
+WARM = yaml.safe_load((ROOT / ".github/workflows/warm.yml").read_text())["jobs"]
+TESTS = yaml.safe_load((ROOT / ".github/workflows/test-generated.yml").read_text())
 
 
-def gate(results, native, deploy):
+def gate(results, native):
     step = JOBS["result"]["steps"][0]
     env = {
         "RESULTS": json.dumps({job: {"result": r} for job, r in results.items()}),
         "NATIVE": json.dumps(native),
-        "DEPLOY": json.dumps(deploy),
     }
     return subprocess.run(
         ["bash", "-c", step["run"]],
@@ -30,10 +31,7 @@ def gate(results, native, deploy):
 
 
 def passing(**changes):
-    results = {
-        job: "success"
-        for job in ("rust", "swift", "kotlin", "site", "compose", "deploy")
-    }
+    results = {job: "success" for job in ("rust", "swift", "kotlin", "site", "compose")}
     return results | changes
 
 
@@ -42,64 +40,105 @@ class ConcurrencyTests(unittest.TestCase):
         # A dispatch on trunk would share it with the merge run's docs call.
         self.assertNotIn("concurrency", WORKFLOW)
 
+    def test_no_docs_job_is_serialized(self):
+        self.assertEqual(
+            [job for job, spec in JOBS.items() if "concurrency" in spec], []
+        )
+
     def test_only_the_pages_deploy_is_serialized_and_never_cancelled(self):
-        grouped = {job for job, spec in JOBS.items() if "concurrency" in spec}
+        grouped = {job for job, spec in WARM.items() if "concurrency" in spec}
         self.assertEqual(grouped, {"deploy"})
         # One fixed group for the one Pages site. A pending deploy waits in
         # the queue and is never replaced, and a running one is never
-        # cancelled: a cancelled job fails the caller's suite.
+        # cancelled: a cancelled job makes the warm run cancelled.
         self.assertEqual(
-            JOBS["deploy"]["concurrency"],
+            WARM["deploy"]["concurrency"],
             {"group": "pages", "cancel-in-progress": False, "queue": "max"},
         )
 
     def test_deploy_timeout_exceeds_the_deploy_pages_wait(self):
         # actions/deploy-pages gives up after 10 minutes by default.
-        self.assertGreater(JOBS["deploy"].get("timeout-minutes", 0), 10)
+        self.assertGreater(WARM["deploy"].get("timeout-minutes", 0), 10)
+
+
+class TrustTests(unittest.TestCase):
+    def test_only_the_warm_workflow_deploys_pages(self):
+        # A called job that asks for pages: write needs that grant from every
+        # caller, even when it is skipped (startup_failure, run 38501491733).
+        for job, spec in JOBS.items():
+            self.assertNotIn("pages", spec.get("permissions") or {}, job)
+        self.assertNotIn("upload-pages-artifact", repr(TESTS))
+        self.assertEqual(
+            WARM["deploy"]["permissions"], {"pages": "write", "id-token": "write"}
+        )
+        self.assertEqual(WARM["deploy"]["environment"]["name"], "github-pages")
+        self.assertEqual(WARM["deploy"]["needs"], "docs")
+
+    def test_warm_docs_build_the_references_after_the_warm_build(self):
+        docs = WARM["docs"]
+        self.assertEqual(docs["uses"], "./.github/workflows/deploy-docs.yml")
+        self.assertEqual(docs["with"], {"deploy": True})
+        self.assertEqual(docs["needs"], "build")
+        # Warm runs are never cancelled, so this runs also after a failed build.
+        self.assertEqual(docs["if"], "${{ !cancelled() }}")
+        self.assertNotIn("permissions", docs)
+
+    def test_merge_run_calls_docs_without_deploy(self):
+        self.assertNotIn("with", TESTS["jobs"]["docs_site"])
+        self.assertFalse(WORKFLOW["on"]["workflow_call"]["inputs"]["deploy"]["default"])
+
+    def test_native_references_and_pages_artifact_follow_the_deploy_input(self):
+        for job in ("swift", "kotlin"):
+            self.assertEqual(JOBS[job]["if"], "inputs.deploy", job)
+        compose = JOBS["compose"]
+        self.assertEqual(
+            compose["env"]["DOCS_SKIP_NATIVE_REFERENCES"],
+            "${{ !inputs.deploy && '1' || '' }}",
+        )
+        gated = [
+            step.get("uses") or step.get("name")
+            for step in compose["steps"]
+            if step.get("if") == "inputs.deploy"
+        ]
+        self.assertEqual(
+            gated,
+            [
+                "actions/download-artifact@v8",
+                "Extract Swift reference",
+                "actions/download-artifact@v8",
+                "actions/upload-pages-artifact@v4",
+            ],
+        )
+        for step in compose["steps"]:
+            self.assertNotIn("event_name", repr(step))
 
 
 class ResultGateTests(unittest.TestCase):
     def test_gate_flags_follow_the_job_conditions(self):
         env = JOBS["result"]["steps"][0]["env"]
-        self.assertEqual(env["DEPLOY"], "${{ " + JOBS["deploy"]["if"] + " }}")
-        self.assertEqual(env["NATIVE"], "${{ " + JOBS["swift"]["if"] + " }}")
-        self.assertEqual(env["NATIVE"], "${{ " + JOBS["kotlin"]["if"] + " }}")
+        # A JSON boolean also when a manual dispatch leaves the input unset.
+        self.assertEqual(env["NATIVE"], "${{ inputs.deploy == true }}")
         self.assertEqual(env["RESULTS"], "${{ toJSON(needs) }}")
         self.assertEqual(set(JOBS["result"]["needs"]), set(JOBS) - {"result"})
 
-    def test_merge_run_passes(self):
-        self.assertEqual(gate(passing(), native=True, deploy=True), 0)
+    def test_warm_run_passes(self):
+        self.assertEqual(gate(passing(), native=True), 0)
 
-    def test_dispatch_or_main_push_passes_without_a_deploy(self):
-        # ci.yml workflow_dispatch runs and pushes to main build the native
-        # references but do not deploy.
-        results = passing(deploy="skipped")
-        self.assertEqual(gate(results, native=True, deploy=False), 0)
-
-    def test_failed_skipped_or_cancelled_deploy_fails_a_deploying_run(self):
-        for result in ("failure", "skipped", "cancelled"):
-            results = passing(deploy=result)
-            self.assertEqual(gate(results, native=True, deploy=True), 1, result)
-
-    def test_pull_request_needs_no_native_references_or_deploy(self):
-        results = passing(swift="skipped", kotlin="skipped", deploy="skipped")
-        self.assertEqual(gate(results, native=False, deploy=False), 0)
+    def test_merge_run_needs_no_native_references(self):
+        results = passing(swift="skipped", kotlin="skipped")
+        self.assertEqual(gate(results, native=False), 0)
 
     def test_every_build_job_must_pass(self):
         for job in ("rust", "site", "compose"):
             for result in ("failure", "cancelled", "skipped"):
                 results = passing(**{job: result})
-                self.assertEqual(
-                    gate(results, native=False, deploy=False), 1, (job, result)
-                )
+                self.assertEqual(gate(results, native=False), 1, (job, result))
 
-    def test_native_references_must_pass_outside_pull_requests(self):
+    def test_native_references_must_pass_when_deploying(self):
         for job in ("swift", "kotlin"):
             for result in ("failure", "cancelled", "skipped"):
                 results = passing(**{job: result})
-                self.assertEqual(
-                    gate(results, native=True, deploy=False), 1, (job, result)
-                )
+                self.assertEqual(gate(results, native=True), 1, (job, result))
 
 
 if __name__ == "__main__":

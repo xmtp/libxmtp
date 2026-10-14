@@ -115,8 +115,6 @@ jobs:
     uses: ./.github/workflows/deploy-docs.yml
     permissions:
       contents: read
-      pages: write
-      id-token: write
     secrets: inherit
   test_ios:
     if: contains(fromJSON(inputs.suites), 'test_ios')

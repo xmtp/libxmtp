@@ -1079,9 +1079,7 @@
       "disable_on_forks": false,
       "secrets": "inherit",
       "permissions": {
-        "contents": "read",
-        "pages": "write",
-        "id-token": "write"
+        "contents": "read"
       },
       "covered_by": null,
       "kache": [

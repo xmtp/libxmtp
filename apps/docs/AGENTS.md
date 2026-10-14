@@ -51,8 +51,9 @@ and the labels `Browser`, `Node`, `Kotlin`, and `Swift`. A guide that also cover
 the Agent SDK can add `Agent` as the last tab. Package manager tabs
 use `syncKey="pkg"`. Do not add React Native examples until they can be verified.
 
-The public site deploys from `self-hosted`. Pull requests skip the Kotlin and
-Swift references with `DOCS_SKIP_NATIVE_REFERENCES=1`; pushes build them.
+The warm workflow (`warm.yml`) deploys the public site on each push to trunk and
+builds the Kotlin and Swift references. Pull requests and merge runs skip them
+with `DOCS_SKIP_NATIVE_REFERENCES=1`.
 
 ## TypeScript examples
 

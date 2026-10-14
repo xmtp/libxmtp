@@ -490,7 +490,7 @@ suites:
     run_on: [ready_pr_push, merge]
     disable_on_forks: false
     secrets: inherit
-    permissions: {contents: read, pages: write, id-token: write}
+    permissions: {contents: read}
     kache: [rust-reference, sdk-products-debug]
     path_filters:
       - path_group: js_workspace

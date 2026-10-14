@@ -119,3 +119,49 @@ jobs:
             exit 1
           fi
           echo "Every set member and dependency layer substitutes."
+
+  # Pages content comes only from trusted trunk pushes. docs builds the site
+  # and the Swift and Kotlin references after the warm build, so they
+  # substitute its outputs; a failed build only makes them build on a miss, so
+  # it does not hold back the deploy.
+  docs:
+    name: Docs
+    needs: build
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/deploy-docs.yml
+    with:
+      deploy: true
+    secrets: inherit
+  deploy:
+    name: Deploy docs to GitHub Pages
+    needs: docs
+    # The repository has one Pages site, so every ref shares one group. One
+    # deploy runs at a time. queue: max keeps up to 100 pending deploys in
+    # FIFO order instead of replacing them, and cancel-in-progress: false
+    # never cancels a running one, so every warm run that reaches its deploy
+    # publishes.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+      queue: max
+    # Successful deploys take 14-160 s; actions/deploy-pages waits 10 min.
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+      - name: Check the published custom domain
+        run: |
+          if ! curl --fail --silent --show-error --retry 3 --retry-delay 10 \
+            --connect-timeout 10 --max-time 30 --retry-all-errors \
+            --output /dev/null https://self-hosted-docs.xmtp.to/; then
+            echo "::warning::Pages published, but the custom domain HTTPS check failed. Check DNS and the Pages certificate."
+            echo "Pages published. The custom domain HTTPS check failed; check DNS and the Pages certificate." >> "$GITHUB_STEP_SUMMARY"
+          fi

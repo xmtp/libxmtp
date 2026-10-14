@@ -69,8 +69,6 @@ jobs:
     needs: detect-changes
     permissions:
       contents: read
-      pages: write
-      id-token: write
     uses: ./.github/workflows/test-generated.yml
     with:
       suites: ${{ needs.detect-changes.outputs.test_suites }}

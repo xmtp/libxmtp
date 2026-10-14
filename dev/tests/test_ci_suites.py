@@ -157,7 +157,9 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(jobs["test_ios"]["secrets"], "inherit")
 
     def test_secrets_and_permissions_follow_the_declaration(self):
-        jobs = self.jobs("test")
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["docs_site"]["permissions"]["pages"] = "write"
+        jobs = yaml.safe_load(SUITES.render_workflow(manifest, "test"))["jobs"]
         self.assertEqual(jobs["test_ios"]["secrets"], "inherit")
         self.assertEqual(set(jobs["check_rust"]["secrets"]), set(SUITES.KACHE_SECRETS))
         self.assertEqual(jobs["docs_site"]["permissions"]["pages"], "write")
@@ -207,11 +209,37 @@ class ValidateTests(unittest.TestCase):
         self.assertIn("test_xdbg: no-such-dir/**", errors)
         self.assertNotIn("test_xdbg: docs/**", errors)
 
-    def test_suite_workflows_must_not_take_inputs(self):
+    def test_suite_workflows_must_not_require_inputs(self):
         manifest = copy.deepcopy(self.manifest)
         manifest["suites"]["test_xdbg"]["workflow"] = "check-release-push.yml"
         errors = "\n".join(SUITES.validate(manifest))
-        self.assertIn("test_xdbg: check-release-push.yml must not take inputs", errors)
+        # `ref` is required; the optional `dry-run` keeps its default.
+        self.assertIn(
+            "test_xdbg: check-release-push.yml must not require inputs ['ref']", errors
+        )
+
+    def test_suite_workflows_may_take_optional_inputs(self):
+        # warm.yml sets deploy-docs.yml's optional `deploy` input; the merge
+        # run calls it without inputs.
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["test_xdbg"]["workflow"] = "deploy-docs.yml"
+        errors = "\n".join(SUITES.validate(manifest))
+        self.assertNotIn("inputs", errors)
+
+    def test_called_jobs_must_fit_the_suite_permissions(self):
+        # GitHub checks a called job's permissions even when its `if` skips it.
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["test_xdbg"]["workflow"] = "npm-publish.yml"
+        errors = "\n".join(SUITES.validate(manifest))
+        self.assertIn(
+            "test_xdbg: npm-publish.yml job publish needs id-token: write", errors
+        )
+        manifest["suites"]["test_xdbg"]["permissions"] = {
+            "contents": "read",
+            "id-token": "write",
+        }
+        errors = "\n".join(SUITES.validate(manifest))
+        self.assertNotIn("job publish needs", errors)
 
 
 if __name__ == "__main__":

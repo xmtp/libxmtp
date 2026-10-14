@@ -8,9 +8,10 @@ export async function installReferences({
   generatedRoot = resolve(repositoryRoot, "apps/docs/generated/reference"),
   siteRoot = resolve(repositoryRoot, "apps/docs/_site"),
 } = {}) {
-  // The Kotlin and Swift references are built on push only, because each is a
-  // from-scratch Rust cross-compile. A pull-request build composes the site
-  // without them and sets DOCS_SKIP_NATIVE_REFERENCES.
+  // The Kotlin and Swift references are built only in the warm workflow,
+  // because each is a from-scratch Rust cross-compile. Pull request and merge
+  // run builds compose the site without them and set
+  // DOCS_SKIP_NATIVE_REFERENCES.
   const skipNative = process.env.DOCS_SKIP_NATIVE_REFERENCES === "1";
   const references = [
     {
