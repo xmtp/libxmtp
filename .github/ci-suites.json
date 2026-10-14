@@ -1009,6 +1009,8 @@
         "apps/web-chat/**",
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_sdk/**",
+        "dev/docker/compose.yml",
+        "dev/docker/s3/**",
         "dev/js/{.setup,sdk-*,tsconfig.*.json}",
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/pnpm.nix",

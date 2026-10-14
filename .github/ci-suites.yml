@@ -467,6 +467,10 @@ suites:
       - path_group: sdk_core
       - "sdks/browser/**"
       - "apps/web-chat/**"
+      # The attachment test PUTs to the stack's S3 from the browser origin, so
+      # it depends on the S3 CORS policy and the Compose lines that apply it.
+      - "dev/docker/s3/**"
+      - "dev/docker/compose.yml"
   test_sdk_platform:
     phase: test
     workflow: test-sdk-platform.yml

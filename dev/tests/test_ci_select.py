@@ -108,7 +108,7 @@ class SelectionTests(unittest.TestCase):
         for path in (
             "apps/backend/src/main.rs",
             "nix/package/backend.nix",
-            "dev/docker/compose.yml",
+            "dev/docker/up",
             "dev/docker/toxiproxy/config.json",
             "dev/backend/local-s3.toml",
         ):
@@ -116,6 +116,14 @@ class SelectionTests(unittest.TestCase):
                 suites = selected(select([path]))
                 self.assertTrue(clients | {"test_backend", "test_xdbg"} <= suites)
                 self.assertTrue(suites.isdisjoint(platforms))
+
+    def test_s3_cors_policy_selects_the_browser_attachment_test(self):
+        # Only the browser SDK uploads cross-origin to the stack's S3.
+        for path in ("dev/docker/s3/cors.json", "dev/docker/compose.yml"):
+            with self.subTest(path=path):
+                suites = selected(select([path]))
+                self.assertIn("test_browser", suites)
+                self.assertNotIn("test_android", suites)
 
     def test_observability_files_select_only_their_checks(self):
         for path, expected in [

@@ -1,3 +1,7 @@
+[graph]
+# cargo-deny-action passed --all-features; keep local and CI checks the same.
+all-features = true
+
 [advisories]
 ignore = [
   { id = "RUSTSEC-2026-0329", reason = "libcrux-hmac-drbg can panic when an auto-reseed request is a nonzero multiple of 65536 bytes. The fix is in 0.0.2, but the pinned xmtp/openmls provider requires ^0.0.1. Remove when the provider accepts a fixed release." },
