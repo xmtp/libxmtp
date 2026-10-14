@@ -33,6 +33,12 @@ jobs:
       env:
         NIX_DEVSHELL: rust
       run: dev/nix-shell 'just sdk check-generated-nix'
+    # The Kotlin tree and the Android fast consumer: files, receipts, source
+    # and render identities, and the ELF library (Swift only on Darwin).
+    - name: Check the SDK product receipts
+      env:
+        NIX_DEVSHELL: rust
+      run: dev/nix-shell 'python3 -B nix/check-sdk-products.py'
     - name: Check package scripts
       env:
         NIX_DEVSHELL: rust

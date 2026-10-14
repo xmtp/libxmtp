@@ -876,7 +876,8 @@
       "covered_by": null,
       "kache": [],
       "products": [
-        "sdk_js"
+        "sdk_js",
+        "sdk_android"
       ],
       "cargo_roots": [],
       "crates": [],

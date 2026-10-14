@@ -464,7 +464,7 @@ suites:
     secrets: none
     permissions: {contents: read}
     kache: []
-    products: [sdk_js]
+    products: [sdk_js, sdk_android]
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
