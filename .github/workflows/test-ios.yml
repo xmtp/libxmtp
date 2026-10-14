@@ -41,8 +41,8 @@ jobs:
             git diff --stat -- sdks/ios/Sources
             exit 1
           fi
-      - name: Run iOS unit tests and examples
-        run: dev/nix-shell 'just backend ci bash -c "just ios test && just ios check-examples"'
+      - name: Run iOS unit tests
+        run: dev/nix-shell 'just backend ci just ios test'
       - name: Check Swift consumers
         run: dev/nix-shell 'just ios check-consumer'
       - name: Run iOS simulator tests

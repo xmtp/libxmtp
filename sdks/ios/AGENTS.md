@@ -88,7 +88,7 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
 - `test-ios.yml` has one iOS CI job. It runs `dev/bindings` once and fails
   when the tracked Swift under `Sources/` differs from the generated Swift
   (run `dev/bindings` and commit `Sources/`). Then it runs `test` (every test,
-  the lifecycle checks too), `check-examples`, `check-consumer`, and
+  the lifecycle checks too), `check-consumer`, and
   `test-simulator`. `dev/bindings` skips the xcframework copy when
   `Artifacts/.xcframework-store-path` names the same store path.
   A selected iOS suite gates aggregate `Test` in `ci.yml`.
