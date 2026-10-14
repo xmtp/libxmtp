@@ -377,26 +377,22 @@ RUNTIMES = {
 
 
 def runtime_packages(names):
-    """Build the pinned @ubjs runtimes and return each package directory."""
-    built = json.loads(
-        subprocess.check_output(
-            [
-                "nix",
-                "build",
-                "--no-link",
-                "--json",
-                *(f".#ubjs-{name}" for name in names),
-            ],
+    """Build the pinned @ubjs runtimes and return each package directory.
+
+    Each runtime gets an out-link under target/sdk-runtimes, a GC root, and a
+    tree links its package through that out-link, so a garbage collection
+    keeps the links working.
+    """
+    packages = {}
+    for name in names:
+        link = ROOT / "target/sdk-runtimes" / name
+        subprocess.run(
+            ["nix", "build", "--out-link", str(link), f".#ubjs-{name}"],
             cwd=ROOT,
+            check=True,
         )
-    )
-    outputs = [Path(result["outputs"]["out"]) for result in built]
-    return {
-        name: next(path for path in outputs if f"-ubjs-{name}-" in path.name)
-        / "lib/node_modules/@ubjs"
-        / name
-        for name in names
-    }
+        packages[name] = link / "lib/node_modules/@ubjs" / name
+    return packages
 
 
 def target_languages(target):
