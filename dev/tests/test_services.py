@@ -163,21 +163,20 @@ class ServicesTests(unittest.TestCase):
         s3 = int(read_env(state / "env")["XMTP_S3_PORT"])
         self.assertFalse(listening(s3), "S3 still listens")
 
-    def test_dev_services_down_leaves_nothing(self):
-        # A fixture checkout: dev/worktree-env writes its own dev/docker/.env.
+    def dev_services(self, state):
+        """Return a runner of `dev/services` in a fixture checkout."""
+        # dev/worktree-env writes the fixture's own dev/docker/.env.
         repo = self.root / "repo"
         for path in ("dev/services", "dev/worktree-env", "dev/docker/load-env"):
             (repo / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / path, repo / path)
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
-        state = self.root / "state"
-        socket_path = self.root / "pc.sock"
         env = {
             **self.env,
             **dict(zip(PORTS, map(str, free_ports(len(PORTS))))),
             "XMTP_SERVICES_PACKAGE": str(self.package),
             "XMTP_SERVICES_STATE": str(state),
-            "PC_SOCKET_PATH": str(socket_path),
+            "PC_SOCKET_PATH": str(self.root / "pc.sock"),
         }
 
         def services(*args, check=True):
@@ -191,6 +190,23 @@ class ServicesTests(unittest.TestCase):
                 check=check,
             )
 
+        return services, env
+
+    def test_dev_services_down_keeps_an_unmarked_directory(self):
+        # The caller sets the state path; a mistake must not delete a directory.
+        state = self.root / "mine"
+        state.mkdir()
+        (state / "keep").touch()
+        services, _ = self.dev_services(state)
+        result = services("down", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not removing it", result.stderr)
+        self.assertTrue((state / "keep").exists())
+
+    def test_dev_services_down_leaves_nothing(self):
+        state = self.root / "state"
+        socket_path = self.root / "pc.sock"
+        services, env = self.dev_services(state)
         self.addCleanup(services, "down", check=False)
         up = services("up", check=False)
         self.assertEqual(up.returncode, 0, up.stdout + up.stderr)

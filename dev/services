@@ -44,13 +44,29 @@ services() {
 
 running() { [ -S "${PC_SOCKET_PATH}" ] && services project state >/dev/null 2>&1; }
 
+# The caller can set the state path, so remove only a directory that `up`
+# marked, and only a socket.
+marker="${state}/.xmtp-services-state"
+remove_state() {
+  if [ -e "${state}" ]; then
+    if [ ! -f "${marker}" ]; then
+      echo "services: ${state} has no $(basename "${marker}") marker; not removing it" >&2
+      return 1
+    fi
+    rm -rf "${state}"
+  fi
+  if [ -S "${PC_SOCKET_PATH}" ]; then rm -f "${PC_SOCKET_PATH}"; fi
+}
+
 case "${1:-}" in
   up)
     if running; then
       echo "services: already running (${state})" >&2
       exit 0
     fi
-    rm -rf "${state}" "${PC_SOCKET_PATH}"
+    remove_state
+    mkdir -p "${state}"
+    touch "${marker}"
     package="${XMTP_SERVICES_PACKAGE:-}"
     # A cold build of the package can take minutes; the readiness deadline
     # starts once the daemon runs.
@@ -73,7 +89,7 @@ case "${1:-}" in
         cp "${state}/process-compose.log" "${diagnostics}/" 2>/dev/null || true
         echo "services: start failed; diagnostics in ${diagnostics}" >&2
         services down >/dev/null 2>&1 || true
-        rm -rf "${state}" "${PC_SOCKET_PATH}"
+        remove_state || true
         exit 1
       fi
       sleep 0.2
@@ -85,7 +101,7 @@ case "${1:-}" in
   logs) services process logs "${2:?usage: dev/services logs PROCESS}" --tail "${3:-100}" ;;
   down)
     if running; then services down; fi
-    rm -rf "${state}" "${PC_SOCKET_PATH}"
+    remove_state
     ;;
   *)
     echo "usage: dev/services up|env|ps|logs PROCESS|down" >&2
