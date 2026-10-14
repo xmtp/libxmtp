@@ -118,7 +118,19 @@ def push_run(run_id, sha=TRUNK, conclusion="success", tree="merge-tree", created
 
 
 # The push runs of the branch, which the change class of a merge run reads.
-BRANCH_RUNS = "actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100"
+BRANCH_RUNS = "actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100&page=1"
+
+
+def branch_runs(page):
+    return BRANCH_RUNS[: -len("1")] + str(page)
+
+
+def pr_ref(number):
+    """The checkout line that names the PR's merge ref."""
+    return (
+        "2026-10-13T12:00:05.0000000Z  * [new ref]  "
+        f"refs/pull/{number}/merge -> refs/remotes/pull/{number}/merge\n"
+    )
 
 
 TOOLS = "0" + "a" * 31
@@ -171,8 +183,10 @@ def merge_run_fixture(merge_tree="merge-tree", job_count=105):
             "4": [],
         },
         "logs": {
-            "200": f"2026-10-13T12:00:10.0000000Z HEAD is now at abcdef0 Merge {PR_HEAD} into {PR_BASE}\n",
-            "300": f"2026-10-13T12:00:10.0000000Z HEAD is now at abcdef1 Merge {PR_HEAD} into {PR_BASE}\n",
+            "200": pr_ref(77)
+            + f"2026-10-13T12:00:10.0000000Z HEAD is now at abcdef0 Merge {PR_HEAD} into {PR_BASE}\n",
+            "300": pr_ref(77)
+            + f"2026-10-13T12:00:10.0000000Z HEAD is now at abcdef1 Merge {PR_HEAD} into {PR_BASE}\n",
             "900": NEXTEST_LOG,
             "901": WASM_LOG,
         },
@@ -186,8 +200,8 @@ def merge_run_fixture(merge_tree="merge-tree", job_count=105):
                 ],
             },
             f"commits/{TRUNK}/pulls": [
-                {"merge_commit_sha": "d" * 40, "head": {"sha": "e" * 40}},
-                {"merge_commit_sha": TRUNK, "head": {"sha": PR_HEAD}},
+                {"number": 76, "merge_commit_sha": "d" * 40, "head": {"sha": "e" * 40}},
+                {"number": 77, "merge_commit_sha": TRUNK, "head": {"sha": PR_HEAD}},
             ],
             # The PR's last run that started is run 3. Run 4 was replaced
             # before it started, so it has no jobs, and run 2 is older.
@@ -584,6 +598,56 @@ class Metrics(unittest.TestCase):
                 fixture["api"][f"compare/{previous}...{TRUNK}"] = {"files": compared}
                 output = self.run_metrics(fixture, "runs", "1").stdout
                 self.assertIn(f"1 push success class={expected} ", output)
+
+    def test_merge_tree_reads_only_runs_of_the_merged_pr(self):
+        # PR 88 has the same head and a different base. Its run is newer,
+        # and it tested another merge commit.
+        fixture = merge_run_fixture()
+        runs = f"actions/workflows/ci.yml/runs?event=pull_request&head_sha={PR_HEAD}&per_page=100"
+        fixture["api"][runs]["workflow_runs"].append({"id": 6, "created_at": stamp(8)})
+        fixture["jobs"]["6"] = [job(600, "detect-changes", 0, 30)]
+        fixture["logs"]["600"] = pr_ref(88) + (
+            f"2026-10-13T12:00:10.0000000Z HEAD is now at abcdef8 Merge {PR_HEAD} into {'8' * 40}\n"
+        )
+        fixture["api"]["commits/abcdef8"] = {"commit": {"tree": {"sha": "pr-88-tree"}}}
+        output = self.run_metrics(fixture, "runs", "1").stdout
+        self.assertIn("tree=same", output.splitlines()[0])
+
+    def test_merge_class_pages_back_to_the_previous_started_run(self):
+        # 100 newer runs fill page 1. The previous started run is on page 2.
+        newer = [
+            push_run(1000 + i, sha="5" * 40, created=stamp(1000 + i)) for i in range(99)
+        ]
+        fixture = merge_run_fixture()
+        fixture["api"][BRANCH_RUNS] = {"workflow_runs": newer + [push_run(1)]}
+        fixture["api"][branch_runs(2)] = {
+            "workflow_runs": [
+                push_run(21, sha="2" * 40, created="2026-10-13T11:58:00Z"),
+                push_run(20, sha="3" * 40, created="2026-10-13T11:50:00Z"),
+            ]
+        }
+        fixture["jobs"]["21"] = []
+        fixture["jobs"]["20"] = [job(2000, "detect-changes", 0, 30)]
+        fixture["api"][f"compare/{'3' * 40}...{TRUNK}"] = {
+            "files": [{"filename": "Cargo.lock", "status": "modified"}]
+        }
+        output = self.run_metrics(fixture, "runs", "1").stdout
+        self.assertIn("1 push success class=L ", output)
+
+    def test_merge_class_is_unknown_without_the_previous_run(self):
+        # 10 full pages hold no earlier run, so the tested commits are unknown.
+        fixture = merge_run_fixture()
+        for page in range(1, 11):
+            fixture["api"][branch_runs(page)] = {
+                "workflow_runs": [
+                    push_run(
+                        10000 + page * 100 + i, sha="5" * 40, created=stamp(1000 + i)
+                    )
+                    for i in range(100)
+                ]
+            }
+        output = self.run_metrics(fixture, "runs", "1").stdout
+        self.assertIn("1 push success class=? ", output)
 
     def test_summary_leads_with_the_mean_runner_minutes(self):
         # Runner minutes add across runs, so the mean is the cost per run.

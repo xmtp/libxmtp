@@ -15,8 +15,10 @@ Test outputs and the PR checkout come from the latest attempt of each job.
 
 The change class of a merge run covers every commit since the previous push
 run on the branch that started: GitHub replaces a pending run, so a run tests
-the commits of the runs it replaced too. The class is `?` when GitHub lists
-only part of the diff.
+the commits of the runs it replaced too. The search pages back at most 10
+pages of 100 runs. The class is `?` when GitHub lists only part of the diff,
+or when the search ends before it finds that run (unless a listed file
+already proves class L).
 
     dev/ci/metrics runs 38294462023 38279019973
     dev/ci/metrics runs --workflow ci.yml --branch self-hosted --event push --limit 10
@@ -299,21 +301,30 @@ def started(run):
     return any(job.get("steps") for job in run_jobs(run["id"]))
 
 
+# `previous_tested_sha` found no earlier run within MAX_LIST_PAGES pages.
+UNKNOWN = "unknown"
+
+
 def previous_tested_sha(run):
     """Return the head of the previous push run on the branch that started.
 
-    Look in one page of runs. Return None if no such run is there.
+    GitHub lists the newest runs first. Page back at most MAX_LIST_PAGES
+    pages. Return None if the branch has no earlier run that started, and
+    UNKNOWN if the pages end before the search does.
     """
     workflow = run["path"].rsplit("/", 1)[-1]
-    listed = api(
-        f"actions/workflows/{workflow}/runs?branch={run['head_branch']}"
-        f"&event=push&per_page={PAGE}"
-    )["workflow_runs"]
-    earlier = [item for item in listed if item["created_at"] < run["created_at"]]
-    for item in sorted(earlier, key=lambda item: item["created_at"], reverse=True):
-        if started(item):
-            return item["head_sha"]
-    return None
+    for page in range(1, MAX_LIST_PAGES + 1):
+        listed = api(
+            f"actions/workflows/{workflow}/runs?branch={run['head_branch']}"
+            f"&event=push&per_page={PAGE}&page={page}"
+        )["workflow_runs"]
+        earlier = [item for item in listed if item["created_at"] < run["created_at"]]
+        for item in sorted(earlier, key=lambda item: item["created_at"], reverse=True):
+            if started(item):
+                return item["head_sha"]
+        if len(listed) < PAGE:
+            return None
+    return UNKNOWN
 
 
 def push_files(run):
@@ -322,10 +333,11 @@ def push_files(run):
     pages = api_pages(f"commits/{run['head_sha']}?per_page={PAGE}")
     parents = [parent["sha"] for parent in pages[0].get("parents", [])] if pages else []
     base = previous_tested_sha(run)
-    if base is None or parents == [base]:
-        # The run tested its head commit alone.
+    if base in (None, UNKNOWN) or parents == [base]:
+        # The run tested its head commit alone, or at least its head commit
+        # when the earlier runs are unknown.
         files = [entry for page in pages for entry in page.get("files", [])]
-        return files, len(files) < LISTED_FILE_CAP
+        return files, base != UNKNOWN and len(files) < LISTED_FILE_CAP
     # The run also tested the commits of the runs that it replaced.
     files = api(f"compare/{base}...{run['head_sha']}").get("files", [])
     return files, len(files) < COMPARE_FILE_CAP
@@ -355,6 +367,8 @@ def tested_tree(run):
     detect-changes job prints that merge commit when it checks it out.
     """
     sha = run["head_sha"]
+    # The PR whose merge commit is the trunk commit. Its number names the
+    # refs/pull/N/merge ref that its runs checked out.
     pulls = [
         pull
         for pull in api(f"commits/{sha}/pulls")
@@ -371,7 +385,9 @@ def tested_tree(run):
         listed["workflow_runs"], key=lambda item: item["created_at"], reverse=True
     ):
         checkout = pr_checkout(latest_jobs(run_jobs(pr_run["id"])))
-        if checkout:
+        # A PR to another base can have the same head. Read only the runs of
+        # the PR that this commit merged.
+        if checkout and checkout["number"] == pulls[0]["number"]:
             tree = api(f"commits/{checkout['merge']}")["commit"]["tree"]["sha"]
             return "same" if tree == run["head_commit"]["tree_id"] else "differs"
     return "unknown"
