@@ -26,11 +26,12 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=docker/load-env
 . "${repo_root}/dev/docker/load-env"
 
-state="${XMTP_SERVICES_STATE:-${TMPDIR:-/tmp}}"
-[ -n "${XMTP_SERVICES_STATE:-}" ] || state="${state%/}/xmtp-services-${XMTP_COMPOSE_PROJECT}"
-export XMTP_SERVICES_STATE="${state}"
 # macOS limits a socket path to 104 bytes, and TMPDIR is long there.
 export PC_SOCKET_PATH="${PC_SOCKET_PATH:-/tmp/xmtp-services-$(id -u)-${XMTP_WORKTREE_SLOT}.sock}"
+# The state sits beside the socket, not under TMPDIR: dev/nix-shell gives
+# each call its own TMPDIR, so `env` and `down` would not find it.
+state="${XMTP_SERVICES_STATE:-${PC_SOCKET_PATH%.sock}.state}"
+export XMTP_SERVICES_STATE="${state}"
 
 # The package that `up` started, so later calls need no evaluation.
 package="${XMTP_SERVICES_PACKAGE:-}"

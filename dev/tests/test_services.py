@@ -270,9 +270,10 @@ class ServicesTests(unittest.TestCase):
             **self.env,
             **dict(zip(PORTS, map(str, free_ports(len(PORTS))))),
             "XMTP_SERVICES_PACKAGE": str(self.package),
-            "XMTP_SERVICES_STATE": str(state),
             "PC_SOCKET_PATH": str(self.root / "pc.sock"),
         }
+        if state is not None:
+            env["XMTP_SERVICES_STATE"] = str(state)
 
         def services(*args, check=True):
             return run_group(
@@ -284,6 +285,21 @@ class ServicesTests(unittest.TestCase):
             )
 
         return services, env
+
+    def test_dev_services_finds_its_state_from_another_shell(self):
+        # dev/nix-shell gives each call its own TMPDIR; `env` and `down` run
+        # in another call than `up`.
+        services, env = self.dev_services(None)
+        self.addCleanup(services, "down", check=False)
+        first, second = self.root / "tmp-up", self.root / "tmp-later"
+        first.mkdir()
+        second.mkdir()
+        env["TMPDIR"] = str(first)
+        services("up")
+        env["TMPDIR"] = str(second)
+        self.assertIn("export DATABASE_URL=", services("env").stdout)
+        services("down")
+        self.assertEqual(list(self.root.glob("pc.st*")), [])
 
     def test_dev_services_down_keeps_an_unmarked_directory(self):
         # The caller sets the state path; a mistake must not delete a directory.
