@@ -161,12 +161,17 @@ jobs:
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted'
     needs: compose
-    # One deploy at a time, and a running deploy is never cancelled. A newer
-    # pending deploy replaces an older pending one, which GitHub reports as
-    # cancelled; the newer one publishes newer content.
+    # The repository has one Pages site, so every ref shares one group. One
+    # deploy runs at a time. queue: max keeps up to 100 pending deploys in
+    # FIFO order instead of replacing them, and cancel-in-progress: false
+    # never cancels a running one. A cancelled job makes the caller's suite
+    # result cancelled, so no deploy may be replaced.
     concurrency:
-      group: pages-${{ github.ref }}
+      group: pages
       cancel-in-progress: false
+      queue: max
+    # Successful deploys take 14-160 s; actions/deploy-pages waits 10 min.
+    timeout-minutes: 15
     permissions:
       pages: write
       id-token: write
@@ -199,7 +204,6 @@ jobs:
         RESULTS: ${{ toJSON(needs) }}
         NATIVE: ${{ github.event_name != 'pull_request' }}
         DEPLOY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/self-hosted' }}
-      # A cancelled deploy was replaced by a newer pending deploy.
       run: |
         jq -en \
           --argjson results "$RESULTS" \
@@ -208,5 +212,4 @@ jobs:
           def passed($job): $results[$job].result == "success";
           passed("rust") and passed("site") and passed("compose")
           and (($native | not) or (passed("swift") and passed("kotlin")))
-          and (($deploy | not) or passed("deploy")
-            or $results.deploy.result == "cancelled")'
+          and (($deploy | not) or passed("deploy"))'
