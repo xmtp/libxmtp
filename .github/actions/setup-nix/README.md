@@ -247,7 +247,7 @@ stops running cargo.
 | `check-types.yml / check` | `sdk-products-debug` | Protected push writer; otherwise reader |
 | `deploy-docs.yml / site` | `sdk-products-debug` | Reader |
 | `deploy-web-chat.yml / deploy` | `sdk-products-debug` | Reader |
-| `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer; otherwise reader |
+| `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer (CI merge run); reader inside `post-merge.yml` and otherwise |
 | `manual-sdk-recovery.yml / recovery` | `sdk-native-debug` | Reader |
 | `release-agent-sdk.yml / build` | `sdk-native-debug` | Reader |
 | `release-browser-sdk.yml / build` | `sdk-products-debug` | Reader |
