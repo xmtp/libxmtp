@@ -30,7 +30,7 @@ struct AttachmentRecoveryFeatureView: View {
 								.buttonStyle(.glass)
 						} else {
 							ForEach(graph.conversations?.state.rows ?? []) { row in
-								Button("Assign to " + row.title) { store.send(.assign(
+								Button(String(localized: "Assign to \(row.title)", table: "AttachmentRecovery")) { store.send(.assign(
 									draft.id,
 									row.id,
 								)) }.buttonStyle(.glass)

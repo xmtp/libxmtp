@@ -27,6 +27,7 @@ public enum ChatTimelineAction: Sendable {
 		newest: Bool,
 		foreground: Bool,
 	), visibleMessages([String], foreground: Bool), refresh
+	case messageDeleted(conversationID: String, messageID: String, session: SessionKey)
 }
 
 @MainActor @Observable public final class ChatTimelineStore {
@@ -69,6 +70,20 @@ public enum ChatTimelineAction: Sendable {
 	public func send(_ action: ChatTimelineAction) {
 		guard admit(origin) else { return }
 		switch action {
+		case let .messageDeleted(conversationID, messageID, session):
+			guard conversationID == id, session == origin.session else { return }
+			job?.cancel()
+			pendingRevision += 1
+			cache.markDeleted(conversationID: conversationID, messageID: messageID)
+			for index in state.window.rows.indices where state.window.rows[index].id == messageID {
+				state.window.rows[index].content = .deleted
+				state.window.rows[index].reactions.removeAll()
+			}
+			for index in state.pending.indices where state.pending[index].id == messageID {
+				state.pending[index].content = .deleted
+				state.pending[index].reactions.removeAll()
+			}
+			state.loading = false
 		case let .visibleMessages(ids, foreground):
 			receiveVisibility(ids, foreground: foreground)
 		case let .visible(id, newest, foreground):

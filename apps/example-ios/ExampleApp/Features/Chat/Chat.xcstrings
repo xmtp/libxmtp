@@ -920,6 +920,29 @@
           }
         }
       }
+    },
+    "· %lld members": {
+      "comment": "Number of members shown beside the conversation title.",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "· %lld member"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "· %lld members"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "version": "1.0"

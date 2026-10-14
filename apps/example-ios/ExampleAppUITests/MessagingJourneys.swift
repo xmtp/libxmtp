@@ -70,6 +70,19 @@ import XmtpSdk
 		return inbox
 	}
 
+	private func acknowledgeKeyboardIntro(_ app: XCUIApplication) {
+		let panel = app.otherElements["UIContinuousPathIntroductionView"]
+		guard panel.waitForExistence(timeout: 2) else { return }
+		let instruction = panel.staticTexts[
+			"Speed up your typing by sliding your finger across the letters to compose a word.",
+		]
+		guard instruction.exists else { XCTFail("Unexpected keyboard introduction content"); return }
+		let advance = wait(panel.buttons["Continue"])
+		waitUntil("hittable == true", element: advance)
+		advance.tap()
+		waitUntil("exists == false", element: panel)
+	}
+
 	private func composer(_ app: XCUIApplication) -> XCUIElement {
 		wait(identified("message-composer", in: app))
 	}
@@ -78,6 +91,7 @@ import XmtpSdk
 		let field = composer(app)
 		waitUntil("enabled == true", element: field)
 		field.tap()
+		acknowledgeKeyboardIntro(app)
 		field.typeText(text)
 		let send = wait(identified("send-message", in: app))
 		waitUntil("enabled == true", element: send)
@@ -98,6 +112,7 @@ import XmtpSdk
 		app.buttons["New message"].tap()
 		let input = wait(app.textFields["Handle, Ethereum address, or inbox ID"])
 		input.tap()
+		acknowledgeKeyboardIntro(app)
 		input.typeText("@" + handle.uppercased())
 		app.buttons["Add"].tap()
 		let token = wait(identified("recipient." + inbox, in: app), timeout: 20)
@@ -115,6 +130,7 @@ import XmtpSdk
 		wait(app.buttons["React"]).tap()
 		let search = wait(identified("emoji.search", in: app))
 		search.tap()
+		acknowledgeKeyboardIntro(app)
 		search.typeText("thumbs up")
 		let option = wait(identified("emoji.option.👍", in: app))
 		waitUntil("hittable == true", element: option)
@@ -124,6 +140,7 @@ import XmtpSdk
 
 	private func exerciseMessageActions(_ app: XCUIApplication) {
 		let reply = wait(app.staticTexts["peer reply"].firstMatch, timeout: 20)
+		acknowledgeKeyboardIntro(app)
 		reply.press(forDuration: 1)
 		XCTAssertFalse(app.buttons["Delete"].exists)
 		let replyAction = wait(app.buttons["Reply"])
@@ -145,6 +162,7 @@ import XmtpSdk
 	private func verifyDraftRelaunch(_ app: XCUIApplication, handle: String) {
 		let field = composer(app)
 		field.tap()
+		acknowledgeKeyboardIntro(app)
 		field.typeText("saved draft")
 		app.terminate()
 		app.launchArguments = []

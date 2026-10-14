@@ -21,6 +21,7 @@ import SwiftUI
 	var identityDirectory: IdentityDirectory?
 	var consentRevision: UInt64 = 0
 	var messageObservers: [UUID: @MainActor (String) async -> Void] = [:]
+	var messageDeletionObservers: [UUID: @MainActor (String, String, SessionKey) -> Void] = [:]
 	var isRestoring = true
 	var currentHandle: String?
 	var otherHandles: [String] = []
@@ -87,7 +88,8 @@ import SwiftUI
 	private func clearSessionViews() {
 		guard bound != nil, session.state != .resetIncomplete else { return }
 		bound = nil; conversations = nil; requestConversations = nil; requests = nil
-		handles = nil; newConversation = nil; preferences = nil; identityDirectory = nil; messageObservers.removeAll()
+		handles = nil; newConversation = nil; preferences = nil; identityDirectory = nil; messageObservers
+			.removeAll(); messageDeletionObservers.removeAll()
 		currentHandle = nil; otherHandles = []
 		routes.replace(.connect)
 	}
@@ -198,6 +200,9 @@ import SwiftUI
 		guard fence.accepts(key) else { return }
 		if case let .messageDeleted(conversationID, messageID, _) = event {
 			ChatServices.messageDeleted(conversationID: conversationID, messageID: messageID, session: key)
+			for observer in messageDeletionObservers.values {
+				observer(conversationID, messageID, key)
+			}
 			await projectMessage(conversationID, session: key)
 			return
 		}

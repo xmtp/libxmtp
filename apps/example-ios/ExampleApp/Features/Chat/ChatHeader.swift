@@ -11,7 +11,7 @@ struct ChatHeader: View {
 			HStack(spacing: 4) {
 				ConversationTitle(title: title).font(.caption.weight(.semibold)).lineLimit(1)
 				if let memberCount {
-					Text("· \(memberCount) members").font(.caption).foregroundStyle(Theme.secondaryLabel)
+					Text("· \(memberCount) members", tableName: "Chat").font(.caption).foregroundStyle(Theme.secondaryLabel)
 						.accessibilityIdentifier("chat.member-count")
 				}
 				Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(Theme.secondaryLabel)

@@ -31,16 +31,6 @@
         }
       }
     },
-    "Assign to ": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Assign to "
-          }
-        }
-      }
-    },
     "Discard": {
       "localizations": {
         "en": {
@@ -317,6 +307,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Expired"
+          }
+        }
+      }
+    },
+    "Assign to %@": {
+      "comment": "Assign a recovered file draft to the chat named by the argument.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assign to %@"
           }
         }
       }

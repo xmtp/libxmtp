@@ -35,6 +35,7 @@ struct ChatFeatureView: View {
 			let expected = destination
 			PreviewImages.shared.clear()
 			graph.messageObservers.removeValue(forKey: observer)
+			graph.messageDeletionObservers.removeValue(forKey: observer)
 			let previous = runtime
 			runtime = nil
 			if let previous {
@@ -51,6 +52,9 @@ struct ChatFeatureView: View {
 					await value.timeline.close(); await value.composer.close(); await value.actions.close(); await value.attachments
 						.close()
 				}
+				graph.messageDeletionObservers[observer] = { changed, messageID, session in
+					value.timeline.send(.messageDeleted(conversationID: changed, messageID: messageID, session: session))
+				}
 				graph.messageObservers[observer] = { changed in
 					if changed == id {
 						value.composer.send(.reload)
@@ -65,6 +69,7 @@ struct ChatFeatureView: View {
 		}
 		.onDisappear {
 			PreviewImages.shared.clear()
+			graph.messageDeletionObservers.removeValue(forKey: observer)
 			graph.messageObservers
 				.removeValue(forKey: observer); let previous = runtime; Task {
 					if let previous {
