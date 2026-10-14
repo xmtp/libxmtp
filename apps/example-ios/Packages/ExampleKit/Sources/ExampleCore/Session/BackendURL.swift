@@ -8,7 +8,7 @@ public struct BackendURL: Equatable, Sendable {
 		while text.hasSuffix("/") {
 			text.removeLast()
 		}
-		guard let parts = URLComponents(string: text), let scheme = parts.scheme?.lowercased(),
+		guard var parts = URLComponents(string: text), let scheme = parts.scheme?.lowercased(),
 		      ["http", "https"].contains(scheme), let host = parts.host,
 		      !host.isEmpty else { throw SessionError.message("Use a valid HTTP or HTTPS backend URL") }
 		guard parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
@@ -19,7 +19,13 @@ public struct BackendURL: Equatable, Sendable {
 		}
 		let local = ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host.lowercased())
 		guard scheme == "https" || local else { throw SessionError.message("Use HTTPS for a remote backend") }
-		value = text; allowPrivateNetwork = local
+		parts.scheme = scheme
+		parts.host = host.lowercased()
+		if parts.port == (scheme == "https" ? 443 : 80) {
+			parts.port = nil
+		}
+		guard let canonical = parts.string else { throw SessionError.message("Use a valid HTTP or HTTPS backend URL") }
+		value = canonical; allowPrivateNetwork = local
 	}
 }
 
