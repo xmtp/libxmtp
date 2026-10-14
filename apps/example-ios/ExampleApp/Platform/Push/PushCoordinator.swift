@@ -164,7 +164,7 @@ import UserNotifications
 		result.work = Task { [weak self] in
 			guard let self, let graph else { result.finish(.noData); return }
 			await refreshPermission()
-			guard permission, lease.active, savedPushEnabled(graph), let info = await graph.session.restoreForPush(),
+			guard permission, lease.active, savedPushEnabled(graph), let info = await graph.session.restoreForPush(lease: lease),
 			      lease.active,
 			      let prefs = loadPreferences(info), prefs.notificationsEnabled else { result.finish(.noData); return }
 			await bind(preferences: prefs)

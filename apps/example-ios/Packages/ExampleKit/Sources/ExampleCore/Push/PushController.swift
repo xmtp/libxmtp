@@ -24,6 +24,8 @@ import Observation
 	private var registeredToken: String?
 	private var registration: Task<Void, Never>?
 	private var stopped = false
+	private var optedOut = false
+	private var settingSaveFailed = false
 	private var privacyRevision: UInt64 = 0
 	private var pendingPrivacyWrites = 0
 	private var posting: Set<String> = []
@@ -37,12 +39,12 @@ import Observation
 		self.publisher = publisher; self.current = current; self.permitted = permitted; self.signedIn = signedIn; self
 			.didCommit = didCommit
 		status = configured ? "Off" : "Off: APNs is not configured"
-		appEnabled = configured && preferences.notificationsEnabled
+		appEnabled = configured && notificationsEnabled
 	}
 
 	public func replacePreferences(_ preferences: any PushPreferences) {
 		guard self.preferences !== preferences else { return }
-		invalidatePrivacy(); self.preferences = preferences; appEnabled = configured && preferences.notificationsEnabled
+		invalidatePrivacy(); self.preferences = preferences; appEnabled = configured && notificationsEnabled
 	}
 
 	public func beginPrivacyChange() {
@@ -61,8 +63,12 @@ import Observation
 		!stopped && current() == owner
 	}
 
+	private var notificationsEnabled: Bool {
+		preferences.notificationsEnabled && !optedOut
+	}
+
 	private var enabled: Bool {
-		configured && valid && signedIn() && permitted() && preferences.notificationsEnabled
+		configured && valid && signedIn() && permitted() && notificationsEnabled
 	}
 
 	public func tokenChanged(_ data: Data) {
@@ -95,7 +101,7 @@ import Observation
 
 	public func refresh() {
 		guard configured, valid else { return }
-		appEnabled = preferences.notificationsEnabled
+		appEnabled = notificationsEnabled
 		let previous = registration
 		registration = Task { [weak self] in
 			await previous?.value
@@ -118,7 +124,7 @@ import Observation
 	private func reconcileRegistration() async throws -> PushRegistrationState {
 		let state = try gateway.state()
 		let input = PushRegistrationInput(configured: configured, signedIn: signedIn(), permission: permitted(),
-		                                  appEnabled: preferences.notificationsEnabled, token: token)
+		                                  appEnabled: notificationsEnabled, token: token)
 		switch input.action(registeredToken: registeredToken, sdkEnabled: state == .enabled) {
 		case .enable:
 			guard let token else { return state }
@@ -134,7 +140,10 @@ import Observation
 	}
 
 	private func statusText(_ result: PushRegistrationState) -> String {
-		guard preferences.notificationsEnabled else { return "Off" }
+		if settingSaveFailed {
+			return "Cannot save notification setting. Try again."
+		}
+		guard notificationsEnabled else { return "Off" }
 		guard permitted() else { return "Off: iOS permission is required" }
 		if tokenRegistrationFailed {
 			return "APNs registration failed. Try again."
@@ -150,9 +159,18 @@ import Observation
 	public func setEnabled(_ value: Bool) {
 		guard configured, valid else { return }
 		invalidatePrivacy()
+		// An explicit opt-out stops admission even when its durable write fails.
+		if !value {
+			optedOut = true
+		}
 		do {
-			try preferences.setNotificationsEnabled(value); appEnabled = value; refresh()
-		} catch { status = "Cannot save notification setting. Try again." }
+			try preferences.setNotificationsEnabled(value)
+			optedOut = !value; settingSaveFailed = false
+		} catch { settingSaveFailed = true }
+		refresh()
+		if settingSaveFailed {
+			status = "Cannot save notification setting. Try again."
+		}
 	}
 
 	@discardableResult public func setConversationEnabled(

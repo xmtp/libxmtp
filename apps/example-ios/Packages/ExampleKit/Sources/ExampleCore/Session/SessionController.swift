@@ -96,6 +96,7 @@ public enum SessionState: Equatable,
 	public var beforeEnd: (@MainActor () async -> Void)?
 	private var closing: Task<Void, Never>?
 	private var restoring = false
+	private var foregroundRestoreRequested = false
 	private var recoveryProfile: BackendProfile?
 	private let secrets: any SecretStore
 	private let files: any ProfileFileStore
@@ -106,11 +107,16 @@ public enum SessionState: Equatable,
 
 	public func restore() async {
 		// Foreground intent survives an in-flight background-only open.
+		let wasBackgroundOnly = backgroundOnly
 		backgroundOnly = false
 		if case .active = state {
 			backgroundOnly = false; return
 		}
-		guard !restoring else { return }
+		guard !restoring else {
+			if wasBackgroundOnly {
+				foregroundRestoreRequested = true
+			}; return
+		}
 		restoring = true; defer { restoring = false }; backgroundOnly = false
 		var expected = fence.currentGeneration()
 		do {
@@ -151,12 +157,14 @@ public enum SessionState: Equatable,
 	}
 
 	/// Restores existing local state only. UI collectors must wait until foreground promotion.
-	public func restoreForPush() async -> SessionInfo? {
+	public func restoreForPush(lease: PushLease? = nil) async -> SessionInfo? {
+		guard lease?.active != false, !Task.isCancelled else { return nil }
 		if case let .active(info) = state, fence.accepts(info.key) {
 			return info
 		}
 		guard !restoring else { return nil }
-		restoring = true; defer { restoring = false }
+		restoring = true
+		defer { finishPushRestoreAttempt() }
 		var reservedKey: SessionKey?
 		var restoredProfile: BackendProfile?
 		do {
@@ -168,7 +176,10 @@ public enum SessionState: Equatable,
 			restoredProfile = profile
 			_ = try BackendURL(profile.url)
 			backgroundOnly = true
-			try await open(profile, generation: generation, token: nil, createSecrets: false)
+			try await open(profile, generation: generation, token: nil, createSecrets: false, completionIsCurrent: {
+				!self.backgroundOnly || (lease?.active != false && !Task.isCancelled)
+			})
+			guard lease?.active != false, !Task.isCancelled else { return nil }
 			guard case let .active(info) = state, fence.accepts(info.key) else { return nil }
 			let fresh = try files.loadIndex()
 			guard fresh.signedIn, fresh.reset == nil, fresh.activeID == profile.id else { await close(); return nil }
@@ -180,9 +191,18 @@ public enum SessionState: Equatable,
 				_ = fence.releaseRestore(key)
 				recoveryProfile = restoredProfile
 				backgroundOnly = false
-				state = .restoreFailed
+				state = error is CancellationError ? .signedOut : .restoreFailed
 			}
 			return nil
+		}
+	}
+
+	private func finishPushRestoreAttempt() {
+		restoring = false
+		let needsForegroundRestore = foregroundRestoreRequested && state == .signedOut
+		foregroundRestoreRequested = false
+		if needsForegroundRestore {
+			scope.add { [weak self] in await self?.restore() }
 		}
 	}
 
@@ -232,6 +252,7 @@ public enum SessionState: Equatable,
 			throw error
 		}
 	}
+
 
 	private func close() async {
 		if let closing {

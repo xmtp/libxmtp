@@ -59,6 +59,7 @@ import Testing
 
 @MainActor final class PushFakePreferences: PushPreferences, ConversationPreferences {
 	var enabled = true; var muted = false; var posted: Set<String> = []
+	var failNotificationWrite = false
 	var dismissedRequests: Set<String> {
 		[]
 	}
@@ -76,7 +77,10 @@ import Testing
 		enabled
 	}
 
-	func setNotificationsEnabled(_ value: Bool) {
+	func setNotificationsEnabled(_ value: Bool) throws {
+		if failNotificationWrite {
+			throw NotificationPreferenceWriteError.failed
+		}
 		enabled = value
 	}
 
@@ -222,3 +226,5 @@ struct PushRowQueries: ConversationQueries {
 
 	func setConsent(id _: String, consent _: ConversationConsent) async throws {}
 }
+
+private enum NotificationPreferenceWriteError: Error { case failed }
