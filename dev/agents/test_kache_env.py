@@ -500,7 +500,7 @@ S3_INPUTS = (
 
 # Jobs that select the writer environment only for its trusted Cachix token,
 # not for Kache. Each runs only on pushes to trunk.
-TRUSTED_CACHIX_WRITERS = {"warm.yml / build"}
+TRUSTED_CACHIX_WRITERS = {"post-merge.yml / build"}
 
 # Jobs that run cargo outside Nix, with their Kache scope. A job leaves this
 # list only when it stops running cargo outside Nix, so dropping Kache from a
@@ -906,7 +906,7 @@ def cache_calls():
     """Yield one record per setup-nix call, per entry workflow and event.
 
     Called workflows get the inputs and secrets their caller passes, so a mode
-    that depends on a caller (deploy-docs.yml inside warm.yml) is evaluated as
+    that depends on a caller (deploy-docs.yml inside post-merge.yml) is evaluated as
     that caller runs it.
     """
 
@@ -990,8 +990,8 @@ def protected_trunk_push(github):
 
 
 # Entry workflows whose jobs may read xmtp-pr (mode ci). Every other entry
-# (release, publish, deploy, warm, schedules, manual tools) reads only xmtp.
-# A docs dispatch builds without deploying; warm.yml deploys.
+# (release, publish, deploy, post-merge, schedules, manual tools) reads only xmtp.
+# A docs dispatch builds without deploying; post-merge.yml deploys.
 CI_ENTRIES = {
     "ci.yml",
     "deploy-docs.yml",
@@ -1009,7 +1009,7 @@ class CacheModeWiringTests(unittest.TestCase):
     def test_wiring_is_evaluated_for_every_entry_and_event(self):
         entries = {call["entry"] for call in self.calls}
         self.assertTrue(
-            {"ci.yml", "warm.yml", "release.yml", "push-backend.yml"} <= entries
+            {"ci.yml", "post-merge.yml", "release.yml", "push-backend.yml"} <= entries
         )
         self.assertGreater(len(self.calls), 150)
 
@@ -1020,7 +1020,7 @@ class CacheModeWiringTests(unittest.TestCase):
                 trusted = call["mode"] == "trusted"
                 self.assertEqual(call["environment"] == "kache-s3-writer", trusted)
                 # On a trunk push without branch protection, a job that is
-                # trusted outright (warm.yml) fails in dev/kache-ci-policy
+                # trusted outright (post-merge.yml) fails in dev/kache-ci-policy
                 # (CachePolicyTests); every other event must not be trusted.
                 if trusted and not call["github"].get("unprotected trunk"):
                     self.assertTrue(protected_trunk_push(call["github"]))

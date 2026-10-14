@@ -51,7 +51,7 @@ and the labels `Browser`, `Node`, `Kotlin`, and `Swift`. A guide that also cover
 the Agent SDK can add `Agent` as the last tab. Package manager tabs
 use `syncKey="pkg"`. Do not add React Native examples until they can be verified.
 
-The warm workflow (`warm.yml`) deploys the public site on each push to trunk and
+The post-merge workflow (`post-merge.yml`) deploys the public site on each push to trunk and
 builds the Kotlin and Swift references. Pull requests and merge runs skip them
 with `DOCS_SKIP_NATIVE_REFERENCES=1`.
 

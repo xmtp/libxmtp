@@ -16,7 +16,7 @@ on:
       - "Create Release Branch"
       - "release-pr"
       # Docs, deploys, and images
-      - "Warm Nix cache"
+      - "Post-merge"
       - "Build and Deploy Docs"
       - "Deploy xmtp.chat"
       - "Publish backend image"

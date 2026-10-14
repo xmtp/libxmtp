@@ -8,7 +8,7 @@ export async function installReferences({
   generatedRoot = resolve(repositoryRoot, "apps/docs/generated/reference"),
   siteRoot = resolve(repositoryRoot, "apps/docs/_site"),
 } = {}) {
-  // The Kotlin and Swift references are built only in the warm workflow,
+  // The Kotlin and Swift references are built only in the post-merge workflow,
   // because each is a from-scratch Rust cross-compile. Pull request and merge
   // run builds compose the site without them and set
   // DOCS_SKIP_NATIVE_REFERENCES.

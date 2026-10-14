@@ -3,7 +3,7 @@ name: Build and Deploy Docs
   workflow_call:
     inputs:
       deploy:
-        description: Build the Swift and Kotlin references and upload the Pages artifact. Only warm.yml sets it; its deploy job publishes the artifact.
+        description: Build the Swift and Kotlin references and upload the Pages artifact. Only post-merge.yml sets it; its deploy job publishes the artifact.
         type: boolean
         default: false
     secrets:
@@ -19,11 +19,11 @@ permissions:
 # No workflow-level concurrency. A called workflow sees the caller's
 # github.ref, so a group on it would let a manual dispatch on trunk cancel the
 # docs jobs of a running merge run. ci.yml already replaces older pull
-# request runs. The Pages deploy is a warm.yml job: a called job that asks for
+# request runs. The Pages deploy is a post-merge.yml job: a called job that asks for
 # pages: write needs that grant from every caller, even when it is skipped, and
 # the merge run grants no Pages permissions.
 #
-# Cache modes: inside warm.yml (deploy) every job is in mode read, so Pages
+# Cache modes: inside post-merge.yml (deploy) every job is in mode read, so Pages
 # content comes only from the trusted cache. In CI runs every job is in mode
 # ci. No docs job writes a trusted store, so none selects the writer
 # environment; the Kache scopes are written by the merge-run docs_rust job and
@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 60
     steps:
     - uses: actions/checkout@v6
-    # The Xcode of the iOS jobs and warm.yml, so an iOS build here uses the
+    # The Xcode of the iOS jobs and post-merge.yml, so an iOS build here uses the
     # same Xcode as theirs. The image default is older.
     - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
       with:

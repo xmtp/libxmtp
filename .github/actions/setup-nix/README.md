@@ -18,7 +18,7 @@ and cache.nixos.org, and Nix checks the signature of every path it adds.
 
 Two Cachix caches hold CI outputs:
 
-- `xmtp` is trusted. Release, deploys, publish jobs, the warm workflow, and
+- `xmtp` is trusted. Release, deploys, publish jobs, the post-merge workflow, and
   developers substitute from it. Only jobs in mode `trusted` write it.
 - `xmtp-pr` (public key
   `xmtp-pr.cachix.org-1:QV97uslBSzm8N6XoUKzyifkel14qZVsq1kzZVkgJ70g=`) is
@@ -31,9 +31,9 @@ with the `cache-mode` input:
 
 | Mode | Reads | Writes | Token input | Kache | Used by |
 | --- | --- | --- | --- | --- | --- |
-| `read` (default) | `xmtp` | nothing | none | read-only | release, publish, and deploy jobs, the warm closure and docs jobs, schedules, manual tools |
+| `read` (default) | `xmtp` | nothing | none | read-only | release, publish, and deploy jobs, the post-merge closure and docs jobs, schedules, manual tools |
 | `ci` | `xmtp`, `xmtp-pr` | `xmtp-pr` | `cachix-pr-auth-token` (`CACHIX_PR_AUTH_TOKEN`) | read-only | pull request and merge-run jobs |
-| `trusted` | `xmtp` | `xmtp`, Kache S3 | `cachix-auth-token` (`CACHIX_AUTH_TOKEN` of the writer environment) | writes when `kache-readonly: "false"` | the warm build, and writer jobs on a protected push to trunk |
+| `trusted` | `xmtp` | `xmtp`, Kache S3 | `cachix-auth-token` (`CACHIX_AUTH_TOKEN` of the writer environment) | writes when `kache-readonly: "false"` | the post-merge build, and writer jobs on a protected push to trunk |
 
 `dev/kache-ci-policy` runs before any cache is configured and fails the job
 when:
@@ -76,7 +76,7 @@ off inside the run through `xmtp-pr`.
 ### Repair a suspected poisoned `xmtp-pr`
 
 A pull request author can upload a crafted output for any path that
-`xmtp-pr` does not hold yet. Release, deploys, and the warm workflow never
+`xmtp-pr` does not hold yet. Release, deploys, and the post-merge workflow never
 read `xmtp-pr`, so shipped bytes stay safe; CI jobs in mode `ci` substitute
 the crafted output until it leaves the cache. Nobody knows which path is
 crafted, so deleting one entry is not enough, and `xmtp-pr` holds only
@@ -111,7 +111,7 @@ Kache is off by default (`kache: "false"`). Only jobs that run cargo outside
 Nix set `kache: "true"`; Nix derivations cannot use Kache, so a job that only
 runs `nix build` gains nothing from it. The 21 enabled callers in the table
 below use S3 when the reader key pair is available. Every other caller passes
-no Kache input and selects no writer environment, except the `warm.yml` build
+no Kache input and selects no writer environment, except the `post-merge.yml` build
 job: it runs only on pushes to trunk and selects the writer environment for
 the trusted Cachix token. Kache writes also need mode `trusted` (see "Cache
 modes"). The 11 stable scope families follow the outer Cargo

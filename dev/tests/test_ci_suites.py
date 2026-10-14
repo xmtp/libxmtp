@@ -219,7 +219,7 @@ class ValidateTests(unittest.TestCase):
         )
 
     def test_suite_workflows_may_take_optional_inputs(self):
-        # warm.yml sets deploy-docs.yml's optional `deploy` input; the merge
+        # post-merge.yml sets deploy-docs.yml's optional `deploy` input; the merge
         # run calls it without inputs.
         manifest = copy.deepcopy(self.manifest)
         manifest["suites"]["test_xdbg"]["workflow"] = "deploy-docs.yml"

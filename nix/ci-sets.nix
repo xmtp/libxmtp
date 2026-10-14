@@ -1,10 +1,10 @@
-# Warm sets: the outputs that .github/workflows/warm.yml builds, pushes to the
+# Warm sets: the outputs that .github/workflows/post-merge.yml builds, pushes to the
 # trusted Cachix cache `xmtp`, and pins on every push to trunk.
 #
 # `ciSets.<system>.dev` holds what developers and CI jobs use;
 # `ciSets.<system>.release` holds what release jobs use. Each set is a link
 # farm, so one store path holds the runtime closure of every member, and
-# `passthru.members` lists the members for the closure check of warm.yml.
+# `passthru.members` lists the members for the closure check of post-merge.yml.
 #
 # A dev shell enters as its `inputDerivation`, whose runtime closure holds
 # every shell input. Add a member only when a job, a release, or a developer

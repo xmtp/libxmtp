@@ -1,10 +1,11 @@
-# Builds the warm sets (nix/ci-sets.nix) for the newest push to trunk, pushes
-# them to the trusted Cachix cache `xmtp`, and pins them. Release, developers,
-# and CI jobs then substitute these outputs.
+# Runs after each push to trunk. It builds the warm sets (nix/ci-sets.nix) for
+# the newest push, pushes them to the trusted Cachix cache `xmtp`, and pins
+# them; release, developers, and CI jobs then substitute these outputs. Then it
+# checks that the sets substitute, builds the docs, and deploys GitHub Pages.
 #
 # Trusted: only pushes to trunk start this workflow, and only the writer
 # environment holds the trusted Cachix token.
-name: Warm Nix cache
+name: Post-merge
 on:
   push:
     branches:
@@ -15,7 +16,7 @@ permissions:
 # A run in progress always finishes, so every run that starts pushes and pins
 # complete sets for its commit. A newer push replaces a pending older run.
 concurrency:
-  group: warm-${{ github.ref }}
+  group: post-merge-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   build:
@@ -162,7 +163,7 @@ jobs:
     # The repository has one Pages site, so every ref shares one group. One
     # deploy runs at a time. queue: max keeps up to 100 pending deploys in
     # FIFO order instead of replacing them, and cancel-in-progress: false
-    # never cancels a running one, so every warm run that reaches its deploy
+    # never cancels a running one, so every post-merge run that reaches its deploy
     # publishes.
     concurrency:
       group: pages

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the docs workflow, its result gate, and the warm Pages deploy."""
+"""Check the docs workflow, its result gate, and the post-merge Pages deploy."""
 
 import json
 import os
@@ -12,7 +12,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/deploy-docs.yml").read_text())
 JOBS = WORKFLOW["jobs"]
-WARM = yaml.safe_load((ROOT / ".github/workflows/warm.yml").read_text())["jobs"]
+POST_MERGE = yaml.safe_load((ROOT / ".github/workflows/post-merge.yml").read_text())[
+    "jobs"
+]
 TESTS = yaml.safe_load((ROOT / ".github/workflows/test-generated.yml").read_text())
 
 
@@ -46,40 +48,40 @@ class ConcurrencyTests(unittest.TestCase):
         )
 
     def test_only_the_pages_deploy_is_serialized_and_never_cancelled(self):
-        grouped = {job for job, spec in WARM.items() if "concurrency" in spec}
+        grouped = {job for job, spec in POST_MERGE.items() if "concurrency" in spec}
         self.assertEqual(grouped, {"deploy"})
         # One fixed group for the one Pages site. A pending deploy waits in
         # the queue and is never replaced, and a running one is never
-        # cancelled: a cancelled job makes the warm run cancelled.
+        # cancelled: a cancelled job makes the post-merge run cancelled.
         self.assertEqual(
-            WARM["deploy"]["concurrency"],
+            POST_MERGE["deploy"]["concurrency"],
             {"group": "pages", "cancel-in-progress": False, "queue": "max"},
         )
 
     def test_deploy_timeout_exceeds_the_deploy_pages_wait(self):
         # actions/deploy-pages gives up after 10 minutes by default.
-        self.assertGreater(WARM["deploy"].get("timeout-minutes", 0), 10)
+        self.assertGreater(POST_MERGE["deploy"].get("timeout-minutes", 0), 10)
 
 
 class TrustTests(unittest.TestCase):
-    def test_only_the_warm_workflow_deploys_pages(self):
+    def test_only_the_post_merge_workflow_deploys_pages(self):
         # A called job that asks for pages: write needs that grant from every
         # caller, even when it is skipped (startup_failure, run 38501491733).
         for job, spec in JOBS.items():
             self.assertNotIn("pages", spec.get("permissions") or {}, job)
         self.assertNotIn("upload-pages-artifact", repr(TESTS))
         self.assertEqual(
-            WARM["deploy"]["permissions"], {"pages": "write", "id-token": "write"}
+            POST_MERGE["deploy"]["permissions"], {"pages": "write", "id-token": "write"}
         )
-        self.assertEqual(WARM["deploy"]["environment"]["name"], "github-pages")
-        self.assertEqual(WARM["deploy"]["needs"], "docs")
+        self.assertEqual(POST_MERGE["deploy"]["environment"]["name"], "github-pages")
+        self.assertEqual(POST_MERGE["deploy"]["needs"], "docs")
 
-    def test_warm_docs_build_the_references_after_the_warm_build(self):
-        docs = WARM["docs"]
+    def test_post_merge_docs_build_the_references_after_the_warm_build(self):
+        docs = POST_MERGE["docs"]
         self.assertEqual(docs["uses"], "./.github/workflows/deploy-docs.yml")
         self.assertEqual(docs["with"], {"deploy": True})
         self.assertEqual(docs["needs"], "build")
-        # Warm runs are never cancelled, so this runs also after a failed build.
+        # Post-merge runs are never cancelled, so this runs also after a failed build.
         self.assertEqual(docs["if"], "${{ !cancelled() }}")
         self.assertNotIn("permissions", docs)
 

@@ -14,7 +14,7 @@ import {
 
 const SOURCE_EXTENSIONS = new Set([".md", ".mdx"]);
 const ALLOWED_SCHEMES = /^(?:https?:|mailto:|tel:|data:|javascript:)/i;
-// The Kotlin and Swift references are built only in the warm workflow, which
+// The Kotlin and Swift references are built only in the post-merge workflow, which
 // deploys the site, because each is a from-scratch Rust cross-compile. Pull
 // request and merge run builds compose without them and set
 // DOCS_SKIP_NATIVE_REFERENCES so they are not required here.

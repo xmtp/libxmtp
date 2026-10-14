@@ -27,7 +27,7 @@ push job, so a `v*` tag ruleset can list the App as its bypass actor.
 
 Every `setup-nix` call states its Cachix cache mode (`read`, `ci`, or
 `trusted`), and `setup-js` gets the same mode. Release, publish, deploy,
-schedule, and warm jobs use `read`; CI jobs use `ci`; writer jobs use the
+schedule, and post-merge jobs use `read`; CI jobs use `ci`; writer jobs use the
 protected-push expression. See "Cache modes" in
 `.github/actions/setup-nix/README.md`. `dev/agents/test_kache_env.py` checks
 the wiring for every entry workflow and event.

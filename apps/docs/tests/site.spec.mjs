@@ -156,7 +156,7 @@ test("the docs use the system theme without a selector", async ({ page }) => {
 });
 
 test("native references load their content and styles", async ({ page }) => {
-  // The Kotlin and Swift references are built only in the warm workflow; pull
+  // The Kotlin and Swift references are built only in the post-merge workflow; pull
   // request and merge run builds compose without them. See apps/docs/AGENTS.md.
   const paths =
     process.env.DOCS_SKIP_NATIVE_REFERENCES === "1"

@@ -133,7 +133,7 @@ nix flake show
   WebAssembly (wasm-pack/wasm-bindgen)
 - **CI caching** — [Cachix](https://cachix.org) stores built Nix derivations so
   CI and local builds skip redundant work. On every push to trunk,
-  `.github/workflows/warm.yml` builds and pins the outputs in
+  `.github/workflows/post-merge.yml` builds and pins the outputs in
   `nix/ci-sets.nix`. Developers, release, and deploys read only the trusted
   cache `xmtp`; pull request and merge-run jobs also read and write the
   CI-only cache `xmtp-pr`
