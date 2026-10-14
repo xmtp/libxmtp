@@ -489,6 +489,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.gate(script, env), 0)
 
     def test_cargo_deny_advisories_block_only_the_scheduled_run(self):
+        caller = self.generated["lint"]["jobs"]["lint_deny"]
+        self.assertNotIn("secrets", caller)
         workflow = load(".github/workflows/lint-deny.yml")
         triggers = workflow.get("on", workflow.get(True))
         self.assertIn("workflow_call", triggers)
