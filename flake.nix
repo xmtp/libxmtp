@@ -132,6 +132,18 @@
               (pkgs.callPackage ./nix/package/ios.nix {
                 stdenv = pkgs.stdenvNoCC;
               }).devFast;
+            # For a Mac whose Xcode is not the CI Xcode (`lib.xcode`):
+            # sdks/ios/dev/bindings selects these. Caches do not hold them.
+            ios-xcframeworks-local =
+              (pkgs.callPackage ./nix/package/ios.nix {
+                stdenv = pkgs.stdenvNoCC;
+                local = true;
+              }).release;
+            ios-xcframeworks-fast-local =
+              (pkgs.callPackage ./nix/package/ios.nix {
+                stdenv = pkgs.stdenvNoCC;
+                local = true;
+              }).devFast;
           };
         };
     };

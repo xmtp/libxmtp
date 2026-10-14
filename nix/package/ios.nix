@@ -4,13 +4,19 @@
   stdenv,
   pkgs,
   xmtp,
+  # true: the -local outputs, for a Mac whose Xcode is not `xmtp.iosEnv.xcode`.
+  # They skip the Xcode check, and caches do not hold them.
+  local ? false,
   ...
 }:
 let
   sdk = pkgs.callPackage ./xmtp-sdk.nix { };
   version = "8.0.0";
   host = pkgs.stdenv.hostPlatform.rust.rustcTarget;
-  native = target: if target == host then sdk.libs else sdk.iosTargets.${target};
+  xcode = if local then "local" else xmtp.iosEnv.xcode.key;
+  slices = if local then sdk.iosTargetsLocal else sdk.iosTargets;
+  # The host slice uses the Nix toolchain, not Xcode, so it has no Xcode key.
+  native = target: if target == host then sdk.libs else slices.${target};
   swiftBindings = stdenv.mkDerivation {
     pname = "xmtp-sdk-swift";
     inherit version;
@@ -55,6 +61,8 @@ let
       dontUnpack = true;
       dontFixup = true;
       __noChroot = true;
+      # xcodebuild assembles the framework, so its key holds the Xcode too.
+      XMTP_XCODE = xcode;
       installPhase = ''
         ${xmtp.iosEnv.envSetup host}
         export PATH="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin:/usr/bin:$PATH"

@@ -43,8 +43,9 @@ jobs:
     timeout-minutes: 60
     steps:
     - uses: actions/checkout@v6
-    # The Xcode of the iOS jobs and post-merge.yml, so an iOS build here uses the
-    # same Xcode as theirs. The image default is older.
+    # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix),
+    # and sdks/ios/dev/bindings fails in CI with another. The image default is
+    # older.
     - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
       with:
         xcode-version: '26.3'

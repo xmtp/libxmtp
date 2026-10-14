@@ -50,6 +50,10 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
 ## Rules
 
 - Darwin only. The iOS recipes use `NIX_DEVSHELL=ios`.
+- `dev/bindings` builds the XCFramework that CI caches only when the selected
+  Xcode (`xcode-select -p`) is `lib.xcode` from `nix/lib/ios-env.nix`. With
+  another Xcode it prints a notice and builds the `-local` output, which no
+  cache holds; in CI it fails instead.
 - Start the backend with `dev/nix-shell 'just backend up'`.
 - Tests read `XMTP_BACKEND_URL`. The test recipe loads this worktree's URL.
 - The stream recovery test sends its client through a loopback relay

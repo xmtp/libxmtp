@@ -11,7 +11,12 @@ Keep compiler credentials and writable host cache paths out of derivations.
 
 On macOS, keep the compiler, linker, and SDK from the same toolchain. The local
 and iOS shells select Xcode through `ios-env.nix` and use its native linker.
-Do not hard-code an Xcode version or use Nix's linker with the system SDK.
+Do not use Nix's linker with the system SDK. The shells accept any Xcode. The
+iOS build outputs are keyed to one Xcode (`xcode` in `ios-env.nix`, also
+`lib.xcode`): a CI or release output fails to build with another, and the
+`-local` outputs (`ios-xcframeworks-local`, `ios-xcframeworks-fast-local`)
+build with any Xcode. A new Xcode changes `xcode` and every
+`maxim-lobanov/setup-xcode` pin in `.github/workflows` together.
 The focused Rust shell and Android host builds use the Nix toolchain.
 They must replace native compiler and linker overrides from an outer local or
 iOS shell. Otherwise, Xcode's linker uses Nix's SDK without its library search paths.

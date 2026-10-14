@@ -37,8 +37,8 @@ jobs:
       SYSTEM: ${{ matrix.system }}
     steps:
       - uses: actions/checkout@v6
-      # The iOS outputs find Xcode at build time (nix/lib/ios-env.nix), so
-      # pin the Xcode of the iOS jobs before the build.
+      # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
+      # and a build with another fails, so select it before the build.
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         if: runner.os == 'macOS'
         with:
