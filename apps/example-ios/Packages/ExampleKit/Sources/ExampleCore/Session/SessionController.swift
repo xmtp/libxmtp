@@ -156,7 +156,7 @@ public enum SessionState: Equatable,
 		let backend = try BackendURL(url)
 		var index = try files.loadIndex()
 		guard index.reset == nil else { throw SessionError.message("Finish local reset before connecting") }
-		let existing = index.profiles.first { $0.url == backend.value }
+		let existing = index.profiles.first { BackendURL.parse($0.url)?.value == backend.value }
 		var profile = existing ?? BackendProfile(url: backend.value)
 		profile.name = name
 		let generation = fence.reserve(); onReserved?(generation); state = .opening

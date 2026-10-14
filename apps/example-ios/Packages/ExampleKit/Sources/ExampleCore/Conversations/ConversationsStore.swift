@@ -36,6 +36,7 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 	private var detailJob: Task<Void, Never>?
 	private var pendingDetailIDs: [String] = []
 	private var queuedDetailIDs: Set<String> = []
+	private var hydratedDetailIDs: Set<String> = []
 	private var tasks: [UUID: Task<Void, Never>] = [:]
 	public init(
 		session: SessionKey,
@@ -58,6 +59,7 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 			state.search = text
 			visibleStart = 0
 			resetHydration()
+			scheduleHydration(origin: DestinationOrigin(session: session, token: routes.token))
 		case let .connection(copy): state.connectionBanner = copy
 		case let .visible(start, count):
 			visibleStart = max(0, start)
@@ -121,6 +123,7 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 							enriched.consent = record.consent
 							return row(enriched)
 						}
+					hydratedDetailIDs.formIntersection(state.rows.map(\.id))
 					state.hasMore = records.count == requested || visibleRecords.count > limit; state.loading = false
 					state.requestCount = requests.flatMap { records in
 						records.count >= 501 ? nil : ListRules
@@ -178,6 +181,15 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 		{
 			pendingDetailIDs.append(value.id)
 		}
+		if !state.search.isEmpty {
+			// Search cannot discover a field until it is read. Stay inside the loaded detail window.
+			let window = ListRules.detailWindow(start: visibleStart, count: visibleCount, total: state.rows.count)
+			for value in state.rows[window]
+				where !hydratedDetailIDs.contains(value.id) && queuedDetailIDs.insert(value.id).inserted
+			{
+				pendingDetailIDs.append(value.id)
+			}
+		}
 		guard detailJob == nil, !pendingDetailIDs.isEmpty else { return }
 		let taskID = UUID(), revision = windowRevision
 		detailJob = Task {
@@ -191,8 +203,10 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 		}
 		tasks[taskID] = detailJob
 	}
+}
 
-	private func hydrate(origin: DestinationOrigin) async {
+private extension ConversationsStore {
+	func hydrate(origin: DestinationOrigin) async {
 		let revision = windowRevision
 		let requestRevision = loadRevision
 		while !pendingDetailIDs.isEmpty {
@@ -201,7 +215,7 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 				fence: fence,
 			) else { return }
 			let id = pendingDetailIDs.removeFirst()
-			guard let value = state.visibleRows.first(where: { $0.id == id }) else {
+			guard let value = state.rows.first(where: { $0.id == id }) else {
 				queuedDetailIDs.remove(id)
 				continue
 			}
@@ -216,8 +230,10 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 					if let index = state.rows.firstIndex(where: { $0.id == record.id }) {
 						if record.consent == consent {
 							state.rows[index] = row(record)
+							hydratedDetailIDs.insert(record.id)
 						} else {
 							state.rows.remove(at: index)
+							hydratedDetailIDs.remove(record.id)
 						}
 					}
 				}
