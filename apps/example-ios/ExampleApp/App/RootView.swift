@@ -6,6 +6,7 @@ struct RootView: View {
 	@Bindable var graph: AppGraph
 	@Environment(\.scenePhase) private var scenePhase
 	@Environment(\.accessibilityReduceMotion) private var reduceMotion
+	@State private var reducedComposeIsPresented = false
 	@Namespace private var composeTransition
 	var body: some View {
 		Group {
@@ -37,8 +38,11 @@ struct RootView: View {
 				}
 			}
 		}
-		.sheet(isPresented: Binding(get: { graph.routes.sheet != nil }, set: {
-			if !$0 {
+		.sheet(isPresented: Binding(get: {
+			graph.routes.sheet != nil && !reducedComposeIsPresented
+				&& !(reduceMotion && graph.routes.sheet == .newConversation)
+		}, set: { value in
+			if !value, !reducedComposeIsPresented {
 				graph.routes.dismissSheet()
 			}
 		})) {
@@ -49,6 +53,21 @@ struct RootView: View {
 			}
 			.modifier(MemberSheetSizing(route: graph.routes.sheet))
 		}
+		.modifier(ReducedMotionSheet<SheetPresentationKey>(item: Binding<SheetPresentationKey?>(get: {
+			guard reduceMotion, graph.routes.sheet == .newConversation else { return nil }
+			return SheetPresentationKey(route: .newConversation, token: graph.routes.token)
+		}, set: { value in
+			if value == nil {
+				graph.routes.dismissSheet()
+			}
+		}), presentationChanged: { reducedComposeIsPresented = $0 }, sheetContent: { key in
+			guard let store = graph.newConversation else { return AnyView(EmptyView()) }
+			let view = NewConversationView(store: store, onClose: {
+				guard graph.routes.token == key.token, graph.routes.sheet == key.route else { return }
+				graph.routes.back()
+			})
+			return AnyView(NavigationStack { view })
+		}))
 		.tint(Theme.tint).messengerMotion()
 		.preferredColorScheme(graph.appearance == "dark" ? .dark : graph.appearance == "light" ? .light : nil)
 		.alert(
@@ -209,4 +228,9 @@ private struct MemberSheetSizing: ViewModifier {
 			content
 		}
 	}
+}
+
+private struct SheetPresentationKey: Hashable {
+	let route: Route
+	let token: UInt64
 }
