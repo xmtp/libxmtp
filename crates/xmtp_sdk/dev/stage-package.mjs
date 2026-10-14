@@ -48,17 +48,32 @@ const contracts = trees.map((tree) =>
   JSON.parse(readFileSync(join(generated, tree, "sdk-contract.json"))),
 );
 // Each tree's contract digests its own library, so the browser's worker and
-// pure trees match on the generator and the source and profile of their
-// libraries instead.
+// pure trees match on the generator and the source, profile, and Rust target
+// of their libraries instead.
 if (
   contracts.some(
     (record) =>
       record.generator !== contracts[0].generator ||
-      record.artifact?.source !== contracts[0].artifact?.source ||
-      record.artifact?.profile !== contracts[0].artifact?.profile,
+      ["source", "profile", "target"].some(
+        (field) => record.artifact?.[field] !== contracts[0].artifact?.[field],
+      ),
   )
 )
   throw new Error("SDK generated contract mismatch");
+// A package ships only product libraries: no test exports such as
+// `conformance` (the Nix fixtures) in any tree.
+const productFeatures = {
+  "typescript-napi": "",
+  "typescript-wasm": "",
+  "typescript-pure": "pure-only",
+};
+trees.forEach((tree, i) => {
+  const features = contracts[i].artifact?.features;
+  if (features !== productFeatures[tree])
+    throw new Error(
+      `SDK generated ${tree} has features ${features}, expected "${productFeatures[tree]}"`,
+    );
+});
 const hash = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 function files(directory) {

@@ -211,7 +211,7 @@ jobs:
           rm -rf target/sdk-generated
           # Windows has no Nix: the identities name the commit, and the pnpm
           # oxfmt formats the generated TypeScript.
-          read -r source generator < <(python crates/xmtp_sdk/dev/sdk-artifacts.py provenance)
+          read -r source generator < <(python crates/xmtp_sdk/dev/sdk-artifacts.py provenance | tr -d '\r')
           target/debug/xmtp-sdk-bindgen.exe render --lib target/debug/xmtp_sdk.dll --target node --oxfmt node_modules/.bin/oxfmt.cmd --out target/sdk-generated/typescript-napi --source "$source" --generator "$generator" --profile debug
           node crates/xmtp_sdk/dev/stage-package.mjs node --public
       - name: Use the minimum SDK Node version

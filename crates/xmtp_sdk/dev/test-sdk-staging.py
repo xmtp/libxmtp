@@ -11,6 +11,12 @@ import tarfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
+# The artifact features that staging admits for each generated tree.
+FEATURES = {
+    "typescript-napi": "",
+    "typescript-wasm": "",
+    "typescript-pure": "pure-only",
+}
 
 
 class StagingTests(unittest.TestCase):
@@ -53,7 +59,11 @@ class StagingTests(unittest.TestCase):
                     {
                         "contract": tree,
                         "generator": "fixture",
-                        "artifact": {"source": "fixture", "profile": "debug"},
+                        "artifact": {
+                            "source": "fixture",
+                            "profile": "debug",
+                            "features": FEATURES[tree],
+                        },
                         "files": {
                             name: hashlib.sha256(
                                 (source / name).read_bytes()
@@ -112,6 +122,23 @@ class StagingTests(unittest.TestCase):
         result = subprocess.run(command, env=env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("SDK generated contract mismatch", result.stderr)
+        # So must a pure tree built for another Rust target.
+        metadata["artifact"]["source"] = "fixture"
+        metadata["artifact"]["target"] = "another-target"
+        receipt.write_text(json.dumps(metadata))
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertIn("SDK generated contract mismatch", result.stderr)
+        del metadata["artifact"]["target"]
+        # A test-only conformance tree, such as the Nix codec fixture, must not
+        # reach a package.
+        metadata["artifact"]["source"] = "fixture"
+        metadata["artifact"]["features"] = "pure-only,conformance"
+        receipt.write_text(json.dumps(metadata))
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "typescript-pure has features pure-only,conformance", result.stderr
+        )
 
     def test_read_only_runtime_directories_stage(self):
         generated = self.root / "generated/typescript-napi"
@@ -123,6 +150,11 @@ class StagingTests(unittest.TestCase):
                 {
                     "contract": "fixture",
                     "generator": "fixture",
+                    "artifact": {
+                        "source": "fixture",
+                        "profile": "release",
+                        "features": "",
+                    },
                     "files": {
                         name: hashlib.sha256(
                             (generated / name).read_bytes()
@@ -200,6 +232,11 @@ class StagingTests(unittest.TestCase):
                     {
                         "contract": "fixture",
                         "generator": "fixture",
+                        "artifact": {
+                            "source": "fixture",
+                            "profile": "release",
+                            "features": FEATURES[tree],
+                        },
                         "files": {
                             name: hashlib.sha256(
                                 (source / name).read_bytes()
@@ -283,6 +320,11 @@ class StagingTests(unittest.TestCase):
                 {
                     "contract": "fixture",
                     "generator": "fixture",
+                    "artifact": {
+                        "source": "fixture",
+                        "profile": "release",
+                        "features": "",
+                    },
                     "files": {
                         name: hashlib.sha256(
                             (generated / name).read_bytes()
@@ -388,6 +430,11 @@ class StagingTests(unittest.TestCase):
                 {
                     "contract": "fixture",
                     "generator": "fixture",
+                    "artifact": {
+                        "source": "fixture",
+                        "profile": "release",
+                        "features": "",
+                    },
                     "files": {
                         name: hashlib.sha256(
                             (generated / name).read_bytes()

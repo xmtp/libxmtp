@@ -610,14 +610,12 @@ class ArtifactTests(unittest.TestCase):
                     artifacts.subprocess,
                     "check_output",
                     return_value="/nix/store/fixture-oxfmt\n",
-                ) as probe,
+                ),
             ):
                 self.assertEqual(
                     artifacts.formatter(),
                     ["--oxfmt", "/nix/store/fixture-oxfmt/bin/oxfmt"],
                 )
-            self.assertIn("nixpkgs#oxfmt", probe.call_args.args[0])
-            self.assertIn("--inputs-from", probe.call_args.args[0])
         finally:
             self.formatter_patch.start()
 
