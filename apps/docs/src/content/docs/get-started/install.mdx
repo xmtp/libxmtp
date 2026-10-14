@@ -9,8 +9,8 @@ Install the SDK for your platform. All SDKs use a backend URL. See [Create a cli
 
 ## Install a package
 
-Use **8.0.0-rc1** for Browser, Node, Android, iOS, and Agent clients. Use
-`ghcr.io/xmtp/backend:8.0.0-rc1` for the backend. Pin the exact release candidate
+Use **8.0.0-rc2** for Browser, Node, Android, iOS, and Agent clients. Use
+`ghcr.io/xmtp/backend:8.0.0-rc2` for the backend. Pin the exact release candidate
 version. The published Browser 7 and Node 6 packages use an earlier backend API.
 
 ### Browser, Node, and Agent packages
@@ -19,9 +19,9 @@ Use the package for your platform:
 
 | Platform | Package                       |
 | -------- | ----------------------------- |
-| Browser  | `@xmtp/browser-sdk@8.0.0-rc1` |
-| Node     | `@xmtp/node-sdk@8.0.0-rc1`    |
-| Agent    | `@xmtp/agent-sdk@8.0.0-rc1`   |
+| Browser  | `@xmtp/browser-sdk@8.0.0-rc2` |
+| Node     | `@xmtp/node-sdk@8.0.0-rc2`    |
+| Agent    | `@xmtp/agent-sdk@8.0.0-rc2`   |
 
 Run one command from your app directory. These commands install the Browser SDK.
 For Node or Agent, replace `@xmtp/browser-sdk` with the package name in the table.
@@ -30,28 +30,28 @@ For Node or Agent, replace `@xmtp/browser-sdk` with the package name in the tabl
 <TabItem label="npm">
 
 ```sh
-npm install --save-exact @xmtp/browser-sdk@8.0.0-rc1
+npm install --save-exact @xmtp/browser-sdk@8.0.0-rc2
 ```
 
 </TabItem>
 <TabItem label="pnpm">
 
 ```sh
-pnpm add --save-exact @xmtp/browser-sdk@8.0.0-rc1
+pnpm add --save-exact @xmtp/browser-sdk@8.0.0-rc2
 ```
 
 </TabItem>
 <TabItem label="yarn">
 
 ```sh
-yarn add --exact @xmtp/browser-sdk@8.0.0-rc1
+yarn add --exact @xmtp/browser-sdk@8.0.0-rc2
 ```
 
 </TabItem>
 <TabItem label="bun">
 
 ```sh
-bun add --exact @xmtp/browser-sdk@8.0.0-rc1
+bun add --exact @xmtp/browser-sdk@8.0.0-rc2
 ```
 
 </TabItem>
@@ -73,7 +73,7 @@ android {
     }
 }
 dependencies {
-    implementation("org.xmtp:android:8.0.0-rc1")
+    implementation("org.xmtp:android:8.0.0-rc2")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 ```
@@ -84,12 +84,12 @@ the same release. An older network SDK cannot use this backend.
 ### Swift package
 
 Add [libxmtp](https://github.com/xmtp/libxmtp) as a Swift package in Xcode. Select
-the `ios-8.0.0-rc1` tag and add the `XmtpSdk` product to your app. For a Swift
+the `ios-8.0.0-rc2` tag and add the `XmtpSdk` product to your app. For a Swift
 package, add these dependency and target entries:
 
 ```swift
 // In Package.dependencies:
-.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc1")
+.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc2")
 
 // In your app target's dependencies:
 .product(name: "XmtpSdk", package: "libxmtp")
