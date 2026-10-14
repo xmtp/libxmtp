@@ -300,6 +300,26 @@
           }
         }
       }
+    },
+    "Message requests": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message requests"
+          }
+        }
+      }
+    },
+    "settings.appearance.detail": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose how Chats looks on this device."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

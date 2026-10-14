@@ -51,7 +51,11 @@ struct SettingsView: View {
 	private var profileSection: some View {
 		Section {
 			HStack(spacing: 12) {
-				Avatar(seed: graph.active?.profile.inboxID ?? "own", label: DisplayInitials.person(graph.currentHandle ?? "You"))
+				Avatar(
+					seed: graph.active?.profile.inboxID ?? "own",
+					label: DisplayInitials.person(graph.currentHandle ?? "You"),
+					size: 64,
+				)
 				VStack(alignment: .leading, spacing: 3) {
 					if let handle = graph.currentHandle {
 						HandleText(handle: handle).font(.title3.bold())
@@ -106,7 +110,9 @@ struct SettingsView: View {
 		}
 	}
 
-	private func actionRow(_ title: String, symbol: String, navigates: Bool = false) -> some View {
+	private func actionRow(_ title: String, symbol: String, navigates: Bool = false,
+	                       color: Color = Theme.tint) -> some View
+	{
 		HStack(spacing: 12) {
 			Image(systemName: symbol).frame(width: 20).accessibilityHidden(true)
 			Text(localized(title))
@@ -115,48 +121,85 @@ struct SettingsView: View {
 				Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
 					.accessibilityHidden(true)
 			}
-		}.foregroundStyle(Theme.tint).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+		}.foregroundStyle(color).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+	}
+
+	private func navigationRow(_ title: String, symbol: String, iconColor: Color) -> some View {
+		HStack(spacing: 12) {
+			Image(systemName: symbol).font(.system(size: 14))
+				.foregroundStyle(.white).frame(width: 28, height: 28)
+				.background(iconColor, in: RoundedRectangle(cornerRadius: 7))
+				.accessibilityHidden(true)
+			Text(localized(title)).foregroundStyle(.primary)
+			Spacer()
+			Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+				.accessibilityHidden(true)
+		}.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
 	}
 
 	private var appearanceSection: some View {
-		Section(localized("Appearance")) {
+		Section {
 			Picker(localized("Appearance"), selection: Binding(
 				get: { store.state.appearance }, set: { store.send(.appearance($0)) },
 			)) {
 				Text("Automatic", tableName: "Settings").tag("system")
 				Text("Light", tableName: "Settings").tag("light")
 				Text("Dark", tableName: "Settings").tag("dark")
-			}
+			}.pickerStyle(.segmented).labelsHidden()
+				.listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+		} header: {
+			Text("Appearance", tableName: "Settings")
+		} footer: {
+			Text("settings.appearance.detail", tableName: "Settings")
 		}
 	}
 
 	private var privacySection: some View {
-		Section(localized("Privacy")) {
-			Button(localized("Message requests")) { graph.navigate(.requests) }.buttonStyle(.glass)
-			Text("settings.privacy.detail", tableName: "Settings").font(.footnote).foregroundStyle(Theme.secondaryLabel)
+		Section {
+			Button { graph.navigate(.requests) } label: {
+				navigationRow("Message requests", symbol: "tray", iconColor: Theme.tint)
+			}.buttonStyle(.plain)
+		} header: {
+			Text("Privacy", tableName: "Settings")
+		} footer: {
+			Text("settings.privacy.detail", tableName: "Settings")
 		}
 	}
 
 	private var developerSection: some View {
-		Section(localized("Developer tools")) {
-			Button(localized("Attachment recovery")) { graph.navigate(.attachmentRecovery) }.buttonStyle(.glass)
-			Text("settings.developer.detail", tableName: "Settings").font(.footnote).foregroundStyle(Theme.secondaryLabel)
+		Section {
+			Button { graph.navigate(.attachmentRecovery) } label: {
+				navigationRow("Attachment recovery", symbol: "doc", iconColor: .gray)
+			}.buttonStyle(.plain)
+		} header: {
+			Text("Developer tools", tableName: "Settings")
+		} footer: {
+			Text("settings.developer.detail", tableName: "Settings")
 		}
 	}
 
 	private var deviceSection: some View {
-		Section(localized("This device")) {
-			Button(localized("Sign out"), role: .destructive) { store.send(.signOut) }.buttonStyle(.glass)
-			Button(localized("Delete local data"), role: .destructive) { store.send(.reset) }.buttonStyle(.glass)
+		Section {
+			Button { store.send(.signOut) } label: {
+				actionRow("Sign out", symbol: "rectangle.portrait.and.arrow.right")
+			}.buttonStyle(.plain)
+			Button(role: .destructive) { store.send(.reset) } label: {
+				actionRow("Delete local data", symbol: "trash", color: .red)
+			}.buttonStyle(.plain)
 			if graph.session.state == .resetIncomplete {
 				Text("Local deletion is incomplete", tableName: "Settings")
-				Button(localized("Continue deletion")) {
+				Button {
 					Task {
 						do { try await graph.session.continueReset() } catch { graph.error = localized("Local deletion is incomplete") }
 					}
-				}.buttonStyle(.glass)
+				} label: {
+					actionRow("Continue deletion", symbol: "arrow.clockwise")
+				}.buttonStyle(.plain)
 			}
-			Text("settings.device.detail", tableName: "Settings").font(.footnote).foregroundStyle(Theme.secondaryLabel)
+		} header: {
+			Text("This device", tableName: "Settings")
+		} footer: {
+			Text("settings.device.detail", tableName: "Settings")
 		}
 	}
 

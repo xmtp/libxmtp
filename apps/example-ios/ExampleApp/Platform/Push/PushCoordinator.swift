@@ -248,18 +248,18 @@ import UserNotifications
 			info["push-conversation"] = id
 		}
 		content.userInfo = info
-		let expectedRevision = submission.revision
+		let expected = submission.capture(tag: tag)
 		Task { @MainActor in
 			let pending = await center.pendingNotificationRequests()
 			let delivered = await center.deliveredNotifications()
-			guard submission.revision == expectedRevision else { completion(false); return }
+			guard submission.isCurrent(expected) else { completion(false); return }
 			if pending.contains(where: { $0.identifier == tag }) ||
 				delivered.contains(where: { $0.request.identifier == tag })
 			{
 				completion(true)
 				return
 			}
-			let posted = await submission.submit(expectedRevision: expectedRevision, add: {
+			let posted = await submission.submit(expected: expected, add: {
 				try await center.add(UNNotificationRequest(identifier: tag, content: content, trigger: nil))
 			}, remove: {
 				center.removePendingNotificationRequests(withIdentifiers: [tag])
@@ -270,7 +270,7 @@ import UserNotifications
 	}
 
 	func remove(tag: String) {
-		submission.invalidate()
+		submission.invalidate(tag: tag)
 		center.removePendingNotificationRequests(withIdentifiers: [tag]); center
 			.removeDeliveredNotifications(withIdentifiers: [tag])
 	}

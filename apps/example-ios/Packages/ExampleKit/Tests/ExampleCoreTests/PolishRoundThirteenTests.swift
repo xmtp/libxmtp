@@ -6,9 +6,9 @@ import Testing
 	@Test func lateNotificationAfterPrivacyChangeIsRemoved() async {
 		let fence = PushSubmissionFence()
 		let platform = DelayedNotificationPlatform()
-		let expected = fence.revision
+		let expected = fence.capture(tag: "message")
 		let pending = Task {
-			await fence.submit(expectedRevision: expected, add: { await platform.add() }, remove: { platform.remove() })
+			await fence.submit(expected: expected, add: { await platform.add() }, remove: { platform.remove() })
 		}
 		while platform.waiter == nil {
 			await Task.yield()
@@ -25,7 +25,7 @@ import Testing
 		let fence = PushSubmissionFence()
 		var published = false
 		#expect(await fence.submit(
-			expectedRevision: fence.revision,
+			expected: fence.capture(tag: "message"),
 			add: { published = true },
 			remove: { published = false },
 		))
