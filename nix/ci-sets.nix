@@ -9,6 +9,11 @@
 # A dev shell enters as its `inputDerivation`, whose runtime closure holds
 # every shell input. Add a member only when a job, a release, or a developer
 # builds that output from trunk.
+#
+# Every other set is a product group of .github/ci-suites.yml: CI builds
+# `ciSets.x86_64-linux.<group>` once per run in the job `products_<group>`.
+# post-merge.yml builds only dev and release, so keep each group member in
+# one of them; its closure check covers every set.
 { lib, withSystem, ... }:
 let
   # Every dev shell of the system, as `shell-<name>`.
@@ -54,6 +59,16 @@ let
             xmtp-sdk-node-linux-arm64-gnu
             xmtp-sdk-node-linux-arm64-musl
             android-sdk-libs
+            ;
+        };
+        # For the Android suites: the Kotlin tree, the JNI libraries (one ABI
+        # and all four), and the JNA host library.
+        sdk_android = mkSet pkgs "sdk_android" {
+          inherit (p)
+            xmtp-sdk-generated-kotlin
+            android-sdk-libs-fast
+            android-sdk-libs
+            xmtp-sdk-libs
             ;
         };
       };

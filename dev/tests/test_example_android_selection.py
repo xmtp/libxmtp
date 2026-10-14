@@ -46,7 +46,6 @@ def select(paths, *, draft=False, event="pull_request", available=True):
 
 class SelectionTest(unittest.TestCase):
     def assert_app(self, result):
-        self.assertIn("lint_example_android", result["suites"]["lint"])
         self.assertIn("test_example_android", result["suites"]["test"])
 
     def test_app_inputs_select_app_without_sdk_platform_or_bindings(self):
@@ -145,7 +144,6 @@ class SelectionTest(unittest.TestCase):
             ["apps/example-android/app/src/main/java/Screen.kt"], draft=True
         )
         self.assertNotIn("test_example_android", result["suites"]["test"])
-        self.assertNotIn("lint_example_android", result["suites"]["lint"])
         self.assertIn("lint_config", result["suites"]["lint"])
         self.assert_app(select([], event="push"))
 
@@ -170,39 +168,38 @@ class SelectionTest(unittest.TestCase):
     def test_app_jobs_require_every_child_and_generated_gate(self):
         self.assert_child_gate(
             ".github/workflows/test-example-android.yml",
-            ("apk", "unit-tests", "integration-tests"),
+            ("apk", "lint", "unit-tests", "integration-tests"),
         )
-        for phase, suite in (
-            ("lint", "lint_example_android"),
-            ("test", "test_example_android"),
+        suite = "test_example_android"
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/test-generated.yml").read_text()
+        )
+        jobs = workflow["jobs"]
+        self.assertIn(suite, jobs["required"]["needs"])
+        self.assertEqual(
+            jobs[suite]["uses"], "./.github/workflows/test-example-android.yml"
+        )
+        self.assertIn(f"'{suite}'", jobs[suite]["if"])
+        step = jobs["required"]["steps"][0]
+        for state, expected in (
+            ("success", 0),
+            ("failure", 1),
+            ("skipped", 1),
+            ("cancelled", 1),
         ):
-            workflow = yaml.safe_load(
-                (ROOT / f".github/workflows/{phase}-generated.yml").read_text()
+            result = subprocess.run(
+                ["bash", "-c", step["run"]],
+                env=os.environ
+                | {
+                    "SELECTED": json.dumps([suite]),
+                    "PRODUCTS": "[]",
+                    "WAITS": step["env"]["WAITS"],
+                    "RESULTS": json.dumps({suite: {"result": state}}),
+                },
+                capture_output=True,
+                text=True,
             )
-            jobs = workflow["jobs"]
-            self.assertIn(suite, jobs["required"]["needs"])
-            self.assertEqual(
-                jobs[suite]["uses"], f"./.github/workflows/{phase}-example-android.yml"
-            )
-            self.assertIn(f"'{suite}'", jobs[suite]["if"])
-            gate = jobs["required"]["steps"][0]["run"]
-            for state, expected in (
-                ("success", 0),
-                ("failure", 1),
-                ("skipped", 1),
-                ("cancelled", 1),
-            ):
-                result = subprocess.run(
-                    ["bash", "-c", gate],
-                    env=os.environ
-                    | {
-                        "SELECTED": json.dumps([suite]),
-                        "RESULTS": json.dumps({suite: {"result": state}}),
-                    },
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(result.returncode, expected, (phase, state))
+            self.assertEqual(result.returncode, expected, state)
 
     def test_sdk_gate_keeps_staging_consumers_and_minimum_platform(self):
         workflow = self.assert_child_gate(

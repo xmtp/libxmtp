@@ -65,9 +65,9 @@ build the products themselves.
   The iOS `tests` job runs `just ios test skip-lifecycle`, so it does not
   repeat the lifecycle.
 
-- `test-example-android.yml` owns app build, host, integration, and release transport
-  checks. `lint-example-android.yml` owns app lint. Register
-  both suites in `.github/ci-suites.yml`. App-only changes do not select SDK
+- `test-example-android.yml` owns app build, lint, host, integration, and
+  release transport checks. The lint job is in the test phase so that it can
+  wait for the `sdk_android` products job. App-only changes do not select SDK
   checks; SDK and shared toolchain changes select app compatibility checks.
 - Benchmark workloads require an explicit command or a `workflow_dispatch`
   workflow. Do not include them in normal test suites or generated CI suites.

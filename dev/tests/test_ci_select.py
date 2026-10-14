@@ -100,7 +100,6 @@ class SelectionTests(unittest.TestCase):
         platforms = {
             "test_android",
             "test_example_android",
-            "lint_example_android",
             "test_ios",
             "test_browser",
             "test_agent",
@@ -517,21 +516,24 @@ class WorkflowTests(unittest.TestCase):
         }
         values, text = self.run_select(data)
         self.assertEqual(json.loads(values["test_suites"]), ["docs_site"])
+        self.assertEqual(json.loads(values["products"]), [])
         # The path is not in the checkout, so it counts as deleted.
         lint = json.loads(values["lint_suites"])
         self.assertEqual(set(lint), {"docs_quality", "lint_config"})
         self.assertIn("docs_site", text)
         outputs = self.workflow["jobs"]["detect-changes"]["outputs"]
-        self.assertEqual(set(outputs), {"lint_suites", "test_suites"})
+        self.assertEqual(set(outputs), {"lint_suites", "test_suites", "products"})
 
     def test_generated_workflows_have_one_job_per_suite(self):
         for phase, workflow in self.generated.items():
             names = {n for n, s in SELECTOR.SUITES.items() if s["phase"] == phase}
+            if phase == "test":
+                names |= {f"products_{g}" for g in SELECTOR.MANIFEST["products"]}
             jobs = workflow["jobs"]
             self.assertEqual(set(jobs) - {"required"}, names, phase)
             self.assertEqual(set(jobs["required"]["needs"]), names, phase)
             for name in names:
-                self.assertIn(f"'{name}'", jobs[name]["if"])
+                self.assertIn(f"'{name.removeprefix('products_')}'", jobs[name]["if"])
             call = self.workflow["jobs"][f"{phase}-suites"]
             self.assertEqual(call["uses"], f"./.github/workflows/{phase}-generated.yml")
             self.assertIn(f"outputs.{phase}_suites", call["with"]["suites"])
@@ -545,7 +547,9 @@ class WorkflowTests(unittest.TestCase):
         ).returncode
 
     def test_suite_gate_requires_every_selected_suite(self):
-        script = self.generated["test"]["jobs"]["required"]["steps"][0]["run"]
+        step = self.generated["test"]["jobs"]["required"]["steps"][0]
+        script = step["run"]
+        static = {"PRODUCTS": "[]", "WAITS": step["env"]["WAITS"]}
         results = {
             "docs_site": {"result": "success"},
             "test_ios": {"result": "skipped"},
@@ -557,9 +561,12 @@ class WorkflowTests(unittest.TestCase):
             ("cancelled", 1),
         ]:
             results["docs_site"]["result"] = state
-            env = {"SELECTED": '["docs_site"]', "RESULTS": json.dumps(results)}
+            env = static | {
+                "SELECTED": '["docs_site"]',
+                "RESULTS": json.dumps(results),
+            }
             self.assertEqual(self.gate(script, env), expected, state)
-        env = {"SELECTED": "[]", "RESULTS": json.dumps(results)}
+        env = static | {"SELECTED": "[]", "RESULTS": json.dumps(results)}
         self.assertEqual(self.gate(script, env), 0)
 
     def test_cargo_deny_advisories_block_only_the_scheduled_run(self):

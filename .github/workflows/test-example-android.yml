@@ -17,6 +17,25 @@ jobs:
         github-token: ${{ github.token }}
     - name: Build and verify the signed universal APK
       run: nix build .#example-android-apk --no-link
+  lint:
+    name: Lint (Android example)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    env:
+      NIX_DEVSHELL: android
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        cache-mode: "ci"
+        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+        gradle-disk: 'true'
+        github-token: ${{ github.token }}
+    - uses: taiki-e/install-action@just
+    - name: Build Android bindings (required for lint)
+      run: dev/nix-shell 'just example-android build'
+    - name: Lint Android example
+      run: dev/nix-shell 'just example-android lint'
   unit-tests:
     name: Unit tests and builds (Messenger)
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -104,9 +123,10 @@ jobs:
     if: always()
     needs:
     - apk
+    - lint
     - unit-tests
     - integration-tests
     steps:
     - env:
-        PASSED: ${{ needs.apk.result == 'success' && needs.unit-tests.result == 'success' && needs.integration-tests.result == 'success' }}
+        PASSED: ${{ needs.apk.result == 'success' && needs.lint.result == 'success' && needs.unit-tests.result == 'success' && needs.integration-tests.result == 'success' }}
       run: test "$PASSED" = true

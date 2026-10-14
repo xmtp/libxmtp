@@ -157,7 +157,15 @@ path_groups:
     - "sdks/{node,browser,agent}/**"
     - "apps/{cli,web-chat,docs}/**"
 
-products: {}
+products:
+  # The Android suites' Nix products: the Kotlin tree, the JNI libraries, and
+  # the JNA host library. They are Rust builds of the SDK and do not read
+  # sdks/android, so a Kotlin-only change builds no group.
+  sdk_android:
+    path_filters:
+      - path_group: sdk_core
+      - "nix/android-packages.nix"
+      - "nix/lib/android-env.nix"
 
 suites:
   # --- Lint ------------------------------------------------------------------
@@ -281,19 +289,6 @@ suites:
     path_filters:
       - "{Cargo.lock,deny.toml}"
       - "**/Cargo.toml"
-  lint_example_android:
-    phase: lint
-    workflow: lint-example-android.yml
-    run_on: [ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: none
-    permissions: {contents: read}
-    kache: []
-    products: []
-    path_filters:
-      - path_group: example_android
-      - path_group: android
-      - path_group: sdk_core
 
   # --- Rust ------------------------------------------------------------------
   check_rust:
@@ -561,7 +556,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: [sdk-android-release]
-    products: []
+    products: [sdk_android]
     path_filters:
       # check-android runs `gradlew build`, which includes Android Lint and
       # Spotless, so no separate Android lint suite exists.
@@ -575,7 +570,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: []
-    products: []
+    products: [sdk_android]
     path_filters:
       - path_group: example_android
       - path_group: android
