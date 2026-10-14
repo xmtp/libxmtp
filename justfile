@@ -166,6 +166,7 @@ coverage *args:
       shift
       base=origin/self-hosted
       if [[ $# -gt 0 && "$1" != -* ]]; then base="$1"; shift; fi
+      merge_base="$(git merge-base "$base" HEAD)" || { echo "Cannot find the merge base of $base and HEAD" >&2; exit 1; }
     fi
     cargo llvm-cov clean --profraw-only --workspace
     CARGO_TEST_CMD="cargo llvm-cov nextest --no-fail-fast --no-report" just test workspace "$@"
@@ -179,7 +180,7 @@ coverage *args:
       exit 0
     fi
     changed=()
-    while IFS= read -r file; do changed+=("*/$file"); done < <(git diff --name-only --diff-filter=ACMR "$(git merge-base "$base" HEAD)" -- '*.rs')
+    while IFS= read -r file; do changed+=("*/$file"); done < <(git diff --name-only --diff-filter=ACMR "$merge_base" -- '*.rs')
     if [[ ${#changed[@]} -eq 0 ]]; then
       echo "No Rust file changed since $base"
       exit 0
