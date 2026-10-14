@@ -61,7 +61,17 @@ import Observation
 	}
 
 	func setNotificationsEnabled(_ enabled: Bool) throws {
-		try write(enabled, named: "notifications-enabled"); pushEnabled = enabled
+		if enabled {
+			try write(true, named: "notifications-enabled")
+		} else {
+			// Absence already restores as Off; deletion needs no replacement-file allocation.
+			do {
+				try FileManager.default.removeItem(at: directory.appendingPathComponent("notifications-enabled"))
+			} catch let error as CocoaError where error.code == .fileNoSuchFile {
+				// Already absent is already durably Off. Other removal errors propagate.
+			}
+		}
+		pushEnabled = enabled
 	}
 
 	func hasPosted(_ tag: String) -> Bool {

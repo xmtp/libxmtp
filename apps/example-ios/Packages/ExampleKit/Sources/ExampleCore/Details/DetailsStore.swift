@@ -21,16 +21,31 @@ public struct DetailsState: Equatable, Sendable {
 @MainActor @Observable public final class DetailsStore {
 	public private(set) var state = DetailsState()
 	private var lookupAttempt = 0
+	private var polling = false
+	private let pause: @MainActor @Sendable () async throws -> Void
 	private let queries: any GroupQueries
 	private let origin: DestinationOrigin
 	private let admit: @MainActor (DestinationOrigin) -> Bool
 	private let run: @MainActor (@escaping @MainActor @Sendable () async -> Void) -> Void
-	public init(
+	public convenience init(
 		queries: any GroupQueries,
 		origin: DestinationOrigin,
 		admit: @escaping @MainActor (DestinationOrigin) -> Bool,
 		run: @escaping @MainActor (@escaping @MainActor @Sendable () async -> Void) -> Void,
 	) {
+		self.init(queries: queries, origin: origin, admit: admit, run: run, pause: {
+			try await Task.sleep(for: .seconds(1))
+		})
+	}
+
+	init(
+		queries: any GroupQueries,
+		origin: DestinationOrigin,
+		admit: @escaping @MainActor (DestinationOrigin) -> Bool,
+		run: @escaping @MainActor (@escaping @MainActor @Sendable () async -> Void) -> Void,
+		pause: @escaping @MainActor @Sendable () async throws -> Void,
+	) {
+		self.pause = pause
 		self.queries = queries
 		self.origin = origin
 		self.admit = admit
@@ -73,7 +88,10 @@ public struct DetailsState: Equatable, Sendable {
 	}
 
 	private func reload() async throws {
+		try Task.checkCancellation()
+		guard admit(origin) else { throw CancellationError() }
 		let details = try await queries.load()
+		try Task.checkCancellation()
 		apply { state in
 			state.details = details
 			state.pendingMembers = state.pendingMembers.filter { id, _ in !details.members.contains { $0.id == id } }
@@ -138,11 +156,15 @@ public struct DetailsState: Equatable, Sendable {
 	}
 
 	private func pollPending() async {
+		guard !polling else { return }
+		polling = true
+		defer { polling = false }
 		while admit(origin),
 		      !state.pendingMembers.isEmpty || !state.pendingRoles.isEmpty || !state.pendingRemoval.isEmpty || state
 		      .pendingLeave
 		{
-			do { try await Task.sleep(for: .seconds(1))
+			do { try await pause()
+				try Task.checkCancellation()
 				guard admit(origin) else { return }
 				try await reload()
 			} catch { return }
