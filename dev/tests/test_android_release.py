@@ -257,20 +257,32 @@ class AndroidReleaseTest(unittest.TestCase):
             gradle.write_text(
                 "#!/usr/bin/env bash\nset -eu\n"
                 'printf "%s\\n" "$*" >&2\n'
-                'test "$*" = "-p . :library:connectedCheck --continue"\n'
+                'test "$*" = "$EXPECTED"\n'
             )
             gradle.chmod(0o755)
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"])
             env["ANDROID_SERIAL"] = "fixture-device"
             env["XMTP_S3_PORT"] = "9067"
-            result = subprocess.run(
-                ["bash", "-euc", command],
-                cwd=root,
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            env.pop("CI", None)
+            # CI Gradle calls add the build cache (setup-gradle restores it).
+            for ci, expected in (
+                (None, "-p . :library:connectedCheck --continue"),
+                ("true", "-p . :library:connectedCheck --continue --build-cache"),
+            ):
+                with self.subTest(ci=ci):
+                    run_env = dict(env, EXPECTED=expected)
+                    if ci:
+                        run_env["CI"] = ci
+                    result = subprocess.run(
+                        ["bash", "-euc", command],
+                        cwd=root,
+                        env=run_env,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
 
     def test_live_environment_reaches_gradle(self):
         command = step("Build and test").split("        run: ", 1)[1].strip()
