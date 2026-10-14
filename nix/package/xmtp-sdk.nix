@@ -11,7 +11,6 @@ let
   hostTarget = pkgs.stdenv.hostPlatform.rust.rustcTarget;
   sources = pkgs.callPackage ../lib/sdk-sources.nix { };
   sdkSource = sources.sdk rust;
-  mkProvenance = pkgs.callPackage ../lib/sdk-provenance.nix { };
   common = xmtp.base.commonArgs // {
     cargoVendorDir = xmtp.base.mkCargoVendorDir rust;
     version = xmtp.mkVersion rust;
@@ -26,35 +25,10 @@ let
     # Darwin setup replaces this variable before the Cargo build.
     preBuild = "export MACOSX_DEPLOYMENT_TARGET=11.0";
   };
-  # The SDK library and the bindgen keep separate dependency layers. Cargo
-  # unifies features across `-p xmtp_sdk -p xmtp-sdk-bindgen` (the bindgen is
-  # outside hakari), so a shared layer gives libc, syn, serde_json, and others
-  # features that a final `-p xmtp_sdk` build lacks, and it recompiles them.
-  nativeCommand = "cargo build --release --locked -p xmtp_sdk --lib";
-  nativeBuild = rust.buildPackage (
-    common
-    // nativeArgs
-    // {
-      pname = "xmtp-sdk-libs";
-      src = sdkSource;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust (
-        nativeArgs // { buildPhaseCargoCommand = nativeCommand; }
-      );
-      buildPhaseCargoCommand = nativeCommand;
-      installPhaseCommand = ''
-          mkdir -p $out/lib
-        cp target/${hostTarget}/release/libxmtp_sdk.a $out/lib/
-        cp target/${hostTarget}/release/libxmtp_sdk.${
-          if pkgs.stdenv.isDarwin then "dylib" else "so"
-        } $out/lib/
-      '';
-    }
-  );
-  native = mkProvenance {
-    compilation = nativeBuild;
-    source = sources.provenanceSource;
-    target = hostTarget;
-  };
+  # The one host library. On Linux it is the zigbuild glibc-floor build, so
+  # renders, the host Node package, and the JNA test host share one compile.
+  native = pkgs.callPackage ./xmtp-sdk-native.nix { };
+  nativeBuild = native.compilation;
   wasmArgs = {
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     inherit (xmtp.shellCommon.wasmEnv)
@@ -86,6 +60,10 @@ let
     );
   wasm = mkWasm false;
   pureWasm = mkWasm true;
+  # The SDK library and the bindgen keep separate dependency layers. Cargo
+  # unifies features across `-p xmtp_sdk -p xmtp-sdk-bindgen` (the bindgen is
+  # outside hakari), so a shared layer gives libc, syn, serde_json, and others
+  # features that a final `-p xmtp_sdk` build lacks, and it recompiles them.
   bindgenCommand = "cargo build --release --locked -p xmtp-sdk-bindgen";
   bindgen = rust.buildPackage (
     common
@@ -101,7 +79,7 @@ let
     }
   );
   iosRust = (xmtp.craneLib.overrideScope (_: _: { stdenv = pkgs.stdenvNoCC; })).overrideToolchain (
-    p: xmtp.mkToolchain p [ hostTarget "aarch64-apple-ios" "aarch64-apple-ios-sim" ] [ ]
+    p: xmtp.mkToolchain p ([ hostTarget ] ++ xmtp.sdkPlatforms.apple) [ ]
   );
   # The slices and their dependency layer compile C code with Xcode clang, so
   # their key holds the Xcode (`xcode`): `xmtp.iosEnv.xcode.key` for the CI and
@@ -109,7 +87,7 @@ let
   mkIosTargets =
     xcode:
     lib.optionalAttrs pkgs.stdenv.isDarwin (
-      lib.genAttrs [ "aarch64-apple-ios" "aarch64-apple-ios-sim" ] (
+      lib.genAttrs xmtp.sdkPlatforms.apple (
         target:
         let
           envSetup = xmtp.iosEnv.envSetup target;

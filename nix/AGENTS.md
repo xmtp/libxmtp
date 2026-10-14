@@ -128,6 +128,12 @@ worker dependency cache. The generated library outputs are
 `xmtp-sdk-node-<platform>` and `xmtp-sdk-android-<abi>`. Darwin adds `xmtp-sdk-ios-device` and
 `xmtp-sdk-ios-simulator`. Public SDK packaging stages these matched generated
 artifacts. Building and staging do not publish a package.
+Each system builds one host SDK library (`xmtp-sdk-native.nix` with the host
+package set; `xmtp-sdk-libs`). The renders, `xmtp-sdk-node-<host>`, the macOS
+slice, and the JNA test host load it. On Linux it is the zigbuild build for the
+glibc floor. `nix/sdk-platforms.json` is the one list of Node platforms,
+Android ABIs, Apple slices, and the glibc floor; Nix, the Node platform
+scripts, and `build-sdk-node-platforms.yml` read it.
 
 Run `dev/nix-shell 'python3 -B nix/check-sdk-products.py'` to build selected
 Kotlin, Android fast, and Swift on Darwin. It checks generated files, complete

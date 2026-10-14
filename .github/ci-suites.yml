@@ -135,6 +135,7 @@ path_groups:
     - "nix/package/node.nix"
     - "nix/node-packages.nix"
     - "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix"
+    - "nix/sdk-platforms.json"
     - "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix"
     - "nix/lib/packages/napi-rs-cli/**"
   swift:

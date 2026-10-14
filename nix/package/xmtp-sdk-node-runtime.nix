@@ -14,7 +14,7 @@ let
   nodeTarget = xmtp.toNapiTarget target;
   rust = xmtp.craneLib.overrideToolchain xmtp.hostToolchain;
   isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
-  buildTarget = target + lib.optionalString isGnu ".2.27";
+  buildTarget = target + lib.optionalString isGnu ".${xmtp.sdkPlatforms.glibcFloor}";
   gnuBuildEnv = lib.optionalString isGnu ''
     export CONFIG_SITE="''${CONFIG_SITE:+$CONFIG_SITE }${./libffi-zig-cross.site}"
     export CARGO_ZIGBUILD_CACHE_DIR="$TMPDIR/cargo-zigbuild"

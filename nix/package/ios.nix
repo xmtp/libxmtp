@@ -82,11 +82,7 @@ let
         done
       '';
     };
-  allTargets = [
-    host
-    "aarch64-apple-ios"
-    "aarch64-apple-ios-sim"
-  ];
+  allTargets = [ host ] ++ xmtp.sdkPlatforms.apple;
   fastTargets = [
     host
     "aarch64-apple-ios-sim"

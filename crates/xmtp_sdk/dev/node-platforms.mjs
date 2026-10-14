@@ -2,15 +2,18 @@ import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-// The published Node SDK keeps the existing six-target support matrix.
-export const NODE_PLATFORMS = Object.freeze({
-  "darwin-arm64": ["aarch64-apple-darwin", "libxmtp_sdk.dylib"],
-  "linux-x64-gnu": ["x86_64-unknown-linux-gnu", "libxmtp_sdk.so"],
-  "linux-x64-musl": ["x86_64-unknown-linux-musl", "libxmtp_sdk.so"],
-  "linux-arm64-gnu": ["aarch64-unknown-linux-gnu", "libxmtp_sdk.so"],
-  "linux-arm64-musl": ["aarch64-unknown-linux-musl", "libxmtp_sdk.so"],
-  "win32-x64-msvc": ["x86_64-pc-windows-msvc", "xmtp_sdk.dll"],
-});
+// The published Node SDK supports every Node platform in the platform list.
+const platformList = JSON.parse(
+  readFileSync(new URL("../../../nix/sdk-platforms.json", import.meta.url)),
+);
+export const NODE_PLATFORMS = Object.freeze(
+  Object.fromEntries(
+    platformList.node.map(({ target, rustTarget, library }) => [
+      target,
+      [rustTarget, library],
+    ]),
+  ),
+);
 const hash = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 

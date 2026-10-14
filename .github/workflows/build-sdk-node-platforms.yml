@@ -15,8 +15,30 @@ on:
       artifact:
         value: sdk_node_public
 jobs:
+  plan:
+    name: Node platform matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.matrix.outputs.build }}
+      load: ${{ steps.matrix.outputs.load }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          sparse-checkout: nix/sdk-platforms.json
+          sparse-checkout-cone-mode: false
+      - name: Read nix/sdk-platforms.json
+        id: matrix
+        run: |
+          {
+            echo "build=$(jq -c '[.node[] | select(.nixSystems != []) | {target, library, runner}]' nix/sdk-platforms.json)"
+            echo "load=$(jq -c '[.node[] | {target, runner: .loadRunner, image: (.loadImage // "")}]' nix/sdk-platforms.json)"
+          } >> "$GITHUB_OUTPUT"
+
   unix:
     name: Node pair (${{ matrix.target }})
+    needs: plan
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     env:
@@ -24,25 +46,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: linux-x64-gnu
-            library: libxmtp_sdk.so
-            runner: blacksmith-16vcpu-ubuntu-2404
-          - target: linux-x64-musl
-            library: libxmtp_sdk.so
-            runner: blacksmith-16vcpu-ubuntu-2404
-          # No warm set holds the native linux-arm64 pairs, and a release
-          # reads only, so a release builds these two cold. That stays until
-          # release takes the Node pairs from the products build.
-          - target: linux-arm64-gnu
-            library: libxmtp_sdk.so
-            runner: ubuntu-24.04-arm
-          - target: linux-arm64-musl
-            library: libxmtp_sdk.so
-            runner: ubuntu-24.04-arm
-          - target: darwin-arm64
-            library: libxmtp_sdk.dylib
-            runner: warp-macos-15-arm64-6x
+        # No warm set holds the native linux-arm64 pairs, and a release reads
+        # only, so a release builds those two cold. That stays until release
+        # takes the Node pairs from the products build.
+        include: ${{ fromJSON(needs.plan.outputs.build) }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -182,29 +189,13 @@ jobs:
 
   load:
     name: Installed public Node package (${{ matrix.target }})
-    needs: assemble
+    needs: [plan, assemble]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: linux-x64-gnu
-            runner: ubuntu-latest
-            image: node:22.12.0-bookworm-slim
-          - target: linux-x64-musl
-            runner: ubuntu-latest
-            image: node:22.12.0-alpine
-          - target: linux-arm64-gnu
-            runner: ubuntu-24.04-arm
-            image: node:22.12.0-bookworm-slim
-          - target: linux-arm64-musl
-            runner: ubuntu-24.04-arm
-            image: node:22.12.0-alpine
-          - target: darwin-arm64
-            runner: warp-macos-15-arm64-6x
-          - target: win32-x64-msvc
-            runner: windows-latest
+        include: ${{ fromJSON(needs.plan.outputs.load) }}
     steps:
       - uses: actions/checkout@v6
         with:

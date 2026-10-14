@@ -74,6 +74,9 @@ let
       shellCommon = host.callPackage ./shell-common.nix { };
       mkVersion = import ./mkVersion.nix;
       toNapiTarget = import ./napiTarget.nix;
+      # Node platforms, Android ABIs, Apple slices, and the glibc floor.
+      # Scripts and workflows read the same file.
+      sdkPlatforms = lib.importJSON ../sdk-platforms.json;
       gitSha = self.shortRev or self.dirtyShortRev or "unknown";
       gitCommitDate = self.lastModifiedDate or "";
     };

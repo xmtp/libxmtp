@@ -1,4 +1,6 @@
-# The generated SDK native library. Keep the old binding derivations separate.
+# The SDK native library of one package set. The host set gives the one host
+# library: renders, the host Node package, and the JNA test host load it.
+# glibc targets build with zigbuild against the glibc floor.
 {
   lib,
   xmtp,
@@ -7,7 +9,6 @@
   buildPackages,
   python3,
   cargo-zigbuild,
-  glibcVersion ? null,
   android ? false,
 }:
 let
@@ -16,8 +17,8 @@ let
   sources = import ../lib/sdk-sources.nix { inherit lib xmtp; };
   source = sources.sdk rust;
   mkProvenance = import ../lib/sdk-provenance.nix { inherit stdenvNoCC python3; };
-  isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl && glibcVersion != null;
-  buildTarget = target + lib.optionalString isGnu ".${glibcVersion}";
+  isGnu = stdenv.hostPlatform.isLinux && stdenv.hostPlatform.isGnu;
+  buildTarget = target + lib.optionalString isGnu ".${xmtp.sdkPlatforms.glibcFloor}";
   special = {
     OPENSSL_NO_VENDOR = "0";
     OPENSSL_STATIC = "1";

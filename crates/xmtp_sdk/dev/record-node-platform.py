@@ -14,13 +14,10 @@ spec = importlib.util.spec_from_file_location(
 )
 artifacts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(artifacts)
+PLATFORM_LIST = json.loads((artifacts.ROOT / "nix/sdk-platforms.json").read_text())
 PLATFORMS = {
-    "darwin-arm64": ("aarch64-apple-darwin", "libxmtp_sdk.dylib"),
-    "linux-x64-gnu": ("x86_64-unknown-linux-gnu", "libxmtp_sdk.so"),
-    "linux-x64-musl": ("x86_64-unknown-linux-musl", "libxmtp_sdk.so"),
-    "linux-arm64-gnu": ("aarch64-unknown-linux-gnu", "libxmtp_sdk.so"),
-    "linux-arm64-musl": ("aarch64-unknown-linux-musl", "libxmtp_sdk.so"),
-    "win32-x64-msvc": ("x86_64-pc-windows-msvc", "xmtp_sdk.dll"),
+    platform["target"]: (platform["rustTarget"], platform["library"])
+    for platform in PLATFORM_LIST["node"]
 }
 
 

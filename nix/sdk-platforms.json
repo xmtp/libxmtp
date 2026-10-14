@@ -1,0 +1,80 @@
+{
+  "glibcFloor": "2.27",
+  "node": [
+    {
+      "target": "darwin-arm64",
+      "rustTarget": "aarch64-apple-darwin",
+      "library": "libxmtp_sdk.dylib",
+      "nixSystems": ["aarch64-darwin"],
+      "runner": "warp-macos-15-arm64-6x",
+      "loadRunner": "warp-macos-15-arm64-6x"
+    },
+    {
+      "target": "linux-x64-gnu",
+      "rustTarget": "x86_64-unknown-linux-gnu",
+      "library": "libxmtp_sdk.so",
+      "nixSystems": ["x86_64-linux", "aarch64-linux"],
+      "runner": "blacksmith-16vcpu-ubuntu-2404",
+      "loadRunner": "ubuntu-latest",
+      "loadImage": "node:22.12.0-bookworm-slim"
+    },
+    {
+      "target": "linux-x64-musl",
+      "rustTarget": "x86_64-unknown-linux-musl",
+      "library": "libxmtp_sdk.so",
+      "nixSystems": ["aarch64-darwin", "x86_64-linux", "aarch64-linux"],
+      "runner": "blacksmith-16vcpu-ubuntu-2404",
+      "loadRunner": "ubuntu-latest",
+      "loadImage": "node:22.12.0-alpine"
+    },
+    {
+      "target": "linux-arm64-gnu",
+      "rustTarget": "aarch64-unknown-linux-gnu",
+      "library": "libxmtp_sdk.so",
+      "nixSystems": ["x86_64-linux", "aarch64-linux"],
+      "runner": "ubuntu-24.04-arm",
+      "loadRunner": "ubuntu-24.04-arm",
+      "loadImage": "node:22.12.0-bookworm-slim"
+    },
+    {
+      "target": "linux-arm64-musl",
+      "rustTarget": "aarch64-unknown-linux-musl",
+      "library": "libxmtp_sdk.so",
+      "nixSystems": ["aarch64-darwin", "x86_64-linux", "aarch64-linux"],
+      "runner": "ubuntu-24.04-arm",
+      "loadRunner": "ubuntu-24.04-arm",
+      "loadImage": "node:22.12.0-alpine"
+    },
+    {
+      "target": "win32-x64-msvc",
+      "rustTarget": "x86_64-pc-windows-msvc",
+      "library": "xmtp_sdk.dll",
+      "nixSystems": [],
+      "loadRunner": "windows-latest"
+    }
+  ],
+  "android": [
+    {
+      "abi": "arm64-v8a",
+      "config": "aarch64-unknown-linux-android",
+      "rustTarget": "aarch64-linux-android"
+    },
+    {
+      "abi": "armeabi-v7a",
+      "config": "armv7a-unknown-linux-androideabi",
+      "rustTarget": "armv7-linux-androideabi",
+      "nixpkgsPlatform": "armv7a-android"
+    },
+    {
+      "abi": "x86_64",
+      "config": "x86_64-unknown-linux-android",
+      "rustTarget": "x86_64-linux-android"
+    },
+    {
+      "abi": "x86",
+      "config": "i686-unknown-linux-android",
+      "rustTarget": "i686-linux-android"
+    }
+  ],
+  "apple": ["aarch64-apple-ios", "aarch64-apple-ios-sim"]
+}
