@@ -16,9 +16,22 @@ public struct SDKIdentityQueries: IdentityQueries {
 		case let .handle(handle): value = PublicIdentity(identifier: handle, kind: .handle)
 		}
 		do {
-			return try await limiter.withPermit { [client] in
+			guard let inboxID = try await limiter.withPermit({ [client] in
 				try await client.inboxIdFor(identity: value)
+			}) else { return nil }
+			try Task.checkCancellation()
+			if case let .ethereum(address) = identity {
+				let states = try await limiter.withPermit { [client] in
+					try await client.inboxStates(ids: [inboxID], refreshFromNetwork: true)
+				}
+				try Task.checkCancellation()
+				guard states.contains(where: { state in
+					state.inboxId == inboxID && state.identities.contains { member in
+						member.kind == .ethereum && member.identifier.lowercased() == address.lowercased()
+					}
+				}) else { return nil }
 			}
+			return inboxID
 		} catch {
 			if lookupIsNotFound(error) {
 				return nil

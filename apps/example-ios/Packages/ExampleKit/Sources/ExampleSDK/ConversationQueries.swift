@@ -121,7 +121,9 @@ public final class SDKConversationQueries: ConversationQueries, Sendable {
 	}
 
 	public func setConsent(id: String, consent: ConversationConsent) async throws {
-		guard let value = try await client.conversations.getById(id: id) else { return }
+		guard let value = try await limitedConversationLookup(limiter: limiter, lookup: {
+			try await self.client.conversations.getById(id: id)
+		}) else { return }
 		try await value.updateConsentState(state: Self.sdkConsent(consent))
 	}
 
