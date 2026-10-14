@@ -705,9 +705,9 @@ class SetupNixTests(unittest.TestCase):
 # ==, !=, !, &&, || and parentheses. Each becomes the Python operator with the
 # same result (&& and || return an operand, as `and` and `or` do). A function
 # call or an unknown context fails in `lookup`, so a new construct fails loudly
-# instead of being guessed. Two differences do not matter here: Python's `not`
-# binds looser than `==` (so `!a == b` is rejected), and Python compares
-# strings case-sensitively (every compared value is lowercase).
+# instead of being guessed. Where Python groups differently (chained
+# comparisons, a negated operand of a comparison), evaluation raises. Python
+# compares strings case-sensitively; every compared value is lowercase.
 TOKEN = re.compile(
     r"\s*(?:('(?:[^']|'')*')|(==|!=|&&|\|\||!|\(|\))|([A-Za-z_][\w.-]*))"
 )
@@ -723,6 +723,44 @@ PYTHON = {
 
 def truthy(value):
     return value not in (None, False, 0, "")
+
+
+def reject_python_precedence(ops, text):
+    """Raise for the forms where Python and GitHub group differently.
+
+    `ops` holds each token's operator, or None for an operand. Python chains
+    `a == b == c` and binds `not` looser than `==`; GitHub reads
+    `(a == b) == c` and `(!a) == b`. No workflow needs either form.
+    """
+
+    def operand_end(index):
+        # The index after the operand that starts at `index`.
+        if ops[index] == "!":
+            return operand_end(index + 1)
+        if ops[index] == "(":
+            depth = 0
+            for end in range(index, len(ops)):
+                depth += {"(": 1, ")": -1}.get(ops[end], 0)
+                if depth == 0:
+                    return end + 1
+        return index + 1
+
+    compared = [False]
+    for index, op in enumerate(ops):
+        if op == "!":
+            end = operand_end(index + 1)
+            if end < len(ops) and ops[end] in ("==", "!="):
+                raise ValueError(f"negated operand of a comparison: {text!r}")
+        elif op == "(":
+            compared.append(False)
+        elif op == ")":
+            compared.pop()
+        elif op in ("&&", "||"):
+            compared[-1] = False
+        elif op in ("==", "!="):
+            if compared[-1]:
+                raise ValueError(f"chained comparison: {text!r}")
+            compared[-1] = True
 
 
 class Context:
@@ -755,9 +793,8 @@ class Context:
         raise ValueError(f"unsupported context: {path}")
 
     def evaluate(self, text):
-        if re.search(r"!\s*[\w.'-]+\s*[!=]=", text):
-            raise ValueError(f"negated comparison needs parentheses: {text!r}")
         source = []
+        ops = []
         position = 0
         text = text.strip()
         while position < len(text):
@@ -767,13 +804,18 @@ class Context:
             string, op, word = match.groups()
             if string is not None:
                 source.append(repr(string[1:-1].replace("''", "'")))
+                ops.append(None)
             elif op:
                 source.append(PYTHON.get(op, op))
+                ops.append(op)
             elif word in PYTHON:
                 source.append(PYTHON[word])
+                ops.append(None)
             else:
                 source.append(f"_({word!r})")
+                ops.append(None)
             position = match.end()
+        reject_python_precedence(ops, text)
         return eval(" ".join(source), {"__builtins__": {}}, {"_": self.lookup})
 
     def value(self, raw):
@@ -1037,6 +1079,19 @@ WIRING_RULES = (
 
 
 class CacheModeWiringTests(unittest.TestCase):
+    def test_evaluator_rejects_forms_python_groups_differently(self):
+        context = Context({"event_name": "push", "ref_protected": True}, {}, {})
+        for text in (
+            "github.event_name == 'push' == true",
+            "!(github.ref_protected) == false",
+            "!github.ref_protected != true",
+        ):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                context.evaluate(text)
+        # Parentheses give the GitHub grouping, which Python then follows.
+        self.assertTrue(context.evaluate("(github.event_name == 'push') == true"))
+        self.assertFalse(context.evaluate("!(github.event_name == 'push')"))
+
     def test_every_call_follows_the_wiring_rules(self):
         calls = list(cache_calls())
         # The walk reaches the trusted, release, and Gradle jobs.
