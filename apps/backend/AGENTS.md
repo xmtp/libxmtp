@@ -63,6 +63,10 @@ Export fixtures for other crates through `xmtp_backend/test-utils`; backend
 unit tests use the existing dev-dependencies.
 Use the shared `TestDatabase` guard for disposable databases. Its cleanup survives
 assertion failures and test-runtime teardown; do not add success-only cleanup.
+Before connecting a new test database on a streaming replica, call
+`TestDatabase::wait_for_replica`; `TestServer` does this automatically. The helper
+waits up to 30 seconds for the primary WAL position through the existing admin
+database. Backend startup handles migration visibility after that connection.
 Replica tests that pause replay use `test_support::replica::with_paused_replay`
 under the replay mutex. Run this suite with `cargo test`; that mutex is process-local.
 Use a total deadline for stream termination, not a new deadline for each frame.
