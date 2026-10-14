@@ -24,22 +24,25 @@ public struct DetailsState: Equatable, Sendable {
 	private var polling = false
 	private let pause: @MainActor @Sendable () async throws -> Void
 	private let queries: any GroupQueries
+	private let ownInboxID: String?
 	private let origin: DestinationOrigin
 	private let admit: @MainActor (DestinationOrigin) -> Bool
 	private let run: @MainActor (@escaping @MainActor @Sendable () async -> Void) -> Void
 	public convenience init(
 		queries: any GroupQueries,
+		ownInboxID: String? = nil,
 		origin: DestinationOrigin,
 		admit: @escaping @MainActor (DestinationOrigin) -> Bool,
 		run: @escaping @MainActor (@escaping @MainActor @Sendable () async -> Void) -> Void,
 	) {
-		self.init(queries: queries, origin: origin, admit: admit, run: run, pause: {
+		self.init(queries: queries, ownInboxID: ownInboxID, origin: origin, admit: admit, run: run, pause: {
 			try await Task.sleep(for: .seconds(1))
 		})
 	}
 
 	init(
 		queries: any GroupQueries,
+		ownInboxID: String? = nil,
 		origin: DestinationOrigin,
 		admit: @escaping @MainActor (DestinationOrigin) -> Bool,
 		run: @escaping @MainActor (@escaping @MainActor @Sendable () async -> Void) -> Void,
@@ -47,6 +50,7 @@ public struct DetailsState: Equatable, Sendable {
 	) {
 		self.pause = pause
 		self.queries = queries
+		self.ownInboxID = ownInboxID
 		self.origin = origin
 		self.admit = admit
 		self.run = run
@@ -54,6 +58,11 @@ public struct DetailsState: Equatable, Sendable {
 
 	public enum Action: Sendable {
 		case refresh, mutate(DetailsMutation), preset(Bool)
+	}
+
+	public var canChangePermissionPreset: Bool {
+		guard let ownInboxID, let details = state.details else { return false }
+		return details.canChangePermissionPreset(own: ownInboxID)
 	}
 
 	public func resolvePreview(_ input: String) {
@@ -77,6 +86,9 @@ public struct DetailsState: Equatable, Sendable {
 
 	public func send(_ action: Action) {
 		guard !state.busy, admit(origin) else { return }
+		if case .preset = action, !canChangePermissionPreset {
+			return
+		}
 		state.busy = true
 		state.error = nil
 		run { [weak self] in await self?.perform(action) }
@@ -111,7 +123,7 @@ public struct DetailsState: Equatable, Sendable {
 			case .refresh: break
 			case let .preset(adminOnly):
 				for write in PermissionPreset.writes(adminOnly: adminOnly) {
-					guard admit(origin) else { throw CancellationError() }
+					guard admit(origin), canChangePermissionPreset else { throw CancellationError() }
 					try await queries.permission(write)
 				}
 			case let .mutate(action): try await performMutation(action)

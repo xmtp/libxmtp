@@ -26,6 +26,7 @@ import Observation
 	private var stopped = false
 	private var optedOut = false
 	private var settingSaveFailed = false
+	private var explicitRegistrationRetry = false
 	private var privacyRevision: UInt64 = 0
 	private var pendingPrivacyWrites = 0
 	private var posting: Set<String> = []
@@ -125,17 +126,27 @@ import Observation
 		let state = try gateway.state()
 		let input = PushRegistrationInput(configured: configured, signedIn: signedIn(), permission: permitted(),
 		                                  appEnabled: notificationsEnabled, token: token)
-		switch input.action(registeredToken: registeredToken, sdkEnabled: state == .enabled) {
+		let action = input.action(registeredToken: registeredToken, sdkEnabled: state == .enabled)
+		if case .failed = state, action == .enable, !explicitRegistrationRetry {
+			return state
+		}
+		switch action {
 		case .enable:
 			guard let token else { return state }
+			explicitRegistrationRetry = false
 			let result = try await gateway.enable(token: token)
 			if valid, result == .enabled {
 				registeredToken = token
 			}
 			return result
 		case .disable:
+			explicitRegistrationRetry = false
 			try await gateway.disable(); registeredToken = nil; return .disabled
-		case .none: return state
+		case .none:
+			if state == .enabled {
+				explicitRegistrationRetry = false
+			}
+			return state
 		}
 	}
 
@@ -161,11 +172,11 @@ import Observation
 		invalidatePrivacy()
 		// An explicit opt-out stops admission even when its durable write fails.
 		if !value {
-			optedOut = true
+			optedOut = true; explicitRegistrationRetry = false
 		}
 		do {
 			try preferences.setNotificationsEnabled(value)
-			optedOut = !value; settingSaveFailed = false
+			optedOut = !value; settingSaveFailed = false; explicitRegistrationRetry = value
 		} catch { settingSaveFailed = true }
 		refresh()
 		if settingSaveFailed {

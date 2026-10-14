@@ -25,11 +25,14 @@ import Testing
 
 @MainActor final class PushFakeGateway: NotificationGateway {
 	var installation = String(repeating: "01", count: 32)
+	var registrationState: PushRegistrationState = .disabled
+	var enableResult: PushRegistrationState = .enabled
+	var stateReads = 0
 	var admitted = true; var onRead: (() -> Void)?; var calls: [String] = []; var holdEnable = false
 	var notificationWrites = 0; var beforeNotificationWrite: (() -> Void)?
 	var enableContinuation: CheckedContinuation<PushRegistrationState, Never>?
 	func state() -> PushRegistrationState {
-		.disabled
+		stateReads += 1; return registrationState
 	}
 
 	func enable(token _: String) async -> PushRegistrationState {
@@ -37,7 +40,7 @@ import Testing
 			.append("enable"); if holdEnable
 		{
 			return await withCheckedContinuation { enableContinuation = $0 }
-		}; return .enabled
+		}; return enableResult
 	}
 
 	func disable() async {

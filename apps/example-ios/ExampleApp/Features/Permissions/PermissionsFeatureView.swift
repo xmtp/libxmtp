@@ -58,7 +58,7 @@ struct PermissionsFeatureView: View {
 				}
 				Spacer(minLength: 0)
 			}
-		}.buttonStyle(.plain).disabled(store?.state.busy == true)
+		}.buttonStyle(.plain).disabled(store?.state.busy == true || store?.canChangePermissionPreset != true)
 			.accessibilityAddTraits(store?.state.details?.preset == title ? .isSelected : [])
 	}
 

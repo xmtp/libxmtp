@@ -10,6 +10,10 @@ import Testing
 	var loadFailure = false
 	var pendingLeave = false
 	var identityError: IdentityError?
+	var ownRole: GroupRole = .superAdmin
+	var ownPresent = true
+	var mutationCount = 0
+	var currentPolicies: [PermissionWrite]?
 	func load() async throws -> ConversationDetails {
 		loads += 1
 		if loadFailure {
@@ -17,7 +21,8 @@ import Testing
 		}
 		return ConversationDetails(
 			record: .init(id: "group", kind: .group),
-			policies: writes,
+			members: (ownPresent ? [GroupMember(id: "own", role: ownRole)] : []) + [.init(id: "other", role: .superAdmin)],
+			policies: currentPolicies ?? writes,
 			preset: "Custom",
 			pendingLeave: pendingLeave,
 		)
@@ -31,6 +36,7 @@ import Testing
 	}
 
 	func mutate(_: DetailsMutation) async throws {
+		mutationCount += 1
 		if rejectMutation {
 			throw DetailsError.failed
 		}
@@ -48,6 +54,9 @@ struct PermissionPresetTests {
 	@Test @MainActor func nineWritesInOrder() async {
 		let fake = PermissionFake()
 		let store = makeStore(fake)
+		store.send(.refresh)
+		await finish(store)
+		fake.loads = 0
 		store.send(.preset(true))
 		await finish(store)
 		#expect(fake.writes == [
@@ -70,6 +79,9 @@ struct PermissionPresetTests {
 		let fake = PermissionFake()
 		fake.failureAt = 5
 		let store = makeStore(fake)
+		store.send(.refresh)
+		await finish(store)
+		fake.loads = 0
 		store.send(.preset(false))
 		await finish(store)
 		#expect(fake.writes.count == 4)
@@ -146,9 +158,58 @@ struct PermissionPresetTests {
 		#expect(!store.state.pendingLeave)
 	}
 
-	@MainActor private func makeStore(_ fake: PermissionFake) -> DetailsStore {
+	@Test(arguments: [GroupRole.member, .admin])
+	@MainActor func unauthorizedPresetNeverStarts(role: GroupRole) async {
+		let fake = PermissionFake()
+		fake.ownRole = role
+		fake.currentPolicies = PermissionPreset.writes(adminOnly: false)
+		let store = makeStore(fake)
+		store.send(.refresh)
+		await finish(store)
+		let details = store.state.details
+		#expect(!store.canChangePermissionPreset)
+		store.send(.preset(true))
+		#expect(!store.state.busy)
+		await finish(store)
+		#expect(fake.writes.isEmpty)
+		#expect(fake.loads == 1)
+		#expect(store.state.details == details)
+		#expect(store.state.error == nil)
+	}
+
+	@Test @MainActor func presetNeedsKnownOwnMembership() async {
+		for own in [String?.none, "own"] {
+			let fake = PermissionFake()
+			fake.ownPresent = false
+			let store = makeStore(fake, own: own)
+			store.send(.preset(false))
+			#expect(!store.state.busy)
+			store.send(.refresh)
+			await finish(store)
+			store.send(.preset(false))
+			#expect(!store.state.busy)
+			await finish(store)
+			#expect(fake.writes.isEmpty)
+		}
+	}
+
+	@Test @MainActor func presetGuardDoesNotRestrictOtherPolicyMutations() async {
+		let fake = PermissionFake()
+		fake.ownRole = .member
+		let store = makeStore(fake)
+		store.send(.refresh)
+		await finish(store)
+		store.send(.mutate(.edit("Allowed name", "Allowed description")))
+		await finish(store)
+		#expect(fake.mutationCount == 1)
+		#expect(fake.writes.isEmpty)
+		#expect(store.state.error == nil)
+	}
+
+	@MainActor private func makeStore(_ fake: PermissionFake, own: String? = "own") -> DetailsStore {
 		DetailsStore(
 			queries: fake,
+			ownInboxID: own,
 			origin: DestinationOrigin(session: SessionKey(profileID: UUID(), generation: 1), token: 1),
 			admit: { _ in true },
 			run: { job in Task { await job() } },

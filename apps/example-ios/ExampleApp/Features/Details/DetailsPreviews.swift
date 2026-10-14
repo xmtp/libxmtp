@@ -17,6 +17,7 @@ import SwiftUI
 @MainActor func previewDetailsStore() -> DetailsStore {
 	DetailsStore(
 		queries: PreviewGroupQueries(),
+		ownInboxID: "you",
 		origin: DestinationOrigin(session: SessionKey(profileID: UUID(), generation: 1), token: 0),
 		admit: { _ in true },
 		run: { job in Task { await job() } },

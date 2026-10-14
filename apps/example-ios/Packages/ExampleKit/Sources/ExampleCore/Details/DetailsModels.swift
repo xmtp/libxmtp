@@ -117,6 +117,10 @@ public struct ConversationDetails: Equatable, Sendable {
 		members.contains { $0.id == own && $0.role != .member } && target.id != own && target.role != .superAdmin
 	}
 
+	public func canChangePermissionPreset(own: String) -> Bool {
+		record.kind == .group && members.contains { $0.id == own && $0.role == .superAdmin }
+	}
+
 	public func canLeave(own: String) -> Bool {
 		record.kind == .group && members.count > 1 && !members
 			.contains { $0.id == own && $0.role == .superAdmin } && !pendingLeave

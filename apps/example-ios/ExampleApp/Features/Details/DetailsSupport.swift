@@ -25,6 +25,7 @@ func detailsCopy(_ key: String) -> String {
 				}
 			},
 		),
+		ownInboxID: client.inboxId(),
 		origin: origin,
 		admit: { [weak graph] in guard let graph else { return false }
 			return graph.routes.admit($0, fence: graph.fence)
