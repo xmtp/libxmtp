@@ -415,6 +415,33 @@ def brace_variants(pattern):
     return variants
 
 
+SECRET_EXPRESSION = re.compile(r"\$\{\{[^}]*\bsecrets\b")
+
+
+def secret_uses(source: str) -> list[str]:
+    """Where a workflow reads secrets: a `secrets` key (a workflow_call
+    declaration, a nested call's `secrets: inherit` or map, or a `with` or
+    `env` entry) or a `${{ }}` expression that names `secrets`. Comments and
+    plain text, such as a step name, do not count."""
+    uses = []
+
+    def walk(value, path):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                where = f"{path}.{key}" if path else str(key)
+                if key == "secrets":
+                    uses.append(f"has a secrets key at {where}")
+                walk(item, where)
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                walk(item, f"{path}[{index}]")
+        elif isinstance(value, str) and SECRET_EXPRESSION.search(value):
+            uses.append(f"reads secrets at {path}")
+
+    walk(yaml.safe_load(source), "")
+    return uses
+
+
 def validate(manifest, root: Path = ROOT, files=None):
     selector = load_selector()
     errors = []
@@ -432,8 +459,9 @@ def validate(manifest, root: Path = ROOT, files=None):
             missing = [s for s in KACHE_SECRETS if s not in declared]
             if missing:
                 errors.append(f"{name}: {suite['workflow']} must declare workflow_call secrets {missing}")
-        if suite["secrets"] == "none" and re.search(r"\bsecrets\b", source):
-            errors.append(f"{name}: {suite['workflow']} uses secrets, but the suite receives none")
+        if suite["secrets"] == "none":
+            for use in secret_uses(source):
+                errors.append(f"{name}: {suite['workflow']} {use}, but the suite receives none")
     ci_document = yaml.safe_load((root / WORKFLOWS / "ci.yml").read_text())
     ci = ci_document["jobs"]
     for phase, path in GENERATED_WORKFLOWS.items():
