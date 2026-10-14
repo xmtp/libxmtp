@@ -37,10 +37,12 @@ public struct NewConversationState: Equatable, Sendable {
 	public var busy = false
 	public var loadingPeople = false
 	public var error: String?
+	public var bootstrapError: String?
 	public var maximumMembers = 0
 	public init() {}
 	public var canContinue: Bool {
-		!busy && !loadingPeople && (!recipients.isEmpty || !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+		!busy && !loadingPeople && (!group || maximumMembers > 0) &&
+			(!recipients.isEmpty || !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 	}
 }
 
@@ -117,7 +119,7 @@ public enum NewConversationAction: Sendable {
 	private func loadPeople() {
 		loadTask?.cancel(); loadRevision += 1
 		let expected = loadRevision
-		state.loadingPeople = true
+		state.loadingPeople = true; state.bootstrapError = nil
 		let id = UUID()
 		loadTask = Task {
 			defer { self.tasks.removeValue(forKey: id) }
@@ -127,10 +129,10 @@ public enum NewConversationAction: Sendable {
 				try self.checkAdmission()
 				let maximum = try await self.queries.maximumMembers()
 				self.applyLoad(expected) {
-					$0.people = people; $0.maximumMembers = maximum; $0.loadingPeople = false
+					$0.people = people; $0.maximumMembers = maximum; $0.loadingPeople = false; $0.bootstrapError = nil
 				}
 			} catch is CancellationError {} catch {
-				self.applyLoad(expected) { $0.loadingPeople = false; $0.error = "Cannot load people. Try again." }
+				self.applyLoad(expected) { $0.loadingPeople = false; $0.bootstrapError = "Cannot load people. Try again." }
 			}
 		}
 		tasks[id] = loadTask

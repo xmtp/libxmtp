@@ -60,6 +60,14 @@ struct NewConversationView: View {
 		if store.state.busy || store.state.loadingPeople {
 			ProgressView().frame(maxWidth: .infinity)
 		}
+		if let error = store.state.bootstrapError {
+			VStack(alignment: .leading, spacing: 8) {
+				Text(error).foregroundStyle(.red)
+				Button(localized("Retry")) { store.send(.load) }.buttonStyle(.glass)
+					.disabled(store.state.busy || store.state.loadingPeople)
+					.accessibilityIdentifier("newConversation.retryBootstrap")
+			}
+		}
 		if store.state.reviewing, let error = store.state.error {
 			Text(error).foregroundStyle(.red)
 		}
