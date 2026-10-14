@@ -1,9 +1,11 @@
 # `xdbg` labels the compiled binary with the commit at run time.
 #
 # The compile (`passthru.unwrapped`, `.#xdbg.unwrapped`) reads no
-# flake revision, so its store path changes only with the xdbg source closure,
-# and Cachix serves it across commits. The wrapper is the only part that reads
-# `xmtp.gitSha`; it sets `XDBG_GIT_SHA`, which `get_version()` reads first.
+# flake revision, so Cachix serves it across commits. Its store path changes
+# with the xdbg source closure, and with any workspace manifest, `Cargo.lock`,
+# or build script, because the dummy workspace keeps every manifest. The
+# wrapper is the only part that reads `xmtp.gitSha`; it sets `XDBG_GIT_SHA`,
+# which `get_version()` reads first.
 {
   lib,
   xmtp,
@@ -48,11 +50,16 @@ let
 in
 runCommand "xdbg-${version}"
   {
+    # `om ci` pins by `pname`, so keep the name of the old package.
+    pname = "xdbg";
+    inherit version;
     nativeBuildInputs = [ makeWrapper ];
     passthru = { inherit unwrapped; };
     meta.mainProgram = "xdbg";
   }
   ''
+    # An unset or empty XDBG_GIT_SHA gets the flake revision. The revision is
+    # hex, `<hex>-dirty`, or `unknown`, so it needs no quoting.
     makeWrapper ${lib.getExe unwrapped} $out/bin/xdbg \
-      --set-default XDBG_GIT_SHA ${lib.escapeShellArg xmtp.gitSha}
+      --run 'export XDBG_GIT_SHA=''${XDBG_GIT_SHA:-${xmtp.gitSha}}'
   ''

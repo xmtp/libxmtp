@@ -5,6 +5,8 @@ fn version_reports_the_run_time_git_sha() {
     let directory = tempfile::tempdir()?;
     let output = Command::new(env!("CARGO_BIN_EXE_xdbg"))
         .arg("--version")
+        // The version line is an `info!` event, which a caller's filter can hide.
+        .env_remove("RUST_LOG")
         .env("XDBG_DB_ROOT", directory.path())
         .env("XDBG_GIT_SHA", "0123abcd")
         .output()?;
