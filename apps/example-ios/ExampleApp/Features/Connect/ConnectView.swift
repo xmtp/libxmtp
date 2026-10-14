@@ -19,6 +19,7 @@ struct ConnectView: View {
 					}
 					Text("A place to connect.", tableName: "Connect")
 						.font(.system(size: heroTitleSize, weight: .bold))
+						.foregroundStyle(store.state.requiresToken ? Color.secondary : Color.primary)
 					Text("Join a server to start a conversation.", tableName: "Connect").font(.body)
 						.foregroundStyle(Theme.secondaryLabel)
 				}.frame(maxWidth: .infinity).padding(.top, store.state.requiresToken ? 4 : 50)
