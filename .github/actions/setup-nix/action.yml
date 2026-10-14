@@ -102,7 +102,7 @@ runs:
         KACHE_CI_SECRET_KEY: ${{ inputs.kache-s3-secret-access-key }}
         KACHE_CI_SCOPE: ${{ inputs.kache-scope }}
         KACHE_CI_READONLY: ${{ inputs.kache-readonly }}
-      run: bash dev/kache-ci-config
+      run: bash "$GITHUB_ACTION_PATH/kache-ci" config
       shell: bash
     # Runs in every job, before any cache is configured. It passes only
     # whether each token is set, never the token.
@@ -114,7 +114,7 @@ runs:
         XMTP_CACHIX_PR_TOKEN: ${{ inputs.cachix-pr-auth-token != '' }}
         KACHE_CI_BACKEND: ${{ steps.compiler-cache-backend.outputs.backend }}
         KACHE_CI_READONLY: ${{ inputs.kache-readonly }}
-      run: bash dev/kache-ci-policy
+      run: bash "$GITHUB_ACTION_PATH/kache-ci" policy
       shell: bash
     # Build independent derivations in parallel, one per CPU (`max-jobs`), and
     # give each build all cores (`cores = 0`). Nix defaults to max-jobs = 1.
@@ -150,7 +150,7 @@ runs:
           max-jobs = auto
           cores = 0
     # One cache mode per job (README "Cache modes"). Each mode has its own
-    # Cachix step; dev/kache-ci-policy fails first on an unknown mode, a mode
+    # Cachix step; `kache-ci policy` fails first on an unknown mode, a mode
     # that does not fit the event, or a token that does not fit the mode.
     - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
       if: ${{ inputs.cache-mode == 'read' }}

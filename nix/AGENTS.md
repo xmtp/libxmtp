@@ -20,12 +20,12 @@ build with any Xcode. A new Xcode changes `xcode` and every
 The focused Rust shell and Android host builds use the Nix toolchain.
 They must replace native compiler and linker overrides from an outer local or
 iOS shell. Otherwise, Xcode's linker uses Nix's SDK without its library search paths.
-Run `dev/nix-shell 'bash dev/check-apple-toolchain'` in the local shell and
-`NIX_DEVSHELL=rust dev/nix-shell 'bash dev/check-apple-toolchain'` for the Nix SDK.
+Run `dev/nix-shell 'dev/check-apple-toolchain'` in the local shell and
+`NIX_DEVSHELL=rust dev/nix-shell 'dev/check-apple-toolchain'` for the Nix SDK.
 Also check a shell transition with
-`dev/nix-shell 'dev/nix-shell --shell rust "bash dev/check-apple-toolchain"'`.
+`dev/nix-shell 'dev/nix-shell --shell rust "dev/check-apple-toolchain"'`.
 Also check the Android shell transition with
-`dev/nix-shell 'dev/nix-shell --shell android "bash dev/check-apple-toolchain"'`.
+`dev/nix-shell 'dev/nix-shell --shell android "dev/check-apple-toolchain"'`.
 The check links `iconv`; a basic libc link does not detect mixed toolchains.
 
 ## Build isolation
@@ -173,9 +173,6 @@ scripts, and `build-sdk-node-platforms.yml` read it.
 Run `dev/nix-shell 'python3 -B nix/check-sdk-products.py'` to build selected
 Kotlin, Android fast, and Swift on Darwin. It checks generated files, complete
 receipts, source identities, and the selected Android ELF library.
-Run `dev/nix-shell 'python3 -B nix/test-sdk-windows-staging.py'` to check the
-Windows Node job with cached generated roots. This fixture checks cleanup and
-the render arguments. It does not compile a Windows SDK.
 
 `android-sdk-libs` combines generated Kotlin, runtime and Android sources,
 the contract record, and all four `libxmtp_sdk.so` ABIs. `android-sdk-libs-fast`

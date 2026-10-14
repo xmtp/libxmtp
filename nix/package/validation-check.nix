@@ -19,7 +19,7 @@ let
       (root + /crates/xmtp_id)
     ];
     dev = true;
-    extra = [ (root + /dev/check-validation) ];
+    extra = [ (root + /crates/xmtp_mls_validation/dev/check-validation) ];
   };
 
   commonArgs = base.commonArgs // {
@@ -61,7 +61,7 @@ rust.buildPackage (
       python3
       taplo
     ];
-    buildPhaseCargoCommand = "bash dev/check-validation all";
+    buildPhaseCargoCommand = "bash crates/xmtp_mls_validation/dev/check-validation all";
     doCheck = false;
     doInstallCargoArtifacts = false;
     # A check result must name no store path, so it substitutes on a hit.

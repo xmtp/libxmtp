@@ -6,13 +6,14 @@ macOS.
 ## Prerequisites
 
 - **macOS** (aarch64-darwin is the primary supported platform)
-- **Docker** — required for running the local XMTP node (`dev/up` starts it in
-  Docker)
+- **Docker** — required for running the local XMTP node (`just backend up`
+  starts it in Docker)
 
 ## Install Determinate Nix
 
 The easiest way to get started is the `./dev/nix-up` script, which installs
-Determinate Nix and direnv interactively:
+Determinate Nix, configures the XMTP binary cache, and installs direnv
+interactively:
 
 ```bash
 ./dev/nix-up
@@ -27,7 +28,7 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 [Determinate Nix](https://docs.determinate.systems/) is a distribution of Nix
 designed for developer and CI workflows with built-in caching support.
 
-To fully uninstall Nix and direnv, run `./dev/nix-down`. Note that
+To fully uninstall Determinate Nix, run `/nix/nix-installer uninstall`. Note that
 re-installing requires re-downloading all dependencies (5+ minutes depending on
 connection speed). If you just want to temporarily disable direnv, see
 [Disabling direnv](#disabling-direnv) below.
@@ -65,11 +66,11 @@ command. See [Zed checks](agent-tools.md#zed-checks) for check scope and migrati
 ## Disabling direnv
 
 If direnv's shell integration is slowing down your terminal or you want to
-temporarily stop the auto-activation, use the lightweight toggle scripts:
+temporarily stop the auto-activation, toggle it for this repository:
 
 ```bash
-dev/direnv-down   # Disable direnv for this repo (runs direnv deny)
-dev/direnv-up     # Re-enable direnv for this repo (runs direnv allow)
+direnv deny    # Disable direnv for this repo
+direnv allow   # Re-enable direnv for this repo
 ```
 
 These do **not** uninstall anything — they just toggle whether direnv activates
@@ -84,20 +85,13 @@ compiling from source:
 
 - `xmtp.cachix.org` — project-specific cache (XMTP derivations, Android NDK, etc.)
 
-The script runs `cachix use xmtp` (via `nix run nixpkgs#cachix`), which
-automatically chooses the right Nix config approach based on whether you are a
-trusted user. If you installed Nix manually (without `dev/nix-up`), you can
-configure the cache yourself:
-
-```bash
-nix run nixpkgs#cachix -- use xmtp
-```
-
-If you are not a trusted Nix user, you may need sudo:
-
-```bash
-sudo nix run nixpkgs#cachix -- use xmtp
-```
+The script adds `extra-substituters` and `extra-trusted-public-keys` lines.
+A trusted Nix user (`nix config show trusted-users` names you) gets them in
+`~/.config/nix/nix.conf`. Any other user gets them through `sudo` in
+`/etc/nix/nix.custom.conf` when it exists (Determinate Nix manages
+`/etc/nix/nix.conf`), else in `/etc/nix/nix.conf`, and the script then restarts
+the Nix daemon. If you installed Nix without `dev/nix-up`, run it once to
+configure the cache.
 
 ## Available Dev Shells
 
@@ -156,7 +150,7 @@ On Darwin, only explicit library compiles are cached. Linked outputs, tests,
 proc macros, static libraries, and unknown forms go directly to rustc with
 unchanged arguments. Output verification remains enabled.
 
-Run `dev/nix-shell 'just cache-stats'` to inspect hits and misses. To opt out,
+Run `dev/nix-shell 'kache stats --full'` to inspect hits, misses, and scheduler wait. To opt out,
 use `XMTP_KACHE=0 dev/nix-shell 'just check'`. The default store is
 `${XDG_CACHE_HOME:-$HOME/.cache}/kache`, with a local default limit of 50 GiB.
 The CI action uses a 10 GiB limit. Existing nonempty `KACHE_CACHE_DIR` and

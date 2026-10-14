@@ -25,10 +25,10 @@ Run commands from the repository root in the Nix shell. Run
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
   the worker and transport tests import it.
-- `dev/nix-shell 'just sdk check-package-scripts'` runs the normal packaging controls.
-  Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
-  which the main packaging suite loads as inherited test methods.
-  Both packaging suites share the fixture in `dev/packaging_test_base.py`.
+- `dev/nix-shell 'just sdk check-package-scripts'` runs every `dev/test_*.py`
+  (unittest discovery) and every `dev/test-*.mjs` (`node --test`); a new test
+  file runs without a recipe edit. The packaging suites share the fixture and
+  the Android dependency-input cases in `dev/packaging_test_base.py`.
 - Evaluation checks the native build inputs: `base.assertNativeEnv`
   (`nix/lib/base.nix`) fails evaluation of the host, Android, and iOS
   libraries, or of their dependency layers, without static vendored OpenSSL,
@@ -88,11 +88,11 @@ Run commands from the repository root in the Nix shell. Run
   (`sdk_conformance_*`) the default bindings omit. The public browser scenarios
   are in `sdks/browser/test`.
   The run starts `sdks/browser/test/platform/object-store/object-store.mjs`
-  (`dev/with-object-store`) for its download fixtures. The default ephemeral
+  (`with-object-store` beside it) for its download fixtures. The default ephemeral
   fixture port keeps `SDK_FIXTURE_URL` separate from native S3 on port 9067.
   The run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a small
   PUT response, count upload grants and object requests, and refuse selected
-  relayed backend URLs. It uses `protoc` from the Rust shell to replace only
+  relayed backend URLs. It uses `protoc` from the js shell to replace only
   the upload URL in a real backend response. Browser clients use its gRPC-web
   relay, which preserves gRPC status trailers. The Node tests in
   `sdks/node/test` do not use this fixture. The attachment end test starts its
@@ -190,8 +190,7 @@ hand-maintained.
   `dev/nix-shell 'just sdk generate [targets]'` runs both steps. Use `--profile release` on the
   build recipe for release proofs.
 - `dev/nix-shell 'just sdk check-package-scripts'` checks reuse, toolchain inputs, and cleanup
-  with a small fixture. `dev/nix-shell 'just sdk check-clean-generate'` adds one real Swift
-  render. It uses existing artifacts and does not rebuild Rust.
+  with a small fixture, including stale-file cleanup on render.
   The script checks also reject missing or extra pure WASM functions and pure
   functions in worker bindings or dispatch. The exact set comes from approved
   pure Rust declarations in the current isolated SDK source.
@@ -201,7 +200,7 @@ hand-maintained.
   and installs it in an empty consumer. It checks a codec round trip without
   package receipts or runtime asset hashes. Browser smoke also loads its worker.
   Package configuration and asset identity are checked during staging and tests.
-  SDK package builds use `bash ../../dev/js/sdk-package node|browser`
+  SDK package builds use `../../dev/js/sdk-package node|browser`
   from the SDK directory. The helper stages a public manifest and copies the
   complete product into the SDK's `dist` directory for workspace imports.
   Release jobs pack `target/sdk-packages/<target>` directly. Private staging
@@ -277,12 +276,12 @@ Android staging dependency inputs:
 Migration tests use the normal SDK packages. Node and Agent use their existing
 Vitest suites. Browser fixtures and worker fault checks are in
 `sdks/browser/test/platform/migration`, included by `just sdk test-browser`.
-Run only those checks with `dev/nix-shell 'just sdk test-browser-migration'`
+Run only those checks with `dev/nix-shell 'just sdk test-browser migration'`
 after `generate`. The platform runner stages the matched Browser package. They check import, worker ownership,
 failed output, page termination, and source preservation. The small fixture
 worker uses raw legacy bytes and is not part of a public package.
 Swift uses `LegacyMigrationTests` in the normal XCTest target. Kotlin uses
 `LegacyMigrationTest` in the normal JUnit target. Run
-`dev/nix-shell 'just ios test-migration'` or
-`dev/nix-shell 'just android test-migration'`. The iOS unit job and
+`dev/nix-shell 'just ios test all --filter XmtpSdkTests.LegacyMigrationTests'` or
+`dev/nix-shell 'just android test --tests uniffi.xmtp_sdk.LegacyMigrationTest'`. The iOS unit job and
 the Android `sdk-build` job include these tests.

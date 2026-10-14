@@ -47,10 +47,10 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "bash ../../dev/js/sdk-package browser",
+    "build": "../../dev/js/sdk-package browser",
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
     "clean:dist": "rm -rf dist",
-    "dev": "bash ../../dev/js/sdk-watch browser",
+    "dev": "../../dev/js/sdk-watch browser",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",

@@ -16,10 +16,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "-libxmtp",
     manifest: createPodspecManifestProvider("sdks/ios/XMTP.podspec"),
     versionTrack: "independent",
-    notesIncludeGlobs: ["crates/**", "apps/xmtp_sdk_bindgen/**", "sdks/ios/**"],
-    notesExcludeGlobs: ["sdks/android/**"],
-    releaseWorkflow: "release-ios.yml",
-    channels: ["nightly", "rc", "final"],
   },
   [Sdk.Android]: {
     name: "Android",
@@ -30,14 +26,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
       "sdks/android/gradle.properties",
     ),
     versionTrack: "independent",
-    notesIncludeGlobs: [
-      "crates/**",
-      "apps/xmtp_sdk_bindgen/**",
-      "sdks/android/**",
-    ],
-    notesExcludeGlobs: ["sdks/ios/**"],
-    releaseWorkflow: "release-android.yml",
-    channels: ["nightly", "rc", "final"],
   },
   [Sdk.BrowserSdk]: {
     name: "Browser SDK",
@@ -46,14 +34,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("sdks/browser/package.json"),
     versionTrack: "independent",
-    notesIncludeGlobs: [
-      "crates/**",
-      "apps/xmtp_sdk_bindgen/**",
-      "sdks/browser/**",
-    ],
-    notesExcludeGlobs: ["sdks/node/**"],
-    releaseWorkflow: "release-browser-sdk.yml",
-    channels: ["nightly", "rc", "final"],
   },
   [Sdk.NodeSdk]: {
     name: "Node SDK",
@@ -62,14 +42,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("sdks/node/package.json"),
     versionTrack: "independent",
-    notesIncludeGlobs: [
-      "crates/**",
-      "apps/xmtp_sdk_bindgen/**",
-      "sdks/node/**",
-    ],
-    notesExcludeGlobs: ["sdks/browser/**"],
-    releaseWorkflow: "release-node-sdk.yml",
-    channels: ["nightly", "rc", "final"],
   },
   [Sdk.AgentSdk]: {
     name: "Agent SDK",
@@ -78,10 +50,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("sdks/agent/package.json"),
     versionTrack: "independent",
-    notesIncludeGlobs: ["sdks/agent/**"],
-    notesExcludeGlobs: ["crates/**", "sdks/node/**", "sdks/browser/**"],
-    releaseWorkflow: "release-agent-sdk.yml",
-    channels: ["nightly", "rc", "final"],
   },
   [Sdk.Cli]: {
     name: "CLI",
@@ -90,15 +58,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("apps/cli/package.json"),
     versionTrack: "independent",
-    notesIncludeGlobs: ["apps/cli/**"],
-    notesExcludeGlobs: [
-      "crates/**",
-      "sdks/node/**",
-      "sdks/browser/**",
-      "sdks/agent/**",
-    ],
-    releaseWorkflow: "release-cli.yml",
-    channels: ["nightly", "rc", "final"],
   },
   [Sdk.Libxmtp]: {
     name: "Libxmtp",
@@ -107,10 +66,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "",
     manifest: createCargoManifestProvider("Cargo.toml"),
     versionTrack: "follows-libxmtp",
-    notesIncludeGlobs: ["crates/**", "apps/xmtp_sdk_bindgen/**"],
-    notesExcludeGlobs: [],
-    releaseWorkflow: "",
-    channels: ["nightly", "rc", "final"],
   },
 };
 

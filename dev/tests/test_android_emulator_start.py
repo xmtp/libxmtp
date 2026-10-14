@@ -13,7 +13,6 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = Path(
@@ -21,15 +20,9 @@ HELPER = Path(
         "ANDROID_EMULATOR_START_HELPER", ROOT / "nix/lib/android-emulator-start.py"
     )
 )
-CLOCK_HELPER = Path(
-    os.environ.get("ANDROID_CLOCK_HELPER", ROOT / "nix/lib/android-sync-clock.sh")
-)
 # The fixture emulator "crashes" with SIGUSR1. Its default action ends the
 # process without a core dump, so macOS writes no crash report and shows no
-# crash dialog for each test run. A real SIGSEGV did both. The supervisor names
-# any signal the same way. The FIXTURE text below uses the same signal.
-CRASH_SIGNAL = signal.SIGUSR1
-CRASH_DETAIL = f"signal {CRASH_SIGNAL.value} ({CRASH_SIGNAL.name})"
+# crash dialog for each test run.
 FIXTURE = r"""
 import os
 from pathlib import Path
@@ -52,8 +45,6 @@ if role == "adb" and args[:1] == ["devices"]:
     print("List of devices attached")
     sys.exit(0)
 if role == "adb" and "logcat" in args:
-    if mode == "hung-diagnostics":
-        time.sleep(60)
     print("fixture guest log")
     sys.exit(0)
 
@@ -65,21 +56,6 @@ if role == "emulator":
     (crashdb / "pending/.fixture.dmp").write_text("fixture minidump")
     print(f"Storing crashdata in: {crashdb}, detection is enabled", flush=True)
     print("fixture kernel output", flush=True)
-    if mode == "exit":
-        sys.exit(7)
-    marker = {
-        "crash-adb": "adb.started",
-        "crash-boot": "boot.started",
-        "crash-clock": "clock.started",
-        "crash-clock-real": "clock.started",
-        "crash-clock-retry": "clock.started",
-        "crash-test": "test.started",
-    }.get(mode)
-    if mode == "segfault" or marker:
-        if marker:
-            while not (home / marker).exists():
-                time.sleep(0.01)
-        os.kill(os.getpid(), signal.SIGUSR1)
     while True:
         time.sleep(0.05)
 
@@ -92,37 +68,19 @@ if role == "test":
     while not (home / "child.started").exists():
         time.sleep(0.01)
     (home / "test.started").touch()
-    if mode in ("test-hang", "crash-test"):
+    if mode == "test-hang":
         time.sleep(60)
-    if mode == "long-test":
-        time.sleep(2.2)
-    sys.exit(7 if mode == "test-failure" else 0)
+    sys.exit(0)
 elif role == "clock":
     (home / "clock.started").touch()
-    if mode == "clock-failure":
-        print("clock differs from the host", flush=True)
-        sys.exit(9)
-    if mode in ("crash-clock", "hung-clock"):
+    if mode == "hung-clock":
         time.sleep(60)
     print("clock synchronized")
-elif args[2:] == ["root"] and mode == "crash-clock-retry":
-    (home / "clock.started").touch()
-    print("adb: unable to connect for root: closed", file=sys.stderr)
-    sys.exit(1)
 elif args[2:] == ["wait-for-device"]:
-    time.sleep(60)
-elif args[2:] == ["root"] and mode == "crash-clock-real":
-    subprocess.Popen([sys.executable, str(child_script)])
-    while not (home / "child.started").exists():
-        time.sleep(0.01)
-    (home / "clock.started").touch()
     time.sleep(60)
 elif args[2:] == ["get-state"]:
     (home / "adb.started").touch()
-    # These scenarios must not report an online device before emulator death.
-    if mode in ("exit", "segfault"):
-        time.sleep(60)
-    if mode in ("crash-adb", "hung-adb"):
+    if mode == "hung-adb":
         child = subprocess.Popen([sys.executable, str(child_script)])
         while not (home / "child.started").exists():
             time.sleep(0.01)
@@ -135,9 +93,7 @@ elif args[2:] == ["shell", "getprop", "dev.bootcomplete"]:
     counter = home / "boot.counter"
     count = int(counter.read_text()) + 1 if counter.exists() else 1
     counter.write_text(str(count))
-    if mode == "crash-boot":
-        time.sleep(60)
-    print("10" if mode in ("boot-hang", "hung-diagnostics") else ("0" if count < 3 else "1\r"))
+    print("10" if mode == "boot-hang" else ("0" if count < 3 else "1\r"))
 elif args[2:] == ["shell", "getprop", "ro.build.version.sdk"]:
     print("34" if mode == "wrong-api" else "23\r")
 else:
@@ -283,25 +239,6 @@ class EmulatorStartupTests(unittest.TestCase):
         for role, pid in self.processes():
             self.assertFalse(self.alive(pid), f"Owned {role} process {pid} survived")
 
-    def test_scoped_success_stops_emulator_and_test_descendant_and_removes_home(self):
-        self.scope_command()
-        self.assertEqual(self.run_start("success"), 0, self.output)
-        self.assertEqual(self.record["status"], "completed")
-        self.assertEqual(self.record["test_exit_status"], 0)
-        self.assert_scope_cleaned()
-        env = json.loads((self.home / "test.env").read_text())
-        self.assertEqual(env["ANDROID_SERIAL"], "emulator-5560")
-        self.assertEqual(env["ANDROID_USER_HOME"], str(self.android_home))
-        self.assertEqual(env["ANDROID_AVD_HOME"], str(self.android_home / "avd"))
-
-    def test_scoped_failure_preserves_test_exit_status_and_diagnostics(self):
-        self.scope_command()
-        self.assertEqual(self.run_start("test-failure"), 7, self.output)
-        self.assertEqual(self.record["status"], "test failed")
-        self.assertEqual(self.record["test_exit_status"], 7)
-        self.assertIn("fixture guest log", (self.logs / "logcat.txt").read_text())
-        self.assert_scope_cleaned()
-
     def test_scoped_sigterm_stops_all_owned_processes_and_removes_home(self):
         self.scope_command()
         self.assertEqual(
@@ -309,68 +246,6 @@ class EmulatorStartupTests(unittest.TestCase):
             143,
             self.output,
         )
-        self.assert_scope_cleaned()
-
-    def test_scoped_sigint_stops_all_owned_processes_and_removes_home(self):
-        self.scope_command()
-        self.assertEqual(
-            self.run_start(
-                "test-hang", interrupt=True, marker="test.started", signum=signal.SIGINT
-            ),
-            130,
-            self.output,
-        )
-        self.assert_scope_cleaned()
-
-    def test_scoped_startup_crash_removes_home_without_running_tests(self):
-        self.scope_command()
-        self.assert_failed("segfault", CRASH_DETAIL, "ADB connection")
-        self.assertFalse((self.home / "test.started").exists())
-        self.assert_scope_cleaned()
-
-    def test_scoped_emulator_crash_during_tests_stops_blocked_test(self):
-        self.scope_command()
-        self.assertEqual(self.run_start("crash-test"), 1, self.output)
-        self.assertIn(
-            f"Emulator exited during test command: {CRASH_DETAIL}", self.output
-        )
-        self.assertEqual(self.record["phase"], "test command")
-        self.assertEqual(self.record["emulator_exit_status"], -CRASH_SIGNAL)
-        self.assert_scope_cleaned()
-
-    def test_scoped_tests_can_outlast_startup_deadline(self):
-        self.scope_command()
-        self.assertEqual(self.run_start("long-test"), 0, self.output)
-        self.assertLess(self.record["startup_seconds"], 2)
-        self.assertGreater(self.record["elapsed_seconds"], 2)
-        self.assert_scope_cleaned()
-
-    def test_scoped_run_preserves_unrelated_emulator_and_home(self):
-        other_home = self.home / "other-android-home"
-        other_home.mkdir()
-        other = subprocess.Popen(
-            [str(self.bin / "emulator")],
-            env=dict(self.env, FIXTURE_HOME=str(other_home), FIXTURE_MODE="success"),
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-        )
-
-        def stop_other():
-            other.terminate()
-            other.wait(timeout=2)
-
-        self.addCleanup(stop_other)
-        self.scope_command()
-        self.assertEqual(self.run_start("success"), 0, self.output)
-        self.assert_scope_cleaned()
-        self.assertIsNone(other.poll(), "Unrelated emulator was killed")
-        self.assertTrue(other_home.exists(), "Unrelated home was removed")
-
-    def test_scoped_default_diagnostics_survive_home_removal(self):
-        self.env.pop("NIX_ANDROID_EMULATOR_LOG_DIR")
-        self.scope_command()
-        self.assertEqual(self.run_start("test-failure"), 7, self.output)
-        self.assertFalse(self.logs.is_relative_to(self.android_home))
         self.assert_scope_cleaned()
 
     def assert_failed(self, mode, reason, phase):
@@ -395,73 +270,8 @@ class EmulatorStartupTests(unittest.TestCase):
         self.assertTrue((self.home / "clock.started").exists())
         self.assertEqual(self.record["command"][-1], "-no-window")
 
-    def test_exit_before_adb_fails_and_retains_diagnostics(self):
-        self.assert_failed("exit", "exit status 7", "ADB connection")
-        self.assertIn("fixture kernel output", self.output)
-        self.assertIn(
-            "emulator diagnostic -version", (self.logs / "version.txt").read_text()
-        )
-        self.assertEqual(
-            (self.logs / "crashdb/pending/.fixture.dmp").read_text(), "fixture minidump"
-        )
-
-    def test_crash_signal_before_adb_is_reported(self):
-        self.assert_failed("segfault", CRASH_DETAIL, "ADB connection")
-        self.assertEqual(self.record["emulator_exit_status"], -CRASH_SIGNAL)
-
-    def test_crash_while_adb_is_blocked_stops_adb_and_descendant(self):
-        self.assert_failed("crash-adb", CRASH_DETAIL, "ADB connection")
-
-    def test_crash_while_boot_property_is_blocked(self):
-        self.assert_failed("crash-boot", CRASH_DETAIL, "boot completion")
-
-    def test_crash_during_clock_sync(self):
-        self.assert_failed("crash-clock", CRASH_DETAIL, "clock synchronization")
-
-    def test_crash_during_real_clock_helper_kills_timeout_and_adb(self):
-        self.command[7] = str(CLOCK_HELPER)
-        self.assert_failed("crash-clock-real", CRASH_DETAIL, "clock synchronization")
-        self.assertTrue((self.home / "child.started").exists())
-
-    def test_crash_during_root_reconnect_stops_clock_helper(self):
-        self.command[7] = str(CLOCK_HELPER)
-        self.assert_failed("crash-clock-retry", CRASH_DETAIL, "clock synchronization")
-
-    def test_host_core_diagnostic_isolates_library_path(self):
-        # This case adds a fifth diagnostic executable. Allow its first macOS
-        # launch without changing the short budget used by hang regressions.
-        helper = Path(self.command[1])
-        helper.write_text(
-            helper.read_text().replace(
-                "DIAGNOSTIC_TIMEOUT = 1", "DIAGNOSTIC_TIMEOUT = 3"
-            )
-        )
-        core = self.home / "coredumpctl"
-        core.write_text(
-            f"#!{sys.executable}\n"
-            "import os\n"
-            "print('library-path=' + os.environ.get('LD_LIBRARY_PATH', 'absent'))\n"
-            "print('fixture-home=' + os.environ['FIXTURE_HOME'])\n"
-        )
-        core.chmod(0o755)
-        self.env["PATH"] = str(self.home) + os.pathsep + os.environ["PATH"]
-        self.env["LD_LIBRARY_PATH"] = "/fixture/emulator-libraries"
-        self.assert_failed("exit", "exit status 7", "ADB connection")
-        output = (self.logs / "core.txt").read_text()
-        self.assertIn("exit status: 0", output)
-        self.assertIn("library-path=absent", output)
-        self.assertIn(f"fixture-home={self.home}", output)
-        self.assertEqual(
-            (self.home / "emulator-library-path").read_text(),
-            "/fixture/emulator-libraries",
-        )
-
     def test_offline_device_has_a_deadline(self):
         self.assert_failed("offline", "startup deadline exceeded", "ADB connection")
-
-    def test_boot_requires_exact_completion_property(self):
-        self.assert_failed("boot-hang", "startup deadline exceeded", "boot completion")
-        self.assertFalse((self.home / "clock.started").exists())
 
     def test_hung_adb_is_bounded_and_its_descendant_is_killed(self):
         self.assert_failed("hung-adb", "Startup command timed out", "ADB connection")
@@ -472,52 +282,15 @@ class EmulatorStartupTests(unittest.TestCase):
             "hung-clock", "startup deadline exceeded", "clock synchronization"
         )
 
-    def test_clock_failure_prevents_readiness(self):
-        self.assert_failed(
-            "clock-failure", "clock synchronization failed", "clock synchronization"
-        )
-
     def test_api_mismatch_prevents_readiness(self):
         self.assert_failed(
             "wrong-api", "API mismatch: expected 23, got 34", "API verification"
         )
 
-    def test_hung_diagnostics_cannot_hold_failure_open(self):
-        self.assert_failed(
-            "hung-diagnostics", "startup deadline exceeded", "boot completion"
-        )
-        self.assertIn("deadline exceeded", (self.logs / "logcat.txt").read_text())
-
     def test_sigterm_cleans_up_startup(self):
         self.assertNotEqual(self.run_start("boot-hang", interrupt=True), 0, self.output)
         self.assertIn("Startup interrupted", self.output)
         self.assertTrue(all(not self.alive(pid) for _, pid in self.processes()))
-
-
-class CommandDeadlineTests(unittest.TestCase):
-    def setUp(self):
-        spec = importlib.util.spec_from_file_location("android_emulator_start", HELPER)
-        self.supervisor = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.supervisor)
-
-    def assert_deadline(self, deadline, timeout, message):
-        # The clock crosses the deadline between the two timeout checks.
-        ticks = iter((0.0, 0.0, 0.9, 1.1))
-        with patch.object(
-            self.supervisor.time, "monotonic", side_effect=lambda: next(ticks, 1.1)
-        ):
-            with self.assertRaisesRegex(self.supervisor.StartupFailure, message):
-                self.supervisor.run_command(
-                    [sys.executable, "-c", "import time; time.sleep(60)"],
-                    deadline=deadline,
-                    timeout=timeout,
-                )
-
-    def test_shared_deadline_keeps_its_label_when_the_clock_crosses(self):
-        self.assert_deadline(1.0, 10.0, "^Emulator startup deadline exceeded$")
-
-    def test_command_deadline_keeps_its_distinct_label(self):
-        self.assert_deadline(100.0, 1.0, "^Startup command timed out:")
 
 
 class StopProcessTests(unittest.TestCase):

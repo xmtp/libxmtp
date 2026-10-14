@@ -29,7 +29,7 @@ Every `setup-nix` call states its Cachix cache mode (`read`, `ci`, or
 `trusted`), and `setup-js` gets the same mode. Release, publish, deploy,
 schedule, and post-merge jobs use `read`; CI jobs use `ci`; writer jobs use the
 protected-push expression. See "Cache modes" in
-`.github/actions/setup-nix/README.md`. `dev/agents/test_kache_env.py` checks
+`.github/actions/setup-nix/README.md`. `dev/tests/test_kache_env.py` checks
 the wiring for every entry workflow and event.
 
 Android CI jobs in mode `ci` restore Gradle User Home with
@@ -168,8 +168,8 @@ publication runs only on main, self-hosted, tag pushes, or reusable calls.
 All CI commands select a targeted Nix shell. Full root Nix warming still builds
 all outputs and dependencies, including the default developer shell. Kache is
 off unless a job sets `kache: "true"`; its Darwin helper bypasses linked outputs.
-Recovery runs only through the manual workflow. Windows installed-package
-smoke remains a manual owner in `test-sdk.yml`.
+Recovery runs only through the manual workflow. The release `load` jobs of
+`build-sdk-node-platforms.yml` run the Windows installed-package smoke.
 
 ## Compiler cache
 
@@ -178,8 +178,8 @@ archives. Kache is off by default. Set `kache: "true"` only in a job that runs
 cargo outside Nix; a job that only runs `nix build` passes no Kache input and
 selects no writer environment. All enabled callers pass S3 settings with a
 stable build scope. The setup action's README lists each scope and its access
-mode, and `dev/agents/test_kache_env.py` checks the wiring.
-`dev/kache-ci-config` requires a complete key pair, bucket, and build scope for
+mode, and `dev/tests/test_kache_env.py` checks the wiring.
+`.github/actions/setup-nix/kache-ci config` requires a complete key pair, bucket, and build scope for
 S3. No keys selects local-only; a partial pair fails before the action starts.
 
 Audited compiler jobs select `kache-s3-writer` only for protected branch pushes to
@@ -196,7 +196,7 @@ Kache reader pair to its setup-nix step, and do not reference other secrets in
 that job.
 
 When adding an enabled caller, add it to the setup action's README table and
-to `KACHE_CALLERS` in `dev/agents/test_kache_env.py`. Pass both optional Kache
+to `KACHE_CALLERS` in `dev/tests/test_kache_env.py`. Pass both optional Kache
 secrets through every reusable call in its chain. Declare them under
 `workflow_call.secrets` when a caller uses an explicit secret map. Share a
 stable scope across the same outer

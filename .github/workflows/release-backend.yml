@@ -36,7 +36,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       source-sha: ${{ steps.source.outputs.sha }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
       - name: Pin the release source
@@ -105,11 +105,11 @@ jobs:
     outputs:
       version: ${{ needs.setup.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.setup.outputs.source-sha }}
       - uses: ./.github/actions/setup-release-tools
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         if: inputs.dry-run != true
         with:
           registry: ghcr.io

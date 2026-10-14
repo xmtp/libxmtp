@@ -19,9 +19,7 @@ dev/nix-shell 'just example-android io-fixture'
 dev/nix-shell 'just example-android metadata-fixture-test'
 dev/nix-shell 'just example-android metadata-fixture-test MetadataBackendFixtureTest.test_every_psql_call_uses_a_private_passfile_without_argv_password'
 dev/nix-shell 'just example-android metadata-fixture-smoke'
-dev/nix-shell 'just example-android metadata-fixture-create-test'
-dev/nix-shell 'just example-android metadata-fixture-create-test --case late-database-replacement'
-dev/nix-shell 'just example-android performance-check'
+dev/nix-shell 'python3.11 -B -m unittest discover -s apps/example-android/performance -p "test_*.py"'
 dev/nix-shell 'just example-android performance'
 ```
 
@@ -107,10 +105,11 @@ admission. Run both host variants with
 It also forwards the backend proxy and its API. It supplies the `toxicBackendUrl`
 and `toxiproxyApi` runner arguments from the worktree environment. Attachment
 interruption tests change only their named toxic and restore the backend proxy.
-The app integration route also starts an owned disposable PostgreSQL/backend
-fixture with no attachment target. Docker assigns its published port. The route
-forwards it and supplies `unsupportedBackendUrl`. The fixture removes only its
-owned containers and network and retains its logs after success or failure.
+The app integration route also starts an owned backend with no attachment
+target (`fixtures/unsupported_backend.py`): the current Nix backend binary on its
+own database in the worktree stack, on a free loopback port. The route forwards
+it and supplies `unsupportedBackendUrl`. The fixture drops only its own database
+and role and retains its logs after success or failure.
 Run this route alone when using a shared stack; no other proxy test can run at
 the same time. Caller environment values can select an existing stack.
 The recipe also starts a catalogue backend with its own database and listeners.
@@ -146,8 +145,8 @@ eviction and requires its named assertion to fail. It restores the same source
 and measures the same dataset again. Seed progress and `seedMs` stay in the
 proof logs. The fixed job timeout is provisional until measured seed progress
 sets the final limit. Host validator tests also run under `lint-config`.
-`performance-check` selects the default Nix shell for its YAML policy tests.
-It starts no backend, device, or SDK build.
+The `unittest discover` command above runs only those validator tests. It
+starts no backend, device, or SDK build.
 Seed checkpoints use one `workload-seed-progress.jsonl` artifact. Each pass records
 its workload identity and whether it reused an existing manifest. Do not present
 retained seed checkpoints as a new per-pass seed.
@@ -167,11 +166,3 @@ API 23, and all-ABI proofs stay in their SDK workflows.
 `just lint-config` runs fixture, performance-tool, CI-routing, and command-path
 regressions. Preserve their failure controls and the runtime proof ledger in
 `verification.md`. A source move does not establish a new runtime proof.
-
-`metadata-fixture-create-test` needs the current PostgreSQL service. It checks
-CREATE interruption, uncertain CREATE results, competing CREATE actors, and
-permission rejection. The SQL caller needs `CREATEDB` and `CREATEROLE`, or
-superuser permission. Each generation creates a private `NOLOGIN` owner role
-and grants membership only to the caller. Cleanup requires the role OID and
-generation marker. The test removes only its own exact UUID databases and roles.
-It does not use an emulator.

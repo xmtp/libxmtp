@@ -1,6 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Rebuild the public SDK when source changes. Finish each build before rerunning.
-source "$(dirname "$0")/.setup"
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 target="${1:-}"
 case "$target" in
@@ -32,4 +33,4 @@ while IFS= read -r crate; do
   [[ "$crate" == crates/xmtp_sdk ]] || watch+=(--watch "$crate")
 done < <(NIX_DEVSHELL=rust "$ROOT/dev/nix-shell" 'python3 crates/xmtp_sdk/dev/sdk-artifacts.py paths xmtp_sdk')
 exec watchexec --on-busy-update queue --debounce 300ms "${watch[@]}" \
-  --shell=none -- bash dev/js/sdk-package "$target"
+  --shell=none -- dev/js/sdk-package "$target"

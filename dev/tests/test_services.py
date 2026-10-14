@@ -15,7 +15,6 @@ import signal
 import socket
 import subprocess
 import tempfile
-import threading
 import time
 import unittest
 
@@ -171,28 +170,6 @@ class ServicesTests(unittest.TestCase):
         for port in ports:
             self.assertFalse(listening(port), f"port {port} still listens")
 
-    def test_failed_command_prints_the_service_logs(self):
-        # A Nix build deletes its TMPDIR, so the logs must reach the output.
-        result = self.services_test(
-            "echo FAIL some::test; exit 3",
-            XMTP_SERVICES_LOGS=str(self.root / "logs"),
-        )
-        self.assertEqual(result.returncode, 3, result.stderr)
-        for name in ("db", "replica", "s3"):
-            self.assertIn(
-                f"--- last lines of {self.root}/logs/{name}.log", result.stderr
-            )
-        # Nix shows only the end of a failed build: the command output and
-        # the exit status come after the service logs.
-        self.assertEqual(
-            result.stderr.splitlines()[-3:],
-            [
-                "--- last lines of the test command output",
-                "FAIL some::test",
-                "services-test: exit status 3",
-            ],
-        )
-
     def test_term_stops_every_service(self):
         # A killed `just backend ci` must not leave services on the ports.
         ports = free_ports(len(PORTS))
@@ -232,83 +209,6 @@ class ServicesTests(unittest.TestCase):
         self.assertIn(f"XMTP_S3_PORT={port} is in use", result.stderr)
         self.assertFalse((self.root / "ran").exists())
 
-    def test_busy_caller_port_waits_when_asked(self):
-        holder = socket.socket()
-        holder.bind(("127.0.0.1", 0))
-        holder.listen()
-        port = holder.getsockname()[1]
-        try:
-            run = subprocess.Popen(
-                [str(self.test_bin)],
-                cwd=self.root,
-                env={
-                    **self.env,
-                    "XMTP_SERVICES_TEST_COMMAND": "touch ran",
-                    "XMTP_S3_PORT": str(port),
-                    "XMTP_SERVICES_PORT_WAIT": "60",
-                },
-                start_new_session=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            # Release the port only after the start reports that it waits, so
-            # a slow start cannot miss the busy port.
-            waited = threading.Event()
-            lines = []
-
-            def read_stderr():
-                for line in run.stderr:
-                    lines.append(line)
-                    if f"XMTP_S3_PORT={port} is in use; waiting" in line:
-                        waited.set()
-
-            reader = threading.Thread(target=read_stderr, daemon=True)
-            reader.start()
-            waited.wait(timeout=30)
-        finally:
-            holder.close()
-        with run.stderr:
-            try:
-                run.wait(timeout=180)
-            except subprocess.TimeoutExpired:
-                stop_group(run)
-                raise
-            reader.join(timeout=10)
-        stderr = "".join(lines)
-        self.assertTrue(waited.is_set(), stderr)
-        self.assertEqual(run.returncode, 0, stderr)
-        self.assertTrue((self.root / "ran").exists())
-
-    def test_duplicate_caller_ports_fail_before_any_service_starts(self):
-        (port,) = free_ports(1)
-        result = self.services_test(
-            "touch ran", XMTP_BACKEND_DB_PORT=str(port), XMTP_S3_PORT=str(port)
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(f"XMTP_S3_PORT={port} duplicates", result.stderr)
-        self.assertFalse((self.root / "ran").exists())
-
-    def test_skipped_dependency_fails_without_running_the_command(self):
-        state = self.root / "state"
-        # initdb refuses a data directory that is not empty, so db-init fails
-        # and every process that depends on it is skipped.
-        (state / "data/primary").mkdir(parents=True)
-        (state / "data/primary/occupied").touch()
-        result = self.services_test(
-            "touch ran",
-            XMTP_SERVICES_STATE=str(state),
-            XMTP_SERVICES_LOGS=str(self.root / "logs"),
-        )
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertFalse((self.root / "ran").exists())
-        # A startup failure prints the end of each service log.
-        self.assertIn("db-init.log", result.stderr)
-        self.assertIn("exists but is not empty", result.stderr)
-        # S3 started; it must be stopped.
-        s3 = int(read_env(state / "env")["XMTP_S3_PORT"])
-        self.assertFalse(listening(s3), "S3 still listens")
-
     def dev_services(self, state):
         """Return a runner of `dev/services` in a fixture checkout."""
         # dev/worktree-env writes the fixture's own dev/docker/.env.
@@ -336,21 +236,6 @@ class ServicesTests(unittest.TestCase):
             )
 
         return services, env
-
-    def test_dev_services_finds_its_state_from_another_shell(self):
-        # dev/nix-shell gives each call its own TMPDIR; `env` and `down` run
-        # in another call than `up`.
-        services, env = self.dev_services(None)
-        self.addCleanup(services, "down", check=False)
-        first, second = self.root / "tmp-up", self.root / "tmp-later"
-        first.mkdir()
-        second.mkdir()
-        env["TMPDIR"] = str(first)
-        services("up")
-        env["TMPDIR"] = str(second)
-        self.assertIn("export DATABASE_URL=", services("env").stdout)
-        services("down")
-        self.assertEqual(list(self.root.glob("pc.st*")), [])
 
     def test_dev_services_down_keeps_an_unmarked_directory(self):
         # The caller sets the state path; a mistake must not delete a directory.

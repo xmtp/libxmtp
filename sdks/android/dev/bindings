@@ -1,7 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Stage matched generated Kotlin and Android JNI libraries.
-source "$(dirname "$0")/.setup"
-ensure_nix_shell "$@"
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+SDK_ROOT="${ROOT}/sdks/android"
 
 if [[ "${1:-}" == "--release" ]]; then
     package="android-sdk-libs"

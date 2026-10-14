@@ -21,7 +21,6 @@ dev/nix-shell 'just ios test-simulator "platform=iOS Simulator,name=iPhone 17"'
 dev/nix-shell 'just ios docs'
 dev/nix-shell 'just ios test all --filter XmtpSdkTests.RecordCodecTests/testRemoteAttachmentLength'
 NIX_DEVSHELL=ios dev/nix-shell 'ruby sdks/ios/script/test_podspec.rb'
-dev/nix-shell 'python3 sdks/ios/script/test_recipes.py'
 ```
 
 The podspec test needs an existing Ruby runtime with `cocoapods-core`. Use the
@@ -111,6 +110,7 @@ and release do not acknowledge a pending message. Rust owns replay and durable
 cursors. Swift streams own their reader and callback lifetime. Use the generated
 public records and typed errors. Do not add a second host cursor or content rule.
 
-`dev/nix-shell 'just ios test-migration'` runs `LegacyMigrationTests` on macOS.
+`dev/nix-shell 'just ios test all --filter XmtpSdkTests.LegacyMigrationTests'` runs
+`LegacyMigrationTests` on macOS.
 It uses the pinned encrypted database and WAL in the internal converter crate.
 The required iOS unit job includes this test in the normal XCTest target.

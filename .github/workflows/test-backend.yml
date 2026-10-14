@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
@@ -36,7 +36,7 @@ jobs:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
@@ -66,13 +66,13 @@ jobs:
       NIX_DEVSHELL: rust
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - name: Build backend image
         run: just backend image
       - name: Load backend image
@@ -94,7 +94,7 @@ jobs:
           just backend db-up
           # The Compose project name is per-worktree, so the network name is too.
           # CI is a clone, not a worktree, so this resolves to `libxmtp_default`.
-          set -a && . dev/docker/.env && set +a
+          . dev/docker/load-env
           docker run --detach --name backend-smoke --platform "$PLATFORM" \
             --network "${XMTP_COMPOSE_PROJECT}_default" -p 127.0.0.1:55050:5050 \
             -e XMTP_CHAIN_31337_URL=http://anvil.invalid:8545 \
@@ -108,4 +108,4 @@ jobs:
         run: |
           docker logs backend-smoke || true
           docker rm --force backend-smoke || true
-          just backend db-down
+          just backend down

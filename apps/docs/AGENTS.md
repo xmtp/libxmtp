@@ -19,8 +19,8 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `just docs check-examples`: check source examples against the built local SDKs.
 - `just docs check-agent-docs`: check all reachable public Agent SDK declarations for TSDoc.
 - `just docs lint`: lint the site code and Markdown.
-- `just docs format-check`: check formatting.
-- `just docs format`: format the site files.
+- `just lint-js-format` and `just format-js` (repository root): check and
+  format the site files with the other packages.
 - `just docs test`: run the build-tool tests.
 - `just docs test-browser`: test the composed site in Chromium.
 - `just docs typecheck`: check the site and executable examples.
@@ -41,7 +41,7 @@ text exports. `parity/` preserves old URLs and Lighthouse score limits; it does
 not freeze page text.
 
 Oxfmt formats docs source except `.astro` files. Prettier with the Astro plugin
-formats `.astro` files. `just docs format-check` checks both formatters.
+formats `.astro` files. `just lint-js-format` checks both formatters.
 
 ## Content
 

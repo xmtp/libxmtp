@@ -4,8 +4,8 @@ import path from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { scaffoldNotes } from "../src/commands/scaffold-notes";
 import { classifyNoteFiles } from "../src/lib/classify-notes";
+import { scaffoldNotes } from "../src/lib/scaffold-notes";
 
 describe("scaffold → classify end-to-end", () => {
   let tmpDir: string;
@@ -36,6 +36,24 @@ describe("scaffold → classify end-to-end", () => {
     const content = fs.readFileSync(filePath, "utf-8");
     return { path: repoRelative, content };
   }
+
+  it("scaffolds frontmatter with and without a since tag", () => {
+    const tagged = fs.readFileSync(
+      scaffoldNotes("ios", tmpDir, "1.9.0", "ios-1.9.0"),
+      "utf-8",
+    );
+    expect(tagged).toContain("# iOS SDK 2.0.0");
+    expect(tagged).toContain('sdk = "ios"');
+    expect(tagged).toContain('previous_release_version = "1.9.0"');
+    expect(tagged).toContain('previous_release_tag = "ios-1.9.0"');
+
+    const untagged = fs.readFileSync(
+      scaffoldNotes("ios", tmpDir, "1.9.0", null),
+      "utf-8",
+    );
+    expect(untagged).toContain('previous_release_version = "1.9.0"');
+    expect(untagged).not.toContain("previous_release_tag");
+  });
 
   it("classifies a modified scaffold without tag as content", () => {
     const filePath = scaffoldNotes("android", tmpDir, "3.0.0", null);

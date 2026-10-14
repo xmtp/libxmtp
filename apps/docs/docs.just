@@ -6,8 +6,8 @@ set shell := ["../../dev/nix-shell"]
 
 # Stage the selected local SDK products before docs package tasks.
 sdk-products:
-    ../../dev/js/sdk-stage node
-    ../../dev/js/sdk-stage browser
+    ../../dev/js/sdk-package node
+    ../../dev/js/sdk-package browser
 
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:
@@ -28,12 +28,6 @@ check-agent-docs:
 lint:
     # Docs lint is not type-aware and does not need SDK build output.
     pnpm run lint
-
-format-check:
-    pnpm --filter @xmtp/docs run format:check
-
-format:
-    pnpm --filter @xmtp/docs run format
 
 test:
     pnpm --filter @xmtp/docs run test

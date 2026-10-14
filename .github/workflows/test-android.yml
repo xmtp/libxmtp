@@ -15,7 +15,7 @@ jobs:
       # The slim CI shell: no Rust toolchain, no emulator.
       NIX_DEVSHELL: android-ci
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     - uses: ./.github/actions/setup-nix
       with:
         cache-mode: "ci"
@@ -29,7 +29,7 @@ jobs:
         # check-consumers compiles fail by design, so clean up the trunk
         # entry even when a Gradle build in this job failed.
         cache-cleanup: always
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - name: Start backend
       run: dev/nix-shell 'just backend up'
     # One Gradle call: `gradlew build` (unit tests, Android Lint, Spotless,
@@ -43,7 +43,7 @@ jobs:
     - name: Stage the Android AAR from the Nix libraries
       run: dev/nix-shell 'XMTP_SDK_BUILD=nix just sdk generate kotlin && just sdk mobile-stage android'
     - name: Retain Android AAR and contract
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: android-sdk-stage
         if-no-files-found: error
@@ -52,7 +52,7 @@ jobs:
           target/sdk-packages/android/sdk-contract.json
     - name: Retain backend startup diagnostics
       if: failure()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: android-check-backend-startup-logs
         path: ${{ runner.temp }}/backend-startup-logs
@@ -66,7 +66,7 @@ jobs:
       # The slim CI shell with the emulator; no Rust toolchain.
       NIX_DEVSHELL: android-ci-emulator
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     - uses: ./.github/actions/setup-nix
       with:
         cache-mode: "ci"
@@ -77,7 +77,7 @@ jobs:
         # CI-only Gradle cache: protected trunk pushes write it, and every
         # other run only reads it. Release and deploy jobs never restore it.
         cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - name: Start backend
       run: dev/nix-shell 'just backend up'
     - name: Enable KVM
@@ -94,7 +94,7 @@ jobs:
       run: dev/nix-shell 'just android test-integration'
     - name: Upload failed Android test reports
       if: failure()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: android-integration-failures
         retention-days: 7
@@ -118,7 +118,7 @@ jobs:
       run: dev/nix-shell 'just android test-min-sdk'
     - name: Upload minimum SDK proof
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: android-api23-proof
         retention-days: 7

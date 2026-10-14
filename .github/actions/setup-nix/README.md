@@ -35,7 +35,7 @@ with the `cache-mode` input:
 | `ci` | `xmtp`, `xmtp-pr` | `xmtp-pr` | `cachix-pr-auth-token` (`CACHIX_PR_AUTH_TOKEN`) | read-only | pull request and merge-run jobs |
 | `trusted` | `xmtp` | `xmtp`, Kache S3 | `cachix-auth-token` (`CACHIX_AUTH_TOKEN` of the writer environment) | writes when `kache-readonly: "false"` | the post-merge build, and writer jobs on a protected push to trunk |
 
-`dev/kache-ci-policy` runs before any cache is configured and fails the job
+`kache-ci policy` runs before any cache is configured and fails the job
 when:
 
 - the mode is not `read`, `ci`, or `trusted`;
@@ -66,7 +66,7 @@ request jobs once the repository-level `CACHIX_AUTH_TOKEN` is deleted.
 `setup-js` takes the same `cache-mode`, and every job passes the same mode to
 both actions: `read` restores no pnpm store (pnpm then downloads each tarball
 and checks it against the lockfile), `ci` restores only, and `trusted` also
-saves `pnpm-*` entries. `dev/agents/test_kache_env.py` evaluates each
+saves `pnpm-*` entries. `dev/tests/test_kache_env.py` evaluates each
 caller's mode, environment, and tokens for pull request, trunk push,
 schedule, and dispatch events, and checks these rules.
 
@@ -201,9 +201,7 @@ separates build variants to keep their prefetch lists useful.
 Scopes follow outer Cargo build families. The JavaScript test, type, SDK
 product, and docs site jobs build no SDK with cargo: they copy the Nix products
 (`XMTP_SDK_BUILD=nix`), so they leave Kache off, and so do the npm release
-jobs and the xmtp.chat deploy, which ship the same products. The older SDK
-facade job uses `sdk-products-tests-conformance` because it combines product
-builds, Rust unit tests, and browser fixtures. Default SDK tests, backend tests, native Clippy, WASM Clippy,
+jobs and the xmtp.chat deploy, which ship the same products. Default SDK tests, backend tests, native Clippy, WASM Clippy,
 Cargo check, and Rust docs retain distinct scopes.
 
 A scope selects prefetch manifests and dependency shard indexes. It does not
@@ -221,15 +219,14 @@ is a configuration error. For key rotation, follow the two-apply process in
 the infrastructure guide, then update the GitHub pair before deleting the old
 key.
 
-Check changes with `dev/nix-shell 'just lint-config'` and
-`dev/nix-shell 'just agent-test'`. The fixtures use fake credentials and never
+Check changes with `dev/nix-shell 'just lint-config'`. The fixtures use fake credentials and never
 start Kache or access S3.
 
 ## Caller scopes
 
 The action appends runner OS and architecture to each scope below.
 "Protected push writer" requires all event and branch checks above. Every
-other event is a reader. `dev/agents/test_kache_env.py` checks that this table
+other event is a reader. `dev/tests/test_kache_env.py` checks that this table
 and its `KACHE_CALLERS` list name exactly the callers with `kache: "true"`.
 A job that runs cargo outside Nix belongs in both; remove it only when it
 stops running cargo.
@@ -240,4 +237,3 @@ stops running cargo.
 | `check-rust.yml / wasm` | `rust-clippy-wasm` | Protected push writer; otherwise reader |
 | `check-sdk-unit.yml / unit` | `sdk-tests-debug` | Protected push writer; otherwise reader |
 | `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer (CI merge run); reader inside `post-merge.yml` and otherwise |
-| `test-sdk.yml / sdk` | `sdk-products-tests-conformance` | Protected push writer; otherwise reader |

@@ -7,25 +7,19 @@ root := justfile_directory()
 # this worktree's XMTP_BACKEND_URL. An already-set value always wins, so CI and
 # one-off overrides are untouched. The URL uses the IPv4 form on purpose:
 # `localhost` can resolve to IPv6, where the Docker port forward resets.
-_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
+_env := ". " + root + "/dev/docker/load-env"
 
 set shell := ["../dev/nix-shell"]
 
 # Stage the selected SDK products for local workspace imports.
 sdk-products target="all":
-    case "{{ target }}" in all) ../dev/js/sdk-stage node && ../dev/js/sdk-stage browser ;; node) ../dev/js/sdk-stage node ;; wasm|browser) ../dev/js/sdk-stage browser ;; *) exit 2 ;; esac
-
-build-node-sdk:
-    ../dev/js/sdk-package node
-
-build-browser-sdk:
-    ../dev/js/sdk-package browser
+    case "{{ target }}" in all) ../dev/js/sdk-package node && ../dev/js/sdk-package browser ;; node) ../dev/js/sdk-package node ;; wasm|browser) ../dev/js/sdk-package browser ;; *) exit 2 ;; esac
 
 # Typecheck all SDKs with their task dependencies. SDK products are staged first.
 check: sdk-products
     cd {{ root }} && pnpm -r --filter './sdks/*' run typecheck
 
-check-node: build-node-sdk
+check-node: (sdk-products "node")
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run typecheck
     pnpm --filter @xmtp/node-sdk exec tsc -p type-tests/tsconfig.json
 
@@ -43,30 +37,26 @@ build: sdk-products
 lint: sdk-products
     cd {{ root }} && pnpm -r --filter './sdks/*' run lint
 
-lint-node: build-node-sdk
+lint-node: (sdk-products "node")
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run lint
 
-build-node: build-node-sdk
+build-node: (sdk-products "node")
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run build
 
 # Run all JavaScript SDK tests with their selected products.
-test: sdk-products
-    {{ _env }} && pnpm --filter @xmtp/node-sdk run test
-    {{ _env }} && pnpm --filter @xmtp/browser-sdk run test
-    cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run build
-    {{ _env }} && pnpm --filter @xmtp/agent-sdk run test
+test: test-node-sdk-ci test-browser-sdk-ci test-agent-sdk-ci
 
 # CI: Node tests use the matched public SDK product.
 # Extra args (e.g. --shard N/M) are forwarded to vitest.
-test-node-sdk-ci *args="": build-node-sdk
+test-node-sdk-ci *args="": (sdk-products "node")
     {{ _env }} && pnpm --filter @xmtp/node-sdk run test {{ args }}
 
 # CI: Browser tests use the matched public product.
-test-browser-sdk-ci *args="": build-browser-sdk
+test-browser-sdk-ci *args="": (sdk-products "browser")
     {{ _env }} && pnpm --filter @xmtp/browser-sdk run test {{ args }}
 
 # CI: agent-sdk tests. Runs against the local node-sdk (workspace dependency),
 # which must be built first so its dist exists at runtime.
-test-agent-sdk-ci *args="": build-node-sdk
+test-agent-sdk-ci *args="": (sdk-products "node")
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run build
     {{ _env }} && pnpm --filter @xmtp/agent-sdk run test {{ args }}

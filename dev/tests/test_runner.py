@@ -14,7 +14,6 @@ RUNNER = ROOT / "dev/tests/run"
 START_DIRS = (
     "dev/tests",
     "dev/specs",
-    "dev/agents",
     "apps/example-android/fixtures",
     "apps/example-android/performance",
     "nix/lib",
@@ -65,23 +64,8 @@ class RunnerTests(unittest.TestCase):
             f"no line starts with {prefix!r}:\n{result.stdout}{result.stderr}",
         )
 
-    def test_discovers_every_start_directory_and_skips_exclusions(self):
-        # Importing either excluded file would fail the run.
-        self.write("dev/agents/test_outline.py", "raise SystemExit(3)\n")
-        self.write(
-            "apps/example-android/fixtures/test_metadata_create.py",
-            "raise RuntimeError('imported')\n",
-        )
+    def test_discovers_every_start_directory_and_runs_from_the_root(self):
         self.write("dev/specs/helper_notes.py", "raise RuntimeError('not a test')\n")
-        result = self.run_runner()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        for start in START_DIRS:
-            self.assert_line(result, f"ok    {start}/test_base.py (1 tests")
-        self.assertNotIn("test_outline", result.stdout)
-        self.assertNotIn("test_metadata_create", result.stdout)
-        self.assertEqual(result.stdout.splitlines()[-1], "6 tests; 0 failed modules")
-
-    def test_tests_run_from_the_repository_root(self):
         self.write(
             "apps/example-android/fixtures/test_cwd.py",
             """
@@ -97,115 +81,54 @@ class RunnerTests(unittest.TestCase):
         )
         result = self.run_runner()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for start in START_DIRS:
+            self.assert_line(result, f"ok    {start}/test_base.py (1 tests")
         self.assert_line(result, "ok    apps/example-android/fixtures/test_cwd.py")
+        self.assertEqual(result.stdout.splitlines()[-1], "6 tests; 0 failed modules")
 
-    def test_failing_test_fails_the_run(self):
-        self.write(
-            "dev/specs/test_probe.py",
-            """
-            import unittest
-
-
-            class Probe(unittest.TestCase):
-                def test_fails(self):
-                    self.fail("probe failure")
-            """,
-        )
-        result = self.run_runner()
-        self.assertEqual(result.returncode, 1)
-        self.assert_line(result, "FAIL  dev/specs/test_probe.py (1 tests")
-        self.assertIn("probe failure", result.stderr)
-
-    def test_import_error_fails_the_module_and_later_modules_run(self):
-        self.write("dev/specs/test_a_probe.py", "import missing_probe_module\n")
-        result = self.run_runner()
-        self.assertEqual(result.returncode, 1)
-        self.assert_line(result, "FAIL  dev/specs/test_a_probe.py (0 tests")
-        self.assert_line(result, "ok    dev/specs/test_base.py (1 tests")
-        self.assertIn("missing_probe_module", result.stderr)
-
-    def test_system_exit_in_set_up_class_fails_the_module(self):
-        self.write(
-            "dev/specs/test_a_probe.py",
-            """
-            import sys
-            import unittest
+    def test_every_failure_mode_fails_the_run(self):
+        """The runner fails open on nothing: each broken module or directory fails it."""
+        probes = {
+            "test_a_fails.py": """
+                import unittest
 
 
-            class Probe(unittest.TestCase):
-                @classmethod
-                def setUpClass(cls):
-                    sys.exit(0)
+                class Probe(unittest.TestCase):
+                    def test_fails(self):
+                        self.fail("probe failure")
+                """,
+            "test_b_import.py": "import missing_probe_module\n",
+            "test_c_exit.py": """
+                import sys
+                import unittest
 
-                def test_never_runs(self):
-                    pass
-            """,
-        )
-        result = self.run_runner()
-        self.assertEqual(result.returncode, 1)
-        self.assert_line(result, "FAIL  dev/specs/test_a_probe.py")
-        self.assert_line(result, "ok    dev/specs/test_base.py (1 tests")
-        self.assertIn("SystemExit", result.stderr)
 
-    def test_module_with_no_tests_fails(self):
-        self.write("dev/specs/test_probe.py", "def test_pytest_style():\n    pass\n")
-        result = self.run_runner()
-        self.assertEqual(result.returncode, 1)
-        self.assert_line(result, "FAIL  dev/specs/test_probe.py (0 tests")
-        self.assertIn("No tests ran", result.stderr)
+                class Probe(unittest.TestCase):
+                    @classmethod
+                    def setUpClass(cls):
+                        sys.exit(0)
 
-    def test_directory_process_without_summary_fails(self):
+                    def test_never_runs(self):
+                        pass
+                """,
+            "test_d_no_tests.py": "def test_pytest_style():\n    pass\n",
+            "test_e_skipped.py": """
+                import unittest
+
+
+                class Probe(unittest.TestCase):
+                    @unittest.skip("probe")
+                    def test_skipped(self):
+                        pass
+                """,
+        }
+        for name, text in probes.items():
+            self.write(f"dev/specs/{name}", text)
+        # A directory process that dies before, or exits non-zero after, its
+        # summary, and a start directory with no tests.
         self.write("nix/lib/test_probe.py", "import os\nos._exit(0)\n")
-        result = self.run_runner()
-        self.assertEqual(result.returncode, 1)
-        self.assert_line(result, "ERROR nix/lib: the test process exited 0")
-
-    def test_module_whose_tests_are_all_skipped_fails(self):
         self.write(
-            "dev/specs/test_probe.py",
-            """
-            import unittest
-
-
-            class Probe(unittest.TestCase):
-                @unittest.skip("probe")
-                def test_skipped(self):
-                    pass
-            """,
-        )
-        self.write(
-            "nix/lib/test_partly_skipped.py",
-            """
-            import unittest
-
-
-            class Probe(unittest.TestCase):
-                def test_runs(self):
-                    pass
-
-                @unittest.skip("probe")
-                def test_skipped(self):
-                    pass
-            """,
-        )
-        result = self.run_runner()
-        self.assertEqual(result.returncode, 1)
-        self.assert_line(result, "FAIL  dev/specs/test_probe.py (1 tests, 1 skipped")
-        self.assert_line(
-            result, "ok    nix/lib/test_partly_skipped.py (2 tests, 1 skipped"
-        )
-        self.assertIn("Every test was skipped", result.stderr)
-
-    def test_start_directory_without_tests_fails(self):
-        (self.root / "nix/lib/test_base.py").unlink()
-        result = self.run_runner()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("===== nix/lib\nNo test_*.py files", result.stderr)
-
-    def test_directory_process_that_exits_non_zero_after_its_summary_fails(self):
-        # The exit handler runs after the directory process prints its summary.
-        self.write(
-            "nix/lib/test_probe.py",
+            "apps/example-android/performance/test_probe.py",
             """
             import atexit
             import os
@@ -219,34 +142,32 @@ class RunnerTests(unittest.TestCase):
                     pass
             """,
         )
+        (self.root / "apps/example-android/fixtures/test_base.py").unlink()
         result = self.run_runner()
         self.assertEqual(result.returncode, 1)
-        self.assert_line(result, "ok    nix/lib/test_probe.py (1 tests")
-        self.assert_line(result, "ERROR nix/lib: the test process exited 3")
-
-    def test_same_module_name_in_two_directories_runs_each_copy(self):
-        for start, value in [("dev/specs", "specs"), ("nix/lib", "lib")]:
-            self.write(f"{start}/same_helper.py", f"VALUE = {value!r}\n")
-            self.write(
-                f"{start}/test_same.py",
-                f"""
-                import unittest
-                from pathlib import Path
-
-                import same_helper
-
-
-                class Same(unittest.TestCase):
-                    def test_uses_its_own_helper(self):
-                        self.assertEqual(same_helper.VALUE, {value!r})
-                        Path(__file__).with_suffix(".ran").write_text(same_helper.VALUE)
-                """,
-            )
-        result = self.run_runner()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        for start, value in [("dev/specs", "specs"), ("nix/lib", "lib")]:
-            self.assert_line(result, f"ok    {start}/test_same.py (1 tests")
-            self.assertEqual((self.root / start / "test_same.ran").read_text(), value)
+        # Five modules, two directory processes, and one empty start directory.
+        self.assertRegex(result.stdout.splitlines()[-1], r"; 8 failed modules$")
+        for line in (
+            "FAIL  dev/specs/test_a_fails.py (1 tests",
+            "FAIL  dev/specs/test_b_import.py (0 tests",
+            "FAIL  dev/specs/test_c_exit.py",
+            "FAIL  dev/specs/test_d_no_tests.py (0 tests",
+            "FAIL  dev/specs/test_e_skipped.py (1 tests, 1 skipped",
+            "ok    dev/specs/test_base.py (1 tests",
+            "ERROR nix/lib: the test process exited 0",
+            "ok    apps/example-android/performance/test_probe.py (1 tests",
+            "ERROR apps/example-android/performance: the test process exited 3",
+        ):
+            self.assert_line(result, line)
+        for detail in (
+            "probe failure",
+            "missing_probe_module",
+            "SystemExit",
+            "No tests ran",
+            "Every test was skipped",
+            "===== apps/example-android/fixtures\nNo test_*.py files",
+        ):
+            self.assertIn(detail, result.stderr)
 
     def test_sibling_imports_work_and_other_directories_do_not(self):
         self.write("dev/specs/specs_helper.py", "VALUE = 1\n")

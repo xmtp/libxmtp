@@ -1,6 +1,36 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
+import { delimiter, dirname, join, resolve } from "node:path";
+
+// npm's JavaScript CLI, to run through Node: Windows npm.cmd is a shell entry,
+// and Nix can install npm apart from the Node executable, with an npm link to
+// npm-cli.js. Read that link; never run it as a child process.
+export function npmCli() {
+  const candidates = [
+    process.env.XMTP_SDK_NPM_CLI
+      ? resolve(process.env.XMTP_SDK_NPM_CLI)
+      : undefined,
+    join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
+    resolve(dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js"),
+  ];
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    const link = join(directory, "npm");
+    if (existsSync(link)) {
+      const cli = realpathSync(link);
+      if (cli.endsWith("npm-cli.js")) candidates.push(cli);
+    }
+  }
+  const cli = candidates.find((path) => path && existsSync(path));
+  if (!cli) throw new Error("SDK packaging cannot find npm-cli.js");
+  return cli;
+}
 
 // The published Node SDK supports every Node platform in the platform list.
 const platformList = JSON.parse(

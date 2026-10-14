@@ -30,7 +30,7 @@ Components: `rust-src`, `clippy`, `rustfmt`, `llvm-tools`.
 ## Tools
 
 - Core (`rustCorePackages`): cargo tools (nextest, deny, machete, hakari,
-  sqlx-cli, Kache, `grpc-health-probe`), git, Python 3.11 with PyYAML, `just`.
+  sqlx-cli, Kache, `grpc-health-probe`, `grpcurl`), git, Python 3.11 with PyYAML, `just`.
 - Rust shell: foundry, sqlcipher, Node 26 and pnpm 11, uv, `wasm-bindgen-cli`
   with Chrome and chromedriver, rtk, buf, protobuf, protolint, markdownlint,
-  taplo, shellcheck, nixfmt; `lcov` and `cargo-llvm-cov` on Linux.
+  taplo, shellcheck, nixfmt, `lcov`, and `cargo-llvm-cov`.

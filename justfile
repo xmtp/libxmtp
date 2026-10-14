@@ -14,10 +14,6 @@ export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 
 set shell := ["./dev/nix-shell"]
 
-# Test agent helpers in their locked environment without starting a language server.
-agent-test: spec-test
-    UV_PROJECT_ENVIRONMENT="{{ justfile_directory() }}/.cache/agents/venv" UV_PYTHON_DOWNLOADS=never uv run --frozen --no-dev --project dev/agents --python "$(command -v python3.11)" python -m unittest discover -s dev/agents -p 'test_*.py' -v
-
 # --- SPECS ---
 # See docs/specs/SPEC-spec-format.md and .agents/skills/authoring-specs.
 
@@ -33,11 +29,6 @@ spec-index *args:
 spec-show id:
     python3.11 dev/specs/check.py show {{ id }}
 
-# The checker's own tests. Stdlib only, so no uv project.
-[script("bash")]
-spec-test:
-    cd dev/specs && python3.11 -m unittest discover -p 'test_*.py'
-
 nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
 # CI overrides to "cargo llvm-cov nextest --no-fail-fast --no-report" for coverage
@@ -46,7 +37,7 @@ cargo_test := env("CARGO_TEST_CMD", "dev/agent-run cargo nextest run")
 
 # Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
 # `_env` loads it so the Rust suites reach this worktree's own stack.
-_env := justfile_directory() + "/dev/worktree-env && . " + justfile_directory() + "/dev/docker/load-env"
+_env := ". " + justfile_directory() + "/dev/docker/load-env"
 
 [script("bash")]
 default:
@@ -122,10 +113,6 @@ lint-config: _js-deps lint-treefmt
     pnpm --filter @xmtp/release-tools --fail-if-no-match run lint
     pnpm --filter @xmtp/release-tools --fail-if-no-match run test
 
-lint-toml:
-    taplo format --check --diff
-    taplo check
-
 [script("bash")]
 lint-treefmt:
     nix fmt -- --fail-on-change
@@ -153,9 +140,9 @@ lint-js-format:
 
 # --- TEST ---
 
-# Run the Nix workspace tests.
+# Run the Nix workspace tests. `--inputs-from .` pins nom to flake.lock.
 nix-test:
-    nix run nixpkgs#nix-output-monitor build .#nextest.{{ nix_system }}
+    nix run --inputs-from . nixpkgs#nix-output-monitor -- build .#nextest.{{ nix_system }}
 
 # `just test`, `just test crate xmtp_mls xmtp_db`
 [script("bash")]
@@ -166,32 +153,53 @@ test target="workspace" *args="":
 _test-workspace *args="":
     {{ _env }} && SQLX_OFFLINE=true RUST_MIN_STACK="${RUST_MIN_STACK:-8388608}" {{ cargo_test }} --profile ci {{ args }}
 
+# Workspace coverage in this worktree's environment: coverage/lcov and
+# coverage/html. `--diff [BASE]` keeps only the Rust files changed since the
+# merge base with BASE (default origin/self-hosted, the trunk). Other arguments go to
+# `just test workspace`, for example `just coverage --diff origin/self-hosted -p xmtp_common`.
+[script("bash")]
+coverage *args:
+    set -euo pipefail
+    set -- {{ args }}
+    base=""
+    if [[ "${1:-}" == --diff ]]; then
+      shift
+      base=origin/self-hosted
+      if [[ $# -gt 0 && "$1" != -* ]]; then base="$1"; shift; fi
+    fi
+    cargo llvm-cov clean --profraw-only --workspace
+    CARGO_TEST_CMD="cargo llvm-cov nextest --no-fail-fast --no-report" just test workspace "$@"
+    rm -rf coverage
+    mkdir -p coverage
+    ignore='(xmtp_proto/src/gen)|(test/)|(mock/)|(mock\.rs)|(test_utils\.rs)|(test_utils/)|(tests\.rs)'
+    cargo llvm-cov report --ignore-filename-regex "$ignore" --lcov --output-path coverage/lcov
+    if [[ -z "$base" ]]; then
+      cargo llvm-cov report --ignore-filename-regex "$ignore" --html --output-dir coverage
+      echo "Coverage: coverage/lcov and coverage/html/index.html"
+      exit 0
+    fi
+    changed=()
+    while IFS= read -r file; do changed+=("*/$file"); done < <(git diff --name-only --diff-filter=ACMR "$(git merge-base "$base" HEAD)" -- '*.rs')
+    if [[ ${#changed[@]} -eq 0 ]]; then
+      echo "No Rust file changed since $base"
+      exit 0
+    fi
+    lcov --ignore-errors unused --extract coverage/lcov "${changed[@]}" --output-file coverage/diff.lcov
+    genhtml --ignore-errors range coverage/diff.lcov --output-directory coverage/html
+    echo "Coverage of the files changed since $base: coverage/html/index.html"
+
 [private]
 _test-crate +crates:
     {{ _env }} && args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
     SQLX_OFFLINE=true RUST_MIN_STACK="${RUST_MIN_STACK:-8388608}" {{ cargo_test }} --profile ci $args
 
-# Verify the shared validation crate without workspace feature unification.
-check-validation:
-    dev/check-validation check
-
-# Run the shared validation crate tests on native and wasm Node.
-test-validation:
-    dev/check-validation test
-
-validation: check-validation test-validation
-
-# --- WORKTREE ---
-
-# Show this worktree's stack identity, ports, and URLs.
-worktree:
-    just backend status
+# `check`: standalone native and wasm consumer and dependency checks.
+# `test`: native and wasm Node payload tests and canonical encoding vectors.
+# Check and test the shared validation crate (mode check, test, or all).
+validation mode="all":
+    crates/xmtp_mls_validation/dev/check-validation {{ quote(mode) }}
 
 # --- DISK ---
-
-# Show compiler cache hits, misses, and store size.
-cache-stats:
-    kache stats
 
 # Free space, and the target/ and incremental/ size of each worktree.
 [script("bash")]
@@ -301,10 +309,6 @@ ci-failures job:
     esc=""; if gh api --help | grep -- --allow-escape-sequences >/dev/null; then esc="--allow-escape-sequences"; fi
     gh api $esc repos/xmtp/libxmtp/actions/jobs/{{ job }}/logs \
       | dev/ci-failure-markers
-
-# Check failure markers with local logs. It does not use GitHub.
-ci-failures-filter-test:
-    python3 dev/tests/test_ci_failure_markers.py
 
 # Annotations for a check run. Cheaper than logs when the job records them.
 ci-annotations check:

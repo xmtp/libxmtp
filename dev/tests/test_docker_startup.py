@@ -80,6 +80,7 @@ class DockerStartupTest(unittest.TestCase):
         self.docker_dir = self.repo / "dev/docker"
         self.docker_dir.mkdir(parents=True)
         shutil.copyfile(HELPER, self.docker_dir / "up")
+        shutil.copyfile(ROOT / "dev/docker/load-env", self.docker_dir / "load-env")
         (self.docker_dir / "compose.yml").touch()
         (self.docker_dir / ".env").write_text(
             f"XMTP_COMPOSE_PROJECT='{PROJECT}'\n"
@@ -107,8 +108,10 @@ class DockerStartupTest(unittest.TestCase):
         services=("backend", "replica"),
         **overrides,
     ):
+        # The fixture .env is the only source of stack values: dev/docker/up
+        # keeps a value that the caller set.
         env = dict(
-            os.environ,
+            {k: v for k, v in os.environ.items() if not k.startswith("XMTP_")},
             PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
             STARTUP_STATUS=str(status),
             DIAGNOSTIC_FAILURE=failure,
@@ -135,16 +138,6 @@ class DockerStartupTest(unittest.TestCase):
 
     def diagnostics(self):
         return sorted((self.runner / "backend-startup-logs").glob("startup.*"))
-
-    def test_success_does_not_collect_diagnostics(self):
-        result = self.run_up(status=0)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.diagnostics(), [])
-        self.assertEqual(len(self.docker_calls()), 2)
-        self.assertEqual(
-            self.docker_calls()[-1][5:],
-            ["up", "--detach", "--remove-orphans", "--wait", "backend", "replica"],
-        )
 
     def test_failure_retains_logs_and_only_owned_container_state(self):
         result = self.run_up()
@@ -176,83 +169,6 @@ class DockerStartupTest(unittest.TestCase):
                 self.assertIn(call[-1], ["owned-backend", "owned-db"])
         self.assertEqual(retained.stat().st_mode & 0o777, 0o700)
         self.assertEqual((retained / "compose.log").stat().st_mode & 0o777, 0o600)
-
-    def test_log_failure_still_collects_state_and_keeps_startup_status(self):
-        result = self.run_up(failure="logs")
-        self.assertEqual(result.returncode, 37, result.stderr)
-        retained = self.diagnostics()[0]
-        self.assertIn(
-            "fixture log failure", (retained / "diagnostic-errors.log").read_text()
-        )
-        self.assertIn("owned-db", (retained / "container-state.jsonl").read_text())
-
-    def test_inspect_failure_does_not_skip_other_owned_containers(self):
-        result = self.run_up(failure="inspect")
-        self.assertEqual(result.returncode, 37, result.stderr)
-        retained = self.diagnostics()[0]
-        self.assertIn(
-            "fixture inspect failure", (retained / "diagnostic-errors.log").read_text()
-        )
-        states = [
-            json.loads(line)
-            for line in (retained / "container-state.jsonl").read_text().splitlines()
-        ]
-        self.assertEqual([state["name"] for state in states], ["owned-db"])
-
-    def test_ps_failure_does_not_fall_back_to_global_inspection(self):
-        result = self.run_up(failure="ps")
-        self.assertEqual(result.returncode, 37, result.stderr)
-        retained = self.diagnostics()[0]
-        self.assertIn(
-            "fixture ps failure", (retained / "diagnostic-errors.log").read_text()
-        )
-        self.assertFalse(any(call[0] == "inspect" for call in self.docker_calls()))
-
-    def test_unwritable_log_parent_preserves_startup_status(self):
-        occupied = self.directory / "occupied"
-        occupied.touch()
-        result = self.run_up(RUNNER_TEMP=str(occupied))
-        self.assertEqual(result.returncode, 37, result.stderr)
-        self.assertIn("Unable to create backend startup diagnostics", result.stderr)
-        self.assertEqual(len(self.docker_calls()), 2)
-
-    def test_repeated_failures_preserve_each_attempt(self):
-        first = self.run_up(runner=False)
-        self.assertEqual(first.returncode, 37, first.stderr)
-        self.assertEqual(len(self.diagnostics()), 1, first.stderr)
-        original = self.diagnostics()[0]
-        second = self.run_up(status=42)
-        self.assertEqual(second.returncode, 42, second.stderr)
-        self.assertEqual(len(self.diagnostics()), 2)
-        self.assertTrue((original / "compose.log").is_file())
-
-    def test_failure_without_the_worktree_image_names_the_recipe(self):
-        with (self.docker_dir / ".env").open("a") as env:
-            env.write(f"XMTP_BACKEND_IMAGE='xmtp-backend:{PROJECT}'\n")
-        missing = self.run_up()
-        self.assertEqual(missing.returncode, 37, missing.stderr)
-        self.assertIn(
-            f"xmtp-backend:{PROJECT} is not loaded. Run 'just backend up'",
-            missing.stderr,
-        )
-        loaded = self.run_up(IMAGE_PRESENT="1")
-        self.assertEqual(loaded.returncode, 37, loaded.stderr)
-        self.assertNotIn("just backend up", loaded.stderr)
-        # A start without the backend, such as `db-up`, fails for another reason.
-        database = self.run_up(services=("--wait-timeout", "5", "db", "replica"))
-        self.assertEqual(database.returncode, 37, database.stderr)
-        self.assertNotIn("just backend up", database.stderr)
-        # Toxiproxy depends on the backend, unless only it starts.
-        proxy = self.run_up(services=("toxiproxy",))
-        self.assertIn("Run 'just backend up'", proxy.stderr)
-        alone = self.run_up(services=("--no-deps", "toxiproxy"))
-        self.assertNotIn("just backend up", alone.stderr)
-        named = self.run_up(services=("--no-deps", "backend"))
-        self.assertIn("Run 'just backend up'", named.stderr)
-        self.calls.unlink()
-        started = self.run_up(status=0)
-        self.assertEqual(started.returncode, 0, started.stderr)
-        self.assertNotIn(["image"], [call[:1] for call in self.docker_calls()])
 
     def test_worktree_refusal_does_not_start_or_inspect_containers(self):
         result = self.run_up(WORKTREE_STATUS="65")

@@ -51,7 +51,7 @@ jobs:
     env:
       NIX_DEVSHELL: ios
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
@@ -139,7 +139,7 @@ jobs:
     outputs:
       version: ${{ needs.build-and-package.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
           fetch-depth: 0
@@ -206,13 +206,13 @@ jobs:
         run: |
           xmtp-release tag-release --sdk ios --version "$VERSION" --no-push
           git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/ios-$VERSION"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-tag-ios
           path: ${{ runner.temp }}/release.bundle
           if-no-files-found: error
           retention-days: 1
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-release-bundle
           path: sdks/ios/XMTP-${{ needs.build-and-package.outputs.version }}.zip
@@ -236,7 +236,7 @@ jobs:
     outputs:
       version: ${{ needs.prepare-release.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+# shellcheck shell=bash
 # Set the compiler cache for this shell without changing global Cargo files.
 # Nix sources this helper in Rust-capable shells. CI supplies its own wrapper.
 

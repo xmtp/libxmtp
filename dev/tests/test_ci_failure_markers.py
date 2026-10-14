@@ -52,89 +52,55 @@ class FailureMarkers(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             return result.stdout.splitlines()
 
-    def test_product_receipts_and_missing_commands_keep_the_cause(self):
-        messages = [
-            "Reference cache failed: Reference inputs changed during the build",
-            "SDK product failed: Current source does not match",
-            "Swift documentation failed: Swift documentation changed checkout inputs",
-            "dev/js/sdk-package: line 13: python3.11: command not found",
-        ]
-        self.assertEqual(self.filtered("\n".join(messages) + "\n"), sorted(messages))
-
-    def test_plain_timeout_and_failure_keep_test_names(self):
-        self.assertEqual(
-            self.filtered(
-                "TIMEOUT [120.003s] sdk::held_callback\n"
-                "FAIL [0.1s] sdk::reader_end\n"
-                "PASS [0.1s] sdk::healthy\n"
-            ),
-            ["FAIL [0.1s] sdk::reader_end", "TIMEOUT [120.003s] sdk::held_callback"],
-        )
-
-    def test_browser_launch_keeps_the_missing_executable_cause(self):
-        message = "apps/docs typecheck:prepared: browserType.launch: Executable doesn't exist at /runner/cache/chromium/headless_shell"
-        self.assertEqual(self.filtered(message + "\n"), [message])
-
-    def test_timestamp_ansi_and_nix_prefix_keep_test_names(self):
-        self.assertEqual(
-            self.filtered(
-                "2026-10-02T04:00:00.123Z wasm-nextest> \x1b[31m    TIMEOUT [120.003s] sdk::held\x1b[0m\n"
-                "2026-10-02T04:00:01.123Z wasm-nextest>     FAIL [0.2s] sdk::failed\n"
-                "wasm-nextest>     PASS [0.1s] sdk::healthy\n"
-            ),
-            ["FAIL [0.2s] sdk::failed", "TIMEOUT [120.003s] sdk::held"],
-        )
-
-    def test_gradle_and_nix_diagnostics_keep_the_cause(self):
-        self.assertEqual(
-            self.filtered(
-                "Execution failed for task ' :library:check'.\n"
-                " > Dependency verification failed for configuration runtime.\n"
-                "e: file:///checkout/Test.kt:10:2 Unresolved reference 'example'.\n"
-            ),
-            [
-                "Dependency verification failed for configuration runtime.",
-                "Execution failed for task ' :library:check'.",
-                "e: file:///checkout/Test.kt:10:2 Unresolved reference 'example'.",
-            ],
-        )
-
-    def test_gradle_failure_keeps_the_test_name(self):
-        self.assertEqual(
-            self.filtered(
-                "org.xmtp.android.library.GroupTest > testReadd[API_34] FAILED\n"
-                "org.xmtp.android.library.GroupTest > testHealthy[API_34] PASSED\n"
-            ),
-            ["org.xmtp.android.library.GroupTest > testReadd[API_34] FAILED"],
-        )
-
-    def test_typescript_parenthesized_location_keeps_the_diagnostic(self):
-        message = "sdks/agent typecheck: src/migration.test.ts(1,53): error TS2307: Cannot find module '@xmtp/agent-sdk'."
-        self.assertEqual(self.filtered(message + chr(10)), [message])
-
-    def test_passing_output_is_empty(self):
-        self.assertEqual(
-            self.filtered(
-                "PASS [0.1s] sdk::plain\n"
-                "2026-10-02T04:00:00.123Z wasm-nextest> \x1b[32m    PASS sdk::colored\x1b[0m\n"
-                "test result: ok. 2 passed; 0 failed\n"
-            ),
-            [],
-        )
-
-    def test_git_push_rejection_keeps_the_permission_cause(self):
+    def test_failure_causes_and_test_names_are_kept(self):
         rejection = (
             " ! [remote rejected] ios-8.0.0-dev.f694bb7 -> ios-8.0.0-dev.f694bb7 "
             "(refusing to allow a GitHub App to create or update workflow "
             "`.github/workflows/push-backend.yml` without `workflows` permission)"
         )
-        self.assertEqual(
-            self.filtered(
-                f"2026-10-06T22:55:36.7000470Z {rejection}\n"
-                "2026-10-06T22:55:36.7000470Z * [new tag] healthy -> healthy\n"
+        # (log line, the marker it must leave, or None for a passing line)
+        cases = [
+            ("Reference cache failed: Reference inputs changed during the build",) * 2,
+            ("SDK product failed: Current source does not match",) * 2,
+            ("dev/js/sdk-package: line 13: python3.11: command not found",) * 2,
+            ("TIMEOUT [120.003s] sdk::held_callback",) * 2,
+            ("FAIL [0.1s] sdk::reader_end",) * 2,
+            ("PASS [0.1s] sdk::healthy", None),
+            (
+                "apps/docs typecheck:prepared: browserType.launch: Executable doesn't exist at /runner/cache/chromium/headless_shell",
+            )
+            * 2,
+            # Timestamps, ANSI colors, and Nix build prefixes are removed.
+            (
+                "2026-10-02T04:00:00.123Z wasm-nextest> \x1b[31m    TIMEOUT [120.003s] sdk::held\x1b[0m",
+                "TIMEOUT [120.003s] sdk::held",
             ),
-            [rejection],
-        )
+            ("wasm-nextest>     FAIL [0.2s] sdk::failed", "FAIL [0.2s] sdk::failed"),
+            (
+                "2026-10-02T04:00:00.123Z wasm-nextest> \x1b[32m    PASS sdk::colored\x1b[0m",
+                None,
+            ),
+            ("Execution failed for task ' :library:check'.",) * 2,
+            (
+                " > Dependency verification failed for configuration runtime.",
+                "Dependency verification failed for configuration runtime.",
+            ),
+            ("e: file:///checkout/Test.kt:10:2 Unresolved reference 'example'.",) * 2,
+            ("org.xmtp.android.library.GroupTest > testReadd[API_34] FAILED",) * 2,
+            ("org.xmtp.android.library.GroupTest > testHealthy[API_34] PASSED", None),
+            (
+                "sdks/agent typecheck: src/migration.test.ts(1,53): error TS2307: Cannot find module '@xmtp/agent-sdk'.",
+            )
+            * 2,
+            (f"2026-10-06T22:55:36.7000470Z {rejection}", rejection),
+            ("2026-10-06T22:55:36.7000470Z * [new tag] healthy -> healthy", None),
+            ("test result: ok. 2 passed; 0 failed", None),
+        ]
+        log = "".join(line + "\n" for line, _ in cases)
+        expected = sorted({marker for _, marker in cases if marker})
+        self.assertEqual(self.filtered(log), expected)
+        passing = "".join(line + "\n" for line, marker in cases if not marker)
+        self.assertEqual(self.filtered(passing), [])
 
     def test_failure_output_stays_sorted_unique_and_bounded(self):
         failures = [f"error: case_{number:02d}\n" for number in range(50)]

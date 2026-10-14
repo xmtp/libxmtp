@@ -57,7 +57,7 @@ jobs:
       # claude-code-action exchanges an OIDC token for its GitHub token
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.release-branch || github.ref_name }}
           fetch-depth: 0
@@ -108,7 +108,7 @@ jobs:
 
       - name: Draft release notes (empty scaffolds)
         if: steps.classify.outputs.has_empty == 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@34968b5981d5d170904281aa3df6f3c0d4a28855 # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Agent mode denies tools not allow-listed here. Enumerated
@@ -205,7 +205,7 @@ jobs:
 
       - name: Suggest release notes edits
         if: steps.classify.outputs.has_content == 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@34968b5981d5d170904281aa3df6f3c0d4a28855 # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Agent mode denies tools not allow-listed here. Enumerated

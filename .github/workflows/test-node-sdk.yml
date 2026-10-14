@@ -32,4 +32,4 @@ jobs:
       - name: Run node-sdk tests (shard ${{ matrix.shard }}/2)
         run: dev/nix-shell 'just js test-node-sdk-ci --shard ${{ matrix.shard }}/2 --exclude test/streamRecovery.test.ts'
       - name: Run CLI tests (shard ${{ matrix.shard }}/2)
-        run: dev/nix-shell 'just cli test-ci --shard ${{ matrix.shard }}/2'
+        run: dev/nix-shell 'just cli test --shard ${{ matrix.shard }}/2'

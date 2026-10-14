@@ -74,7 +74,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       node-sdk-version: ${{ steps.node-sdk-version.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       - uses: ./.github/actions/setup-release-tools
@@ -131,7 +131,7 @@ jobs:
       # The Node SDK build copies the release-profile Nix tree that CI tested.
       XMTP_SDK_BUILD: nix
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       - uses: ./.github/actions/setup-nix
@@ -152,7 +152,7 @@ jobs:
             pnpm --filter @xmtp/cli build
             pnpm --filter @xmtp/cli manifest'
       - name: Upload build output
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: cli_build
           path: |

@@ -137,7 +137,7 @@ runner sets `messengerPerformance=true` to admit it.
 Run from the repository root. The host gate needs no device or backend:
 
 ```sh
-dev/nix-shell 'just example-android performance-check'
+dev/nix-shell 'python3.11 -B -m unittest discover -s apps/example-android/performance -p "test_*.py"'
 # Linux x86_64 with KVM and local worktree services:
 dev/nix-shell 'just example-android performance'
 ```

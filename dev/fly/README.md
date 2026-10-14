@@ -49,7 +49,7 @@ Keep the command running and open `http://127.0.0.1:3000`. Log in as `admin`
 with the configured Grafana password. No public IP or HTTP service is configured
 for Grafana, Tempo, or Prometheus. The proxy uses an authenticated WireGuard tunnel.
 
-Run `bash dev/fly/setup-grafana-secrets` once before Grafana's first start.
+Run `dev/fly/setup-grafana-secrets` once before Grafana's first start.
 It generates an admin password and a read-only Fly metrics token, then imports
 them without printing their values. To read the initial password in your own
 terminal, use `fly ssh console --app xmtp-backend-dev-grafana --command
@@ -87,8 +87,8 @@ backend.
 For a manual deployment from the repository root:
 
 ```sh
-bash dev/fly/deploy-observability
-bash dev/fly/deploy-backend ghcr.io/xmtp/backend:sha-FULL_COMMIT
+dev/fly/deploy-observability
+dev/fly/deploy-backend ghcr.io/xmtp/backend:sha-FULL_COMMIT
 ```
 
 The dashboard is generated from `dev/docker/grafana/dashboards/backend.json`.

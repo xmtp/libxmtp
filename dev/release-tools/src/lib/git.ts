@@ -18,17 +18,6 @@ export function getRepoRoot(cwd?: string): string {
   }
 }
 
-export function getCommitsBetween(
-  cwd: string,
-  sinceRef: string | null,
-  untilRef: string,
-): string[] {
-  const range = sinceRef ? `${sinceRef}..${untilRef}` : untilRef;
-  const output = exec(`git log ${range} --oneline --no-decorate`, cwd);
-  if (!output) return [];
-  return output.split("\n").filter(Boolean);
-}
-
 export function tagExists(cwd: string, tag: string): boolean {
   const existing = exec(`git tag --list ${tag}`, cwd);
   return !!existing;

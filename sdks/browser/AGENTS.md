@@ -30,7 +30,7 @@ Run them with `dev/nix-shell 'just sdk test-browser'`; `just sdk lint`
 type-checks the shared helpers. See `crates/xmtp_sdk/AGENTS.md`.
 
 Migration platform tests are in `test/platform/migration`. Run only them with
-`dev/nix-shell 'just sdk test-browser-migration'`. The normal platform runner
+`dev/nix-shell 'just sdk test-browser migration'`. The normal platform runner
 builds their private legacy fixture host and runs every migration assertion.
 
 Migration archive byte reads have an inclusive 100 MB (100,000,000 byte) limit.
