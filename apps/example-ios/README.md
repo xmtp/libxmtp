@@ -15,7 +15,7 @@ The launcher uses this worktree's backend URL. Set `XMTP_IOS_SIMULATOR` to a sim
 
 ## Code structure
 
-ExampleApp contains SwiftUI routes and platform storage. ExampleCore contains values, policies and stores. ExampleSDK maps the local SDK to Core protocols. The app uses one session scope and drops asynchronous completions from replaced sessions or destinations.
+ExampleApp contains the Join a server scaffold, route placeholders, design tokens and assets. ExampleCore contains RouteOwner, SessionFence, session and destination identifiers, and the FeatureStore interface. ExampleSDK contains only a module marker. Platform storage, feature stores, SDK adapters and a session task scope are planned follow-up work.
 
 ## Connect (planned)
 
@@ -37,7 +37,7 @@ Debug and Release builds leave APNs off. A signed device build needs a developme
 
 Nix supplies SDK bindings and tools; Xcode builds as the invoking user into .build/DerivedData. `just example-ios build`, CI and the launcher use dev/build. Device builds require `sdks/ios/dev/bindings --release` and signing.
 
-## Manual checks
+## Manual checks for the planned full app
 
 - Compare each screen to the approved design in light and dark appearance.
 - Check VoiceOver, AX5 text, Increase Contrast, Reduce Transparency and Reduce Motion.
@@ -46,4 +46,4 @@ Nix supplies SDK bindings and tools; Xcode builds as the invoking user into .bui
 - Create a direct message and a group with handles and inbox IDs.
 - Confirm the launcher opens the correct worktree's backend.
 
-The host tests and simulator journeys are run through the recipes in AGENTS.md.
+The recipes in AGENTS.md run the foundation host tests and a simulator smoke test that checks the Join a server scaffold. Feature journeys are planned follow-up work.
