@@ -140,6 +140,11 @@ public enum MetadataRules {
 		}
 	}
 
+	public static func entryAction(_ text: String, field: MetadataField) throws -> FieldEntryAction {
+		let canonical = try key(text, shape: field.shape)
+		return field.shape == .byteMap && field.entries.contains { $0.key == canonical } ? .update : .insert
+	}
+
 	private static func prefix(_ count: Int) -> Int {
 		count < 64 ? 1 : count < 16384 ? 2 : 4
 	}

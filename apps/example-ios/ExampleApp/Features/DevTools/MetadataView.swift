@@ -67,10 +67,9 @@ struct MetadataView: View {
 				if own {
 					Button(metadataCopy("Save changed fields"), action: save).buttonStyle(.glassProminent)
 						.disabled(store?.state.busy != false || draft.changes.isEmpty)
-				} else {
-					Button { store?.send(.refresh) } label: { Label(metadataCopy("Reload fields"), systemImage: Symbol.retry) }
-						.buttonStyle(.glass)
 				}
+				Button { store?.send(.refresh) } label: { Label(metadataCopy("Reload fields"), systemImage: Symbol.retry) }
+					.buttonStyle(.glass).disabled(store?.state.busy != false)
 			}
 			.task(id: graph.routes.token) { store = preview ? previewMetadataStore() : makeMetadataStore(graph, id: id)
 				store?.send(.refresh)
@@ -129,8 +128,14 @@ struct GroupFieldEditor: View {
 		{ do { return try MetadataRules.key(key, shape: field.shape) } catch { return key } }()
 	}
 
+	private var entryAction: FieldEntryAction {
+		{ do { return try MetadataRules.entryAction(key, field: field) } catch { return .insert } }()
+	}
+
 	var body: some View {
 		if !field.canWrite {
+			Text(field.present ? (field.entries.isEmpty ? field.scalar : field.entries
+					.map { $0.key + ($0.value.isEmpty ? "" : ": " + $0.value) }.joined(separator: "\n")) : metadataCopy("Absent"))
 			Text(metadataCopy(field.immutable && field
 					.componentPresent ? "Immutable field: this component is already set." : "Unsupported field type or policy."))
 				.foregroundStyle(.secondary)
@@ -166,19 +171,17 @@ struct GroupFieldEditor: View {
 				TextField(metadataCopy("Value in hex"), text: $entryValue).textInputAutocapitalization(.never)
 					.autocorrectionDisabled()
 			}
-			Button(metadataCopy(field.shape == .byteMap && field.entries
-					.contains { $0.key == canonicalKey } ? "Update" : "Add"))
-			{
+			Button(metadataCopy(entryAction == .update ? "Update" : "Add")) {
 				send(.entry(
 					field.id,
-					field.shape == .byteMap && field.entries.contains { $0.key == key } ? .update : .insert,
+					entryAction,
 					canonicalKey,
 					entryValue,
 				))
 			}.buttonStyle(.glassProminent)
 				.disabled(!field
-					.allows(field.shape == .byteMap && field.entries.contains { $0.key == key } ? .update : .insert) ||
-					(field.shape != .byteMap && field.entries.contains { $0.key == key }))
+					.allows(entryAction) ||
+					(field.shape != .byteMap && field.entries.contains { $0.key == canonicalKey }))
 		}
 	}
 }

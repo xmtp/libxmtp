@@ -254,9 +254,13 @@ private extension GroupJourney {
 		let row = app.buttons["details.member." + member.inboxId()]
 		reveal(row, in: app); row.tap()
 		XCTAssertTrue(app.navigationBars["Member"].waitForExistence(timeout: 10))
-		let remove = app.buttons["Remove from group"]; reveal(remove, in: app); remove.tap()
-		let choices = app.buttons.matching(identifier: "Remove from group")
-		choices.element(boundBy: choices.count - 1).tap()
+		let remove = app.buttons["member.remove"]
+		reveal(remove, in: app)
+		waitUntilHittable(remove)
+		remove.tap()
+		let confirm = app.buttons["member.confirm-remove"]
+		waitUntilHittable(confirm)
+		confirm.tap()
 		try await poll {
 			guard let joined = try await group(observer, named: name)
 			else { return false }; return try await !joined.members().contains { $0.inboxId == member.inboxId() }
@@ -269,6 +273,20 @@ private extension GroupJourney {
 			.completed,
 		)
 		XCTAssertTrue(app.navigationBars["Details"].exists)
+	}
+
+	func waitUntilHittable(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+		let ready = XCTNSPredicateExpectation(
+			predicate: NSPredicate(format: "exists == true AND hittable == true"),
+			object: element,
+		)
+		XCTAssertEqual(
+			XCTWaiter.wait(for: [ready], timeout: 10),
+			.completed,
+			"Action \(element.identifier) must be hittable",
+			file: file,
+			line: line,
+		)
 	}
 
 	func fullyVisible(_ element: XCUIElement, in app: XCUIApplication) -> Bool {

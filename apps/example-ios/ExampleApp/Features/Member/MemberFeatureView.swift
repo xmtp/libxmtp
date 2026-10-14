@@ -43,7 +43,7 @@ struct MemberFeatureView: View {
 					Button(role: .destructive) { remove = true } label: { Label(
 						memberCopy("Remove from group"),
 						systemImage: "person.fill.xmark",
-					).foregroundStyle(.red) }.buttonStyle(.plain)
+					).foregroundStyle(.red) }.buttonStyle(.plain).accessibilityIdentifier("member.remove")
 					} footer: { Text(memberCopy("Admins and super admins can change roles. Super admins cannot be changed here.")) }
 				}
 				if store.state.pendingRoles[inboxID] != nil || store.state.pendingRemoval.contains(inboxID) {
@@ -76,7 +76,9 @@ struct MemberFeatureView: View {
 			.confirmationDialog(memberCopy("Remove from group?"), isPresented: $remove) { Button(
 				memberCopy("Remove from group"),
 				role: .destructive,
-			) { removalRequested = true; store?.send(.mutate(.remove(inboxID))) } }
+			) { removalRequested = true; store?.send(.mutate(.remove(inboxID))) }
+				.accessibilityIdentifier("member.confirm-remove")
+			}
 	}
 }
 

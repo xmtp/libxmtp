@@ -236,7 +236,7 @@ import UserNotifications
 
 @MainActor final class LocalPushPublisher: PushPublisher {
 	private let center = UNUserNotificationCenter.current()
-	private var revision: UInt64 = 0
+	private let submission = PushSubmissionFence()
 	func post(tag: String, route: PushRoute, completion: @escaping @MainActor (Bool) -> Void) {
 		let content = UNMutableNotificationContent(); content.title = String(
 			localized: "XMTP Messenger",
@@ -248,32 +248,35 @@ import UserNotifications
 			info["push-conversation"] = id
 		}
 		content.userInfo = info
-		let expectedRevision = revision
+		let expectedRevision = submission.revision
 		Task { @MainActor in
 			let pending = await center.pendingNotificationRequests()
 			let delivered = await center.deliveredNotifications()
-			guard revision == expectedRevision else { completion(false); return }
+			guard submission.revision == expectedRevision else { completion(false); return }
 			if pending.contains(where: { $0.identifier == tag }) ||
 				delivered.contains(where: { $0.request.identifier == tag })
 			{
 				completion(true)
 				return
 			}
-			do {
+			let posted = await submission.submit(expectedRevision: expectedRevision, add: {
 				try await center.add(UNNotificationRequest(identifier: tag, content: content, trigger: nil))
-				completion(true)
-			} catch { completion(false) }
+			}, remove: {
+				center.removePendingNotificationRequests(withIdentifiers: [tag])
+				center.removeDeliveredNotifications(withIdentifiers: [tag])
+			})
+			completion(posted)
 		}
 	}
 
 	func remove(tag: String) {
-		revision &+= 1
+		submission.invalidate()
 		center.removePendingNotificationRequests(withIdentifiers: [tag]); center
 			.removeDeliveredNotifications(withIdentifiers: [tag])
 	}
 
 	func removeAll() {
-		revision &+= 1
+		submission.invalidate()
 		center.removeAllPendingNotificationRequests(); center.removeAllDeliveredNotifications()
 	}
 }
