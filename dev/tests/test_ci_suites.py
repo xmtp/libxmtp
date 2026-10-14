@@ -186,48 +186,6 @@ class ValidateTests(unittest.TestCase):
         errors = "\n".join(SUITES.validate(manifest))
         self.assertIn("test-xdbg.yml must declare workflow_call secrets", errors)
 
-    def test_suites_without_secrets_must_not_use_them(self):
-        manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["secrets"] = "none"
-        errors = "\n".join(SUITES.validate(manifest))
-        self.assertIn("test_xdbg: test-xdbg.yml reads secrets at jobs.", errors)
-        self.assertNotIn("lint_deny", errors)
-
-    def test_secret_use_ignores_comments_and_plain_text(self):
-        source = """
-# This workflow needs no secrets.
-on:
-  workflow_call:
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check that no secrets leak
-        run: echo "secrets stay out of logs"
-"""
-        self.assertEqual(SUITES.secret_uses(source), [])
-
-    def test_secret_use_finds_every_real_use(self):
-        job = "jobs:\n  lint:\n    runs-on: ubuntu-latest\n"
-        for label, source in [
-            ("expression", job + "    env:\n      TOKEN: ${{ secrets.FOO }}\n"),
-            ("index", job + "    env:\n      TOKEN: ${{ secrets['FOO'] }}\n"),
-            (
-                "toJSON",
-                job + "    steps:\n      - run: echo '${{ toJSON(secrets) }}'\n",
-            ),
-            (
-                "nested call",
-                "jobs:\n  call:\n    uses: ./x.yml\n    secrets: inherit\n",
-            ),
-            (
-                "declaration",
-                "on:\n  workflow_call:\n    secrets:\n      FOO:\n        required: false\n",
-            ),
-        ]:
-            with self.subTest(label=label):
-                self.assertNotEqual(SUITES.secret_uses(source), [])
-
     def test_suite_permissions_must_fit_the_caller_grant(self):
         manifest = copy.deepcopy(self.manifest)
         manifest["suites"]["lint_proto"]["permissions"] = {

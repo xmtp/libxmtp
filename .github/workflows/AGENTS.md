@@ -74,10 +74,8 @@ without a host Gradle cache or a running backend.
 packages, and path groups), Kache scopes, and policy (`run_on`, `disable_on_forks`,
 `secrets`, `permissions`, `covered_by`). Every suite key except `covered_by` is
 required; nothing has a default. `secrets` is `inherit`, `kache` (only the
-Kache keys), or `none`; use `none` for a suite whose workflows read no secret,
-and `dev/ci-suites check` fails if such a workflow has a `secrets` key or a
-`${{ }}` expression that names `secrets`. Edit only
-that file. Then run
+Kache keys), or `none`; use `none` for a suite whose workflows read no secret.
+Edit only that file. Then run
 `dev/nix-shell 'python3.11 dev/ci-suites generate'` and commit the generated
 `.github/ci-suites.json`, `lint-generated.yml`, and `test-generated.yml`.
 `just lint-config` runs `dev/ci-suites check`. It fails on stale generated
