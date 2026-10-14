@@ -10,6 +10,9 @@ struct ExportDocument: Transferable {
 	static var transferRepresentation: some TransferRepresentation {
 		FileRepresentation(exportedContentType: .data) { document in
 			SentTransferredFile(document.url)
+		}.suggestedFileName { document in
+			let name = document.url.lastPathComponent
+			return name.isEmpty ? "File" : name
 		}
 	}
 }

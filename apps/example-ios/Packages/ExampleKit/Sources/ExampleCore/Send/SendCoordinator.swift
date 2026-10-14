@@ -71,6 +71,12 @@ import Foundation
 		}
 	}
 
+	public func acceptedMessageID(for draftID: UUID, conversationID: String) throws -> String? {
+		try drafts.all().first {
+			$0.id == draftID && $0.conversationID == conversationID && $0.phase == .accepted
+		}?.messageID
+	}
+
 	public func recoverAccepted() throws {
 		for (id, commit) in known {
 			try commit.finish()

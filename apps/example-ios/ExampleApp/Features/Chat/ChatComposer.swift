@@ -1,5 +1,4 @@
 import ExampleCore
-import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -37,10 +36,9 @@ extension ChatContentView {
 				}
 				HStack(alignment: .bottom, spacing: 10) {
 					if runtime.attachments.state.limit != nil, allowed {
-						Menu { PhotosPicker(
-							selection: $photo,
-							matching: .any(of: [.images, .videos]),
-						) { Label("Photos and videos", systemImage: "photo") }; Button(
+						Menu { Button(String(localized: "Photos and videos", table: "Chat"), systemImage: "photo") {
+							photoPicker = true
+						}; Button(
 							String(localized: "Files", table: "Chat"),
 							systemImage: "folder",
 						) { filePicker = true

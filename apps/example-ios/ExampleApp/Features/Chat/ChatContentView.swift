@@ -13,6 +13,7 @@ struct ChatContentView: View {
 	@State var armedReplyID: String?
 	@Namespace var composerNamespace
 	@State var filePicker = false
+	@State var photoPicker = false
 	@State var photo: PhotosPickerItem?
 	@State var error: String?
 	var timeline: ChatTimelineState {
@@ -176,6 +177,7 @@ struct ChatContentView: View {
 			tableName: "Chat",
 		)
 		}
+		.photosPicker(isPresented: $photoPicker, selection: $photo, matching: .any(of: [.images, .videos]))
 		.fileImporter(isPresented: $filePicker, allowedContentTypes: [.item]) { result in
 			switch result {
 			case let .success(url): stage(url)

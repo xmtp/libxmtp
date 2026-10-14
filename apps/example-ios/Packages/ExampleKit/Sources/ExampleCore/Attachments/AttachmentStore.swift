@@ -185,6 +185,7 @@ public enum AttachmentAction: Sendable {
 			try drafts.save(draft)
 			saved.append(draft)
 		}
+		try reconcileAccepted(in: &saved)
 		for index in saved.indices where saved[index].phase == .uploading {
 			saved[index].phase = .waiting
 			try drafts.save(saved[index])
@@ -316,11 +317,6 @@ public enum AttachmentAction: Sendable {
 		}
 	}
 
-	private func reloadDrafts() throws {
-		let values = try drafts.all()
-		apply { $0.drafts = values }
-	}
-
 	private func handleFailure(_ error: any Error, action: AttachmentAction) {
 		let failure = error as? AttachmentError
 		if case let .send(id) = action {
@@ -343,5 +339,24 @@ public enum AttachmentAction: Sendable {
 			}
 			try reloadDrafts()
 		} catch {}
+	}
+}
+
+private extension AttachmentStore {
+	func reloadDrafts() throws {
+		let values = try drafts.all()
+		apply { $0.drafts = values }
+	}
+
+	func reconcileAccepted(in saved: inout [FileDraft]) throws {
+		for index in saved.indices {
+			if saved[index].acceptedID == nil, let conversation = saved[index].conversationID,
+			   let messageID = try coordinator.acceptedMessageID(for: saved[index].id, conversationID: conversation)
+			{
+				saved[index].acceptedID = messageID
+				saved[index].phase = .complete
+				try drafts.save(saved[index])
+			}
+		}
 	}
 }
