@@ -119,7 +119,28 @@ jobs:
 
       - uses: ./.github/actions/setup-js
 
+      # The job shell (js) has no Rust toolchain, so the cargo steps name the
+      # rust shell. The package build then stages these release trees as they
+      # are: dev/js/sdk-package skips generation when XMTP_SDK_GENERATED_DIR
+      # is set, as the Node assemble job does.
+      - name: Build and render the release browser artifacts
+        run: |
+          NIX_DEVSHELL=rust dev/nix-shell 'just sdk build browser --profile release'
+          NIX_DEVSHELL=rust dev/nix-shell 'just sdk render browser --profile release'
+
+      - name: Require release-profile WASM
+        run: |
+          for tree in typescript-wasm typescript-pure; do
+            profile="$(jq -r '.artifact.profile' "target/sdk-generated/$tree/sdk-contract.json")"
+            if [ "$profile" != release ]; then
+              echo "::error::$tree was built with the '$profile' profile; the published browser SDK must ship release WASM"
+              exit 1
+            fi
+          done
+
       - name: Install + build browser-sdk
+        env:
+          XMTP_SDK_GENERATED_DIR: target/sdk-generated
         run: |
           dev/nix-shell 'pnpm --filter @xmtp/browser-sdk build'
 

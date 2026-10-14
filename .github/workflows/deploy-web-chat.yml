@@ -61,10 +61,30 @@ jobs:
         if: steps.current.outputs.deploy == 'true'
       - uses: ./.github/actions/setup-js
         if: steps.current.outputs.deploy == 'true'
+      # Ship release WASM. The job shell (js) has no Rust toolchain, so the
+      # cargo steps name the rust shell; with XMTP_SDK_GENERATED_DIR set, the
+      # SDK package build stages these trees instead of a debug generate.
+      - name: Build and render the release browser artifacts
+        if: steps.current.outputs.deploy == 'true'
+        run: |
+          NIX_DEVSHELL=rust dev/nix-shell 'just sdk build browser --profile release'
+          NIX_DEVSHELL=rust dev/nix-shell 'just sdk render browser --profile release'
+      # Runs before the Vercel step, so a debug build never replaces the live one.
+      - name: Require release-profile WASM
+        if: steps.current.outputs.deploy == 'true'
+        run: |
+          for tree in typescript-wasm typescript-pure; do
+            profile="$(jq -r '.artifact.profile' "target/sdk-generated/$tree/sdk-contract.json")"
+            if [ "$profile" != release ]; then
+              echo "::error::$tree was built with the '$profile' profile; xmtp.chat must ship release WASM"
+              exit 1
+            fi
+          done
       # Stage the complete generated browser package before the app build.
       - name: Build the linked SDK
         if: steps.current.outputs.deploy == 'true'
         env:
+          XMTP_SDK_GENERATED_DIR: target/sdk-generated
           XMTP_BACKEND_URL: ""
           VITE_PROJECT_ID: ${{ secrets.WALLETCONNECT_PROJECT_ID }}
         run: just web-chat build
