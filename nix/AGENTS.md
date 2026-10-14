@@ -68,7 +68,10 @@ without `backend` it is the storage subset (PostgreSQL, replica, S3). Its
 `checkCommand` runs a
 check phase through `services-test`; the derivation merges its `sandbox`
 attributes (Darwin loopback networking, and `sendfile` for VersityGW, with no
-other host reachable). `checks.<system>.services` proves each service inside a
+other host reachable). A Darwin build shares the host loopback, so a sandboxed
+check can reach any service that listens there, such as a developer's Docker
+stack or a localhost system proxy; remote hosts stay blocked. A Linux build has
+its own loopback. `checks.<system>.services` proves each service inside a
 build.
 
 The CI client tests match trunk's CI backend, whose replica URL was the
