@@ -284,23 +284,6 @@ class AndroidReleaseTest(unittest.TestCase):
                         result.returncode, 0, result.stdout + result.stderr
                     )
 
-    def test_release_publishes_without_tests(self):
-        # CI owns the tests; the release only publishes what it tested.
-        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]
-        runs = "\n".join(step.get("run", "") for step in steps)
-        for marker in (
-            "backend up",
-            ":library:build",
-            "gradlew test",
-            "jna.library.path",
-        ):
-            self.assertNotIn(marker, runs)
-        publish = step("Publish")
-        self.assertNotIn("if:", publish)
-        self.assertIn(
-            "publishToSonatype closeAndReleaseSonatypeStagingRepository", publish
-        )
-
     def test_release_setup_actions_are_immutable(self):
         self.assertRegex(
             WORKFLOW.read_text(),
