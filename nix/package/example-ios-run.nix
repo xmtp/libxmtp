@@ -3,7 +3,6 @@
   bash,
   jq,
   git,
-  stdenv,
   xmtp,
 }:
 writeShellApplication {
@@ -21,7 +20,8 @@ writeShellApplication {
       echo 'Run this from a libxmtp checkout.' >&2
       exit 1
     fi
-    ${xmtp.iosEnv.envSetup stdenv.hostPlatform.rust.rustcTarget}
+    # Runtime setup accepts the selected Xcode; binding derivations check their key.
+    ${xmtp.iosEnv.envSetupAll}
     unset SDKROOT
     exec bash "$root/apps/example-ios/dev/start" "$@"
   '';

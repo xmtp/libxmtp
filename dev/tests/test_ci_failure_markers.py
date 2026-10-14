@@ -60,6 +60,10 @@ class FailureMarkers(unittest.TestCase):
         )
         # (log line, the marker it must leave, or None for a passing line)
         cases = [
+            (
+                "2026-10-14T09:23:10.123Z backend-ci> Backend CI port 5050 is unavailable: [Errno 48] Address already in use",
+                "Backend CI port 5050 is unavailable: [Errno 48] Address already in use",
+            ),
             ("Reference cache failed: Reference inputs changed during the build",) * 2,
             ("SDK product failed: Current source does not match",) * 2,
             ("dev/js/sdk-package: line 13: python3.11: command not found",) * 2,
