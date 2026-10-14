@@ -7,7 +7,7 @@ struct SendReviewSection: View {
 	@State private var error: String?
 	@State private var retrying: Set<UUID> = []
 	var body: some View {
-		Section("Send needs review") {
+		Section(String(localized: "Send needs review", table: "SendReview")) {
 			if drafts.isEmpty {
 				Text("No sends need review", tableName: "SendReview").foregroundStyle(.secondary)
 			}
