@@ -57,12 +57,6 @@ inputs:
     description: "Disable remote uploads; false still requires cache-mode trusted"
     required: false
     default: "true"
-  gradle-disk:
-    description: >-
-      Mount the shared repo-wide sticky disk at ~/.gradle (Linux); enable in CI
-      jobs that run Gradle. Release jobs must not enable it: CI jobs commit it.
-    required: false
-    default: "false"
 runs:
   using: "composite"
   steps:
@@ -122,39 +116,6 @@ runs:
         KACHE_CI_READONLY: ${{ inputs.kache-readonly }}
       run: bash dev/kache-ci-policy
       shell: bash
-    # Gradle wrapper dist + dependency/transform caches for Android jobs.
-    # One disk repo-wide (not per workflow): contents are append-only
-    # downloads, so a lost commit race just re-downloads a few jars.
-    # Must be registered before the busy-process cleanup below so the cleanup
-    # post (which kills gradle/kotlin daemons) runs before this unmounts.
-    - name: Mount ~/.gradle sticky disk
-      if: ${{ inputs.gradle-disk == 'true' && runner.os == 'Linux' }}
-      uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1
-      with:
-        key: ${{ github.repository }}-gradle-${{ runner.os }}-${{ runner.arch }}
-        path: ~/.gradle
-        commit: ${{ !startsWith(github.event_name, 'pull_request') && 'on-change' || 'false' }}
-    # Posts run in reverse order: registered after the mount = runs right
-    # before unmount+commit. Gradle and Kotlin daemons hold ~/.gradle busy.
-    # See convos-releases#31.
-    - name: Write ~/.gradle busy-process cleanup script
-      if: ${{ runner.os == 'Linux' && inputs.gradle-disk == 'true' }}
-      run: |
-        cat > "$RUNNER_TEMP/gradle-unmount-cleanup.sh" << 'EOF'
-        #!/usr/bin/env bash
-        for pid in $(sudo fuser -M -m "$HOME/.gradle" 2>/dev/null); do
-          sudo kill -9 "$pid" 2>/dev/null
-        done
-        sleep 2
-        exit 0
-        EOF
-        chmod +x "$RUNNER_TEMP/gradle-unmount-cleanup.sh"
-      shell: bash
-    - name: Register ~/.gradle busy-process cleanup
-      if: ${{ runner.os == 'Linux' && inputs.gradle-disk == 'true' }}
-      uses: webiny/action-post-run@2a0e96f0e55f0e698cf2a3d85670e3577ae30a30 # 3.1.0
-      with:
-        run: bash ${{ runner.temp }}/gradle-unmount-cleanup.sh
     # Build independent derivations in parallel, one per CPU (`max-jobs`), and
     # give each build all cores (`cores = 0`). Nix defaults to max-jobs = 1.
     # Lower max-jobs for one job only after a kernel OOM record (above) or a

@@ -24,6 +24,12 @@ subprojects {
     apply plugin: 'com.diffplug.spotless'
     apply from: rootProject.file('../../sdks/android/gradle/android-ndk.gradle')
 
+    // Unit tests load the host library through jna.library.path, which is not
+    // a task input, so CI's build cache must not replay a test result.
+    tasks.withType(Test).configureEach {
+        outputs.cacheIf("tests use native code outside the task inputs") { false }
+    }
+
     dependencyLocking {
         lockAllConfigurations()
         lockMode = org.gradle.api.artifacts.dsl.LockMode.STRICT

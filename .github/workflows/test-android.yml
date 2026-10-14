@@ -14,8 +14,12 @@ jobs:
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-        gradle-disk: 'true'
         github-token: ${{ github.token }}
+    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      with:
+        # CI-only Gradle cache: protected trunk pushes write it, and every
+        # other run only reads it. Release and deploy jobs never restore it.
+        cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
     - uses: taiki-e/install-action@just
     - name: Start backend
       env:
@@ -65,8 +69,15 @@ jobs:
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-        gradle-disk: 'true'
         github-token: ${{ github.token }}
+    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      with:
+        # CI-only Gradle cache: protected trunk pushes write it, and every
+        # other run only reads it. Release and deploy jobs never restore it.
+        cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
+        # check-consumers compiles fail by design, so clean up the trunk
+        # entry even when a Gradle build in this job failed.
+        cache-cleanup: always
     - uses: taiki-e/install-action@just
     - name: Start backend
       env:
@@ -94,8 +105,12 @@ jobs:
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-        gradle-disk: 'true'
         github-token: ${{ github.token }}
+    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      with:
+        # CI-only Gradle cache: protected trunk pushes write it, and every
+        # other run only reads it. Release and deploy jobs never restore it.
+        cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
     - uses: taiki-e/install-action@just
     - name: Start backend
       env:
@@ -141,8 +156,12 @@ jobs:
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-        gradle-disk: 'true'
         github-token: ${{ github.token }}
+    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      with:
+        # CI-only Gradle cache: protected trunk pushes write it, and every
+        # other run only reads it. Release and deploy jobs never restore it.
+        cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
     - uses: taiki-e/install-action@just
     - name: Start backend
       run: dev/nix-shell 'just backend up'
@@ -175,7 +194,6 @@ jobs:
         cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
         cachix-auth-token: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && secrets.CACHIX_AUTH_TOKEN || '' }}
         cachix-pr-auth-token: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
-        gradle-disk: "true"
         kache: "true"
         github-token: ${{ github.token }}
         kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}

@@ -91,8 +91,10 @@ curl -fsS -X POST -H "Authorization: Bearer $CACHIX_PERSONAL_TOKEN" \
 
 What a clear keeps (name, key, tokens, settings) is not verified; ask Cachix
 support first (Task 1 step 10 of the Nix build plan asks the same for `xmtp`).
-The `gradle-disk` input mounts the repo-wide `~/.gradle` sticky disk for CI
-Gradle jobs. CI jobs commit it, so release jobs do not mount it.
+The Gradle cache is not part of `setup-nix`. Android CI jobs in mode `ci` add
+`gradle/actions/setup-gradle` after it: protected trunk pushes write that
+CI-only cache, and every other run only reads it. Release, deploy, benchmark,
+and trusted jobs do not restore it (`CacheModeWiringTests`).
 
 ## CI compiler cache
 

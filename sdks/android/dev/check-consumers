@@ -15,7 +15,7 @@ compile_negative() {
   rm -f "$work/src/"*.kt
   cp "library/src/test/negative/$1" "$work/src/ConsumerNegative.kt"
   if ./gradlew -p . :library:compileDebugUnitTestKotlin -PxmtpNegativeConsumer="$work/src" \
-    --dependency-verification=strict --no-daemon >"$log" 2>&1; then
+    ${CI:+--build-cache} --dependency-verification=strict --no-daemon >"$log" 2>&1; then
     echo "Kotlin negative consumer $1 compiled" >&2
     exit 1
   fi

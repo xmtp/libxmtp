@@ -221,6 +221,20 @@ class SelectionTest(unittest.TestCase):
             "just android test-min-sdk",
         ):
             self.assertIn(command, text)
+        # check-consumers compiles fail by design, so its job cleans up the
+        # trunk Gradle cache entry even after a failed Gradle build.
+        consumers = [
+            job
+            for job in workflow["jobs"].values()
+            if "just android check-consumers" in json.dumps(job.get("steps"))
+        ]
+        self.assertEqual(len(consumers), 1)
+        gradle = [
+            step.get("with") or {}
+            for step in consumers[0]["steps"]
+            if step.get("uses", "").startswith("gradle/actions/setup-gradle@")
+        ]
+        self.assertEqual([inputs.get("cache-cleanup") for inputs in gradle], ["always"])
 
 
 class BenchmarkPolicyTest(unittest.TestCase):
@@ -377,6 +391,9 @@ class CommandPathTest(unittest.TestCase):
                 STAGE_LOG=str(root / "stages.txt"),
                 SCREENSHOT_LOG=str(root / "screenshots.txt"),
                 ANDROID_NDK_HOME=str(root / "ndk"),
+                # CI Gradle calls use the restored build cache, never the
+                # configuration cache.
+                CI="true",
             )
             for recipe in (
                 "check",
@@ -422,6 +439,9 @@ class CommandPathTest(unittest.TestCase):
                 for line in (root / "commands.jsonl").read_text().splitlines()
             ]
             self.assertEqual(len(commands), 4)
+            for command in commands:
+                self.assertIn("--build-cache", command["args"].split())
+                self.assertNotIn("configuration-cache", command["args"])
             self.assertTrue(
                 all(c["cwd"] == str(root / "apps/example-android") for c in commands)
             )

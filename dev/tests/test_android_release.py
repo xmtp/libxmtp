@@ -359,9 +359,11 @@ class AndroidReleaseTest(unittest.TestCase):
                 with self.subTest(action=name, uses=value):
                     self.assertRegex(value, r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 
-    def test_release_reads_no_sticky_disk(self):
-        # CI jobs commit the ~/.gradle disk; a release must not read a store
-        # that CI jobs write. Compose builds no image, so no buildx disk.
+    def test_release_reads_no_ci_gradle_cache(self):
+        # CI jobs write the Gradle cache (setup-gradle); a release must not
+        # read a store that CI jobs write, and its Gradle properties enable no
+        # build or configuration cache. Compose builds no image, so no buildx
+        # disk.
         setup = yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]
         inputs = [
             item.get("with", {})
@@ -369,8 +371,15 @@ class AndroidReleaseTest(unittest.TestCase):
             if item.get("uses") == "./.github/actions/setup-nix"
         ]
         self.assertEqual(len(inputs), 1)
-        self.assertEqual(inputs[0].get("gradle-disk", "false"), "false")
+        self.assertNotIn("gradle-disk", inputs[0])
         self.assertNotIn("docker-builder", inputs[0])
+        for path in (WORKFLOW, ROOT / "sdks/android/gradle.properties"):
+            with self.subTest(path=path.name):
+                self.assertNotRegex(
+                    path.read_text(),
+                    r"setup-gradle|actions/cache|configuration-cache|build-cache"
+                    r"|org\.gradle\.(caching|configuration-cache)",
+                )
 
 
 if __name__ == "__main__":

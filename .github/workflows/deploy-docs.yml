@@ -77,7 +77,6 @@ jobs:
     - uses: ./.github/actions/setup-nix
       with:
         cache-mode: ${{ inputs.deploy && 'read' || 'ci' }}
-        gradle-disk: 'true'
         github-token: ${{ github.token }}
     - uses: taiki-e/install-action@just
     - run: just android docs-generated

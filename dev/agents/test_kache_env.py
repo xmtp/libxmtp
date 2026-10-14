@@ -490,6 +490,7 @@ class KacheWorkflowWiringTests(unittest.TestCase):
 
 ACTION = ROOT / ".github/actions/setup-nix/action.yml"
 SETUP_NIX = "./.github/actions/setup-nix"
+SETUP_GRADLE = "gradle/actions/setup-gradle@"
 S3_INPUTS = (
     "kache-s3-bucket",
     "kache-s3-region",
@@ -546,17 +547,15 @@ def action_step(name):
 
 
 class SetupNixTests(unittest.TestCase):
-    def test_action_has_no_nix_or_buildx_sticky_disk(self):
+    def test_action_has_no_sticky_disk(self):
+        # Owner decision 8: no Blacksmith sticky disk. setup-gradle replaced
+        # the ~/.gradle disk and its busy-process unmount hook.
         action = yaml.safe_load(ACTION.read_text())
-        for name in ("disk-key", "nix-disk", "docker-builder"):
+        for name in ("disk-key", "nix-disk", "docker-builder", "gradle-disk"):
             self.assertNotIn(name, action["inputs"])
-        disks = [
-            step["with"]["path"]
-            for step in action["runs"]["steps"]
-            if step.get("uses", "").startswith("useblacksmith/stickydisk@")
-        ]
-        self.assertEqual(disks, ["~/.gradle"])
-        self.assertNotIn("setup-docker-builder", ACTION.read_text())
+        text = ACTION.read_text()
+        for marker in ("useblacksmith/", "setup-docker-builder", "fuser", ".gradle"):
+            self.assertNotIn(marker, text)
 
     def test_nix_builds_one_derivation_per_cpu_with_all_cores(self):
         for name, field in (
@@ -583,7 +582,7 @@ class SetupNixTests(unittest.TestCase):
         self.assertGreater(len(calls), 40)
         for workflow, job_id, job, inputs in calls:
             with self.subTest(caller=f"{workflow} / {job_id}"):
-                for name in ("disk-key", "nix-disk", "docker-builder"):
+                for name in ("disk-key", "nix-disk", "docker-builder", "gradle-disk"):
                     self.assertNotIn(name, inputs)
                 environment = repr(job.get("environment") or "")
                 if inputs.get("kache") == "true":
@@ -958,6 +957,15 @@ def cache_calls():
                 step.get("uses") == "./.github/actions/setup-release-tools"
                 for step in steps
             )
+            gradle = [
+                step.get("with") or {}
+                for step in steps
+                if step.get("uses", "").startswith(SETUP_GRADLE)
+            ]
+            # The Gradle cache rule is checked through the job's cache mode.
+            assert nix or not gradle, (
+                f"{name} / {job_id}: setup-gradle without setup-nix"
+            )
             for inputs in nix:
                 yield {
                     "where": f"{entry} ({label}): {name} / {job_id}",
@@ -972,6 +980,10 @@ def cache_calls():
                         context.value(i.get("cache-mode")) or "read" for i in js
                     ]
                     + (["read"] if release_tools else []),
+                    "gradle": [
+                        {key: context.value(raw) for key, raw in inputs.items()}
+                        for inputs in gradle
+                    ],
                 }
 
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
@@ -1038,6 +1050,24 @@ class CacheModeWiringTests(unittest.TestCase):
             if call["entry"] not in CI_ENTRIES:
                 with self.subTest(call["where"]):
                     self.assertNotEqual(call["mode"], "ci")
+
+    def test_gradle_cache_is_ci_only_and_written_only_on_trunk_pushes(self):
+        # The Gradle cache is a CI-only store: only jobs in mode ci restore it,
+        # so release, deploy, benchmark, and trusted jobs never read it, and
+        # only protected trunk pushes save it; every other run reads only.
+        gradle = [call for call in self.calls if call["gradle"]]
+        self.assertTrue(gradle)
+        for call in gradle:
+            with self.subTest(call["where"]):
+                self.assertEqual(call["mode"], "ci")
+                self.assertEqual(len(call["gradle"]), 1)
+                inputs = call["gradle"][0]
+                for name in ("cache-disabled", "cache-write-only"):
+                    self.assertNotIn(name, inputs)
+                self.assertEqual(
+                    truthy(inputs.get("cache-read-only")),
+                    not protected_trunk_push(call["github"]),
+                )
 
     def test_setup_js_uses_the_setup_nix_mode_of_its_job(self):
         for call in self.calls:

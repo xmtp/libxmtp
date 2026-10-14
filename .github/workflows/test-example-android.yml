@@ -29,8 +29,12 @@ jobs:
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-        gradle-disk: 'true'
         github-token: ${{ github.token }}
+    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      with:
+        # CI-only Gradle cache: protected trunk pushes write it, and every
+        # other run only reads it. Release and deploy jobs never restore it.
+        cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
     - uses: taiki-e/install-action@just
     - name: Build Android bindings (required for lint)
       run: dev/nix-shell 'just example-android build'
@@ -46,8 +50,12 @@ jobs:
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-        gradle-disk: 'true'
         github-token: ${{ github.token }}
+    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      with:
+        # CI-only Gradle cache: protected trunk pushes write it, and every
+        # other run only reads it. Release and deploy jobs never restore it.
+        cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
     - uses: taiki-e/install-action@just
     - name: Start backend
       env:
@@ -71,8 +79,12 @@ jobs:
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-        gradle-disk: 'true'
         github-token: ${{ github.token }}
+    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      with:
+        # CI-only Gradle cache: protected trunk pushes write it, and every
+        # other run only reads it. Release and deploy jobs never restore it.
+        cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
     - uses: taiki-e/install-action@just
     - name: Start backend
       env:

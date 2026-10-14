@@ -32,6 +32,17 @@ protected-push expression. See "Cache modes" in
 `.github/actions/setup-nix/README.md`. `dev/agents/test_kache_env.py` checks
 the wiring for every entry workflow and event.
 
+Android CI jobs in mode `ci` restore Gradle User Home with
+`gradle/actions/setup-gradle` (pinned by SHA), placed after `setup-nix`. Its
+`cache-read-only` is the negated protected-push expression: protected trunk
+pushes save the CI-only Gradle cache, and every other run only reads it.
+Release, deploy, benchmark, and trusted jobs (including `android-stage`) do not
+use it. Under `CI`, the Android recipes pass `--build-cache` and never
+`--configuration-cache`; `Test` tasks are not cacheable, because they load the
+host library and call the backend outside their task inputs. The job that runs
+`check-consumers` sets `cache-cleanup: always`, because those compiles fail by
+design.
+
 Product groups (`products:` in `.github/ci-suites.yml`) each get one generated
 `products_<group>` job in `test-generated.yml`. It builds
 `.#ciSets.x86_64-linux.<group>` (listed in `nix/ci-sets.nix`) in mode `ci`, so
