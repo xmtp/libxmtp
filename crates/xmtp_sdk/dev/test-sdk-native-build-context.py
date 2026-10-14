@@ -95,6 +95,60 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
         added.write_text("// second")
         self.assertNotIn(identity(), (clean, edited, untracked))
 
+    def test_source_key_follows_sdk_inputs_not_commits(self):
+        def git(*args):
+            return subprocess.check_output(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                cwd=self.root,
+                text=True,
+            ).strip()
+
+        def commit(message):
+            git("add", "--all")
+            git("commit", "--quiet", "--no-verify", "--no-gpg-sign", "-m", message)
+
+        (self.root / "Cargo.toml").write_text(
+            '[workspace.metadata.xmtp-sdk-fork]\nrev = "' + "f" * 40 + '"\n'
+        )
+        recipe = self.root / artifacts.NODE_PLATFORM_RECIPE
+        recipe.parent.mkdir(parents=True)
+        recipe.write_text("windows: build")
+        source = self.root / "crates/xmtp_sdk/src/lib.rs"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("pub fn one() {}")
+        git("init", "--quiet")
+        commit("first")
+        key = artifacts.source_key("release", "x86_64-pc-windows-msvc")
+        self.assertEqual(key["forkRevision"], "f" * 40)
+        self.assertNotIn(git("rev-parse", "HEAD"), repr(key))
+        # A commit that changes no SDK input keeps the key.
+        (self.root / "README.md").write_text("docs")
+        commit("docs")
+        self.assertEqual(artifacts.source_key("release", "x86_64-pc-windows-msvc"), key)
+        self.assertNotEqual(
+            artifacts.source_key("release", "aarch64-pc-windows-msvc")["key"],
+            key["key"],
+        )
+        self.assertEqual(artifacts.source_key()["source"], key["source"])
+        self.assertNotIn("key", artifacts.source_key())
+        # The build recipe and the compiler context are part of the key only.
+        recipe.write_text("windows: changed build")
+        commit("recipe")
+        changed = artifacts.source_key("release", "x86_64-pc-windows-msvc")
+        self.assertEqual(changed["source"], key["source"])
+        self.assertNotEqual(changed["key"], key["key"])
+        with patch.object(artifacts, "build_context", return_value="other compiler"):
+            other = artifacts.source_key("release", "x86_64-pc-windows-msvc")
+        self.assertNotEqual(other["key"], changed["key"])
+        # An uncommitted input has no key; a committed one changes it.
+        source.write_text("pub fn two() {}")
+        with self.assertRaisesRegex(ValueError, "committed SDK inputs"):
+            artifacts.source_key()
+        commit("edit")
+        edited = artifacts.source_key("release", "x86_64-pc-windows-msvc")
+        self.assertNotEqual(edited["source"], key["source"])
+        self.assertNotEqual(edited["key"], key["key"])
+
     def test_unqualified_compiler_inputs_change_native_cache_admission(self):
         names = (
             "CC",
@@ -252,45 +306,6 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
                 calls = len(self.calls)
                 artifacts.build(self.args)
                 self.assertEqual(len(self.calls), calls)
-        finally:
-            self.patches[2].start()
-
-    def test_target_ranlib_path_version_and_bytes_change_cache_context(self):
-        tool = self.root / "llvm-ranlib"
-        tool.write_text("#!/bin/sh\nprintf 'LLVM ranlib one\\n'\n")
-        tool.chmod(0o755)
-        self.patches[2].stop()
-        try:
-            with patch.dict(os.environ, {"RANLIB_aarch64_linux_android": str(tool)}):
-                baseline = artifacts.build_context()
-                tool.write_text("#!/bin/sh\nprintf 'LLVM ranlib two\\n'\n")
-                self.assertNotEqual(artifacts.build_context(), baseline)
-                with (
-                    patch.object(artifacts.subprocess, "run") as version_probe,
-                    patch.object(
-                        artifacts.subprocess,
-                        "check_output",
-                        return_value=b"fixed rustc",
-                    ),
-                ):
-                    version_probe.return_value = subprocess.CompletedProcess(
-                        [], 0, b"version one", b""
-                    )
-                    stable_bytes = artifacts.build_context()
-                    version_probe.return_value = subprocess.CompletedProcess(
-                        [], 0, b"version two", b""
-                    )
-                    self.assertNotEqual(artifacts.build_context(), stable_bytes)
-                version = artifacts.build_context()
-                tool.write_text(
-                    "#!/bin/sh\nprintf 'LLVM ranlib two\\n'\n# changed bytes\n"
-                )
-                self.assertNotEqual(artifacts.build_context(), version)
-                before = artifacts.build_context()
-                os.environ["RANLIB_aarch64_linux_android"] = str(
-                    self.root / "other-ranlib"
-                )
-                self.assertNotEqual(artifacts.build_context(), before)
         finally:
             self.patches[2].start()
 

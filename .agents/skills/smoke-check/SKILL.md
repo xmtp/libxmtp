@@ -83,9 +83,9 @@ Start web chat in a third terminal:
 dev/nix-shell 'just web-chat dev'
 ```
 
-If products were just generated from this checkout, set
-`XMTP_SDK_GENERATED_DIR` to its absolute `target/sdk-generated` path before
-these commands to reuse that input. Keep the package stager's validation.
+When the SDK sources match a trunk commit, set `XMTP_SDK_BUILD=nix` before
+these commands: they then copy the release-profile Nix products from the cache
+instead of running a cargo debug build. Keep the package stager's validation.
 Read the frontend URL from Vite output; its port can change.
 
 ## Browser checks

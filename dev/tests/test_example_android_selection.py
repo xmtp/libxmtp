@@ -204,7 +204,7 @@ class SelectionTest(unittest.TestCase):
     def test_sdk_jobs_require_every_child_and_consumers_clean_the_gradle_cache(self):
         workflow = self.assert_child_gate(
             ".github/workflows/test-android.yml",
-            ("sdk-build", "sdk-emulator", "android-stage"),
+            ("sdk-build", "sdk-emulator"),
         )
         # check-consumers compiles fail by design, so its job cleans up the
         # trunk Gradle cache entry even after a failed Gradle build.

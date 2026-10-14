@@ -56,23 +56,43 @@ let
     in
     repo // { images = lib.getAttrs emulatorApis repo.images; };
 
+  # Compose the SDK platforms and build tools, with or without the NDK and
+  # the emulator (with its system image, where the host has an emulator).
+  composeSdk =
+    { ndk, emulator }:
+    androidenv.composeAndroidPackages (
+      {
+        platformVersions = sdkConfig.platforms;
+        platformToolsVersion = sdkConfig.platformTools;
+        buildToolsVersions = sdkConfig.buildTools;
+        includeNDK = ndk;
+      }
+      // lib.optionalAttrs (emulator && hasEmulator) {
+        inherit (emulatorConfig) emulatorVersion;
+        repo = emulatorRepo;
+        includeEmulator = true;
+        includeSystemImages = true;
+        systemImageTypes = [ emulatorConfig.systemImageType ];
+        abiVersions = [ emulatorConfig.abiVersion ];
+      }
+    );
+
   # Compose Android packages for dev shell (includes emulator where available)
-  composeDevPackages = androidenv.composeAndroidPackages (
-    {
-      platformVersions = sdkConfig.platforms;
-      platformToolsVersion = sdkConfig.platformTools;
-      buildToolsVersions = sdkConfig.buildTools;
-      includeNDK = true;
-    }
-    // lib.optionalAttrs hasEmulator {
-      inherit (emulatorConfig) emulatorVersion;
-      repo = emulatorRepo;
-      includeEmulator = true;
-      includeSystemImages = true;
-      systemImageTypes = [ emulatorConfig.systemImageType ];
-      abiVersions = [ emulatorConfig.abiVersion ];
-    }
-  );
+  composeDevPackages = composeSdk {
+    ndk = true;
+    emulator = true;
+  };
+  # The slim CI shells (`android-ci`, `android-ci-emulator`) compile no Rust,
+  # but keep the NDK: Gradle strips the JNI libraries with it, and
+  # sdks/android/dev/check-native-packages.py reads them with its llvm-readelf.
+  ciComposition = composeSdk {
+    ndk = true;
+    emulator = false;
+  };
+  ciEmulatorComposition = composeSdk {
+    ndk = true;
+    emulator = true;
+  };
 
   # Helper to extract paths from an android composition
   mkAndroidPaths = composition: rec {
@@ -95,94 +115,101 @@ let
     includeSystemImages = false;
   };
   buildPaths = mkAndroidPaths buildComposition;
-  androidSdk = "${composeDevPackages.androidsdk}/libexec/android-sdk";
 
-  # Custom emulator launch script replacing nixpkgs' androidenv.emulateApp.
-  # Only defined on platforms where the Android emulator is available.
+  # Custom emulator launch script replacing nixpkgs' androidenv.emulateApp,
+  # for a composition that includes the emulator. Only used on platforms
+  # where the Android emulator is available.
   #
   # Keep the established emulator port range for local and CI runs.
-  emulator = writeShellScriptBin "run-test-emulator" ''
-    set -e
-    export PATH="${lib.makeBinPath [ coreutils ]}:$PATH"
+  mkEmulator =
+    composition:
+    let
+      androidSdk = "${composition.androidsdk}/libexec/android-sdk";
+    in
+    writeShellScriptBin "run-test-emulator" ''
+      set -e
+      export PATH="${lib.makeBinPath [ coreutils ]}:$PATH"
 
-    scoped=""
-    if [ "''${1:-}" = "--" ] && [ "$#" -gt 1 ]; then
-      scoped=1
-      shift
-    elif [ "$#" -ne 0 ]; then
-      echo "Usage: run-test-emulator [-- COMMAND ARGS...]" >&2
-      exit 2
-    fi
-
-    ADB="${androidSdk}/platform-tools/adb"
-    EMULATOR_BIN="${androidSdk}/emulator/emulator"
-    AVDMANAGER="${composeDevPackages.androidsdk}/bin/avdmanager"
-    ANDROID_DEFAULT_EMULATOR_API="${emulatorConfig.platformVersion}"
-    ANDROID_API23_SUPPORTED="${if hasApi23Emulator then "1" else "0"}"
-    source ${./android-emulator-platform.sh}
-
-    export ANDROID_SDK_ROOT="${androidSdk}"
-    export ANDROID_USER_HOME=$(mktemp -d "''${TMPDIR:-/tmp}/nix-android-user-home-XXXX")
-    if [ -n "$scoped" ]; then
-      # Cover preparation errors; exec transfers lifetime ownership to Python.
-      trap 'rm -rf -- "$ANDROID_USER_HOME"' EXIT
-      trap 'exit 130' INT
-      trap 'exit 143' TERM
-    fi
-    export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
-    mkdir -p "$ANDROID_AVD_HOME"
-
-    DEVICE_NAME="libxmtp-test"
-
-    if [ -z "$NIX_ANDROID_EMULATOR_FLAGS" ]; then
-      NIX_ANDROID_EMULATOR_FLAGS="-no-snapshot-save -gpu swiftshader_indirect -memory 4096 -partition-size 8192"
-    fi
-
-    # Scan ports 5560-5584 to avoid conflicts with Docker services (5050, 6010, 8474, 8545)
-    echo "Looking for a free TCP port in range 5560-5584" >&2
-    port=""
-    for i in $(seq 5560 2 5584); do
-      devices="$(timeout --kill-after=2 15 "$ADB" devices)"
-      if ! echo "$devices" | grep -q "emulator-$i"; then
-        port=$i
-        break
+      scoped=""
+      if [ "''${1:-}" = "--" ] && [ "$#" -gt 1 ]; then
+        scoped=1
+        shift
+      elif [ "$#" -ne 0 ]; then
+        echo "Usage: run-test-emulator [-- COMMAND ARGS...]" >&2
+        exit 2
       fi
-    done
 
-    if [ -z "$port" ]; then
-      echo "No free emulator port found!" >&2
-      exit 1
-    fi
-    echo "Using emulator port: $port" >&2
+      ADB="${androidSdk}/platform-tools/adb"
+      EMULATOR_BIN="${androidSdk}/emulator/emulator"
+      AVDMANAGER="${composition.androidsdk}/bin/avdmanager"
+      ANDROID_DEFAULT_EMULATOR_API="${emulatorConfig.platformVersion}"
+      ANDROID_API23_SUPPORTED="${if hasApi23Emulator then "1" else "0"}"
+      source ${./android-emulator-platform.sh}
 
-    export ANDROID_SERIAL="emulator-$port"
+      export ANDROID_SDK_ROOT="${androidSdk}"
+      export ANDROID_USER_HOME=$(mktemp -d "''${TMPDIR:-/tmp}/nix-android-user-home-XXXX")
+      if [ -n "$scoped" ]; then
+        # Cover preparation errors; exec transfers lifetime ownership to Python.
+        trap 'rm -rf -- "$ANDROID_USER_HOME"' EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+      fi
+      export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+      mkdir -p "$ANDROID_AVD_HOME"
 
-    # Create AVD
-    printf 'no\n' | timeout --kill-after=2 60 "$AVDMANAGER" create avd \
-      --force -n "$DEVICE_NAME" \
-      -k "system-images;android-$ANDROID_EMULATOR_API;${emulatorConfig.systemImageType};${emulatorConfig.abiVersion}" \
-      -p "$ANDROID_AVD_HOME/$DEVICE_NAME.avd"
+      DEVICE_NAME="libxmtp-test"
 
-    # Hardware config
-    {
-      echo "hw.keyboard = yes"
-      echo "hw.gpu.enabled = yes"
-      echo "hw.gpu.mode = swiftshader_indirect"
-      echo "hw.ramSize = 4096"
-      echo "disk.dataPartition.size = 8192M"
-    } >> "$ANDROID_AVD_HOME/$DEVICE_NAME.avd/config.ini"
+      if [ -z "$NIX_ANDROID_EMULATOR_FLAGS" ]; then
+        NIX_ANDROID_EMULATOR_FLAGS="-no-snapshot-save -gpu swiftshader_indirect -memory 4096 -partition-size 8192"
+      fi
 
-    # The supervisor checks process death even while ADB or clock sync is blocked.
-    if [ -n "$scoped" ]; then
+      # Scan ports 5560-5584 to avoid conflicts with Docker services (5050, 6010, 8474, 8545)
+      echo "Looking for a free TCP port in range 5560-5584" >&2
+      port=""
+      for i in $(seq 5560 2 5584); do
+        devices="$(timeout --kill-after=2 15 "$ADB" devices)"
+        if ! echo "$devices" | grep -q "emulator-$i"; then
+          port=$i
+          break
+        fi
+      done
+
+      if [ -z "$port" ]; then
+        echo "No free emulator port found!" >&2
+        exit 1
+      fi
+      echo "Using emulator port: $port" >&2
+
+      export ANDROID_SERIAL="emulator-$port"
+
+      # Create AVD
+      printf 'no\n' | timeout --kill-after=2 60 "$AVDMANAGER" create avd \
+        --force -n "$DEVICE_NAME" \
+        -k "system-images;android-$ANDROID_EMULATOR_API;${emulatorConfig.systemImageType};${emulatorConfig.abiVersion}" \
+        -p "$ANDROID_AVD_HOME/$DEVICE_NAME.avd"
+
+      # Hardware config
+      {
+        echo "hw.keyboard = yes"
+        echo "hw.gpu.enabled = yes"
+        echo "hw.gpu.mode = swiftshader_indirect"
+        echo "hw.ramSize = 4096"
+        echo "disk.dataPartition.size = 8192M"
+      } >> "$ANDROID_AVD_HOME/$DEVICE_NAME.avd/config.ini"
+
+      # The supervisor checks process death even while ADB or clock sync is blocked.
+      if [ -n "$scoped" ]; then
+        exec ${python3}/bin/python3 ${./android-emulator-start.py} \
+          "$ADB" "$EMULATOR_BIN" "$DEVICE_NAME" "$ANDROID_SERIAL" \
+          "$ANDROID_EMULATOR_API" ${./android-sync-clock.sh} $NIX_ANDROID_EMULATOR_FLAGS \
+          -- "$ANDROID_USER_HOME" "$@"
+      fi
       exec ${python3}/bin/python3 ${./android-emulator-start.py} \
         "$ADB" "$EMULATOR_BIN" "$DEVICE_NAME" "$ANDROID_SERIAL" \
-        "$ANDROID_EMULATOR_API" ${./android-sync-clock.sh} $NIX_ANDROID_EMULATOR_FLAGS \
-        -- "$ANDROID_USER_HOME" "$@"
-    fi
-    exec ${python3}/bin/python3 ${./android-emulator-start.py} \
-      "$ADB" "$EMULATOR_BIN" "$DEVICE_NAME" "$ANDROID_SERIAL" \
-      "$ANDROID_EMULATOR_API" ${./android-sync-clock.sh} $NIX_ANDROID_EMULATOR_FLAGS
-  '';
+        "$ANDROID_EMULATOR_API" ${./android-sync-clock.sh} $NIX_ANDROID_EMULATOR_FLAGS
+    '';
+  emulator = mkEmulator composeDevPackages;
+  ciEmulator = mkEmulator ciEmulatorComposition;
 
 in
 {
@@ -195,9 +222,12 @@ in
     devPaths
     buildComposition
     buildPaths
+    mkAndroidPaths
+    ciComposition
+    ciEmulatorComposition
     hasEmulator
     ;
 }
 // lib.optionalAttrs hasEmulator {
-  inherit emulator;
+  inherit emulator ciEmulator;
 }

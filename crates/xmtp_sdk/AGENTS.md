@@ -8,7 +8,19 @@ Run commands from the repository root in the Nix shell. Run
   `XMTP_SDK_BUILD` picks the route: `cargo` (the default; debug unless
   `--profile release`) or `nix`, which copies the release-profile
   `.#xmtp-sdk-generated-<target>` trees (out-links in `target/sdk-generated.nix`).
-  CI JavaScript jobs and the docs site use `nix`. In
+  CI JavaScript jobs and the docs site use `nix`; use it locally too for work
+  that edits no SDK crate (a Cachix fetch and a copy). The cargo route takes
+  the bindgen from `nix build .#xmtp-sdk-bindgen` unless a file of the
+  bindgen's crates (`dev/sdk-artifacts.py paths xmtp-sdk-bindgen`) or a Cargo
+  input differs from the merge base with `origin/self-hosted`; then it builds
+  a cargo debug bindgen. CI keeps cargo. `XMTP_SDK_BINDGEN=nix|cargo`
+  overrides the choice. A browser-only build skips the host library, and the
+  two WASM builds share one target directory. For Swift and Kotlin unit tests
+  after a Rust edit, `just ios test-host` and `just android test-host` use a
+  cargo debug host library and its render (`dev/host-package`), with no Nix
+  release build. Use the release route (`just ios test`, `just android
+  test`, simulators, emulators) before a merge: CI runs it, and the release
+  libraries abort on panic where debug ones unwind. In
   each TypeScript tree, `index.ts` is the package root: the public layer that
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
@@ -194,15 +206,19 @@ hand-maintained.
   complete product into the SDK's `dist` directory for workspace imports.
   Release jobs pack `target/sdk-packages/<target>` directly. Private staging
   remains the default for tests.
-- Use `NIX_DEVSHELL=ios dev/nix-shell 'just sdk mobile-build ios'` for the iOS
-  device and simulator libraries. Then use the same shell for
-  `dev/nix-shell 'just sdk mobile-stage ios'` to assemble `XmtpSdkFFI.xcframework` and SwiftPM
-  sources. These commands require Xcode.
-- Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk mobile-build android'` for
-  arm64-v8a, armeabi-v7a, x86_64, and x86. Then use the same shell for
-  `dev/nix-shell 'just sdk mobile-stage android'` to assemble the AAR. Its Kotlin compiler uses
-  `-Xjvm-default=all`. Final device and emulator runtime proofs use the matched
-  products. A source-only consumer does not replace those proofs.
+- The Android and iOS native libraries have one producer, Nix. `dev/nix-shell
+  'just sdk mobile-stage ios'` copies the release `.#ios-xcframeworks` into a
+  SwiftPM package after checking its slices against `nix/sdk-platforms.json`.
+  It selects the output with `sdks/ios/dev/bindings --release --build-only`:
+  the CI output when this Xcode matches or a cache holds it, else the
+  `-local` output (an error in CI).
+  `XMTP_SDK_BUILD=nix just sdk generate kotlin`, then `just sdk mobile-stage
+  android`, assembles the AAR over the Nix JNI library of each ABI
+  (`.#xmtp-sdk-android-<abi>`) after checking each library's receipt against
+  the Kotlin binding. The Kotlin compiler uses `-Xjvm-default=all`. The SDK
+  benchmarks read these packages; CI stages the AAR in the Android SDK build
+  job. Final device and emulator runtime proofs use the matched products. A
+  source-only consumer does not replace those proofs.
 - Private proof inputs can use `XMTP_SDK_GENERATED_DIR` and
   `XMTP_SDK_PACKAGES_DIR`. Prebuilt runtime inputs can use
   `XMTP_SDK_RUNTIME_DIR` (a directory with core/node or core/wasm products).
@@ -214,18 +230,8 @@ Package review checks:
 
 - `dev/nix-shell 'just sdk check-package-scripts'` also checks both provenance producers,
   config-only changes, Cargo compiler overrides, macOS deployment targets,
-  Windows browser asset paths, default mobile features, all four NDK compiler targets and archive index tools,
-  caller archive-tool policies, target OpenSSL paths and policy, cache inputs, and both flat and prebuilt runtime
-  directory layouts.
-  Explicit target OpenSSL paths keep upstream library-directory selection.
-  Generic host roots, library paths and header paths use the selected compiler's
-  host-qualified variables in the Android and iOS child environments. A policy-only
-  override keeps generic paths. Both mobile routes build target
-  OpenSSL by default. Explicit target paths and policies stay intact. Parent
-  inputs stay intact.
-- Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`
-  for small C probes. The output records ELF class and machine for each ABI.
-  These probes do not prove an installed Android SDK.
+  Windows browser asset paths, the mobile staging checks, cache inputs, and
+  both flat and prebuilt runtime directory layouts.
 - The private compiler input is `XMTP_SDK_TSDOWN_CLI`. It names tsdown's
   `dist/run.mjs`, which the stager runs through Node on every platform.
   Windows CI stages with a supported compiler Node version and runs the
@@ -235,7 +241,7 @@ Residual package review checks:
 
 - Build provenance includes the live address registry, chain URL map, and
   signature validation bytecode. The common receipt producer uses the same
-  fingerprint. Mobile preflight requires each native receipt's exact triple.
+  fingerprint. Mobile staging requires each Android receipt's exact triple.
 - Installed smoke runs `npm-cli.js` through Node. `XMTP_SDK_NPM_CLI` is a
   private path override for the launcher proof. The normal path comes from
   the selected Node installation, including the Windows installation.
@@ -246,9 +252,9 @@ Residual package review checks:
   installed package loading.
 Android staging dependency inputs:
 
-- The staging Gradle root is `crates/xmtp_sdk/packaging/android`. Keep its
-  `gradle.lockfile`, `buildscript-gradle.lockfile`, and
-  `gradle/verification-metadata.xml` with the staging source.
+- The staging Gradle root is `sdks/android`. Its `library/gradle.lockfile`,
+  `buildscript-gradle.lockfile`, and `gradle/verification-metadata.xml` must
+  exist before the stage runs Gradle.
 - The normal stage command uses strict verification and does not write inputs.
   To refresh inputs, use a separate controlled resolution through
   `NIX_DEVSHELL=android dev/nix-shell`. Resolve the actual `assembleRelease`

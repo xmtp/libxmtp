@@ -18,315 +18,8 @@ spec = importlib.util.spec_from_file_location(
 artifacts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(artifacts)
 
-mobile_spec = importlib.util.spec_from_file_location(
-    "mobile", Path(__file__).with_name("mobile-package.py")
-)
-mobile = importlib.util.module_from_spec(mobile_spec)
-mobile_spec.loader.exec_module(mobile)
-
 
 class ArtifactTests(unittest.TestCase):
-    def test_android_targets_vendor_openssl_with_inherited_host_libraries(self):
-        host = {
-            "ANDROID_NDK_HOME": "/fixture/ndk",
-            "OPENSSL_NO_VENDOR": "1",
-            "OPENSSL_DIR": "/fixture/host/include",
-            "OPENSSL_LIB_DIR": "/fixture/host/lib",
-        }
-        with (
-            patch.dict(os.environ, host, clear=True),
-            patch.object(Path, "glob", return_value=[Path("/fixture/ndk/toolchain")]),
-            patch.object(Path, "is_file", return_value=True),
-        ):
-            for triple in mobile.ANDROID.values():
-                with self.subTest(triple=triple):
-                    env = mobile.android_environment(triple)
-                    prefix = triple.upper().replace("-", "_") + "_OPENSSL_"
-                    self.assertEqual(env[prefix + "NO_VENDOR"], "0")
-                    for name in ("OPENSSL_DIR", "OPENSSL_LIB_DIR", "OPENSSL_NO_VENDOR"):
-                        self.assertEqual(env[name], host[name])
-                    self.assertFalse(
-                        prefix + "NO_VENDOR" in os.environ, "Parent environment changed"
-                    )
-
-    def test_android_preserves_explicit_target_openssl_policy_and_paths(self):
-        triple = "aarch64-linux-android"
-        prefix = "AARCH64_LINUX_ANDROID_OPENSSL_"
-        for selected in ("NO_VENDOR", "DIR", "LIB_DIR", "INCLUDE_DIR"):
-            with (
-                self.subTest(selected=selected),
-                patch.dict(
-                    os.environ,
-                    {
-                        "ANDROID_NDK_HOME": "/fixture/ndk",
-                        "OPENSSL_NO_VENDOR": "1",
-                        prefix + selected: "1"
-                        if selected == "NO_VENDOR"
-                        else "/target/openssl",
-                    },
-                    clear=True,
-                ),
-                patch.object(
-                    Path, "glob", return_value=[Path("/fixture/ndk/toolchain")]
-                ),
-                patch.object(Path, "is_file", return_value=True),
-            ):
-                env = mobile.android_environment(triple)
-                self.assertEqual(env[prefix + selected], os.environ[prefix + selected])
-                self.assertEqual(env["OPENSSL_NO_VENDOR"], "1")
-                if selected != "NO_VENDOR":
-                    self.assertEqual(env[prefix + "NO_VENDOR"], "1")
-
-    def test_android_target_openssl_paths_select_external_libraries(self):
-        prefix = "AARCH64_LINUX_ANDROID_OPENSSL_"
-        for path in ("DIR", "LIB_DIR", "INCLUDE_DIR"):
-            for host_policy in (None, "0", "1"):
-                for target_policy in (None, "0", "1"):
-                    inputs = {
-                        "ANDROID_NDK_HOME": "/fixture/ndk",
-                        prefix + path: "/caller/openssl",
-                    }
-                    if host_policy is not None:
-                        inputs["OPENSSL_NO_VENDOR"] = host_policy
-                    if target_policy is not None:
-                        inputs[prefix + "NO_VENDOR"] = target_policy
-                    with (
-                        self.subTest(path=path, host=host_policy, target=target_policy),
-                        patch.dict(os.environ, inputs, clear=True),
-                        patch.object(
-                            Path, "glob", return_value=[Path("/fixture/ndk/toolchain")]
-                        ),
-                        patch.object(Path, "is_file", return_value=True),
-                    ):
-                        env = mobile.android_environment("aarch64-linux-android")
-                        self.assertEqual(
-                            env[prefix + "NO_VENDOR"],
-                            target_policy if target_policy is not None else "1",
-                        )
-                        self.assertEqual(env[prefix + path], "/caller/openssl")
-                        self.assertTrue(
-                            all(
-                                env.get(name) == value for name, value in inputs.items()
-                            ),
-                            "Caller input changed",
-                        )
-
-    def test_android_target_root_keeps_host_inputs_separate(self):
-        host_prefix = "AARCH64_APPLE_DARWIN_OPENSSL_"
-        for triple in mobile.ANDROID.values():
-            prefix = triple.upper().replace("-", "_") + "_OPENSSL_"
-            for host_policy in (None, "0", "1"):
-                for target_policy in (None, "0", "1"):
-                    for components in (
-                        (),
-                        ("LIB_DIR",),
-                        ("INCLUDE_DIR",),
-                        ("LIB_DIR", "INCLUDE_DIR"),
-                    ):
-                        for qualified_host in (False, True):
-                            inputs = {
-                                "ANDROID_NDK_HOME": "/fixture/ndk",
-                                prefix + "DIR": "/target/root",
-                                "OPENSSL_LIB_DIR": "/host/lib",
-                                "OPENSSL_INCLUDE_DIR": "/host/include",
-                            }
-                            inputs.update(
-                                {prefix + key: "/caller/" + key for key in components}
-                            )
-                            if qualified_host:
-                                inputs.update(
-                                    {
-                                        host_prefix + key: "/qualified/" + key
-                                        for key in ("LIB_DIR", "INCLUDE_DIR")
-                                    }
-                                )
-                            if host_policy is not None:
-                                inputs["OPENSSL_NO_VENDOR"] = host_policy
-                            if target_policy is not None:
-                                inputs[prefix + "NO_VENDOR"] = target_policy
-                            with (
-                                self.subTest(
-                                    triple=triple,
-                                    host=host_policy,
-                                    policy=target_policy,
-                                    components=components,
-                                    qualified_host=qualified_host,
-                                ),
-                                patch.dict(os.environ, inputs, clear=True),
-                                patch.object(
-                                    Path,
-                                    "glob",
-                                    return_value=[Path("/fixture/ndk/toolchain")],
-                                ),
-                                patch.object(Path, "is_file", return_value=True),
-                                patch.object(
-                                    mobile.artifacts,
-                                    "compiler_host",
-                                    return_value="aarch64-apple-darwin",
-                                ),
-                            ):
-                                env = mobile.android_environment(triple)
-                                self.assertEqual(
-                                    dict(os.environ),
-                                    inputs,
-                                    "Parent environment changed",
-                                )
-                                self.assertEqual(
-                                    env[prefix + "NO_VENDOR"], target_policy or "1"
-                                )
-                                for key in ("LIB_DIR", "INCLUDE_DIR"):
-                                    self.assertEqual(
-                                        env.get(prefix + key), inputs.get(prefix + key)
-                                    )
-                                    if target_policy == "0":
-                                        self.assertEqual(
-                                            env["OPENSSL_" + key],
-                                            inputs["OPENSSL_" + key],
-                                        )
-                                    else:
-                                        self.assertFalse(
-                                            "OPENSSL_" + key in env,
-                                            "Host component shadows target root",
-                                        )
-                                        self.assertEqual(
-                                            env[host_prefix + key],
-                                            inputs.get(
-                                                host_prefix + key,
-                                                inputs["OPENSSL_" + key],
-                                            ),
-                                        )
-
-    def test_android_equal_host_target_does_not_add_root_shadow(self):
-        triple = "aarch64-linux-android"
-        prefix = "AARCH64_LINUX_ANDROID_OPENSSL_"
-        inputs = {
-            "ANDROID_NDK_HOME": "/fixture/ndk",
-            prefix + "DIR": "/target/root",
-            "OPENSSL_LIB_DIR": "/host/lib",
-        }
-        with (
-            patch.dict(os.environ, inputs, clear=True),
-            patch.object(Path, "glob", return_value=[Path("/fixture/ndk/toolchain")]),
-            patch.object(Path, "is_file", return_value=True),
-            patch.object(mobile.artifacts, "compiler_host", return_value=triple),
-        ):
-            env = mobile.android_environment(triple)
-            self.assertFalse(
-                prefix + "LIB_DIR" in env, "Host compensation shadows target root"
-            )
-            self.assertFalse(
-                "OPENSSL_LIB_DIR" in env, "Generic path shadows target root"
-            )
-            self.assertEqual(dict(os.environ), inputs)
-
-    def test_compiler_host_uses_artifact_compiler_selection(self):
-        for inputs, expected in (
-            ({}, "rustc"),
-            ({"CARGO_BUILD_RUSTC": "/build/rustc"}, "/build/rustc"),
-            (
-                {"RUSTC": "/selected/rustc", "CARGO_BUILD_RUSTC": "/build/rustc"},
-                "/selected/rustc",
-            ),
-        ):
-            with (
-                self.subTest(inputs=tuple(inputs)),
-                patch.dict(os.environ, inputs, clear=True),
-                patch.object(
-                    artifacts.subprocess,
-                    "check_output",
-                    return_value=b"rustc fixture\nhost: aarch64-apple-darwin\n",
-                ) as query,
-            ):
-                self.assertEqual(artifacts.compiler_host(), "aarch64-apple-darwin")
-                query.assert_called_once_with([expected, "-vV"], cwd=artifacts.ROOT)
-        with patch.object(
-            artifacts.subprocess, "check_output", return_value=b"rustc fixture\n"
-        ):
-            with self.assertRaisesRegex(ValueError, "no host triple"):
-                artifacts.compiler_host()
-
-    def test_android_archive_index_uses_target_tool_and_keeps_caller_inputs(self):
-        host = {
-            "ANDROID_NDK_HOME": "/fixture/ndk",
-            "RANLIB": "/host/ranlib",
-            "RANLIBFLAGS": "host flags",
-        }
-        for triple in mobile.ANDROID.values():
-            target = triple.replace("-", "_")
-            for override in (
-                None,
-                "RANLIB_" + triple,
-                "RANLIB_" + target,
-                "TARGET_RANLIB",
-            ):
-                with (
-                    self.subTest(triple=triple, override=override),
-                    patch.dict(
-                        os.environ,
-                        host | ({override: "/caller/llvm-ranlib"} if override else {}),
-                        clear=True,
-                    ),
-                    patch.object(
-                        Path, "glob", return_value=[Path("/fixture/ndk/toolchain")]
-                    ),
-                    patch.object(Path, "is_file", return_value=True),
-                ):
-                    env = mobile.android_environment(triple)
-                    self.assertEqual(env["RANLIB"], host["RANLIB"])
-                    self.assertEqual(env["RANLIBFLAGS"], host["RANLIBFLAGS"])
-                    if override:
-                        self.assertEqual(env[override], "/caller/llvm-ranlib")
-                        if override != "RANLIB_" + target:
-                            self.assertFalse(
-                                "RANLIB_" + target in env, "Caller tool was masked"
-                            )
-                    else:
-                        self.assertEqual(
-                            Path(env["RANLIB_" + target]).name,
-                            "llvm-ranlib.exe"
-                            if mobile.sys.platform == "win32"
-                            else "llvm-ranlib",
-                        )
-                    self.assertTrue(
-                        dict(os.environ)
-                        == host
-                        | ({override: "/caller/llvm-ranlib"} if override else {}),
-                        "Parent environment changed",
-                    )
-
-    def test_archive_index_inputs_change_artifact_cache_context(self):
-        names = (
-            "RANLIB",
-            "RANLIBFLAGS",
-            "TARGET_RANLIB",
-            "TARGET_RANLIBFLAGS",
-            "HOST_RANLIB",
-            "HOST_RANLIBFLAGS",
-        ) + tuple(
-            prefix + target
-            for prefix in ("RANLIB_", "RANLIBFLAGS_")
-            for triple in mobile.ANDROID.values()
-            for target in (triple, triple.replace("-", "_"))
-        )
-        names += tuple(
-            "AARCH64_APPLE_DARWIN_OPENSSL_" + key for key in ("LIB_DIR", "INCLUDE_DIR")
-        )
-        self.context_patch.stop()
-        try:
-            with patch.object(
-                artifacts.subprocess, "check_output", return_value=b"fixture rustc"
-            ):
-                for name in names:
-                    with (
-                        self.subTest(input=name),
-                        patch.dict(os.environ, {}, clear=True),
-                    ):
-                        before = artifacts.build_context()
-                        os.environ[name] = "caller-selected input"
-                        self.assertNotEqual(artifacts.build_context(), before)
-        finally:
-            self.context_patch.start()
-
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -336,12 +29,15 @@ class ArtifactTests(unittest.TestCase):
             artifacts=self.root / "artifacts",
             targets=("node",),
             out=self.root / "generated",
-            features="",
             rust_target="",
             skip_bindgen=False,
-            reuse_bindgen=None,
             profile="debug",
         )
+        # The cargo bindgen unless a test selects the Nix one.
+        self.route_patch = patch.object(
+            artifacts, "bindgen_route", return_value="cargo"
+        )
+        self.route_patch.start()
         self.hash_patch = patch.object(
             artifacts, "source_hash", return_value="fixture-source"
         )
@@ -370,6 +66,7 @@ class ArtifactTests(unittest.TestCase):
         self.runtime_patch.start()
 
     def tearDown(self):
+        self.route_patch.stop()
         self.runtime_patch.stop()
         self.formatter_patch.stop()
         self.run_patch.stop()
@@ -380,7 +77,11 @@ class ArtifactTests(unittest.TestCase):
 
     def command(self, command, **kwargs):
         self.calls.append(command)
-        if command[0] == "dev/agent-run":
+        if command[0] == "nix":
+            binary = Path(command[command.index("--out-link") + 1]) / "bin"
+            binary.mkdir(parents=True, exist_ok=True)
+            (binary / "xmtp-sdk-bindgen").write_text("fixture Nix bindgen")
+        elif command[0] == "dev/agent-run":
             self.cargo_environments.append(dict(kwargs["env"]))
             out = Path(kwargs["env"]["CARGO_TARGET_DIR"])
             if "--target" in command:
@@ -465,17 +166,90 @@ class ArtifactTests(unittest.TestCase):
             artifacts.build(self.args)
         self.assertEqual(len(self.calls), 4)
 
-    def test_bindgen_is_reused_across_default_and_conformance_artifacts(self):
+    def test_nix_bindgen_replaces_the_cargo_build(self):
+        self.route_patch.stop()
+        with patch.object(artifacts, "bindgen_route", return_value="nix"):
+            artifacts.build(self.args)
+            artifacts.render(self.args)
+        self.route_patch.start()
+        self.assertEqual(self.calls[0][0], "dev/agent-run")
+        self.assertNotIn("xmtp-sdk-bindgen", self.calls[0])
+        self.assertEqual(self.calls[1][-1], ".#xmtp-sdk-bindgen")
+        self.assertEqual(
+            self.calls[2][0],
+            str(self.args.artifacts.resolve() / "bindgen-nix/bin/xmtp-sdk-bindgen"),
+        )
+
+    def test_browser_only_builds_skip_the_host_library_and_share_a_wasm_target(self):
+        self.args.targets = ("browser",)
         artifacts.build(self.args)
-        shared = self.args.artifacts
-        self.args.artifacts = self.root / "conformance"
-        self.args.features = "conformance"
-        self.args.reuse_bindgen = shared
-        before = len(self.calls)
-        artifacts.build(self.args)
-        self.assertEqual(len(self.calls), before + 1)
-        self.assertIn("conformance", self.calls[-1])
-        self.assertNotIn("xmtp-sdk-bindgen", self.calls[-1])
+        cargo = [command for command in self.calls if command[0] == "dev/agent-run"]
+        self.assertEqual(
+            sorted(command[command.index("-p") + 1] for command in cargo),
+            ["xmtp-sdk-bindgen", "xmtp_sdk", "xmtp_sdk"],
+        )
+        self.assertTrue(all("--target" in command for command in cargo[1:]))
+        wasm = {env["CARGO_TARGET_DIR"] for env in self.cargo_environments[1:]}
+        self.assertEqual(wasm, {str(self.args.artifacts.resolve() / "build/wasm")})
+        artifacts.render(self.args)
+        self.assertTrue((self.args.out / "typescript-pure/index.ts").is_file())
+
+    def test_bindgen_route_follows_the_bindgen_closure(self):
+        self.route_patch.stop()
+        self.addCleanup(self.route_patch.start)
+        root = self.root / "repo"
+        (root / "apps/xmtp_sdk_bindgen").mkdir(parents=True)
+        (root / "crates/xmtp_mls").mkdir(parents=True)
+        for name in ("apps/xmtp_sdk_bindgen/lib.rs", "crates/xmtp_mls/lib.rs"):
+            (root / name).write_text("fn main() {}")
+
+        def git(*args):
+            subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+
+        git("init", "-q")
+        git("add", "-A")
+        git("commit", "-q", "--no-verify", "--no-gpg-sign", "-m", "trunk")
+        git("update-ref", "refs/remotes/origin/self-hosted", "HEAD")
+        environment = {
+            k: v for k, v in os.environ.items() if k not in ("CI", "XMTP_SDK_BINDGEN")
+        }
+        with (
+            patch.object(artifacts, "ROOT", root),
+            patch.object(
+                artifacts, "closure_paths", return_value=["apps/xmtp_sdk_bindgen"]
+            ),
+            patch.dict(os.environ, environment, clear=True),
+        ):
+            self.assertEqual(artifacts.bindgen_route(), "nix")
+            # An edit outside the bindgen's crates keeps the Nix bindgen.
+            (root / "crates/xmtp_mls/lib.rs").write_text("// edit")
+            self.assertEqual(artifacts.bindgen_route(), "nix")
+            for edit in (
+                "apps/xmtp_sdk_bindgen/lib.rs",
+                "apps/xmtp_sdk_bindgen/new.rs",
+                "Cargo.lock",
+            ):
+                with self.subTest(edit=edit):
+                    (root / edit).write_text("// edit")
+                    self.assertEqual(artifacts.bindgen_route(), "cargo")
+                    git("checkout", "-q", "--", ".")
+                    git("clean", "-qfd", "apps", "Cargo.lock")
+            self.assertEqual(artifacts.bindgen_route(), "nix")
+            for name, value, route in (
+                ("CI", "true", "cargo"),
+                ("XMTP_SDK_BINDGEN", "cargo", "cargo"),
+            ):
+                with self.subTest(variable=name), patch.dict(os.environ, {name: value}):
+                    self.assertEqual(artifacts.bindgen_route(), route)
+            git("update-ref", "-d", "refs/remotes/origin/self-hosted")
+            self.assertEqual(artifacts.bindgen_route(), "cargo")
+            with patch.dict(os.environ, {"XMTP_SDK_BINDGEN": "nix"}):
+                self.assertEqual(artifacts.bindgen_route(), "nix")
 
     def test_render_replaces_stale_files_without_building(self):
         artifacts.build(self.args)
@@ -722,6 +496,15 @@ class NodePlatformReceiptTests(unittest.TestCase):
                 "files": {str(library.resolve()): artifacts.digest(library)},
             }
             index.write_text(json.dumps({"artifacts": {"native": native_record}}))
+            missing_key = subprocess.run(
+                cargo, cwd=artifacts.ROOT, capture_output=True, text=True
+            )
+            self.assertIn("needs --source-key", missing_key.stderr)
+            key = root / "source-key.json"
+            key.write_text(
+                json.dumps({"source": "tree:x", "key": "k", "forkRevision": revision})
+            )
+            cargo += ["--source-key", str(key)]
             built = subprocess.run(
                 cargo, cwd=artifacts.ROOT, capture_output=True, text=True
             )
@@ -730,7 +513,7 @@ class NodePlatformReceiptTests(unittest.TestCase):
                 (root / "out/linux-x64-gnu/sdk-node-platform.json").read_text()
             )
             self.assertEqual(pair["commit"], "abc123")
-            self.assertNotIn("source", pair)
+            self.assertEqual((pair["source"], pair["sourceKey"]), ("tree:x", "k"))
             index.write_text(
                 json.dumps(
                     {"artifacts": {"native": dict(native_record, source="closure")}}

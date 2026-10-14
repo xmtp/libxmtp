@@ -97,31 +97,34 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     env:
       NIX_DEVSHELL: js
+      # Ship the release-profile Nix products that CI tested.
+      XMTP_SDK_BUILD: nix
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
 
+      # Mode read: substitute from the trusted cache only, and build on a miss.
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          kache: "true"
-          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
-          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
-          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
-          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-          kache-scope: sdk-products-debug
-          kache-readonly: "true"
-
-      - uses: taiki-e/install-action@just
 
       - uses: ./.github/actions/setup-js
 
       - name: Install + build browser-sdk
         run: |
           dev/nix-shell 'pnpm --filter @xmtp/browser-sdk build'
+
+      - name: Require release-profile WASM
+        run: |
+          for tree in typescript-wasm typescript-pure; do
+            profile="$(jq -r '.artifact.profile' "target/sdk-generated/$tree/sdk-contract.json")"
+            if [ "$profile" != release ]; then
+              echo "::error::$tree was built with the '$profile' profile; the published browser SDK must ship release WASM"
+              exit 1
+            fi
+          done
 
       - name: Upload build output
         uses: actions/upload-artifact@v7

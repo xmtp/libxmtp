@@ -12,7 +12,19 @@ version=$("$developer/usr/bin/xcodebuild" -version 2>/dev/null) || version=""
 found="${version%%$'\n'*} (${version##*Build version }) at $developer"
 expected=$(nix eval --raw "$ROOT#lib.xcode.key")
 
-if [[ "${1:-}" == "--release" ]]; then
+# --build-only stops after the out-link (target/ios-sdk), without copying it
+# into the package: `mobile-package.py stage ios` uses it.
+release=false
+build_only=false
+for argument in "$@"; do
+  case "$argument" in
+    --release) release=true ;;
+    --build-only) build_only=true ;;
+    *) echo "usage: $0 [--release] [--build-only]" >&2; exit 2 ;;
+  esac
+done
+
+if $release; then
   attribute=ios-xcframeworks
   framework="$output/XmtpSdkFFI/XmtpSdkFFI.xcframework"
   sources="$output/XmtpSdkFFI/Sources/XmtpSdk"
@@ -44,6 +56,10 @@ else
   else
     exit 1
   fi
+fi
+
+if $build_only; then
+  exit 0
 fi
 
 mkdir -p "$ROOT/sdks/ios/Artifacts" "$package"

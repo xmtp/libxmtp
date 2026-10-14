@@ -36,8 +36,8 @@ Android CI jobs in mode `ci` restore Gradle User Home with
 `gradle/actions/setup-gradle` (pinned by SHA), placed after `setup-nix`. Its
 `cache-read-only` is the negated protected-push expression: protected trunk
 pushes save the CI-only Gradle cache, and every other run only reads it.
-Release, deploy, benchmark, and trusted jobs (including `android-stage`) do not
-use it. Under `CI`, the Android recipes pass `--build-cache` and never
+Release, deploy, benchmark, and trusted jobs do not use it. The AAR that
+`sdk-build` stages for the benchmarks is a CI artifact and never ships. Under `CI`, the Android recipes pass `--build-cache` and never
 `--configuration-cache`; `Test` tasks are not cacheable, because they load the
 host library and call the backend outside their task inputs. The job that runs
 `check-consumers` sets `cache-cleanup: always`, because those compiles fail by
@@ -81,10 +81,10 @@ build the products themselves.
   then `just example-android check-all`: unit tests, lint, and every variant in
   one Gradle call) and `integration-tests`. App lint is in the test phase so
   that it can wait for the `sdk_android` products job.
-- `test-android.yml` has three jobs: `sdk-build` (`just android check`, one
+- `test-android.yml` has two jobs: `sdk-build` (`just android check`, one
   Gradle call for `gradlew build` and the instrumented test APK, then
-  `check-consumers`), `sdk-emulator` (API 34 tests, then the API 23 smoke), and
-  `android-stage`. App-only changes do not select SDK
+  `check-consumers` and the AAR staged over the Nix libraries) and
+  `sdk-emulator` (API 34 tests, then the API 23 smoke). App-only changes do not select SDK
   checks; SDK and shared toolchain changes select app compatibility checks.
 - Benchmark workloads require an explicit command or a `workflow_dispatch`
   workflow. Do not include them in normal test suites or generated CI suites.

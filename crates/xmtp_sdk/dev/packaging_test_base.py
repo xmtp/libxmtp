@@ -70,6 +70,7 @@ class PackagingTestBase:
             patch.object(mobile.artifacts, "provenance", side_effect=self.provenance),
             patch.object(artifacts, "formatter", return_value=[]),
             patch.object(artifacts, "runtime_packages", return_value={}),
+            patch.object(artifacts, "bindgen_route", return_value="cargo"),
         ]
         for item in self.patches:
             item.start()
@@ -77,10 +78,8 @@ class PackagingTestBase:
             artifacts=self.root / "compiled",
             targets=("swift",),
             out=self.root / "generated",
-            features="",
             rust_target="",
             skip_bindgen=False,
-            reuse_bindgen=None,
             profile="release",
         )
 

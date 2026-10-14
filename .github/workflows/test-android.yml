@@ -12,7 +12,8 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 40
     env:
-      NIX_DEVSHELL: android
+      # The slim CI shell: no Rust toolchain, no emulator.
+      NIX_DEVSHELL: android-ci
     steps:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix
@@ -37,6 +38,18 @@ jobs:
       run: dev/nix-shell 'just android check'
     - name: Check Kotlin consumers
       run: dev/nix-shell 'just android check-consumers'
+    # The release AAR over the Nix libraries, with strict dependency
+    # verification: the input of the Kotlin SDK benchmark.
+    - name: Stage the Android AAR from the Nix libraries
+      run: dev/nix-shell 'XMTP_SDK_BUILD=nix just sdk generate kotlin && just sdk mobile-stage android'
+    - name: Retain Android AAR and contract
+      uses: actions/upload-artifact@v7
+      with:
+        name: android-sdk-stage
+        if-no-files-found: error
+        path: |
+          target/sdk-packages/android/xmtp-sdk.aar
+          target/sdk-packages/android/sdk-contract.json
     - name: Retain backend startup diagnostics
       if: failure()
       uses: actions/upload-artifact@v7
@@ -50,7 +63,8 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     env:
-      NIX_DEVSHELL: android
+      # The slim CI shell with the emulator; no Rust toolchain.
+      NIX_DEVSHELL: android-ci-emulator
     steps:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix
@@ -115,53 +129,6 @@ jobs:
           sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
           ${{ runner.temp }}/android-api23-emulator-startup/
         include-hidden-files: 'true'
-  android-stage:
-    name: Android SDK staging
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    environment:
-      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
-    timeout-minutes: 90
-    permissions:
-      contents: read
-    env:
-      NIX_DEVSHELL: android
-      SQLX_OFFLINE: "true"
-    steps:
-    - name: Checkout
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-    - uses: ./.github/actions/setup-nix
-      with:
-        cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
-        cachix-auth-token: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && secrets.CACHIX_AUTH_TOKEN || '' }}
-        cachix-pr-auth-token: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
-        kache: "true"
-        github-token: ${{ github.token }}
-        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
-        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
-        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
-        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-        kache-scope: sdk-android-release
-        kache-readonly: "false"
-    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
-    - name: Build Kotlin SDK artifacts
-      run: dev/nix-shell 'just sdk build kotlin --profile release'
-    - name: Render Kotlin SDK bindings
-      run: dev/nix-shell 'just sdk render kotlin --profile release'
-    - name: Build all Android ABI libraries
-      run: dev/nix-shell 'just sdk mobile-build android'
-    - name: Clear prior Android package output
-      run: rm -rf target/sdk-packages/android
-    - name: Stage Android AAR with strict dependency verification
-      run: dev/nix-shell 'just sdk mobile-stage android'
-    - name: Retain Android AAR and contract
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-      with:
-        name: android-sdk-stage
-        if-no-files-found: error
-        path: |
-          target/sdk-packages/android/xmtp-sdk.aar
-          target/sdk-packages/android/sdk-contract.json
   results:
     name: Require selected Android checks
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -170,8 +137,7 @@ jobs:
     needs:
     - sdk-build
     - sdk-emulator
-    - android-stage
     steps:
     - env:
-        PASSED: ${{ needs.sdk-build.result == 'success' && needs.sdk-emulator.result == 'success' && needs.android-stage.result == 'success' }}
+        PASSED: ${{ needs.sdk-build.result == 'success' && needs.sdk-emulator.result == 'success' }}
       run: test "$PASSED" = true

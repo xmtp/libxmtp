@@ -111,6 +111,64 @@ def provenance():
     )
 
 
+def fork_revision():
+    """The pinned uniffi-bindgen-react-native fork revision."""
+    # Imported here: other actions also run on Python before 3.11.
+    import tomllib
+
+    manifest = tomllib.loads((ROOT / "Cargo.toml").read_text())
+    return manifest["workspace"]["metadata"]["xmtp-sdk-fork"]["rev"]
+
+
+# The workflow whose `windows` job builds the cargo pair: its build recipe.
+NODE_PLATFORM_RECIPE = ".github/workflows/build-sdk-node-platforms.yml"
+
+
+def source_key(profile="", rust_target=""):
+    """The source identity of a cargo-built pair (the Windows Node pair).
+
+    It digests the committed trees of the SDK input paths, so two commits
+    with the same SDK inputs share it, and it names no commit. With a Rust
+    target it adds `key`, the pair's cache key: source, profile, target, the
+    runtime fork revision, the build recipe (the committed workflow that
+    builds the pair), and the compiler context (`build_context`).
+    """
+    paths = [*COMMIT_INPUTS, *([NODE_PLATFORM_RECIPE] if rust_target else [])]
+    changed = subprocess.run(
+        ["git", "diff", "--quiet", "HEAD", "--", *paths], cwd=ROOT
+    ).returncode
+    if changed or untracked_inputs():
+        raise ValueError("the source key needs committed SDK inputs")
+    trees = subprocess.check_output(
+        ["git", "ls-tree", "HEAD", "--", *COMMIT_INPUTS], cwd=ROOT
+    )
+    identity = {
+        "source": "tree:" + hashlib.sha256(trees).hexdigest(),
+        "forkRevision": fork_revision(),
+    }
+    if rust_target:
+        identity["key"] = hashlib.sha256(
+            json.dumps(
+                [
+                    "native",
+                    profile,
+                    "",
+                    rust_target,
+                    identity["source"],
+                    "vendored-static-openssl-v1",
+                    identity["forkRevision"],
+                    subprocess.check_output(
+                        ["git", "rev-parse", f"HEAD:{NODE_PLATFORM_RECIPE}"],
+                        cwd=ROOT,
+                        text=True,
+                    ).strip(),
+                    build_context(),
+                ]
+            ).encode()
+        ).hexdigest()
+    return identity
+
+
 def source_hash(generator=False):
     """The SDK source identity, or with `generator` the bindgen executable's."""
     return provenance()["generator" if generator else "source"]
@@ -124,14 +182,75 @@ def render_hash(language):
     ]
 
 
-def compiler_host():
-    """Read the host triple from the selected artifact compiler."""
-    compiler = os.environ.get("RUSTC") or os.environ.get("CARGO_BUILD_RUSTC") or "rustc"
-    identity = subprocess.check_output([compiler, "-vV"], cwd=ROOT).decode()
-    for line in identity.splitlines():
-        if line.startswith("host: "):
-            return line.removeprefix("host: ")
-    raise ValueError("Artifact compiler identity has no host triple")
+# The branch whose commits the warm workflow builds into the trusted cache.
+TRUNK = "origin/self-hosted"
+# Files outside the crates that change every Cargo build of a package.
+CARGO_INPUTS = ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo")
+
+
+def closure_paths(package):
+    """The directories of the workspace crates that `package` builds with.
+
+    Normal and build dependencies only, from `cargo metadata`; each path is
+    relative to the repository root.
+    """
+    metadata = json.loads(
+        subprocess.check_output(
+            ["cargo", "metadata", "--format-version", "1", "--locked", "--offline"],
+            cwd=ROOT,
+        )
+    )
+    local = {
+        item["id"]: Path(item["manifest_path"]).parent
+        for item in metadata["packages"]
+        if item["source"] is None
+    }
+    nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
+    start = next(item["id"] for item in metadata["packages"] if item["name"] == package)
+    pending, seen = [start], {start}
+    while pending:
+        for dependency in nodes[pending.pop()]["deps"]:
+            built = any(kind["kind"] != "dev" for kind in dependency["dep_kinds"])
+            if built and dependency["pkg"] in local and dependency["pkg"] not in seen:
+                seen.add(dependency["pkg"])
+                pending.append(dependency["pkg"])
+    return sorted(str(local[item].relative_to(ROOT)) for item in seen)
+
+
+def bindgen_route():
+    """Return where the bindgen comes from: `nix` or `cargo`.
+
+    `nix` (`.#xmtp-sdk-bindgen`, a cache hit when trunk built it) unless a
+    file of the bindgen's crates or Cargo inputs differs from the merge base
+    with trunk: then a cargo debug build, which an edit rebuilds faster than
+    Nix. CI, a missing merge base (a shallow clone), or a failed check keep
+    cargo. XMTP_SDK_BINDGEN=nix|cargo overrides the choice.
+    """
+    choice = os.environ.get("XMTP_SDK_BINDGEN", "")
+    if choice in ("nix", "cargo"):
+        return choice
+    if choice:
+        raise ValueError(f"XMTP_SDK_BINDGEN must be nix or cargo, not {choice}")
+    if os.environ.get("CI"):
+        return "cargo"
+    try:
+        base = subprocess.check_output(
+            ["git", "merge-base", "HEAD", TRUNK],
+            cwd=ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        paths = [*closure_paths("xmtp-sdk-bindgen"), *CARGO_INPUTS]
+        changed = subprocess.run(
+            ["git", "diff", "--quiet", base, "--", *paths], cwd=ROOT
+        ).returncode
+        added = subprocess.check_output(
+            ["git", "ls-files", "--others", "--exclude-standard", "--", *paths],
+            cwd=ROOT,
+        )
+    except (subprocess.CalledProcessError, OSError, StopIteration):
+        return "cargo"
+    return "cargo" if changed or added else "nix"
 
 
 def build_context():
@@ -182,26 +301,8 @@ def build_context():
         or "_OPENSSL_" in name
         or name.endswith("_DEPLOYMENT_TARGET")
     }
-    archive_indexes = {}
-    for name, value in flags.items():
-        if name == "RANLIB" or name.startswith("RANLIB_"):
-            tool = Path(shutil.which(value) or ROOT / value)
-            identity = {"path": str(tool.resolve()), "bytes": None, "version": None}
-            if tool.is_file():
-                identity["bytes"] = digest(tool.resolve())
-                probe = subprocess.run(
-                    [str(tool), "--version"], cwd=ROOT, capture_output=True, check=False
-                )
-                identity["version"] = [
-                    probe.returncode,
-                    probe.stdout.decode(errors="replace"),
-                    probe.stderr.decode(errors="replace"),
-                ]
-            archive_indexes[name] = identity
     return hashlib.sha256(
-        json.dumps(
-            [compiler, compiler_bytes, flags, archive_indexes], sort_keys=True
-        ).encode()
+        json.dumps([compiler, compiler_bytes, flags], sort_keys=True).encode()
     ).hexdigest()
 
 
@@ -220,7 +321,9 @@ def targets(value):
 
 
 def required(names):
-    return ["native", "bindgen"] + (["wasm", "pure"] if "browser" in names else [])
+    # No browser artifact links the host library.
+    native = ["native"] if set(names) - {"browser"} else []
+    return native + ["bindgen"] + (["wasm", "pure"] if "browser" in names else [])
 
 
 def verify(record):
@@ -245,12 +348,25 @@ def build(args):
     for kind in required(args.targets):
         if kind == "bindgen" and args.skip_bindgen:
             continue
+        if kind == "bindgen" and bindgen_route() == "nix":
+            link = output / "bindgen-nix"
+            run(["nix", "build", "--out-link", link, ".#xmtp-sdk-bindgen"])
+            binary = link / "bin/xmtp-sdk-bindgen"
+            index["artifacts"][kind] = {
+                "key": f"nix:{binary.resolve()}",
+                "files": {str(binary): digest(binary)},
+                "seconds": 0,
+                "features": "",
+                "profile": "release",
+                "source": rust_source,
+                "generator": generator,
+                "target": "",
+            }
+            index_file.write_text(json.dumps(index, indent=2) + "\n")
+            print("SDK bindgen from Nix", flush=True)
+            continue
         profile = "debug" if kind == "bindgen" else args.profile
-        features = (
-            args.features
-            if kind == "native"
-            else ("pure-only" if kind == "pure" else "")
-        )
+        features = "pure-only" if kind == "pure" else ""
         key = hashlib.sha256(
             json.dumps(
                 [
@@ -265,24 +381,13 @@ def build(args):
                 ]
             ).encode()
         ).hexdigest()
-        if kind == "bindgen" and args.reuse_bindgen:
-            shared = args.reuse_bindgen / "artifacts.json"
-            if shared.exists():
-                shared_record = json.loads(shared.read_text())["artifacts"].get(
-                    "bindgen"
-                )
-                if shared_record and shared_record["key"] == key:
-                    verify(shared_record)
-                    index["artifacts"][kind] = shared_record
-                    index_file.write_text(json.dumps(index, indent=2) + "\n")
-                    print(f"SDK reuse shared bindgen {key}", flush=True)
-                    continue
         cached = index["artifacts"].get(kind)
         if cached and cached["key"] == key:
             verify(cached)
             print(f"SDK reuse {kind} {key}", flush=True)
             continue
-        cargo_target = output / "build" / kind
+        # The two WASM builds share one target directory and its dependencies.
+        cargo_target = output / "build" / ("wasm" if kind == "pure" else kind)
         command = [
             "cargo",
             "build",
@@ -482,9 +587,12 @@ def render(args):
             raise ValueError("source mismatch; run build first")
     binary = next(iter(selected["bindgen"]["files"]))
     native = next(
-        path
-        for path in selected["native"]["files"]
-        if Path(path).suffix != ".a" and Path(path).suffix != ".lib"
+        (
+            path
+            for path in selected.get("native", {"files": {}})["files"]
+            if Path(path).suffix not in (".a", ".lib")
+        ),
+        None,
     )
     typescript = {"node", "browser"} & set(args.targets)
     oxfmt = formatter() if typescript else []
@@ -553,8 +661,13 @@ def render(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     # `provenance` prints the source and Node render identities, for a caller
-    # that runs `xmtp-sdk-bindgen render` itself (the Windows load job).
-    parser.add_argument("action", choices=("build", "render", "provenance"))
+    # that runs `xmtp-sdk-bindgen render` itself (the Windows load job). `key`
+    # prints the source key of a cargo-built pair as JSON (`source_key`).
+    # `paths PACKAGE` prints the workspace crates that PACKAGE builds with.
+    parser.add_argument(
+        "action", choices=("build", "render", "provenance", "key", "paths")
+    )
+    parser.add_argument("package", nargs="?", default="xmtp_sdk")
     parser.add_argument("--targets", type=targets, default=TARGETS)
     parser.add_argument("--artifacts", type=Path, default=ROOT / "target/sdk-artifacts")
     parser.add_argument(
@@ -565,17 +678,17 @@ def main():
         ),
     )
     parser.add_argument("--profile", choices=("debug", "release"), default="debug")
-    parser.add_argument("--features", default="")
     parser.add_argument("--rust-target", default="")
     parser.add_argument("--skip-bindgen", action="store_true")
-    parser.add_argument(
-        "--reuse-bindgen", type=Path, default=ROOT / "target/sdk-artifacts"
-    )
     args = parser.parse_args()
     try:
         if args.action == "provenance":
             # The identities of a Node render.
             print(source_hash(), render_hash("typescript-napi"))
+        elif args.action == "key":
+            print(json.dumps(source_key(args.profile, args.rust_target)))
+        elif args.action == "paths":
+            print("\n".join(closure_paths(args.package)))
         else:
             (build if args.action == "build" else render)(args)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:

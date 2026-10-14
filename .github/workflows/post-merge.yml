@@ -69,9 +69,10 @@ jobs:
           done
 
   # The JavaScript jobs restore the pnpm store and never save it (mode ci).
-  # This job saves it when the lockfile key misses. `pnpm install` runs the
-  # packages' install scripts, so the job has no writer environment and no
-  # Cachix token; saving a GitHub cache needs neither.
+  # This job saves it when the lockfile key misses. setup-js runs no install
+  # scripts in mode trusted, so no script writes into the saved store. The job
+  # has no writer environment and no Cachix token; saving a GitHub cache needs
+  # neither.
   pnpm-store:
     name: Save the pnpm store
     runs-on: blacksmith-16vcpu-ubuntu-2404

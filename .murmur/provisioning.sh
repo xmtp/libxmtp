@@ -216,8 +216,8 @@ if git clone --depth 1 --branch self-hosted \
   # out-link under gcroots pins the entire closure -- no requisites walk, and
   # no cap on how much gets pinned.
   #
-  # The `rust` shell is what .envrc selects and what backend.just defaults to;
-  # `default` is what `dev/nix-shell` picks with no NIX_DEVSHELL set.
+  # `default` is what `dev/nix-shell` and .envrc pick with no NIX_DEVSHELL
+  # set; it layers on the `rust` core, which backend.just and CI Rust jobs use.
   # Cap each shell against the budget that is actually left, not a fixed 20m.
   # Two fixed 20m caps plus the later steps' caps total more than the 1h
   # recipe ceiling, so a slow pair of shells could run the bake out of time

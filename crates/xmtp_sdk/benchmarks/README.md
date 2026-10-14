@@ -49,13 +49,16 @@ that `NIX_DEVSHELL` names. Set it inside the command, because the `js` and
 - `browser`: stage with `just sdk generate browser` and
   `just sdk stage browser`. Run
   `dev/nix-shell 'NIX_DEVSHELL=js just sdk bench browser'`.
-- `swift`: stage with `just sdk generate swift`, `just sdk mobile-build ios`
-  and `just sdk mobile-stage ios`. Boot one iOS Simulator. Run
+- `swift`: stage the release libraries of `.#ios-xcframeworks` with
+  `just sdk mobile-stage ios`. Boot one iOS Simulator. Run
   `dev/nix-shell 'NIX_DEVSHELL=ios just sdk bench swift'`.
-- `kotlin`: stage with `just sdk generate kotlin`,
-  `just sdk mobile-build android` and `just sdk mobile-stage android`. Start
-  one device or emulator. Run
+- `kotlin`: stage the AAR over the release libraries of `.#android-sdk-libs`
+  with `XMTP_SDK_BUILD=nix just sdk generate kotlin` and
+  `just sdk mobile-stage android`. Start one device or emulator. Run
   `dev/nix-shell 'NIX_DEVSHELL=android just sdk bench kotlin'`.
+
+Both mobile hosts measure the release bytes that ship; no cargo build route
+is left for them.
 
 Options: `--samples N` (default 5), `--output DIR` (a new directory; the
 default is `target/sdk-bench/<host>-<time>`), `--timeout SECONDS` per host
