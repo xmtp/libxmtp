@@ -35,6 +35,7 @@ public enum AttachmentAction: Sendable {
 	private let tasks = InFlightTasks()
 	private var downloadRevision: UInt64 = 0
 	private var downloads: [UUID: Task<Void, Never>] = [:]
+	private var downloadAdmissions: [String: UUID] = [:]
 	private var activeSends: Set<UUID> = []
 	private var discardedIDs: Set<UUID> = []
 	private var discardedFiles: [UUID: FileDescriptor] = [:]
@@ -81,6 +82,7 @@ public enum AttachmentAction: Sendable {
 	public func invalidateDownloads() {
 		downloadRevision &+= 1
 		downloads.values.forEach { $0.cancel() }
+		downloadAdmissions.removeAll()
 		verified.clear()
 		for id in state.cards.keys {
 			state.cards[id]?.phase = .available
@@ -297,12 +299,22 @@ private extension AttachmentStore {
 	}
 
 	func startDownload(_ action: AttachmentAction) {
+		guard case let .download(messageID, _) = action, downloadAdmissions[messageID] == nil else { return }
 		let id = UUID()
+		downloadAdmissions[messageID] = id
 		let revision = downloadRevision
 		downloads[id] = tasks.start {
-			defer { self.downloads.removeValue(forKey: id) }
+			defer {
+				self.downloads.removeValue(forKey: id)
+				if self.downloadAdmissions[messageID] == id {
+					self.downloadAdmissions.removeValue(forKey: messageID)
+				}
+			}
 			guard !Task.isCancelled, revision == self.downloadRevision else { return }
 			await self.run(action)
+		}
+		if downloads[id] == nil {
+			downloadAdmissions.removeValue(forKey: messageID)
 		}
 	}
 
