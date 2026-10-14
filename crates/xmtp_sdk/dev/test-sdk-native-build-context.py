@@ -110,6 +110,9 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
         (self.root / "Cargo.toml").write_text(
             '[workspace.metadata.xmtp-sdk-fork]\nrev = "' + "f" * 40 + '"\n'
         )
+        recipe = self.root / artifacts.NODE_PLATFORM_RECIPE
+        recipe.parent.mkdir(parents=True)
+        recipe.write_text("windows: build")
         source = self.root / "crates/xmtp_sdk/src/lib.rs"
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text("pub fn one() {}")
@@ -128,6 +131,15 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
         )
         self.assertEqual(artifacts.source_key()["source"], key["source"])
         self.assertNotIn("key", artifacts.source_key())
+        # The build recipe and the compiler context are part of the key only.
+        recipe.write_text("windows: changed build")
+        commit("recipe")
+        changed = artifacts.source_key("release", "x86_64-pc-windows-msvc")
+        self.assertEqual(changed["source"], key["source"])
+        self.assertNotEqual(changed["key"], key["key"])
+        with patch.object(artifacts, "build_context", return_value="other compiler"):
+            other = artifacts.source_key("release", "x86_64-pc-windows-msvc")
+        self.assertNotEqual(other["key"], changed["key"])
         # An uncommitted input has no key; a committed one changes it.
         source.write_text("pub fn two() {}")
         with self.assertRaisesRegex(ValueError, "committed SDK inputs"):

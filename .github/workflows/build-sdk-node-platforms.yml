@@ -158,6 +158,8 @@ jobs:
     timeout-minutes: 90
     env:
       SQLX_OFFLINE: "true"
+      # In the job env, so the key's compiler context sees the build's flags.
+      OPENSSL_SRC_PERL: C:/Strawberry/perl/bin/perl.exe
     strategy:
       fail-fast: false
       matrix:
@@ -166,11 +168,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
-      # The pair is cached by the source key of its SDK inputs, not by commit,
-      # so a re-dispatch with unchanged SDK sources reuses it. A run restores
+      # The pair is cached by the source key of its SDK inputs, build recipe
+      # (this file), and compiler, not by commit, so a re-dispatch with
+      # unchanged SDK sources reuses it. A run restores
       # entries from its own ref, then from main (the nightly and dispatches
       # on main save there). This is a release-only exception to selecting
       # nothing by cache status: Windows has no Nix store to substitute from.
+      # The key names the compiler (`rustc -vV`), so install the toolchain of
+      # rust-toolchain.toml first; setup-rust and its cache run only on a miss.
+      - name: Pinned Rust toolchain
+        shell: bash
+        run: rustup toolchain install
       - name: Source key
         id: key
         shell: bash
@@ -215,7 +223,6 @@ jobs:
         if: steps.restore.outputs.cache-hit != 'true'
         shell: bash
         env:
-          OPENSSL_SRC_PERL: C:/Strawberry/perl/bin/perl.exe
           TARGET: ${{ matrix.target }}
           RUST_TARGET: ${{ matrix.rustTarget }}
           LIBRARY: ${{ matrix.library }}

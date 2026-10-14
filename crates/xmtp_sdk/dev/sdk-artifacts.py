@@ -120,17 +120,22 @@ def fork_revision():
     return manifest["workspace"]["metadata"]["xmtp-sdk-fork"]["rev"]
 
 
+# The workflow whose `windows` job builds the cargo pair: its build recipe.
+NODE_PLATFORM_RECIPE = ".github/workflows/build-sdk-node-platforms.yml"
+
+
 def source_key(profile="", rust_target=""):
     """The source identity of a cargo-built pair (the Windows Node pair).
 
     It digests the committed trees of the SDK input paths, so two commits
     with the same SDK inputs share it, and it names no commit. With a Rust
-    target it adds `key`, the pair's cache key: source, profile, target, and
-    the runtime fork revision. The toolchain is part of the source, through
-    `rust-toolchain.toml`.
+    target it adds `key`, the pair's cache key: source, profile, target, the
+    runtime fork revision, the build recipe (the committed workflow that
+    builds the pair), and the compiler context (`build_context`).
     """
+    paths = [*COMMIT_INPUTS, *([NODE_PLATFORM_RECIPE] if rust_target else [])]
     changed = subprocess.run(
-        ["git", "diff", "--quiet", "HEAD", "--", *COMMIT_INPUTS], cwd=ROOT
+        ["git", "diff", "--quiet", "HEAD", "--", *paths], cwd=ROOT
     ).returncode
     if changed or untracked_inputs():
         raise ValueError("the source key needs committed SDK inputs")
@@ -152,6 +157,12 @@ def source_key(profile="", rust_target=""):
                     identity["source"],
                     "vendored-static-openssl-v1",
                     identity["forkRevision"],
+                    subprocess.check_output(
+                        ["git", "rev-parse", f"HEAD:{NODE_PLATFORM_RECIPE}"],
+                        cwd=ROOT,
+                        text=True,
+                    ).strip(),
+                    build_context(),
                 ]
             ).encode()
         ).hexdigest()
