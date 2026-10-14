@@ -42,24 +42,29 @@ let
   # artifacts because their exported Rust interfaces differ.
   wasmDeps = xmtp.base.mkCargoArtifacts rust wasmArgs;
   mkWasm =
-    pure:
+    pname: features:
     rust.buildPackage (
       common
       // wasmArgs
       // {
-        pname = if pure then "xmtp-sdk-pure-wasm" else "xmtp-sdk-wasm";
+        inherit pname;
         src = sdkSource;
         cargoArtifacts = wasmDeps;
         buildPhaseCargoCommand =
-          wasmArgs.buildPhaseCargoCommand + lib.optionalString pure " --features pure-only";
+          wasmArgs.buildPhaseCargoCommand + lib.optionalString (features != "") " --features ${features}";
         installPhaseCommand = ''
           mkdir -p $out/lib
           cp target/wasm32-unknown-unknown/release/xmtp_sdk.wasm $out/lib/
         '';
       }
     );
-  wasm = mkWasm false;
-  pureWasm = mkWasm true;
+  wasm = mkWasm "xmtp-sdk-wasm" "";
+  pureWasm = mkWasm "xmtp-sdk-pure-wasm" "pure-only";
+  # Browser platform test fixtures. `conformance` adds test exports and enables
+  # no third-party feature, so they reuse `wasmDeps`. WASM aborts on a panic in
+  # every profile, so release fixtures keep the panic proofs' meaning.
+  panicFixtureWasm = mkWasm "xmtp-sdk-wasm-fixture-panic-lib" "bridge-panic-test,conformance";
+  codecFixtureWasm = mkWasm "xmtp-sdk-pure-fixture-codec-lib" "pure-only,conformance";
   # The SDK library and the bindgen keep separate dependency layers. Cargo
   # unifies features across `-p xmtp_sdk -p xmtp-sdk-bindgen` (the bindgen is
   # outside hakari), so a shared layer gives libc, syn, serde_json, and others
@@ -138,13 +143,35 @@ let
     typescript-wasm = "browser-worker";
     typescript-pure = "browser-pure";
   };
+  # The @ubjs runtimes that each TypeScript tree imports.
+  runtimeLinks = {
+    typescript-napi = [
+      "core"
+      "node"
+    ];
+    typescript-wasm = [
+      "core"
+      "wasm"
+    ];
+    typescript-pure = [
+      "core"
+      "wasm"
+    ];
+  };
   # One renderer writes each tree and its receipt. It takes the identities that
   # Nix computes at evaluation, and TypeScript is formatted with one nixpkgs
-  # oxfmt, so the cargo route (`sdk-artifacts.py`) writes the same bytes.
+  # oxfmt, so the cargo route (`sdk-artifacts.py`) writes the same bytes. A
+  # TypeScript tree links its @ubjs runtimes in `node_modules`, so the output
+  # is their GC root and loads without a link step.
   mkRender =
-    language: artifact: pure:
+    {
+      pname,
+      language,
+      artifact,
+      features ? "",
+    }:
     stdenvNoCC.mkDerivation {
-      pname = "xmtp-sdk-render-${language}";
+      inherit pname;
       version = xmtp.mkVersion rust;
       src = sources.generationSource language;
       nativeBuildInputs = [
@@ -156,21 +183,43 @@ let
         xmtp-sdk-bindgen render --lib ${artifact} --target ${renderTargets.${language}} \
           ${lib.optionalString (lib.hasPrefix "typescript-" language) "--oxfmt ${pkgs.oxfmt}/bin/oxfmt"} \
           --source ${sources.provenance.source} --generator ${sources.provenance.generator} \
-          ${lib.optionalString pure "--features pure-only"} --out "$out"
+          ${lib.optionalString (features != "") "--features ${features}"} --out "$out"
+        ${lib.concatMapStrings (name: ''
+          mkdir -p "$out/node_modules/@ubjs"
+          ln -s ${ubrn.${name}}/lib/node_modules/@ubjs/${name} "$out/node_modules/@ubjs/${name}"
+        '') (runtimeLinks.${language} or [ ])}
       '';
       installPhase = "true";
     };
+  mkProductRender =
+    language: artifact: features:
+    mkRender {
+      pname = "xmtp-sdk-render-${language}";
+      inherit language artifact features;
+    };
   renders = {
-    swift = mkRender "swift" nativeLibrary false;
-    kotlin = mkRender "kotlin" nativeLibrary false;
-    typescript-napi = mkRender "typescript-napi" nativeLibrary false;
-    typescript-wasm = mkRender "typescript-wasm" "${wasm}/lib/xmtp_sdk.wasm" false;
-    typescript-pure = mkRender "typescript-pure" "${pureWasm}/lib/xmtp_sdk.wasm" true;
+    swift = mkProductRender "swift" nativeLibrary "";
+    kotlin = mkProductRender "kotlin" nativeLibrary "";
+    typescript-napi = mkProductRender "typescript-napi" nativeLibrary "";
+    typescript-wasm = mkProductRender "typescript-wasm" "${wasm}/lib/xmtp_sdk.wasm" "";
+    typescript-pure = mkProductRender "typescript-pure" "${pureWasm}/lib/xmtp_sdk.wasm" "pure-only";
   };
-  # Each tree is a copy of its render, with its receipt, plus links to the
-  # @ubjs runtimes that staging copies.
+  panicFixture = mkRender {
+    pname = "xmtp-sdk-wasm-fixture-panic";
+    language = "typescript-wasm";
+    artifact = "${panicFixtureWasm}/lib/xmtp_sdk.wasm";
+    features = "bridge-panic-test,conformance";
+  };
+  codecFixture = mkRender {
+    pname = "xmtp-sdk-pure-fixture-codec";
+    language = "typescript-pure";
+    artifact = "${codecFixtureWasm}/lib/xmtp_sdk.wasm";
+    features = "pure-only,conformance";
+  };
+  # Each tree is a copy of its render: the receipt and the @ubjs links come
+  # with it.
   mkGenerated =
-    name: languages: runtimeNames:
+    name: languages:
     stdenvNoCC.mkDerivation {
       pname = "xmtp-sdk-generated${name}";
       version = xmtp.mkVersion rust;
@@ -181,12 +230,6 @@ let
         ${lib.concatMapStringsSep "\n" (language: ''
           cp -R ${renders.${language}} "$out/${language}"
         '') languages}
-        ${lib.optionalString (runtimeNames != [ ]) ''
-          mkdir -p "$out/runtimes"
-          ${lib.concatMapStringsSep "\n" (runtime: ''
-            ln -s ${ubrn.${runtime}} "$out/runtimes/${runtime}"
-          '') runtimeNames}
-        ''}
       '';
       installPhase = "true";
       passthru = {
@@ -202,21 +245,14 @@ let
             );
       };
     };
-  generatedSwift = mkGenerated "-swift" [ "swift" ] [ ];
-  generatedKotlin = mkGenerated "-kotlin" [ "kotlin" ] [ ];
-  generatedNode = mkGenerated "-node" [ "typescript-napi" ] [ "core" "node" ];
-  generatedBrowser =
-    mkGenerated "-browser"
-      [
-        "typescript-wasm"
-        "typescript-pure"
-      ]
-      [ "core" "wasm" ];
-  generated = mkGenerated "" (builtins.attrNames renders) [
-    "core"
-    "node"
-    "wasm"
+  generatedSwift = mkGenerated "-swift" [ "swift" ];
+  generatedKotlin = mkGenerated "-kotlin" [ "kotlin" ];
+  generatedNode = mkGenerated "-node" [ "typescript-napi" ];
+  generatedBrowser = mkGenerated "-browser" [
+    "typescript-wasm"
+    "typescript-pure"
   ];
+  generated = mkGenerated "" (builtins.attrNames renders);
 in
 {
   libs = native;
@@ -229,6 +265,8 @@ in
     generatedKotlin
     generatedNode
     generatedBrowser
+    panicFixture
+    codecFixture
     iosTargets
     iosTargetsLocal
     nativeBuild

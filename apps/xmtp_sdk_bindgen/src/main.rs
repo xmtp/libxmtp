@@ -106,9 +106,7 @@ fn main() -> Result<()> {
             if let Some(oxfmt) = oxfmt {
                 format::use_formatter(oxfmt);
             }
-            if out.exists() && out.read_dir_utf8()?.next().is_some() {
-                bail!("{out}: render needs an absent or empty output directory");
-            }
+            require_empty(&out)?;
             let (language, pure_only, role) = match target {
                 Target::Swift => (Language::Swift, false, "native"),
                 Target::Kotlin => (Language::Kotlin, false, "native"),
@@ -461,6 +459,14 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
     Ok(())
 }
 
+/// The receipt lists every file of the tree, so a stale file must not be there.
+fn require_empty(out: &Utf8Path) -> Result<()> {
+    if out.exists() && out.read_dir_utf8()?.next().is_some() {
+        bail!("{out}: render needs an absent or empty output directory");
+    }
+    Ok(())
+}
+
 fn validate_pure_module(groups: &MetadataGroupMap) -> Result<()> {
     let items = groups
         .values()
@@ -613,6 +619,16 @@ mod tests {
                 .to_string()
                 .contains("blocking_lookup")
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn render_refuses_an_output_directory_with_files() {
+        let directory = tempfile::tempdir()?;
+        let out = Utf8Path::from_path(directory.path()).context("UTF-8 path")?;
+        require_empty(&out.join("absent"))?;
+        require_empty(out)?;
+        fs::write(out.join("stale.ts"), "stale")?;
+        assert!(require_empty(out).is_err());
     }
 
     #[test]

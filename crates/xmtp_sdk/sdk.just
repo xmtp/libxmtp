@@ -31,13 +31,13 @@ test-bridge *args:
 
 # Browser platform proofs in sdks/browser/test/platform: real WASM workers,
 # Chromium storage, package, logging and bridge proofs, and the Vitest
-# Playwright suite. Builds the panic and pure codec fixtures in the Rust shell.
+# Playwright suite. Copies the Nix-built panic and pure codec fixtures.
 test-browser:
     bash "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests"
 
 # Run only the real-worker and Chromium log queue proofs.
 test-browser-logging: wasm-init
-    cd "{{ root }}" && NIX_DEVSHELL=rust "{{ root }}/dev/nix-shell" 'bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture'
+    cd "{{ root }}" && bash crates/xmtp_sdk/dev/copy-browser-fixtures
     cd "{{ root }}" && NIX_DEVSHELL=js "{{ root }}/dev/nix-shell" 'NODE_OPTIONS=--preserve-symlinks sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/bridge.log.real.mts'
     cd "{{ root }}" && NIX_DEVSHELL=js "{{ root }}/dev/nix-shell" 'NODE_OPTIONS= sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/logging.chromium.mts'
 

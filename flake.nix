@@ -109,6 +109,8 @@
             xmtp-sdk-generated-kotlin = sdk.generatedKotlin;
             xmtp-sdk-generated-node = sdk.generatedNode;
             xmtp-sdk-generated-browser = sdk.generatedBrowser;
+            xmtp-sdk-wasm-fixture-panic = sdk.panicFixture;
+            xmtp-sdk-pure-fixture-codec = sdk.codecFixture;
             ubjs-core = pkgs.xmtp.ubrn.core;
             ubjs-node = pkgs.xmtp.ubrn.node;
             ubjs-wasm = pkgs.xmtp.ubrn.wasm;

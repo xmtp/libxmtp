@@ -35,9 +35,8 @@ Run commands from the repository root in the Nix shell. Run
   Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
   The TypeScript runtime imports the binding, so the lint and the bridge tests
   read its copy in each generated tree; `apps/xmtp_sdk_bindgen/GENERATED_LINT.md`
-  has the details. Generation replaces a tree without its `@ubjs` packages:
-  each script that loads or typechecks one links them first with
-  `crates/xmtp_sdk/dev/link-runtime-packages`. For editors,
+  has the details. Each generated TypeScript tree links its `@ubjs` packages
+  in its own `node_modules`, in both the Nix and cargo routes. For editors,
   `apps/xmtp_sdk_bindgen/runtime/ts/tsconfig.json` resolves the binding in the
   generated Node tree.
   It also rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) in
@@ -55,8 +54,11 @@ Run commands from the repository root in the Nix shell. Run
   codecs, worker failure, late reader opening, storage and OPFS, package
   workers, and logging), and then the Vitest Playwright suite (a real WASM
   trap, storage layouts, attachment and event lifetime, and decode-once). The
-  recipe builds the pure codec and panic fixtures in the Rust shell. These
-  fixtures enable the test-only `conformance` cargo feature, whose exports
+  recipe copies the pure codec and panic fixtures from Nix
+  (`.#xmtp-sdk-pure-fixture-codec`, `.#xmtp-sdk-wasm-fixture-panic`) with
+  `dev/copy-browser-fixtures`. These release-profile fixtures share the
+  product WASM dependency layer and enable the test-only `conformance` cargo
+  feature, whose exports
   (`sdk_conformance_*`) the default bindings omit. The public browser scenarios
   are in `sdks/browser/test`.
   The run starts `sdks/browser/test/platform/object-store/object-store.mjs`
@@ -71,7 +73,7 @@ Run commands from the repository root in the Nix shell. Run
   own held-upload relay (`sdks/node/test/heldUpload.ts`) on ephemeral loopback
   ports. It needs no `SDK_FIXTURE_URL` and no `protoc`.
 - `dev/nix-shell 'just sdk test-browser-logging'` runs only the real WASM worker
-  and Chromium log queue proofs. It reuses the existing conformance fixture and
+  and Chromium log queue proofs. It copies the panic fixture again and
   checks held callbacks, overflow, replacement, and delayed packet admission.
   Run `dev/nix-shell 'just sdk generate node,browser'` first.
 - `dev/nix-shell 'just sdk test-browser-storage'` runs only the real-worker OPFS

@@ -69,6 +69,7 @@ class PackagingTestBase:
             patch.object(mobile.artifacts, "ROOT", self.root),
             patch.object(mobile.artifacts, "provenance", side_effect=self.provenance),
             patch.object(artifacts, "formatter", return_value=[]),
+            patch.object(artifacts, "runtime_packages", return_value={}),
         ]
         for item in self.patches:
             item.start()

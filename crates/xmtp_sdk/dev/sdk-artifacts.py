@@ -354,6 +354,37 @@ RENDER_TARGETS = {
 }
 
 
+# The @ubjs runtimes that each TypeScript tree imports (`nix/package/xmtp-sdk.nix`).
+RUNTIMES = {
+    "typescript-napi": ("core", "node"),
+    "typescript-wasm": ("core", "wasm"),
+    "typescript-pure": ("core", "wasm"),
+}
+
+
+def runtime_packages(names):
+    """Build the pinned @ubjs runtimes and return each package directory."""
+    built = json.loads(
+        subprocess.check_output(
+            [
+                "nix",
+                "build",
+                "--no-link",
+                "--json",
+                *(f".#ubjs-{name}" for name in names),
+            ],
+            cwd=ROOT,
+        )
+    )
+    outputs = [Path(result["outputs"]["out"]) for result in built]
+    return {
+        name: next(path for path in outputs if f"-ubjs-{name}-" in path.name)
+        / "lib/node_modules/@ubjs"
+        / name
+        for name in names
+    }
+
+
 def target_languages(target):
     if target == "browser":
         return ("typescript-wasm", "typescript-pure")
@@ -406,7 +437,22 @@ def render(args):
         for path in selected["native"]["files"]
         if Path(path).suffix != ".a" and Path(path).suffix != ".lib"
     )
-    oxfmt = formatter() if {"node", "browser"} & set(args.targets) else []
+    typescript = {"node", "browser"} & set(args.targets)
+    oxfmt = formatter() if typescript else []
+    runtimes = (
+        runtime_packages(
+            sorted(
+                {
+                    name
+                    for target in args.targets
+                    for language in target_languages(target)
+                    for name in RUNTIMES.get(language, ())
+                }
+            )
+        )
+        if typescript
+        else {}
+    )
     destination = args.out.resolve()
     destination.mkdir(parents=True, exist_ok=True)
     for target in args.targets:
@@ -447,6 +493,11 @@ def render(args):
                     *(oxfmt if language.startswith("typescript-") else []),
                 ]
             )
+            # Like the Nix render, the tree loads its runtimes from node_modules.
+            for name in RUNTIMES.get(language, ()):
+                link = tree / "node_modules/@ubjs" / name
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(runtimes[name])
     print(f"SDK rendered {','.join(args.targets)} with generator {generator}")
 
 

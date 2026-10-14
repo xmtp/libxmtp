@@ -356,8 +356,17 @@ class ArtifactTests(unittest.TestCase):
             artifacts, "formatter", return_value=["--oxfmt", "fixture-oxfmt"]
         )
         self.formatter_patch.start()
+        self.runtime_patch = patch.object(
+            artifacts,
+            "runtime_packages",
+            side_effect=lambda names: {
+                name: self.root / "store" / name for name in names
+            },
+        )
+        self.runtime_patch.start()
 
     def tearDown(self):
+        self.runtime_patch.stop()
         self.formatter_patch.stop()
         self.run_patch.stop()
         self.hash_patch.stop()
@@ -564,6 +573,22 @@ class ArtifactTests(unittest.TestCase):
                 self.assertEqual(
                     "--oxfmt" in command, target not in ("swift", "kotlin")
                 )
+
+    def test_typescript_trees_link_their_runtimes(self):
+        self.render_all_targets()
+        for language, names in (
+            ("typescript-napi", ["core", "node"]),
+            ("typescript-wasm", ["core", "wasm"]),
+            ("typescript-pure", ["core", "wasm"]),
+            ("swift", []),
+            ("kotlin", []),
+        ):
+            with self.subTest(language=language):
+                packages = self.args.out / language / "node_modules/@ubjs"
+                links = sorted(packages.iterdir()) if packages.exists() else []
+                self.assertEqual([link.name for link in links], names)
+                for link in links:
+                    self.assertEqual(link.readlink(), self.root / "store" / link.name)
 
     def test_formatter_is_the_shell_oxfmt_or_the_flake_nixpkgs_oxfmt(self):
         self.formatter_patch.stop()

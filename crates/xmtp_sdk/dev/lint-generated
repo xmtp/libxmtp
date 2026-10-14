@@ -30,8 +30,6 @@ if rg -n '@xmtp-[a-z][a-z0-9-]*([^a-z0-9/-]|$)' "$generated" --glob '*.swift' --
 fi
 
 echo "Linting the runtime and generated files; stock ubrn output stays excluded."
-bash crates/xmtp_sdk/dev/link-runtime-packages \
-  "$generated/typescript-napi" "$generated/typescript-wasm" "$generated/typescript-pure"
 # The runtime imports the binding and the files generated beside it, so its
 # copies in the generated trees are linted and typechecked, with the real
 # binding. A target replaces some runtime files with its own. The renderer
