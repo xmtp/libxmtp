@@ -549,18 +549,22 @@ class Metrics(unittest.TestCase):
             output,
         )
 
-    def split_wasm_fixture(self, built_part=None):
+    def split_wasm_fixture(self, built_part=None, built_archive=False):
         """A merge run with the WASM archive job and 4 partition jobs.
 
-        Every job fetches its output, except `built_part`, which builds it.
+        Every job fetches its output, except `built_part` and, with
+        `built_archive`, the archive job, which build theirs.
         """
         fixture = merge_run_fixture()
         jobs = [item for item in fixture["jobs"]["1"] if item["id"] != 901]
         del fixture["logs"]["901"]
         jobs.append(job(910, "Test suites / test_wasm / Test (WASM archive)", 60, 300))
+        archive = f"{'5' * 32}-wasm-nextest-archive-1.12.0-dev"
         fixture["logs"]["910"] = (
-            "2026-10-13T12:01:01.0000000Z this path will be fetched (9.00 MiB download):\n"
-            f"2026-10-13T12:01:01.0000000Z   /nix/store/{'5' * 32}-wasm-nextest-archive-1.12.0-dev\n"
+            f"2026-10-13T12:01:02.0000000Z building '/nix/store/{archive}.drv'...\n"
+            if built_archive
+            else "2026-10-13T12:01:01.0000000Z this path will be fetched (9.00 MiB download):\n"
+            f"2026-10-13T12:01:01.0000000Z   /nix/store/{archive}\n"
         )
         for part in range(1, 5):
             job_id = 910 + part
@@ -587,6 +591,13 @@ class Metrics(unittest.TestCase):
             self.split_wasm_fixture(built_part=4), "runs", "1"
         ).stdout
         self.assertIn("nextest=fetched wasm=built", output.splitlines()[0])
+
+    def test_split_wasm_archive_build_alone_runs_no_tests(self):
+        # The archive only compiles; the fetched partitions mean no test ran.
+        output = self.run_metrics(
+            self.split_wasm_fixture(built_archive=True), "runs", "1"
+        ).stdout
+        self.assertIn("nextest=fetched wasm=fetched", output.splitlines()[0])
 
     def test_merge_class_is_unknown_beyond_the_commit_file_cap(self):
         fixture = merge_run_fixture()

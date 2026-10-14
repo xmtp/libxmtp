@@ -73,27 +73,44 @@ let
     "XMTP_TOXIPROXY_PORT"
   ];
   # A port that the caller sets must be free: fail at once if something
-  # accepts a connection on it. Bind every other port at once, so two picks
-  # in one run cannot be equal, then release them for the services.
+  # accepts a connection on it (macOS lets a second socket bind a held port)
+  # or if it cannot be bound. Hold every port while the others are picked, so
+  # a kernel pick cannot equal a caller port or another pick, then release
+  # them for the services. SO_REUSEADDR lets a caller port in TIME_WAIT pass.
   freePorts = pkgs.writeText "free-ports.py" ''
     import os
     import socket
     import sys
 
-    sockets = []
-    for name in sys.argv[1:]:
+    held = []
+    picked = []
+    names = sys.argv[1:]
+    for name in names:
         value = os.environ.get(name)
-        if value:
-            try:
-                socket.create_connection(("127.0.0.1", int(value)), 0.5).close()
-            except OSError:
-                continue
+        if not value:
+            continue
+        port = int(value)
+        try:
+            socket.create_connection(("127.0.0.1", port), 0.5).close()
             sys.exit(f"services: {name}={value} is in use")
+        except OSError:
+            pass
+        s = socket.socket()
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+        except OSError as error:
+            sys.exit(f"services: {name}={value} is in use: {error}")
+        held.append(s)
+    for name in names:
+        if os.environ.get(name):
+            continue
         s = socket.socket()
         s.bind(("127.0.0.1", 0))
-        sockets.append((name, s))
-    for name, s in sockets:
-        print(f"export {name}={s.getsockname()[1]}")
+        held.append(s)
+        picked.append((name, s.getsockname()[1]))
+    for name, port in picked:
+        print(f"export {name}={port}")
   '';
   # The URLs always follow the ports.
   urls = {

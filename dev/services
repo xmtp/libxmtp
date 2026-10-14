@@ -52,9 +52,11 @@ case "${1:-}" in
     fi
     rm -rf "${state}" "${PC_SOCKET_PATH}"
     package="${XMTP_SERVICES_PACKAGE:-}"
-    start=${SECONDS}
+    # A cold build of the package can take minutes; the readiness deadline
+    # starts once the daemon runs.
     services up --detached --use-uds
     printf '%s\n' "${package}" >"${state}/package"
+    start=${SECONDS}
     # Wait until every process is ready. Fail at once when a process failed
     # or was skipped. A service that never gets healthy fails its probe after
     # 120 tries, so the deadline is above that.

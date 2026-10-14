@@ -86,9 +86,9 @@ STORE_ITEM = re.compile(r"^\s+/nix/store/(\S+)$")
 BUILDING = re.compile(r"^building '/nix/store/([^']+)'")
 # The test outputs: for each, the jobs that build it and their derivations. A
 # digit after the name excludes dependency layers such as
-# `cargo-package-nextest-deps-…`. The WASM tests ran in one job until one
-# archive job and 4 partition jobs replaced it; a run has one shape or the
-# other.
+# `cargo-package-nextest-deps-…`. The WASM tests ran in one job until 4
+# partition jobs replaced it; a run has one shape or the other. The archive
+# job only compiles the tests, so its build does not count as a test run.
 WASM_PARTITIONS = 4
 TEST_OUTPUTS = {
     "nextest": [
@@ -99,10 +99,6 @@ TEST_OUTPUTS = {
     ],
     "wasm": [
         ("Test (WASM)", re.compile(r"^[0-9a-z]{32}-wasm-nextest-\d")),
-        (
-            "Test (WASM archive)",
-            re.compile(r"^[0-9a-z]{32}-wasm-nextest-archive-\d"),
-        ),
     ]
     + [
         (
