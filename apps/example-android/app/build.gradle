@@ -23,8 +23,6 @@ String androidBackendURL() {
     return "http://10.0.2.2:${port ?: '5050'}"
 }
 
-// The release test mode changes signing and instrumentation only, not DEBUG or resources.
-boolean releaseTransportTests = providers.gradleProperty('xmtpExampleReleaseTests').map { it.toBoolean() }.getOrElse(false)
 boolean performanceTests = providers.gradleProperty('android.testInstrumentationRunnerArguments.messengerPerformance').map { it == 'true' }.getOrElse(false)
 // The Nix download uses a public testing key and must not replace normal app installs.
 boolean testingApk = providers.gradleProperty('xmtpExampleTestingApk').map { it.toBoolean() }.getOrElse(false)
@@ -32,7 +30,6 @@ boolean testingApk = providers.gradleProperty('xmtpExampleTestingApk').map { it.
 android {
     namespace 'org.xmtp.android.example'
     compileSdk 35
-    testBuildType releaseTransportTests ? 'release' : 'debug'
 
     defaultConfig {
         applicationId(testingApk ? "org.xmtp.android.example.testing" : "org.xmtp.android.example")
@@ -56,7 +53,6 @@ android {
 
     buildTypes {
         release {
-            if (releaseTransportTests) signingConfig signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
@@ -65,7 +61,6 @@ android {
         test { java.srcDir 'src/sharedTest/java' }
         androidTest {
             java.srcDir 'src/sharedTest/java'
-            if (releaseTransportTests) java.srcDir 'src/androidTestRelease/java'
         }
     }
     compileOptions {

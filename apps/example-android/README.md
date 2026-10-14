@@ -157,6 +157,18 @@ local development hosts `localhost`, `127.0.0.1`, `[::1]` and the Android emulat
 host `10.0.2.2` in debug builds. Release builds permit HTTP only for the listed
 loopback hosts. Do not put credentials in the URL.
 
+Release builds, including the downloadable testing APK, behave as follows:
+
+- They are not debuggable, and `BuildConfig.DEBUG` is false.
+- They reject an HTTP URL for `10.0.2.2` or a remote host with "Use HTTPS for a
+  remote backend". The app checks the URL before it saves a profile, stores a
+  credential, or starts the SDK. The same check applies when you connect, when
+  the app restores a saved profile, and when it inspects a server.
+- Their network security policy blocks cleartext traffic except to `localhost`,
+  `127.0.0.1`, `::1`, and `[::1]`. A server on the device itself can use HTTP.
+- No device test runs a release build. Host tests check the release URL rules:
+  `dev/nix-shell 'just example-android test :example:testReleaseUnitTest'`.
+
 The Credential field appears only when the selected server reports that it
 requires authentication. Enter that server's credential in this field. If a
 connection fails, Retry uses the current URL and credential. A failed saved

@@ -73,12 +73,6 @@ jobs:
         NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/messenger-emulator-startup
         NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192
       run: dev/nix-shell 'just example-android test-integration'
-    - name: Run Messenger release transport tests
-      env:
-        NIX_DEVSHELL: android-ci-emulator
-        NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/messenger-release-emulator
-        NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192
-      run: dev/nix-shell 'just example-android test-release-integration'
     - name: Upload failed Messenger test reports
       if: failure()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -93,7 +87,6 @@ jobs:
           apps/example-android/app/build/screenshots/**
           ${{ runner.temp }}/messenger-metadata-backend/
           ${{ runner.temp }}/messenger-emulator-startup/
-          ${{ runner.temp }}/messenger-release-emulator/
         include-hidden-files: 'true'
   results:
     name: Require Android example checks
