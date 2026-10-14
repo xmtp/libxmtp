@@ -522,6 +522,7 @@ class ReleasePushTest(unittest.TestCase):
                 self.assertNotIn(encoded, config)
                 self.assertNotIn("extraheader", config)
                 self.assertNotIn("credential", config)
+                self.check_calling_run(git, root, remote, step_env)
             finally:
                 server.shutdown()
                 worker.join()
@@ -540,6 +541,60 @@ class ReleasePushTest(unittest.TestCase):
                 capture_output=True,
             )
             self.assertNotEqual(result.returncode, 0)
+
+    def check_calling_run(self, git, root, remote, step_env):
+        """Only a protected trunk or release branch run may mint the token."""
+        git("push", "--no-verify", str(remote), "main:main", "main:self-hosted")
+        other = root / "fixture/other.git"
+        work = root / "other-work"
+        git("init", "--initial-branch=main", str(work))
+        git(
+            "-c",
+            "user.name=T",
+            "-c",
+            "user.email=t@e",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "unrelated",
+            cwd=work,
+        )
+        git("init", "--bare", str(other))
+        git(
+            "push", "--no-verify", str(other), "main:main", "main:self-hosted", cwd=work
+        )
+        trunk = {"EVENT_NAME": "push", "CALLER_REF": "refs/heads/main"}
+        for change, allowed in [
+            ({}, True),
+            ({"EVENT_NAME": "schedule"}, True),
+            (
+                {
+                    "EVENT_NAME": "workflow_dispatch",
+                    "CALLER_REF": "refs/heads/release/1.0",
+                },
+                True,
+            ),
+            ({"EVENT_NAME": "pull_request"}, False),
+            ({"EVENT_NAME": "pull_request_target"}, False),
+            ({"CALLER_REF": "refs/heads/feature"}, False),
+            ({"CALLER_REF": "refs/tags/v1.2.3"}, False),
+            ({"REF_PROTECTED": "false"}, False),
+            # The source commit is on no release branch of the repository.
+            ({"GITHUB_REPOSITORY": "fixture/other"}, False),
+        ]:
+            with self.subTest(change=change):
+                result = subprocess.run(
+                    ["bash", "-euc", script("Check the calling run")],
+                    cwd=root,
+                    env=step_env | {"REF_PROTECTED": "true"} | trunk | change,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(
+                    result.returncode == 0, allowed, result.stdout + result.stderr
+                )
 
     def test_rejects_a_release_commit_that_changes_workflows(self):
         for sdk in ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "cli"]:
@@ -612,6 +667,10 @@ class ReleasePushTest(unittest.TestCase):
         self.assertNotIn("uses: ./", text)
         self.assertLess(
             text.index("- name: Import release tag"),
+            text.index("- name: Check the calling run"),
+        )
+        self.assertLess(
+            text.index("- name: Check the calling run"),
             text.index("- name: Create release push token"),
         )
         self.assertRegex(

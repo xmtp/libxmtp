@@ -68,6 +68,47 @@ jobs:
               esac
             done < "$RUNNER_TEMP/release-paths"
           fi
+      # Any workflow in the repository can call this one, so check the calling
+      # run before the App token exists: a protected trunk or release branch,
+      # never a pull request, and a source commit on one of those branches.
+      - name: Check the calling run
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CALLER_REF: ${{ github.ref }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          GIT_CONFIG_NOSYSTEM: "1"
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            push|schedule|workflow_dispatch) ;;
+            *) echo "::error title=Release tag::A $EVENT_NAME run cannot push a release tag"; exit 1 ;;
+          esac
+          case "$CALLER_REF" in
+            refs/heads/main|refs/heads/self-hosted|refs/heads/release/*) ;;
+            *) echo "::error title=Release tag::$CALLER_REF is not main, self-hosted, or a release/* branch"; exit 1 ;;
+          esac
+          if [ "$REF_PROTECTED" != true ]; then
+            echo "::error title=Release tag::$CALLER_REF is not protected"
+            exit 1
+          fi
+          # Commits only, from the public repository, without a token. A
+          # release may build another branch than the one it runs on (the
+          # `ref` input of release.yml), so any release branch counts.
+          git --git-dir="$RUNNER_TEMP/release-push.git" fetch --quiet --no-tags --filter=tree:0 \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/heads/self-hosted:refs/remotes/origin/self-hosted' \
+            '+refs/heads/release/*:refs/remotes/origin/release/*'
+          branches=$(git --git-dir="$RUNNER_TEMP/release-push.git" for-each-ref --contains "$SOURCE_SHA" \
+            --format='%(refname:lstrip=3)' refs/remotes/origin/)
+          if [[ -z "$branches" ]]; then
+            echo "::error title=Release tag::$SOURCE_SHA is not on main, self-hosted, or a release/* branch"
+            exit 1
+          fi
+          echo "Release source is on: $(tr '\n' ' ' <<< "$branches")"
       - name: Create release push token
         id: token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
