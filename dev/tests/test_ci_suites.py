@@ -5,6 +5,7 @@ import copy
 import importlib.machinery
 import importlib.util
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import unittest
@@ -33,6 +34,25 @@ def with_groups(data):
     data["suites"]["test_android"]["products"] = ["beta", "alpha"]
     data["suites"]["test_ios"]["products"] = ["alpha"]
     return data
+
+
+def job_runs(job, inputs, results):
+    """Evaluate a generated job's `if` the way GitHub does."""
+    condition = job["if"].strip().removeprefix("${{").removesuffix("}}")
+    # Without a status function, GitHub runs the job only when every job it
+    # needs succeeded.
+    if not re.search(r"\b(always|cancelled|failure|success)\(\)", condition):
+        if any(results[need] != "success" for need in job.get("needs", [])):
+            return False
+    # The run itself is not cancelled.
+    source = condition.replace("!cancelled()", "True").replace("&&", " and ")
+    source = re.sub(
+        r"contains\(fromJSON\(inputs\.(\w+)\), '(\w+)'\)",
+        lambda m: repr(m[2] in inputs[m[1]]),
+        source,
+    )
+    source = re.sub(r"needs\.(\w+)\.result", lambda m: repr(results[m[1]]), source)
+    return eval(source, {"__builtins__": {}}, {})
 
 
 class CargoGraphTests(unittest.TestCase):
@@ -144,6 +164,43 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(set(jobs["check_rust"]["secrets"]), set(SUITES.KACHE_SECRETS))
         self.assertEqual(jobs["docs_site"]["permissions"]["pages"], "write")
         self.assertEqual(jobs["test_ios"]["permissions"], {"contents": "read"})
+
+
+class ProductRenderTests(unittest.TestCase):
+    manifest = SUITES.compile_declaration(ROOT, with_groups(declaration()))
+    workflow = yaml.safe_load(SUITES.render_workflow(manifest, "test"))
+    jobs = workflow["jobs"]
+
+    def test_suites_need_only_their_groups_and_run_unless_one_failed(self):
+        self.assertEqual(self.jobs["test_ios"]["needs"], ["products_alpha"])
+        self.assertEqual(
+            self.jobs["test_android"]["needs"], ["products_alpha", "products_beta"]
+        )
+        self.assertNotIn("needs", self.jobs["test_xdbg"])
+        inputs = {"suites": ["test_ios", "test_android"], "products": []}
+        for alpha, beta, ios, android in [
+            ("success", "success", True, True),
+            # A group that did not run: the suite builds the products itself.
+            ("skipped", "skipped", True, True),
+            ("success", "skipped", True, True),
+            ("failure", "success", False, False),
+            ("skipped", "failure", True, False),
+        ]:
+            with self.subTest(alpha=alpha, beta=beta):
+                results = {"products_alpha": alpha, "products_beta": beta}
+                self.assertEqual(job_runs(self.jobs["test_ios"], inputs, results), ios)
+                self.assertEqual(
+                    job_runs(self.jobs["test_android"], inputs, results), android
+                )
+        unselected = {"suites": ["test_android"], "products": []}
+        results = {"products_alpha": "success", "products_beta": "success"}
+        self.assertFalse(job_runs(self.jobs["test_ios"], unselected, results))
+        self.assertTrue(
+            job_runs(self.jobs["products_alpha"], {"products": ["alpha"]}, {})
+        )
+        self.assertFalse(
+            job_runs(self.jobs["products_beta"], {"products": ["alpha"]}, {})
+        )
 
 
 class ValidateTests(unittest.TestCase):
