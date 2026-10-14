@@ -511,21 +511,13 @@ KACHE_CALLERS = {
     "build-sdk-node-platforms.yml / assemble": "sdk-native-release",
     "check-rust.yml / native": "rust-clippy-native",
     "check-rust.yml / wasm": "rust-clippy-wasm",
-    "check-sdk-products.yml / generated": "sdk-products-debug",
     "check-sdk-unit.yml / unit": "sdk-tests-debug",
-    "check-types.yml / check": "sdk-products-debug",
-    "deploy-docs.yml / site": "sdk-products-debug",
     "deploy-web-chat.yml / deploy": "sdk-products-debug",
     "docs-rust-reference.yml / rust": "rust-reference",
-    "manual-sdk-recovery.yml / recovery": "sdk-native-debug",
     "release-agent-sdk.yml / build": "sdk-native-debug",
     "release-browser-sdk.yml / build": "sdk-products-debug",
     "release-cli.yml / build": "sdk-native-debug",
-    "test-agent-sdk.yml / test": "sdk-native-debug",
     "test-android.yml / android-stage": "sdk-android-release",
-    "test-browser-sdk.yml / test": "sdk-products-debug",
-    "test-node-sdk.yml / test": "sdk-native-debug",
-    "test-sdk-platform.yml / proof": "sdk-browser-conformance",
     "test-sdk.yml / sdk": "sdk-products-tests-conformance",
     "test-sdk.yml / android-stage": "sdk-android-release",
 }
@@ -1067,8 +1059,25 @@ WIRING_RULES = (
         lambda c: c["entry"] in CI_ENTRIES or c["mode"] != "ci",
     ),
     (
-        "setup-js uses the setup-nix mode of its job",
-        lambda c: all(mode == c["mode"] for mode in c["js-modes"]),
+        "setup-js uses the setup-nix mode of its job, or saves the pnpm store "
+        "in a post-merge job with mode read, no writer environment, and no token",
+        lambda c: all(
+            mode == c["mode"]
+            or (
+                mode == "trusted"
+                and c["entry"] == "post-merge.yml"
+                and c["mode"] == "read"
+                and not c["environment"]
+                and not c["trusted-token"]
+                and not c["pr-token"]
+            )
+            for mode in c["js-modes"]
+        ),
+    ),
+    # Package install scripts run arbitrary code.
+    (
+        "a job with the trusted Cachix token installs no packages",
+        lambda c: not c["trusted-token"] or not c["js-modes"],
     ),
     (
         "the Gradle cache is CI-only and written only on trunk pushes",

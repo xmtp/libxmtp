@@ -1,23 +1,23 @@
-# The generated SDK native library. Keep the old binding derivations separate.
+# The SDK native library of one package set. The host set gives the one host
+# library: renders, the host Node package, and the JNA test host load it.
+# glibc targets build with zigbuild against the glibc floor.
 {
   lib,
   xmtp,
   stdenv,
   stdenvNoCC,
   buildPackages,
-  python3,
   cargo-zigbuild,
-  glibcVersion ? null,
   android ? false,
 }:
 let
   target = stdenv.hostPlatform.rust.rustcTarget;
-  rust = xmtp.craneLib.overrideToolchain (p: xmtp.mkToolchain p [ target ] [ ]);
+  rust = xmtp.craneLib.overrideToolchain xmtp.hostToolchain;
   sources = import ../lib/sdk-sources.nix { inherit lib xmtp; };
   source = sources.sdk rust;
-  mkProvenance = import ../lib/sdk-provenance.nix { inherit stdenvNoCC python3; };
-  isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl && glibcVersion != null;
-  buildTarget = target + lib.optionalString isGnu ".${glibcVersion}";
+  mkProvenance = import ../lib/sdk-provenance.nix { inherit stdenvNoCC; };
+  isGnu = stdenv.hostPlatform.isLinux && stdenv.hostPlatform.isGnu;
+  buildTarget = target + lib.optionalString isGnu ".${xmtp.sdkPlatforms.glibcFloor}";
   special = {
     OPENSSL_NO_VENDOR = "0";
     OPENSSL_STATIC = "1";
@@ -27,6 +27,11 @@ let
     # Darwin setup replaces this variable before the Cargo build.
     preBuild = "export MACOSX_DEPLOYMENT_TARGET=11.0";
   }
+  # rustc's release default `strip = "debuginfo"` passes `--strip-debug`, and
+  # zig's linker strips the whole static symbol table for it. UniFFI reads its
+  # metadata from that table, so the renders of this host library need it.
+  # The fixup phase still removes debug sections.
+  // lib.optionalAttrs isGnu { CARGO_PROFILE_RELEASE_STRIP = "none"; }
   // lib.optionalAttrs android { buildInputs = [ ]; }
   // lib.optionalAttrs stdenv.hostPlatform.isMusl { RUSTFLAGS = "-C target-feature=-crt-static"; };
   command =
@@ -46,7 +51,7 @@ let
       version = xmtp.mkVersion rust;
       src = source;
       cargoVendorDir = xmtp.base.mkCargoVendorDir rust;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust (
         special
         // {
           CARGO_BUILD_TARGET = buildTarget;
@@ -87,6 +92,10 @@ let
 
 in
 mkProvenance {
-  inherit compilation target;
-  source = sources.provenanceSource;
+  compilation = xmtp.base.assertNativeEnv {
+    drv = compilation;
+    macos = stdenv.hostPlatform.isDarwin;
+  };
+  inherit target;
+  inherit (sources) provenance;
 }

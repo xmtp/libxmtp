@@ -9,7 +9,9 @@ The repository has one root pnpm workspace. Run `dev/nix-shell 'just install-js'
 once before package work. Package scripts use the root task graph. It does not
 build native bindings. Use the relevant `just js`, `just cli`, `just web-chat`,
 or `just docs` recipe when a task needs Node or WASM bindings; those recipes
-stage the local bindings first. Use `dev/nix-shell '<command>'` for a focused
+stage the local bindings first. They build the bindings with cargo (debug) by default; with
+`XMTP_SDK_BUILD=nix` they copy the release-profile Nix products, as CI does,
+which is faster when you do not edit the Rust SDK. Use `dev/nix-shell '<command>'` for a focused
 package command. Do not run `pnpm` outside the Nix shell.
 
 Shared TypeScript configs are in `dev/js/`. Oxlint and Oxfmt configs stay at the

@@ -14,12 +14,15 @@
   perl,
 }:
 let
-  # Narrow fileset for buildDepsOnly — only Cargo.toml, Cargo.lock, build.rs,
-  # and files referenced by build scripts. Source (.rs) changes don't invalidate
-  # the dep cache since crane replaces them with dummies anyway.
-  depsFileset = lib.fileset.toSource {
+  # The protobuf schemas and the one real build script that a dependency
+  # layer keeps. Other files reach a layer only through the cleaned
+  # manifests, so a comment or another build script leaves it unchanged.
+  protoSource = lib.fileset.toSource {
     root = ./../..;
-    fileset = xmtp.filesets.depsOnly;
+    fileset = lib.fileset.unions [
+      ./../../proto
+      ./../../crates/xmtp_proto/build.rs
+    ];
   };
 
   # Crane reads target paths from the full workspace, then launders source
@@ -38,7 +41,6 @@ let
   # Common build arguments shared between iOS and Android derivations.
   # Platform-specific args (like ANDROID_HOME or __noChroot) are added by each derivation.
   commonArgs = {
-    src = depsFileset;
     # strictDeps=true breaks darwin build with ring
     strictDeps = if stdenv.buildPlatform.isDarwin then false else true;
     # these inputs do not get cross compiled
@@ -85,47 +87,74 @@ let
   # vendor directory comes from the caller's Crane library.
   mkCargoVendorDir = rust: rust.vendorCargoDeps { cargoLock = ./../../Cargo.lock; };
 
-  # Make cargo artifacts for a derivation building rust code
-  # "rust" is the rust toolchain to use (native or host)
-  # "test" is whether to use "test-utils" feature
-  # "zigbuild" uses "cargo zigbuild" instead of "cargo build"
+  # Make the dependency layer of a Crane derivation. `rust` is the caller's
+  # Crane library. `overrides` sets `buildPhaseCargoCommand` to the consumer's
+  # own command, with the same packages, targets, profile, and environment, so
+  # the final build compiles no third-party crate again.
   mkCargoArtifacts =
-    rust: test: overrides:
+    rust: overrides:
+    assert lib.assertMsg (
+      overrides ? buildPhaseCargoCommand
+    ) "mkCargoArtifacts: set buildPhaseCargoCommand to the consumer's Cargo command and -p list";
     let
-      maybeTestFeature = if test then "--features test-utils" else "";
-      overrides' = if overrides == null then { } else overrides;
       dummySrc = rust.mkDummySrc {
         src = dummyInputFileset;
         extraDummyScript = ''
           mkdir -p $out/proto $out/crates/xmtp_proto
-          cp --recursive ${depsFileset}/proto/. $out/proto
-          cp ${depsFileset}/crates/xmtp_proto/build.rs $out/crates/xmtp_proto/build.rs
+          cp --recursive ${protoSource}/proto/. $out/proto
+          cp ${protoSource}/crates/xmtp_proto/build.rs $out/crates/xmtp_proto/build.rs
           xmtp_dummy_build=$(grep '^build = ' $out/crates/xmtp_proto/Cargo.toml)
           substituteInPlace $out/crates/xmtp_proto/Cargo.toml \
             --replace-fail "$xmtp_dummy_build" 'build = "build.rs"'
         '';
       };
-      # these attrs need to be removed otherwise cache becomes invalidated on every different commit
     in
     rust.buildDepsOnly (
-      (removeAttrs commonArgs [ "src" ])
+      commonArgs
       // {
         inherit dummySrc;
         cargoVendorDir = mkCargoVendorDir rust;
         pname = "cargo-package";
         version = xmtp.mkVersion rust;
-        buildPhaseCargoCommand = "cargo build ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
         doInstallCargoArtifacts = true;
       }
-      // overrides'
+      // overrides
     );
+
+  # Fail evaluation unless a shipped SDK library and its dependency layer
+  # build with static, unvendored OpenSSL, and with the Apple deployment floors
+  # (macOS 11.0; iOS 14 for a slice). Returns `drv`.
+  assertNativeEnv =
+    {
+      drv,
+      macos ? false,
+      ios ? false,
+    }:
+    let
+      problems =
+        phase: attrs:
+        lib.optional ((attrs.OPENSSL_NO_VENDOR or null) != "0") "${phase} OPENSSL_NO_VENDOR is not \"0\""
+        ++ lib.optional ((attrs.OPENSSL_STATIC or null) != "1") "${phase} OPENSSL_STATIC is not \"1\""
+        ++ lib.optional (
+          macos && (attrs.MACOSX_DEPLOYMENT_TARGET or null) != "11.0"
+        ) "${phase} MACOSX_DEPLOYMENT_TARGET is not 11.0"
+        ++ lib.optional (
+          ios
+          && !lib.hasInfix ''export IPHONEOS_DEPLOYMENT_TARGET="14"'' (
+            attrs.buildPhaseCargoCommand or (attrs.buildPhase or "")
+          )
+        ) "${phase} command does not export IPHONEOS_DEPLOYMENT_TARGET=14";
+      found = problems "build" drv ++ problems "dependency layer" drv.cargoArtifacts;
+    in
+    assert lib.assertMsg (found == [ ]) "${drv.name}: ${lib.concatStringsSep "; " found}";
+    drv;
 
 in
 {
   inherit
-    depsFileset
     commonArgs
     mkCargoVendorDir
     mkCargoArtifacts
+    assertNativeEnv
     ;
 }

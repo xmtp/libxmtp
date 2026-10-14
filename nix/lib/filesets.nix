@@ -16,28 +16,9 @@ let
     in
     map (name: commonCargoSources (cratesDir + "/${name}")) crateDirs;
 
-  # Cargo resolves every workspace member before it applies default-members.
-  apps = fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /apps);
   # Full app sources are required for Crane's dummy workspace. A manifest-only
   # app has no target when Cargo resolves the workspace in a Nix build.
   appSources = unions (crateSources (src + /apps));
-
-  # Narrow fileset for buildDepsOnly — only includes files that affect
-  # dependency compilation. Cargo.toml/Cargo.lock for resolution, build.rs
-  # for build scripts, plus files referenced by build scripts.
-  # Source (.rs) changes don't invalidate the dep cache since crane replaces
-  # them with dummies anyway.
-  #
-  # Used by both iOS and Android package derivations for consistent caching.
-  depsOnly = unions [
-    (src + /Cargo.toml)
-    (src + /Cargo.lock)
-    (src + /.cargo/config.toml)
-    (src + /proto)
-    # All Cargo.toml and build.rs files in the workspace
-    (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /crates))
-    apps
-  ];
 
   libraries = unions (flatten [
     (src + /Cargo.toml)
@@ -406,7 +387,6 @@ let
 in
 {
   inherit
-    depsOnly
     libraries
     binaries
     forCrate

@@ -15,8 +15,99 @@ on:
       artifact:
         value: sdk_node_public
 jobs:
+  plan:
+    name: Node platform matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.matrix.outputs.build }}
+      cargo: ${{ steps.matrix.outputs.cargo }}
+      load: ${{ steps.matrix.outputs.load }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          sparse-checkout: nix/sdk-platforms.json
+          sparse-checkout-cone-mode: false
+      - name: Read nix/sdk-platforms.json
+        id: matrix
+        env:
+          # The list comes from the caller's ref, so the values that reach
+          # runners, scripts, and actions must be in these fixed lists, and
+          # images are pinned by digest.
+          ALLOWED_TARGETS: >-
+            ["darwin-arm64", "linux-x64-gnu", "linux-x64-musl", "linux-arm64-gnu",
+            "linux-arm64-musl", "win32-x64-msvc"]
+          ALLOWED_RUST_TARGETS: >-
+            ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl",
+            "aarch64-unknown-linux-gnu", "aarch64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
+          ALLOWED_LIBRARIES: '["libxmtp_sdk.dylib", "libxmtp_sdk.so", "xmtp_sdk.dll"]'
+          ALLOWED_GLIBC_FLOOR: "2.27"
+          ALLOWED_RUNNERS: >-
+            ["blacksmith-16vcpu-ubuntu-2404", "ubuntu-24.04-arm", "ubuntu-latest",
+            "warp-macos-15-arm64-6x", "windows-latest"]
+          ALLOWED_IMAGES: >-
+            ["node:22.12.0-bookworm-slim@sha256:35531c52ce27b6575d69755c73e65d4468dba93a25644eed56dc12879cae9213",
+            "node:22.12.0-alpine@sha256:51eff88af6dff26f59316b6e356188ffa2c422bd3c3b76f2556a2e7e89d080bd"]
+        run: |
+          rejected=$(jq -r --argjson runners "$ALLOWED_RUNNERS" --argjson images "$ALLOWED_IMAGES" \
+            --argjson targets "$ALLOWED_TARGETS" --argjson rustTargets "$ALLOWED_RUST_TARGETS" \
+            --argjson libraries "$ALLOWED_LIBRARIES" --arg glibcFloor "$ALLOWED_GLIBC_FLOOR" '
+            # A runner label fits a target when it has the target OS and,
+            # on Linux, its architecture.
+            def fits($target):
+              if ($target | startswith("linux-")) then
+                test("ubuntu") and (($target | contains("arm64")) == contains("-arm"))
+              elif ($target | startswith("win32-")) then startswith("windows-")
+              else test("macos") end;
+            ([.glibcFloor] - [$glibcFloor] | map("glibc floor \(.)"))
+            + ([.node[] | (.runner // empty), .loadRunner] - $runners | map("runner \(.)"))
+            + ([.node[] | .loadImage // empty] - $images | map("image \(.)"))
+            + ([.node[] | .target] - $targets | map("target \(.)"))
+            + ([.node[] | .rustTarget] - $rustTargets | map("Rust target \(.)"))
+            + ([.node[] | .library] - $libraries | map("library \(.)"))
+            # Each target builds and loads on its own OS and architecture, and
+            # a Linux target loads in the pinned image of its libc.
+            + [.node[] | .target as $t | select(.runner != null and (.runner | fits($t) | not))
+              | "build platform \($t) on \(.runner)"]
+            + [.node[] | .target as $t | select((.loadRunner | fits($t) | not) or
+                if ($t | startswith("linux-")) then
+                  (($t | endswith("-musl")) != ((.loadImage // "") | startswith("node:22.12.0-alpine@")))
+                  or (($t | endswith("-gnu")) != ((.loadImage // "") | startswith("node:22.12.0-bookworm-slim@")))
+                else .loadImage != null end)
+              | "load platform \($t) on \(.loadRunner) with \(.loadImage // "no image")"]
+            | .[] | @json' nix/sdk-platforms.json)
+          if [ -n "$rejected" ]; then
+            while IFS= read -r item; do
+              echo "::error file=nix/sdk-platforms.json::$item is not in this workflow's allowlist"
+            done <<< "$rejected"
+            exit 1
+          fi
+          # Every allowed target, exactly once, so a ref cannot drop a platform
+          # from the build, load, and assembly.
+          mismatched=$(jq -r --argjson targets "$ALLOWED_TARGETS" '
+            [.node[] | .target] as $listed
+            | if ($listed | sort) == ($targets | sort) then empty else
+                ($targets - $listed | map("missing target \(.)"))
+                + ($listed - $targets | map("extra target \(.)"))
+                + ($listed | group_by(.) | map(select(length > 1) | "duplicate target \(.[0])"))
+                | .[]
+              end' nix/sdk-platforms.json)
+          if [ -n "$mismatched" ]; then
+            while IFS= read -r item; do
+              echo "::error file=nix/sdk-platforms.json::$item: the Node platforms must be exactly ALLOWED_TARGETS"
+            done <<< "$mismatched"
+            exit 1
+          fi
+          {
+            echo "build=$(jq -c '[.node[] | select(.nixSystems != []) | {target, library, runner}]' nix/sdk-platforms.json)"
+            echo "cargo=$(jq -c '[.node[] | select(.nixSystems == []) | {target, rustTarget, library, runner}]' nix/sdk-platforms.json)"
+            echo "load=$(jq -c '[.node[] | {target, runner: .loadRunner, image: (.loadImage // "")}]' nix/sdk-platforms.json)"
+          } >> "$GITHUB_OUTPUT"
+
   unix:
     name: Node pair (${{ matrix.target }})
+    needs: plan
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     env:
@@ -24,25 +115,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: linux-x64-gnu
-            library: libxmtp_sdk.so
-            runner: blacksmith-16vcpu-ubuntu-2404
-          - target: linux-x64-musl
-            library: libxmtp_sdk.so
-            runner: blacksmith-16vcpu-ubuntu-2404
-          # No warm set holds the native linux-arm64 pairs, and a release
-          # reads only, so a release builds these two cold. That stays until
-          # release takes the Node pairs from the products build.
-          - target: linux-arm64-gnu
-            library: libxmtp_sdk.so
-            runner: ubuntu-24.04-arm
-          - target: linux-arm64-musl
-            library: libxmtp_sdk.so
-            runner: ubuntu-24.04-arm
-          - target: darwin-arm64
-            library: libxmtp_sdk.dylib
-            runner: warp-macos-15-arm64-6x
+        # No warm set holds the native linux-arm64 pairs, and a release reads
+        # only, so a release builds those two cold. That stays until release
+        # takes the Node pairs from the products build.
+        include: ${{ fromJSON(needs.plan.outputs.build) }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -65,19 +141,25 @@ jobs:
           path: target/sdk-node-platforms
           retention-days: 1
 
+  # The platforms that no Nix system builds. They build with cargo on Windows.
   windows:
-    name: Node pair (win32-x64-msvc)
-    runs-on: windows-latest
+    name: Node pair (${{ matrix.target }})
+    needs: plan
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     env:
       SQLX_OFFLINE: "true"
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.cargo) }}
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-rust
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: ${{ matrix.rustTarget }}
           workspaces: .
       - uses: actions/setup-node@v6
         with:
@@ -101,9 +183,12 @@ jobs:
         shell: bash
         env:
           OPENSSL_SRC_PERL: C:/Strawberry/perl/bin/perl.exe
+          TARGET: ${{ matrix.target }}
+          RUST_TARGET: ${{ matrix.rustTarget }}
+          LIBRARY: ${{ matrix.library }}
         run: |
           /c/Strawberry/perl/bin/perl.exe -MLocale::Maketext::Simple -e 1
-          python crates/xmtp_sdk/dev/sdk-artifacts.py build --targets node --profile release --rust-target x86_64-pc-windows-msvc --skip-bindgen --artifacts target/sdk-node-windows
+          python crates/xmtp_sdk/dev/sdk-artifacts.py build --targets node --profile release --rust-target "$RUST_TARGET" --skip-bindgen --artifacts target/sdk-node-windows
           # The Rust cache can restore this temporary checkout.
           rm -rf target/sdk-node-runtime-source
           git init target/sdk-node-runtime-source
@@ -111,19 +196,20 @@ jobs:
           fork_rev=$(node -p 'require("fs").readFileSync("Cargo.toml", "utf8").match(/\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"/)[1]')
           git -C target/sdk-node-runtime-source fetch --no-tags --depth=1 origin "$fork_rev"
           git -C target/sdk-node-runtime-source checkout --detach "$fork_rev"
-          cargo build --manifest-path target/sdk-node-runtime-source/Cargo.toml --locked --release -p uniffi-runtime-napi --lib --target x86_64-pc-windows-msvc
+          cargo build --manifest-path target/sdk-node-runtime-source/Cargo.toml --locked --release -p uniffi-runtime-napi --lib --target "$RUST_TARGET"
           FORK_REV="$fork_rev" python - <<'PY'
           import hashlib, json, os
           from pathlib import Path
-          addon = Path("target/sdk-node-runtime-source/target/x86_64-pc-windows-msvc/release/uniffi_runtime_napi.dll")
-          name = "uniffi-runtime-napi.win32-x64-msvc.node"
-          receipt = {"schema": 1, "target": "x86_64-pc-windows-msvc", "addon": name, "revision": os.environ["FORK_REV"], "files": {name: hashlib.sha256(addon.read_bytes()).hexdigest()}}
+          target, rust_target = os.environ["TARGET"], os.environ["RUST_TARGET"]
+          addon = Path(f"target/sdk-node-runtime-source/target/{rust_target}/release/uniffi_runtime_napi.dll")
+          name = f"uniffi-runtime-napi.{target}.node"
+          receipt = {"schema": 1, "target": rust_target, "addon": name, "revision": os.environ["FORK_REV"], "files": {name: hashlib.sha256(addon.read_bytes()).hexdigest()}}
           Path("target/sdk-node-windows/runtime-provenance.json").write_text(json.dumps(receipt) + "\n")
           PY
-          python crates/xmtp_sdk/dev/record-node-platform.py win32-x64-msvc --library target/sdk-node-windows/native/xmtp_sdk.dll --addon target/sdk-node-runtime-source/target/x86_64-pc-windows-msvc/release/uniffi_runtime_napi.dll --native-artifacts target/sdk-node-windows/artifacts.json --runtime-provenance target/sdk-node-windows/runtime-provenance.json --runtime-source target/sdk-node-runtime-source
+          python crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-windows/native/"$LIBRARY" --addon target/sdk-node-runtime-source/target/"$RUST_TARGET"/release/uniffi_runtime_napi.dll --native-artifacts target/sdk-node-windows/artifacts.json --runtime-provenance target/sdk-node-windows/runtime-provenance.json --runtime-source target/sdk-node-runtime-source
       - uses: actions/upload-artifact@v7
         with:
-          name: sdk_node_pair_win32-x64-msvc
+          name: sdk_node_pair_${{ matrix.target }}
           path: target/sdk-node-platforms
           retention-days: 1
 
@@ -182,29 +268,13 @@ jobs:
 
   load:
     name: Installed public Node package (${{ matrix.target }})
-    needs: assemble
+    needs: [plan, assemble]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: linux-x64-gnu
-            runner: ubuntu-latest
-            image: node:22.12.0-bookworm-slim
-          - target: linux-x64-musl
-            runner: ubuntu-latest
-            image: node:22.12.0-alpine
-          - target: linux-arm64-gnu
-            runner: ubuntu-24.04-arm
-            image: node:22.12.0-bookworm-slim
-          - target: linux-arm64-musl
-            runner: ubuntu-24.04-arm
-            image: node:22.12.0-alpine
-          - target: darwin-arm64
-            runner: warp-macos-15-arm64-6x
-          - target: win32-x64-msvc
-            runner: windows-latest
+        include: ${{ fromJSON(needs.plan.outputs.load) }}
     steps:
       - uses: actions/checkout@v6
         with:

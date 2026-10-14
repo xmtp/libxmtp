@@ -1,28 +1,45 @@
+# The `@ubjs` runtimes of the pinned uniffi-bindgen-react-native fork.
+# `src` is the `ubrn-src` flake input, so evaluation reads the fork's
+# `Cargo.lock` without a build (no IFD).
 {
   lib,
+  stdenv,
   buildNpmPackage,
-  fetchFromGitHub,
-  rustPlatform,
-  napi-rs-cli,
-  nodejs,
+  callPackage,
+  xmtp,
+  src,
 }:
 let
-  # Cargo.lock records the exact revision of the generator dependency.
-  lock = builtins.fromTOML (builtins.readFile ../../../Cargo.lock);
-  bindgen = lib.findFirst (
-    package: package.name == "ubrn_bindgen"
-  ) (throw "Cargo.lock has no ubrn_bindgen package") lock.package;
-  lockedRev = builtins.elemAt (lib.splitString "#" bindgen.source) 1;
+  forkUrl = "git+https://github.com/neekolas/uniffi-bindgen-react-native.git";
+  forkPackages = [
+    "ubrn_bindgen"
+    "ubrn_common"
+    "uniffi-runtime-wasm"
+  ];
   expectedRev =
     (builtins.fromTOML (builtins.readFile ../../../Cargo.toml)).workspace.metadata."xmtp-sdk-fork".rev;
+  lockedPackages = builtins.filter (
+    package: builtins.elem package.name forkPackages
+  ) (builtins.fromTOML (builtins.readFile ../../../Cargo.lock)).package;
+  missing = lib.subtractLists (map (package: package.name) lockedPackages) forkPackages;
+  # Cargo.lock must take each fork package from the fork at the workspace pin.
+  unpinned = map (package: "${package.name} (${package.source or "no source"})") (
+    builtins.filter (
+      package:
+      !(lib.hasPrefix forkUrl (package.source or ""))
+      || lib.last (lib.splitString "#" package.source) != expectedRev
+    ) lockedPackages
+  );
+  # The one check of the fork pin; it fails evaluation before any build.
   rev =
-    if lockedRev == expectedRev then lockedRev else throw "SDK fork lock differs from workspace pin";
-  src = fetchFromGitHub {
-    owner = "neekolas";
-    repo = "uniffi-bindgen-react-native";
-    inherit rev;
-    hash = "sha256-AQX3KLTKDMOQFmq/w/vdqCRnbpm5xLtz2x7BOJFzZ0A=";
-  };
+    assert lib.assertMsg (src.rev == expectedRev)
+      "SDK fork pin: the ubrn-src flake input is at ${src.rev}, but Cargo.toml [workspace.metadata.xmtp-sdk-fork] rev is ${expectedRev}";
+    assert lib.assertMsg (
+      missing == [ ]
+    ) "SDK fork pin: Cargo.lock has no ${lib.concatStringsSep ", " missing} package";
+    assert lib.assertMsg (unpinned == [ ])
+      "SDK fork pin: Cargo.lock does not take ${lib.concatStringsSep ", " unpinned} from ${forkUrl} at ${expectedRev}";
+    expectedRev;
   core = buildNpmPackage {
     pname = "ubjs-core";
     version = rev;
@@ -43,49 +60,12 @@ let
       ln -s ${core}/lib/node_modules/@ubjs/core node_modules/@ubjs/core
     '';
   };
-  nodeNative = rustPlatform.buildRustPackage {
-    pname = "ubjs-node-native";
-    version = rev;
-    inherit src;
-    cargoLock.lockFile = src + /Cargo.lock;
-    buildFeatures = [ ];
-    cargoBuildFlags = [
-      "-p"
-      "uniffi-runtime-napi"
-    ];
-    nativeBuildInputs = [
-      napi-rs-cli
-      nodejs
-    ];
-    doCheck = false;
-    postBuild = ''
-      # nixpkgs provides napi CLI 3. Its default targets already include the
-      # targets repeated in this fork's napi CLI 2 configuration.
-      node -e 'const fs = require("fs"); const path = "runtimes/napi/package.json"; const config = JSON.parse(fs.readFileSync(path)); config.napi.triples.additional = []; fs.writeFileSync(path, JSON.stringify(config));'
-      cd runtimes/napi
-      napi build --platform --release --js-package-name @ubjs/node
-      cd ../..
-    '';
-    installPhase = ''
-      mkdir -p $out
-      binary=$(find runtimes/napi -maxdepth 1 -name '*.node' -print -quit)
-      test -n "$binary"
-      cp "$binary" $out/
-    '';
+  # The host addon is the Crane build that the host Node SDK pair also uses.
+  nodeAddon = callPackage ../../package/xmtp-sdk-node-runtime.nix {
+    ubrnSrc = src;
+    runtimeRevision = rev;
   };
-  cli = rustPlatform.buildRustPackage {
-    pname = "ubrn";
-    version = rev;
-    inherit src;
-    cargoLock.lockFile = src + /Cargo.lock;
-    cargoBuildFlags = [
-      "-p"
-      "uniffi-bindgen-react-native"
-      "--bin"
-      "uniffi-bindgen-react-native"
-    ];
-    doCheck = false;
-  };
+  addon = "uniffi-runtime-napi.${xmtp.toNapiTarget stdenv.hostPlatform.rust.rustcTarget}.node";
   node = buildNpmPackage {
     pname = "ubjs-node";
     version = rev;
@@ -97,7 +77,7 @@ let
     postInstall = ''
       package=$out/lib/node_modules/@ubjs/node
       mkdir -p "$package"
-      cp ${nodeNative}/*.node "$package/"
+      cp ${nodeAddon}/${addon} "$package/"
     '';
   };
 in
@@ -105,7 +85,6 @@ in
   inherit
     rev
     src
-    cli
     core
     node
     wasm

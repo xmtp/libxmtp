@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { create } from "./helpers";
+import { create, nextMillisecond } from "./helpers";
 
 test("the real WASM worker lifts a history page and lowers both position bounds", async () => {
   const client = await create();
@@ -10,8 +10,10 @@ test("the real WASM worker lifts a history page and lowers both position bounds"
     await client.conversations.createDm(peer.inboxId),
   ]) {
     const ids: MessageId[] = [];
-    for (const text of ["first", "second", "third"])
+    for (const text of ["first", "second", "third"]) {
       ids.push(await conversation.sendText(text));
+      await nextMillisecond();
+    }
     const first = await conversation.messageHistoryPage({
       limit: 2,
       kind: "application",

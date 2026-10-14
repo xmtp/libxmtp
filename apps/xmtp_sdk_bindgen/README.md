@@ -4,6 +4,16 @@
 `crates/xmtp_sdk`. Run it through `dev/nix-shell 'just sdk generate'`; see
 `crates/xmtp_sdk/AGENTS.md` for the recipes.
 
+`xmtp-sdk-bindgen render --lib <library> --target
+node|browser-worker|browser-pure|swift|kotlin --out <dir>` is the one renderer:
+the Nix render and `crates/xmtp_sdk/dev/sdk-artifacts.py` both call it. It
+writes one tree and its receipt, `sdk-contract.json`, from the source and
+generator identities that the caller passes (`nix eval .#sdkProvenance`). It
+formats generated TypeScript with the `oxfmt` binary that `--oxfmt` or
+`XMTP_SDK_OXFMT` names, and fails without one. Both routes use the nixpkgs
+`oxfmt`, so they write the same bytes. No check reads the generated format;
+`templates/bridge` has a source format check in `just sdk lint`.
+
 A routine façade change (a method, a getter, an event variant or payload
 record, a Client static, a record field, including one of `MessageData`)
 needs no edit here.

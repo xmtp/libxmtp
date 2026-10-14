@@ -10,8 +10,8 @@
 # checked in only so the seeds persist across machines.
 **/proptest-regressions/** linguist-generated=true
 
-# The SDK build receipt hashes source bytes. Use the same line endings on
-# Windows and Unix for each input in sdk-artifacts.py:source_hash.
+# Windows and Unix compile the same SDK source bytes, including the files
+# that the SDK embeds at compile time.
 *.rs text=auto eol=lf
 *.proto text=auto eol=lf
 *.sql text=auto eol=lf

@@ -341,21 +341,39 @@ class ArtifactTests(unittest.TestCase):
             skip_bindgen=False,
             reuse_bindgen=None,
             profile="debug",
-            no_format=True,
         )
         self.hash_patch = patch.object(
             artifacts, "source_hash", return_value="fixture-source"
         )
         self.hash_patch.start()
+        self.render_hash_patch = patch.object(
+            artifacts, "render_hash", return_value="fixture-render"
+        )
+        self.render_hash_patch.start()
         self.context_patch = patch.object(
             artifacts, "build_context", return_value="fixture-compiler"
         )
         self.context_patch.start()
         self.run_patch = patch.object(artifacts, "run", side_effect=self.command)
         self.run_patch.start()
+        self.formatter_patch = patch.object(
+            artifacts, "formatter", return_value=["--oxfmt", "fixture-oxfmt"]
+        )
+        self.formatter_patch.start()
+        self.runtime_patch = patch.object(
+            artifacts,
+            "runtime_packages",
+            side_effect=lambda names: {
+                name: self.root / "store" / name for name in names
+            },
+        )
+        self.runtime_patch.start()
 
     def tearDown(self):
+        self.runtime_patch.stop()
+        self.formatter_patch.stop()
         self.run_patch.stop()
+        self.render_hash_patch.stop()
         self.hash_patch.stop()
         self.context_patch.stop()
         self.temporary.cleanup()
@@ -468,7 +486,7 @@ class ArtifactTests(unittest.TestCase):
         artifacts.render(self.args)
         self.assertFalse(stale.exists())
         self.assertEqual(len(self.calls), before + 1)
-        self.assertEqual(self.calls[-1][1], "generate")
+        self.assertEqual(self.calls[-1][1], "render")
 
     def test_tampered_artifact_rejected_before_render_runs_it(self):
         self.args.targets = ("swift",)
@@ -548,6 +566,64 @@ class ArtifactTests(unittest.TestCase):
                     any(command[0] == "dev/agent-run" for command in self.calls[calls:])
                 )
 
+    def test_only_typescript_renders_get_the_formatter(self):
+        self.render_all_targets()
+        renders = {
+            command[command.index("--target") + 1]: command
+            for command in self.calls
+            if command[1:2] == ["render"]
+        }
+        for target, command in renders.items():
+            with self.subTest(target=target):
+                self.assertEqual(
+                    "--oxfmt" in command, target not in ("swift", "kotlin")
+                )
+
+    def test_typescript_trees_link_their_runtimes(self):
+        self.render_all_targets()
+        for language, names in (
+            ("typescript-napi", ["core", "node"]),
+            ("typescript-wasm", ["core", "wasm"]),
+            ("typescript-pure", ["core", "wasm"]),
+            ("swift", []),
+            ("kotlin", []),
+        ):
+            with self.subTest(language=language):
+                packages = self.args.out / language / "node_modules/@ubjs"
+                links = sorted(packages.iterdir()) if packages.exists() else []
+                self.assertEqual([link.name for link in links], names)
+                for link in links:
+                    self.assertEqual(link.readlink(), self.root / "store" / link.name)
+
+    def test_formatter_is_the_shell_oxfmt_or_the_flake_nixpkgs_oxfmt(self):
+        self.formatter_patch.stop()
+        try:
+            with (
+                patch.dict(os.environ, {"XMTP_SDK_OXFMT": "/shell/oxfmt"}),
+                patch.object(artifacts.subprocess, "check_output") as probe,
+            ):
+                self.assertEqual(artifacts.formatter(), [])
+                probe.assert_not_called()
+            environment = {
+                key: value
+                for key, value in os.environ.items()
+                if key != "XMTP_SDK_OXFMT"
+            }
+            with (
+                patch.dict(os.environ, environment, clear=True),
+                patch.object(
+                    artifacts.subprocess,
+                    "check_output",
+                    return_value="/nix/store/fixture-oxfmt\n",
+                ),
+            ):
+                self.assertEqual(
+                    artifacts.formatter(),
+                    ["--oxfmt", "/nix/store/fixture-oxfmt/bin/oxfmt"],
+                )
+        finally:
+            self.formatter_patch.start()
+
     def test_partial_native_render_does_not_need_unselected_wasm_index_entries(self):
         self.render_all_targets()
         before = {
@@ -585,8 +661,7 @@ class NodePlatformReceiptTests(unittest.TestCase):
                 json.dumps(
                     {
                         "schema": 1,
-                        "source": artifacts.source_hash(),
-                        "generator": artifacts.source_hash(True),
+                        "source": "closure",
                         "target": "x86_64-unknown-linux-gnu",
                         "features": "",
                         "profile": "release",
@@ -627,6 +702,59 @@ class NodePlatformReceiptTests(unittest.TestCase):
                 )
 
             self.assertEqual(record().returncode, 0)
+            pair = json.loads(
+                (root / "out/linux-x64-gnu/sdk-node-platform.json").read_text()
+            )
+            self.assertEqual(pair["source"], "closure")
+            self.assertNotIn("commit", pair)
+            # A cargo pair names the commit of its build record instead.
+            index = root / "artifacts.json"
+            cargo = args[: args.index("--native-provenance")] + [
+                "--native-artifacts",
+                str(index),
+                *args[args.index("--runtime-provenance") :],
+            ]
+            native_record = {
+                "source": "commit:abc123",
+                "target": "x86_64-unknown-linux-gnu",
+                "features": "",
+                "profile": "release",
+                "files": {str(library.resolve()): artifacts.digest(library)},
+            }
+            index.write_text(json.dumps({"artifacts": {"native": native_record}}))
+            built = subprocess.run(
+                cargo, cwd=artifacts.ROOT, capture_output=True, text=True
+            )
+            self.assertEqual(built.returncode, 0, built.stderr)
+            pair = json.loads(
+                (root / "out/linux-x64-gnu/sdk-node-platform.json").read_text()
+            )
+            self.assertEqual(pair["commit"], "abc123")
+            self.assertNotIn("source", pair)
+            index.write_text(
+                json.dumps(
+                    {"artifacts": {"native": dict(native_record, source="closure")}}
+                )
+            )
+            rejected = subprocess.run(
+                cargo, cwd=artifacts.ROOT, capture_output=True, text=True
+            )
+            self.assertIn("does not name its commit", rejected.stderr)
+            index.write_text(
+                json.dumps(
+                    {
+                        "artifacts": {
+                            "native": dict(
+                                native_record, source="commit:abc123+dirty:fixture"
+                            )
+                        }
+                    }
+                )
+            )
+            rejected = subprocess.run(
+                cargo, cwd=artifacts.ROOT, capture_output=True, text=True
+            )
+            self.assertIn("has uncommitted changes", rejected.stderr)
             library.write_bytes(b"replaced SDK library")
             rejected = record()
             self.assertNotEqual(rejected.returncode, 0)

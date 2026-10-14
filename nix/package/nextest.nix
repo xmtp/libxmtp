@@ -19,8 +19,7 @@ let
   inherit (lib.fileset) fileFilter;
   inherit (xmtp) craneLib;
   root = ./../..;
-  rust-toolchain = p: xmtp.mkToolchain p [ ] [ "llvm-tools-preview" ];
-  rust = craneLib.overrideToolchain rust-toolchain;
+  rust = craneLib.overrideToolchain xmtp.hostToolchain;
 
   # The default members and their dev-dependencies. Other apps stay stubs.
   src = xmtp.filesets.mkClosureSource rust {
@@ -57,7 +56,7 @@ let
       --profile ci -E 'not package(xmtp_backend)' --no-tests=pass
   '';
 
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust (
     (removeAttrs commonArgs [ "src" ])
     // {
       buildPhaseCargoCommand = "cargo llvm-cov --locked --profile $CARGO_PROFILE --no-report";

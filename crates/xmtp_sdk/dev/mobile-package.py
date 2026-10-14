@@ -142,7 +142,7 @@ def preflight(generated_dir, artifact_dir, target):
     """Reject unmatched binding features and receipts before assembly."""
     language = "swift" if target == "ios" else "kotlin"
     generated = json.loads((generated_dir / language / "sdk-contract.json").read_text())
-    if generated["generator"] != artifacts.source_hash(True):
+    if generated["generator"] != artifacts.render_hash(language):
         raise ValueError("mobile binding generator mismatch")
     binding = generated["artifact"]
     # Render checks source only for Node and Browser. Reject old Rust source here.

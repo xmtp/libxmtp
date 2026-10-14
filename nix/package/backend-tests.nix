@@ -17,9 +17,7 @@ let
   inherit (xmtp) base;
   root = ./../..;
   darwin = stdenv.hostPlatform.isDarwin;
-  rust = xmtp.craneLib.overrideToolchain (
-    p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ]
-  );
+  rust = xmtp.craneLib.overrideToolchain xmtp.hostToolchain;
   src = xmtp.filesets.mkClosureSource rust {
     roots = [ (root + /apps/backend) ];
     dev = true;
@@ -68,8 +66,8 @@ let
     cargo sqlx prepare --check -- --all-targets
   '';
   # The SQLx check compiles the backend in check mode. Cache that mode too.
-  cargoArtifacts = base.mkCargoArtifacts rust false (
-    (removeAttrs commonArgs [ "src" ])
+  cargoArtifacts = base.mkCargoArtifacts rust (
+    commonArgs
     // {
       buildPhaseCargoCommand = ''
         ${test} --no-run

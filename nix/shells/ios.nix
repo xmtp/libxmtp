@@ -4,7 +4,7 @@
 #
 # Relationship to nix/package/ios.nix:
 #   - This file: interactive dev shell (`nix develop .#ios`)
-#   - package/ios.nix: CI/release build derivation (`nix build .#ios-libs`)
+#   - package/ios.nix: CI/release build derivation (`nix build .#ios-xcframeworks`)
 # Both use ios-env.nix for shared cross-compilation config.
 {
   stdenv,
