@@ -32,9 +32,8 @@ lint:
 format:
     swiftformat .
 
-# Lifecycle checks: reader teardown and the listener gate. The swift job in
-# test-ios.yml runs them with `test-lifecycle`. Its tests job runs
-# `test skip-lifecycle`, so one CI run does not run them twice on macOS.
+# Lifecycle checks: reader teardown and the listener gate. `test-lifecycle`
+# runs only them, and `test skip-lifecycle` runs every other test.
 _lifecycle_tests := "'XmtpSdkTests\\.(ReaderTeardownTests|ListenerGateTests)'"
 
 # Run Swift tests on macOS. XMTP_BACKEND_URL selects the backend.

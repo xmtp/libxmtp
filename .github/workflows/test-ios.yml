@@ -7,46 +7,11 @@ permissions:
   contents: read
 
 jobs:
+  # One job builds the xcframework once (`sdks/ios/dev/bindings` skips the
+  # copy when the store path is unchanged) and runs every iOS check.
   tests:
     runs-on: warp-macos-15-arm64-6x
     name: Tests (iOS)
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          cache-mode: "ci"
-          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-          github-token: ${{ github.token }}
-      # The Xcode of the iOS outputs (`xcode` in nix/lib/ios-env.nix).
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        with:
-          xcode-version: "26.3"
-      - uses: taiki-e/install-action@just
-      - name: Check native Apple toolchain
-        env:
-          NIX_DEVSHELL: ios
-        run: dev/nix-shell 'bash dev/check-apple-toolchain'
-      - name: Run iOS unit tests and examples
-        env:
-          NIX_DEVSHELL: ios
-        # The swift job owns the lifecycle and consumer proofs.
-        run: dev/nix-shell 'just backend ci bash -c "just ios test skip-lifecycle && just ios check-examples"'
-      - name: Run iOS simulator tests
-        env:
-          NIX_DEVSHELL: ios
-        run: dev/nix-shell 'just backend ci just ios test-simulator'
-      - name: Retain native service logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-backend-ci-logs
-          path: ${{ runner.temp }}/backend-ci-logs
-          retention-days: 7
-
-  swift:
-    name: Swift lifecycle checks and consumers
-    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 60
     env:
       NIX_DEVSHELL: ios
@@ -64,16 +29,29 @@ jobs:
       - uses: taiki-e/install-action@just
       - name: Check native Apple toolchain
         run: dev/nix-shell 'bash dev/check-apple-toolchain'
-      # The tests job skips these tests in its macOS run (`test skip-lifecycle`).
-      - name: Swift lifecycle checks
-        run: dev/nix-shell 'just backend ci just ios test-lifecycle'
+      # The tracked Swift under sdks/ios/Sources must match the generated
+      # Swift: a changed, deleted, or new file fails.
+      - name: Build the iOS bindings and check the tracked Swift
+        run: |
+          dev/nix-shell 'sdks/ios/dev/bindings'
+          drift=$(git status --porcelain -- sdks/ios/Sources)
+          if [ -n "$drift" ]; then
+            echo "::error title=Stale generated Swift::run sdks/ios/dev/bindings and commit sdks/ios/Sources"
+            printf '%s\n' "$drift"
+            git diff --stat -- sdks/ios/Sources
+            exit 1
+          fi
+      - name: Run iOS unit tests and examples
+        run: dev/nix-shell 'just backend ci bash -c "just ios test && just ios check-examples"'
       - name: Check Swift consumers
         run: dev/nix-shell 'just ios check-consumer'
+      - name: Run iOS simulator tests
+        run: dev/nix-shell 'just backend ci just ios test-simulator'
       - name: Retain native service logs
         timeout-minutes: 2
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: swift-backend-ci-logs
+          name: ios-backend-ci-logs
           path: ${{ runner.temp }}/backend-ci-logs
           retention-days: 7
