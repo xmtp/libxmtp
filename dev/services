@@ -74,12 +74,16 @@ case "${1:-}" in
     services up --detached --use-uds
     printf '%s\n' "${package}" >"${state}/package"
     start=${SECONDS}
-    # Wait until every process is ready. Fail at once when a process failed
-    # or was skipped. A service that never gets healthy fails its probe after
-    # 120 tries, so the deadline is above that.
+    # Wait until every service is ready and every init process (s3-init,
+    # replica-init, ...) completed. `process-compose project is-ready` also
+    # passes while an init process still runs. Fail at once when a process
+    # failed or was skipped. A service that never gets healthy fails its probe
+    # after 120 tries, so the deadline is above that.
+    ready='length > 0 and all(.[]; .status == "Disabled" or (.status == "Completed" and .exit_code == 0)
+      or (.status == "Running" and .is_ready == "Ready"))'
     failed='[.[] | select(.status == "Error" or .status == "Skipped"
       or (.status == "Completed" and .exit_code != 0))] | length > 0'
-    until services project is-ready >/dev/null 2>&1; do
+    until services process list --output json 2>/dev/null | jq -e "${ready}" >/dev/null; do
       if ((SECONDS - start > 150)) ||
         services process list --output json 2>/dev/null | jq -e "${failed}" >/dev/null; then
         diagnostics="$(mktemp -d "${TMPDIR:-/tmp}/xmtp-services-diagnostics.XXXXXX")"
