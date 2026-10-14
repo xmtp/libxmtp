@@ -171,6 +171,17 @@ class ServicesTests(unittest.TestCase):
         for port in ports:
             self.assertFalse(listening(port), f"port {port} still listens")
 
+    def test_failed_command_prints_the_service_logs(self):
+        # A Nix build deletes its TMPDIR, so the logs must reach the output.
+        result = self.services_test(
+            "exit 3", XMTP_SERVICES_LOGS=str(self.root / "logs")
+        )
+        self.assertEqual(result.returncode, 3, result.stderr)
+        for name in ("db", "replica", "s3"):
+            self.assertIn(
+                f"--- last lines of {self.root}/logs/{name}.log", result.stderr
+            )
+
     def test_caller_port_in_use_fails_before_any_service_starts(self):
         with socket.socket() as holder:
             holder.bind(("127.0.0.1", 0))

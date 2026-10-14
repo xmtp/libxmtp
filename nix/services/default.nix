@@ -72,8 +72,8 @@
             }).config.outputs;
           # Start, wait, run XMTP_SERVICES_TEST_COMMAND, exit with its status,
           # and stop every service. It removes the state directory that it
-          # creates. When the command never started and XMTP_SERVICES_LOGS is
-          # set, it prints the end of each service log.
+          # creates. On a failure with XMTP_SERVICES_LOGS set, it prints the
+          # end of each service log.
           test = pkgs.writeShellApplication {
             name = "services-test";
             runtimeInputs = [ pkgs.coreutils ];
@@ -89,12 +89,13 @@
               export XMTP_SERVICES_STATE
               status=0
               ${lib.getExe outputs.testPackage} up -t=false --no-server "$@" || status=$?
-              if [ "$status" -ne 0 ] && [ ! -e "$XMTP_SERVICES_STATE/test-started" ] &&
-                [ -n "''${XMTP_SERVICES_LOGS:-}" ]; then
+              # A Nix build deletes its TMPDIR, and with it the logs, so a
+              # failure prints the end of each service log.
+              if [ "$status" -ne 0 ] && [ -n "''${XMTP_SERVICES_LOGS:-}" ]; then
                 for log in "$XMTP_SERVICES_LOGS"/*.log; do
                   [ -f "$log" ] || continue
                   echo "--- last lines of $log" >&2
-                  tail -n 40 "$log" >&2
+                  tail -n 100 "$log" >&2
                 done
               fi
               exit "$status"
