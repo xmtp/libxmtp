@@ -147,6 +147,11 @@ extension SendCoordinatorTests {
 		var sends: [SendDraft] = []
 		let sendDrafts = SendDraftStore(read: { sends }, write: { sends = $0 })
 		let queries = ChatQueryFake(); let gateway = AttachmentGatewayFake()
+		queries.messageHook = { [weak queries] id in
+			guard let queries else { return nil }
+			return ChatMessage(id: id, conversationID: "chat", sender: "own", sentAt: 1,
+			                   delivery: queries.publications > 0 ? .published : .queued, content: .text("file"))
+		}
 		let coordinator = SendCoordinator(drafts: sendDrafts, queries: queries, accepts: { true })
 		let store = AttachmentStore(
 			gateway: gateway,
@@ -179,6 +184,15 @@ extension SendCoordinatorTests {
 		length: 5,
 		filename: "test.png",
 	)
+	init() {
+		queries.messageHook = { [weak self] id in
+			guard let self else { return nil }
+			let confirmed = queries.publications > 0 && !sends.contains(where: { $0.messageID == id })
+			return ChatMessage(id: id, conversationID: "chat", sender: "own", sentAt: 1,
+			                   delivery: confirmed ? .published : .queued, content: .text("hello"))
+		}
+	}
+
 	lazy var drafts = AttachmentDraftStore(
 		names: { Array(self.saved.keys) },
 		read: { self.saved[$0] },

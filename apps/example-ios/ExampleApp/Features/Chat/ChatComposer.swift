@@ -92,17 +92,22 @@ extension ChatContentView {
 
 	#endif
 	func stage(_ source: URL) {
-		do { guard let limit = runtime.attachments.state.limit,
-		           let profile = graph.active?.key.profileID else { return }; let url = try FileStager.stage(
-				source,
-				directory: graph.files.paths(profile).root.appendingPathComponent("temp"),
-				limit: limit,
-			); runtime.attachments.send(.stage(url, source.lastPathComponent))
-		} catch FileStager.StagingError
-			.tooLarge { self.error = "File exceeds the server upload limit" } catch
-		{
-			self.error = "Cannot read this file. Try again."
-		}
+		guard let limit = runtime.attachments.state.limit,
+		      let profile = graph.active?.key.profileID else { return }
+		do {
+			let directory = try graph.files.paths(profile).root.appendingPathComponent("temp")
+			runtime.imports.start(source, directory: directory, limit: limit, callbacks: .init(
+				admitted: { graph.routes.admit(runtime.origin, fence: graph.fence) },
+				receive: { file in runtime.attachments.send(.stage(file.url, file.filename)) },
+				failure: { failure in
+					if case FileStager.StagingError.tooLarge = failure {
+						error = "File exceeds the server upload limit"
+					} else {
+						error = "Cannot read this file. Try again."
+					}
+				},
+			))
+		} catch { self.error = "Cannot read this file. Try again." }
 	}
 }
 

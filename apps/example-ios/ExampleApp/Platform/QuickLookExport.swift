@@ -26,15 +26,19 @@ enum QuickLookExport {
 		}
 	}
 
-	static func copy(_ file: VerifiedFile, directory: URL) throws -> URL {
+	static func copy(_ file: VerifiedFile, directory: URL) async throws -> URL {
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		let safeName = URL(fileURLWithPath: file.filename).lastPathComponent
 		let folder = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-		let target = folder.appendingPathComponent(safeName); try FileManager.default.copyItem(
-			at: file.url,
-			to: target,
-		); return target
+		let target = folder.appendingPathComponent(safeName)
+		do {
+			try await AttachmentFileCopier.shared.copy(file.url, to: target)
+			return target
+		} catch {
+			try remove(target)
+			throw error
+		}
 	}
 }
 

@@ -15,8 +15,15 @@ public struct HistoryWindow: Equatable, Sendable {
 
 public struct HistoryPages: Sendable {
 	private let queries: any ChatQueries
+	private let admitted: @Sendable () async throws -> Void
 	public init(queries: any ChatQueries) {
 		self.queries = queries
+		admitted = { try Task.checkCancellation() }
+	}
+
+	init(queries: any ChatQueries, admitted: @escaping @Sendable () async throws -> Void) {
+		self.queries = queries
+		self.admitted = admitted
 	}
 
 	private func readable(
@@ -32,8 +39,12 @@ public struct HistoryPages: Sendable {
 		var skipped: UInt32 = 0
 		var count = 0
 		while true {
+			try Task.checkCancellation()
+			try await admitted()
 			let page = try await queries
 				.history(id: id, ascending: ascending, before: upper, after: lower)
+			try Task.checkCancellation()
+			try await admitted()
 			count += 1
 			first = first ?? page
 				.first

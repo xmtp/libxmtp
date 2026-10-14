@@ -900,6 +900,26 @@
           }
         }
       }
+    },
+    "No surviving messages are available.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No surviving messages are available."
+          }
+        }
+      }
+    },
+    "More messages are needed to restore your position. Retry to continue.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More messages are needed to restore your position. Retry to continue."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

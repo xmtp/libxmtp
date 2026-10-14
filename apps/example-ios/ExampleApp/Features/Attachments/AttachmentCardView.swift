@@ -14,6 +14,8 @@ struct AttachmentCardView: View {
 	@State private var exporting =
 		false
 	@State private var failure: String?
+	@State private var copyTask: Task<Void, Never>?
+	@State private var copyID: UUID?
 	private var card: FileCard {
 		store.state.cards[id] ?? FileCard(
 			id: id,
@@ -81,11 +83,12 @@ struct AttachmentCardView: View {
 				}
 				clearExport()
 			} onCancellation: { clearExport() }
+			.onDisappear { copyID = nil; copyTask?.cancel() }
 	}
 
 	@ViewBuilder private var fileActions: some View {
-		Button(String(localized: "Open", table: "Attachments")) { open(save: false) }.disabled(!allowed)
-		Button(String(localized: "Save", table: "Attachments")) { open(save: true) }.disabled(!allowed)
+		Button(String(localized: "Open", table: "Attachments")) { open(save: false) }.disabled(!allowed || copyID != nil)
+		Button(String(localized: "Save", table: "Attachments")) { open(save: true) }.disabled(!allowed || copyID != nil)
 	}
 
 	private var status: String {
@@ -116,22 +119,37 @@ struct AttachmentCardView: View {
 	}
 
 	private func open(save: Bool) {
-		guard allowed, quickLook == nil, !exporting else { return }
+		guard allowed, quickLook == nil, !exporting, copyID == nil,
+		      let file = store.verified.get(id), let key = graph.active?.key else { return }
 		clearExport()
-		do { guard let file = store.verified.get(id),
-		           let profile = graph.active?.key.profileID else { return }
-			let url = try QuickLookExport.copy(
-				file,
-				directory: graph.files.paths(profile).exports,
-			)
-			if save {
-				export = ExportDocument(url: url)
-				exporting = true
-			} else {
-				quickLook = url
+		do {
+			let directory = try graph.files.paths(key.profileID).exports
+			let origin = DestinationOrigin(session: key, token: graph.routes.token)
+			let operation = UUID()
+			copyID = operation
+			copyTask = graph.session.scope.add {
+				defer {
+					if copyID == operation {
+						copyID = nil; copyTask = nil
+					}
+				}
+				do {
+					let url = try await QuickLookExport.copy(file, directory: directory)
+					guard !Task.isCancelled, copyID == operation, graph.routes.admit(origin, fence: graph.fence) else {
+						try QuickLookExport.remove(url)
+						return
+					}
+					if save {
+						export = ExportDocument(url: url); exporting = true
+					} else {
+						quickLook = url
+					}
+				} catch is CancellationError { } catch {
+					if !Task.isCancelled, copyID == operation, graph.routes.admit(origin, fence: graph.fence) {
+						failure = "Cannot open this file. Try again."
+					}
+				}
 			}
-		} catch {
-			failure = "Cannot open this file. Try again."
-		}
+		} catch { failure = "Cannot open this file. Try again." }
 	}
 }

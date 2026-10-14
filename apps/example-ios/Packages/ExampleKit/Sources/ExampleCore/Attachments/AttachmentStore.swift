@@ -173,9 +173,10 @@ public enum AttachmentAction: Sendable {
 	}
 
 	private func load() async throws {
+		guard admit(origin), coordinator.acceptsSession else { return }
 		let limit = try await gateway.capability()
 		let pending = try await gateway.pending()
-		guard admit(origin) else { return }
+		guard admit(origin), coordinator.acceptsSession else { return }
 		try drafts.cleanOrphans()
 		var saved = try drafts.all()
 		for descriptor in pending
@@ -185,7 +186,9 @@ public enum AttachmentAction: Sendable {
 			try drafts.save(draft)
 			saved.append(draft)
 		}
-		try reconcileAccepted(in: &saved)
+		try await reconcileAccepted(in: &saved)
+		guard coordinator.acceptsSession else { return }
+		saved = try drafts.all()
 		for index in saved.indices where saved[index].phase == .uploading {
 			saved[index].phase = .waiting
 			try drafts.save(saved[index])
@@ -238,6 +241,7 @@ public enum AttachmentAction: Sendable {
 		guard allowed(), let draft = try drafts.all().first(where: { $0.id == id }),
 		      let conversation = draft.conversationID, draft.phase != .unknown,
 		      draft.phase != .failed || draft.retryable else { return }
+		var completed = draft
 		if let accepted = draft.acceptedID {
 			try await coordinator.retry(
 				conversationID: conversation,
@@ -246,9 +250,11 @@ public enum AttachmentAction: Sendable {
 			)
 		} else {
 			guard let ready = try await uploadIfNeeded(draft, generation: generation) else { return }
-			try await queue(ready, conversation: conversation, generation: generation)
+			completed = ready
+			completed.acceptedID = try await queue(ready, conversation: conversation, generation: generation)
 		}
-		try await finishSend(draft)
+		completed.phase = .complete
+		try await finishSend(completed)
 	}
 
 	private func uploadIfNeeded(_ draft: FileDraft, generation: UInt64) async throws -> FileDraft? {
@@ -267,8 +273,8 @@ public enum AttachmentAction: Sendable {
 		return next
 	}
 
-	private func queue(_ draft: FileDraft, conversation: String, generation: UInt64) async throws {
-		_ = try await coordinator.queue(
+	private func queue(_ draft: FileDraft, conversation: String, generation: UInt64) async throws -> String {
+		try await coordinator.queue(
 			draft: SendDraft(id: draft.id, conversationID: conversation), content: .attachment(draft.descriptor),
 			admission: { self.canSend(draft.id, generation: generation) },
 			acknowledge: { [drafts] id in
@@ -283,17 +289,6 @@ public enum AttachmentAction: Sendable {
 				try self.drafts.save(queueing)
 			},
 		)
-	}
-
-	private func finishSend(_ draft: FileDraft) async throws {
-		guard admit(origin) else { return }
-		let current = try drafts.all().first { $0.id == draft.id }
-		if current?.acceptedID == nil {
-			try reloadDrafts(); return
-		}
-		try drafts.remove(draft)
-		apply { $0.drafts.removeAll { $0.id == draft.id } }
-		await changed()
 	}
 
 	private func download(_ id: String, descriptor: FileDescriptor) async throws {
@@ -318,6 +313,7 @@ public enum AttachmentAction: Sendable {
 	}
 
 	private func handleFailure(_ error: any Error, action: AttachmentAction) {
+		guard coordinator.acceptsSession else { return }
 		let failure = error as? AttachmentError
 		if case let .send(id) = action {
 			recordSendFailure(id, failure: failure)
@@ -343,13 +339,32 @@ public enum AttachmentAction: Sendable {
 }
 
 private extension AttachmentStore {
+	func finishSend(_ draft: FileDraft) async throws {
+		guard coordinator.acceptsSession else { return }
+		guard let current = try drafts.all().first(where: { $0.id == draft.id }), current == draft,
+		      current.acceptedID != nil
+		else {
+			try reloadDrafts(); return
+		}
+		guard try await removePublished(current) else {
+			if coordinator.acceptsSession {
+				try reloadDrafts()
+			}
+			return
+		}
+		guard admit(origin) else { return }
+		apply { $0.drafts.removeAll { $0.id == draft.id } }
+		await changed()
+	}
+
 	func reloadDrafts() throws {
 		let values = try drafts.all()
 		apply { $0.drafts = values }
 	}
 
-	func reconcileAccepted(in saved: inout [FileDraft]) throws {
-		for index in saved.indices {
+	func reconcileAccepted(in saved: inout [FileDraft]) async throws {
+		for index in saved.indices.reversed() {
+			guard coordinator.acceptsSession else { return }
 			if saved[index].acceptedID == nil, let conversation = saved[index].conversationID,
 			   let messageID = try coordinator.acceptedMessageID(for: saved[index].id, conversationID: conversation)
 			{
@@ -357,6 +372,21 @@ private extension AttachmentStore {
 				saved[index].phase = .complete
 				try drafts.save(saved[index])
 			}
+			if try await removePublished(saved[index]) {
+				saved.remove(at: index)
+			}
 		}
+	}
+
+	func removePublished(_ draft: FileDraft) async throws -> Bool {
+		guard coordinator.acceptsSession, let conversation = draft.conversationID,
+		      let id = draft.acceptedID else { return false }
+		// Route cancellation must not abandon cleanup of an already published operation.
+		// This owned local-read task is awaited before store/session teardown can finish.
+		let confirmation = Task { try await coordinator.publicationConfirmed(conversationID: conversation, messageID: id) }
+		guard try await confirmation.value, coordinator.acceptsSession,
+		      try drafts.all().first(where: { $0.id == draft.id }) == draft else { return false }
+		try drafts.remove(draft)
+		return true
 	}
 }

@@ -43,7 +43,7 @@ enum PhotoImportContext {
 
 	static func stage(_ source: URL) async throws -> URL {
 		guard let context = await gate.current else { throw CocoaError(.fileReadUnknown) }
-		let file = try FileStager.stage(source, directory: context.directory, limit: context.limit)
+		let file = try await FileStager.stage(source, directory: context.directory, limit: context.limit)
 		try await context.files.record(file)
 		return file
 	}
@@ -72,6 +72,27 @@ enum PhotoImportContext {
 				callbacks.receive(file)
 			} catch is CancellationError { } catch {
 				if callbacks.admitted() {
+					callbacks.failure(error)
+				}
+			}
+		}
+	}
+
+	func start(_ source: URL, directory: URL, limit: UInt64, callbacks: Callbacks) {
+		task?.cancel()
+		let previous = task
+		task = Task {
+			await previous?.value
+			guard !Task.isCancelled, callbacks.admitted() else { return }
+			do {
+				let url = try await FileStager.stage(source, directory: directory, limit: limit)
+				guard !Task.isCancelled, callbacks.admitted() else {
+					try AttachmentStagingFiles(temporaryDirectory: directory).removeOwned(url)
+					return
+				}
+				callbacks.receive(ImportedPhoto(url: url, filename: source.lastPathComponent))
+			} catch is CancellationError { } catch {
+				if !Task.isCancelled, callbacks.admitted() {
 					callbacks.failure(error)
 				}
 			}

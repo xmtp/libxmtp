@@ -43,6 +43,8 @@ public enum ChatTimelineAction: Sendable {
 	private var job: Task<Void, Never>?
 	private var pendingRevision: UInt64 = 0
 	private let jobs = InFlightTasks()
+	private var recovery: ReadingRecovery?
+	private var recoveryMessage: String?
 	public init(
 		id: String,
 		origin: DestinationOrigin,
@@ -75,6 +77,8 @@ public enum ChatTimelineAction: Sendable {
 			if case .newest = action {
 				state.target = nil
 				state.atNewest = true
+				recovery = nil
+				recoveryMessage = nil
 			}
 			job?.cancel()
 			pendingRevision += 1
@@ -140,12 +144,15 @@ public enum ChatTimelineAction: Sendable {
 		guard admit(origin) else { return }
 		body(&state)
 	}
+}
 
+private extension ChatTimelineStore {
 	private func run(_ action: ChatTimelineAction, revision: UInt64) async {
 		do {
+			recoveryMessage = nil
 			let conversation = try await queries.conversation(id: id)
 			try checkAdmission(revision)
-			let pages = HistoryPages(queries: queries)
+			let pages = HistoryPages(queries: queries) { try await self.checkAdmission(revision) }
 			if case .olderPending = action {
 				try await loadPending(before: state.pendingBefore, revision: revision)
 				apply { $0.loading = false }
@@ -158,10 +165,13 @@ public enum ChatTimelineAction: Sendable {
 			}
 			let anchor = readingAnchor(for: action)
 			var window = try await historyWindow(action, pages: pages, revision: revision, anchor: anchor)
+			if let anchor {
+				window = try await recoverVisibleWindow(window, anchor: anchor, pages: pages, revision: revision)
+			}
 			let target = restorationTarget(for: action, anchor: anchor, window: &window)
 			try Task.checkCancellation()
 			try checkAdmission(revision)
-			if case .refresh = action {
+			if case .refresh = action, target?.changed != true {
 				window = cache.refresh(id, page: window, anchor: state.anchorID)
 			} else {
 				window = cache.put(
@@ -171,7 +181,7 @@ public enum ChatTimelineAction: Sendable {
 				)
 			}
 			let preserveNewest = if case .refresh = action {
-				state.atNewest
+				state.atNewest && !state.window.rows.isEmpty
 			} else {
 				false
 			}
@@ -198,7 +208,11 @@ public enum ChatTimelineAction: Sendable {
 			try checkAdmission(revision)
 			return cache.append(id, page: page, anchor: state.window.rows.last?.id)
 		}
-		if case .load = action, let anchor {
+		if case .refresh = action, let progress = recovery, progress.newer != nil || progress.older != nil {
+			return try await adjacentWindow(progress, pages: pages, revision: revision)
+		}
+		if let anchor, needsAnchoredWindow(action) {
+			recovery = nil
 			let window = try await pages.around(id: id, anchor: anchor.position)
 			try checkAdmission(revision)
 			return window
@@ -223,7 +237,7 @@ public enum ChatTimelineAction: Sendable {
 			skipped += page.skipped
 			if !page.rows.isEmpty || !page.hasMore {
 				apply {
-					$0.error = nil
+					$0.error = recoveryMessage
 					$0.pending = page.rows
 					$0.pendingBefore = page.last
 					$0.morePending = page
@@ -254,17 +268,28 @@ public enum ChatTimelineAction: Sendable {
 			}
 		}
 	}
-}
 
-private extension ChatTimelineStore {
+	func needsAnchoredWindow(_ action: ChatTimelineAction) -> Bool {
+		if case .load = action {
+			return true
+		}
+		return state.window.rows.isEmpty || recovery != nil
+	}
+
 	func readingAnchor(for action: ChatTimelineAction) -> ScrollAnchor? {
 		if case .load = action {
 			return readAnchor()
+		}
+		if case .refresh = action, let recovery {
+			return recovery.anchor
 		}
 		if case .refresh = action, let id = state.anchorID,
 		   let position = state.window.rows.first(where: { $0.id == id })?.position
 		{
 			return ScrollAnchor(messageID: id, position: position)
+		}
+		if case .refresh = action, state.window.rows.isEmpty {
+			return readAnchor()
 		}
 		return nil
 	}
@@ -273,7 +298,7 @@ private extension ChatTimelineStore {
 	                       window: inout HistoryWindow) -> (id: String?, changed: Bool)?
 	{
 		guard let anchor else { return nil }
-		let target = AnchorRestore.target(anchor, rows: window.rows)
+		let target = AnchorRestore.target(anchor, rows: window.rows.filter { $0.content != .reaction })
 		if case .refresh = action, !target.changed {
 			return nil
 		}
@@ -293,11 +318,65 @@ private extension ChatTimelineStore {
 		apply {
 			$0.conversation = conversation; $0.window = window
 			if let target {
-				$0.anchorID = target.id
+				if let id = target.id {
+					$0.anchorID = id
+				}
 				$0.target = preserveNewest ? nil : target.id
 				$0.atNewest = preserveNewest
 			}
-			$0.loading = false; $0.error = nil
+			$0.loading = false; $0.error = recoveryMessage
 		}
 	}
+
+	func recoverVisibleWindow(_ initial: HistoryWindow, anchor: ScrollAnchor, pages: HistoryPages,
+	                          revision: UInt64) async throws -> HistoryWindow
+	{
+		var window = initial
+		var progress = recovery ?? ReadingRecovery(
+			anchor: anchor,
+			newer: window.atNewest ? nil : window.first,
+			older: window.hasOlder ? window.last : nil,
+		)
+		for attempt in 0 ..< 2 {
+			try checkAdmission(revision)
+			if AnchorRestore.target(anchor, rows: window.rows.filter { $0.content != .reaction }).id != nil {
+				recovery = nil; return window
+			}
+			guard progress.newer != nil || progress.older != nil else {
+				recovery = progress; recoveryMessage = "No surviving messages are available."; return window
+			}
+			recovery = progress
+			if attempt == 1 {
+				recoveryMessage = "More messages are needed to restore your position. Retry to continue."; return window
+			}
+			window = try await adjacentWindow(progress, pages: pages, revision: revision)
+			progress = recovery ?? progress
+		}
+		return window
+	}
+
+	func adjacentWindow(_ progress: ReadingRecovery, pages: HistoryPages, revision: UInt64) async throws -> HistoryWindow {
+		try checkAdmission(revision)
+		var next = progress
+		let window: HistoryWindow
+		if let newer = progress.newer {
+			window = try await pages.around(id: id, anchor: newer)
+			try checkAdmission(revision)
+			next.newer = window.atNewest ? nil : window.first
+		} else if let older = progress.older {
+			window = try await pages.older(id: id, before: older)
+			try checkAdmission(revision)
+			next.older = window.hasOlder ? window.last : nil
+		} else {
+			throw ChatError.unavailable
+		}
+		recovery = next
+		return window
+	}
+}
+
+private struct ReadingRecovery {
+	let anchor: ScrollAnchor
+	var newer: HistoryPosition?
+	var older: HistoryPosition?
 }

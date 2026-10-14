@@ -13,6 +13,17 @@ import Foundation
 		self.accepts = accepts
 	}
 
+	public var acceptsSession: Bool {
+		accepts()
+	}
+
+	public func publicationConfirmed(conversationID: String, messageID: String) async throws -> Bool {
+		guard accepts() else { return false }
+		let message = try await queries.message(id: messageID)
+		guard accepts(), message?.conversationID == conversationID else { return false }
+		return message?.delivery == .published
+	}
+
 	public func queue(
 		draft: SendDraft,
 		content: OutboundContent,

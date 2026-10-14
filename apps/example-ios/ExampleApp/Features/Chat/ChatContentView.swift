@@ -39,11 +39,15 @@ struct ChatContentView: View {
 					.error
 				{
 					HStack {
-						Text(String(localized: String.LocalizationValue(failure), table: "Chat")); Button(String(
-							localized: "Retry",
-							table: "Chat",
-						)) { runtime.timeline.send(.refresh) }
-							.buttonStyle(.glass)
+						Text(String(localized: String.LocalizationValue(failure), table: "Chat")); if failure !=
+							"No surviving messages are available."
+						{
+							Button(String(
+								localized: "Retry",
+								table: "Chat",
+							)) { runtime.timeline.send(.refresh) }
+								.buttonStyle(.glass)
+						}
 					}.font(.caption)
 						.padding(8)
 				}
