@@ -45,6 +45,13 @@ test: build _test-host
   {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest ${CI:+--build-cache} --dependency-verification=strict --no-daemon
 
 
+# The JVM unit tests against a cargo debug host library (through JNA) and its
+# Kotlin render, with no Nix release build: the inner loop after a Rust edit.
+# The emulator tests and CI use the Nix release products (`just android test`).
+test-host *args:
+  cd {{ root }} && crates/xmtp_sdk/dev/host-package kotlin
+  {{ _env }} && jni="$(mktemp -d)" && trap 'rm -rf "$jni"' EXIT && XMTP_SDK_GENERATED_DIR="{{ root }}/target/sdk-host-generated" XMTP_SDK_ANDROID_JNI_DIR="$jni" JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host-cargo/lib" ./gradlew -p . library:testDebugUnitTest {{ args }} --dependency-verification=strict --no-daemon
+
 # Test legacy conversion through the normal Kotlin package.
 test-migration: build _test-host
   JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest --tests uniffi.xmtp_sdk.LegacyMigrationTest --dependency-verification=strict --no-daemon

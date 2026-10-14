@@ -15,7 +15,12 @@ Run commands from the repository root in the Nix shell. Run
   input differs from the merge base with `origin/self-hosted`; then it builds
   a cargo debug bindgen. CI keeps cargo. `XMTP_SDK_BINDGEN=nix|cargo`
   overrides the choice. A browser-only build skips the host library, and the
-  two WASM builds share one target directory. In
+  two WASM builds share one target directory. For Swift and Kotlin unit tests
+  after a Rust edit, `just ios test-host` and `just android test-host` use a
+  cargo debug host library and its render (`dev/host-package`), with no Nix
+  release build. Use the release route (`just ios test`, `just android
+  test`, simulators, emulators) before a merge: CI runs it, and the release
+  libraries abort on panic where debug ones unwind. In
   each TypeScript tree, `index.ts` is the package root: the public layer that
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
