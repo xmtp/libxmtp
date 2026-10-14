@@ -16,26 +16,17 @@
         useAndroidPrebuilt = true;
       };
 
-      # Single source of truth: ABI name → target config
-      androidTargets = {
-        "arm64-v8a" = {
-          config = "aarch64-unknown-linux-android";
-          rust.rustcTarget = "aarch64-linux-android";
-        };
-        "armeabi-v7a" = {
-          config = "armv7a-unknown-linux-androideabi";
-          rust.rustcTarget = "armv7-linux-androideabi";
-        }
-        // platforms.armv7a-android;
-        "x86_64" = {
-          config = "x86_64-unknown-linux-android";
-          rust.rustcTarget = "x86_64-linux-android";
-        };
-        "x86" = {
-          config = "i686-unknown-linux-android";
-          rust.rustcTarget = "i686-linux-android";
-        };
-      };
+      # ABI name → target config, from `nix/sdk-platforms.json`.
+      androidTargets = lib.listToAttrs (
+        map (target: {
+          name = target.abi;
+          value = {
+            inherit (target) config;
+            rust.rustcTarget = target.rustTarget;
+          }
+          // lib.optionalAttrs (target ? nixpkgsPlatform) platforms.${target.nixpkgsPlatform};
+        }) pkgs.xmtp.sdkPlatforms.android
+      );
 
       # config name → ABI name
       configToAbi = lib.listToAttrs (

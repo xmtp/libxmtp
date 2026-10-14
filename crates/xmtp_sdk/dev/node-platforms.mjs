@@ -2,28 +2,36 @@ import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-// The published Node SDK keeps the existing six-target support matrix.
-export const NODE_PLATFORMS = Object.freeze({
-  "darwin-arm64": ["aarch64-apple-darwin", "libxmtp_sdk.dylib"],
-  "linux-x64-gnu": ["x86_64-unknown-linux-gnu", "libxmtp_sdk.so"],
-  "linux-x64-musl": ["x86_64-unknown-linux-musl", "libxmtp_sdk.so"],
-  "linux-arm64-gnu": ["aarch64-unknown-linux-gnu", "libxmtp_sdk.so"],
-  "linux-arm64-musl": ["aarch64-unknown-linux-musl", "libxmtp_sdk.so"],
-  "win32-x64-msvc": ["x86_64-pc-windows-msvc", "xmtp_sdk.dll"],
-});
+// The published Node SDK supports every Node platform in the platform list.
+const platformList = JSON.parse(
+  readFileSync(new URL("../../../nix/sdk-platforms.json", import.meta.url)),
+);
+export const NODE_PLATFORMS = Object.freeze(
+  Object.fromEntries(
+    platformList.node.map(({ target, rustTarget, library, nixSystems }) => [
+      target,
+      [rustTarget, library, nixSystems.length === 0],
+    ]),
+  ),
+);
 const hash = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 
+// A Nix pair names the SDK closure identity, which must equal the binding's.
+// A cargo pair (no Nix system builds it) names the source key of its SDK
+// inputs, which must be the release commit's, and the commit that built it:
+// a cache restore ships bytes that an earlier commit with the same key built.
 export function stageNodePlatforms(
   input,
   output,
   binding,
   runtimeRevision,
   packageName,
+  releaseSource,
 ) {
   const platforms = {};
   const exports = {};
-  for (const [target, [rustTarget, library]] of Object.entries(
+  for (const [target, [rustTarget, library, cargoBuilt]] of Object.entries(
     NODE_PLATFORMS,
   )) {
     const root = join(input, target);
@@ -34,8 +42,10 @@ export function stageNodePlatforms(
       receipt.schema !== 1 ||
       receipt.target !== target ||
       receipt.rustTarget !== rustTarget ||
-      receipt.source !== binding.artifact.source ||
-      receipt.generator !== binding.generator ||
+      (cargoBuilt
+        ? receipt.source !== releaseSource ||
+          !/^[0-9a-f]{40}$/.test(receipt.commit ?? "")
+        : receipt.source !== binding.artifact.source || "commit" in receipt) ||
       receipt.features !== binding.artifact.features ||
       receipt.profile !== "release" ||
       binding.artifact.profile !== "release" ||

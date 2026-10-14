@@ -41,6 +41,12 @@ _lifecycle_tests := "'XmtpSdkTests\\.(ReaderTeardownTests|ListenerGateTests)'"
 test mode="all" *args="":
     {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q {{ if mode == "skip-lifecycle" { "--skip " + _lifecycle_tests } else if mode == "all" { "" } else { error("mode must be all or skip-lifecycle") } }} {{ args }}
 
+# The macOS unit tests against a cargo debug host library and its Swift render,
+# with no Nix release build: the inner loop after a Rust edit. The simulator,
+# the examples, and CI use the Nix release products (`just ios test`).
+test-host *args="":
+    {{ _env }} && cd "$(git rev-parse --show-toplevel)" && crates/xmtp_sdk/dev/host-package swift && swift test --parallel -q {{ args }}
+
 # Run only the lifecycle checks on macOS. XMTP_BACKEND_URL selects the backend.
 test-lifecycle:
     {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --filter {{ _lifecycle_tests }}

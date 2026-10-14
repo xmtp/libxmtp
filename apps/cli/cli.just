@@ -1,4 +1,4 @@
-NIX_DEVSHELL := "js-node"
+export NIX_DEVSHELL := "js-node"
 
 root := justfile_directory()
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"

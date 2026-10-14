@@ -7,20 +7,16 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import tomllib
 
 spec = importlib.util.spec_from_file_location(
     "artifacts", Path(__file__).with_name("sdk-artifacts.py")
 )
 artifacts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(artifacts)
+PLATFORM_LIST = json.loads((artifacts.ROOT / "nix/sdk-platforms.json").read_text())
 PLATFORMS = {
-    "darwin-arm64": ("aarch64-apple-darwin", "libxmtp_sdk.dylib"),
-    "linux-x64-gnu": ("x86_64-unknown-linux-gnu", "libxmtp_sdk.so"),
-    "linux-x64-musl": ("x86_64-unknown-linux-musl", "libxmtp_sdk.so"),
-    "linux-arm64-gnu": ("aarch64-unknown-linux-gnu", "libxmtp_sdk.so"),
-    "linux-arm64-musl": ("aarch64-unknown-linux-musl", "libxmtp_sdk.so"),
-    "win32-x64-msvc": ("x86_64-pc-windows-msvc", "xmtp_sdk.dll"),
+    platform["target"]: (platform["rustTarget"], platform["library"])
+    for platform in PLATFORM_LIST["node"]
 }
 
 
@@ -38,32 +34,51 @@ def main():
     native_identity.add_argument("--native-provenance", type=Path)
     native_identity.add_argument("--native-artifacts", type=Path)
     parser.add_argument("--runtime-provenance", type=Path, required=True)
+    # A cargo pair's `sdk-artifacts.py key` output, taken before the build.
+    parser.add_argument("--source-key", type=Path)
     parser.add_argument("--runtime-source", type=Path)
     parser.add_argument("--out", type=Path, default=Path("target/sdk-node-platforms"))
     args = parser.parse_args()
-    revision = tomllib.loads((artifacts.ROOT / "Cargo.toml").read_text())["workspace"][
-        "metadata"
-    ]["xmtp-sdk-fork"]["rev"]
+    revision = artifacts.fork_revision()
     rust_target, library = PLATFORMS[args.target]
     addon = f"uniffi-runtime-napi.{args.target}.node"
     if args.native_provenance:
+        # A Nix pair names the SDK closure identity of its evaluation, and a
+        # cargo pair (Windows) names its commit. Staging checks both once,
+        # against the release binding and the release commit.
         native = json.loads(args.native_provenance.read_text())
         if native.get("schema") != 1:
             raise ValueError("invalid Node native provenance schema")
         verify_pair_bytes(native, library, args.library, "native library")
+        identity = {"source": native["source"]}
     else:
         native = json.loads(args.native_artifacts.read_text())["artifacts"]["native"]
         artifacts.verify(native)
         if str(args.library.resolve()) not in native["files"]:
             raise ValueError("Node library is not in its build receipt")
+        if not native["source"].startswith("commit:"):
+            raise ValueError("cargo Node library does not name its commit")
+        if "+dirty:" in native["source"]:
+            raise ValueError("cargo Node library has uncommitted changes")
+        # A cache restore can ship these bytes for a later commit with the
+        # same SDK inputs, so the receipt names both the building commit and
+        # the source key; staging checks the key.
+        if not args.source_key:
+            raise ValueError("a cargo Node pair needs --source-key")
+        key = json.loads(args.source_key.read_text())
+        if key["forkRevision"] != revision:
+            raise ValueError("Node source key names another runtime fork")
+        identity = {
+            "commit": native["source"].removeprefix("commit:"),
+            "source": key["source"],
+            "sourceKey": key["key"],
+        }
     if (
-        native["source"] != artifacts.source_hash()
-        or native["generator"] != artifacts.source_hash(True)
-        or native["target"] != rust_target
+        native["target"] != rust_target
         or native["features"]
         or native["profile"] != "release"
     ):
-        raise ValueError("Node native library source or build contract mismatch")
+        raise ValueError("Node native library build contract mismatch")
     receipt = json.loads(args.runtime_provenance.read_text())
     if (
         receipt.get("schema") != 1
@@ -105,8 +120,7 @@ def main():
                     "schema": 1,
                     "target": args.target,
                     "rustTarget": rust_target,
-                    "source": native["source"],
-                    "generator": native["generator"],
+                    **identity,
                     "features": "",
                     "profile": "release",
                     "runtimeRevision": revision,

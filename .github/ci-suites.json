@@ -32,6 +32,24 @@
     "dev/nix/**"
   ],
   "products": {
+    "sdk_js": {
+      "cargo_roots": [],
+      "crates": [],
+      "paths": [
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_sdk/**",
+        "nix/ci-sets.nix",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/node-packages.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/sdk-platforms.json",
+        "{Cargo.toml,Cargo.lock}"
+      ]
+    },
     "sdk_android": {
       "cargo_roots": [],
       "crates": [],
@@ -48,6 +66,7 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/sdk-platforms.json",
         "{Cargo.toml,Cargo.lock}"
       ]
     }
@@ -142,7 +161,7 @@
         ".github/workflows/lint-config.yml"
       ],
       "paths": [
-        "**/*.{nix,py,sh,toml,kt,kts,swift}",
+        "**/*.{nix,py,sh,toml,kt,swift}",
         "**/.github/actions/setup-nix/README.md",
         ".github/**",
         "apps/backend/backend.just",
@@ -253,7 +272,6 @@
         "nix/lib/ios-env.nix",
         "nix/lib/packages/{swiftformat,swiftlint}.nix",
         "nix/package/ios.nix",
-        "nix/shells/ios.nix",
         "sdks/ios/**",
         "{Package.swift,Package.resolved,.spi.yml}"
       ]
@@ -342,7 +360,7 @@
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
-        "{.clippy.toml,dev/wasm.just,nix/shells/wasm.nix}"
+        "{.clippy.toml,dev/wasm.just}"
       ]
     },
     "check_sdk_unit": {
@@ -674,7 +692,7 @@
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
         "nix/services/**",
-        "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
+        "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
         "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       ]
     },
@@ -805,15 +823,15 @@
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "kache",
+      "secrets": "none",
       "permissions": {
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-products-debug"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -834,6 +852,7 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
         "sdks/js.just",
         "sdks/{node,browser,agent}/**",
@@ -849,15 +868,16 @@
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "kache",
+      "secrets": "none",
       "permissions": {
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-products-debug"
+      "kache": [],
+      "products": [
+        "sdk_js",
+        "sdk_android"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -878,6 +898,7 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
         "sdks/browser/test/platform/**",
         "sdks/js.just",
@@ -899,10 +920,10 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-native-debug"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -930,6 +951,7 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
         "sdks/js.just",
         "sdks/node/**",
@@ -950,10 +972,10 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-native-debug"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -974,6 +996,7 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
         "sdks/js.just",
         "sdks/{node,agent}/**",
@@ -994,10 +1017,10 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-products-debug"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1020,6 +1043,7 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
         "sdks/browser/**",
         "sdks/js.just",
@@ -1040,10 +1064,10 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-browser-conformance"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1063,6 +1087,7 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
         "sdks/browser/**",
         "sdks/js.just",
@@ -1084,10 +1109,11 @@
       },
       "covered_by": null,
       "kache": [
-        "rust-reference",
-        "sdk-products-debug"
+        "rust-reference"
       ],
-      "products": [],
+      "products": [
+        "sdk_js"
+      ],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1111,6 +1137,7 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
         "sdks/agent/src/**",
         "sdks/js.just",
@@ -1155,7 +1182,7 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
-        "nix/shells/ios.nix",
+        "nix/sdk-platforms.json",
         "sdks/ios/**",
         "{Cargo.toml,Cargo.lock}",
         "{Package.swift,Package.resolved,.spi.yml}"
@@ -1174,9 +1201,7 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-android-release"
-      ],
+      "kache": [],
       "products": [
         "sdk_android"
       ],
@@ -1198,7 +1223,8 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
-        "nix/shells/android.nix",
+        "nix/sdk-platforms.json",
+        "nix/shells/android{,-ci}.nix",
         "sdks/android/**",
         "{Cargo.toml,Cargo.lock}",
         "!docs/**"
@@ -1241,7 +1267,8 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
-        "nix/shells/android.nix",
+        "nix/sdk-platforms.json",
+        "nix/shells/android{,-ci}.nix",
         "sdks/android/**",
         "{Cargo.toml,Cargo.lock}",
         "!**/*.md",

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Reject test-only hooks in shipped SDK code.
 #
-#   check-test-hooks [generated-dir]  default bindings and runtime sources
+#   check-test-hooks [generated-dir]  default generated trees and runtime sources
 #   check-test-hooks --self-test      prove that the check can fail
 set -euo pipefail
 
@@ -11,9 +11,10 @@ root="$(cd "$(dirname "$0")/../../.." && pwd)"
 # bridgeTestPanic, testHook, bridge_test_panic, is_ended_for_test. Words
 # such as latestInboxUpdatesCount or Testnet do not match.
 test_hooks='\b(\w*[a-z0-9]Test([A-Z0-9_]\w*)?|test[A-Z0-9_]\w*|\w*_test([A-Z0-9_]\w*)?)\b'
-# Test source sets are not shipped.
-test_sources=(--glob '!*.test.*' --glob '!**/tests/**' --glob '!**/src/test/**'
-  --glob '!**/Tests/**')
+# Test source sets are not shipped. Only source files count: wasm-bindgen's
+# JavaScript glue names its own test harness.
+test_sources=(--glob '*.{swift,kt,ts}' --glob '!*.test.*' --glob '!**/tests/**'
+  --glob '!**/src/test/**' --glob '!**/Tests/**')
 # Known hooks that an open change removes, as path:name. A stale entry fails.
 allowed=()
 
@@ -27,17 +28,19 @@ hooks() {
 check() {
   local generated="$1"
   shift
-  local bindings=(
-    "$generated/swift/xmtp_sdk.swift"
-    "$generated/kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt"
-    "$generated/typescript-napi/xmtp_sdk.ts"
-    "$generated/typescript-wasm/xmtp_sdk.ts"
+  # Every file of the default trees, so a test-only export such as
+  # bridgeTestPanic cannot reach a generated module beside the binding.
+  local trees=(
+    "$generated/swift"
+    "$generated/kotlin"
+    "$generated/typescript-napi"
+    "$generated/typescript-wasm"
   )
-  local binding found entry failed=0
-  for binding in "${bindings[@]}"; do
-    test -f "$binding"
+  local tree found entry failed=0
+  for tree in "${trees[@]}"; do
+    test -d "$tree"
   done
-  found="$(hooks "${bindings[@]}" "$@")"
+  found="$(hooks "${trees[@]}" "$@")"
   for entry in "${allowed[@]}"; do
     if grep -qxF "$entry" <<<"$found"; then
       found="$(grep -vxF "$entry" <<<"$found" || true)"
@@ -93,6 +96,9 @@ self_test() {
     expect_failure "$name in a binding" "$generated" "$runtime"
     echo "$clean" >"$generated/typescript-wasm/xmtp_sdk.ts"
   done
+  echo 'export const panic = bridgeTestPanic;' >"$generated/typescript-wasm/dispatch.gen.ts"
+  expect_failure "bridgeTestPanic in a generated module" "$generated" "$runtime"
+  rm "$generated/typescript-wasm/dispatch.gen.ts"
   echo "check-test-hooks self-test passes."
 }
 

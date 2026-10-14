@@ -3,6 +3,7 @@
 
 import argparse
 from contextlib import contextmanager
+import functools
 import hashlib
 import json
 import os
@@ -15,12 +16,17 @@ import time
 
 ROOT = Path(__file__).resolve().parents[3]
 TARGETS = ("swift", "kotlin", "node", "browser")
-# Live data embedded by the SDK dependency graph through include_str!.
-COMPILE_INPUTS = (
-    "crates/xmtp_legacy_migration/browser-storage.js",
-    "crates/xmtp_attachments/src/address-registry.txt",
-    "crates/xmtp_id/src/scw_verifier/chain_urls_default.json",
-    "crates/xmtp_id/src/scw_verifier/signature_validation.hex",
+# Paths that contain every input of the SDK and bindgen closures. Windows has
+# no Nix, so its identity covers these paths instead of the closures; on other
+# systems, an untracked file here is an input that Nix cannot see.
+COMMIT_INPUTS = (
+    "Cargo.toml",
+    "Cargo.lock",
+    ".cargo",
+    "rust-toolchain.toml",
+    "crates",
+    "proto",
+    "apps/xmtp_sdk_bindgen",
 )
 
 
@@ -28,68 +34,223 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def source_hash(generator=False):
-    if (ROOT / ".git").exists():
-        paths = (
-            subprocess.check_output(
-                ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-                cwd=ROOT,
-            )
-            .decode()
-            .split("\0")
+# The file types of the SDK and bindgen closures (`nix/lib/sdk-sources.nix`):
+# Cargo sources and SQL, compiled-in data, and the render runtimes and
+# configuration. Other untracked files, such as proptest regression seeds or
+# merge leftovers, are not inputs.
+INPUT_SUFFIXES = (
+    b".rs",
+    b".toml",
+    b".lock",
+    b".sql",
+    b".proto",
+    b".json",
+    b".hex",
+    b".txt",
+    b".swift",
+    b".kt",
+    b".ts",
+    b".js",
+)
+
+
+def untracked_inputs():
+    """Untracked, unignored SDK input files under the SDK input paths."""
+    names = subprocess.check_output(
+        ["git", "ls-files", "-z", "--others", "--exclude-standard", "--"]
+        + list(COMMIT_INPUTS),
+        cwd=ROOT,
+    ).split(b"\0")
+    return sorted(
+        name
+        for name in names
+        if name.endswith(INPUT_SUFFIXES) and b"/proptest-regressions/" not in name
+    )
+
+
+@functools.cache
+def provenance():
+    """Return the SDK closure identities that Nix computes at evaluation.
+
+    `nix/lib/sdk-sources.nix` defines them, so the Nix and cargo routes record
+    the same values. Nix evaluates the git checkout and skips untracked files,
+    so an untracked input file is an error until it is added. Windows has no
+    Nix; its builds name the
+    commit, plus a digest of uncommitted changes to the SDK inputs, so a
+    working-tree edit never reuses a build of the commit.
+    """
+    if sys.platform == "win32":
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip()
+        identity = f"commit:{commit}"
+        changes = subprocess.check_output(
+            ["git", "diff", "HEAD", "--binary", "--", *COMMIT_INPUTS], cwd=ROOT
         )
-    else:
-        paths = [
-            str(path.relative_to(ROOT)) for path in ROOT.rglob("*") if path.is_file()
-        ]
-    selected = []
-    for name in paths:
-        if not name:
-            continue
-        path = ROOT / name
-        if not path.is_file():
-            continue
-        if generator:
-            keep = name.startswith(
-                ("apps/xmtp_sdk_bindgen/", "crates/xmtp_configuration/")
-            ) or name in (
-                "Cargo.lock",
-                "Cargo.toml",
-                "crates/xmtp_sdk/uniffi.toml",
-            )
-        else:
-            keep = (
-                (
-                    name.split("/")[0] in ("crates", "apps", "bindings", "proto")
-                    and (
-                        path.suffix in (".rs", ".proto", ".sql")
-                        or path.name == "Cargo.toml"
-                    )
-                )
-                or name in COMPILE_INPUTS
-                or name
-                in (
-                    "Cargo.toml",
-                    "Cargo.lock",
-                    "flake.lock",
-                    "rust-toolchain.toml",
-                    ".cargo/config.toml",
-                    "crates/xmtp_sdk/uniffi.toml",
-                )
-            )
-        if keep:
-            selected.append((name, digest(path)))
-    return hashlib.sha256(json.dumps(sorted(selected)).encode()).hexdigest()
+        untracked = untracked_inputs()
+        if changes or untracked:
+            state = hashlib.sha256(changes)
+            for name in untracked:
+                state.update(b"\0" + name + b"\0" + (ROOT / name.decode()).read_bytes())
+            identity += f"+dirty:{state.hexdigest()}"
+        return {
+            "source": identity,
+            "generator": identity,
+            "render": dict.fromkeys(("swift", "kotlin", "typescript"), identity),
+        }
+    untracked = untracked_inputs()
+    if untracked:
+        raise ValueError(
+            "the Nix SDK identity skips untracked files; `git add` them: "
+            + ", ".join(name.decode() for name in untracked)
+        )
+    return json.loads(
+        subprocess.check_output(
+            ["nix", "eval", "--json", f"{ROOT}#sdkProvenance"], cwd=ROOT
+        )
+    )
 
 
-def compiler_host():
-    """Read the host triple from the selected artifact compiler."""
-    compiler = os.environ.get("RUSTC") or os.environ.get("CARGO_BUILD_RUSTC") or "rustc"
-    identity = subprocess.check_output([compiler, "-vV"], cwd=ROOT).decode()
-    for line in identity.splitlines():
-        if line.startswith("host: "):
-            return line.removeprefix("host: ")
-    raise ValueError("Artifact compiler identity has no host triple")
+def fork_revision():
+    """The pinned uniffi-bindgen-react-native fork revision."""
+    # Imported here: other actions also run on Python before 3.11.
+    import tomllib
+
+    manifest = tomllib.loads((ROOT / "Cargo.toml").read_text())
+    return manifest["workspace"]["metadata"]["xmtp-sdk-fork"]["rev"]
+
+
+# The workflow whose `windows` job builds the cargo pair: its build recipe.
+NODE_PLATFORM_RECIPE = ".github/workflows/build-sdk-node-platforms.yml"
+
+
+def source_key(profile="", rust_target=""):
+    """The source identity of a cargo-built pair (the Windows Node pair).
+
+    It digests the committed trees of the SDK input paths, so two commits
+    with the same SDK inputs share it, and it names no commit. With a Rust
+    target it adds `key`, the pair's cache key: source, profile, target, the
+    runtime fork revision, the build recipe (the committed workflow that
+    builds the pair), and the compiler context (`build_context`).
+    """
+    paths = [*COMMIT_INPUTS, *([NODE_PLATFORM_RECIPE] if rust_target else [])]
+    changed = subprocess.run(
+        ["git", "diff", "--quiet", "HEAD", "--", *paths], cwd=ROOT
+    ).returncode
+    if changed or untracked_inputs():
+        raise ValueError("the source key needs committed SDK inputs")
+    trees = subprocess.check_output(
+        ["git", "ls-tree", "HEAD", "--", *COMMIT_INPUTS], cwd=ROOT
+    )
+    identity = {
+        "source": "tree:" + hashlib.sha256(trees).hexdigest(),
+        "forkRevision": fork_revision(),
+    }
+    if rust_target:
+        identity["key"] = hashlib.sha256(
+            json.dumps(
+                [
+                    "native",
+                    profile,
+                    "",
+                    rust_target,
+                    identity["source"],
+                    "vendored-static-openssl-v1",
+                    identity["forkRevision"],
+                    subprocess.check_output(
+                        ["git", "rev-parse", f"HEAD:{NODE_PLATFORM_RECIPE}"],
+                        cwd=ROOT,
+                        text=True,
+                    ).strip(),
+                    build_context(),
+                ]
+            ).encode()
+        ).hexdigest()
+    return identity
+
+
+def source_hash(generator=False):
+    """The SDK source identity, or with `generator` the bindgen executable's."""
+    return provenance()["generator" if generator else "source"]
+
+
+def render_hash(language):
+    """The identity a generated tree records: the bindgen plus its language's
+    runtime and configuration, so a runtime edit changes only that language."""
+    return provenance()["render"][
+        "typescript" if language.startswith("typescript-") else language
+    ]
+
+
+# The branch whose commits the warm workflow builds into the trusted cache.
+TRUNK = "origin/self-hosted"
+# Files outside the crates that change every Cargo build of a package.
+CARGO_INPUTS = ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo")
+
+
+def closure_paths(package):
+    """The directories of the workspace crates that `package` builds with.
+
+    Normal and build dependencies only, from `cargo metadata`; each path is
+    relative to the repository root.
+    """
+    metadata = json.loads(
+        subprocess.check_output(
+            ["cargo", "metadata", "--format-version", "1", "--locked", "--offline"],
+            cwd=ROOT,
+        )
+    )
+    local = {
+        item["id"]: Path(item["manifest_path"]).parent
+        for item in metadata["packages"]
+        if item["source"] is None
+    }
+    nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
+    start = next(item["id"] for item in metadata["packages"] if item["name"] == package)
+    pending, seen = [start], {start}
+    while pending:
+        for dependency in nodes[pending.pop()]["deps"]:
+            built = any(kind["kind"] != "dev" for kind in dependency["dep_kinds"])
+            if built and dependency["pkg"] in local and dependency["pkg"] not in seen:
+                seen.add(dependency["pkg"])
+                pending.append(dependency["pkg"])
+    return sorted(str(local[item].relative_to(ROOT)) for item in seen)
+
+
+def bindgen_route():
+    """Return where the bindgen comes from: `nix` or `cargo`.
+
+    `nix` (`.#xmtp-sdk-bindgen`, a cache hit when trunk built it) unless a
+    file of the bindgen's crates or Cargo inputs differs from the merge base
+    with trunk: then a cargo debug build, which an edit rebuilds faster than
+    Nix. CI, a missing merge base (a shallow clone), or a failed check keep
+    cargo. XMTP_SDK_BINDGEN=nix|cargo overrides the choice.
+    """
+    choice = os.environ.get("XMTP_SDK_BINDGEN", "")
+    if choice in ("nix", "cargo"):
+        return choice
+    if choice:
+        raise ValueError(f"XMTP_SDK_BINDGEN must be nix or cargo, not {choice}")
+    if os.environ.get("CI"):
+        return "cargo"
+    try:
+        base = subprocess.check_output(
+            ["git", "merge-base", "HEAD", TRUNK],
+            cwd=ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        paths = [*closure_paths("xmtp-sdk-bindgen"), *CARGO_INPUTS]
+        changed = subprocess.run(
+            ["git", "diff", "--quiet", base, "--", *paths], cwd=ROOT
+        ).returncode
+        added = subprocess.check_output(
+            ["git", "ls-files", "--others", "--exclude-standard", "--", *paths],
+            cwd=ROOT,
+        )
+    except (subprocess.CalledProcessError, OSError, StopIteration):
+        return "cargo"
+    return "cargo" if changed or added else "nix"
 
 
 def build_context():
@@ -140,26 +301,8 @@ def build_context():
         or "_OPENSSL_" in name
         or name.endswith("_DEPLOYMENT_TARGET")
     }
-    archive_indexes = {}
-    for name, value in flags.items():
-        if name == "RANLIB" or name.startswith("RANLIB_"):
-            tool = Path(shutil.which(value) or ROOT / value)
-            identity = {"path": str(tool.resolve()), "bytes": None, "version": None}
-            if tool.is_file():
-                identity["bytes"] = digest(tool.resolve())
-                probe = subprocess.run(
-                    [str(tool), "--version"], cwd=ROOT, capture_output=True, check=False
-                )
-                identity["version"] = [
-                    probe.returncode,
-                    probe.stdout.decode(errors="replace"),
-                    probe.stderr.decode(errors="replace"),
-                ]
-            archive_indexes[name] = identity
     return hashlib.sha256(
-        json.dumps(
-            [compiler, compiler_bytes, flags, archive_indexes], sort_keys=True
-        ).encode()
+        json.dumps([compiler, compiler_bytes, flags], sort_keys=True).encode()
     ).hexdigest()
 
 
@@ -178,7 +321,9 @@ def targets(value):
 
 
 def required(names):
-    return ["native", "bindgen"] + (["wasm", "pure"] if "browser" in names else [])
+    # No browser artifact links the host library.
+    native = ["native"] if set(names) - {"browser"} else []
+    return native + ["bindgen"] + (["wasm", "pure"] if "browser" in names else [])
 
 
 def verify(record):
@@ -203,12 +348,25 @@ def build(args):
     for kind in required(args.targets):
         if kind == "bindgen" and args.skip_bindgen:
             continue
+        if kind == "bindgen" and bindgen_route() == "nix":
+            link = output / "bindgen-nix"
+            run(["nix", "build", "--out-link", link, ".#xmtp-sdk-bindgen"])
+            binary = link / "bin/xmtp-sdk-bindgen"
+            index["artifacts"][kind] = {
+                "key": f"nix:{binary.resolve()}",
+                "files": {str(binary): digest(binary)},
+                "seconds": 0,
+                "features": "",
+                "profile": "release",
+                "source": rust_source,
+                "generator": generator,
+                "target": "",
+            }
+            index_file.write_text(json.dumps(index, indent=2) + "\n")
+            print("SDK bindgen from Nix", flush=True)
+            continue
         profile = "debug" if kind == "bindgen" else args.profile
-        features = (
-            args.features
-            if kind == "native"
-            else ("pure-only" if kind == "pure" else "")
-        )
+        features = "pure-only" if kind == "pure" else ""
         key = hashlib.sha256(
             json.dumps(
                 [
@@ -223,24 +381,13 @@ def build(args):
                 ]
             ).encode()
         ).hexdigest()
-        if kind == "bindgen" and args.reuse_bindgen:
-            shared = args.reuse_bindgen / "artifacts.json"
-            if shared.exists():
-                shared_record = json.loads(shared.read_text())["artifacts"].get(
-                    "bindgen"
-                )
-                if shared_record and shared_record["key"] == key:
-                    verify(shared_record)
-                    index["artifacts"][kind] = shared_record
-                    index_file.write_text(json.dumps(index, indent=2) + "\n")
-                    print(f"SDK reuse shared bindgen {key}", flush=True)
-                    continue
         cached = index["artifacts"].get(kind)
         if cached and cached["key"] == key:
             verify(cached)
             print(f"SDK reuse {kind} {key}", flush=True)
             continue
-        cargo_target = output / "build" / kind
+        # The two WASM builds share one target directory and its dependencies.
+        cargo_target = output / "build" / ("wasm" if kind == "pure" else kind)
         command = [
             "cargo",
             "build",
@@ -353,10 +500,72 @@ def staged_output(output, prefix=".sdk-mobile-stage-"):
             shutil.rmtree(stage)
 
 
+# The `render --target` of each generated language.
+RENDER_TARGETS = {
+    "swift": "swift",
+    "kotlin": "kotlin",
+    "typescript-napi": "node",
+    "typescript-wasm": "browser-worker",
+    "typescript-pure": "browser-pure",
+}
+
+
+# The @ubjs runtimes that each TypeScript tree imports (`nix/package/xmtp-sdk.nix`).
+RUNTIMES = {
+    "typescript-napi": ("core", "node"),
+    "typescript-wasm": ("core", "wasm"),
+    "typescript-pure": ("core", "wasm"),
+}
+
+
+def runtime_packages(names):
+    """Build the pinned @ubjs runtimes and return each package directory.
+
+    Each runtime gets an out-link under target/sdk-runtimes, a GC root, and a
+    tree links its package through that out-link, so a garbage collection
+    keeps the links working.
+    """
+    packages = {}
+    for name in names:
+        link = ROOT / "target/sdk-runtimes" / name
+        subprocess.run(
+            ["nix", "build", "--out-link", str(link), f".#ubjs-{name}"],
+            cwd=ROOT,
+            check=True,
+        )
+        packages[name] = link / "lib/node_modules/@ubjs" / name
+    return packages
+
+
 def target_languages(target):
     if target == "browser":
         return ("typescript-wasm", "typescript-pure")
     return ("typescript-napi" if target == "node" else target,)
+
+
+def formatter():
+    """Return the `--oxfmt` arguments for a TypeScript render.
+
+    The bindgen reads `XMTP_SDK_OXFMT` itself; the `default` shell exports it.
+    Otherwise (the `rust` shell) use the same nixpkgs oxfmt that the Nix render
+    uses, from this checkout's `flake.lock`.
+    """
+    if os.environ.get("XMTP_SDK_OXFMT"):
+        return []
+    store = subprocess.check_output(
+        [
+            "nix",
+            "build",
+            "--no-link",
+            "--print-out-paths",
+            "--inputs-from",
+            ".",
+            "nixpkgs#oxfmt",
+        ],
+        cwd=ROOT,
+        text=True,
+    ).strip()
+    return ["--oxfmt", f"{store}/bin/oxfmt"]
 
 
 def render(args):
@@ -367,33 +576,39 @@ def render(args):
     for record in selected.values():
         verify(record)
     generator = selected["bindgen"]["generator"]
+    # Each tree records its render identity from this checkout, so the bindgen
+    # that renders it must be this checkout's.
+    if generator != source_hash(True):
+        raise ValueError("generator mismatch; run build first")
     # Node and Browser staging trusts sdk-contract.json and has no later source
     # check. Mobile preflight checks it itself.
     if {"node", "browser"} & set(args.targets):
-        if generator != source_hash(True):
-            raise ValueError("generator mismatch; run build first")
         if any(record["source"] != source_hash() for record in selected.values()):
             raise ValueError("source mismatch; run build first")
-    contract = hashlib.sha256(
-        json.dumps(
-            {
-                kind: {
-                    "files": {
-                        Path(path).name: checksum
-                        for path, checksum in record["files"].items()
-                    },
-                    "generator": generator,
-                }
-                for kind, record in selected.items()
-            },
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
     binary = next(iter(selected["bindgen"]["files"]))
     native = next(
-        path
-        for path in selected["native"]["files"]
-        if Path(path).suffix != ".a" and Path(path).suffix != ".lib"
+        (
+            path
+            for path in selected.get("native", {"files": {}})["files"]
+            if Path(path).suffix not in (".a", ".lib")
+        ),
+        None,
+    )
+    typescript = {"node", "browser"} & set(args.targets)
+    oxfmt = formatter() if typescript else []
+    runtimes = (
+        runtime_packages(
+            sorted(
+                {
+                    name
+                    for target in args.targets
+                    for language in target_languages(target)
+                    for name in RUNTIMES.get(language, ())
+                }
+            )
+        )
+        if typescript
+        else {}
     )
     destination = args.out.resolve()
     destination.mkdir(parents=True, exist_ok=True)
@@ -406,58 +621,53 @@ def render(args):
                 if language == "typescript-wasm"
                 else "native"
             )
-            library = (
-                next(iter(selected[artifact]["files"]))
-                if artifact != "native"
-                else native
-            )
+            record = selected[artifact]
+            library = next(iter(record["files"])) if artifact != "native" else native
             tree = destination / language
             if tree.exists():
                 shutil.rmtree(tree)
-            command = [
-                binary,
-                "generate",
-                "--lib",
-                library,
-                "--language",
-                "typescript-wasm" if language == "typescript-pure" else language,
-                "--out",
-                tree,
-                "--config",
-                "apps/xmtp_sdk_bindgen/uniffi-global.toml",
-            ]
-            if language == "typescript-pure":
-                command += ["--pure-only"]
-            if args.no_format:
-                command += ["--no-format"]
-            run(command)
-            if artifact in ("wasm", "pure"):
-                run([binary, "stage-wasm", "--lib", library, "--out", tree])
-            elif language == "typescript-napi":
-                shutil.copy2(native, tree / Path(native).name)
-            files = {
-                str(path.relative_to(tree)): digest(path)
-                for path in sorted(tree.rglob("*"))
-                if path.is_file()
-            }
-            (tree / "sdk-contract.json").write_text(
-                json.dumps(
-                    {
-                        "contract": contract,
-                        "generator": generator,
-                        "artifact": selected[artifact],
-                        "files": files,
-                    },
-                    indent=2,
-                )
-                + "\n"
+            # The bindgen writes the tree and its receipt, sdk-contract.json.
+            run(
+                [
+                    binary,
+                    "render",
+                    "--lib",
+                    library,
+                    "--target",
+                    RENDER_TARGETS[language],
+                    "--out",
+                    tree,
+                    "--source",
+                    record["source"],
+                    "--generator",
+                    render_hash(language),
+                    "--profile",
+                    record["profile"],
+                    "--features",
+                    record["features"],
+                    "--rust-target",
+                    record["target"],
+                    *(oxfmt if language.startswith("typescript-") else []),
+                ]
             )
-    print(f"SDK rendered {','.join(args.targets)} contract {contract}")
+            # Like the Nix render, the tree loads its runtimes from node_modules.
+            for name in RUNTIMES.get(language, ()):
+                link = tree / "node_modules/@ubjs" / name
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(runtimes[name])
+    print(f"SDK rendered {','.join(args.targets)} with generator {generator}")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("build", "render"))
+    # `provenance` prints the source and Node render identities, for a caller
+    # that runs `xmtp-sdk-bindgen render` itself (the Windows load job). `key`
+    # prints the source key of a cargo-built pair as JSON (`source_key`).
+    # `paths PACKAGE` prints the workspace crates that PACKAGE builds with.
+    parser.add_argument(
+        "action", choices=("build", "render", "provenance", "key", "paths")
+    )
+    parser.add_argument("package", nargs="?", default="xmtp_sdk")
     parser.add_argument("--targets", type=targets, default=TARGETS)
     parser.add_argument("--artifacts", type=Path, default=ROOT / "target/sdk-artifacts")
     parser.add_argument(
@@ -468,16 +678,19 @@ def main():
         ),
     )
     parser.add_argument("--profile", choices=("debug", "release"), default="debug")
-    parser.add_argument("--features", default="")
     parser.add_argument("--rust-target", default="")
     parser.add_argument("--skip-bindgen", action="store_true")
-    parser.add_argument(
-        "--reuse-bindgen", type=Path, default=ROOT / "target/sdk-artifacts"
-    )
-    parser.add_argument("--no-format", action="store_true")
     args = parser.parse_args()
     try:
-        (build if args.action == "build" else render)(args)
+        if args.action == "provenance":
+            # The identities of a Node render.
+            print(source_hash(), render_hash("typescript-napi"))
+        elif args.action == "key":
+            print(json.dumps(source_key(args.profile, args.rust_target)))
+        elif args.action == "paths":
+            print("\n".join(closure_paths(args.package)))
+        else:
+            (build if args.action == "build" else render)(args)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"SDK artifact error: {error}\n")
 

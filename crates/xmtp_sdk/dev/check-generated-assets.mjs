@@ -9,9 +9,13 @@ export function checkGeneratedAssets(generated, tree, record) {
   record ??= JSON.parse(readFileSync(join(root, "sdk-contract.json")));
   const collect = (folder) =>
     readdirSync(folder, { withFileTypes: true }).flatMap((item) => {
-      if (item.name === "node_modules" && item.isDirectory()) return [];
+      // Installed or linked runtime packages are not generated files.
+      if (item.name === "node_modules") return [];
       const path = join(folder, item.name);
-      return item.isDirectory() ? collect(path) : [relative(root, path)];
+      // Receipts name files with `/` on every system.
+      return item.isDirectory()
+        ? collect(path)
+        : [relative(root, path).replaceAll("\\", "/")];
     });
   const actual = collect(root).filter((name) => name !== "sdk-contract.json");
   assert.deepEqual(

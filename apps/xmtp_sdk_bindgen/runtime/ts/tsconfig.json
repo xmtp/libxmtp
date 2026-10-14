@@ -7,8 +7,7 @@
     "types": ["node"],
     // The runtime imports the binding, the generated modules beside it, and
     // the @ubjs packages. For editors, they resolve in the generated Node
-    // tree; run `just sdk generate node`, then
-    // `crates/xmtp_sdk/dev/link-runtime-packages target/sdk-generated/typescript-napi`.
+    // tree, which links the @ubjs packages; run `just sdk generate node`.
     // The binding there imports that tree's runtime copy, so a class that
     // crosses the binding (Message) exists twice and an editor reports where
     // the two meet. `just sdk lint` checks the copy inside each generated

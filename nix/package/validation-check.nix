@@ -9,8 +9,7 @@
 let
   inherit (xmtp) craneLib base;
   root = ./../..;
-  rust-toolchain = p: xmtp.mkToolchain p [ "wasm32-unknown-unknown" ] [ ];
-  rust = craneLib.overrideToolchain rust-toolchain;
+  rust = craneLib.overrideToolchain xmtp.hostToolchain;
 
   # The tested packages, their dev-dependencies, and the check script.
   src = xmtp.filesets.mkClosureSource rust {
@@ -31,8 +30,8 @@ let
       ;
   };
 
-  cargoArtifacts = base.mkCargoArtifacts rust false (
-    (removeAttrs commonArgs [ "src" ])
+  cargoArtifacts = base.mkCargoArtifacts rust (
+    commonArgs
     // {
       buildPhaseCargoCommand = ''
         cargo test --locked --no-run -p xmtp_mls_validation --features test-utils

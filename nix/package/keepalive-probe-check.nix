@@ -6,15 +6,12 @@
 # build before they land on main.
 {
   xmtp,
-  stdenv,
 }:
 let
   inherit (xmtp) craneLib base;
   root = ./../..;
 
-  rust-toolchain =
-    p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ "clippy-preview" ];
-  rust = craneLib.overrideToolchain rust-toolchain;
+  rust = craneLib.overrideToolchain xmtp.hostToolchain;
 
   # Other members stay stubs so cargo --locked can resolve the workspace.
   src = xmtp.filesets.mkClosureSource rust {
@@ -22,7 +19,10 @@ let
     dev = true;
   };
 
-  cargoArtifacts = base.mkCargoArtifacts rust false null;
+  # Clippy reuses the check-mode metadata of third-party crates.
+  cargoArtifacts = base.mkCargoArtifacts rust {
+    buildPhaseCargoCommand = "cargo check --locked --profile $CARGO_PROFILE --all-targets -p keepalive-probe";
+  };
 in
 rust.cargoClippy (
   base.commonArgs

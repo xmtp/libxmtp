@@ -36,6 +36,7 @@ dev/nix-shell 'just android check-packages' # checks existing build outputs
 dev/nix-shell 'just android lint'
 dev/nix-shell 'just android format'
 dev/nix-shell 'just android test'
+dev/nix-shell 'just android test-host' # Host-only loop: cargo debug JNA library, no Nix build.
 dev/nix-shell 'just android test-unit --tests uniffi.xmtp_sdk.AndroidStreamLifecycleTest'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'

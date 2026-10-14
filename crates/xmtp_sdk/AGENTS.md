@@ -4,7 +4,23 @@ Run commands from the repository root in the Nix shell. Run
 `dev/nix-shell 'just backend status'` to find this worktree's backend ports.
 
 - `dev/nix-shell 'just sdk generate'` builds the SDK libraries and writes Swift, Kotlin, Node,
-  worker WASM, and pure browser WASM bindings to `target/sdk-generated/`. In
+  worker WASM, and pure browser WASM bindings to `target/sdk-generated/`.
+  `XMTP_SDK_BUILD` picks the route: `cargo` (the default; debug unless
+  `--profile release`) or `nix`, which copies the release-profile
+  `.#xmtp-sdk-generated-<target>` trees (out-links in `target/sdk-generated.nix`).
+  CI JavaScript jobs and the docs site use `nix`; use it locally too for work
+  that edits no SDK crate (a Cachix fetch and a copy). The cargo route takes
+  the bindgen from `nix build .#xmtp-sdk-bindgen` unless a file of the
+  bindgen's crates (`dev/sdk-artifacts.py paths xmtp-sdk-bindgen`) or a Cargo
+  input differs from the merge base with `origin/self-hosted`; then it builds
+  a cargo debug bindgen. CI keeps cargo. `XMTP_SDK_BINDGEN=nix|cargo`
+  overrides the choice. A browser-only build skips the host library, and the
+  two WASM builds share one target directory. For Swift and Kotlin unit tests
+  after a Rust edit, `just ios test-host` and `just android test-host` use a
+  cargo debug host library and its render (`dev/host-package`), with no Nix
+  release build. Use the release route (`just ios test`, `just android
+  test`, simulators, emulators) before a merge: CI runs it, and the release
+  libraries abort on panic where debug ones unwind. In
   each TypeScript tree, `index.ts` is the package root: the public layer that
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
@@ -13,9 +29,19 @@ Run commands from the repository root in the Nix shell. Run
   Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
   which the main packaging suite loads as inherited test methods.
   Both packaging suites share the fixture in `dev/packaging_test_base.py`.
-- `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
-  the checkout source identity with the generated and native Nix source filters.
-  It does not compile a product.
+- Evaluation checks the native build inputs: `base.assertNativeEnv`
+  (`nix/lib/base.nix`) fails evaluation of the host, Android, and iOS
+  libraries, or of their dependency layers, without static vendored OpenSSL,
+  the macOS 11.0 floor, or the iOS 14 export.
+- SDK receipts record the closure identities that Nix computes at evaluation
+  (`nix eval .#sdkProvenance`). `dev/sdk-artifacts.py` reads them with the same
+  command, so both routes record the same values. Nix evaluates the git
+  checkout: `git add` a new file before a cargo build records it.
+- `xmtp-sdk-bindgen render` writes each generated tree and its receipt in both
+  routes (`apps/xmtp_sdk_bindgen/README.md`). It formats TypeScript with the
+  nixpkgs `oxfmt`: the `default` shell exports `XMTP_SDK_OXFMT`, and in the
+  `rust` shell `dev/sdk-artifacts.py` builds `nixpkgs#oxfmt` from this
+  checkout's `flake.lock`. Generation needs no `pnpm install`.
 - `dev/nix-shell 'just sdk check-generated-nix'` checks the real generated SDK and
   Android fast/full build closures. Native generated products exclude SDK
   WASM builds. Android uses selected Kotlin. Apple uses selected Swift.
@@ -23,18 +49,25 @@ Run commands from the repository root in the Nix shell. Run
 - `dev/nix-shell 'just sdk check-file-sizes'` checks the 1,000-line limit for every SDK source
   file. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
-- `dev/nix-shell 'just sdk lint'` checks file sizes, generated names, and TypeScript source.
-  Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
+- `dev/nix-shell 'just sdk lint'` runs `lint-source` and `lint-generated`.
+  `lint-source` needs no generated tree: file sizes, the test-hook self-test,
+  public names in the sources, and the runtime and template formats; CI runs
+  it before generating. `lint-generated` runs the table-driven
+  `dev/check-generated-surface`, test hooks, Oxlint (which forbids type
+  assertions in the bridge; `as const` stays allowed), and two `tsc` calls
+  (the pure entry and the browser proofs get no Node types). Run
+  `dev/nix-shell 'just sdk generate'` first. It stops when a generated target root is missing.
   The TypeScript runtime imports the binding, so the lint and the bridge tests
   read its copy in each generated tree; `apps/xmtp_sdk_bindgen/GENERATED_LINT.md`
-  has the details. Generation replaces a tree without its `@ubjs` packages:
-  each script that loads or typechecks one links them first with
-  `crates/xmtp_sdk/dev/link-runtime-packages`. For editors,
+  has the details. Each generated TypeScript tree links its `@ubjs` packages
+  in its own `node_modules`, in both the Nix and cargo routes. For editors,
   `apps/xmtp_sdk_bindgen/runtime/ts/tsconfig.json` resolves the binding in the
   generated Node tree.
   It also rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) in
-  the default bindings and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
-  in test source sets.
+  every `.swift`, `.kt`, and `.ts` file of the default trees and in
+  `apps/xmtp_sdk_bindgen/runtime/`. The scan skips test sources (`*.test.*`,
+  `tests/`, `src/test/`, `Tests/`), such as the generated
+  `conformance.gen.test.ts`. Keep test hooks in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
 - `dev/nix-shell 'just sdk test-bridge [vitest arguments]'` runs the bridge
   runtime unit tests in `apps/xmtp_sdk_bindgen/runtime-tests/ts` and the
@@ -47,8 +80,11 @@ Run commands from the repository root in the Nix shell. Run
   codecs, worker failure, late reader opening, storage and OPFS, package
   workers, and logging), and then the Vitest Playwright suite (a real WASM
   trap, storage layouts, attachment and event lifetime, and decode-once). The
-  recipe builds the pure codec and panic fixtures in the Rust shell. These
-  fixtures enable the test-only `conformance` cargo feature, whose exports
+  recipe copies the pure codec and panic fixtures from Nix
+  (`.#xmtp-sdk-pure-fixture-codec`, `.#xmtp-sdk-wasm-fixture-panic`) with
+  `dev/copy-browser-fixtures`. These release-profile fixtures share the
+  product WASM dependency layer and enable the test-only `conformance` cargo
+  feature, whose exports
   (`sdk_conformance_*`) the default bindings omit. The public browser scenarios
   are in `sdks/browser/test`.
   The run starts `sdks/browser/test/platform/object-store/object-store.mjs`
@@ -63,7 +99,7 @@ Run commands from the repository root in the Nix shell. Run
   own held-upload relay (`sdks/node/test/heldUpload.ts`) on ephemeral loopback
   ports. It needs no `SDK_FIXTURE_URL` and no `protoc`.
 - `dev/nix-shell 'just sdk test-browser-logging'` runs only the real WASM worker
-  and Chromium log queue proofs. It reuses the existing conformance fixture and
+  and Chromium log queue proofs. It copies the panic fixture again and
   checks held callbacks, overflow, replacement, and delayed packet admission.
   Run `dev/nix-shell 'just sdk generate node,browser'` first.
 - `dev/nix-shell 'just sdk test-browser-storage'` runs only the real-worker OPFS
@@ -170,15 +206,19 @@ hand-maintained.
   complete product into the SDK's `dist` directory for workspace imports.
   Release jobs pack `target/sdk-packages/<target>` directly. Private staging
   remains the default for tests.
-- Use `NIX_DEVSHELL=ios dev/nix-shell 'just sdk mobile-build ios'` for the iOS
-  device and simulator libraries. Then use the same shell for
-  `dev/nix-shell 'just sdk mobile-stage ios'` to assemble `XmtpSdkFFI.xcframework` and SwiftPM
-  sources. These commands require Xcode.
-- Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk mobile-build android'` for
-  arm64-v8a, armeabi-v7a, x86_64, and x86. Then use the same shell for
-  `dev/nix-shell 'just sdk mobile-stage android'` to assemble the AAR. Its Kotlin compiler uses
-  `-Xjvm-default=all`. Final device and emulator runtime proofs use the matched
-  products. A source-only consumer does not replace those proofs.
+- The Android and iOS native libraries have one producer, Nix. `dev/nix-shell
+  'just sdk mobile-stage ios'` copies the release `.#ios-xcframeworks` into a
+  SwiftPM package after checking its slices against `nix/sdk-platforms.json`.
+  It selects the output with `sdks/ios/dev/bindings --release --build-only`:
+  the CI output when this Xcode matches or a cache holds it, else the
+  `-local` output (an error in CI).
+  `XMTP_SDK_BUILD=nix just sdk generate kotlin`, then `just sdk mobile-stage
+  android`, assembles the AAR over the Nix JNI library of each ABI
+  (`.#xmtp-sdk-android-<abi>`) after checking each library's receipt against
+  the Kotlin binding. The Kotlin compiler uses `-Xjvm-default=all`. The SDK
+  benchmarks read these packages; CI stages the AAR in the Android SDK build
+  job. Final device and emulator runtime proofs use the matched products. A
+  source-only consumer does not replace those proofs.
 - Private proof inputs can use `XMTP_SDK_GENERATED_DIR` and
   `XMTP_SDK_PACKAGES_DIR`. Prebuilt runtime inputs can use
   `XMTP_SDK_RUNTIME_DIR` (a directory with core/node or core/wasm products).
@@ -190,18 +230,8 @@ Package review checks:
 
 - `dev/nix-shell 'just sdk check-package-scripts'` also checks both provenance producers,
   config-only changes, Cargo compiler overrides, macOS deployment targets,
-  Windows browser asset paths, default mobile features, all four NDK compiler targets and archive index tools,
-  caller archive-tool policies, target OpenSSL paths and policy, cache inputs, and both flat and prebuilt runtime
-  directory layouts.
-  Explicit target OpenSSL paths keep upstream library-directory selection.
-  Generic host roots, library paths and header paths use the selected compiler's
-  host-qualified variables in the Android and iOS child environments. A policy-only
-  override keeps generic paths. Both mobile routes build target
-  OpenSSL by default. Explicit target paths and policies stay intact. Parent
-  inputs stay intact.
-- Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`
-  for small C probes. The output records ELF class and machine for each ABI.
-  These probes do not prove an installed Android SDK.
+  Windows browser asset paths, the mobile staging checks, cache inputs, and
+  both flat and prebuilt runtime directory layouts.
 - The private compiler input is `XMTP_SDK_TSDOWN_CLI`. It names tsdown's
   `dist/run.mjs`, which the stager runs through Node on every platform.
   Windows CI stages with a supported compiler Node version and runs the
@@ -211,22 +241,20 @@ Residual package review checks:
 
 - Build provenance includes the live address registry, chain URL map, and
   signature validation bytecode. The common receipt producer uses the same
-  fingerprint. Mobile preflight requires each native receipt's exact triple.
+  fingerprint. Mobile staging requires each Android receipt's exact triple.
 - Installed smoke runs `npm-cli.js` through Node. `XMTP_SDK_NPM_CLI` is a
   private path override for the launcher proof. The normal path comes from
   the selected Node installation, including the Windows installation.
 
-- Use `dev/nix-shell 'just sdk check-native-nix'` to check the evaluated SDK
-  build inputs. Cargo uses its normal or caller-selected job count. Native stages use
-  vendored static OpenSSL. Apple stages keep macOS 11 and iOS 14 floors.
-  `just sdk check-package-scripts` checks this gate under Python optimization
-  with invalid inputs for each build stage.
-  This check does not prove archive linkage or installed package loading.
+- Cargo uses its normal or caller-selected job count. Native stages use
+  vendored static OpenSSL. Apple stages keep macOS 11 and iOS 14 floors; the
+  Nix evaluation asserts these inputs. They do not prove archive linkage or
+  installed package loading.
 Android staging dependency inputs:
 
-- The staging Gradle root is `crates/xmtp_sdk/packaging/android`. Keep its
-  `gradle.lockfile`, `buildscript-gradle.lockfile`, and
-  `gradle/verification-metadata.xml` with the staging source.
+- The staging Gradle root is `sdks/android`. Its `library/gradle.lockfile`,
+  `buildscript-gradle.lockfile`, and `gradle/verification-metadata.xml` must
+  exist before the stage runs Gradle.
 - The normal stage command uses strict verification and does not write inputs.
   To refresh inputs, use a separate controlled resolution through
   `NIX_DEVSHELL=android dev/nix-shell`. Resolve the actual `assembleRelease`

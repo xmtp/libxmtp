@@ -143,6 +143,9 @@ jobs:
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
           fetch-depth: 0
+          # Full history for the release tag, without blobs; git-cliff, which
+          # fails on a blobless clone, does not run here.
+          filter: blob:none
       - uses: ./.github/actions/setup-release-tools
       - name: Update Package.swift and podspec
         env:

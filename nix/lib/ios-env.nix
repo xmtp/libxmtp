@@ -12,17 +12,15 @@
 # resolved dynamically from the active Xcode installation.
 { lib }:
 let
-  # Cross-compilation targets for the iOS release:
-  #   aarch64-apple-darwin   — macOS Apple Silicon
-  #   aarch64-apple-ios      — iOS device (arm64)
-  #   aarch64-apple-ios-sim  — iOS simulator on Apple Silicon
-  # (x86_64-apple-darwin was dropped with nixpkgs' x86_64-darwin support;
-  # the macOS slice is arm64-only now.)
-  iosTargets = [
-    "aarch64-apple-darwin"
-    "aarch64-apple-ios"
-    "aarch64-apple-ios-sim"
-  ];
+  platforms = lib.importJSON ../sdk-platforms.json;
+  # Cross-compilation targets for the iOS release, from the one platform list:
+  # the macOS slice (the Darwin Node platform's host library), then the iOS
+  # device and simulator slices.
+  iosTargets =
+    map (platform: platform.rustTarget) (
+      builtins.filter (platform: lib.hasSuffix "-apple-darwin" platform.rustTarget) platforms.node
+    )
+    ++ platforms.apple;
 
   # The Xcode that builds the CI and release iOS outputs. Every CI job that
   # builds or pushes them selects it with maxim-lobanov/setup-xcode, which runs
@@ -45,12 +43,7 @@ let
   # which injects macOS-specific flags (e.g., -mmacos-version-min) that break
   # iOS compilation. macOS targets don't need this — Nix's cc-wrapper is
   # compatible with macOS builds.
-  isIosTarget =
-    target:
-    builtins.elem target [
-      "aarch64-apple-ios"
-      "aarch64-apple-ios-sim"
-    ];
+  isIosTarget = target: builtins.elem target platforms.apple;
 
   # SDK path suffix for a given target (relative to DEVELOPER_DIR).
   sdkSuffixForTarget =
@@ -197,7 +190,8 @@ let
     export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$_XCODE_CLANG"
     export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios --sysroot=$_IOS_SDK"
     export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=$_IOS_SIM_SDK"
-    export PATH="$_XCODE_DEV/usr/bin:$PATH"
+    # After the Nix paths, so `python3` and `git` stay the shell's tools.
+    export PATH="$PATH:$_XCODE_DEV/usr/bin"
   '';
 
 in

@@ -150,7 +150,7 @@ where
         idempotency_key: Option<String>,
     ) -> Result<StoredGroupMessage, GroupError> {
         Self::reject_reserved_transcript_content(message)?;
-        let now = now_ns();
+        let now = self.context.message_timestamp_ns();
         // Resolve the key once. Random defaults do not depend on clock resolution.
         let idempotency_key = idempotency_key.unwrap_or_else(|| {
             hex::encode(xmtp_common::rand_vec::<DEFAULT_IDEMPOTENCY_KEY_BYTES>())

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { uniffiInitAsync } from "../../../target/sdk-generated/typescript-wasm/binding.ts";
 import * as PurePublic from "../../../target/sdk-generated/typescript-pure/index.ts";
 import * as BrowserRoot from "../../../target/sdk-generated/typescript-wasm/index.ts";
@@ -8,7 +10,13 @@ const wasm = new URL(
 );
 await uniffiInitAsync(wasm);
 await PurePublic.initPureWasm();
-if (!PurePublic.sdkVersion().startsWith("1.12.")) throw new Error("pure WASM did not initialize");
+// The library reports its crate version, the workspace version.
+const version = /\[workspace\.package\][^[]*?\nversion = "([^"]+)"/.exec(
+  readFileSync(new URL("../../../Cargo.toml", import.meta.url), "utf8"),
+)?.[1];
+if (!version) throw new Error("Cargo.toml has no workspace version");
+if (PurePublic.sdkVersion() !== version)
+  throw new Error(`pure WASM reported ${PurePublic.sdkVersion()}, not ${version}`);
 // The pure public entry works over public values and throws public errors.
 const encoded = PurePublic.encodeText("pure public");
 if (!(encoded.content instanceof Uint8Array))

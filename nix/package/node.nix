@@ -2,6 +2,7 @@
   runCommand,
   lib,
   stdenv,
+  xmtp,
   buildPackages,
   xmtpNative,
   ubrnNative,
@@ -13,17 +14,7 @@
 }:
 let
   target = stdenv.hostPlatform.rust.rustcTarget;
-  napiTarget =
-    {
-      aarch64-apple-darwin = "darwin-arm64";
-      x86_64-apple-darwin = "darwin-x64";
-      aarch64-unknown-linux-gnu = "linux-arm64-gnu";
-      x86_64-unknown-linux-gnu = "linux-x64-gnu";
-      aarch64-unknown-linux-musl = "linux-arm64-musl";
-      x86_64-unknown-linux-musl = "linux-x64-musl";
-      x86_64-pc-windows-msvc = "win32-x64-msvc";
-    }
-    .${target};
+  napiTarget = xmtp.toNapiTarget target;
   addon = "uniffi-runtime-napi.${napiTarget}.node";
   library = if stdenv.hostPlatform.isDarwin then "libxmtp_sdk.dylib" else "libxmtp_sdk.so";
   cctoolsPackage = buildPackages.darwin.cctools;
@@ -55,6 +46,12 @@ runCommand "xmtp-sdk-node-${napiTarget}"
       cp ${ubrnNative}/${addon} "$out/runtime/${addon}"
       cp ${ubrnNative}/runtime-provenance.json "$out/runtime/runtime-provenance.json"
       chmod u+w "$out/lib/${library}" "$out/runtime/${addon}"
+    ''
+    # The glibc host library keeps its static symbol table, because the
+    # bindgen reads UniFFI metadata from it (`xmtp-sdk-native.nix`). The
+    # shipped copy does not need it.
+    + lib.optionalString (stdenv.hostPlatform.isLinux && stdenv.hostPlatform.isGnu) ''
+      ${stdenv.cc.bintools}/bin/${stdenv.cc.bintools.targetPrefix}strip --strip-unneeded "$out/lib/${library}"
     ''
     + lib.optionalString stdenv.hostPlatform.isMusl ''
       patchelf --remove-rpath "$out/lib/${library}"

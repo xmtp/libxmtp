@@ -30,7 +30,23 @@ test("the public product contains all six verified library and runtime pairs", (
       generator: "generator",
       artifact: { source: "rust-source", features: "", profile: "release" },
     };
-    for (const [target, [rustTarget, library]] of Object.entries(
+    const builder = "a".repeat(40);
+    const stage = (binding, revision = "pin", source = "tree:release") =>
+      stageNodePlatforms(
+        input,
+        output,
+        binding,
+        revision,
+        "@xmtp/node-sdk",
+        source,
+      );
+    const receiptFile = (target) =>
+      join(input, target, "sdk-node-platform.json");
+    const editReceipt = (target, edit) => {
+      const receipt = JSON.parse(readFileSync(receiptFile(target)));
+      writeFileSync(receiptFile(target), JSON.stringify(edit(receipt)));
+    };
+    for (const [target, [rustTarget, library, cargoBuilt]] of Object.entries(
       NODE_PLATFORMS,
     )) {
       const root = join(input, target);
@@ -44,8 +60,11 @@ test("the public product contains all six verified library and runtime pairs", (
           schema: 1,
           target,
           rustTarget,
-          source: "rust-source",
-          generator: "generator",
+          // Nix pairs name the closure identity; the cargo pair, its source
+          // key and the commit that built it, which can be an earlier one.
+          ...(cargoBuilt
+            ? { commit: builder, source: "tree:release" }
+            : { source: "rust-source" }),
           features: "",
           profile: "release",
           runtimeRevision: "pin",
@@ -56,13 +75,7 @@ test("the public product contains all six verified library and runtime pairs", (
         }),
       );
     }
-    const staged = stageNodePlatforms(
-      input,
-      output,
-      binding,
-      "pin",
-      "@xmtp/node-sdk",
-    );
+    const staged = stage(binding);
     assert.equal(Object.keys(staged.platforms).length, 6);
     for (const [target, [, library]] of Object.entries(NODE_PLATFORMS)) {
       assert.equal(
@@ -87,36 +100,37 @@ test("the public product contains all six verified library and runtime pairs", (
     );
     assert.throws(
       () =>
-        stageNodePlatforms(
-          input,
-          output,
-          { ...binding, generator: "other" },
-          "pin",
-          "@xmtp/node-sdk",
-        ),
-      /provenance mismatch/,
+        stage({
+          ...binding,
+          artifact: { ...binding.artifact, source: "other" },
+        }),
+      /provenance mismatch: darwin-arm64/,
     );
+    assert.throws(() => stage(binding, "other-pin"), /provenance mismatch/);
     assert.throws(
-      () =>
-        stageNodePlatforms(
-          input,
-          output,
-          binding,
-          "other-pin",
-          "@xmtp/node-sdk",
-        ),
-      /provenance mismatch/,
+      () => stage(binding, "pin", "tree:other"),
+      /provenance mismatch: win32-x64-msvc/,
     );
+    editReceipt("win32-x64-msvc", ({ commit: _, ...receipt }) => receipt);
+    assert.throws(() => stage(binding), /provenance mismatch: win32-x64-msvc/);
+    editReceipt("win32-x64-msvc", (receipt) => ({ ...receipt, commit: builder }));
+    editReceipt("linux-x64-musl", ({ source: _, ...receipt }) => ({
+      ...receipt,
+      commit: "release",
+    }));
+    assert.throws(() => stage(binding), /provenance mismatch: linux-x64-musl/);
+    editReceipt("linux-x64-musl", ({ commit: _, ...receipt }) => ({
+      ...receipt,
+      source: "rust-source",
+    }));
+    stage(binding);
     writeFileSync(join(input, "win32-x64-msvc/xmtp_sdk.dll"), "changed bytes");
     assert.throws(
-      () => stageNodePlatforms(input, output, binding, "pin", "@xmtp/node-sdk"),
+      () => stage(binding),
       /asset mismatch: win32-x64-msvc\/xmtp_sdk.dll/,
     );
     rmSync(join(input, "darwin-arm64"), { recursive: true });
-    assert.throws(
-      () => stageNodePlatforms(input, output, binding, "pin", "@xmtp/node-sdk"),
-      /ENOENT/,
-    );
+    assert.throws(() => stage(binding), /ENOENT/);
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }

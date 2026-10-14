@@ -12,6 +12,7 @@ mod markers;
 mod message_fields;
 mod native_visibility;
 mod public_projection;
+mod receipt;
 mod redaction;
 mod streams;
 mod swift_async;
@@ -42,31 +43,45 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    Generate {
+    /// Write one generated tree and its receipt, `sdk-contract.json`.
+    Render {
+        /// The library to bind: a native library, or the unstaged WASM module.
         #[arg(long)]
         lib: Utf8PathBuf,
         #[arg(long, value_enum)]
-        language: Language,
+        target: Target,
+        /// The `oxfmt` binary that formats generated TypeScript.
+        #[arg(long, env = "XMTP_SDK_OXFMT")]
+        oxfmt: Option<Utf8PathBuf>,
+        /// An absent or empty directory.
         #[arg(long)]
         out: Utf8PathBuf,
+        /// The SDK source identity of the library (`nix eval .#sdkProvenance`).
         #[arg(long)]
-        config: Option<Utf8PathBuf>,
+        source: String,
+        /// The generator identity (`nix eval .#sdkProvenance`).
         #[arg(long)]
-        pure_only: bool,
-        /// Leave generated TypeScript unformatted. For jobs that only load the
-        /// generated package and have no JavaScript toolchain.
-        #[arg(long)]
-        no_format: bool,
-    },
-    StageWasm {
-        #[arg(long)]
-        lib: Utf8PathBuf,
-        #[arg(long)]
-        out: Utf8PathBuf,
+        generator: String,
+        /// The library's Cargo profile, features, and Rust target, as built.
+        #[arg(long, default_value = "release")]
+        profile: String,
+        #[arg(long, default_value = "")]
+        features: String,
+        #[arg(long, default_value = "")]
+        rust_target: String,
     },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum Target {
+    Swift,
+    Kotlin,
+    Node,
+    BrowserWorker,
+    BrowserPure,
+}
+
+#[derive(Clone, Copy)]
 enum Language {
     Swift,
     Kotlin,
@@ -77,36 +92,58 @@ enum Language {
 fn main() -> Result<()> {
     let Cli { command } = Cli::parse();
     match command {
-        Command::Generate {
+        Command::Render {
             lib,
-            language,
+            target,
+            oxfmt,
             out,
-            config,
-            pure_only,
-            no_format,
+            source,
+            generator,
+            profile,
+            features,
+            rust_target,
         } => {
-            if no_format {
-                format::disable();
+            if let Some(oxfmt) = oxfmt {
+                format::use_formatter(oxfmt);
             }
-            generate(&lib, language, &out, config.as_deref(), pure_only)
-        }
-        Command::StageWasm { lib, out } => {
-            fs::create_dir_all(&out)?;
-            ubrn_common::stage_wasm(&lib, &out, "xmtp_sdk", false)?;
-            Ok(())
+            require_empty(&out)?;
+            let (language, pure_only, role) = match target {
+                Target::Swift => (Language::Swift, false, "native"),
+                Target::Kotlin => (Language::Kotlin, false, "native"),
+                Target::Node => (Language::TypescriptNapi, false, "native"),
+                Target::BrowserWorker => (Language::TypescriptWasm, false, "wasm"),
+                Target::BrowserPure => (Language::TypescriptWasm, true, "pure"),
+            };
+            generate(&lib, language, &out, pure_only)?;
+            match target {
+                Target::BrowserWorker | Target::BrowserPure => {
+                    ubrn_common::stage_wasm(&lib, &out, "xmtp_sdk", false)?;
+                }
+                // The Node tree loads the library beside its binding.
+                Target::Node => {
+                    let name = lib.file_name().context("library has no file name")?;
+                    fs::copy(&lib, out.join(name))?;
+                }
+                Target::Swift | Target::Kotlin => {}
+            }
+            receipt::write(
+                &out,
+                &receipt::Artifact {
+                    role,
+                    library: &lib,
+                    source: &source,
+                    generator: &generator,
+                    features: &features,
+                    profile: &profile,
+                    target: &rust_target,
+                },
+            )
         }
     }
 }
 
-fn generate(
-    lib: &Utf8Path,
-    language: Language,
-    out: &Utf8Path,
-    config: Option<&Utf8Path>,
-    pure_only: bool,
-) -> Result<()> {
-    let default_config = Utf8Path::new("apps/xmtp_sdk_bindgen/uniffi-global.toml");
-    let config = config.unwrap_or(default_config);
+fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool) -> Result<()> {
+    let config = Utf8Path::new("apps/xmtp_sdk_bindgen/uniffi-global.toml");
     let (global_config, roots_layer) = GlobalConfig::from_file(config)?;
     let mut paths = BindgenPaths::default();
     if let Some(layer) = roots_layer {
@@ -417,6 +454,14 @@ fn generate(
     Ok(())
 }
 
+/// The receipt lists every file of the tree, so a stale file must not be there.
+fn require_empty(out: &Utf8Path) -> Result<()> {
+    if out.exists() && out.read_dir_utf8()?.next().is_some() {
+        bail!("{out}: render needs an absent or empty output directory");
+    }
+    Ok(())
+}
+
 fn validate_pure_module(groups: &MetadataGroupMap) -> Result<()> {
     let items = groups
         .values()
@@ -569,6 +614,16 @@ mod tests {
                 .to_string()
                 .contains("blocking_lookup")
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn render_refuses_an_output_directory_with_files() {
+        let directory = tempfile::tempdir()?;
+        let out = Utf8Path::from_path(directory.path()).context("UTF-8 path")?;
+        require_empty(&out.join("absent"))?;
+        require_empty(out)?;
+        fs::write(out.join("stale.ts"), "stale")?;
+        assert!(require_empty(out).is_err());
     }
 
     #[test]

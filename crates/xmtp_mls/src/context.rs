@@ -1,6 +1,8 @@
 #[cfg(test)]
 use crate::GroupCommitLock;
 use crate::builder::{DeviceSyncMode, ForkRecoveryOpts};
+#[cfg(any(test, target_arch = "wasm32"))]
+mod message_clock;
 use crate::client::DeviceSync;
 use crate::groups::change_callbacks::UnstableChangeCallbacks;
 use crate::server_configuration::ServerConfigurationHandle;
@@ -145,6 +147,8 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     // future retries.
     pub(crate) shutdown_complete: Arc<AtomicBool>,
     pub(crate) foreground_calls: Arc<ForegroundCalls>,
+    #[cfg(any(test, target_arch = "wasm32"))]
+    pub(crate) message_clock: Arc<message_clock::MessageClock>,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
@@ -219,6 +223,8 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             cancellation_token: self.cancellation_token,
             shutdown_complete: self.shutdown_complete,
             foreground_calls: self.foreground_calls,
+            #[cfg(any(test, target_arch = "wasm32"))]
+            message_clock: self.message_clock,
         }
     }
 }
@@ -390,6 +396,9 @@ where
 
     /// Calls that `Client::close` waits for before it disconnects the database.
     fn foreground_calls(&self) -> &Arc<ForegroundCalls>;
+
+    /// Timestamp for a newly accepted local message. WASM sends are monotonic.
+    fn message_timestamp_ns(&self) -> i64;
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -516,6 +525,22 @@ where
     fn foreground_calls(&self) -> &Arc<ForegroundCalls> {
         &self.foreground_calls
     }
+
+    fn message_timestamp_ns(&self) -> i64 {
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.message_clock.now_ns()
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            #[cfg(test)]
+            if self.message_clock.is_frozen() {
+                return self.message_clock.now_ns();
+            }
+            xmtp_common::time::now_ns()
+        }
+    }
 }
 
 impl<T> XmtpSharedContext for &T
@@ -638,5 +663,9 @@ where
 
     fn foreground_calls(&self) -> &Arc<ForegroundCalls> {
         <T as XmtpSharedContext>::foreground_calls(self)
+    }
+
+    fn message_timestamp_ns(&self) -> i64 {
+        <T as XmtpSharedContext>::message_timestamp_ns(self)
     }
 }

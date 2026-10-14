@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Check the generated SDK surface: one table of rules over the default trees.
+
+usage: check-generated-surface [generated-dir]
+"""
+
+from pathlib import Path
+import re
+import sys
+
+ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else "target/sdk-generated")
+NATIVE = ("swift", "kotlin", "typescript-napi", "typescript-wasm")
+ALL = (*NATIVE, "typescript-pure")
+BINDING = {
+    "swift": "swift/xmtp_sdk.swift",
+    "kotlin": "kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt",
+    "typescript-napi": "typescript-napi/xmtp_sdk.ts",
+    "typescript-wasm": "typescript-wasm/xmtp_sdk.ts",
+}
+SOURCES = (".swift", ".kt", ".ts")
+
+
+def tree_files(trees, suffixes=None):
+    """Text files of the trees; installed node_modules and links are not generated."""
+    for tree in trees:
+        for path in sorted((ROOT / tree).rglob("*")):
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or "node_modules" in path.relative_to(ROOT).parts
+                or (suffixes and path.suffix not in suffixes)
+            ):
+                continue
+            data = path.read_bytes()
+            if b"\0" not in data[:8192]:
+                yield path, data.decode(errors="replace")
+
+
+# (description, kind, scope, pattern[, inner]):
+#   absent  - the pattern matches no line of the scope's files;
+#   present - the pattern matches each scope binding;
+#   block   - each scope binding has the block, and the block lacks `inner`.
+RULES = [
+    ("conformance-only exports stay out of the default bindings",
+     "absent", (NATIVE, None), r"sdkConformance|sdk_conformance"),
+    ("generated public names use stock ID casing",
+     "absent", (ALL, SOURCES), r"[a-z]ID\b"),
+    ("no metadata marker leaks into the bindings (@xmtp-org/pkg is a path)",
+     "absent", (ALL, SOURCES), r"@xmtp-[a-z][a-z0-9-]*([^a-z0-9/-]|$)"),
+    ("TypeScript WASM does not export Storage.reconnect",
+     "absent", (("typescript-wasm",), None), r"uniffi_xmtp_sdk_fn_method_storage_reconnect"),
+    ("EncodedContent omits compression", "block", {
+        "swift": r"public struct EncodedContent:.*?\n}\n",
+        "kotlin": r"data class EncodedContent \(.*?\n\)",
+        "typescript-napi": r"export type EncodedContent = \{.*?\n}",
+        "typescript-wasm": r"export type EncodedContent = \{.*?\n}",
+    }, None, r"\bcompression\b"),
+    ("Storage.path is async", "present", {
+        "swift": r"\bfunc path\(\)\s*async\s+throws\b",
+        "kotlin": r"\bsuspend fun `path`\(",
+        "typescript-napi": r"\bpath\([^\n]*\)[^\n]*:\s*Promise<string\s*\|\s*undefined>",
+        "typescript-wasm": r"\bpath\([^\n]*\)[^\n]*:\s*Promise<string\s*\|\s*undefined>",
+    }, None),
+    ("Message lifts use the host class", "present", {
+        "swift": re.escape("return Message(data: builtinValue)"),
+        "kotlin": re.escape("return Message(builtinValue)"),
+        "typescript-napi": r"const FfiConverterTypeMessage = (?s:.*)return new Message\(intermediate\)(?s:.*)new FfiConverterArray\(FfiConverterTypeMessage\)",
+        "typescript-wasm": r"const FfiConverterTypeMessage = (?s:.*)return new Message\(intermediate\)(?s:.*)new FfiConverterArray\(FfiConverterTypeMessage\)",
+    }, None),
+]
+
+
+def main():
+    missing = [tree for tree in ALL if not (ROOT / tree).is_dir()]
+    if missing:
+        sys.exit(f"missing {', '.join(missing)} under {ROOT}: run `just sdk generate` first")
+    failures = []
+    for description, kind, scope, *rest in RULES:
+        if kind == "absent":
+            (trees, suffixes), pattern = scope, rest[0]
+            regex = re.compile(pattern, re.M)
+            for path, text in tree_files(trees, suffixes):
+                for match in regex.finditer(text):
+                    line = text.count("\n", 0, match.start()) + 1
+                    failures.append(f"{path}:{line}: {description}")
+        else:
+            for language, pattern in scope.items():
+                text = (ROOT / BINDING[language]).read_text()
+                match = re.search(pattern, text, re.DOTALL)
+                if match is None or (
+                    kind == "block" and re.search(rest[1], match.group())
+                ):
+                    failures.append(f"{language}: {description}")
+    if failures:
+        sys.exit("\n".join(failures))
+    print(f"{len(RULES)} generated surface rules hold in {ROOT}.")
+
+
+if __name__ == "__main__":
+    main()

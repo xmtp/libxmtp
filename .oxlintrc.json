@@ -68,6 +68,22 @@
   },
   "overrides": [
     {
+      // The worker bridge and its generated modules check every value at the
+      // boundary, so they take no type assertions (`as const` stays allowed).
+      "files": [
+        "apps/xmtp_sdk_bindgen/runtime/ts/bridge/**",
+        "target/sdk-generated/*/runtime/bridge/**",
+        "target/sdk-generated/typescript-wasm/*.gen.ts",
+        "target/sdk-generated/typescript-wasm/*.gen.test.ts"
+      ],
+      "rules": {
+        "typescript/consistent-type-assertions": [
+          "error",
+          { "assertionStyle": "never" }
+        ]
+      }
+    },
+    {
       // These tests deliberately check that default stringification cannot leak a key.
       "files": ["sdks/{node,browser}/test/LocalSigningKey.test.ts"],
       "rules": {

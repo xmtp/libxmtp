@@ -68,6 +68,24 @@ jobs:
             cachix pin xmtp "$set-$SYSTEM" "$path" --keep-revisions 3
           done
 
+  # The JavaScript jobs restore the pnpm store and never save it (mode ci).
+  # This job saves it when the lockfile key misses. setup-js runs no install
+  # scripts in mode trusted, so no script writes into the saved store. The job
+  # has no writer environment and no Cachix token; saving a GitHub cache needs
+  # neither.
+  pnpm-store:
+    name: Save the pnpm store
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+      - uses: ./.github/actions/setup-js
+        with:
+          cache-mode: trusted
+
   closure:
     name: Check that the warm sets substitute
     # Waits for both build jobs, after their post steps finish the uploads.

@@ -48,7 +48,9 @@ export function createInWorker<T>(
 }
 
 /** Migration cannot share a live storage owner. Its worker ends before return. */
-export function migrateInWorker<T>(call: (session: MainSession) => Promise<T>): Promise<T> {
+export function migrateInWorker<T>(
+  call: (session: MainSession) => Promise<T>,
+): Promise<T> {
   return sessions.runExclusive(call);
 }
 

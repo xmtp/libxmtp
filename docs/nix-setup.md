@@ -53,7 +53,9 @@ eval "$(direnv hook bash)"
 ```
 
 direnv automatically loads the default Nix dev shell when you `cd` into the
-repo. Run `direnv allow` to authorize it and `direnv deny` to revoke.
+repo. Run `direnv allow` to authorize it and `direnv deny` to revoke. `.envrc`
+loads the environment that `dev/nix-shell` caches, so direnv and the wrapper
+share one evaluation; `dev/nix-shell --refresh true` evaluates it again.
 
 The default shell is also used by Zed's Rust language server and default agent
 commands. This keeps native compiler, linker, and SDK settings consistent. Do not
@@ -99,13 +101,17 @@ sudo nix run nixpkgs#cachix -- use xmtp
 
 ## Available Dev Shells
 
-| Shell     | Command                 | Description                                  |
-| --------- | ----------------------- | -------------------------------------------- |
-| `default` | `nix develop`           | General Rust development for libxmtp         |
-| `android` | `nix develop .#android` | Android cross-compilation (NDK, cargo-ndk)   |
-| `ios`     | `nix develop .#ios`     | iOS/Swift builds (macOS only)                |
-| `js`      | `nix develop .#js`      | Node.js bindings development                 |
-| `wasm`    | `nix develop .#wasm`    | WebAssembly builds (wasm-pack, wasm-bindgen) |
+| Shell                   | Description                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `default`               | Local development: the Rust core plus editor, debug, and iOS tools              |
+| `rust`                  | The Rust core: one toolchain, cargo tools, Node, and pnpm (CI Rust)             |
+| `android`               | The Rust core packages plus the Android SDK, NDK, and emulator                  |
+| `android-ci`            | Slim Android CI shell, no Rust (Linux); `android-ci-emulator` adds the emulator |
+| `js`, `js-node`, `docs` | JavaScript and docs work, no Rust                                               |
+| `ios`, `wasm`           | Old names of `default` and `rust`                                               |
+
+Enter a shell with `dev/nix-shell --shell <name> '<command>'`; it caches the
+evaluated environment.
 
 ## Common Commands
 
@@ -155,6 +161,37 @@ use `XMTP_KACHE=0 dev/nix-shell 'just check'`. The default store is
 `${XDG_CACHE_HOME:-$HOME/.cache}/kache`, with a local default limit of 50 GiB.
 The CI action uses a 10 GiB limit. Existing nonempty `KACHE_CACHE_DIR` and
 `KACHE_MAX_SIZE` values are kept.
+
+Kache's scheduler is on. It does two things (Kache 1.1.1
+`docs/how-it-works/limits.mdx`). After a local and remote miss, a compile joins
+a machine-wide flight for its cache key, so a second process that misses the
+same key waits and then restores the first one's entry; `kache stats --full`
+reports that wait as "on a shared compile". The compile then takes a permit
+from a pool of one slot per CPU per cache directory (machine-wide here, because
+the worktrees share `~/.cache/kache`). A slot is the machine's memory divided by
+the pool, at least 512 MiB; a measured crate takes as many slots as its peak
+memory needs, an unmeasured compile one, and an unmeasured link two. Under
+memory pressure (on macOS, the kernel's warning level) a compile asks for the
+whole pool, so compiles run one at a time. Hits and passthroughs never wait.
+The switches: `KACHE_SCHEDULER_MEMORY_PRESSURE=0` turns off only the pressure
+mode; `KACHE_SCHEDULER=0` turns off the scheduler (two processes that miss
+the same crate still share one compile when the first stores an entry that the
+second can restore, but the shared-compile wait is no longer measured). Change
+a switch only when `kache stats --full` shows permit waits while
+cores are idle; bare `kache stats` shows no scheduler wait.
+
+Locally, Kache's adaptive incremental mode (on by default) gives a workspace
+crate whose sources changed isolated incremental state, also when it is a
+dependency such as `crates/xmtp_mls` under an `xmtp_sdk` build. On the owner
+Mac a one-line `xmtp_mls` edit rebuilt the SDK host library in about 6 s from
+the second edit on (19 s for the first), against 31 s per edit with
+`KACHE_ADAPTIVE_INCREMENTAL=0`, so neither `-p` lists nor
+`KACHE_PRESERVE_INCREMENTAL=1` are needed.
+
+`KACHE_MAX_SIZE` limits the store's private blob bytes on each machine; blobs
+that a target directory still holds (hardlinked or cloned) are not freed until
+that target goes. `kache clean --stale 14d --dry-run`, then `--yes`, removes
+target directories that no build used for 14 days, which frees their bytes.
 
 CI cache writes are limited to trusted pushes on main or self-hosted. Other
 contexts can restore the cache. Keep credentials out of source and derivations.

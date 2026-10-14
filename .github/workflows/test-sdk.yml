@@ -47,8 +47,8 @@ jobs:
         run: dev/nix-shell 'just install-js'
       - name: Start backend
         run: dev/nix-shell 'just backend up'
-      - name: Check native Nix inputs
-        run: dev/nix-shell 'just sdk check-native-nix'
+      - name: Check the generated SDK build closures
+        run: dev/nix-shell 'just sdk check-generated-nix'
       - name: Check package scripts
         run: dev/nix-shell 'just sdk check-package-scripts'
       - name: Build SDK artifacts once
@@ -80,56 +80,6 @@ jobs:
       - name: Dump Docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@2741064ab9d7af54b0b1ffb6076cf64c16f0220e # v2.2.2
-
-  android-stage:
-    name: Android SDK staging
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    environment:
-      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
-    timeout-minutes: 90
-    permissions:
-      contents: read
-    env:
-      NIX_DEVSHELL: android
-      SQLX_OFFLINE: "true"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
-        with:
-          cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
-          cachix-auth-token: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && secrets.CACHIX_AUTH_TOKEN || '' }}
-          cachix-pr-auth-token: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
-          kache: "true"
-          github-token: ${{ github.token }}
-          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
-          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
-          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
-          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-          kache-scope: sdk-android-release
-          kache-readonly: "false"
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
-      - name: Build Kotlin SDK artifacts
-        run: dev/nix-shell 'just sdk build kotlin --profile release'
-      - name: Render Kotlin SDK bindings
-        run: dev/nix-shell 'just sdk render kotlin --profile release'
-      - name: Build all Android ABI libraries
-        run: dev/nix-shell 'just sdk mobile-build android'
-      - name: Clear prior Android package output
-        run: rm -rf target/sdk-packages/android
-      - name: Stage Android AAR with strict dependency verification
-        run: dev/nix-shell 'just sdk mobile-stage android'
-      - name: Retain Android AAR and contract
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: android-sdk-stage
-          if-no-files-found: error
-          path: |
-            target/sdk-packages/android/xmtp-sdk.aar
-            target/sdk-packages/android/sdk-contract.json
-      - name: Check Kotlin consumers
-        run: dev/nix-shell 'just android check-consumers'
 
   windows-load:
     name: Windows SDK load (win32-x64)
@@ -178,17 +128,6 @@ jobs:
           "PROTOC=$protoc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Build xmtp_sdk and generator
         run: cargo build --locked -p xmtp_sdk -p xmtp-sdk-bindgen
-      - name: Generate TypeScript bindings
-        shell: bash
-        run: |
-          # This job generates only Node. Remove all cached language roots
-          # before recording the native-only product.
-          rm -rf target/sdk-generated
-          mkdir -p target/sdk-generated/typescript-napi
-          # This job only loads the package and installs no JavaScript
-          # toolchain, so it has no formatter. Formatting only changes layout.
-          target/debug/xmtp-sdk-bindgen.exe generate --lib target/debug/xmtp_sdk.dll --language typescript-napi --out target/sdk-generated/typescript-napi --config apps/xmtp_sdk_bindgen/uniffi-global.toml --no-format
-          cp target/debug/xmtp_sdk.dll target/sdk-generated/typescript-napi/
       - name: Build pinned @ubjs runtimes
         shell: bash
         run: |
@@ -201,9 +140,16 @@ jobs:
           npm run build --prefix ubrn/typescript
           npm ci --prefix ubrn/runtimes/napi --ignore-scripts
           npm run build --prefix ubrn/runtimes/napi
-          mkdir -p target/sdk-generated/typescript-napi/node_modules/@ubjs
-          cp -R ubrn/typescript target/sdk-generated/typescript-napi/node_modules/@ubjs/core
-          cp -R ubrn/runtimes/napi target/sdk-generated/typescript-napi/node_modules/@ubjs/node
+          # Fresh copies outside target/, which the Rust cache saves and
+          # restores (it cannot restore the test builds' links), without the
+          # test and dependency directories that staging never copies.
+          rm -rf sdk-runtimes
+          for runtime in core:ubrn/typescript node:ubrn/runtimes/napi; do
+            mkdir -p "sdk-runtimes/${runtime%%:*}"
+            tar -C "${runtime#*:}" --exclude=./tests --exclude=./node_modules -cf - . \
+              | tar -C "sdk-runtimes/${runtime%%:*}" -xf -
+            test -f "sdk-runtimes/${runtime%%:*}/package.json"
+          done
       - name: Use the package compiler Node version
         uses: actions/setup-node@v6
         with:
@@ -212,13 +158,18 @@ jobs:
       - name: Install locked package compiler
         shell: bash
         run: pnpm install --frozen-lockfile --ignore-scripts --filter @xmtp/workspace
-      - name: Stage Windows ESM package
+      - name: Render and stage Windows ESM package
         shell: bash
         env:
-          XMTP_SDK_RUNTIME_DIR: target/sdk-generated/typescript-napi/node_modules/@ubjs
+          XMTP_SDK_RUNTIME_DIR: sdk-runtimes
           XMTP_SDK_TSDOWN_CLI: node_modules/tsdown/dist/run.mjs
         run: |
-          python crates/xmtp_sdk/dev/record-generated.py target/sdk-generated --native target/debug/xmtp_sdk.dll --bindgen target/debug/xmtp-sdk-bindgen.exe --profile debug
+          # This job generates only Node. Remove all cached language roots.
+          rm -rf target/sdk-generated
+          # Windows has no Nix: the identities name the commit, and the pnpm
+          # oxfmt formats the generated TypeScript.
+          read -r source generator < <(python crates/xmtp_sdk/dev/sdk-artifacts.py provenance | tr -d '\r')
+          target/debug/xmtp-sdk-bindgen.exe render --lib target/debug/xmtp_sdk.dll --target node --oxfmt node_modules/.bin/oxfmt.cmd --out target/sdk-generated/typescript-napi --source "$source" --generator "$generator" --profile debug
           node crates/xmtp_sdk/dev/stage-package.mjs node --public
       - name: Use the minimum SDK Node version
         uses: actions/setup-node@v6
