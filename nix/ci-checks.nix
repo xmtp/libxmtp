@@ -31,7 +31,7 @@ let
     withSystem system (
       { pkgs, self', ... }:
       pkgs.callPackage ./package/wasm-nextest.nix {
-        services = self'.legacyPackages.mkServices self'.packages.xmtp-backend;
+        services = self'.legacyPackages.clientServices;
         partitions = wasmPartitions;
       }
     );
@@ -42,7 +42,7 @@ in
     withSystem system (
       { pkgs, self', ... }:
       pkgs.callPackage ./package/nextest.nix {
-        services = self'.legacyPackages.mkServices self'.packages.xmtp-backend;
+        services = self'.legacyPackages.clientServices;
       }
     )
   );

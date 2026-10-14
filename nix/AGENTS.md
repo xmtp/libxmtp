@@ -62,20 +62,31 @@ store scripts, because process-compose substitutes `$NAME` in the whole config.
 background on this worktree's ports, without Docker. `.#services-test` starts
 the stack, runs `XMTP_SERVICES_TEST_COMMAND`, exits with its status, and stops
 every service (`dev/nix-shell 'just backend ci COMMAND'`).
-`legacyPackages.mkServices <backend>` gives these outputs for another backend
-binary, so a test derivation keys on the binary that it starts; `mkServices
-null` is the storage subset (PostgreSQL, replica, S3). Its `checkCommand` runs a
+`legacyPackages.mkServices { backend; replica; }` gives these outputs for
+another backend binary, so a test derivation keys on the binary that it starts;
+without `backend` it is the storage subset (PostgreSQL, replica, S3). Its
+`checkCommand` runs a
 check phase through `services-test`; the derivation merges its `sandbox`
 attributes (Darwin loopback networking, and `sendfile` for VersityGW, with no
 other host reachable). `checks.<system>.services` proves each service inside a
 build.
 
-`nextest.<system>` runs the workspace tests with the services of
-`mkServices xmtp-backend` inside the sandbox, on free ports.
+The CI client tests match trunk's CI backend, whose replica URL was the
+database URL: `legacyPackages.clientServices` (`replica = false`) runs no
+replica and points `XMTP_REPLICA_URL` at the primary. `nextest`, the WASM
+partitions, and `.#services-test` (so every `just backend ci` of the iOS,
+Android, and JS jobs) use it. `backend-tests` (it tests replica behavior),
+`dev/services` (it matches the local Compose stack), and
+`checks.<system>.services` keep the streaming replica. A separate change can
+give the client tests real replica lag once the tests that sync once after
+another client's write poll instead (about 36 Rust call sites).
+
+`nextest.<system>` runs the workspace tests with `clientServices` inside the
+sandbox, on free ports.
 
 `wasm-nextest-archive.<system>` compiles the WASM tests into one nextest
-archive. `wasm-nextest-part-<n>.<system>` runs slice `n` of 4 from it, with the
-services of `mkServices xmtp-backend` started inside the build, so it needs no
+archive. `wasm-nextest-part-<n>.<system>` runs slice `n` of 4 from it, with
+`clientServices` started inside the build, so it needs no
 Docker stack. WASM bakes the service URLs in at compile time, so the services
 use the fixed port block 20000-20099, and each slice holds an exclusive lock
 on `/tmp/xmtp-wasm-nextest.lock` (a second slice waits). A backend change

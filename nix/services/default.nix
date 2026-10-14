@@ -6,9 +6,14 @@
 #                                             # start, run CMD, exit with its status, stop
 #   nix build .#checks.<system>.services      # the stack inside a Nix build
 #
-# `legacyPackages.mkServices backend` gives the same outputs for another
-# backend binary, so a test derivation keys on the binary that it starts.
-# `mkServices null` is the storage subset: PostgreSQL, the replica, and S3.
+# `legacyPackages.mkServices { backend; replica; }` gives the same outputs for
+# another backend binary, so a test derivation keys on the binary that it
+# starts. Without `backend` it is the storage subset: PostgreSQL, the replica,
+# and S3. `replica = false` runs no replica and points XMTP_REPLICA_URL at the
+# primary, as trunk's CI backend did; `clientServices` is that stack for the
+# client tests (nextest, the WASM partitions, `services-test`, so every
+# `just backend ci`). `services` (dev/services), `storageServices`
+# (backend-tests), and `checks.services` keep the streaming replica.
 { inputs, ... }:
 {
   perSystem =
@@ -46,7 +51,10 @@
         '';
       };
       mkServices =
-        backend:
+        {
+          backend ? null,
+          replica ? true,
+        }:
         let
           # Not the process-compose-flake flake module: its generated check has
           # no __darwinAllowLocalNetworking, and its API server listens on TCP
@@ -59,7 +67,7 @@
               };
               modules = [
                 "${inputs.process-compose-flake}/nix/process-compose"
-                (import ./stack.nix { inherit repo backend; })
+                (import ./stack.nix { inherit repo backend replica; })
               ];
             }).config.outputs;
           # Start, wait, run XMTP_SERVICES_TEST_COMMAND, exit with its status,
@@ -104,7 +112,11 @@
               XMTP_SERVICES_TEST_COMMAND=${command} ${lib.getExe test}
           '';
         };
-      services = mkServices self'.packages.xmtp-backend;
+      services = mkServices { backend = self'.packages.xmtp-backend; };
+      clientServices = mkServices {
+        backend = self'.packages.xmtp-backend;
+        replica = false;
+      };
       healthCheck = pkgs.writeShellApplication {
         name = "services-health-check";
         runtimeInputs = with pkgs; [
@@ -121,12 +133,12 @@
     in
     {
       legacyPackages = {
-        inherit mkServices;
-        storageServices = mkServices null;
+        inherit mkServices clientServices;
+        storageServices = mkServices { };
       };
       packages = {
         services = services.package;
-        services-test = services.test;
+        services-test = clientServices.test;
       };
       # Each service with its own client, inside a Nix build.
       checks.services = pkgs.runCommand "services-check" sandbox ''

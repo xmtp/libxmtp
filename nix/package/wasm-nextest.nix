@@ -100,7 +100,6 @@ let
   # worktree stack. Each port keeps the residue of its worktree base port.
   ports = {
     XMTP_BACKEND_DB_PORT = 20032;
-    XMTP_BACKEND_REPLICA_PORT = 20033;
     XMTP_BACKEND_PORT = 20050;
     XMTP_BACKEND_METRICS_PORT = 20064;
     XMTP_ANVIL_PORT = 20045;

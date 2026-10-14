@@ -2,6 +2,10 @@
 # primary and a streaming replica, VersityGW with the attachments bucket, and,
 # when `backend` is set, anvil, the backend, and toxiproxy in front of it.
 #
+# With `replica = false` the stack runs no replica, and XMTP_REPLICA_URL names
+# the primary, as trunk's CI backend did (`dev/backend/ci` set the replica URL
+# to the database URL): the client tests then never read a lagging replica.
+#
 # Ports are run-time inputs. A port variable that the caller sets wins; every
 # other port is a free loopback port that the kernel picks. So one definition
 # serves this worktree's stack (dev/services, slot ports from
@@ -22,6 +26,7 @@
 {
   backend,
   repo,
+  replica ? true,
 }:
 { pkgs, lib, ... }:
 let
@@ -64,9 +69,9 @@ let
   # Every port this stack listens on.
   ports = [
     "XMTP_BACKEND_DB_PORT"
-    "XMTP_BACKEND_REPLICA_PORT"
-    "XMTP_S3_PORT"
   ]
+  ++ lib.optionals replica [ "XMTP_BACKEND_REPLICA_PORT" ]
+  ++ [ "XMTP_S3_PORT" ]
   ++ lib.optionals withBackend [
     "XMTP_BACKEND_PORT"
     "XMTP_BACKEND_METRICS_PORT"
@@ -146,7 +151,11 @@ let
   # The URLs always follow the ports.
   urls = {
     DATABASE_URL = "postgres://xmtp:xmtp@127.0.0.1:$XMTP_BACKEND_DB_PORT/xmtp_backend";
-    XMTP_REPLICA_URL = "postgres://xmtp:xmtp@127.0.0.1:$XMTP_BACKEND_REPLICA_PORT/xmtp_backend";
+    XMTP_REPLICA_URL =
+      if replica then
+        "postgres://xmtp:xmtp@127.0.0.1:$XMTP_BACKEND_REPLICA_PORT/xmtp_backend"
+      else
+        "postgres://xmtp:xmtp@127.0.0.1:$XMTP_BACKEND_DB_PORT/xmtp_backend";
     XMTP_S3_URL = "http://127.0.0.1:$XMTP_S3_PORT";
     XMTP_S3_BASE_URL = "http://127.0.0.1:$XMTP_S3_PORT/attachments";
   }
@@ -185,7 +194,33 @@ let
       --cli-connect-timeout 2 --cli-read-timeout 2'';
   data = "$XMTP_SERVICES_STATE/data";
 
-  storage = {
+  replicaProcesses = {
+    replica-init = {
+      command = service "replica-init" ''
+        ${pg "pg_basebackup"} --host=127.0.0.1 --port="$XMTP_BACKEND_DB_PORT" --username=xmtp \
+          --pgdata="${data}/replica" --wal-method=stream --write-recovery-conf --checkpoint=fast
+        {
+          ${postgresConfig "$XMTP_BACKEND_REPLICA_PORT"}
+          echo 'hot_standby = on'
+        } >>"${data}/replica/postgresql.conf"
+      '';
+      depends_on.db-setup.condition = "process_completed_successfully";
+    };
+    replica = {
+      command = service "replica" ''exec ${pg "postgres"} -D "${data}/replica"'';
+      depends_on.replica-init.condition = "process_completed_successfully";
+      readiness_probe = pgReady "replica" "$XMTP_BACKEND_REPLICA_PORT";
+      shutdown.signal = 2;
+    };
+  };
+  # The processes after which the database is ready for the backend and tests.
+  databaseReady =
+    if replica then
+      { replica.condition = "process_healthy"; }
+    else
+      { db-setup.condition = "process_completed_successfully"; };
+
+  storage = lib.optionalAttrs replica replicaProcesses // {
     db-init.command = service "db-init" ''
       ${pg "postgres"} --version
       ${pg "initdb"} --pgdata="${data}/primary" --username=xmtp --encoding=UTF8 \
@@ -208,23 +243,6 @@ let
         ${pg "createdb"} --host=127.0.0.1 --port="$XMTP_BACKEND_DB_PORT" --username=xmtp xmtp_backend
       '';
       depends_on.db.condition = "process_healthy";
-    };
-    replica-init = {
-      command = service "replica-init" ''
-        ${pg "pg_basebackup"} --host=127.0.0.1 --port="$XMTP_BACKEND_DB_PORT" --username=xmtp \
-          --pgdata="${data}/replica" --wal-method=stream --write-recovery-conf --checkpoint=fast
-        {
-          ${postgresConfig "$XMTP_BACKEND_REPLICA_PORT"}
-          echo 'hot_standby = on'
-        } >>"${data}/replica/postgresql.conf"
-      '';
-      depends_on.db-setup.condition = "process_completed_successfully";
-    };
-    replica = {
-      command = service "replica" ''exec ${pg "postgres"} -D "${data}/replica"'';
-      depends_on.replica-init.condition = "process_completed_successfully";
-      readiness_probe = pgReady "replica" "$XMTP_BACKEND_REPLICA_PORT";
-      shutdown.signal = 2;
     };
     s3 = {
       # A Linux build directory has no extended attributes, so VersityGW
@@ -282,9 +300,8 @@ let
         export SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt
         XMTP_DATABASE_URL="$DATABASE_URL" exec ${backend}/bin/xmtp-backend --config-file "$config"
       '';
-      depends_on = {
+      depends_on = databaseReady // {
         db.condition = "process_healthy";
-        replica.condition = "process_healthy";
         s3-init.condition = "process_completed_successfully";
         anvil.condition = "process_healthy";
       };
@@ -382,8 +399,8 @@ in
             if withBackend then
               { toxiproxy.condition = "process_healthy"; }
             else
-              {
-                replica.condition = "process_healthy";
+              databaseReady
+              // {
                 s3-init.condition = "process_completed_successfully";
               };
         };

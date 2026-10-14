@@ -10,10 +10,11 @@ musl_arch := if arch() == "aarch64" { "aarch64" } else { "x86_64" }
 # variable always wins, so CI and one-off overrides are untouched.
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
-# Run one command with fresh test services (nix/services: PostgreSQL and its
-# replica, S3, anvil, the backend, and toxiproxy) on this worktree's ports. The
-# services stop when the command exits. In CI the service logs go to
-# $RUNNER_TEMP/backend-ci-logs. A script recipe preserves each argument.
+# Run one command with fresh test services (nix/services `clientServices`:
+# PostgreSQL without a replica, S3, anvil, the backend, and toxiproxy) on this
+# worktree's ports. The services stop when the command exits. In CI the
+# service logs go to $RUNNER_TEMP/backend-ci-logs. A script recipe preserves
+# each argument.
 [script('bash')]
 [positional-arguments]
 ci +args:
