@@ -258,7 +258,7 @@ private extension GroupJourney {
 		reveal(remove, in: app)
 		waitUntilHittable(remove)
 		remove.tap()
-		let confirm = app.buttons["member.confirm-remove"]
+		let confirm = app.sheets.buttons["member.confirm-remove"].firstMatch
 		waitUntilHittable(confirm)
 		confirm.tap()
 		try await poll {
