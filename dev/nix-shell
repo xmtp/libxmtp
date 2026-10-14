@@ -70,19 +70,25 @@ identity="$REPO_ROOT:$shell_name:$key"
 
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/xmtp/nix-shell"
 env_file="$cache/$key.sh"
-if $refresh || [[ ! -s "$env_file" ]]; then
+profile="$cache/$key.profile"
+# Evaluate again when the GC root is gone (its links were removed, or a GC
+# took the environment): -e follows the profile links to the store path.
+if $refresh || [[ ! -s "$env_file" || ! -e "$profile" ]]; then
   mkdir -p "$cache"
-  # Entries unused for a week go, with their GC roots.
+  # Entries unused for a week go, with their GC roots. A reuse touches the
+  # environment and its profile links, so an entry in use keeps its root.
   find "$cache" -maxdepth 1 -name "$shell_name-*" -mtime +7 -exec rm -f {} + 2>/dev/null || true
   temporary="$(mktemp "$cache/.$key.XXXXXX")"
-  # --profile makes the environment a GC root.
-  if ! nix print-dev-env --profile "$cache/$key.profile" "$REPO_ROOT#$shell_name" > "$temporary"; then
+  # --profile makes the environment a GC root; keep one generation per key.
+  rm -f "$profile" "$profile"-*-link
+  if ! nix print-dev-env --profile "$profile" "$REPO_ROOT#$shell_name" > "$temporary"; then
     rm -f "$temporary"
     exit 1
   fi
   mv "$temporary" "$env_file"
 else
   touch "$env_file"
+  touch -h "$profile" "$profile"-*-link
 fi
 
 if $print_env; then

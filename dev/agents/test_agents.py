@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 from nix_hook import rewrite
@@ -38,6 +39,8 @@ class NixWrapperTests(unittest.TestCase):
             "#!/usr/bin/env bash\nset -eu\n"
             'printf "%s\\n" "${@: -1}" >> "$TEST_NIX_LOG"\n'
             'if [[ -n "${TEST_NIX_FAIL:-}" ]]; then exit 1; fi\n'
+            # The GC root: a profile link and its generation link.
+            'mkdir -p "$TEST_STORE"; ln -sfn "$TEST_STORE" "$3-1-link"; ln -sfn "$(basename "$3")-1-link" "$3"\n'
             "printf 'export XMTP_TEST_SHELL=%q\\n' \"${@: -1}\"\n"
             "printf '%s\\n' 'export NIX_BUILD_TOP=\"$(mktemp -d)\"'\n"
         )
@@ -47,6 +50,7 @@ class NixWrapperTests(unittest.TestCase):
             "PATH": f"{binary}:{os.environ['PATH']}",
             "TEST_NIX_LOG": str(self.log),
             "XDG_CACHE_HOME": str(self.root / "cache"),
+            "TEST_STORE": str(self.root / "store/environment"),
         }
         for name in ("XMTP_NIX_WRAPPER_ID", "NIX_DEVSHELL", "TEST_NIX_FAIL"):
             self.env.pop(name, None)
@@ -224,6 +228,29 @@ class NixWrapperTests(unittest.TestCase):
     def test_refresh_evaluates_again(self):
         self.assertEqual(self.run_wrapper("true").returncode, 0)
         self.assertEqual(self.run_wrapper("--refresh", "true").returncode, 0)
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_reuse_keeps_the_gc_root_of_an_environment_in_use(self):
+        cache = self.root / "cache/xmtp/nix-shell"
+        self.assertEqual(self.run_wrapper("true").returncode, 0)
+        entry = sorted(cache.iterdir())
+        week = time.time() - 8 * 24 * 3600
+        for path in entry:
+            os.utime(path, (week, week), follow_symlinks=False)
+        # A reuse, then another key of the same shell, which cleans up.
+        self.assertEqual(self.run_wrapper("true").returncode, 0)
+        (self.root / "nix/added.nix").write_text("{ }")
+        self.assertEqual(self.run_wrapper("true").returncode, 0)
+        self.assertTrue(all(path.is_symlink() or path.exists() for path in entry))
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_lost_gc_root_evaluates_again(self):
+        self.assertEqual(self.run_wrapper("true").returncode, 0)
+        # A garbage collection removed the environment the root pointed at.
+        os.rmdir(self.env["TEST_STORE"])
+        self.assertEqual(self.run_wrapper("true").returncode, 0)
+        self.assertEqual(len(self.calls()), 2)
+        self.assertEqual(self.run_wrapper("true").returncode, 0)
         self.assertEqual(len(self.calls()), 2)
 
     def test_failed_evaluation_caches_nothing(self):
