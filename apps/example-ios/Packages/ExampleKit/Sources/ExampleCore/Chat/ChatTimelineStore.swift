@@ -39,6 +39,7 @@ public enum ChatTimelineAction: Sendable {
 		-> Void
 	private let markRead: (ConversationRecord, Int64) throws -> Void
 	private var job: Task<Void, Never>?
+	private var pendingRevision: UInt64 = 0
 	private let jobs = InFlightTasks()
 	public init(
 		id: String,
@@ -93,13 +94,16 @@ public enum ChatTimelineAction: Sendable {
 			} catch { state.error = "Cannot save your reading position." }
 		default:
 			job?.cancel()
+			pendingRevision += 1
+			let revision = pendingRevision
 			state.loading = true
-			job = jobs.start { await self.run(action) }
+			job = jobs.start { await self.run(action, revision: revision) }
 		}
 	}
 
 	public func refresh() async {
-		await run(.refresh)
+		pendingRevision += 1
+		await run(.refresh, revision: pendingRevision)
 	}
 
 	public func wait() async {
@@ -115,17 +119,17 @@ public enum ChatTimelineAction: Sendable {
 		body(&state)
 	}
 
-	private func run(_ action: ChatTimelineAction) async {
+	private func run(_ action: ChatTimelineAction, revision: UInt64) async {
 		do {
 			let conversation = try await queries.conversation(id: id)
 			let pages = HistoryPages(queries: queries)
 			if case .olderPending = action {
-				try await loadPending(before: state.pendingBefore)
+				try await loadPending(before: state.pendingBefore, revision: revision)
 				apply { $0.loading = false }
 				return
 			}
 			if case .newestPending = action {
-				try await loadPending(before: nil)
+				try await loadPending(before: nil, revision: revision)
 				apply { $0.loading = false }
 				return
 			}
@@ -146,7 +150,7 @@ public enum ChatTimelineAction: Sendable {
 				$0.loading = false
 				$0.error = nil
 			}
-			try await loadPending(before: nil)
+			try await loadPending(before: nil, revision: revision)
 		} catch is CancellationError {} catch { apply { $0.loading = false
 			$0.error = "Message updates stopped."
 		} }
@@ -176,11 +180,15 @@ public enum ChatTimelineAction: Sendable {
 		return try await pages.older(id: id)
 	}
 
-	private func loadPending(before: RecoveryPosition?) async throws {
+	private func loadPending(before: RecoveryPosition?, revision: UInt64) async throws {
+		guard revision == pendingRevision else { throw CancellationError() }
+		try Task.checkCancellation()
 		var cursor = before
 		var skipped: UInt32 = 0
 		for _ in 0 ..< 4 {
 			let page = try await queries.pending(id: id, before: cursor)
+			try Task.checkCancellation()
+			guard revision == pendingRevision else { throw CancellationError() }
 			skipped += page.skipped
 			if !page.rows.isEmpty || !page.hasMore {
 				apply {

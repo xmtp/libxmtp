@@ -200,7 +200,6 @@ public enum AttachmentAction: Sendable {
 		discardedFiles[id] = draft.descriptor
 		do {
 			try await gateway.discard(draft.descriptor)
-			guard admit(origin) else { return }
 			try drafts.remove(draft)
 			apply { $0.drafts.removeAll { $0.id == id } }
 		} catch {
