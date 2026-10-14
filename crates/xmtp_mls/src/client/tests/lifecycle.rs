@@ -592,7 +592,9 @@ async fn should_reconnect() {
         assert_eq!(before.received, before.processed);
 
         alix.for_each_proxy(async |p| {
-            p.with_timeout("downstream".into(), 60_000, 1.0).await;
+            p.with_timeout("downstream".into(), 60_000, 1.0)
+                .await
+                .unwrap();
         })
         .await;
         let outage = AssertUnwindSafe(async {

@@ -47,7 +47,8 @@ wasm-bindgen.workspace = true
 tokio_with_wasm = { version = "0.9.0", features = ["full"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-toxiproxy_rust = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 tokio-stream = { workspace = true, features = ["time"] }
 fdlimit.workspace = true
 ctor.workspace = true
@@ -78,7 +79,8 @@ tokio = { workspace = true }
 wasm-bindgen-test.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-toxiproxy_rust.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = [
   "rt-multi-thread",
   "macros",
@@ -107,7 +109,7 @@ test-utils = [
   "dep:xmtp_logging",
   "xmtp_cryptography/test-utils",
 ]
-test-utils-network = ["test-utils", "dep:toxiproxy_rust"]
+test-utils-network = ["test-utils", "dep:serde", "dep:serde_json"]
 bench = ["test-utils", "dep:tracing-subscriber", "dep:tracing-flame"]
 
 [lints]

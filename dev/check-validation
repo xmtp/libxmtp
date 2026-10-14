@@ -82,7 +82,7 @@ assert_isolated_graph() {
     "${feature_args[@]}" \
     --prefix none > "$graph"
 
-  if grep -E '^(alloy-node-bindings|alloy-rpc-types-anvil|diesel|diesel_derives|diesel_migrations|libsqlite3-sys|rusqlite|sqlite|toxiproxy_rust|xmtp-workspace-hack|xmtp_db|xmtp_mls) v' "$graph"; then
+  if grep -E '^(alloy-node-bindings|alloy-rpc-types-anvil|diesel|diesel_derives|diesel_migrations|libsqlite3-sys|rusqlite|sqlite|xmtp-workspace-hack|xmtp_db|xmtp_mls) v' "$graph"; then
     echo "The $label validation graph contains a forbidden dependency." >&2
     exit 1
   fi
