@@ -71,6 +71,6 @@ Run repository commands from the repository root:
 
 ```sh
 dev/nix-shell 'just install-js'
-dev/nix-shell 'just js build-browser-sdk'
+dev/nix-shell 'just js sdk-products browser'
 dev/nix-shell 'just js test-browser-sdk-ci'
 ```

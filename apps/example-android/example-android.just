@@ -80,10 +80,6 @@ test-integration *args: build _metadata-backend
 test-release-integration *args: build
   {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; test_status=0; ./gradlew -p . :example:connectedReleaseAndroidTest -PxmtpExampleReleaseTests=true -Pandroid.testInstrumentationRunnerArguments.class=org.xmtp.android.example.messenger.ReleaseTransportInstrumentedTest {{ args }} ${CI:+--build-cache} --dependency-verification=strict --no-daemon || test_status=$?; exit "$test_status"'
 
-# Check the fixed performance report validator without a device.
-performance-check:
-  NIX_DEVSHELL=default {{ root }}/dev/nix-shell "python3.11 -B -m unittest discover -s '{{ root }}/apps/example-android/performance' -p 'test_*.py' -v"
-
 # Run the complete workload and cache failure control in the owned Linux API 34 scope.
 performance output="app/build/performance": build _metadata-backend
   {{ _env }} && NIX_ANDROID_EMULATOR_API=34 NIX_ANDROID_EMULATOR_FLAGS="-no-snapshot -no-window -gpu swiftshader_indirect -noaudio -cores 4 -memory 4096 -partition-size 16384" python3.11 -B fixtures/metadata_backend.py --backend '{{ root }}/apps/example-android/.build/metadata-backend/bin/xmtp-backend' -- run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_METADATA_BACKEND_PORT tcp:$XMTP_METADATA_BACKEND_PORT; exec python3.11 -B performance/run.py --output "{{output}}" --red-control'

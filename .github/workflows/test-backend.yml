@@ -108,4 +108,4 @@ jobs:
         run: |
           docker logs backend-smoke || true
           docker rm --force backend-smoke || true
-          just backend db-down
+          just backend down

@@ -276,12 +276,12 @@ Android staging dependency inputs:
 Migration tests use the normal SDK packages. Node and Agent use their existing
 Vitest suites. Browser fixtures and worker fault checks are in
 `sdks/browser/test/platform/migration`, included by `just sdk test-browser`.
-Run only those checks with `dev/nix-shell 'just sdk test-browser-migration'`
+Run only those checks with `dev/nix-shell 'just sdk test-browser migration'`
 after `generate`. The platform runner stages the matched Browser package. They check import, worker ownership,
 failed output, page termination, and source preservation. The small fixture
 worker uses raw legacy bytes and is not part of a public package.
 Swift uses `LegacyMigrationTests` in the normal XCTest target. Kotlin uses
 `LegacyMigrationTest` in the normal JUnit target. Run
-`dev/nix-shell 'just ios test-migration'` or
-`dev/nix-shell 'just android test-migration'`. The iOS unit job and
+`dev/nix-shell 'just ios test all --filter XmtpSdkTests.LegacyMigrationTests'` or
+`dev/nix-shell 'just android test --tests uniffi.xmtp_sdk.LegacyMigrationTest'`. The iOS unit job and
 the Android `sdk-build` job include these tests.

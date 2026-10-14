@@ -41,15 +41,10 @@ dev/nix-shell 'just android test-unit --tests uniffi.xmtp_sdk.AndroidStreamLifec
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
-dev/nix-shell 'just android docs'
 dev/nix-shell 'just android docs-generated'
 ```
 
-`example-performance-check` selects the default Nix shell for the host validators.
-That shell includes Python and PyYAML. This command does not run the workload.
-
-`docs` keeps the full native preparation path. CI uses `docs-generated` for
-the reference build. It selects the current release-profile
+`docs-generated` builds the Kotlin API reference, locally and in CI. It selects the current release-profile
 `xmtp-sdk-generated-kotlin` output and gives Dokka its Kotlin, runtime, Android,
 and contract files. It uses a new empty JNI directory for each run. A hosted
 comparison verified that its reference output matches the full path byte for
@@ -152,6 +147,6 @@ permit independent replay/live readers that do not advance default progress. Use
 generated reader options for scopes, filters, and replay. Keep typed errors and
 `ULong` values.
 
-`dev/nix-shell 'just android test-migration'` runs `LegacyMigrationTest` in the
+`dev/nix-shell 'just android test --tests uniffi.xmtp_sdk.LegacyMigrationTest'` runs `LegacyMigrationTest` in the
 normal JVM target with matched bindings and the host library. Gradle supplies
 the pinned legacy fixture directory. The required Android `sdk-build` job includes this test.

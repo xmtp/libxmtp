@@ -40,9 +40,10 @@ format:
 _test-host:
   env -u LD_LIBRARY_PATH nix build "{{ root }}#xmtp-sdk-libs" --out-link "{{ root }}/sdks/android/.build/test-host"
 
-# Run unit tests with the generated SDK and its matched host library.
-test: build _test-host
-  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest ${CI:+--build-cache} --dependency-verification=strict --no-daemon
+# Run unit tests with the generated SDK and its matched host library. Extra
+# arguments go to Gradle, for example `--tests uniffi.xmtp_sdk.LegacyMigrationTest`.
+test *args: build _test-host
+  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest {{ args }} ${CI:+--build-cache} --dependency-verification=strict --no-daemon
 
 
 # The JVM unit tests against a cargo debug host library (through JNA) and its
@@ -51,10 +52,6 @@ test: build _test-host
 test-host *args:
   cd {{ root }} && crates/xmtp_sdk/dev/host-package kotlin
   {{ _env }} && jni="$(mktemp -d)" && trap 'rm -rf "$jni"' EXIT && XMTP_SDK_GENERATED_DIR="{{ root }}/target/sdk-host-generated" XMTP_SDK_ANDROID_JNI_DIR="$jni" JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host-cargo/lib" ./gradlew -p . library:testDebugUnitTest {{ args }} --dependency-verification=strict --no-daemon
-
-# Test legacy conversion through the normal Kotlin package.
-test-migration: build _test-host
-  JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest --tests uniffi.xmtp_sdk.LegacyMigrationTest --dependency-verification=strict --no-daemon
 
 # Run unit tests against existing matched generated bindings.
 test-unit *args:
@@ -71,10 +68,6 @@ test-min-sdk:
 # Check that the negative consumers in library/src/test/negative do not compile.
 check-consumers: build
   ./dev/check-consumers
-
-# Generate the public Kotlin API reference.
-docs: build
-  ./gradlew -p . :library:dokkaGeneratePublicationHtml
 
 # Generate the reference from current release Kotlin sources without JNI.
 docs-generated:

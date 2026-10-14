@@ -31,4 +31,4 @@ jobs:
     - name: Lint repository Markdown
       run: just lint-markdown
     - name: Check documentation source
-      run: dev/nix-shell 'cd apps/docs && node scripts/check-site.mjs'
+      run: just docs check-source

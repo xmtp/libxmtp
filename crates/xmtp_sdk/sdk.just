@@ -43,8 +43,9 @@ test-bridge *args:
 # Browser platform proofs in sdks/browser/test/platform: real WASM workers,
 # Chromium storage, package, logging and bridge proofs, and the Vitest
 # Playwright suite. Copies the Nix-built panic and pure codec fixtures.
-test-browser:
-    "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests"
+# `mode` is `all` or `migration` (only the legacy migration proofs).
+test-browser mode="all":
+    "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests" {{ quote(mode) }}
 
 # Run only the real-worker and Chromium log queue proofs.
 test-browser-logging: wasm-init
@@ -102,7 +103,3 @@ bench-check:
     cd "{{ root }}" && python3.11 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/benchmarks/bench.py check
     cd "{{ root }}" && node --test crates/xmtp_sdk/benchmarks/test_workload.mjs
-
-# Run only migration in the existing Browser platform suite.
-test-browser-migration:
-    "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests" migration

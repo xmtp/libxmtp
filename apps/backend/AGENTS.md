@@ -25,7 +25,6 @@ dev/nix-shell 'just backend down'                      # stop the shared stack
 dev/nix-shell 'just backend release'                   # stop the stack, free the slot, remove the image tag
 dev/nix-shell 'just backend logs backend tempo'
 dev/nix-shell 'just backend run'
-dev/nix-shell 'just backend db-down'
 ```
 
 `up` and `tls-check` load the `image` build as `XMTP_BACKEND_IMAGE`, which is
@@ -45,7 +44,7 @@ VersityGW. Both files set default and maximum query row limits to 50, so SDK
 tests exercise paging. Run `dev/nix-shell 'just backend s3-up'` before attachment integration
 tests. `dev/nix-shell 'just backend status'` prints the worktree's S3 URL.
 
-`db-down` stops the entire shared stack, not only PostgreSQL.
+`down` stops the entire shared stack, including after `db-up`.
 For an explicit database-port override, set `XMTP_BACKEND_DB_PORT` and
 `XMTP_BACKEND_REPLICA_PORT` before startup. Set `DATABASE_URL` to its primary
 port for tests and SQL checks. Replica tests use `XMTP_BACKEND_REPLICA_PORT`.

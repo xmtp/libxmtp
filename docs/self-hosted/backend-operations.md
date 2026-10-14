@@ -40,8 +40,8 @@ The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`
 `s3`, `s3-init`, `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
 Run `just backend up` to build and load the backend image and start all services.
 Use `just backend up [services...]` to select services and their dependencies.
-Use `just backend logs [services...]` for logs. Both `just backend down` and
-`just backend db-down` stop the entire stack and delete its temporary state.
+Use `just backend logs [services...]` for logs. `just backend down` stops the
+entire stack and deletes its temporary state.
 They preserve the disk-backed Tempo trace volume. `just backend release` also
 deletes that volume and frees the worktree's port slot.
 

@@ -33,11 +33,6 @@ spec-index *args:
 spec-show id:
     python3.11 dev/specs/check.py show {{ id }}
 
-# The checker's own tests. Stdlib only, so no uv project.
-[script("bash")]
-spec-test:
-    cd dev/specs && python3.11 -m unittest discover -p 'test_*.py'
-
 nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
 # CI overrides to "cargo llvm-cov nextest --no-fail-fast --no-report" for coverage
@@ -122,10 +117,6 @@ lint-config: _js-deps lint-treefmt
     pnpm --filter @xmtp/release-tools --fail-if-no-match run lint
     pnpm --filter @xmtp/release-tools --fail-if-no-match run test
 
-lint-toml:
-    taplo format --check --diff
-    taplo check
-
 [script("bash")]
 lint-treefmt:
     nix fmt -- --fail-on-change
@@ -153,9 +144,9 @@ lint-js-format:
 
 # --- TEST ---
 
-# Run the Nix workspace tests.
+# Run the Nix workspace tests. `--inputs-from .` pins nom to flake.lock.
 nix-test:
-    nix run nixpkgs#nix-output-monitor build .#nextest.{{ nix_system }}
+    nix run --inputs-from . nixpkgs#nix-output-monitor -- build .#nextest.{{ nix_system }}
 
 # `just test`, `just test crate xmtp_mls xmtp_db`
 [script("bash")]
@@ -206,27 +197,13 @@ _test-crate +crates:
     {{ _env }} && args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
     SQLX_OFFLINE=true RUST_MIN_STACK="${RUST_MIN_STACK:-8388608}" {{ cargo_test }} --profile ci $args
 
-# Verify the shared validation crate without workspace feature unification.
-check-validation:
-    crates/xmtp_mls_validation/dev/check-validation check
-
-# Run the shared validation crate tests on native and wasm Node.
-test-validation:
-    crates/xmtp_mls_validation/dev/check-validation test
-
-validation: check-validation test-validation
-
-# --- WORKTREE ---
-
-# Show this worktree's stack identity, ports, and URLs.
-worktree:
-    just backend status
+# `check`: standalone native and wasm consumer and dependency checks.
+# `test`: native and wasm Node payload tests and canonical encoding vectors.
+# Check and test the shared validation crate (mode check, test, or all).
+validation mode="all":
+    crates/xmtp_mls_validation/dev/check-validation {{ quote(mode) }}
 
 # --- DISK ---
-
-# Show compiler cache hits, misses, and store size.
-cache-stats:
-    kache stats
 
 # Free space, and the target/ and incremental/ size of each worktree.
 [script("bash")]
@@ -336,10 +313,6 @@ ci-failures job:
     esc=""; if gh api --help | grep -- --allow-escape-sequences >/dev/null; then esc="--allow-escape-sequences"; fi
     gh api $esc repos/xmtp/libxmtp/actions/jobs/{{ job }}/logs \
       | dev/ci-failure-markers
-
-# Check failure markers with local logs. It does not use GitHub.
-ci-failures-filter-test:
-    python3 dev/tests/test_ci_failure_markers.py
 
 # Annotations for a check run. Cheaper than logs when the job records them.
 ci-annotations check:

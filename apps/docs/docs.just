@@ -29,12 +29,6 @@ lint:
     # Docs lint is not type-aware and does not need SDK build output.
     pnpm run lint
 
-format-check:
-    pnpm --filter @xmtp/docs run format:check
-
-format:
-    pnpm --filter @xmtp/docs run format
-
 test:
     pnpm --filter @xmtp/docs run test
 

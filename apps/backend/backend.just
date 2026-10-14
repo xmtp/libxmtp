@@ -60,9 +60,6 @@ db-up:
 s3-up:
     {{ root }}/dev/docker/up s3 s3-init
 
-db-down:
-    {{ root }}/dev/docker/compose down
-
 sql-prepare:
     {{ _env }} && cargo sqlx migrate run --source apps/backend/migrations
     {{ _env }} && cd apps/backend && cargo sqlx prepare -- --all-targets

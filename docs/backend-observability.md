@@ -33,8 +33,8 @@ This is disk-backed storage, not tmpfs. There is no configured storage size or
 container memory limit. Large test runs can use the available Docker disk, so
 monitor free disk space. Trace sampling and ingestion limits are unchanged.
 
-The volume survives a normal restart, container recreation, `just backend down`,
-and `just backend db-down`. `just backend release` deletes it with the rest of
+The volume survives a normal restart, container recreation, and
+`just backend down`. `just backend release` deletes it with the rest of
 this worktree's stack. It also frees the worktree's port slot. Use that command
 when you finish with a worktree; removing the checkout alone does not remove its
 Docker volume. Old traces cannot be recovered after the volume is deleted.

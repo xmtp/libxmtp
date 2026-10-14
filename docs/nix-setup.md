@@ -150,7 +150,7 @@ On Darwin, only explicit library compiles are cached. Linked outputs, tests,
 proc macros, static libraries, and unknown forms go directly to rustc with
 unchanged arguments. Output verification remains enabled.
 
-Run `dev/nix-shell 'just cache-stats'` to inspect hits and misses. To opt out,
+Run `dev/nix-shell 'kache stats --full'` to inspect hits, misses, and scheduler wait. To opt out,
 use `XMTP_KACHE=0 dev/nix-shell 'just check'`. The default store is
 `${XDG_CACHE_HOME:-$HOME/.cache}/kache`, with a local default limit of 50 GiB.
 The CI action uses a 10 GiB limit. Existing nonempty `KACHE_CACHE_DIR` and

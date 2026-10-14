@@ -43,6 +43,8 @@ just backend status          # worktree ports and URLs
 just outline <paths...>      # declarations and line ranges
 just show <file> <name>      # source of a named symbol
 just ci-status <pr>          # CI failures and summary
+just format                  # format Rust, Nix, TOML, Python, shell, JS, Kotlin, Swift
+just disk                    # free space and target/ size of each worktree
 ```
 
 The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
@@ -81,7 +83,8 @@ port block, and backend image tag, so run `just backend status` for the checkout
 - For CI results use `just ci-status <pr>` and `just ci-failures <job>`, never a
   raw log fetch. See the `check-ci` skill.
 - After changes to the CI failure filter, run
-  `dev/nix-shell 'just ci-failures-filter-test'`. It checks local log fixtures.
+  `dev/nix-shell 'python3.11 -B dev/tests/test_ci_failure_markers.py'`. It
+  checks local log fixtures.
 - `dev/nix-shell 'just lint-config'` checks Rust and config format with treefmt.
   It also runs the dev tool tests: `dev/tests/run` runs every `test_*.py` in
   the directories it lists, so a new test there needs no recipe edit. They

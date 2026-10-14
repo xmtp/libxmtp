@@ -21,7 +21,7 @@ dev/nix-shell 'just example-android metadata-fixture-test MetadataBackendFixture
 dev/nix-shell 'just example-android metadata-fixture-smoke'
 dev/nix-shell 'just example-android metadata-fixture-create-test'
 dev/nix-shell 'just example-android metadata-fixture-create-test --case late-database-replacement'
-dev/nix-shell 'just example-android performance-check'
+dev/nix-shell 'python3.11 -B -m unittest discover -s apps/example-android/performance -p "test_*.py"'
 dev/nix-shell 'just example-android performance'
 ```
 
@@ -147,8 +147,8 @@ eviction and requires its named assertion to fail. It restores the same source
 and measures the same dataset again. Seed progress and `seedMs` stay in the
 proof logs. The fixed job timeout is provisional until measured seed progress
 sets the final limit. Host validator tests also run under `lint-config`.
-`performance-check` selects the default Nix shell for its YAML policy tests.
-It starts no backend, device, or SDK build.
+The `unittest discover` command above runs only those validator tests. It
+starts no backend, device, or SDK build.
 Seed checkpoints use one `workload-seed-progress.jsonl` artifact. Each pass records
 its workload identity and whether it reused an existing manifest. Do not present
 retained seed checkpoints as a new per-pass seed.

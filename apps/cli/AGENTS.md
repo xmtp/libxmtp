@@ -11,7 +11,7 @@ matched native library and pinned runtime.
 - `dev/nix-shell 'just cli lint'`: run oxlint.
 - `dev/nix-shell 'just cli build'`: build the linked SDK and CLI.
 - `dev/nix-shell 'just cli test'`: build the linked SDK and run all tests.
-- `dev/nix-shell 'just cli test-ci --shard N/2'`: run a CI test shard.
+  Extra arguments go to Vitest; CI runs `just cli test --shard N/2`.
 
 Tests require `dev/nix-shell 'just backend up'`. The `sdk` dependency stages the generated Node SDK.
 The pnpm task graph builds `@xmtp/node-sdk` before checks that need its `dist`

@@ -17,13 +17,7 @@ lint: sdk
 build: sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run build
 
-manifest: build
-    pnpm --filter @xmtp/cli run manifest
-
-test: sdk
-    cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run build
-    {{ _env }} && pnpm --filter @xmtp/cli run test
-
-test-ci *args="": sdk
+# Extra arguments go to Vitest, for example `--shard 1/2` (CI).
+test *args: sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run build
     {{ _env }} && pnpm --filter @xmtp/cli exec vitest run {{ args }}

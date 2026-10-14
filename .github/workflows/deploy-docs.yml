@@ -167,9 +167,9 @@ jobs:
         name: docs-kotlin
         path: apps/docs/generated/reference/kotlin
     - name: Compose and check the artifact
-      run: dev/nix-shell 'cd apps/docs && node scripts/compose.mjs && node scripts/check-site.mjs --built'
+      run: just docs compose && just docs check
     - name: Browser tests
-      run: dev/nix-shell 'cd apps/docs && npm run test:browser'
+      run: just docs test-browser
     - name: Check accessibility against the production baseline
       run: dev/nix-shell 'cd apps/docs && node scripts/check-lighthouse.mjs'
     - uses: actions/upload-artifact@v7
