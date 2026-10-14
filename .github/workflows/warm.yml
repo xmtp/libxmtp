@@ -108,17 +108,37 @@ jobs:
               | select(.value.env.CRANE_BUILD_DEPS_ONLY != null) | .key
               | if startswith("/") then . else "/nix/store/" + . end')
           echo "Checking ${#paths[@]} set members and dependency layers"
-          # The dry run exits 0 also when a path cannot substitute.
+          # The dry run exits 0 also when a path cannot substitute, and has no
+          # machine-readable form (--json lists the requested paths only).
           nix build --dry-run --store "$store" --option always-allow-substitutes true \
             "${paths[@]}" 2>&1 | tee "$RUNNER_TEMP/dry-run.txt"
-          missing=$(awk '/will be built|know how to build/ { f = 1; next } /^[^ ]/ { f = 0 } f' \
-            "$RUNNER_TEMP/dry-run.txt")
-          if [[ -n "$missing" ]]; then
-            echo "::error title=Warm closure::$(wc -l <<< "$missing") paths cannot substitute from the trusted cache"
-            echo "$missing"
+          # Fail closed: accept only the "will be fetched" header (it holds
+          # the sizes) and its indented store paths. A "will be built" or
+          # "don't know how to build" section, or any other line, fails. The
+          # store is empty, so a run that fetches nothing checked nothing.
+          header='^(this path|these [0-9]+ paths) will be fetched \([0-9.]+ MiB download, [0-9.]+ MiB unpacked\):$'
+          path='^  /nix/store/[0-9a-df-np-sv-z]{32}-[^[:space:]]+$'
+          fetching=false
+          fetched=0
+          unexpected=()
+          while IFS= read -r line; do
+            if [[ -z "$line" ]]; then
+              continue
+            elif [[ "$line" =~ $header ]]; then
+              fetching=true
+            elif $fetching && [[ "$line" =~ $path ]]; then
+              fetched=$((fetched + 1))
+            else
+              fetching=false
+              unexpected+=("$line")
+            fi
+          done < "$RUNNER_TEMP/dry-run.txt"
+          if (( ${#unexpected[@]} > 0 || fetched == 0 )); then
+            echo "::error title=Warm closure::$fetched paths substitute; ${#unexpected[@]} lines show a path that cannot substitute or output this check does not know"
+            printf '%s\n' "${unexpected[@]}"
             exit 1
           fi
-          echo "Every set member and dependency layer substitutes."
+          echo "Every set member and dependency layer substitutes ($fetched paths)."
 
   # Pages content comes only from trusted trunk pushes. docs builds the site
   # and the Swift and Kotlin references after the warm build, so they
