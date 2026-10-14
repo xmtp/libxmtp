@@ -174,13 +174,24 @@ class ServicesTests(unittest.TestCase):
     def test_failed_command_prints_the_service_logs(self):
         # A Nix build deletes its TMPDIR, so the logs must reach the output.
         result = self.services_test(
-            "exit 3", XMTP_SERVICES_LOGS=str(self.root / "logs")
+            "echo FAIL some::test; exit 3",
+            XMTP_SERVICES_LOGS=str(self.root / "logs"),
         )
         self.assertEqual(result.returncode, 3, result.stderr)
         for name in ("db", "replica", "s3"):
             self.assertIn(
                 f"--- last lines of {self.root}/logs/{name}.log", result.stderr
             )
+        # Nix shows only the end of a failed build: the command output and
+        # the exit status come after the service logs.
+        self.assertEqual(
+            result.stderr.splitlines()[-3:],
+            [
+                "--- last lines of the test command output",
+                "FAIL some::test",
+                "services-test: exit status 3",
+            ],
+        )
 
     def test_term_stops_every_service(self):
         # A killed `just backend ci` must not leave services on the ports.

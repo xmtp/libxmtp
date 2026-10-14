@@ -412,6 +412,14 @@ in
               fi
             done
             ${bin coreutils "touch"} "$XMTP_SERVICES_STATE/test-started"
+            # With XMTP_SERVICES_LOGS set, keep a copy of the command output:
+            # services-test prints its end again after the service logs.
+            if [ -n "''${XMTP_SERVICES_LOGS:-}" ]; then
+              set +e
+              ${pkgs.bash}/bin/bash -c "$XMTP_SERVICES_TEST_COMMAND" 2>&1 |
+                ${bin coreutils "tee"} "$XMTP_SERVICES_LOGS/test-output.txt"
+              exit "''${PIPESTATUS[0]}"
+            fi
             exec ${pkgs.bash}/bin/bash -c "$XMTP_SERVICES_TEST_COMMAND"
           '';
           disabled = true;

@@ -99,13 +99,21 @@
                 kill -0 "$compose" 2>/dev/null || break
               done
               # A Nix build deletes its TMPDIR, and with it the logs, so a
-              # failure prints the end of each service log.
+              # failure prints the end of each service log. Nix shows only the
+              # last lines of a failed build (`log-lines`), so the end of the
+              # command output (for nextest, the failed tests) and the exit
+              # status come last.
               if [ "$status" -ne 0 ] && [ -n "''${XMTP_SERVICES_LOGS:-}" ]; then
                 for log in "$XMTP_SERVICES_LOGS"/*.log; do
                   [ -f "$log" ] || continue
                   echo "--- last lines of $log" >&2
-                  tail -n 100 "$log" >&2
+                  tail -n 30 "$log" >&2
                 done
+                if [ -f "$XMTP_SERVICES_LOGS/test-output.txt" ]; then
+                  echo "--- last lines of the test command output" >&2
+                  tail -n 60 "$XMTP_SERVICES_LOGS/test-output.txt" >&2
+                fi
+                echo "services-test: exit status $status" >&2
               fi
               exit "$status"
             '';

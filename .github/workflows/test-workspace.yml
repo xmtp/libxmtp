@@ -29,7 +29,7 @@ jobs:
       - name: Run workspace tests with coverage
         run: |
           nix build .#nextest.x86_64-linux .#junit-refs.x86_64-linux \
-            --out-link workspace-tests --option sandbox relaxed
+            --out-link workspace-tests --option sandbox relaxed --log-lines 500
       # The JUnit report, also when the result came from the cache; a test
       # that passed on retry shows as `flakyFailure`.
       - name: Upload JUnit
