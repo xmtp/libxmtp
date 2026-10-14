@@ -12,7 +12,7 @@
 }:
 let
   target = stdenv.hostPlatform.rust.rustcTarget;
-  rust = xmtp.craneLib.overrideToolchain (p: xmtp.mkToolchain p [ target ] [ ]);
+  rust = xmtp.craneLib.overrideToolchain xmtp.hostToolchain;
   sources = import ../lib/sdk-sources.nix { inherit lib xmtp; };
   source = sources.sdk rust;
   mkProvenance = import ../lib/sdk-provenance.nix { inherit stdenvNoCC python3; };
@@ -46,7 +46,7 @@ let
       version = xmtp.mkVersion rust;
       src = source;
       cargoVendorDir = xmtp.base.mkCargoVendorDir rust;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust (
         special
         // {
           CARGO_BUILD_TARGET = buildTarget;

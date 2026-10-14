@@ -54,6 +54,19 @@ let
       filesets = host.callPackage ./filesets.nix { };
       mkToolchain = final.callPackage ./mkToolchain.nix { inherit inputs; };
       mkNativeToolchain = xmtp.mkToolchain final;
+      # The one toolchain of every Crane package. Crane calls it with each
+      # spliced package set and compiles with `pkgsBuildHost`, whose
+      # `hostPlatform` is the build machine, so the target comes from
+      # `targetPlatform`. Native sets share one store path; a cross set adds
+      # the `rust-std` of its own target. The default profile already has
+      # clippy and rustfmt.
+      hostToolchain =
+        p:
+        xmtp.mkToolchain p
+          [ p.stdenv.targetPlatform.rust.rustcTarget "wasm32-unknown-unknown" ]
+          [
+            "llvm-tools"
+          ];
       craneLib = (inputs.crane.mkLib final).overrideScope craneConfig;
       base = final.callPackage ./base.nix { };
       androidEnv = final.callPackage ./android-env.nix { };

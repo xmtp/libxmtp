@@ -12,7 +12,7 @@
 let
   target = stdenv.hostPlatform.rust.rustcTarget;
   nodeTarget = xmtp.toNapiTarget target;
-  rust = xmtp.craneLib.overrideToolchain (p: xmtp.mkToolchain p [ target ] [ ]);
+  rust = xmtp.craneLib.overrideToolchain xmtp.hostToolchain;
   isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
   buildTarget = target + lib.optionalString isGnu ".2.27";
   gnuBuildEnv = lib.optionalString isGnu ''

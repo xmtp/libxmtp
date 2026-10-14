@@ -4,9 +4,7 @@
   stdenv,
 }:
 let
-  rust = xmtp.craneLib.overrideToolchain (
-    p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ]
-  );
+  rust = xmtp.craneLib.overrideToolchain xmtp.hostToolchain;
   root = ./../..;
   workspaceSource = lib.fileset.toSource {
     inherit root;
@@ -54,7 +52,7 @@ let
   targetArgs = lib.optionalAttrs stdenv.hostPlatform.isMusl {
     RUSTFLAGS = "-C target-feature=+crt-static";
   };
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust (
     targetArgs
     // {
       buildPhaseCargoCommand = "cargo build --locked --profile $CARGO_PROFILE -p xmtp_backend --bin xmtp-backend";

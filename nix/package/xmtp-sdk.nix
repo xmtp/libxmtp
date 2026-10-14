@@ -6,8 +6,8 @@
   wasm-bindgen-cli,
 }:
 let
-  rustToolchain = xmtp.mkNativeToolchain [ "wasm32-unknown-unknown" ] [ ];
-  rust = xmtp.craneLib.overrideToolchain (p: rustToolchain);
+  rustToolchain = xmtp.hostToolchain pkgs;
+  rust = xmtp.craneLib.overrideToolchain xmtp.hostToolchain;
   hostTarget = pkgs.stdenv.hostPlatform.rust.rustcTarget;
   sources = pkgs.callPackage ../lib/sdk-sources.nix { };
   sdkSource = sources.sdk rust;
@@ -26,14 +26,21 @@ let
     # Darwin setup replaces this variable before the Cargo build.
     preBuild = "export MACOSX_DEPLOYMENT_TARGET=11.0";
   };
+  # The SDK library and the bindgen keep separate dependency layers. Cargo
+  # unifies features across `-p xmtp_sdk -p xmtp-sdk-bindgen` (the bindgen is
+  # outside hakari), so a shared layer gives libc, syn, serde_json, and others
+  # features that a final `-p xmtp_sdk` build lacks, and it recompiles them.
+  nativeCommand = "cargo build --release --locked -p xmtp_sdk --lib";
   nativeBuild = rust.buildPackage (
     common
     // nativeArgs
     // {
       pname = "xmtp-sdk-libs";
       src = sdkSource;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false nativeArgs;
-      buildPhaseCargoCommand = "cargo build --release --locked -p xmtp_sdk --lib";
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust (
+        nativeArgs // { buildPhaseCargoCommand = nativeCommand; }
+      );
+      buildPhaseCargoCommand = nativeCommand;
       installPhaseCommand = ''
           mkdir -p $out/lib
         cp target/${hostTarget}/release/libxmtp_sdk.a $out/lib/
@@ -59,7 +66,7 @@ let
   };
   # Full and pure WASM share the dependency cache. They remain distinct
   # artifacts because their exported Rust interfaces differ.
-  wasmDeps = xmtp.base.mkCargoArtifacts rust false wasmArgs;
+  wasmDeps = xmtp.base.mkCargoArtifacts rust wasmArgs;
   mkWasm =
     pure:
     rust.buildPackage (
@@ -79,13 +86,14 @@ let
     );
   wasm = mkWasm false;
   pureWasm = mkWasm true;
+  bindgenCommand = "cargo build --release --locked -p xmtp-sdk-bindgen";
   bindgen = rust.buildPackage (
     common
     // {
       pname = "xmtp-sdk-bindgen";
       src = sources.bindgen rust;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false { };
-      buildPhaseCargoCommand = "cargo build --release --locked -p xmtp-sdk-bindgen";
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust { buildPhaseCargoCommand = bindgenCommand; };
+      buildPhaseCargoCommand = bindgenCommand;
       installPhaseCommand = ''
           mkdir -p $out/bin
         cp target/${hostTarget}/release/xmtp-sdk-bindgen $out/bin/
@@ -120,7 +128,7 @@ let
             CARGO_BUILD_TARGET = target;
             XMTP_XCODE = xcode;
             __noChroot = true;
-            cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false (
+            cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust (
               nativeArgs
               // {
                 CARGO_BUILD_TARGET = target;

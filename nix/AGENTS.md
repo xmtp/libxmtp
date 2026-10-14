@@ -32,6 +32,14 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
 
 - Cargo resolves every workspace member before applying package selection. Crane's `mkDummySrc` input needs each member's target sources, not just its manifest. Keep dependency-cache inputs narrow after dummy generation.
 - Local protobuf generation needs schemas and the real proto build script in both dependency-only and final sources, plus build-platform `protoc` when cross-compiling. After changing source filters, verify that a schema edit changes the dependency derivation and an unrelated Rust source edit does not.
+- Crane packages use `xmtp.hostToolchain`; only the iOS slices add their
+  Apple targets. Each dependency layer runs its consumer's own Cargo command,
+  with the same `-p` list, targets, profile, and environment;
+  `base.mkCargoArtifacts` requires the command. Cargo unifies features across
+  a `-p` list, so a final build with fewer packages recompiles the crates whose
+  features differ. Before two consumers share a layer, compare
+  `cargo tree -e normal,build --prefix none --format '{p}|{f}'` for each `-p`
+  list alone and together.
 - Backend builds restore only the shared dependency sources over the dummy workspace. Include migrations, SQL query files, and `apps/backend/.sqlx` metadata. Add each new shared dependency to the restored crate list. Build with `SQLX_OFFLINE=true`; no database is allowed during the build.
 - The Rust shell provides sqlx-cli. Keep its version aligned with the backend SQLx dependency.
 - SDK compiler sources use a dummy workspace and restore the selected local

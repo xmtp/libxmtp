@@ -29,8 +29,7 @@ let
   inherit (lib.fileset) fileFilter;
   inherit (xmtp) craneLib base;
   root = ./../..;
-  rust-toolchain = p: xmtp.mkToolchain p [ "wasm32-unknown-unknown" ] [ "llvm-tools-preview" ];
-  rust = craneLib.overrideToolchain rust-toolchain;
+  rust = craneLib.overrideToolchain xmtp.hostToolchain;
 
   wasmCrates = [
     "xmtp_mls"
@@ -114,7 +113,7 @@ let
     ANVIL_URL = "http://127.0.0.1:${toString ports.XMTP_ANVIL_PORT}";
   };
 
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust (
     (removeAttrs commonArgs [ "src" ])
     // {
       buildPhaseCargoCommand = "cargo nextest run --locked --cargo-profile $CARGO_PROFILE --no-run ${wasmPackages}";
