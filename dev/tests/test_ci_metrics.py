@@ -364,6 +364,10 @@ class Metrics(unittest.TestCase):
             "bare ESC": ("a\x1b", "a\\x1b"),
             "C1 CSI": ("\u009b31mred", "\\x9b31mred"),
             "BEL": ("ding\x07dong", "ding\\x07dong"),
+            # An 8-bit ST (U+009C) ends the string; the text after it stays.
+            "OSC ended by 8-bit ST": ("a\x1b]0;title\u009cb", "ab"),
+            "8-bit OSC introducer": ("a\u009d0;title\u009cb", "ab"),
+            "8-bit DCS introducer": ("a\u00901$qm\x1b\\b", "ab"),
         }
         for name, (payload, shown) in cases.items():
             with self.subTest(name):

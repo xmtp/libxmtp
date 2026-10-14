@@ -49,11 +49,13 @@ COMPARE_FILE_CAP = 300
 LISTED_FILE_CAP = 3000
 
 TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T[0-9:.]+Z ")
-# Terminal escape sequences: CSI; OSC, DCS, SOS, PM, and APC strings, which
-# end at BEL, at ST, or at the end of the line; and other ESC sequences.
+# Terminal escape sequences: CSI; OSC, DCS, SOS, PM, and APC strings, with a
+# 7-bit (ESC ] P X ^ _) or 8-bit (U+009D U+0090 U+0098 U+009E U+009F)
+# introducer, which end at BEL, at ST (ESC \ or U+009C), or at the end of the
+# line; and other ESC sequences.
 ESCAPE_SEQUENCE = re.compile(
     r"\x1b\[[0-?]*[ -/]*[@-~]"
-    r"|\x1b[\]PX^_][^\x07\x1b]*(?:\x07|\x1b\\)?"
+    r"|(?:\x1b[\]PX^_]|[\x90\x98\x9d\x9e\x9f])[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)?"
     r"|\x1b[ -/]*[0-~]"
 )
 # C0 controls except tab, DEL, and C1 controls.
