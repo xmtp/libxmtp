@@ -108,16 +108,7 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 				try Task.checkCancellation()
 				guard routes.admit(origin, fence: fence) else { throw CancellationError() }
 				let records = try await queries.list(consent: consent, limit: requested)
-				let requests: [ConversationRecord]?
-				do {
-					try Task.checkCancellation()
-					guard routes.admit(origin, fence: fence) else { throw CancellationError() }
-					requests = try await queries.list(consent: .unknown, limit: 501)
-				} catch is CancellationError {
-					throw CancellationError()
-				} catch {
-					requests = nil
-				}
+				let requests = try await countRecords(origin: origin)
 				try Task.checkCancellation()
 				apply(origin, request: requestRevision) { state in
 					// List reads may carry only IDs. Keep details until the current window refreshes.
@@ -143,6 +134,20 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 			}
 		}
 		tasks[taskID] = job
+	}
+
+	private func countRecords(origin: DestinationOrigin) async throws -> [ConversationRecord]? {
+		// Only Chats displays the request badge; Requests already fetched its primary list.
+		guard consent != .unknown else { return nil }
+		do {
+			try Task.checkCancellation()
+			guard routes.admit(origin, fence: fence) else { throw CancellationError() }
+			return try await queries.list(consent: .unknown, limit: 501)
+		} catch is CancellationError {
+			throw CancellationError()
+		} catch {
+			return nil
+		}
 	}
 
 	private func row(_ record: ConversationRecord) -> ConversationRow {
