@@ -14,6 +14,53 @@ ROOT = Path(__file__).resolve().parents[2]
 KACHE_CI = ROOT / ".github/actions/setup-nix/kache-ci"
 
 
+class KacheEnvTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="xmtp kache env ")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.bash = shutil.which("bash")
+        self.binary = self.root / "kache"
+        self.binary.write_text("#!/bin/sh\nexit 99\n")
+        self.binary.chmod(0o755)
+        self.env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("KACHE_", "XMTP_KACHE"))
+            and key not in ("CI", "CARGO_INCREMENTAL", "RUSTC_WRAPPER", "BASH_ENV")
+        }
+        self.env["PATH"] = str(self.root)
+
+    def shell(self, script):
+        return subprocess.run(
+            [self.bash, "-euc", script, "test", str(ROOT / "dev/kache-env")],
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+
+    def values(self):
+        result = self.shell(
+            'source "$1"; printf "%s\\n" "${RUSTC_WRAPPER-unset}" '
+            '"${CARGO_INCREMENTAL-unset}" "${KACHE_MAX_SIZE-unset}" '
+            '"${KACHE_KEY_ENV_VARS-unset}" "${KACHE_BUILD_SCRIPT_CACHE-unset}" '
+            '"${KACHE_CACHE_EXECUTABLES-unset}"'
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.splitlines()
+
+    def test_local_defaults_select_cache_and_keep_incremental_profile(self):
+        values = self.values()
+        self.assertEqual(
+            values,
+            [str(self.binary), "unset", "50GiB", "CI,XMTP_TEST_LOGGING", "0", "1"],
+        )
+        for value in ("0", "1"):
+            with self.subTest(value=value):
+                self.env["CARGO_INCREMENTAL"] = value
+                self.assertEqual(self.values()[1], value)
+
+
 TRUNK_PUSH = {
     "GITHUB_EVENT_NAME": "push",
     "GITHUB_REF_TYPE": "branch",
