@@ -24,11 +24,8 @@ extension AppGraph {
 			admit: { [weak self] origin in guard let self else { return false }; return routes.admit(origin, fence: fence) },
 			finish: { [weak self] in
 				guard let self else { return }
-				do { try preferences.skipHandle() } catch { self.error = "Cannot save your preference. Try again."; return }
-				if mode == .choose {
-					routes.replace(.chats)
-				} else {
-					routes.back()
+				do { try completeHandleSelection(mode, routes: routes, savePreference: preferences.skipHandle) } catch {
+					self.error = "Cannot save your preference. Try again."; return
 				}
 				session.scope.add { [weak self] in
 					guard let self else { return }
@@ -84,5 +81,18 @@ extension AppGraph {
 
 	func reset() async {
 		do { try await session.reset(); await bindSession() } catch { self.error = "Local deletion is incomplete" }
+	}
+}
+
+@MainActor func completeHandleSelection(
+	_ mode: HandleMode,
+	routes: RouteOwner,
+	savePreference: () throws -> Void,
+) throws {
+	if mode == .choose {
+		try savePreference()
+		routes.replace(.chats)
+	} else {
+		routes.back()
 	}
 }

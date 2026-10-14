@@ -62,6 +62,10 @@ struct ConnectView: View {
 										"network"); Text(localized(store.state.ready ? "Server ready" : "Enter a server address"))
 								}
 								Spacer()
+								if !store.state.ready, !store.state.checking, store.state.error != nil {
+									Button(localized("Retry")) { focusedField = nil; store.send(.retryProbe) }
+										.buttonStyle(.glass).accessibilityIdentifier("retry-server-check")
+								}
 							}.font(.subheadline).foregroundStyle(store.state.error == nil ? .green : .red).padding(16)
 						}.background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 24))
 						VStack(alignment: .leading, spacing: 8) {

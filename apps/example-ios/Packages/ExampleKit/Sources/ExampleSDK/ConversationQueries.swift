@@ -20,6 +20,13 @@ func enrichPeerHandle(_ record: ConversationRecord,
 	return result
 }
 
+func limitedConversationLookup<T: Sendable>(
+	limiter: AsyncLimiter,
+	lookup: @Sendable () async throws -> T?,
+) async throws -> T? {
+	try await limiter.withPermit(lookup)
+}
+
 public final class SDKConversationQueries: ConversationQueries, Sendable {
 	private let client: SDKClient
 	private let limiter: AsyncLimiter
@@ -50,7 +57,9 @@ public final class SDKConversationQueries: ConversationQueries, Sendable {
 	}
 
 	public func details(_ record: ConversationRecord, marker: Int64) async throws -> ConversationRecord {
-		guard let value = try await client.conversations.getById(id: record.id) else { return record }
+		guard let value = try await limitedConversationLookup(limiter: limiter, lookup: {
+			try await self.client.conversations.getById(id: record.id)
+		}) else { return record }
 		var result = try await stateDetails(value, record: record)
 		let own = client.inboxId()
 		let unread = try await limiter.withPermit {

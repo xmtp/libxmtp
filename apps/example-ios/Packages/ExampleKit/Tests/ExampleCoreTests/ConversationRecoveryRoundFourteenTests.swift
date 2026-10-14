@@ -161,7 +161,7 @@ private actor RecoveryConversationQueries: ConversationQueries {
 	func setConsent(id _: String, consent _: ConversationConsent) async throws {
 		decisions += 1
 		if failDecision {
-			throw MetadataRuleError.changed
+			throw ConversationRecoveryError.failed
 		}
 	}
 }
@@ -183,8 +183,10 @@ private actor RecoveryConversationQueries: ConversationQueries {
 
 	func dismissRequest(_ id: String) throws {
 		if failDismiss {
-			throw MetadataRuleError.changed
+			throw ConversationRecoveryError.failed
 		}
 		dismissedRequests.insert(id)
 	}
 }
+
+private enum ConversationRecoveryError: Error { case failed }

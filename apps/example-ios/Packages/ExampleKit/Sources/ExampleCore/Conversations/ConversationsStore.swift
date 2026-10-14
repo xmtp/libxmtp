@@ -97,15 +97,21 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 		let requestRevision = loadRevision
 		let pendingVisibleIDs = state.visibleRows.filter { queuedDetailIDs.contains($0.id) }.map(\.id)
 		job?.cancel(); resetHydration(); state.loading = true; state.error = nil
-		let origin = DestinationOrigin(session: session, token: routes.token), requested = limit
+		let origin = DestinationOrigin(session: session, token: routes.token)
+		// Dismissed requests still occupy the SDK prefix. Fetch enough for the visible page.
+		let requested = limit + (consent == .unknown ? preferences.dismissedRequests.count : 0)
 		let taskID = UUID()
 		job = Task { [weak self] in
 			guard let self else { return }
 			defer { tasks.removeValue(forKey: taskID) }
 			do {
+				try Task.checkCancellation()
+				guard routes.admit(origin, fence: fence) else { throw CancellationError() }
 				let records = try await queries.list(consent: consent, limit: requested)
 				let requests: [ConversationRecord]?
 				do {
+					try Task.checkCancellation()
+					guard routes.admit(origin, fence: fence) else { throw CancellationError() }
 					requests = try await queries.list(consent: .unknown, limit: 501)
 				} catch is CancellationError {
 					throw CancellationError()
@@ -116,14 +122,15 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 				apply(origin, request: requestRevision) { state in
 					// List reads may carry only IDs. Keep details until the current window refreshes.
 					let existing = Dictionary(uniqueKeysWithValues: state.rows.map { ($0.id, $0.conversation) })
-					state.rows = records
+					let visibleRecords = records
 						.filter { $0.consent == consent && (consent != .unknown || !preferences.dismissedRequests.contains($0.id)) }
+					state.rows = visibleRecords.prefix(limit)
 						.map { record in
 							var enriched = existing[record.id] ?? record
 							enriched.consent = record.consent
 							return row(enriched)
 						}
-					state.hasMore = records.count == requested; state.loading = false
+					state.hasMore = records.count == requested || visibleRecords.count > limit; state.loading = false
 					state.requestCount = requests.flatMap { records in
 						records.count >= 501 ? nil : ListRules
 							.requestCount(records.filter { !preferences.dismissedRequests.contains($0.id) }.count)

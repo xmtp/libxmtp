@@ -156,7 +156,7 @@ extension SessionCleanupTests {
 			.client.ended)
 	}
 
-	@Test @MainActor func successfulJoinClearsUIBearerToken() async {
+	@Test @MainActor func successfulJoinClearsUIBearerToken() async throws {
 		let files = RoundSevenFiles(); let secrets = RoundSevenSecrets(); let factory = RoundSevenFactory()
 		let session = SessionController(fence: SessionFence(), secrets: secrets, files: files, factory: factory)
 		let store = ConnectStore(
@@ -165,6 +165,12 @@ extension SessionCleanupTests {
 			owner: RouteOwner(),
 			defaultURL: "http://localhost:5050",
 		)
+		store.send(.appear)
+		let probeClock = ContinuousClock(); let probeDeadline = probeClock.now.advanced(by: .seconds(3))
+		while !store.state.ready, probeClock.now < probeDeadline {
+			await Task.yield()
+		}
+		try #require(store.state.ready)
 		store.send(.tokenChanged("fixture-token")); store.send(.join)
 		while !factory.finished {
 			await Task.yield()
@@ -184,6 +190,12 @@ extension SessionCleanupTests {
 			owner: RouteOwner(),
 			defaultURL: "http://localhost:5050",
 		)
+		store.send(.appear)
+		let probeClock = ContinuousClock(); let probeDeadline = probeClock.now.advanced(by: .seconds(3))
+		while !store.state.ready, probeClock.now < probeDeadline {
+			await Task.yield()
+		}
+		try #require(store.state.ready)
 		store.send(.tokenChanged("fixture-token")); store.send(.join)
 		for _ in 0 ..< 10000 {
 			if factory.pending != nil {

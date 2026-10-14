@@ -15,7 +15,7 @@ public struct ConnectState: Equatable, Sendable {
 	public var requiresToken = false
 	public var error: String?
 	public var canJoin: Bool {
-		!checking && !joining && !address.trimmingCharacters(in: .whitespacesAndNewlines)
+		ready && !checking && !joining && !address.trimmingCharacters(in: .whitespacesAndNewlines)
 			.isEmpty && (!requiresToken || !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) && BackendURL
 			.parse(address) != nil
 	}
@@ -45,7 +45,9 @@ public enum ConnectAction: Sendable { case appear, addressChanged(String), token
 	public func send(_ action: ConnectAction) {
 		switch action {
 		case .appear: state.joining = false; state.token = ""; scheduleProbe()
-		case let .addressChanged(value): state.address = value; state.token = ""; state.requiresToken = false; scheduleProbe()
+		case let .addressChanged(value):
+			guard value != state.address else { return }
+			state.address = value; state.token = ""; state.requiresToken = false; scheduleProbe()
 		case let .tokenChanged(value): state.token = value
 		case let .nameChanged(value): state.serverName = value
 		case .join: join()

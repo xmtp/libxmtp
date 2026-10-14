@@ -217,7 +217,8 @@ struct SessionCleanupTests {
 		let fence = SessionFence(); let owner = RouteOwner()
 		let session = SessionController(fence: fence, secrets: Secrets(), files: Files(), factory: factory)
 		let store = ConnectStore(probe: ReadyProbe(), session: session, owner: owner, defaultURL: "https://example.com")
-		try await waitUntil { !store.state.checking }
+		store.send(.appear)
+		try await waitUntil { store.state.ready }
 		store.send(.join)
 		try await waitUntil { factory.pending != nil }
 		if changeSession {
