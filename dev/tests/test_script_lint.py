@@ -7,12 +7,16 @@ shellcheck (with the exclusions of nix/fmt.nix) for shell, `ruff check` and
 its dialect with a `# shellcheck shell=bash` first line and is linted too.
 """
 
+import importlib.machinery
+import importlib.util
 import os
 import re
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -101,12 +105,74 @@ def lint(found, root=ROOT):
     return failures
 
 
+def lint_config_misses(paths):
+    """The scripts whose change alone does not select lint_config."""
+    loader = importlib.machinery.SourceFileLoader(
+        "ci_select_for_lint", str(ROOT / "dev/ci-select")
+    )
+    selector = importlib.util.module_from_spec(
+        importlib.util.spec_from_loader(loader.name, loader)
+    )
+    loader.exec_module(selector)
+    payload = {
+        "repository": {"full_name": "xmtp/libxmtp"},
+        "pull_request": {
+            "number": 1,
+            "draft": False,
+            "changed_files": 1,
+            "head": {"sha": "head", "repo": {"full_name": "xmtp/libxmtp"}},
+        },
+    }
+    return [
+        path
+        for path in paths
+        if "lint_config"
+        not in selector.select_suites(
+            [path], "pull_request", payload, "success", 1, None, ()
+        )["suites"]["lint"]
+    ]
+
+
+def bare_runner_calls(paths, root=ROOT):
+    """Workflow lines that run one of `paths` outside dev/nix-shell."""
+    found = []
+    files = sorted((root / ".github").glob("workflows/*.yml")) + sorted(
+        (root / ".github").glob("actions/*/action.yml")
+    )
+    for file in files:
+        data = yaml.safe_load(file.read_text()) or {}
+        steps = [
+            step
+            for job in (data.get("jobs") or {}).values()
+            for step in job.get("steps") or []
+        ] + list((data.get("runs") or {}).get("steps") or [])
+        for step in steps:
+            run = step.get("run") or ""
+            for path in paths:
+                for match in re.finditer(
+                    r"(?<![\w./-])" + re.escape(path) + r"(?![\w./-])", run
+                ):
+                    if "dev/nix-shell" not in run[: match.start()]:
+                        found.append(f"{file.relative_to(root)}: {path}")
+    return found
+
+
 class ScriptLintTests(unittest.TestCase):
     def test_every_extensionless_script_passes(self):
         found = scripts()
         # Guards against a discovery change that finds nothing.
         self.assertGreater(len(found), 40, found)
         self.assertEqual(lint(found), [])
+
+    def test_every_script_change_runs_the_script_lint(self):
+        """A changed script selects lint_config, which runs this test."""
+        self.assertEqual(lint_config_misses([path for path, *_ in scripts()]), [])
+
+    def test_python311_scripts_run_inside_the_nix_shell(self):
+        """A bare runner has no python3.11; such scripts run in dev/nix-shell."""
+        python311 = [path for path, _, first, _ in scripts() if first == PYTHON]
+        self.assertGreater(len(python311), 3)
+        self.assertEqual(bare_runner_calls(python311), [])
 
     def test_planted_findings_fail(self):
         """A planted script of each kind fails its linter, mode, or form."""

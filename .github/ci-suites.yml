@@ -241,6 +241,11 @@ suites:
       - "dev/services"
       # dev/tests/test_sdk_package.py runs it.
       - "dev/js/sdk-package"
+      # dev/tests/test_script_lint.py lints every extensionless script; they
+      # live under a dev/ directory, except these two.
+      - "**/dev/**"
+      - "docs/self-hosted/sdk-migration/check-examples"
+      - "sdks/browser/test/platform/object-store/with-object-store"
       - "sdks/android/android.just"
       - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
       # test_kache_env.py reads this neutral file. A neutral file selects a
