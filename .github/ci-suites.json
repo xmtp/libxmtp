@@ -151,6 +151,7 @@
         "dev/docker/grafana/dashboards/backend.json",
         "dev/docker/{compose.yml,load-backend-image,load-env,up}",
         "dev/js/{.setup,sdk-*,tsconfig.*.json}",
+        "dev/services",
         "dev/tls/**",
         "dev/{tests,agents,specs,release-tools,fly,ci}/**",
         "nix/fmt.nix",
@@ -459,9 +460,8 @@
         "dev/docker/{postgres,s3,toxiproxy}/**",
         "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}",
         "nix/musl-docker.nix",
-        "nix/package/backend-tests.sh",
         "nix/package/backend.nix",
-        "nix/package/{backend,backend-ci}.nix",
+        "nix/services/**",
         "nix/{ci-checks,package/backend-tests}.nix"
       ]
     },
@@ -565,6 +565,7 @@
         "dev/docker/{postgres,s3,toxiproxy}/**",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
+        "nix/services/**",
         "{.config/nextest.toml,webdriver.json}",
         "{nix/package/nextest.nix,nix/ci-checks.nix,dev/check-ephemeral-backend}"
       ]
@@ -675,6 +676,7 @@
         "dev/docker/{postgres,s3,toxiproxy}/**",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
+        "nix/services/**",
         "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix}",
         "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       ]

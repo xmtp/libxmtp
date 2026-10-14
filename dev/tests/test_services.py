@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""Check the process contract of the test services (nix/services, dev/services).
+
+The checks run the storage services (PostgreSQL, the replica, and S3) of
+`.#storageServices`, so they need no backend build. Every port is a free
+loopback port, so a running worktree stack does not interfere.
+"""
+
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import tempfile
+import time
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+PORTS = ("XMTP_BACKEND_DB_PORT", "XMTP_BACKEND_REPLICA_PORT", "XMTP_S3_PORT")
+URLS = ("DATABASE_URL", "XMTP_REPLICA_URL", "XMTP_S3_URL", "XMTP_S3_BASE_URL")
+
+
+def free_ports(count):
+    sockets = [socket.socket() for _ in range(count)]
+    for sock in sockets:
+        sock.bind(("127.0.0.1", 0))
+    ports = [sock.getsockname()[1] for sock in sockets]
+    for sock in sockets:
+        sock.close()
+    return ports
+
+
+def listening(port):
+    try:
+        socket.create_connection(("127.0.0.1", port), 0.5).close()
+        return True
+    except OSError:
+        return False
+
+
+def read_env(path):
+    values = {}
+    for line in path.read_text().splitlines():
+        name, value = line.removeprefix("export ").split("=", 1)
+        values[name] = value.strip("'")
+    return values
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+
+
+class ServicesTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        out = subprocess.run(
+            [
+                "nix",
+                "build",
+                "--no-link",
+                "--print-out-paths",
+                f"{ROOT}#storageServices.test",
+                f"{ROOT}#storageServices.package",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+        cls.test_bin = Path(out[0]) / "bin/services-test"
+        cls.package = Path(out[1])
+
+    def setUp(self):
+        # A short directory: macOS limits a socket path to 104 bytes.
+        temporary = tempfile.TemporaryDirectory(prefix="xs-", dir="/tmp")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        # dev/nix-shell loads this worktree's ports; the services must not
+        # see them, or a running worktree stack would hold the ports.
+        self.env = {
+            name: value
+            for name, value in os.environ.items()
+            if not name.startswith(("XMTP_", "PC_"))
+            and name not in ("DATABASE_URL", "ANVIL_URL")
+        }
+
+    def services_test(self, command, **env):
+        return subprocess.run(
+            [str(self.test_bin)],
+            cwd=self.root,
+            env={**self.env, "XMTP_SERVICES_TEST_COMMAND": command, **env},
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+
+    def test_command_sees_the_env_file_and_sets_the_exit_status(self):
+        result = self.services_test(
+            'cp "$XMTP_SERVICES_STATE/env" exported; env > seen; exit 3'
+        )
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        exported = read_env(self.root / "exported")
+        self.assertEqual(set(exported), {*PORTS, *URLS})
+        ports = {int(exported[name]) for name in PORTS}
+        self.assertEqual(len(ports), len(PORTS), exported)
+        port = exported["XMTP_BACKEND_DB_PORT"]
+        self.assertEqual(
+            exported["DATABASE_URL"],
+            f"postgres://xmtp:xmtp@127.0.0.1:{port}/xmtp_backend",
+        )
+        seen = dict(
+            line.split("=", 1)
+            for line in (self.root / "seen").read_text().splitlines()
+            if "=" in line
+        )
+        for name, value in exported.items():
+            self.assertEqual(seen.get(name), value, name)
+        # The wrapper removes the state directory that it created.
+        self.assertFalse(Path(seen["XMTP_SERVICES_STATE"]).exists())
+        for port in ports:
+            self.assertFalse(listening(port), f"port {port} still listens")
+
+    def test_caller_port_in_use_fails_before_any_service_starts(self):
+        with socket.socket() as holder:
+            holder.bind(("127.0.0.1", 0))
+            holder.listen()
+            port = holder.getsockname()[1]
+            result = self.services_test("touch ran", XMTP_S3_PORT=str(port))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"XMTP_S3_PORT={port} is in use", result.stderr)
+        self.assertFalse((self.root / "ran").exists())
+
+    def test_skipped_dependency_fails_without_running_the_command(self):
+        state = self.root / "state"
+        # initdb refuses a data directory that is not empty, so db-init fails
+        # and every process that depends on it is skipped.
+        (state / "data/primary").mkdir(parents=True)
+        (state / "data/primary/occupied").touch()
+        result = self.services_test(
+            "touch ran",
+            XMTP_SERVICES_STATE=str(state),
+            XMTP_SERVICES_LOGS=str(self.root / "logs"),
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertFalse((self.root / "ran").exists())
+        # A startup failure prints the end of each service log.
+        self.assertIn("db-init.log", result.stderr)
+        self.assertIn("exists but is not empty", result.stderr)
+        # S3 started; it must be stopped.
+        s3 = int(read_env(state / "env")["XMTP_S3_PORT"])
+        self.assertFalse(listening(s3), "S3 still listens")
+
+    def test_dev_services_down_leaves_nothing(self):
+        # A fixture checkout: dev/worktree-env writes its own dev/docker/.env.
+        repo = self.root / "repo"
+        for path in ("dev/services", "dev/worktree-env", "dev/docker/load-env"):
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / path, repo / path)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        state = self.root / "state"
+        socket_path = self.root / "pc.sock"
+        env = {
+            **self.env,
+            **dict(zip(PORTS, map(str, free_ports(len(PORTS))))),
+            "XMTP_SERVICES_PACKAGE": str(self.package),
+            "XMTP_SERVICES_STATE": str(state),
+            "PC_SOCKET_PATH": str(socket_path),
+        }
+
+        def services(*args, check=True):
+            return subprocess.run(
+                [str(repo / "dev/services"), *args],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=200,
+                check=check,
+            )
+
+        self.addCleanup(services, "down", check=False)
+        up = services("up", check=False)
+        self.assertEqual(up.returncode, 0, up.stdout + up.stderr)
+        self.assertEqual(read_env(state / "env")["XMTP_S3_PORT"], env["XMTP_S3_PORT"])
+        self.assertIn("export DATABASE_URL=", services("env").stdout)
+        listed = subprocess.run(
+            [str(self.package / "bin/services"), "process", "list", "-o", "json"],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        running = {
+            process["name"]: process["pid"]
+            for process in json.loads(listed)
+            if process["status"] == "Running"
+        }
+        self.assertEqual(set(running), {"db", "replica", "s3"}, listed)
+        self.assertIn("replica", services("ps").stdout)
+
+        services("down")
+        deadline = time.monotonic() + 5
+        while any(map(alive, running.values())) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        left = [name for name, pid in running.items() if alive(pid)]
+        self.assertEqual(left, [], "service processes remain")
+        self.assertFalse(state.exists(), "state directory remains")
+        self.assertFalse(socket_path.exists(), "socket remains")
+
+
+if __name__ == "__main__":
+    unittest.main()

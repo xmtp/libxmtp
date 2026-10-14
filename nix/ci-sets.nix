@@ -88,7 +88,7 @@ let
               ios-xcframeworks-fast
               xmtp-sdk-generated-node
               xmtp-sdk-generated-browser
-              backend-ci
+              services-test
               backend-image-aarch64-unknown-linux-musl
               ;
           }

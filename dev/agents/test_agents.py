@@ -223,6 +223,36 @@ class NixWrapperTests(unittest.TestCase):
         self.assertEqual(self.run_wrapper("true").returncode, 0)
         self.assertEqual(len(self.calls()), 1)
 
+    def show_service_env(self):
+        for name in ("DATABASE_URL", "XMTP_BACKEND_URL", "SQLX_OFFLINE"):
+            self.env.pop(name, None)
+        return 'printf "%s|%s|%s" "${DATABASE_URL-unset}" "${XMTP_BACKEND_URL-unset}" "$SQLX_OFFLINE"'
+
+    def test_loads_worktree_env_without_overriding_the_caller(self):
+        # An ad-hoc `cargo test` must reach this worktree's stack, not slot 0's.
+        docker = self.root / "dev/docker"
+        docker.mkdir()
+        shutil.copy2(ROOT / "dev/docker/load-env", docker / "load-env")
+        (docker / ".env").write_text(
+            "DATABASE_URL='postgres://xmtp:xmtp@127.0.0.1:55532/xmtp_backend'\n"
+            "XMTP_BACKEND_URL='http://127.0.0.1:5150'\n"
+        )
+        command = self.show_service_env()
+        self.env["XMTP_BACKEND_URL"] = "http://caller:1"
+        result = self.run_wrapper(command)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout,
+            "postgres://xmtp:xmtp@127.0.0.1:55532/xmtp_backend|http://caller:1|true",
+        )
+
+    def test_no_worktree_env_and_caller_sqlx_mode(self):
+        command = self.show_service_env()
+        self.env["SQLX_OFFLINE"] = "false"
+        result = self.run_wrapper(command)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "unset|unset|false")
+
     def test_invalid_arguments(self):
         self.assertEqual(self.run_wrapper().returncode, 2)
         self.assertEqual(self.run_wrapper("--command").returncode, 2)

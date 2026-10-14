@@ -10,7 +10,6 @@ jobs:
     timeout-minutes: 30
     env:
       SQLX_OFFLINE: "true"
-      DATABASE_URL: postgres://xmtp:xmtp@localhost:55432/xmtp_backend
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -22,13 +21,10 @@ jobs:
       - uses: taiki-e/install-action@just
       - name: Check ephemeral backend build boundaries
         run: dev/check-ephemeral-backend
-      - name: Start backend
-        run: just backend up
-      - name: Dump docker logs on failure
-        if: failure()
-        uses: jwalton/gh-docker-logs@v2
+      # The derivation starts its own test services (nix/services) on free
+      # loopback ports, so the job needs no Docker stack. `nix build` keeps
+      # the coverage report.
       - name: Run workspace tests with coverage
-        # use `nix build` instead of `nix flake check` because we need the resulting coverage
         run: |
           nix build .#nextest.x86_64-linux --out-link workspace-tests --option sandbox relaxed
       - name: Upload coverage

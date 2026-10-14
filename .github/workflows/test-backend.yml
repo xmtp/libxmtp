@@ -53,24 +53,25 @@ jobs:
           kache-scope: backend-tests-debug
           kache-readonly: "true"
       - uses: taiki-e/install-action@just
-      - name: Check wrapper processes
-        run: dev/nix-shell 'shellcheck dev/backend/ci && python3.11 dev/backend/check-ci.py'
+      - name: Check service processes
+        run: dev/nix-shell 'python3.11 -B -m unittest dev/tests/test_services.py'
       - name: Check cache reader environment
         run: |
           test -z "${CACHIX_AUTH_TOKEN:-}"
           test -z "${CACHIX_SIGNING_KEY:-}"
           echo "Cache writer environment absent"
       - name: Build native service package
-        run: time nix build --no-link .#backend-ci
+        run: time nix build --no-link .#services-test
+      # The db-init and s3 logs record the PostgreSQL and VersityGW versions.
       - name: Record service versions and published configuration
         run: |
-          nix run .#backend-ci -- bash -euc '
-            postgres --version
-            versitygw --version
-            grpcurl -plaintext -emit-defaults -import-path proto -proto backend/v1/backend.proto \
-              -d "{}" 127.0.0.1:5050 xmtp.backend.v1.ConfigurationService/GetConfiguration \
-              > "$RUNNER_TEMP/backend-ci-logs/configuration.json"
-          '
+          cat > "$RUNNER_TEMP/record-configuration" <<'EOF'
+          nix run --inputs-from . nixpkgs#grpcurl -- -plaintext -emit-defaults \
+            -import-path proto -proto backend/v1/backend.proto -d "{}" \
+            "127.0.0.1:$XMTP_BACKEND_PORT" xmtp.backend.v1.ConfigurationService/GetConfiguration \
+            > "$RUNNER_TEMP/backend-ci-logs/configuration.json"
+          EOF
+          dev/nix-shell 'just backend ci bash -eu "$RUNNER_TEMP/record-configuration"'
           dev/nix-shell --command jq -e \
             '.attachments == {baseUrl: "http://127.0.0.1:9067/attachments", maxUploadBytes: "104857600", retentionSeconds: "0"}' \
             "$RUNNER_TEMP/backend-ci-logs/configuration.json"

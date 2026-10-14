@@ -105,15 +105,17 @@ path_groups:
     - "dev/backend/{local.toml,local-s3.toml}"
     - "nix/package/backend.nix"
     - "nix/musl-docker.nix"
-  # The native backend package and the `just backend ci` wrapper. test_backend
-  # checks the wrapper contract; test_ios uses the wrapper but is not selected
-  # by backend changes (see docker_backend).
+  # The native backend package and the test services (nix/services), which
+  # `just backend ci` runs. test_backend checks the services contract; test_ios
+  # uses `just backend ci` but is not selected by backend changes (see
+  # docker_backend).
   native_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
     - "dev/backend/**"
     - "dev/docker/s3/**"
-    - "nix/package/{backend,backend-ci}.nix"
+    - "nix/package/backend.nix"
+    - "nix/services/**"
   js_workspace:
     - "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
     - "sdks/js.just"
@@ -230,6 +232,8 @@ suites:
       - "dev/docker/grafana/dashboards/backend.json"
       - "dev/tls/**"
       - "apps/backend/backend.just"
+      # dev/tests/test_services.py runs it.
+      - "dev/services"
       - "sdks/android/android.just"
       - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
       # test_kache_env.py reads this neutral file. A neutral file selects a
@@ -333,7 +337,6 @@ suites:
       - "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}"
       - path_group: native_backend
       - "nix/{ci-checks,package/backend-tests}.nix"
-      - "nix/package/backend-tests.sh"
   test_validation:
     phase: test
     workflow: test-validation.yml
@@ -360,6 +363,8 @@ suites:
       - path_group: docker_backend
       - "{.config/nextest.toml,webdriver.json}"
       - "{nix/package/nextest.nix,nix/ci-checks.nix,dev/check-ephemeral-backend}"
+      # The derivation starts these services.
+      - "nix/services/**"
   test_keepalive:
     phase: test
     workflow: test-keepalive-probe.yml
@@ -396,6 +401,7 @@ suites:
       - path_group: docker_backend
       - "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       - "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix}"
+      - "nix/services/**"
   test_xdbg:
     phase: test
     workflow: test-xdbg.yml

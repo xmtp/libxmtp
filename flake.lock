@@ -150,6 +150,22 @@
         "type": "github"
       }
     },
+    "process-compose-flake": {
+      "locked": {
+        "lastModified": 1791313691,
+        "narHash": "sha256-9Bp/38NrvbjUGZAZTUiYWfbXW/y6B1rSBJHEgRsDK4g=",
+        "owner": "Platonic-Systems",
+        "repo": "process-compose-flake",
+        "rev": "142d4b084026e91d9ab5822639d308aca5fb1b2b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Platonic-Systems",
+        "repo": "process-compose-flake",
+        "rev": "142d4b084026e91d9ab5822639d308aca5fb1b2b",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "crane": "crane",
@@ -157,6 +173,7 @@
         "flake-parts": "flake-parts",
         "foundry": "foundry",
         "nixpkgs": "nixpkgs_2",
+        "process-compose-flake": "process-compose-flake",
         "rust-manifest": "rust-manifest",
         "treefmt-nix": "treefmt-nix"
       }

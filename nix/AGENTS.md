@@ -53,9 +53,24 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   `cargoVendorDir = xmtp.base.mkCargoVendorDir rust`. Check an output with
   `nix eval --option allow-import-from-derivation false --raw .#<output>.drvPath`.
 
-`backend-ci` packages disposable PostgreSQL, VersityGW, and the native backend.
-It supports one command on an isolated macOS runner. It does not add services
-to development shells. Run `dev/nix-shell 'just backend ci COMMAND'`.
+`services/stack.nix` defines the test services once, as a process-compose
+module: a PostgreSQL primary and streaming replica, VersityGW with the
+attachments bucket, anvil, the backend, and toxiproxy. A port that the caller
+sets wins; every other port is a free loopback port. Commands and probes are
+store scripts, because process-compose substitutes `$NAME` in the whole config.
+`.#services` runs the stack; `dev/services up|env|ps|logs|down` runs it in the
+background on this worktree's ports, without Docker. `.#services-test` starts
+the stack, runs `XMTP_SERVICES_TEST_COMMAND`, exits with its status, and stops
+every service (`dev/nix-shell 'just backend ci COMMAND'`).
+`legacyPackages.mkServices <backend>` gives these outputs for another backend
+binary, so a test derivation keys on the binary that it starts; `mkServices
+null` is the storage subset (PostgreSQL, replica, S3). Its `checkCommand` runs a
+check phase through `services-test`; a Darwin build needs
+`__darwinAllowLocalNetworking` or `__noChroot`. `checks.<system>.services`
+proves each service inside a build.
+
+`nextest.<system>` runs the workspace tests with the services of
+`mkServices xmtp-backend` inside the build, on free ports.
 
 `wasm-nextest-archive.<system>` compiles the WASM tests into one nextest
 archive. `wasm-nextest-part-<n>.<system>` runs slice `n` of 4 from it against
@@ -65,10 +80,10 @@ change reruns the slices and substitutes the archive. Run them with
 `just wasm nix-test-part <n>`.
 
 `backend-tests.<system>` runs the backend tests and the SQLx metadata check in
-the build sandbox. `package/backend-tests.sh` starts a PostgreSQL primary, a
-streaming replica, and VersityGW on free loopback ports. Linux runs all tests.
-Darwin skips the tests that need the system TLS trust service or fast replica
-replay. Build it with `nix build --no-link .#backend-tests.<system>`.
+the build sandbox, through `services-test` of the storage services (a
+PostgreSQL primary, a streaming replica, and VersityGW on free loopback
+ports). Linux runs all tests. Darwin skips the tests that need the system TLS
+trust service or fast replica replay. Build it with `nix build --no-link .#backend-tests.<system>`.
 
 ## Generated SDK preparation
 
