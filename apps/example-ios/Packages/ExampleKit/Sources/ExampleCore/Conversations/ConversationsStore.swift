@@ -34,6 +34,8 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 	private var loadRevision: UInt64 = 0
 	private var job: Task<Void, Never>?
 	private var detailJob: Task<Void, Never>?
+	private var pendingDetailIDs: [String] = []
+	private var queuedDetailIDs: Set<String> = []
 	private var tasks: [UUID: Task<Void, Never>] = [:]
 	public init(
 		session: SessionKey,
@@ -55,18 +57,13 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 		case let .search(text):
 			state.search = text
 			visibleStart = 0
-			windowRevision &+= 1
-			detailJob?.cancel()
+			resetHydration()
 		case let .connection(copy): state.connectionBanner = copy
 		case let .visible(start, count):
 			visibleStart = max(0, start)
 			visibleCount = max(0, count)
-			windowRevision &+= 1
-			detailJob?.cancel()
 			let origin = DestinationOrigin(session: session, token: routes.token)
-			let taskID = UUID()
-			detailJob = Task { defer { tasks.removeValue(forKey: taskID) }; await hydrate(origin: origin) }
-			tasks[taskID] = detailJob
+			scheduleHydration(origin: origin)
 			if ListRules.shouldPage(lastVisible: start + max(0, count - 1), loaded: state.rows.count, search: state.search) {
 				send(.loadMore)
 			}
@@ -84,6 +81,7 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 
 	public func close() async {
 		let pending = Array(tasks.values)
+		resetHydration()
 		pending.forEach { $0.cancel() }
 		for task in pending {
 			await task.value
@@ -97,7 +95,8 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 	private func load() {
 		loadRevision &+= 1
 		let requestRevision = loadRevision
-		job?.cancel(); detailJob?.cancel(); state.loading = true; state.error = nil
+		let pendingVisibleIDs = state.visibleRows.filter { queuedDetailIDs.contains($0.id) }.map(\.id)
+		job?.cancel(); resetHydration(); state.loading = true; state.error = nil
 		let origin = DestinationOrigin(session: session, token: routes.token), requested = limit
 		let taskID = UUID()
 		job = Task { [weak self] in
@@ -130,7 +129,8 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 							.requestCount(records.filter { !preferences.dismissedRequests.contains($0.id) }.count)
 					}
 				}
-				await hydrate(origin: origin)
+				scheduleHydration(origin: origin, retaining: pendingVisibleIDs)
+				await detailJob?.value
 			} catch {
 				apply(origin, request: requestRevision) { $0.loading = false; $0.error = "Cannot load conversations. Try again." }
 			}
@@ -146,25 +146,59 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 		)
 	}
 
+	private func resetHydration() {
+		windowRevision &+= 1
+		detailJob?.cancel()
+		detailJob = nil
+		pendingDetailIDs.removeAll()
+		queuedDetailIDs.removeAll()
+	}
+
+	private func scheduleHydration(origin: DestinationOrigin, retaining ids: [String] = []) {
+		guard routes.admit(origin, fence: fence) else { return }
+		let displayed = state.visibleRows
+		let displayedIDs = Set(displayed.map(\.id))
+		for id in ids where displayedIDs.contains(id) && queuedDetailIDs.insert(id).inserted {
+			pendingDetailIDs.append(id)
+		}
+		for value in displayed[ListRules.detailWindow(start: visibleStart, count: visibleCount, total: displayed.count)]
+			where queuedDetailIDs.insert(value.id).inserted
+		{
+			pendingDetailIDs.append(value.id)
+		}
+		guard detailJob == nil, !pendingDetailIDs.isEmpty else { return }
+		let taskID = UUID(), revision = windowRevision
+		detailJob = Task {
+			defer {
+				tasks.removeValue(forKey: taskID)
+				if revision == windowRevision {
+					detailJob = nil
+				}
+			}
+			await hydrate(origin: origin)
+		}
+		tasks[taskID] = detailJob
+	}
+
 	private func hydrate(origin: DestinationOrigin) async {
 		let revision = windowRevision
 		let requestRevision = loadRevision
-		let displayed = state.visibleRows
-		let rows = Array(displayed[ListRules.detailWindow(
-			start: visibleStart,
-			count: visibleCount,
-			total: displayed.count,
-		)])
-		for value in rows {
+		while !pendingDetailIDs.isEmpty {
 			guard !Task.isCancelled, revision == windowRevision, requestRevision == loadRevision, routes.admit(
 				origin,
 				fence: fence,
 			) else { return }
+			let id = pendingDetailIDs.removeFirst()
+			guard let value = state.visibleRows.first(where: { $0.id == id }) else {
+				queuedDetailIDs.remove(id)
+				continue
+			}
 			do {
 				let record = try await queries.details(
 					value.conversation,
 					marker: preferences.marker(for: value.conversation.logicalKey(ownInboxID: ownInboxID)),
 				)
+				try Task.checkCancellation()
 				apply(origin, request: requestRevision) { state in
 					guard revision == windowRevision else { return }
 					if let index = state.rows.firstIndex(where: { $0.id == record.id }) {
@@ -175,7 +209,10 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 						}
 					}
 				}
-			} catch { continue }
+			} catch {}
+			if revision == windowRevision {
+				queuedDetailIDs.remove(id)
+			}
 		}
 	}
 }

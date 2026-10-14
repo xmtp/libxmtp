@@ -38,15 +38,18 @@ import XmtpSdk
 			credentials: source,
 			allowPrivateAttachments: allowPrivateAttachments,
 		)
-		let client: SDKClient = if let inbox = profile.inboxID, let identity = profile.identity {
-			try await SDKClient.build(
-				identity: PublicIdentity(identifier: identity, kind: .ethereum),
-				options: options,
-				inboxId: inbox,
-			)
-		} else {
-			try await SDKClient.create(signer: localSignerFromPrivateKey(key: wallet), options: options)
-		}
+		let client: SDKClient
+		do {
+			if let inbox = profile.inboxID, let identity = profile.identity {
+				client = try await SDKClient.build(
+					identity: PublicIdentity(identifier: identity, kind: .ethereum),
+					options: options,
+					inboxId: inbox,
+				)
+			} else {
+				client = try await SDKClient.create(signer: localSignerFromPrivateKey(key: wallet), options: options)
+			}
+		} catch { throw connectionError(error) }
 		clients[key] = client
 		return SDKSessionClient(client: client, onEnd: { [weak self] in self?.clients.removeValue(forKey: key) })
 	}
@@ -85,7 +88,7 @@ func sessionOptions(
 				data: data,
 				encoding: .utf8,
 			), !value.isEmpty else { throw SessionError.stale }
-			return Credential(name: nil, value: value, expiresAtSeconds: Int64.max)
+			return try bearerCredential(value)
 		}
 	}
 }
@@ -112,4 +115,18 @@ func sessionOptions(
 	func disableNotifications() async throws {
 		try await client.disableNotifications()
 	}
+}
+
+func bearerCredential(_ token: String) throws -> Credential {
+	let value = token.trimmingCharacters(in: .whitespacesAndNewlines)
+	guard !value.isEmpty else { throw SessionError.message("Enter an access token.") }
+	return Credential(name: nil, value: "Bearer " + value, expiresAtSeconds: Int64.max)
+}
+
+func connectionError(_ error: any Error) -> any Error {
+	guard let failure = error as? XmtpError else { return error }
+	if case .CredentialRejected = failure {
+		return SessionError.message("Access token was not accepted. Check it and try again.")
+	}
+	return error
 }

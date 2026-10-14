@@ -55,6 +55,7 @@ public enum NewConversationAction: Sendable {
 	private let origin: DestinationOrigin
 	private let admit: @MainActor (DestinationOrigin) -> Bool
 	private let finish: @MainActor (String) -> Void
+	private var closed = false
 	private var task: Task<Void, Never>?
 	private var tasks: [UUID: Task<Void, Never>] = [:]
 	private var revision = 0
@@ -74,6 +75,7 @@ public enum NewConversationAction: Sendable {
 	}
 
 	public func send(_ action: NewConversationAction) {
+		guard !closed, admit(origin) else { return }
 		switch action {
 		case .load: loadPeople()
 		case .add, .next, .create: resolveAndContinue(action)
@@ -120,7 +122,9 @@ public enum NewConversationAction: Sendable {
 		loadTask = Task {
 			defer { self.tasks.removeValue(forKey: id) }
 			do {
+				try self.checkAdmission()
 				let people = try await self.queries.people()
+				try self.checkAdmission()
 				let maximum = try await self.queries.maximumMembers()
 				self.applyLoad(expected) {
 					$0.people = people; $0.maximumMembers = maximum; $0.loadingPeople = false
@@ -164,6 +168,7 @@ public enum NewConversationAction: Sendable {
 	private func resolve(_ input: String, selected: [Recipient]) async throws -> [Recipient] {
 		var result = selected
 		for entry in input.split(separator: ",", omittingEmptySubsequences: true) {
+			try checkAdmission()
 			let person = try await queries.resolve(String(entry))
 			if !result.contains(where: { $0.id == person.id }) {
 				result.append(person)
@@ -183,6 +188,7 @@ public enum NewConversationAction: Sendable {
 	}
 
 	private func create(_ recipients: [Recipient], revision: Int) async throws {
+		try checkAdmission()
 		let value = state
 		let id = try await queries.create(
 			recipients: recipients.map(\.inboxID), group: value.group, name: value.name,
@@ -203,9 +209,15 @@ public enum NewConversationAction: Sendable {
 	}
 
 	public func close() async {
+		closed = true; revision += 1; loadRevision += 1
 		let pending = Array(tasks.values); pending.forEach { $0.cancel() }; for value in pending {
 			await value.value
 		}; tasks.removeAll()
+	}
+
+	private func checkAdmission() throws {
+		try Task.checkCancellation()
+		guard !closed, admit(origin) else { throw CancellationError() }
 	}
 
 	private func cancel() {
@@ -217,7 +229,10 @@ public enum NewConversationAction: Sendable {
 		let id = UUID()
 		task = Task {
 			defer { self.tasks.removeValue(forKey: id) }
-			do { try await operation(current); self.apply(current) { $0.busy = false } } catch is CancellationError {} catch {
+			do {
+				try self.checkAdmission()
+				try await operation(current); self.apply(current) { $0.busy = false }
+			} catch is CancellationError {} catch {
 				self.apply(current) {
 					$0.busy = false
 					$0.error = (error as? NewConversationError)?.message ?? "Cannot complete this request. Try again."

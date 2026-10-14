@@ -34,8 +34,8 @@ public struct RequestsState: Equatable,
 			state.busy = false
 		}
 		switch action {
-		case let .requestDelete(id): state.confirmation = .delete(id)
-		case let .requestBlock(id): state.confirmation = .block(id)
+		case let .requestDelete(id): state.error = nil; state.confirmation = .delete(id)
+		case let .requestBlock(id): state.error = nil; state.confirmation = .block(id)
 		case .cancel: state.confirmation = nil
 		case let .accept(id): decide(id: id, consent: .allowed)
 		case .confirm: confirmDecision()
@@ -49,6 +49,7 @@ public struct RequestsState: Equatable,
 		case let .delete(id):
 			do {
 				try preferences.dismissRequest(id)
+				state.error = nil
 				routes.replace(.chats)
 			} catch {
 				state.error = "Cannot delete request. Try again."
@@ -75,6 +76,7 @@ public struct RequestsState: Equatable,
 		let operation = UUID()
 		inFlight = operation
 		state.busy = true
+		state.error = nil
 		let origin = DestinationOrigin(session: session, token: routes.token)
 		job = Task { [weak self] in
 			guard let self else { return }
@@ -84,10 +86,12 @@ public struct RequestsState: Equatable,
 				}
 			}
 			do {
-				try await queries.setConsent(id: id, consent: consent); apply(origin) { $0.busy = false }; if routes.admit(
-					origin,
-					fence: fence,
-				) {
+				try await queries.setConsent(id: id, consent: consent); apply(origin) { $0.busy = false; $0.error = nil }; if routes
+					.admit(
+						origin,
+						fence: fence,
+					)
+				{
 					if consent == .allowed {
 						routes.setPath([.chat(id)])
 					} else {

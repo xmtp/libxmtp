@@ -190,6 +190,26 @@
           }
         }
       }
+    },
+    "Access token was not accepted. Check it and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access token was not accepted. Check it and try again."
+          }
+        }
+      }
+    },
+    "Enter an access token.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter an access token."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -26,13 +26,23 @@ public struct SessionInfo: Equatable, Sendable { public let key: SessionKey; pub
 public enum SessionState: Equatable,
 	Sendable { case signedOut, opening, active(SessionInfo), restoreFailed, resetIncomplete }
 @MainActor public final class SessionScope {
-	private var tasks: [Task<Void, Never>] = []
+	private var tasks: [UUID: Task<Void, Never>] = [:]
+	var trackedTaskCount: Int {
+		tasks.count
+	}
+
 	private var cleanups: [@MainActor @Sendable () async -> Void] = []
 	private var finalCleanups: [@MainActor @Sendable () async -> Void] = []
 	private var keyedCleanups: [String: @MainActor @Sendable () async -> Void] = [:]
 	public init() {}
 	@discardableResult public func add(_ operation: @escaping @MainActor @Sendable () async -> Void) -> Task<Void, Never> {
-		let task = Task { await operation() }; tasks.append(task); return task
+		let id = UUID()
+		let task = Task { [weak self] in
+			defer { self?.tasks.removeValue(forKey: id) }
+			await operation()
+		}
+		tasks[id] = task
+		return task
 	}
 
 	public func addCleanup(_ cleanup: @escaping @MainActor @Sendable () async -> Void) {
@@ -62,7 +72,7 @@ public enum SessionState: Equatable,
 
 	public func cancelAndWait() async {
 		let final = finalCleanups; finalCleanups = []
-		let pending = tasks; tasks = []; let pendingCleanups = cleanups +
+		let pending = Array(tasks.values); tasks = [:]; let pendingCleanups = cleanups +
 			Array(keyedCleanups.values); cleanups = []; keyedCleanups = [:]; pending
 			.forEach { $0.cancel() }; for cleanup in pendingCleanups
 		{

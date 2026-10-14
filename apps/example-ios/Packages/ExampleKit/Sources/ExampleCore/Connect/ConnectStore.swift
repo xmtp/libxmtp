@@ -16,7 +16,8 @@ public struct ConnectState: Equatable, Sendable {
 	public var error: String?
 	public var canJoin: Bool {
 		!checking && !joining && !address.trimmingCharacters(in: .whitespacesAndNewlines)
-			.isEmpty && (!requiresToken || !token.isEmpty) && BackendURL.parse(address) != nil
+			.isEmpty && (!requiresToken || !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) && BackendURL
+			.parse(address) != nil
 	}
 }
 

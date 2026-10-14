@@ -89,8 +89,10 @@ import Observation
 
 	private func edit(_ value: String) {
 		guard state.editable else { return }
+		let normalized = HandleRules.normalize(value)
+		guard normalized != state.input else { return }
 		cancel()
-		state.input = HandleRules.normalize(value)
+		state.input = normalized
 		state.problem = HandleRules.problem(state.input, minimum: state.minimum)
 		state.status = .editing
 		state.confirm = nil

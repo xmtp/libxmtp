@@ -191,11 +191,19 @@ extension SessionCleanupTests {
 			}; await Task.yield()
 		}
 		try #require(factory.pending != nil)
+		defer {
+			factory.pending?.resume(returning: factory.client)
+			factory.pending = nil
+		}
 		store.send(.addressChanged("http://localhost:5051"))
-		try await Task.sleep(for: .milliseconds(400))
-		#expect(store.state.ready); #expect(!store.state.joining)
+		#expect(!store.state.joining)
+		let clock = ContinuousClock()
+		let deadline = clock.now.advanced(by: .seconds(3))
+		while store.state.checking, clock.now < deadline {
+			await Task.yield()
+		}
+		#expect(store.state.ready); #expect(!store.state.checking)
 		store.send(.tokenChanged("new-fixture-token")); #expect(store.state.canJoin)
-		factory.pending?.resume(returning: factory.client); factory.pending = nil
 	}
 }
 

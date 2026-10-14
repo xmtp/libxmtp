@@ -4,6 +4,8 @@ import SwiftUI
 struct ConnectView: View {
 	let store: ConnectStore
 	@ScaledMetric(relativeTo: .largeTitle) private var heroTitleSize = 32
+	private enum Field: Hashable { case address, name, token }
+	@FocusState private var focusedField: Field?
 	@State private var advanced = false
 	@State private var confirmRecoveryReset = false
 	@Environment(\.motionPolicy) private var motion
@@ -36,24 +38,24 @@ struct ConnectView: View {
 							field("Server address") { TextField(
 								localized("https://server.example"),
 								text: Binding(get: { store.state.address }, set: { store.send(.addressChanged($0)) }),
-							).keyboardType(.URL).accessibilityIdentifier("server-address") }
+							).focused($focusedField, equals: .address).keyboardType(.URL).accessibilityIdentifier("server-address") }
 							Divider().padding(.leading, 16)
 							field("Server name (optional)") { TextField(
 								localized("Server name"),
 								text: Binding(get: { store.state.serverName }, set: { store.send(.nameChanged($0)) }),
-							) }
+							).focused($focusedField, equals: .name) }
 							if store.state.requiresToken {
 								Divider().padding(.leading, 16); field("Access token") { SecureField(
 									localized("Access token"),
 									text: Binding(get: { store.state.token }, set: { store.send(.tokenChanged($0)) }),
-								) }.transition(motion.transition)
+								).focused($focusedField, equals: .token) }.transition(motion.transition)
 							}
 							Divider().padding(.leading, 16)
 							HStack(spacing: 10) {
 								if store.state.checking {
 									ProgressView().controlSize(.small); Text("Checking server", tableName: "Connect")
 								} else if let error = store.state.error {
-									Image(systemName: "exclamationmark.circle"); Text(error)
+									Image(systemName: "exclamationmark.circle"); Text(localized(error))
 								} else {
 									Image(systemName: store.state
 										.ready ? "checkmark.seal" :
@@ -90,6 +92,7 @@ struct ConnectView: View {
 			}.padding(.horizontal, 16).padding(.bottom, 24)
 				.frame(maxWidth: 560).frame(maxWidth: .infinity)
 		}.background(Color(.systemGroupedBackground))
+			.scrollDismissesKeyboard(.interactively)
 			.animation(motion.animation, value: store.state.requiresToken)
 			.animation(motion.animation, value: store.state.checking)
 			.animation(motion.animation, value: store.state.joining)
@@ -107,7 +110,7 @@ struct ConnectView: View {
 			.safeAreaInset(edge: .bottom, spacing: 0) {
 				if store.session.state != .resetIncomplete, store.session.state != .restoreFailed {
 					ActionFooter {
-						Button { store.send(.join) } label: {
+						Button { focusedField = nil; store.send(.join) } label: {
 							HStack {
 								Spacer()
 								if store.state.joining {
