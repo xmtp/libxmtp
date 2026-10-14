@@ -42,6 +42,7 @@
         inputs.treefmt-nix.flakeModule
         ./nix/musl-docker.nix
         ./nix/ci-checks.nix
+        ./nix/ci-sets.nix
         ./nix/fmt.nix
         ./nix/node-packages.nix
         ./nix/android-packages.nix

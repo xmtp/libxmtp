@@ -1,0 +1,121 @@
+# Builds the warm sets (nix/ci-sets.nix) for the newest push to trunk, pushes
+# them to the trusted Cachix cache `xmtp`, and pins them. Release, developers,
+# and CI jobs then substitute these outputs.
+#
+# Trusted: only pushes to trunk start this workflow, and only the writer
+# environment holds the trusted Cachix token.
+name: Warm Nix cache
+on:
+  push:
+    branches:
+      - main
+      - self-hosted
+permissions:
+  contents: read
+# A run in progress always finishes, so every run that starts pushes and pins
+# complete sets for its commit. A newer push replaces a pending older run.
+concurrency:
+  group: warm-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Build (${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: blacksmith-16vcpu-ubuntu-2404
+          # The macOS image of the iOS test and release jobs.
+          - system: aarch64-darwin
+            runner: warp-macos-15-arm64-12x
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    environment: kache-s3-writer
+    env:
+      SYSTEM: ${{ matrix.system }}
+    steps:
+      - uses: actions/checkout@v6
+      # The iOS outputs find Xcode at build time (nix/lib/ios-env.nix), so
+      # pin the Xcode of the iOS jobs before the build.
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        if: runner.os == 'macOS'
+        with:
+          xcode-version: "26.3"
+      - name: Show the Xcode version
+        if: runner.os == 'macOS'
+        run: xcodebuild -version
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build the warm sets
+        run: nix build --keep-going --no-link ".#ciSets.$SYSTEM.dev" ".#ciSets.$SYSTEM.release"
+      # The Cachix daemon pushes each path that this job builds. `cachix push`
+      # pushes every closure path that Cachix reports missing, also paths that
+      # this job substituted; `xmtp` reports a path of its upstream
+      # cache.nixos.org as present. A pin keeps the pinned path; the closure
+      # job checks that the rest of each closure can substitute.
+      - name: Push and pin the warm sets
+        run: |
+          # One evaluation for both sets: each takes 25-35 s.
+          paths=$(nix eval --json ".#ciSets.$SYSTEM" --apply 'builtins.mapAttrs (_: set: set.outPath)')
+          for set in dev release; do
+            path=$(jq -r --arg set "$set" '.[$set]' <<< "$paths")
+            cachix push xmtp "$path"
+            cachix pin xmtp "$set-$SYSTEM" "$path" --keep-revisions 3
+          done
+
+  closure:
+    name: Check that the warm sets substitute
+    # Waits for both build jobs, after their post steps finish the uploads.
+    needs: build
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+      # An empty-store dry run reads the narinfo of each path from the
+      # configured substituters and walks the reference closure. It lists
+      # each set member (an output path) and each crane dependency layer
+      # (a build-time input outside the runtime closure). The link farms set
+      # allowSubstitutes = false; always-allow-substitutes overrides that.
+      - name: Dry-run the set members and dependency layers in an empty store
+        run: |
+          store="$RUNNER_TEMP/empty"
+          # Write the drvs into the empty store: a drv of the host store is
+          # unknown there.
+          nix eval --store "$store" --json .#ciSets --apply '
+            builtins.mapAttrs (_: builtins.mapAttrs (_: set: {
+              members = builtins.attrValues set.passthru.members;
+              drv = set.drvPath;
+            }))' > "$RUNNER_TEMP/ci-sets.json"
+          paths=()
+          while read -r member; do
+            paths+=("$member")
+          done < <(jq -r '.[][].members[]' "$RUNNER_TEMP/ci-sets.json")
+          drvs=()
+          while read -r drv; do
+            drvs+=("$drv")
+          done < <(jq -r '.[][].drv' "$RUNNER_TEMP/ci-sets.json")
+          # Crane sets CRANE_BUILD_DEPS_ONLY on each dependency layer.
+          while read -r layer; do
+            paths+=("$layer^out")
+          done < <(nix derivation show --store "$store" -r "${drvs[@]}" |
+            jq -r '(.derivations // .) | to_entries[]
+              | select(.value.env.CRANE_BUILD_DEPS_ONLY != null) | .key
+              | if startswith("/") then . else "/nix/store/" + . end')
+          echo "Checking ${#paths[@]} set members and dependency layers"
+          # The dry run exits 0 also when a path cannot substitute.
+          nix build --dry-run --store "$store" --option always-allow-substitutes true \
+            "${paths[@]}" 2>&1 | tee "$RUNNER_TEMP/dry-run.txt"
+          missing=$(awk '/will be built|know how to build/ { f = 1; next } /^[^ ]/ { f = 0 } f' \
+            "$RUNNER_TEMP/dry-run.txt")
+          if [[ -n "$missing" ]]; then
+            echo "::error title=Warm closure::$(wc -l <<< "$missing") paths cannot substitute from the trusted cache"
+            echo "$missing"
+            exit 1
+          fi
+          echo "Every set member and dependency layer substitutes."

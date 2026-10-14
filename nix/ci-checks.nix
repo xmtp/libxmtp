@@ -1,5 +1,4 @@
-# CI-only derivations for things `om ci run` (via devour-flake) should
-# not pick up automatically:
+# CI-only derivations, outside `packages`, that CI jobs build by name:
 #
 #   - nextest: requires Docker services that aren't available in sandboxed builds.
 #     test-workspace.yml starts Docker first, then builds them directly via
@@ -8,7 +7,7 @@
 #     existing workspace-wide lint job skips because their crates aren't in
 #     `default-members`. They build fine in the standard sandbox; they live
 #     here so the per-PR workflows (e.g. test-xdbg.yml) can target them
-#     explicitly without enrolling them in `om ci run`.
+#     explicitly.
 #   - backend-tests: the backend test suite with disposable PostgreSQL and
 #     VersityGW services. It runs in the standard sandbox; test-backend.yml
 #     builds it.

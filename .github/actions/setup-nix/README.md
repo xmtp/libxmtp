@@ -34,8 +34,10 @@ Kache is off by default (`kache: "false"`). Only jobs that run cargo outside
 Nix set `kache: "true"`; Nix derivations cannot use Kache, so a job that only
 runs `nix build` gains nothing from it. The 21 enabled callers in the table
 below use S3 when the reader key pair is available. Every other caller passes
-no Kache input and selects no writer environment. The 11 stable scope
-families follow the outer Cargo build variant. The action adds runner OS and
+no Kache input and selects no writer environment, except the `warm.yml` build
+job: it runs only on pushes to trunk and selects the writer environment for
+the trusted Cachix token. The 11 stable scope families follow the outer Cargo
+build variant. The action adds runner OS and
 architecture. All callers use `libxmtp/trusted`, prefetch expensive outputs,
 and do not pull the whole bucket at startup.
 

@@ -29,7 +29,7 @@ on:
       - "Error Glossary"
       - "Nightly Automation"
       - "Push XDBG Image"
-      - "Cache all Nix Outputs"
+      - "Warm Nix cache"
       - "Cleanup iOS Test Apps"
     types: [completed]
     branches: [main]

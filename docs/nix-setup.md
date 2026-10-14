@@ -132,9 +132,9 @@ nix flake show
   pre-configured environments for Android (NDK), iOS (Xcode toolchain), and
   WebAssembly (wasm-pack/wasm-bindgen)
 - **CI caching** — [Cachix](https://cachix.org) stores built Nix derivations so
-  CI and local builds skip redundant work
-- **Omnix for CI orchestration** — the `.envrc` integrates with
-  [omnix](https://omnix.page) for CI workflow management
+  CI and local builds skip redundant work. On every push to trunk,
+  `.github/workflows/warm.yml` builds and pins the outputs in
+  `nix/ci-sets.nix`
 
 ## Compiler cache
 

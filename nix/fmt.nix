@@ -8,7 +8,8 @@
     {
       treefmt = {
         flakeFormatter = true;
-        flakeCheck = true;
+        # lint_config runs treefmt; no job builds flake checks.
+        flakeCheck = false;
         projectRootFile = "flake.nix";
         programs = {
           nixfmt.enable = true;

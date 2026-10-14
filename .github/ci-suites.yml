@@ -66,7 +66,7 @@ neutral:
   - "**/{AGENTS,CLAUDE}.md"
   - ".github/**/*.md"
   - "{README,CONTRIBUTING,ONBOARDING,TEST_SCENARIOS}.md"
-  - "{LICENSE,.envrc,.gitignore,.git-blame-ignore-revs,.gitattributes,.dockerignore,codecov.yml,om.yaml,cliff.toml}"
+  - "{LICENSE,.envrc,.gitignore,.git-blame-ignore-revs,.gitattributes,.dockerignore,codecov.yml,cliff.toml}"
   - "{.agents,.claude,.codex,.devcontainer,.macroscope,.murmur,.vscode,.zed}/**"
   - "{img,diagrams}/**"
   - "apps/.gitkeep"

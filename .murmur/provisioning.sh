@@ -251,8 +251,8 @@ if git clone --depth 1 --branch self-hosted \
 
   # `just backend up` depends on `just backend image`, which cross-compiles the
   # backend for musl. This is the single most expensive cold-start cost.
-  # fh-cache.yml pushes this image to Cachix on every push to self-hosted, so
-  # the normal case is a download; the cap covers the cache-miss case, which
+  # warm.yml pushes this image (its dev set) to Cachix on every push to trunk,
+  # so the normal case is a download; the cap covers the cache-miss case, which
   # happens when a commit changes the closure and nothing matches the cache.
   #
   # Build it outside any devshell, per the note in backend.just: a devshell

@@ -460,6 +460,10 @@ S3_INPUTS = (
     "kache-s3-secret-access-key",
 )
 
+# Jobs that select the writer environment only for its trusted Cachix token,
+# not for Kache. Each runs only on pushes to trunk.
+TRUSTED_CACHIX_WRITERS = {"warm.yml / build"}
+
 # Jobs that run cargo outside Nix, with their Kache scope. A job leaves this
 # list only when it stops running cargo outside Nix, so dropping Kache from a
 # cargo job fails here even when its README row goes too.
@@ -552,7 +556,24 @@ class SetupNixTests(unittest.TestCase):
                     self.assertEqual(
                         [name for name in inputs if name.startswith("kache")], []
                     )
-                    self.assertNotIn("kache-s3-writer", environment)
+                    if f"{workflow} / {job_id}" in TRUSTED_CACHIX_WRITERS:
+                        self.assertEqual(job.get("environment"), "kache-s3-writer")
+                        self.assertIn("cachix-auth-token", inputs)
+                    else:
+                        self.assertNotIn("kache-s3-writer", environment)
+
+    def test_trusted_cachix_writers_run_only_on_trunk_pushes(self):
+        for caller in sorted(TRUSTED_CACHIX_WRITERS):
+            workflow = caller.split(" / ", 1)[0]
+            document = yaml.safe_load(
+                (ROOT / ".github/workflows" / workflow).read_text()
+            )
+            # YAML 1.1 reads the key `on` as true.
+            triggers = document.get("on", document.get(True))
+            with self.subTest(caller=caller):
+                self.assertEqual(
+                    triggers, {"push": {"branches": ["main", "self-hosted"]}}
+                )
 
     def test_kache_callers_match_the_cargo_job_list(self):
         callers = {
