@@ -66,7 +66,7 @@ jobs:
               elif test("ubuntu") then (if contains("-arm") then "aarch64-linux" else "x86_64-linux" end)
               else null end;
             ([.glibcFloor] - [$glibcFloor] | map("glibc floor \(.)"))
-            + ([.node[] | (.runner // empty), .loadRunner] - $runners | map("runner \(.)"))
+            + ([.node[] | .runner, .loadRunner] - $runners | map("runner \(.)"))
             + ([.node[] | .loadImage // empty] - $images | map("image \(.)"))
             + ([.node[] | .target] - $targets | map("target \(.)"))
             + ([.node[] | .rustTarget] - $rustTargets | map("Rust target \(.)"))
@@ -142,7 +142,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           LIBRARY: ${{ matrix.library }}
         run: |
-          nix build .#xmtp-sdk-node-"$TARGET" --out-link target/sdk-node-pair -L
+          nix build .#xmtp-sdk-node-"$TARGET" --out-link target/sdk-node-pair
           dev/nix-shell --shell js-node 'python3.11 crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-pair/lib/"$LIBRARY" --addon target/sdk-node-pair/runtime/uniffi-runtime-napi."$TARGET".node --native-provenance target/sdk-node-pair/native-provenance.json --runtime-provenance target/sdk-node-pair/runtime/runtime-provenance.json'
       - uses: actions/upload-artifact@v7
         with:
