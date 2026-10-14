@@ -16,6 +16,17 @@ import time
 
 ROOT = Path(__file__).resolve().parents[3]
 TARGETS = ("swift", "kotlin", "node", "browser")
+# Paths that contain every input of the SDK and bindgen closures. Windows has
+# no Nix, so its identity covers these paths instead of the closures.
+COMMIT_INPUTS = (
+    "Cargo.toml",
+    "Cargo.lock",
+    ".cargo",
+    "rust-toolchain.toml",
+    "crates",
+    "proto",
+    "apps/xmtp_sdk_bindgen",
+)
 
 
 def digest(path):
@@ -29,13 +40,28 @@ def provenance():
     `nix/lib/sdk-sources.nix` defines them, so the Nix and cargo routes record
     the same values. Nix evaluates the git checkout: an untracked file joins
     the identity after `git add`. Windows has no Nix; its builds name the
-    commit instead.
+    commit, plus a digest of uncommitted changes to the SDK inputs, so a
+    working-tree edit never reuses a build of the commit.
     """
     if sys.platform == "win32":
         commit = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip()
-        return {"source": f"commit:{commit}", "generator": f"commit:{commit}"}
+        identity = f"commit:{commit}"
+        changes = subprocess.check_output(
+            ["git", "diff", "HEAD", "--binary", "--", *COMMIT_INPUTS], cwd=ROOT
+        )
+        untracked = subprocess.check_output(
+            ["git", "ls-files", "-z", "--others", "--exclude-standard", "--"]
+            + list(COMMIT_INPUTS),
+            cwd=ROOT,
+        ).split(b"\0")
+        if changes or any(untracked):
+            state = hashlib.sha256(changes)
+            for name in sorted(filter(None, untracked)):
+                state.update(b"\0" + name + b"\0" + (ROOT / name.decode()).read_bytes())
+            identity += f"+dirty:{state.hexdigest()}"
+        return {"source": identity, "generator": identity}
     return json.loads(
         subprocess.check_output(
             ["nix", "eval", "--json", f"{ROOT}#sdkProvenance"], cwd=ROOT

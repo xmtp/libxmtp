@@ -59,6 +59,8 @@ def main():
             raise ValueError("Node library is not in its build receipt")
         if not native["source"].startswith("commit:"):
             raise ValueError("cargo Node library does not name its commit")
+        if "+dirty:" in native["source"]:
+            raise ValueError("cargo Node library has uncommitted changes")
         identity = {"commit": native["source"].removeprefix("commit:")}
     if (
         native["target"] != rust_target

@@ -678,6 +678,21 @@ class NodePlatformReceiptTests(unittest.TestCase):
                 cargo, cwd=artifacts.ROOT, capture_output=True, text=True
             )
             self.assertIn("does not name its commit", rejected.stderr)
+            index.write_text(
+                json.dumps(
+                    {
+                        "artifacts": {
+                            "native": dict(
+                                native_record, source="commit:abc123+dirty:fixture"
+                            )
+                        }
+                    }
+                )
+            )
+            rejected = subprocess.run(
+                cargo, cwd=artifacts.ROOT, capture_output=True, text=True
+            )
+            self.assertIn("has uncommitted changes", rejected.stderr)
             library.write_bytes(b"replaced SDK library")
             rejected = record()
             self.assertNotEqual(rejected.returncode, 0)

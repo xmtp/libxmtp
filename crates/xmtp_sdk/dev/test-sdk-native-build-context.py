@@ -3,6 +3,8 @@
 
 import json
 import os
+from pathlib import Path
+import shutil
 import subprocess
 from unittest.mock import patch
 import unittest
@@ -30,20 +32,74 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
             ["nix", "eval", "--json", f"{self.root}#sdkProvenance"], cwd=self.root
         )
 
-    def test_windows_identity_names_the_commit(self):
-        with (
-            patch.object(artifacts.sys, "platform", "win32"),
-            patch.object(
-                artifacts.subprocess, "check_output", return_value="abc123\n"
-            ) as probe,
-        ):
-            self.assertEqual(
-                REAL_PROVENANCE(),
-                {"source": "commit:abc123", "generator": "commit:abc123"},
+    def test_runtime_edit_changes_the_nix_generator_identity(self):
+        # A generated tree records the generator identity, and its render reads
+        # the language runtime. Evaluate a copy of this checkout's tracked files.
+        repository = Path(__file__).resolve().parents[3]
+        checkout = self.root / "checkout"
+        names = subprocess.check_output(
+            ["git", "ls-files", "-z"], cwd=repository
+        ).split(b"\0")
+        for name in filter(None, names):
+            source = repository / name.decode()
+            if source.is_file() and not source.is_symlink():
+                target = checkout / name.decode()
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
+
+        def evaluate():
+            return json.loads(
+                subprocess.check_output(
+                    ["nix", "eval", "--json", f"path:{checkout}#sdkProvenance"],
+                    cwd=checkout,
+                )
             )
-        probe.assert_called_once_with(
-            ["git", "rev-parse", "HEAD"], cwd=self.root, text=True
-        )
+
+        before = evaluate()
+        runtime = checkout / "apps/xmtp_sdk_bindgen/runtime/kotlin/SDKClient.kt"
+        runtime.write_text(runtime.read_text() + "\n// runtime edit\n")
+        after = evaluate()
+        self.assertEqual(after["source"], before["source"])
+        self.assertNotEqual(after["generator"], before["generator"])
+
+    def test_windows_identity_names_the_commit_and_uncommitted_inputs(self):
+        def git(*args):
+            return subprocess.check_output(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                cwd=self.root,
+                text=True,
+            ).strip()
+
+        def identity():
+            with patch.object(artifacts.sys, "platform", "win32"):
+                value = REAL_PROVENANCE()
+            self.assertEqual(value["source"], value["generator"])
+            return value["source"]
+
+        source = self.root / "crates/xmtp_sdk/src/lib.rs"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("pub fn committed() {}")
+        git("init", "--quiet")
+        git("add", "--all")
+        git("commit", "--quiet", "--no-verify", "--no-gpg-sign", "-m", "fixture")
+        clean = f"commit:{git('rev-parse', 'HEAD')}"
+        self.assertEqual(identity(), clean)
+        # Files outside the SDK inputs, such as a runtime checkout, do not count.
+        (self.root / "ubrn").mkdir()
+        (self.root / "ubrn/file.txt").write_text("other checkout")
+        self.assertEqual(identity(), clean)
+        source.write_text("pub fn edited() {}")
+        edited = identity()
+        self.assertTrue(edited.startswith(clean + "+dirty:"), edited)
+        source.write_text("pub fn committed() {}")
+        added = self.root / "apps/xmtp_sdk_bindgen/runtime/swift/new.swift"
+        added.parent.mkdir(parents=True, exist_ok=True)
+        added.write_text("// first")
+        untracked = identity()
+        self.assertTrue(untracked.startswith(clean + "+dirty:"), untracked)
+        self.assertNotEqual(untracked, edited)
+        added.write_text("// second")
+        self.assertNotIn(identity(), (clean, edited, untracked))
 
     def test_unqualified_compiler_inputs_change_native_cache_admission(self):
         names = (

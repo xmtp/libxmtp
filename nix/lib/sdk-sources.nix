@@ -22,7 +22,7 @@ let
   sdkInputs = xmtp.filesets.closureSource sdkClosure;
   bindgenInputs = xmtp.filesets.closureSource bindgenClosure;
   # Each render reads only its own runtime, so a Kotlin runtime edit keeps the
-  # Swift and TypeScript trees.
+  # Swift and TypeScript renders.
   runtimeInputs = {
     swift = [ (root + /apps/xmtp_sdk_bindgen/runtime/swift) ];
     kotlin = [
@@ -56,23 +56,34 @@ let
         cp --recursive --remove-destination ${generationInputs language}/. $out/
       '';
     };
-  # Each identity is a digest that Nix computes at evaluation: the store path
-  # of a closure source plus the files that every compile reads. It names no
-  # store path in a product, and every system and build route records the
-  # same value (`sdk-artifacts.py` reads it with `nix eval`).
+  # Each identity is a digest that Nix computes at evaluation: the store paths
+  # of its sources plus the files that every compile reads. It names no store
+  # path in a product, and every system and build route records the same value
+  # (`sdk-artifacts.py` reads it with `nix eval`).
   identity =
     inputs:
     builtins.hashString "sha256" (
-      builtins.toJSON [
-        (builtins.unsafeDiscardStringContext "${inputs}")
-        (builtins.hashFile "sha256" (root + /Cargo.lock))
-        (builtins.hashFile "sha256" (root + /.cargo/config.toml))
-        (builtins.hashFile "sha256" (root + /rust-toolchain.toml))
-      ]
+      builtins.toJSON (
+        map (input: builtins.unsafeDiscardStringContext "${input}") inputs
+        ++ [
+          (builtins.hashFile "sha256" (root + /Cargo.lock))
+          (builtins.hashFile "sha256" (root + /.cargo/config.toml))
+          (builtins.hashFile "sha256" (root + /rust-toolchain.toml))
+        ]
+      )
     );
   provenance = {
-    source = identity sdkInputs;
-    generator = identity bindgenInputs;
+    source = identity [ sdkInputs ];
+    # A generated tree is the bindgen's output over its language's runtime and
+    # configuration, so a runtime edit must change the identity the tree records.
+    generator = identity (
+      [ bindgenInputs ]
+      ++ map generationInputs [
+        "swift"
+        "kotlin"
+        "typescript"
+      ]
+    );
   };
 in
 {
