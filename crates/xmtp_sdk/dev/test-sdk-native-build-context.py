@@ -47,6 +47,14 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
                 REAL_PROVENANCE()
             git("add", "--all")
             self.assertEqual(REAL_PROVENANCE(), evaluated)
+            # Files that are not SDK inputs do not block the evaluation.
+            for name in (
+                "crates/xmtp_sdk/proptest-regressions/lib.txt",
+                "crates/xmtp_sdk/src/lib.rs.orig",
+            ):
+                (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+                (self.root / name).write_text("not an input")
+            self.assertEqual(REAL_PROVENANCE(), evaluated)
 
     def test_windows_identity_names_the_commit_and_uncommitted_inputs(self):
         def git(*args):

@@ -34,14 +34,38 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# The file types of the SDK and bindgen closures (`nix/lib/sdk-sources.nix`):
+# Cargo sources and SQL, compiled-in data, and the render runtimes and
+# configuration. Other untracked files, such as proptest regression seeds or
+# merge leftovers, are not inputs.
+INPUT_SUFFIXES = (
+    b".rs",
+    b".toml",
+    b".lock",
+    b".sql",
+    b".proto",
+    b".json",
+    b".hex",
+    b".txt",
+    b".swift",
+    b".kt",
+    b".ts",
+    b".js",
+)
+
+
 def untracked_inputs():
-    """Untracked, unignored files under the SDK input paths."""
+    """Untracked, unignored SDK input files under the SDK input paths."""
     names = subprocess.check_output(
         ["git", "ls-files", "-z", "--others", "--exclude-standard", "--"]
         + list(COMMIT_INPUTS),
         cwd=ROOT,
     ).split(b"\0")
-    return sorted(filter(None, names))
+    return sorted(
+        name
+        for name in names
+        if name.endswith(INPUT_SUFFIXES) and b"/proptest-regressions/" not in name
+    )
 
 
 @functools.cache
