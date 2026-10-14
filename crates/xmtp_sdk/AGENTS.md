@@ -256,5 +256,5 @@ worker uses raw legacy bytes and is not part of a public package.
 Swift uses `LegacyMigrationTests` in the normal XCTest target. Kotlin uses
 `LegacyMigrationTest` in the normal JUnit target. Run
 `dev/nix-shell 'just ios test-migration'` or
-`dev/nix-shell 'just android test-migration'`. The unit jobs in
-`test-ios.yml` and `test-android.yml` include these tests.
+`dev/nix-shell 'just android test-migration'`. The iOS unit job and
+the Android `sdk-build` job include these tests.

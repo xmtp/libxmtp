@@ -166,10 +166,24 @@ class SelectionTest(unittest.TestCase):
         return workflow
 
     def test_app_jobs_require_every_child_and_generated_gate(self):
-        self.assert_child_gate(
+        workflow = self.assert_child_gate(
             ".github/workflows/test-example-android.yml",
-            ("apk", "lint", "unit-tests", "integration-tests"),
+            ("messenger-build", "integration-tests"),
         )
+        # The build job runs the APK derivation, then one Gradle call for unit
+        # tests, lint, and every variant build.
+        build = json.dumps(workflow["jobs"]["messenger-build"]["steps"])
+        for command in (
+            "nix build .#example-android-apk",
+            "just example-android check-all",
+        ):
+            self.assertIn(command, build)
+        text = json.dumps(workflow)
+        for command in (
+            "just example-android test-integration",
+            "just example-android test-release-integration",
+        ):
+            self.assertIn(command, text)
         suite = "test_example_android"
         workflow = yaml.safe_load(
             (ROOT / ".github/workflows/test-generated.yml").read_text()
@@ -204,17 +218,12 @@ class SelectionTest(unittest.TestCase):
     def test_sdk_gate_keeps_staging_consumers_and_minimum_platform(self):
         workflow = self.assert_child_gate(
             ".github/workflows/test-android.yml",
-            (
-                "unit-tests",
-                "min-sdk-smoke",
-                "integration-tests",
-                "check-android",
-                "android-stage",
-            ),
+            ("sdk-build", "sdk-emulator", "android-stage"),
         )
         text = json.dumps(workflow)
         for command in (
             "just android check",
+            "just android test-integration",
             "just sdk mobile-stage android",
             "just sdk mobile-build android",
             "just android check-consumers",
@@ -384,6 +393,9 @@ class CommandPathTest(unittest.TestCase):
                     "python3.11 -", 'export GRADLE_ARGS="$*"\npython3.11 -'
                 )
             )
+            sdk_gradle = root / "sdks/android/gradlew"
+            sdk_gradle.write_text(gradle.read_text())
+            sdk_gradle.chmod(0o755)
             environment = dict(
                 os.environ,
                 PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
@@ -395,18 +407,21 @@ class CommandPathTest(unittest.TestCase):
                 # configuration cache.
                 CI="true",
             )
-            for recipe in (
-                "check",
-                "test",
-                "test-integration",
-                "test-release-integration",
+            for module, recipe in (
+                ("example-android", "check"),
+                ("example-android", "test"),
+                ("example-android", "test-integration"),
+                ("example-android", "test-release-integration"),
+                ("example-android", "check-all"),
+                ("android", "check"),
+                ("android", "lint"),
             ):
                 result = subprocess.run(
                     [
                         "just",
                         "--justfile",
                         str(root / "justfile"),
-                        "example-android",
+                        module,
                         recipe,
                     ],
                     cwd=root,
@@ -415,7 +430,7 @@ class CommandPathTest(unittest.TestCase):
                     capture_output=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                if recipe == "check":
+                if module == "example-android" and recipe in ("check", "check-all"):
                     self.assertIn("example-debug.apk", result.stdout)
                     self.assertIn("example-release-unsigned.apk", result.stdout)
             result = subprocess.run(
@@ -438,13 +453,40 @@ class CommandPathTest(unittest.TestCase):
                 json.loads(line)
                 for line in (root / "commands.jsonl").read_text().splitlines()
             ]
-            self.assertEqual(len(commands), 4)
+            # One Gradle call per recipe; the SDK `check` call also runs the
+            # library's `check-packages`, which calls no Gradle.
+            self.assertEqual(len(commands), 7)
             for command in commands:
                 self.assertIn("--build-cache", command["args"].split())
                 self.assertNotIn("configuration-cache", command["args"])
             self.assertTrue(
-                all(c["cwd"] == str(root / "apps/example-android") for c in commands)
+                all(
+                    c["cwd"] == str(root / "apps/example-android") for c in commands[:5]
+                )
             )
+            self.assertTrue(
+                all(c["cwd"] == str(root / "sdks/android") for c in commands[5:])
+            )
+            # The CI build jobs: Messenger tests, lint, and builds, and the SDK
+            # `build` with the instrumented test APK, each in one call.
+            check_all = commands[4]["args"].split()
+            for task in (
+                ":example:testDebugUnitTest",
+                ":example-shared:testDebugUnitTest",
+                "spotlessCheck",
+                ":example:lintDebug",
+                ":example:assembleRelease",
+                ":example:assembleDebugAndroidTest",
+                ":example-shared:assembleRelease",
+                "--continue",
+            ):
+                self.assertIn(task, check_all)
+            self.assertIn("sdks/android/.build/test-host/lib", commands[4]["host"])
+            self.assertIn("build", commands[5]["args"].split())
+            self.assertIn(":library:assembleDebugAndroidTest", commands[5]["args"])
+            self.assertIn("sdks/android/.build/test-host/lib", commands[5]["host"])
+            for task in ("spotlessCheck", ":library:lintDebug"):
+                self.assertIn(task, commands[6]["args"].split())
             self.assertIn(":example:assembleRelease", commands[0]["args"])
             self.assertIn(":example-shared:assembleDebug", commands[0]["args"])
             self.assertIn("sdks/android/.build/test-host/lib", commands[1]["host"])
@@ -477,7 +519,7 @@ class CommandPathTest(unittest.TestCase):
             )
             self.assertNotIn("/sdcard/", screenshot_calls)
             self.assertFalse((root / "sdks/android/app").exists())
-            self.assertEqual((root / "stages.txt").read_text().count("bindings\n"), 4)
+            self.assertEqual((root / "stages.txt").read_text().count("bindings\n"), 7)
             self.assertEqual((root / "stages.txt").read_text().count("admission\n"), 1)
 
 

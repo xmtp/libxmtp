@@ -77,8 +77,14 @@ build the products themselves.
   repeat the lifecycle.
 
 - `test-example-android.yml` owns app build, lint, host, integration, and
-  release transport checks. The lint job is in the test phase so that it can
-  wait for the `sdk_android` products job. App-only changes do not select SDK
+  release transport checks in two jobs: `messenger-build` (the APK derivation,
+  then `just example-android check-all`: unit tests, lint, and every variant in
+  one Gradle call) and `integration-tests`. App lint is in the test phase so
+  that it can wait for the `sdk_android` products job.
+- `test-android.yml` has three jobs: `sdk-build` (`just android check`, one
+  Gradle call for `gradlew build` and the instrumented test APK, then
+  `check-consumers`), `sdk-emulator` (API 34 tests, then the API 23 smoke), and
+  `android-stage`. App-only changes do not select SDK
   checks; SDK and shared toolchain changes select app compatibility checks.
 - Benchmark workloads require an explicit command or a `workflow_dispatch`
   workflow. Do not include them in normal test suites or generated CI suites.
@@ -94,8 +100,9 @@ After the isolated tag push, it attaches the test-signed
 universal APK to the matching GitHub Release for every release type. Keep the
 APK upload job dependent on the tag push and use `--verify-tag` on creation.
 The APK build needs no signing secret. Its Nix derivation uses the public AOSP
-testing key. The `apk` job in `test-example-android.yml` checks that derivation
-without a host Gradle cache or a running backend.
+testing key. The `messenger-build` job in `test-example-android.yml` builds that
+derivation first; it uses its own pinned Gradle downloads, not the restored
+Gradle User Home, and no backend.
 
 ## CI selection
 
@@ -149,7 +156,7 @@ advisory does not fail a pull request or merge; the daily scheduled run on the
 default branch fails on one. A backend change selects the backend suites and
 the client suites `test_workspace`, `test_wasm`, `test_node`, and
 `check_sdk_unit`; the Android, iOS, browser, agent, and SDK platform suites run
-on the merge. Android lint has no suite of its own: `check-android` in
+on the merge. Android lint has no suite of its own: `sdk-build` in
 `test-android.yml` runs `gradlew build`, which includes it.
 Source lint does not generate SDK products or run compiler checks. Test owns
 full types, full lint, Clippy, SDK and runtime checks. Pull requests that only

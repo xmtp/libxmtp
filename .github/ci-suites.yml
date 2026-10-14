@@ -558,7 +558,7 @@ suites:
     kache: [sdk-android-release]
     products: [sdk_android]
     path_filters:
-      # check-android runs `gradlew build`, which includes Android Lint and
+      # sdk-build runs `gradlew build`, which includes Android Lint and
       # Spotless, so no separate Android lint suite exists.
       - path_group: sdk_core
       - path_group: android

@@ -7,6 +7,7 @@ dev/nix-shell 'just example-android start'
 dev/nix-shell 'just example-android apk'
 dev/nix-shell 'just example-android apk-update-deps'
 dev/nix-shell 'just example-android check'
+dev/nix-shell 'just example-android check-all' # unit tests, lint, and builds in one Gradle call (CI)
 dev/nix-shell 'just example-android preview-check'
 dev/nix-shell 'just example-android lint'
 dev/nix-shell 'just example-android format'

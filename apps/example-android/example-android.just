@@ -19,10 +19,21 @@ apk-update-deps:
   env -u LD_LIBRARY_PATH nix build "{{ root }}#example-android-apk.mitmCache.updateScript" --out-link .build/apk-update-deps
   cd "{{ root }}" && apps/example-android/.build/apk-update-deps
 
+# Gradle tasks shared by the build, lint, and CI build recipes.
+_build_tasks := ":example:assembleDebug :example:assembleRelease :example:assembleDebugAndroidTest :example-shared:assembleDebug :example-shared:assembleRelease"
+_lint_tasks := "spotlessCheck :example:lintDebug"
+_check_packages := "python3.11 -B " + root + "/sdks/android/dev/check-native-packages.py app/build/outputs/apk/debug/example-debug.apk app/build/outputs/apk/release/example-release-unsigned.apk"
+
 # Compile both app variants, shared UI and app instrumentation under strict verification.
 check *args: build
-  ./gradlew -p . :example:assembleDebug :example:assembleRelease :example:assembleDebugAndroidTest :example-shared:assembleDebug :example-shared:assembleRelease {{ args }} ${CI:+--build-cache} --dependency-verification=strict --no-daemon
-  python3.11 -B {{ root }}/sdks/android/dev/check-native-packages.py app/build/outputs/apk/debug/example-debug.apk app/build/outputs/apk/release/example-release-unsigned.apk
+  ./gradlew -p . {{ _build_tasks }} {{ args }} ${CI:+--build-cache} --dependency-verification=strict --no-daemon
+  {{ _check_packages }}
+
+# Run unit tests, Spotless, Android Lint, and every variant build in one Gradle
+# call, then check the APK packages. CI's Messenger build job.
+check-all: build _test-host
+  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . :example:testDebugUnitTest :example-shared:testDebugUnitTest {{ _lint_tasks }} {{ _build_tasks }} --continue ${CI:+--build-cache} --dependency-verification=strict --no-daemon
+  {{ _check_packages }}
 
 # Boot a visible emulator and run the example against the existing local backend.
 start: build
@@ -87,7 +98,7 @@ _test-host:
 
 # Check app source format and Android lint.
 lint: build
-  ./gradlew -p . spotlessCheck :example:lintDebug ${CI:+--build-cache} --dependency-verification=strict --no-daemon
+  ./gradlew -p . {{ _lint_tasks }} ${CI:+--build-cache} --dependency-verification=strict --no-daemon
 
 format:
   ./gradlew -p . spotlessApply --dependency-verification=strict --no-daemon

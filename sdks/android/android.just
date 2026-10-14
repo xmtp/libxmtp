@@ -13,9 +13,10 @@ root := justfile_directory()
 # BuildConfig (see library/build.gradle).
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
-# Verify Android SDK builds (bindings + Gradle)
+# Build and test the SDK in one Gradle call: `build` (unit tests, Android Lint,
+# Spotless, both AARs) and the instrumented test APK. CI's SDK build job.
 check: build _test-host
-  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . build ${CI:+--build-cache} --dependency-verification=strict --no-daemon --stacktrace
+  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . build :library:assembleDebugAndroidTest ${CI:+--build-cache} --dependency-verification=strict --no-daemon --stacktrace
   just android check-packages
 
 # Verify JNI stripping in the built debug and release AARs.
@@ -28,7 +29,7 @@ assemble: build
 
 # Run Spotless and SDK Android Lint.
 lint: build
-  ./gradlew -p . spotlessCheck --continue --dependency-verification=strict --no-daemon && ./gradlew -p . :library:lintDebug --dependency-verification=strict --no-daemon
+  ./gradlew -p . spotlessCheck :library:lintDebug --continue ${CI:+--build-cache} --dependency-verification=strict --no-daemon
 
 # Format Kotlin code
 format:
