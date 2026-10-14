@@ -1031,7 +1031,7 @@ class CacheModeWiringTests(unittest.TestCase):
                 if call["pr-token"]:
                     self.assertEqual(call["mode"], "ci")
                 if call["trusted-token"]:
-                    self.assertNotEqual(call["mode"], "read")
+                    self.assertEqual(call["mode"], "trusted")
 
     def test_release_deploy_and_warm_runs_never_read_xmtp_pr(self):
         for call in self.calls:

@@ -18,7 +18,7 @@ jobs:
     - uses: ./.github/actions/setup-nix
       with:
         cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
-        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        cachix-auth-token: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && secrets.CACHIX_AUTH_TOKEN || '' }}
         cachix-pr-auth-token: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
         github-token: ${{ github.token }}
         kache: 'true'

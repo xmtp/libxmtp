@@ -56,11 +56,12 @@ environment:
   name: ${{ <protected push> && 'kache-s3-writer' || '' }}
 ...
 cache-mode: ${{ <protected push> && 'trusted' || 'ci' }}
-cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+cachix-auth-token: ${{ <protected push> && secrets.CACHIX_AUTH_TOKEN || '' }}
 cachix-pr-auth-token: ${{ !(<protected push>) && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
 ```
 
-The writer environment's branch policy keeps the trusted token from pull
+Only a job that resolves to `trusted` receives the trusted token. The writer
+environment's branch policy (`main`, `self-hosted`) also keeps it from pull
 request jobs once the repository-level `CACHIX_AUTH_TOKEN` is deleted.
 `setup-js` takes the same `cache-mode`, and every job passes the same mode to
 both actions: `read` restores no pnpm store (pnpm then downloads each tarball

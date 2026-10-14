@@ -492,12 +492,20 @@ jobs:
           echo "source-sha=$(git rev-parse "refs/tags/v${VERSION}^{commit}")" >> "$GITHUB_OUTPUT"
           mkdir -p "$RUNNER_TEMP/release-tag"
           git bundle create "$RUNNER_TEMP/release-tag/release.bundle" "refs/tags/v${VERSION}"
-          cp /tmp/nightly-changelog.md "$RUNNER_TEMP/release-tag/nightly-changelog.md"
+          mkdir -p "$RUNNER_TEMP/hub-changelog"
+          cp /tmp/nightly-changelog.md "$RUNNER_TEMP/hub-changelog/nightly-changelog.md"
       - uses: actions/upload-artifact@v7
         if: steps.guard.outputs.should-release == 'true'
         with:
           name: release-tag-libxmtp
           path: ${{ runner.temp }}/release-tag
+          if-no-files-found: error
+      # hub-release reads only the changelog, not the tag bundle and its history.
+      - uses: actions/upload-artifact@v7
+        if: steps.guard.outputs.should-release == 'true'
+        with:
+          name: hub-changelog
+          path: ${{ runner.temp }}/hub-changelog
           if-no-files-found: error
 
   hub-tag:
@@ -524,14 +532,14 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: release-tag-libxmtp
-          path: ${{ runner.temp }}/release-tag
+          name: hub-changelog
+          path: ${{ runner.temp }}/hub-changelog
       - name: Create hub GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           HUB_VERSION: ${{ needs.hub.outputs.version }}
-          CHANGELOG: ${{ runner.temp }}/release-tag/nightly-changelog.md
+          CHANGELOG: ${{ runner.temp }}/hub-changelog/nightly-changelog.md
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
           NODE_VERSION: ${{ needs.release-node-sdk.outputs.version }}
