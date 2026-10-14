@@ -7,14 +7,14 @@ description: Use when working with Nix flakes, selecting devShells, debugging en
 
 ## Quick Shell Selection
 
-| Task                                  | Shell                 | Entry                                      |
-| ------------------------------------- | --------------------- | ------------------------------------------ |
-| Local development, agents, iOS        | default (`ios` alias) | `dev/nix-shell '...'`                      |
-| CI Rust jobs, focused Rust work       | rust (`wasm` alias)   | `dev/nix-shell --shell rust '...'`         |
-| Local Android work                    | android               | `dev/nix-shell --shell android '...'`      |
-| Android CI build jobs, Android release | android-ci (Linux)    | `NIX_DEVSHELL: android-ci`                 |
-| Android CI emulator jobs              | android-ci-emulator   | `NIX_DEVSHELL: android-ci-emulator`        |
-| JavaScript and docs CI                | js, js-node, docs     | `dev/nix-shell --shell js '...'`           |
+| Task                                   | Shell                 | Entry                                 |
+| -------------------------------------- | --------------------- | ------------------------------------- |
+| Local development, agents, iOS         | default (`ios` alias) | `dev/nix-shell '...'`                 |
+| CI Rust jobs, focused Rust work        | rust (`wasm` alias)   | `dev/nix-shell --shell rust '...'`    |
+| Local Android work                     | android               | `dev/nix-shell --shell android '...'` |
+| Android CI build jobs, Android release | android-ci (Linux)    | `NIX_DEVSHELL: android-ci`            |
+| Android CI emulator jobs               | android-ci-emulator   | `NIX_DEVSHELL: android-ci-emulator`   |
+| JavaScript and docs CI                 | js, js-node, docs     | `dev/nix-shell --shell js '...'`      |
 
 ## Environment Detection
 
@@ -109,9 +109,9 @@ nix develop --show-trace  # Verbose error output
 
 ## Platform Support
 
-| Platform               | Shells Available                      |
-| ---------------------- | ------------------------------------- |
-| macOS (aarch64-darwin) | rust, default, android, ios, js, js-node, docs, wasm |
+| Platform               | Shells Available                                                                 |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| macOS (aarch64-darwin) | rust, default, android, ios, js, js-node, docs, wasm                             |
 | Linux (x86_64-linux)   | rust, default, android, android-ci, android-ci-emulator, js, js-node, docs, wasm |
 
 ## Key Files
