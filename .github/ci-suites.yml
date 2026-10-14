@@ -328,7 +328,7 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
-    kache: [backend-tests-debug]
+    kache: []
     products: []
     path_filters:
       - cargo_package: xmtp_backend

@@ -523,7 +523,6 @@ KACHE_CALLERS = {
     "release-cli.yml / build": "sdk-native-debug",
     "test-agent-sdk.yml / test": "sdk-native-debug",
     "test-android.yml / android-stage": "sdk-android-release",
-    "test-backend.yml / native": "backend-tests-debug",
     "test-browser-sdk.yml / test": "sdk-products-debug",
     "test-node-sdk.yml / test": "sdk-native-debug",
     "test-sdk-platform.yml / proof": "sdk-browser-conformance",

@@ -138,7 +138,15 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
         let args = Args::parse_from(std::iter::once("xmtp-backend".to_string()).chain(arguments));
         let config = args.load_config()?;
         if config.telemetry.metrics_listen.is_empty() {
-            let occupied = TcpListener::bind("0.0.0.0:9464")?;
+            // Occupy the default metrics port, so an exporter that binds it
+            // anyway fails. When another process already holds the port, it
+            // is occupied too: a Darwin Nix build shares the host loopback,
+            // where a local backend stack may serve metrics on 9464.
+            let occupied = match TcpListener::bind("0.0.0.0:9464") {
+                Ok(listener) => Some(listener),
+                Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => None,
+                Err(error) => panic!("could not bind the default metrics port: {error}"),
+            };
             let metrics = telemetry::install("")?;
             telemetry::ready(false);
             assert!(metrics.render().contains("xmtp_backend_ready 0"));

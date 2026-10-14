@@ -88,6 +88,8 @@ the build sandbox, through `services-test` of the storage services (a
 PostgreSQL primary, a streaming replica, and VersityGW on free loopback
 ports). Linux runs all tests. Darwin skips the tests that need the system TLS
 trust service or fast replica replay. Build it with `nix build --no-link .#backend-tests.<system>`.
+`test-backend.yml` builds it on Linux and, in the `Native backend contract`
+job, on macOS.
 
 ## Generated SDK preparation
 

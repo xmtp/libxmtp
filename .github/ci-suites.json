@@ -421,9 +421,7 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "backend-tests-debug"
-      ],
+      "kache": [],
       "products": [],
       "cargo_roots": [
         "xmtp_backend"
