@@ -126,10 +126,6 @@ fn main() -> Result<()> {
                 }
                 Target::Swift | Target::Kotlin => {}
             }
-            let bindgen = std::env::current_exe()?.canonicalize()?;
-            let bindgen = Utf8PathBuf::from_path_buf(bindgen).map_err(|path| {
-                anyhow::anyhow!("{}: generator path is not UTF-8", path.display())
-            })?;
             receipt::write(
                 &out,
                 &receipt::Artifact {
@@ -141,7 +137,6 @@ fn main() -> Result<()> {
                     profile: &profile,
                     target: &rust_target,
                 },
-                &bindgen,
             )
         }
     }

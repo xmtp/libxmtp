@@ -2,8 +2,10 @@
 //!
 //! Staging and the product checks read it. `files` names every generated file
 //! with its SHA-256; `artifact` describes the library that the tree binds; and
-//! `contract` digests the library and this generator, so a check can compare
-//! a tree with the bytes it came from.
+//! `contract` digests the library's bytes and the generator identity, so a
+//! check can compare a tree with the library it came from. The generator is
+//! named by its identity, not its bytes: a cache can hold one realization of
+//! the bindgen while a tree was rendered by another.
 
 use std::{collections::BTreeMap, fmt::Write as _, fs};
 
@@ -34,12 +36,11 @@ fn text(value: &str) -> Json {
     Json::Text(value.to_owned())
 }
 
-/// Write `artifact`'s receipt for the tree at `out`, rendered by `bindgen`.
-pub(crate) fn write(out: &Utf8Path, artifact: &Artifact, bindgen: &Utf8Path) -> Result<()> {
+/// Write `artifact`'s receipt for the tree at `out`.
+pub(crate) fn write(out: &Utf8Path, artifact: &Artifact) -> Result<()> {
     let files = tree_files(out)?;
     let library = digest_file(artifact.library)?;
-    let bindgen = digest_file(bindgen)?;
-    // `nix/check-sdk-products.py` recomputes this digest over the same roles.
+    // `nix/check-sdk-products.py` recomputes this digest.
     let role = |(name, checksum): &(String, String)| {
         Json::Object(vec![
             (
@@ -49,11 +50,7 @@ pub(crate) fn write(out: &Utf8Path, artifact: &Artifact, bindgen: &Utf8Path) -> 
             ("generator".into(), text(artifact.generator)),
         ])
     };
-    let mut roles = vec![
-        ("bindgen".to_owned(), role(&bindgen)),
-        (artifact.role.to_owned(), role(&library)),
-    ];
-    roles.sort_by(|a, b| a.0.cmp(&b.0));
+    let roles = vec![(artifact.role.to_owned(), role(&library))];
     let contract = format!(
         "{:x}",
         Sha256::digest(python_json(&Json::Object(roles)).as_bytes())

@@ -21,12 +21,11 @@ let
 in {
   inherit names abi;
   # Every output the check reads. The renders and the fast consumer only
-  # build from the host library, the bindgen, and the Android ABI library, so
-  # those are not in the outputs' runtime closures.
-  read = names ++ [ "xmtp-sdk-libs" "xmtp-sdk-bindgen" "xmtp-sdk-android-${abi}" ];
+  # build from the host library and the Android ABI library, so those are not
+  # in the outputs' runtime closures.
+  read = names ++ [ "xmtp-sdk-libs" "xmtp-sdk-android-${abi}" ];
   outputs = builtins.listToAttrs (map (name: { inherit name; value = toString p.${name}; }) names);
   native = toString p.xmtp-sdk-libs;
-  bindgen = toString p.xmtp-sdk-bindgen;
   android = toString p.${"xmtp-sdk-android-${abi}"};
 }
 """
@@ -36,7 +35,7 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def receipt(tree, source, generator, native, bindgen, excluded=()):
+def receipt(tree, source, generator, native, excluded=()):
     record = json.loads((tree / "sdk-contract.json").read_text())
     files = {}
     for directory, names, children in os.walk(tree, followlinks=True):
@@ -62,14 +61,16 @@ def receipt(tree, source, generator, native, bindgen, excluded=()):
     contract = hashlib.sha256(
         json.dumps(
             {
-                role: {"files": {path.name: digest(path)}, "generator": generator}
-                for role, path in (("native", native), ("bindgen", bindgen))
+                "native": {
+                    "files": {native.name: digest(native)},
+                    "generator": generator,
+                }
             },
             sort_keys=True,
         ).encode()
     ).hexdigest()
     if record["contract"] != contract:
-        raise ValueError(f"{tree}: receipt does not match native and bindgen bytes")
+        raise ValueError(f"{tree}: receipt does not match the native library bytes")
     print(f"{tree}: {len(files)} generated files and contract match", flush=True)
     return record
 
@@ -96,23 +97,20 @@ def check_products(products):
         for path in (native_root / "lib").iterdir()
         if path.suffix in (".dylib", ".so")
     )
-    bindgen = Path(products["bindgen"]) / "bin/xmtp-sdk-bindgen"
     kotlin = Path(products["outputs"]["xmtp-sdk-generated-kotlin"]) / "kotlin"
     require(kotlin, ("uniffi/xmtp_sdk/xmtp_sdk.kt", "runtime", "android"))
-    kotlin_record = receipt(
-        kotlin, source, artifacts.render_hash("kotlin"), native, bindgen
-    )
+    kotlin_record = receipt(kotlin, source, artifacts.render_hash("kotlin"), native)
     if "xmtp-sdk-generated-swift" in products["outputs"]:
         swift = Path(products["outputs"]["xmtp-sdk-generated-swift"]) / "swift"
         require(
             swift,
             ("xmtp_sdk.swift", "xmtp_sdkFFI.h", "xmtp_sdkFFI.modulemap", "runtime"),
         )
-        receipt(swift, source, artifacts.render_hash("swift"), native, bindgen)
+        receipt(swift, source, artifacts.render_hash("swift"), native)
     android = Path(products["outputs"]["android-sdk-libs-fast"])
     require(android, ("uniffi/xmtp_sdk/xmtp_sdk.kt", "runtime", "android"))
     android_record = receipt(
-        android, source, artifacts.render_hash("kotlin"), native, bindgen, ("jniLibs",)
+        android, source, artifacts.render_hash("kotlin"), native, ("jniLibs",)
     )
     if android_record != kotlin_record:
         raise ValueError(
