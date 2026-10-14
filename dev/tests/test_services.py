@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import tempfile
@@ -47,6 +48,52 @@ def read_env(path):
         name, value = line.removeprefix("export ").split("=", 1)
         values[name] = value.strip("'")
     return values
+
+
+def stop_group(process):
+    """Stop a process started with start_new_session and all of its group.
+
+    services-test leaves process-compose and the services in its group, so a
+    timeout must stop them too, not only the wrapper.
+    """
+
+    def send(sig):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            # Darwin returns EPERM while the group leader is exiting.
+            process.wait(timeout=10)
+
+    send(signal.SIGTERM)
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+    send(signal.SIGKILL)
+    process.wait(timeout=10)
+
+
+def run_group(args, *, timeout, check=False, **kwargs):
+    """subprocess.run in a new session; a timeout stops the whole group."""
+    with subprocess.Popen(
+        args,
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        **kwargs,
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            stop_group(process)
+            raise
+    result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+    if check:
+        result.check_returncode()
+    return result
 
 
 def alive(pid):
@@ -91,12 +138,10 @@ class ServicesTests(unittest.TestCase):
         }
 
     def services_test(self, command, **env):
-        return subprocess.run(
+        return run_group(
             [str(self.test_bin)],
             cwd=self.root,
             env={**self.env, "XMTP_SERVICES_TEST_COMMAND": command, **env},
-            capture_output=True,
-            text=True,
             timeout=180,
         )
 
@@ -151,7 +196,8 @@ class ServicesTests(unittest.TestCase):
                     "XMTP_S3_PORT": str(port),
                     "XMTP_SERVICES_PORT_WAIT": "60",
                 },
-                stdout=subprocess.PIPE,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=True,
             )
@@ -171,13 +217,16 @@ class ServicesTests(unittest.TestCase):
             waited.wait(timeout=30)
         finally:
             holder.close()
-        with run.stdout, run.stderr:
-            stdout = run.stdout.read()
-            run.wait(timeout=180)
+        with run.stderr:
+            try:
+                run.wait(timeout=180)
+            except subprocess.TimeoutExpired:
+                stop_group(run)
+                raise
             reader.join(timeout=10)
         stderr = "".join(lines)
         self.assertTrue(waited.is_set(), stderr)
-        self.assertEqual(run.returncode, 0, stdout + stderr)
+        self.assertEqual(run.returncode, 0, stderr)
         self.assertTrue((self.root / "ran").exists())
 
     def test_duplicate_caller_ports_fail_before_any_service_starts(self):
@@ -226,12 +275,10 @@ class ServicesTests(unittest.TestCase):
         }
 
         def services(*args, check=True):
-            return subprocess.run(
+            return run_group(
                 [str(repo / "dev/services"), *args],
                 cwd=repo,
                 env=env,
-                capture_output=True,
-                text=True,
                 timeout=200,
                 check=check,
             )
