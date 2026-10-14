@@ -90,6 +90,13 @@ jobs:
         shell: bash
         run: |
           store="$RUNNER_TEMP/empty"
+          # The sets read the ubrn fork source through import from derivation.
+          # Its fetch has the same output path on every system, and this
+          # runner can run only the x86_64-linux fetch, so evaluate
+          # x86_64-linux first: the Darwin sets then find the path valid even
+          # when `xmtp` does not hold it.
+          nix eval --store "$store" --json .#ciSets.x86_64-linux \
+            --apply 'builtins.mapAttrs (_: set: set.drvPath)' > /dev/null
           # Write the drvs into the empty store: a drv of the host store is
           # unknown there.
           nix eval --store "$store" --json .#ciSets --apply '
