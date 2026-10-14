@@ -6,9 +6,11 @@ The checks run the storage services (PostgreSQL, the replica, and S3) of
 loopback port, so a running worktree stack does not interfere.
 """
 
+import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -93,6 +95,14 @@ def run_group(args, *, timeout, check=False, **kwargs):
     return result
 
 
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+
+
 class ServicesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -103,12 +113,14 @@ class ServicesTests(unittest.TestCase):
                 "--no-link",
                 "--print-out-paths",
                 f"{ROOT}#storageServices.test",
+                f"{ROOT}#storageServices.package",
             ],
             check=True,
             capture_output=True,
             text=True,
         ).stdout.split()
         cls.test_bin = Path(out[0]) / "bin/services-test"
+        cls.package = Path(out[1])
 
     def setUp(self):
         # A short directory: macOS limits a socket path to 104 bytes.
@@ -196,6 +208,78 @@ class ServicesTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(f"XMTP_S3_PORT={port} is in use", result.stderr)
         self.assertFalse((self.root / "ran").exists())
+
+    def dev_services(self, state):
+        """Return a runner of `dev/services` in a fixture checkout."""
+        # dev/worktree-env writes the fixture's own dev/docker/.env.
+        repo = self.root / "repo"
+        for path in ("dev/services", "dev/worktree-env", "dev/docker/load-env"):
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / path, repo / path)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        env = {
+            **self.env,
+            **dict(zip(PORTS, map(str, free_ports(len(PORTS))))),
+            "XMTP_SERVICES_PACKAGE": str(self.package),
+            "PC_SOCKET_PATH": str(self.root / "pc.sock"),
+        }
+        if state is not None:
+            env["XMTP_SERVICES_STATE"] = str(state)
+
+        def services(*args, check=True):
+            return run_group(
+                [str(repo / "dev/services"), *args],
+                cwd=repo,
+                env=env,
+                timeout=200,
+                check=check,
+            )
+
+        return services, env
+
+    def test_dev_services_down_keeps_an_unmarked_directory(self):
+        # The caller sets the state path; a mistake must not delete a directory.
+        state = self.root / "mine"
+        state.mkdir()
+        (state / "keep").touch()
+        services, _ = self.dev_services(state)
+        result = services("down", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not removing it", result.stderr)
+        self.assertTrue((state / "keep").exists())
+
+    def test_dev_services_down_leaves_nothing(self):
+        state = self.root / "state"
+        socket_path = self.root / "pc.sock"
+        services, env = self.dev_services(state)
+        self.addCleanup(services, "down", check=False)
+        up = services("up", check=False)
+        self.assertEqual(up.returncode, 0, up.stdout + up.stderr)
+        self.assertEqual(read_env(state / "env")["XMTP_S3_PORT"], env["XMTP_S3_PORT"])
+        self.assertIn("export DATABASE_URL=", services("env").stdout)
+        listed = subprocess.run(
+            [str(self.package / "bin/services"), "process", "list", "-o", "json"],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        running = {
+            process["name"]: process["pid"]
+            for process in json.loads(listed)
+            if process["status"] == "Running"
+        }
+        self.assertEqual(set(running), {"db", "replica", "s3"}, listed)
+        self.assertIn("replica", services("ps").stdout)
+
+        services("down")
+        deadline = time.monotonic() + 5
+        while any(map(alive, running.values())) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        left = [name for name, pid in running.items() if alive(pid)]
+        self.assertEqual(left, [], "service processes remain")
+        self.assertFalse(state.exists(), "state directory remains")
+        self.assertFalse(socket_path.exists(), "socket remains")
 
 
 class WasmLockTests(unittest.TestCase):
