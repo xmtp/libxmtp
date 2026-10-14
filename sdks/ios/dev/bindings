@@ -11,27 +11,41 @@ developer=$(DEVELOPER_DIR='' /usr/bin/xcode-select -p 2>/dev/null) || developer=
 version=$("$developer/usr/bin/xcodebuild" -version 2>/dev/null) || version=""
 found="${version%%$'\n'*} (${version##*Build version }) at $developer"
 expected=$(nix eval --raw "$ROOT#lib.xcode.key")
-suffix=""
-if [[ "$found" != "$expected" ]]; then
-  if [[ -n "${CI:-}" ]]; then
-    echo "error: CI builds the iOS outputs with $expected, but the selected Xcode is $found." >&2
-    echo "Select it with maxim-lobanov/setup-xcode." >&2
-    exit 1
-  fi
-  echo "notice: the selected Xcode is $found, not $expected." >&2
-  echo "notice: building the -local output, which no cache holds." >&2
-  suffix=-local
-fi
 
 if [[ "${1:-}" == "--release" ]]; then
-  nix build "$ROOT#ios-xcframeworks$suffix" --out-link "$output"
+  attribute=ios-xcframeworks
   framework="$output/XmtpSdkFFI/XmtpSdkFFI.xcframework"
   sources="$output/XmtpSdkFFI/Sources/XmtpSdk"
 else
-  nix build "$ROOT#ios-xcframeworks-fast$suffix" --out-link "$output"
+  attribute=ios-xcframeworks-fast
   framework="$output/XmtpSdkFFI.xcframework"
   sources="$output/swift"
 fi
+
+if [[ "$found" == "$expected" ]]; then
+  nix build "$ROOT#$attribute" --out-link "$output"
+elif [[ -n "${CI:-}" ]]; then
+  echo "error: CI builds the iOS outputs with $expected, but the selected Xcode is $found." >&2
+  echo "Select it with maxim-lobanov/setup-xcode." >&2
+  exit 1
+else
+  echo "notice: the selected Xcode is $found, not $expected." >&2
+  # A cached CI output works with any Xcode, so take it when a cache holds
+  # it: --max-jobs 0 substitutes and builds nothing. Without a builder Nix
+  # fails with "Unable to start any build"; any other failure is real.
+  log=$(mktemp)
+  trap 'rm -f "$log"' EXIT
+  if { nix build "$ROOT#$attribute" --out-link "$output" --max-jobs 0 2>&1 1>&3 | tee "$log" >&2; } 3>&1; then
+    echo "notice: using the cached CI output $attribute (built with $expected)." >&2
+  elif grep -q "Unable to start any build" "$log"; then
+    echo "notice: no cache holds $attribute; building $attribute-local with the selected Xcode." >&2
+    nix build "$ROOT#$attribute-local" --out-link "$output"
+    echo "notice: using $attribute-local, which no cache holds." >&2
+  else
+    exit 1
+  fi
+fi
+
 mkdir -p "$ROOT/sdks/ios/Artifacts" "$package"
 rm -rf "$ROOT/sdks/ios/Artifacts/XmtpSdkFFI.xcframework"
 cp -rL "$framework" "$ROOT/sdks/ios/Artifacts/"

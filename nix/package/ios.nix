@@ -100,6 +100,9 @@ in
   release = stdenv.mkDerivation {
     pname = "xmtp-sdk-ios-release";
     inherit version;
+    # Only copies. The key marks it as an iOS output of this Xcode, so the
+    # rebuild command in sdks/ios/AGENTS.md finds the `local` one.
+    XMTP_XCODE = xcode;
     dontUnpack = true;
     installPhase = ''
       mkdir -p "$out/XmtpSdkFFI/Sources/XmtpSdk"
