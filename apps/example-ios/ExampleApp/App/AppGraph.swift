@@ -30,7 +30,8 @@ import SwiftUI
 		files = try ProfileFiles()
 		session = SessionController(fence: fence, secrets: secrets, files: files, factory: factory)
 		connect = ConnectStore(probe: SDKBackendProbe(), session: session, owner: routes)
-		appearance = try files.loadIndex().appearance
+		// Session restore owns unreadable-index recovery; this is temporary UI styling only.
+		appearance = "system"
 	}
 
 	var serverName: String {
@@ -47,14 +48,25 @@ import SwiftUI
 
 	func restore() async {
 		defer { isRestoring = false }
+		do { appearance = try files.loadIndex().appearance } catch {
+			// The session restore below presents its existing recovery state without changing the index.
+		}
 		await session.restore(); await bindSession()
 	}
 
 	func bindSession() async {
-		guard let info = active else { clearSessionViews(); return }
+		guard let info = active else {
+			if session.state == .signedOut {
+				do { appearance = try files.loadIndex().appearance } catch {
+					// This updates styling only; connection still validates the stored index.
+				}
+			}
+			clearSessionViews(); return
+		}
 		guard bound != info.key, factory.client(for: info.key) != nil else { return }
 		bound = info.key
 		do {
+			appearance = try files.loadIndex().appearance
 			let prefs = try loadPreferences(info)
 			guard fence.accepts(info.key),
 			      bound == info.key, active?.key == info.key else { return }

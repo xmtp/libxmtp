@@ -260,6 +260,26 @@
           }
         }
       }
+    },
+    "Cannot open app": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot open app"
+          }
+        }
+      }
+    },
+    "Cannot open local account storage.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot open local account storage."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

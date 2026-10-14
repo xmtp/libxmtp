@@ -131,6 +131,9 @@ public enum SessionState: Equatable,
 		do {
 			let index = try files.loadIndex()
 			guard index.reset == nil else { apply(generation) { $0 = .resetIncomplete }; return }
+			if !index.signedIn, recoveryProfile == nil {
+				apply(generation) { $0 = .signedOut }; return
+			}
 			guard let profile = recoveryProfile ?? index.profiles.first(where: { $0.id == index.activeID }),
 			      profile.inboxID != nil, profile.identity != nil, try files.databaseExists(profile.id)
 			else {
@@ -170,7 +173,10 @@ public enum SessionState: Equatable,
 			if established, !hasDatabase {
 				missingDatabase = true; throw SessionError.message("Cannot restore this account. Try again.")
 			}
-			try await open(profile, generation: generation, token: token, createSecrets: !established && !hasDatabase)
+			try await open(
+				profile, generation: generation, token: token, createSecrets: !established && !hasDatabase,
+				completionIsCurrent: { !Task.isCancelled },
+			)
 		} catch {
 			let recoverableProfile = missingDatabase || (error as? SessionError) == .missingSecret
 			if fence.currentGeneration() == generation, recoverableProfile {
@@ -179,47 +185,6 @@ public enum SessionState: Equatable,
 			apply(generation) { $0 = recoverableProfile ? .restoreFailed : .signedOut }
 			throw error
 		}
-	}
-
-	private func open(_ profile: BackendProfile, generation: UInt64, token: String?, createSecrets: Bool) async throws {
-		guard let key = fence.bind(profile.id, reserved: generation) else { throw SessionError.stale }
-		state = .opening
-		if let token {
-			if token.isEmpty {
-				try secrets.remove(profile.id, ref: "credential")
-			} else {
-				try secrets.write(profile.id, ref: "credential", data: Data(token.utf8))
-			}
-		}
-		func secret(_ ref: String) throws -> Data {
-			if let saved = try secrets.read(profile.id, ref: ref) {
-				guard saved.count == 32 else { throw SessionError.missingSecret }; return saved
-			}; guard createSecrets
-			else { throw SessionError.missingSecret }; let data = try secrets.randomBytes(count: 32); try secrets.write(
-				profile.id,
-				ref: ref,
-				data: data,
-			); return data
-		}
-		let wallet = try secret("wallet"); let databaseKey = try secret("database-key"); _ = try secret("preferences-key")
-		let opened = try await factory.open(
-			profile: profile,
-			paths: files.paths(profile.id),
-			wallet: wallet,
-			databaseKey: databaseKey,
-			secrets: secrets,
-			key: key,
-			fence: fence,
-		)
-		guard fence.accepts(key) else { try await opened.end(); throw SessionError.stale }
-		var saved = profile; saved.inboxID = opened.inboxID; saved.identity = opened.identity
-		do {
-			var index = try files.loadIndex()
-			index.profiles.removeAll { $0.id == saved.id }
-			index.profiles.append(saved); index.activeID = saved.id; index.signedIn = true
-			try files.saveIndex(index)
-		} catch { try await opened.end(); throw error }
-		client = opened; recoveryProfile = nil; apply(generation) { $0 = .active(SessionInfo(key: key, profile: saved)) }
 	}
 
 	private func close() async {
@@ -276,5 +241,55 @@ public enum SessionState: Equatable,
 
 	private func apply(_ generation: UInt64, _ change: (inout SessionState) -> Void) {
 		guard fence.currentGeneration() == generation else { return }; change(&state)
+	}
+}
+
+extension SessionController {
+	private func open(
+		_ profile: BackendProfile, generation: UInt64, token: String?, createSecrets: Bool,
+		completionIsCurrent: (@MainActor () -> Bool)? = nil,
+	) async throws {
+		try Task.checkCancellation()
+		guard let key = fence.bind(profile.id, reserved: generation) else { throw SessionError.stale }
+		state = .opening
+		if let token {
+			if token.isEmpty {
+				try secrets.remove(profile.id, ref: "credential")
+			} else {
+				try secrets.write(profile.id, ref: "credential", data: Data(token.utf8))
+			}
+		}
+		func secret(_ ref: String) throws -> Data {
+			if let saved = try secrets.read(profile.id, ref: ref) {
+				guard saved.count == 32 else { throw SessionError.missingSecret }; return saved
+			}; guard createSecrets
+			else { throw SessionError.missingSecret }; let data = try secrets.randomBytes(count: 32); try secrets.write(
+				profile.id,
+				ref: ref,
+				data: data,
+			); return data
+		}
+		let wallet = try secret("wallet"); let databaseKey = try secret("database-key"); _ = try secret("preferences-key")
+		let opened = try await factory.open(
+			profile: profile,
+			paths: files.paths(profile.id),
+			wallet: wallet,
+			databaseKey: databaseKey,
+			secrets: secrets,
+			key: key,
+			fence: fence,
+		)
+		guard fence.accepts(key) else { try await opened.end(); throw SessionError.stale }
+		guard completionIsCurrent?() ?? !Task.isCancelled else {
+			try await opened.end(); throw CancellationError()
+		}
+		var saved = profile; saved.inboxID = opened.inboxID; saved.identity = opened.identity
+		do {
+			var index = try files.loadIndex()
+			index.profiles.removeAll { $0.id == saved.id }
+			index.profiles.append(saved); index.activeID = saved.id; index.signedIn = true
+			try files.saveIndex(index)
+		} catch { try await opened.end(); throw error }
+		client = opened; recoveryProfile = nil; apply(generation) { $0 = .active(SessionInfo(key: key, profile: saved)) }
 	}
 }

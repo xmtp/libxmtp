@@ -9,12 +9,20 @@ import SwiftUI
 				if let graph {
 					RootView(graph: graph)
 				} else if let failure {
-					ContentUnavailableView("Cannot open app", systemImage: "exclamationmark.triangle", description: Text(failure))
+					ContentUnavailableView {
+						Label(String(localized: "Cannot open app", table: "Foundation"), systemImage: "exclamationmark.triangle")
+					} description: {
+						Text(failure)
+					} actions: {
+						Button(String(localized: "Retry", table: "Foundation")) { self.failure = nil }
+							.buttonStyle(.glass)
+							.accessibilityIdentifier("startup.retryStorage")
+					}
 				} else {
 					ProgressView()
 						.task {
 							do { try UITestHooks.resetIfRequested(); graph = try AppGraph() } catch {
-								failure = "Cannot open local account storage."
+								failure = String(localized: "Cannot open local account storage.", table: "Foundation")
 							}
 						}
 				}

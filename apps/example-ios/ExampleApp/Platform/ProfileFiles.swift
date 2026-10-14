@@ -26,7 +26,8 @@ import Foundation
 	}
 
 	func loadIndex() throws -> SessionIndex {
-		guard let data = defaults.data(forKey: indexKey) else { return SessionIndex() }
+		guard let stored = defaults.object(forKey: indexKey) else { return SessionIndex() }
+		guard let data = stored as? Data else { throw CocoaError(.fileReadCorruptFile) }
 		return try JSONDecoder().decode(SessionIndex.self, from: data)
 	}
 
