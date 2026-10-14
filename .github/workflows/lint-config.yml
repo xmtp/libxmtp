@@ -21,9 +21,9 @@ jobs:
       - name: Lint config files (TOML, Nix, shell)
         run: just lint-config
 
-  # post-merge.yml is the first job that builds the Darwin and arm64 Linux warm
-  # sets, so a pull request that breaks their evaluation would pass. Evaluating
-  # every drvPath catches that in about 2.5 minutes, beside the lint job.
+  # post-merge.yml is the first job that builds the Darwin warm sets, so a pull
+  # request that breaks their evaluation would pass. Evaluating every drvPath
+  # catches that in about 2.5 minutes, beside the lint job.
   ci-sets:
     name: Evaluate the warm sets
     runs-on: blacksmith-4vcpu-ubuntu-2404

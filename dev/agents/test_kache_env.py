@@ -501,8 +501,8 @@ S3_INPUTS = (
 )
 
 # Jobs that select the writer environment only for its trusted Cachix token,
-# not for Kache. Each runs only on pushes to trunk.
-TRUSTED_CACHIX_WRITERS = {"post-merge.yml / build"}
+# not for Kache. CacheModeWiringTests checks when each one is trusted.
+TRUSTED_CACHIX_WRITERS = {"post-merge.yml / build", "push-backend.yml / publish"}
 
 # Jobs that run cargo outside Nix, with their Kache scope. A job leaves this
 # list only when it stops running cargo outside Nix, so dropping Kache from a
@@ -611,7 +611,7 @@ class SetupNixTests(unittest.TestCase):
                         [name for name in inputs if name.startswith("kache")], []
                     )
                     if f"{workflow} / {job_id}" in TRUSTED_CACHIX_WRITERS:
-                        self.assertEqual(job.get("environment"), "kache-s3-writer")
+                        self.assertIn("kache-s3-writer", environment)
                         self.assertIn("cachix-auth-token", inputs)
                     else:
                         self.assertNotIn("kache-s3-writer", environment)
@@ -726,8 +726,10 @@ def truthy(value):
 
 
 class Context:
-    def __init__(self, github, inputs, secrets):
+    def __init__(self, github, inputs, secrets, matrix=None):
         self.github = github
+        # One `strategy.matrix.include` entry, or None outside a matrix leg.
+        self.matrix = matrix
         # Input name -> function that returns the value, so a caller's
         # `with:` value is evaluated only when the callee reads it.
         self.inputs = inputs
@@ -746,6 +748,8 @@ class Context:
             return self.secrets.get(name, "")
         if head == "vars":
             return ""
+        if head == "matrix" and self.matrix is not None and name in self.matrix:
+            return self.matrix[name]
         if head == "runner" and name == "os":
             return "Linux"
         raise ValueError(f"unsupported context: {path}")
@@ -915,25 +919,40 @@ def cache_calls():
             assert nix or not gradle, (
                 f"{name} / {job_id}: setup-gradle without setup-nix"
             )
-            for inputs in nix:
-                yield {
-                    "where": f"{entry} ({label}): {name} / {job_id}",
-                    "entry": entry,
-                    "github": context.github,
-                    "environment": context.value(environment),
-                    "mode": context.value(inputs.get("cache-mode")) or "read",
-                    "trusted-token": context.value(inputs.get("cachix-auth-token"))
-                    or "",
-                    "pr-token": context.value(inputs.get("cachix-pr-auth-token")) or "",
-                    "js-modes": [
-                        context.value(i.get("cache-mode")) or "read" for i in js
-                    ]
-                    + (["read"] if release_tools else []),
-                    "gradle": [
-                        {key: context.value(raw) for key, raw in inputs.items()}
-                        for inputs in gradle
-                    ],
-                }
+            # Each `include` entry of a matrix is one leg. Another matrix form
+            # leaves `matrix` unset, so a checked field that reads it fails.
+            matrix = (job.get("strategy") or {}).get("matrix")
+            legs = matrix.get("include") if isinstance(matrix, dict) else None
+            for leg in legs or [None]:
+                yield from job_calls(
+                    Context(context.github, context.inputs, context.secrets, leg),
+                    f"{entry} ({label}): {name} / {job_id}"
+                    + ("" if leg is None else f" {leg}"),
+                    entry,
+                    environment,
+                    nix,
+                    js,
+                    release_tools,
+                    gradle,
+                )
+
+    def job_calls(context, where, entry, environment, nix, js, release_tools, gradle):
+        for inputs in nix:
+            yield {
+                "where": where,
+                "entry": entry,
+                "github": context.github,
+                "environment": context.value(environment),
+                "mode": context.value(inputs.get("cache-mode")) or "read",
+                "trusted-token": context.value(inputs.get("cachix-auth-token")) or "",
+                "pr-token": context.value(inputs.get("cachix-pr-auth-token")) or "",
+                "js-modes": [context.value(i.get("cache-mode")) or "read" for i in js]
+                + (["read"] if release_tools else []),
+                "gradle": [
+                    {key: context.value(raw) for key, raw in inputs.items()}
+                    for inputs in gradle
+                ],
+            }
 
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
         _, triggers = workflow(path.name)

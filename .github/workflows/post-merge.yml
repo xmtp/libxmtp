@@ -30,14 +30,8 @@ jobs:
           # The macOS image of the iOS test and release jobs.
           - system: aarch64-darwin
             runner: warp-macos-15-arm64-12x
-          # The arm64 runner of push-backend.yml and
-          # build-sdk-node-platforms.yml. It has 4 CPUs, and a cold build of
-          # its set compiles the SDK twice and the backend once.
-          - system: aarch64-linux
-            runner: ubuntu-24.04-arm
-            timeout: 180
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: ${{ matrix.timeout || 90 }}
+    timeout-minutes: 90
     environment: kache-s3-writer
     env:
       SYSTEM: ${{ matrix.system }}
@@ -76,7 +70,7 @@ jobs:
 
   closure:
     name: Check that the warm sets substitute
-    # Waits for every build leg, after their post steps finish the uploads.
+    # Waits for both build jobs, after their post steps finish the uploads.
     needs: build
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30

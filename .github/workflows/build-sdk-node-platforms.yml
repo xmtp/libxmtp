@@ -31,6 +31,9 @@ jobs:
           - target: linux-x64-musl
             library: libxmtp_sdk.so
             runner: blacksmith-16vcpu-ubuntu-2404
+          # No warm set holds the native linux-arm64 pairs, and a release
+          # reads only, so a release builds these two cold. That stays until
+          # release takes the Node pairs from the products build.
           - target: linux-arm64-gnu
             library: libxmtp_sdk.so
             runner: ubuntu-24.04-arm
