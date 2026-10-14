@@ -45,10 +45,17 @@ class ConcurrencyTests(unittest.TestCase):
     def test_only_the_pages_deploy_is_serialized_and_never_cancelled(self):
         grouped = {job for job, spec in JOBS.items() if "concurrency" in spec}
         self.assertEqual(grouped, {"deploy"})
+        # One fixed group for the one Pages site. A pending deploy waits in
+        # the queue and is never replaced, and a running one is never
+        # cancelled: a cancelled job fails the caller's suite.
         self.assertEqual(
             JOBS["deploy"]["concurrency"],
-            {"group": "pages-${{ github.ref }}", "cancel-in-progress": False},
+            {"group": "pages", "cancel-in-progress": False, "queue": "max"},
         )
+
+    def test_deploy_timeout_exceeds_the_deploy_pages_wait(self):
+        # actions/deploy-pages gives up after 10 minutes by default.
+        self.assertGreater(JOBS["deploy"].get("timeout-minutes", 0), 10)
 
 
 class ResultGateTests(unittest.TestCase):
@@ -63,12 +70,14 @@ class ResultGateTests(unittest.TestCase):
     def test_merge_run_passes(self):
         self.assertEqual(gate(passing(), native=True, deploy=True), 0)
 
-    def test_replaced_deploy_passes(self):
-        results = passing(deploy="cancelled")
-        self.assertEqual(gate(results, native=True, deploy=True), 0)
+    def test_dispatch_or_main_push_passes_without_a_deploy(self):
+        # ci.yml workflow_dispatch runs and pushes to main build the native
+        # references but do not deploy.
+        results = passing(deploy="skipped")
+        self.assertEqual(gate(results, native=True, deploy=False), 0)
 
-    def test_failed_or_skipped_deploy_fails_a_deploying_run(self):
-        for result in ("failure", "skipped"):
+    def test_failed_skipped_or_cancelled_deploy_fails_a_deploying_run(self):
+        for result in ("failure", "skipped", "cancelled"):
             results = passing(deploy=result)
             self.assertEqual(gate(results, native=True, deploy=True), 1, result)
 
