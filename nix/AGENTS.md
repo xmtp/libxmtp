@@ -52,7 +52,10 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   changes only the Kotlin trees. Receipts name files by name, so a product references no source and
   keeps its path on a commit outside the closure. The cargo route reads the
   same digest with `nix eval`; Windows builds name the commit and a digest of
-  uncommitted SDK input changes.
+  uncommitted SDK input changes. The release Windows Node pair is cached by
+  `sdk-artifacts.py key` (the committed SDK input trees, profile, target, and
+  fork revision); its receipt names that source key and the commit that built
+  it, and staging checks the key, not the commit.
 - Checks that compile some packages use `xmtp.filesets.mkClosureSource`. It
   restores the Cargo path-dependency closure of its roots over the dummy
   workspace. `dev = true` adds the roots' dev-dependencies and test data.

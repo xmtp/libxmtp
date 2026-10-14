@@ -95,6 +95,48 @@ class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
         added.write_text("// second")
         self.assertNotIn(identity(), (clean, edited, untracked))
 
+    def test_source_key_follows_sdk_inputs_not_commits(self):
+        def git(*args):
+            return subprocess.check_output(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                cwd=self.root,
+                text=True,
+            ).strip()
+
+        def commit(message):
+            git("add", "--all")
+            git("commit", "--quiet", "--no-verify", "--no-gpg-sign", "-m", message)
+
+        (self.root / "Cargo.toml").write_text(
+            '[workspace.metadata.xmtp-sdk-fork]\nrev = "' + "f" * 40 + '"\n'
+        )
+        source = self.root / "crates/xmtp_sdk/src/lib.rs"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("pub fn one() {}")
+        git("init", "--quiet")
+        commit("first")
+        key = artifacts.source_key("release", "x86_64-pc-windows-msvc")
+        self.assertEqual(key["forkRevision"], "f" * 40)
+        self.assertNotIn(git("rev-parse", "HEAD"), repr(key))
+        # A commit that changes no SDK input keeps the key.
+        (self.root / "README.md").write_text("docs")
+        commit("docs")
+        self.assertEqual(artifacts.source_key("release", "x86_64-pc-windows-msvc"), key)
+        self.assertNotEqual(
+            artifacts.source_key("release", "aarch64-pc-windows-msvc")["key"],
+            key["key"],
+        )
+        self.assertEqual(artifacts.source_key()["source"], key["source"])
+        self.assertNotIn("key", artifacts.source_key())
+        # An uncommitted input has no key; a committed one changes it.
+        source.write_text("pub fn two() {}")
+        with self.assertRaisesRegex(ValueError, "committed SDK inputs"):
+            artifacts.source_key()
+        commit("edit")
+        edited = artifacts.source_key("release", "x86_64-pc-windows-msvc")
+        self.assertNotEqual(edited["source"], key["source"])
+        self.assertNotEqual(edited["key"], key["key"])
+
     def test_unqualified_compiler_inputs_change_native_cache_admission(self):
         names = (
             "CC",

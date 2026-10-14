@@ -111,6 +111,53 @@ def provenance():
     )
 
 
+def fork_revision():
+    """The pinned uniffi-bindgen-react-native fork revision."""
+    # Imported here: other actions also run on Python before 3.11.
+    import tomllib
+
+    manifest = tomllib.loads((ROOT / "Cargo.toml").read_text())
+    return manifest["workspace"]["metadata"]["xmtp-sdk-fork"]["rev"]
+
+
+def source_key(profile="", rust_target=""):
+    """The source identity of a cargo-built pair (the Windows Node pair).
+
+    It digests the committed trees of the SDK input paths, so two commits
+    with the same SDK inputs share it, and it names no commit. With a Rust
+    target it adds `key`, the pair's cache key: source, profile, target, and
+    the runtime fork revision. The toolchain is part of the source, through
+    `rust-toolchain.toml`.
+    """
+    changed = subprocess.run(
+        ["git", "diff", "--quiet", "HEAD", "--", *COMMIT_INPUTS], cwd=ROOT
+    ).returncode
+    if changed or untracked_inputs():
+        raise ValueError("the source key needs committed SDK inputs")
+    trees = subprocess.check_output(
+        ["git", "ls-tree", "HEAD", "--", *COMMIT_INPUTS], cwd=ROOT
+    )
+    identity = {
+        "source": "tree:" + hashlib.sha256(trees).hexdigest(),
+        "forkRevision": fork_revision(),
+    }
+    if rust_target:
+        identity["key"] = hashlib.sha256(
+            json.dumps(
+                [
+                    "native",
+                    profile,
+                    "",
+                    rust_target,
+                    identity["source"],
+                    "vendored-static-openssl-v1",
+                    identity["forkRevision"],
+                ]
+            ).encode()
+        ).hexdigest()
+    return identity
+
+
 def source_hash(generator=False):
     """The SDK source identity, or with `generator` the bindgen executable's."""
     return provenance()["generator" if generator else "source"]
@@ -553,8 +600,9 @@ def render(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     # `provenance` prints the source and Node render identities, for a caller
-    # that runs `xmtp-sdk-bindgen render` itself (the Windows load job).
-    parser.add_argument("action", choices=("build", "render", "provenance"))
+    # that runs `xmtp-sdk-bindgen render` itself (the Windows load job). `key`
+    # prints the source key of a cargo-built pair as JSON (`source_key`).
+    parser.add_argument("action", choices=("build", "render", "provenance", "key"))
     parser.add_argument("--targets", type=targets, default=TARGETS)
     parser.add_argument("--artifacts", type=Path, default=ROOT / "target/sdk-artifacts")
     parser.add_argument(
@@ -576,6 +624,8 @@ def main():
         if args.action == "provenance":
             # The identities of a Node render.
             print(source_hash(), render_hash("typescript-napi"))
+        elif args.action == "key":
+            print(json.dumps(source_key(args.profile, args.rust_target)))
         else:
             (build if args.action == "build" else render)(args)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:

@@ -185,20 +185,22 @@ try {
   }
   let nodePlatforms;
   if (platformDirectory) {
-    const cargo = readFileSync(join(root, "Cargo.toml"), "utf8");
-    const runtimeRevision = cargo.match(
-      /\[workspace\.metadata\.xmtp-sdk-fork\][^[]*rev\s*=\s*"([0-9a-f]{40})"/,
-    )[1];
+    // The release commit's source key and runtime fork revision, from the
+    // one reader of both.
+    const release = JSON.parse(
+      execFileSync(
+        "python3",
+        [join(root, "crates/xmtp_sdk/dev/sdk-artifacts.py"), "key"],
+        { cwd: root, encoding: "utf8" },
+      ),
+    );
     nodePlatforms = stageNodePlatforms(
       resolve(platformDirectory),
       destination,
       contracts[0],
-      runtimeRevision,
+      release.forkRevision,
       sourceManifest.name,
-      execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: root,
-        encoding: "utf8",
-      }).trim(),
+      release.source,
     );
   }
   const compile = mkdtempSync(join(output, ".sdk-compile-"));

@@ -722,6 +722,15 @@ class NodePlatformReceiptTests(unittest.TestCase):
                 "files": {str(library.resolve()): artifacts.digest(library)},
             }
             index.write_text(json.dumps({"artifacts": {"native": native_record}}))
+            missing_key = subprocess.run(
+                cargo, cwd=artifacts.ROOT, capture_output=True, text=True
+            )
+            self.assertIn("needs --source-key", missing_key.stderr)
+            key = root / "source-key.json"
+            key.write_text(
+                json.dumps({"source": "tree:x", "key": "k", "forkRevision": revision})
+            )
+            cargo += ["--source-key", str(key)]
             built = subprocess.run(
                 cargo, cwd=artifacts.ROOT, capture_output=True, text=True
             )
@@ -730,7 +739,7 @@ class NodePlatformReceiptTests(unittest.TestCase):
                 (root / "out/linux-x64-gnu/sdk-node-platform.json").read_text()
             )
             self.assertEqual(pair["commit"], "abc123")
-            self.assertNotIn("source", pair)
+            self.assertEqual((pair["source"], pair["sourceKey"]), ("tree:x", "k"))
             index.write_text(
                 json.dumps(
                     {"artifacts": {"native": dict(native_record, source="closure")}}
