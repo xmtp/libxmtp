@@ -51,8 +51,9 @@ class StagingTests(unittest.TestCase):
             (source / "sdk-contract.json").write_text(
                 json.dumps(
                     {
-                        "contract": "fixture",
+                        "contract": tree,
                         "generator": "fixture",
+                        "artifact": {"source": "fixture", "profile": "debug"},
                         "files": {
                             name: hashlib.sha256(
                                 (source / name).read_bytes()
@@ -103,10 +104,10 @@ class StagingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         for name in ("sdk-contract-check.js", "sdk-pure-contract-check.js"):
             self.assertFalse((product / name).exists())
-        # A mismatched generated configuration must still fail during staging.
+        # A pure tree from another source must still fail during staging.
         receipt = generated / "typescript-pure/sdk-contract.json"
         metadata = json.loads(receipt.read_text())
-        metadata["contract"] = "different"
+        metadata["artifact"]["source"] = "older source"
         receipt.write_text(json.dumps(metadata))
         result = subprocess.run(command, env=env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)

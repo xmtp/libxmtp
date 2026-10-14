@@ -73,7 +73,6 @@ check-generated-nix:
 
 check-package-scripts:
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-native-nix-gate.py
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-generated-records.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-artifacts.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-packaging.py

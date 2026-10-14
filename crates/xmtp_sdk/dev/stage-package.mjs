@@ -47,11 +47,15 @@ const trees =
 const contracts = trees.map((tree) =>
   JSON.parse(readFileSync(join(generated, tree, "sdk-contract.json"))),
 );
+// Each tree's contract digests its own library, so the browser's worker and
+// pure trees match on the generator and the source and profile of their
+// libraries instead.
 if (
   contracts.some(
     (record) =>
-      record.contract !== contracts[0].contract ||
-      record.generator !== contracts[0].generator,
+      record.generator !== contracts[0].generator ||
+      record.artifact?.source !== contracts[0].artifact?.source ||
+      record.artifact?.profile !== contracts[0].artifact?.profile,
   )
 )
   throw new Error("SDK generated contract mismatch");
@@ -377,7 +381,12 @@ try {
     for (const name of runtimes)
       rewrite(join(destination, "node_modules/@ubjs", name));
   }
-  const contract = contracts[0].contract;
+  const contract =
+    contracts.length === 1
+      ? contracts[0].contract
+      : createHash("sha256")
+          .update(contracts.map((record) => record.contract).join("\n"))
+          .digest("hex");
   const assets = Object.fromEntries(
     files(destination)
       .filter((path) => !path.endsWith(".d.ts"))

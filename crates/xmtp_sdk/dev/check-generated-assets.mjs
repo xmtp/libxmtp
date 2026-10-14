@@ -11,7 +11,10 @@ export function checkGeneratedAssets(generated, tree, record) {
     readdirSync(folder, { withFileTypes: true }).flatMap((item) => {
       if (item.name === "node_modules" && item.isDirectory()) return [];
       const path = join(folder, item.name);
-      return item.isDirectory() ? collect(path) : [relative(root, path)];
+      // Receipts name files with `/` on every system.
+      return item.isDirectory()
+        ? collect(path)
+        : [relative(root, path).replaceAll("\\", "/")];
     });
   const actual = collect(root).filter((name) => name !== "sdk-contract.json");
   assert.deepEqual(

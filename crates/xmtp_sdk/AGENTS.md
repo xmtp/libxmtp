@@ -19,6 +19,11 @@ Run commands from the repository root in the Nix shell. Run
   (`nix eval .#sdkProvenance`). `dev/sdk-artifacts.py` reads them with the same
   command, so both routes record the same values. Nix evaluates the git
   checkout: `git add` a new file before a cargo build records it.
+- `xmtp-sdk-bindgen render` writes each generated tree and its receipt in both
+  routes (`apps/xmtp_sdk_bindgen/README.md`). It formats TypeScript with the
+  nixpkgs `oxfmt`: the `default` shell exports `XMTP_SDK_OXFMT`, and in the
+  `rust` shell `dev/sdk-artifacts.py` builds `nixpkgs#oxfmt` from this
+  checkout's `flake.lock`. Generation needs no `pnpm install`.
 - `dev/nix-shell 'just sdk check-generated-nix'` checks the real generated SDK and
   Android fast/full build closures. Native generated products exclude SDK
   WASM builds. Android uses selected Kotlin. Apple uses selected Swift.

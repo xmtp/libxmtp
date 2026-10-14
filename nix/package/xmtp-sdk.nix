@@ -128,7 +128,19 @@ let
   iosTargets = mkIosTargets xmtp.iosEnv.xcode.key;
   iosTargetsLocal = mkIosTargets "local";
   ubrn = xmtp.ubrn;
-  nativeLibrary = "${nativeBuild}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"}";
+  # Renders bind the host library product (`xmtp-sdk-libs`), the same bytes
+  # that packages and receipts name.
+  nativeLibrary = "${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"}";
+  renderTargets = {
+    swift = "swift";
+    kotlin = "kotlin";
+    typescript-napi = "node";
+    typescript-wasm = "browser-worker";
+    typescript-pure = "browser-pure";
+  };
+  # One renderer writes each tree and its receipt. It takes the identities that
+  # Nix computes at evaluation, and TypeScript is formatted with one nixpkgs
+  # oxfmt, so the cargo route (`sdk-artifacts.py`) writes the same bytes.
   mkRender =
     language: artifact: pure:
     stdenvNoCC.mkDerivation {
@@ -141,18 +153,10 @@ let
       ]
       ++ lib.optional (artifact != nativeLibrary) wasm-bindgen-cli;
       buildPhase = ''
-        # The unpacked source is writable. TypeScript generation changes copies.
-        # The Nix build has no JavaScript formatter dependencies.
-        xmtp-sdk-bindgen generate --lib ${artifact} \
-          --language ${if pure then "typescript-wasm" else language} \
-          ${lib.optionalString pure "--pure-only"} --no-format --out "$out" \
-          --config apps/xmtp_sdk_bindgen/uniffi-global.toml
-        ${lib.optionalString (artifact != nativeLibrary) ''
-          xmtp-sdk-bindgen stage-wasm --lib ${artifact} --out "$out"
-        ''}
-        ${lib.optionalString (language == "typescript-napi") ''
-          cp ${nativeLibrary} "$out/"
-        ''}
+        xmtp-sdk-bindgen render --lib ${artifact} --target ${renderTargets.${language}} \
+          ${lib.optionalString (lib.hasPrefix "typescript-" language) "--oxfmt ${pkgs.oxfmt}/bin/oxfmt"} \
+          --source ${sources.provenance.source} --generator ${sources.provenance.generator} \
+          ${lib.optionalString pure "--features pure-only"} --out "$out"
       '';
       installPhase = "true";
     };
@@ -163,32 +167,20 @@ let
     typescript-wasm = mkRender "typescript-wasm" "${wasm}/lib/xmtp_sdk.wasm" false;
     typescript-pure = mkRender "typescript-pure" "${pureWasm}/lib/xmtp_sdk.wasm" true;
   };
-  binaries = {
-    native = "${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"}";
-    bindgen = "${bindgen}/bin/xmtp-sdk-bindgen";
-    wasm = "${wasm}/lib/xmtp_sdk.wasm";
-    pure = "${pureWasm}/lib/xmtp_sdk.wasm";
-  };
+  # Each tree is a copy of its render, with its receipt, plus links to the
+  # @ubjs runtimes that staging copies.
   mkGenerated =
-    name: languages: roles: runtimeNames:
+    name: languages: runtimeNames:
     stdenvNoCC.mkDerivation {
       pname = "xmtp-sdk-generated${name}";
       version = xmtp.mkVersion rust;
-      # The receipt takes the evaluation-time identities, so the tree keys on
-      # the closure sources and not on the whole workspace.
       dontUnpack = true;
-      nativeBuildInputs = [ pkgs.python3 ];
       dontFixup = true;
       buildPhase = ''
         mkdir -p "$out"
         ${lib.concatMapStringsSep "\n" (language: ''
-          mkdir -p "$out/${language}"
-          cp -R ${renders.${language}}/. "$out/${language}/"
+          cp -R ${renders.${language}} "$out/${language}"
         '') languages}
-        chmod -R u+w "$out"
-        python3 ${../../crates/xmtp_sdk/dev/record-generated.py} "$out" \
-          --source ${sources.provenance.source} --generator ${sources.provenance.generator} \
-          ${lib.concatMapStringsSep " " (role: "--${role} ${binaries.${role}}") roles}
         ${lib.optionalString (runtimeNames != [ ]) ''
           mkdir -p "$out/runtimes"
           ${lib.concatMapStringsSep "\n" (runtime: ''
@@ -210,18 +202,21 @@ let
             );
       };
     };
-  generatedSwift = mkGenerated "-swift" [ "swift" ] [ "native" "bindgen" ] [ ];
-  generatedKotlin = mkGenerated "-kotlin" [ "kotlin" ] [ "native" "bindgen" ] [ ];
-  generatedNode = mkGenerated "-node" [ "typescript-napi" ] [ "native" "bindgen" ] [ "core" "node" ];
-  generatedBrowser = mkGenerated "-browser" [
-    "typescript-wasm"
-    "typescript-pure"
-  ] [ "bindgen" "wasm" "pure" ] [ "core" "wasm" ];
-  # Re-record all raw roots together to retain the aggregate's full contract.
-  generated =
-    mkGenerated "" (builtins.attrNames renders)
-      [ "native" "wasm" "pure" "bindgen" ]
-      [ "core" "node" "wasm" ];
+  generatedSwift = mkGenerated "-swift" [ "swift" ] [ ];
+  generatedKotlin = mkGenerated "-kotlin" [ "kotlin" ] [ ];
+  generatedNode = mkGenerated "-node" [ "typescript-napi" ] [ "core" "node" ];
+  generatedBrowser =
+    mkGenerated "-browser"
+      [
+        "typescript-wasm"
+        "typescript-pure"
+      ]
+      [ "core" "wasm" ];
+  generated = mkGenerated "" (builtins.attrNames renders) [
+    "core"
+    "node"
+    "wasm"
+  ];
 in
 {
   libs = native;

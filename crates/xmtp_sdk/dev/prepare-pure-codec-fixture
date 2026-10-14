@@ -9,9 +9,10 @@ raw=target/sdk-pure-codec-fixture/build/wasm32-unknown-unknown/release/xmtp_sdk.
 dev/agent-run cargo build --locked --release -p xmtp_sdk \
   --target wasm32-unknown-unknown --target-dir target/sdk-pure-codec-fixture/build \
   --features pure-only,conformance
-mkdir -p "$fixture"
-target/sdk-artifacts/bindgen/xmtp-sdk-bindgen generate \
-  --lib "$raw" --language typescript-wasm --pure-only \
-  --out "$fixture" --config apps/xmtp_sdk_bindgen/uniffi-global.toml
-target/sdk-artifacts/bindgen/xmtp-sdk-bindgen stage-wasm --lib "$raw" --out "$fixture"
+oxfmt="${XMTP_SDK_OXFMT:-$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#oxfmt)/bin/oxfmt}"
+rm -rf "$fixture"
+# A test fixture: its receipt names no real source identity.
+target/sdk-artifacts/bindgen/xmtp-sdk-bindgen render --lib "$raw" \
+  --target browser-pure --oxfmt "$oxfmt" --out "$fixture" \
+  --source fixture --generator fixture --features pure-only,conformance
 ln -sfn ../../sdk-generated/typescript-pure/node_modules "$fixture/node_modules"

@@ -18,7 +18,6 @@ from packaging_test_base import (
     android_inputs,
     artifacts,
     mobile,
-    receipt,
 )
 
 
@@ -360,25 +359,15 @@ class PackagingTests(
         path.write_text("original embedded data")
         artifacts.build(self.args)
         artifacts.render(self.args)
-        before = artifacts.source_hash()
-        binaries = {
-            role: Path(next(iter(item["files"])))
-            for role, item in json.loads(
-                (self.args.artifacts / "artifacts.json").read_text()
-            )["artifacts"].items()
-        }
-        receipt.record(self.args.out, binaries)
         old_record = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
         before_calls = len(self.calls)
         path.write_text("changed embedded data only")
-        self.assertNotEqual(artifacts.source_hash(), before)
-        receipt.record(self.args.out, binaries)
-        new_record = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
-        self.assertNotEqual(
-            new_record["artifact"]["source"], old_record["artifact"]["source"]
-        )
+        self.assertNotEqual(artifacts.source_hash(), old_record["artifact"]["source"])
         artifacts.build(self.args)
         self.assertEqual(len(self.calls), before_calls + 2)
+        artifacts.render(self.args)
+        new_record = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
+        self.assertEqual(new_record["artifact"]["source"], artifacts.source_hash())
 
     def test_swapped_mobile_targets_rejected_before_assembly(self):
         for target in ("android", "ios"):
@@ -536,7 +525,11 @@ class PackagingTests(
         self.assertEqual(actual, native)
         artifacts.render(self.args)
         binding = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
-        self.assertEqual(binding["artifact"], artifacts.receipt_artifact(native))
+        fields = ("source", "features", "profile", "target")
+        self.assertEqual(
+            {field: binding["artifact"][field] for field in fields},
+            {field: native[field] for field in fields},
+        )
         self.assertEqual(binding["generator"], artifacts.source_hash(True))
         for path, original_receipt in native_receipts.items():
             self.assertEqual(path.read_bytes(), original_receipt)
@@ -607,49 +600,19 @@ class PackagingTests(
         artifacts.build(self.args)
         artifacts.render(self.args)
         self.native_receipts()
-        original = self.config.read_text()
         before = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
-        binaries = {
-            role: Path(next(iter(item["files"])))
-            for role, item in json.loads(
-                (self.args.artifacts / "artifacts.json").read_text()
-            )["artifacts"].items()
-        }
-        receipt.record(self.args.out, binaries)
-        recorded_before = json.loads(
-            (self.args.out / "swift/sdk-contract.json").read_text()
-        )
         self.config.write_text("changed configuration only")
-        receipt.record(self.args.out, binaries)
-        recorded_after = json.loads(
-            (self.args.out / "swift/sdk-contract.json").read_text()
-        )
         # The crate configuration is SDK source, not generator source.
-        self.assertNotEqual(
-            recorded_before["artifact"]["source"], recorded_after["artifact"]["source"]
-        )
-        self.assertEqual(before["generator"], recorded_after["generator"])
-        with self.assertRaisesRegex(ValueError, "mobile binding contract mismatch"):
+        self.assertNotEqual(artifacts.source_hash(), before["artifact"]["source"])
+        self.assertEqual(artifacts.source_hash(True), before["generator"])
+        with self.assertRaisesRegex(ValueError, "mobile binding source mismatch"):
             mobile.preflight(self.args.out, self.root / "mobile", "ios")
-        self.config.write_text(original)
-        artifacts.render(self.args)
-        mobile.preflight(self.args.out, self.root / "mobile", "ios")
-
-    def test_both_receipt_producers_pass_mobile_preflight(self):
         artifacts.build(self.args)
         artifacts.render(self.args)
+        with self.assertRaisesRegex(ValueError, "mobile binding contract mismatch"):
+            mobile.preflight(self.args.out, self.root / "mobile", "ios")
         self.native_receipts()
         mobile.preflight(self.args.out, self.root / "mobile", "ios")
-        binaries = {
-            role: Path(next(iter(item["files"])))
-            for role, item in json.loads(
-                (self.args.artifacts / "artifacts.json").read_text()
-            )["artifacts"].items()
-        }
-        receipt.record(self.args.out, binaries)
-        mobile.preflight(self.args.out, self.root / "mobile", "ios")
-        recorded = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
-        self.assertEqual(recorded["artifact"]["source"], artifacts.source_hash())
 
     def test_conformance_bindings_rejected_before_mobile_assembly(self):
         self.args.features = "conformance"

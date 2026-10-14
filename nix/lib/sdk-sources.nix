@@ -32,6 +32,8 @@ let
     typescript = [
       (root + /apps/xmtp_sdk_bindgen/runtime/ts)
       (root + /apps/xmtp_sdk_bindgen/typescript.toml)
+      # The formatter configuration of generated TypeScript.
+      (root + /apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json)
     ];
   };
   generationInputs =

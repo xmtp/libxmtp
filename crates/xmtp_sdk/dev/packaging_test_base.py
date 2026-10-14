@@ -17,7 +17,6 @@ def load(name, file):
 
 
 artifacts = load("artifacts", "sdk-artifacts.py")
-receipt = load("receipt", "record-generated.py")
 mobile = load("mobile", "mobile-package.py")
 android_inputs = load("android_inputs", "sdk-packaging-android-inputs.py")
 
@@ -69,11 +68,7 @@ class PackagingTestBase:
             patch.object(artifacts, "run", side_effect=self.command),
             patch.object(mobile.artifacts, "ROOT", self.root),
             patch.object(mobile.artifacts, "provenance", side_effect=self.provenance),
-            patch.object(
-                receipt,
-                "checkout_identity",
-                side_effect=lambda: tuple(self.provenance().values()),
-            ),
+            patch.object(artifacts, "formatter", return_value=[]),
         ]
         for item in self.patches:
             item.start()
@@ -86,7 +81,6 @@ class PackagingTestBase:
             skip_bindgen=False,
             reuse_bindgen=None,
             profile="release",
-            no_format=True,
         )
 
     def provenance(self):
@@ -116,8 +110,33 @@ class PackagingTestBase:
             ):
                 (folder / name).write_text("fixture binary")
         else:
-            folder = Path(command[command.index("--out") + 1])
-            folder.mkdir(parents=True, exist_ok=True)
-            language = command[command.index("--language") + 1]
-            name = "xmtp_sdk.kt" if language == "kotlin" else "xmtp_sdk.swift"
+            # A stand-in for `xmtp-sdk-bindgen render`: one binding file and
+            # the receipt fields that mobile preflight reads.
+            def value(flag):
+                return command[command.index(flag) + 1]
+
+            folder = Path(value("--out"))
+            folder.mkdir(parents=True)
+            name = "xmtp_sdk.kt" if value("--target") == "kotlin" else "xmtp_sdk.swift"
             (folder / name).write_text("fixture binding")
+            library = Path(value("--lib"))
+            artifact = {
+                field: value("--" + flag)
+                for field, flag in (
+                    ("source", "source"),
+                    ("generator", "generator"),
+                    ("features", "features"),
+                    ("profile", "profile"),
+                    ("target", "rust-target"),
+                )
+            }
+            artifact["files"] = {library.name: artifacts.digest(library)}
+            (folder / "sdk-contract.json").write_text(
+                json.dumps(
+                    {
+                        "generator": value("--generator"),
+                        "artifact": artifact,
+                        "files": {name: artifacts.digest(folder / name)},
+                    }
+                )
+            )

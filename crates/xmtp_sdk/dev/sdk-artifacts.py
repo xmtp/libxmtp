@@ -344,20 +344,45 @@ def staged_output(output, prefix=".sdk-mobile-stage-"):
             shutil.rmtree(stage)
 
 
-def receipt_artifact(record):
-    """A receipt names artifact files by name, never by a local or store path."""
-    fields = ("source", "generator", "features", "profile", "target")
-    return {field: record[field] for field in fields} | {
-        "files": {
-            Path(path).name: checksum for path, checksum in record["files"].items()
-        }
-    }
+# The `render --target` of each generated language.
+RENDER_TARGETS = {
+    "swift": "swift",
+    "kotlin": "kotlin",
+    "typescript-napi": "node",
+    "typescript-wasm": "browser-worker",
+    "typescript-pure": "browser-pure",
+}
 
 
 def target_languages(target):
     if target == "browser":
         return ("typescript-wasm", "typescript-pure")
     return ("typescript-napi" if target == "node" else target,)
+
+
+def formatter():
+    """Return the `--oxfmt` arguments for a TypeScript render.
+
+    The bindgen reads `XMTP_SDK_OXFMT` itself; the `default` shell exports it.
+    Otherwise (the `rust` shell) use the same nixpkgs oxfmt that the Nix render
+    uses, from this checkout's `flake.lock`.
+    """
+    if os.environ.get("XMTP_SDK_OXFMT"):
+        return []
+    store = subprocess.check_output(
+        [
+            "nix",
+            "build",
+            "--no-link",
+            "--print-out-paths",
+            "--inputs-from",
+            ".",
+            "nixpkgs#oxfmt",
+        ],
+        cwd=ROOT,
+        text=True,
+    ).strip()
+    return ["--oxfmt", f"{store}/bin/oxfmt"]
 
 
 def render(args):
@@ -375,27 +400,13 @@ def render(args):
             raise ValueError("generator mismatch; run build first")
         if any(record["source"] != source_hash() for record in selected.values()):
             raise ValueError("source mismatch; run build first")
-    contract = hashlib.sha256(
-        json.dumps(
-            {
-                kind: {
-                    "files": {
-                        Path(path).name: checksum
-                        for path, checksum in record["files"].items()
-                    },
-                    "generator": generator,
-                }
-                for kind, record in selected.items()
-            },
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
     binary = next(iter(selected["bindgen"]["files"]))
     native = next(
         path
         for path in selected["native"]["files"]
         if Path(path).suffix != ".a" and Path(path).suffix != ".lib"
     )
+    oxfmt = formatter() if {"node", "browser"} & set(args.targets) else []
     destination = args.out.resolve()
     destination.mkdir(parents=True, exist_ok=True)
     for target in args.targets:
@@ -407,58 +418,43 @@ def render(args):
                 if language == "typescript-wasm"
                 else "native"
             )
-            library = (
-                next(iter(selected[artifact]["files"]))
-                if artifact != "native"
-                else native
-            )
+            record = selected[artifact]
+            library = next(iter(record["files"])) if artifact != "native" else native
             tree = destination / language
             if tree.exists():
                 shutil.rmtree(tree)
-            command = [
-                binary,
-                "generate",
-                "--lib",
-                library,
-                "--language",
-                "typescript-wasm" if language == "typescript-pure" else language,
-                "--out",
-                tree,
-                "--config",
-                "apps/xmtp_sdk_bindgen/uniffi-global.toml",
-            ]
-            if language == "typescript-pure":
-                command += ["--pure-only"]
-            if args.no_format:
-                command += ["--no-format"]
-            run(command)
-            if artifact in ("wasm", "pure"):
-                run([binary, "stage-wasm", "--lib", library, "--out", tree])
-            elif language == "typescript-napi":
-                shutil.copy2(native, tree / Path(native).name)
-            files = {
-                str(path.relative_to(tree)): digest(path)
-                for path in sorted(tree.rglob("*"))
-                if path.is_file()
-            }
-            (tree / "sdk-contract.json").write_text(
-                json.dumps(
-                    {
-                        "contract": contract,
-                        "generator": generator,
-                        "artifact": receipt_artifact(selected[artifact]),
-                        "files": files,
-                    },
-                    indent=2,
-                )
-                + "\n"
+            # The bindgen writes the tree and its receipt, sdk-contract.json.
+            run(
+                [
+                    binary,
+                    "render",
+                    "--lib",
+                    library,
+                    "--target",
+                    RENDER_TARGETS[language],
+                    "--out",
+                    tree,
+                    "--source",
+                    record["source"],
+                    "--generator",
+                    generator,
+                    "--profile",
+                    record["profile"],
+                    "--features",
+                    record["features"],
+                    "--rust-target",
+                    record["target"],
+                    *(oxfmt if language.startswith("typescript-") else []),
+                ]
             )
-    print(f"SDK rendered {','.join(args.targets)} contract {contract}")
+    print(f"SDK rendered {','.join(args.targets)} with generator {generator}")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("build", "render"))
+    # `provenance` prints the source and generator identities, for a caller
+    # that runs `xmtp-sdk-bindgen render` itself (the Windows load job).
+    parser.add_argument("action", choices=("build", "render", "provenance"))
     parser.add_argument("--targets", type=targets, default=TARGETS)
     parser.add_argument("--artifacts", type=Path, default=ROOT / "target/sdk-artifacts")
     parser.add_argument(
@@ -475,10 +471,12 @@ def main():
     parser.add_argument(
         "--reuse-bindgen", type=Path, default=ROOT / "target/sdk-artifacts"
     )
-    parser.add_argument("--no-format", action="store_true")
     args = parser.parse_args()
     try:
-        (build if args.action == "build" else render)(args)
+        if args.action == "provenance":
+            print(source_hash(), source_hash(True))
+        else:
+            (build if args.action == "build" else render)(args)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"SDK artifact error: {error}\n")
 

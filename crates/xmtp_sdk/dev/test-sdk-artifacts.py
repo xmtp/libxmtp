@@ -341,7 +341,6 @@ class ArtifactTests(unittest.TestCase):
             skip_bindgen=False,
             reuse_bindgen=None,
             profile="debug",
-            no_format=True,
         )
         self.hash_patch = patch.object(
             artifacts, "source_hash", return_value="fixture-source"
@@ -353,8 +352,13 @@ class ArtifactTests(unittest.TestCase):
         self.context_patch.start()
         self.run_patch = patch.object(artifacts, "run", side_effect=self.command)
         self.run_patch.start()
+        self.formatter_patch = patch.object(
+            artifacts, "formatter", return_value=["--oxfmt", "fixture-oxfmt"]
+        )
+        self.formatter_patch.start()
 
     def tearDown(self):
+        self.formatter_patch.stop()
         self.run_patch.stop()
         self.hash_patch.stop()
         self.context_patch.stop()
@@ -468,7 +472,7 @@ class ArtifactTests(unittest.TestCase):
         artifacts.render(self.args)
         self.assertFalse(stale.exists())
         self.assertEqual(len(self.calls), before + 1)
-        self.assertEqual(self.calls[-1][1], "generate")
+        self.assertEqual(self.calls[-1][1], "render")
 
     def test_tampered_artifact_rejected_before_render_runs_it(self):
         self.args.targets = ("swift",)
@@ -548,19 +552,49 @@ class ArtifactTests(unittest.TestCase):
                     any(command[0] == "dev/agent-run" for command in self.calls[calls:])
                 )
 
-    def test_receipts_name_artifact_files_without_local_paths(self):
+    def test_only_typescript_renders_get_the_formatter(self):
         self.render_all_targets()
-        for language in ("typescript-napi", "typescript-wasm", "typescript-pure"):
-            with self.subTest(language=language):
-                record = json.loads(
-                    (self.args.out / language / "sdk-contract.json").read_text()
-                )
+        renders = {
+            command[command.index("--target") + 1]: command
+            for command in self.calls
+            if command[1:2] == ["render"]
+        }
+        for target, command in renders.items():
+            with self.subTest(target=target):
                 self.assertEqual(
-                    set(record["artifact"]),
-                    {"source", "generator", "features", "profile", "target", "files"},
+                    "--oxfmt" in command, target not in ("swift", "kotlin")
                 )
-                for name in record["artifact"]["files"]:
-                    self.assertEqual(Path(name).name, name)
+
+    def test_formatter_is_the_shell_oxfmt_or_the_flake_nixpkgs_oxfmt(self):
+        self.formatter_patch.stop()
+        try:
+            with (
+                patch.dict(os.environ, {"XMTP_SDK_OXFMT": "/shell/oxfmt"}),
+                patch.object(artifacts.subprocess, "check_output") as probe,
+            ):
+                self.assertEqual(artifacts.formatter(), [])
+                probe.assert_not_called()
+            environment = {
+                key: value
+                for key, value in os.environ.items()
+                if key != "XMTP_SDK_OXFMT"
+            }
+            with (
+                patch.dict(os.environ, environment, clear=True),
+                patch.object(
+                    artifacts.subprocess,
+                    "check_output",
+                    return_value="/nix/store/fixture-oxfmt\n",
+                ) as probe,
+            ):
+                self.assertEqual(
+                    artifacts.formatter(),
+                    ["--oxfmt", "/nix/store/fixture-oxfmt/bin/oxfmt"],
+                )
+            self.assertIn("nixpkgs#oxfmt", probe.call_args.args[0])
+            self.assertIn("--inputs-from", probe.call_args.args[0])
+        finally:
+            self.formatter_patch.start()
 
     def test_partial_native_render_does_not_need_unselected_wasm_index_entries(self):
         self.render_all_targets()

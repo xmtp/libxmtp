@@ -7,15 +7,18 @@ cd "$root"
 fixture=target/sdk-bridge-panic-fixture
 wasm="$fixture/xmtp_sdk.wasm"
 out="$fixture/typescript-wasm"
-mkdir -p "$fixture" "$out"
+mkdir -p "$fixture"
 
 dev/agent-run cargo build --locked -p xmtp_sdk \
   --target wasm32-unknown-unknown --target-dir "$fixture/build" \
   --features bridge-panic-test,conformance
 cp "$fixture/build/wasm32-unknown-unknown/debug/xmtp_sdk.wasm" "$wasm"
-target/sdk-artifacts/bindgen/xmtp-sdk-bindgen generate \
-  --lib "$wasm" --language typescript-wasm --out "$out" \
-  --config apps/xmtp_sdk_bindgen/uniffi-global.toml
-target/sdk-artifacts/bindgen/xmtp-sdk-bindgen stage-wasm --lib "$wasm" --out "$out"
+oxfmt="${XMTP_SDK_OXFMT:-$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#oxfmt)/bin/oxfmt}"
+rm -rf "$out"
+# A test fixture: its receipt names no real source identity.
+target/sdk-artifacts/bindgen/xmtp-sdk-bindgen render --lib "$wasm" \
+  --target browser-worker --oxfmt "$oxfmt" --out "$out" \
+  --source fixture --generator fixture --profile debug \
+  --features bridge-panic-test,conformance
 ln -sfn ../../sdk-generated/typescript-wasm/node_modules "$out/node_modules"
 ln -sfn ../sdk-generated/typescript-pure "$fixture/typescript-pure"

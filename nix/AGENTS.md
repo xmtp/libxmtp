@@ -140,8 +140,9 @@ from the fork at that revision. To bump the fork:
 
 ## Generated SDK preparation
 
-`xmtp-sdk-generated` includes the native, worker, and pure roots with matched
-contract records. Select `xmtp-sdk-generated-swift`, `xmtp-sdk-generated-kotlin`,
+Each generated root is a copy of one render: `xmtp-sdk-bindgen render` writes
+the tree and its receipt, and formats TypeScript with the nixpkgs `oxfmt`.
+`xmtp-sdk-generated` includes the native, worker, and pure roots. Select `xmtp-sdk-generated-swift`, `xmtp-sdk-generated-kotlin`,
 or `xmtp-sdk-generated-node` to build one native language without WASM.
 `xmtp-sdk-generated-browser` includes matched worker and pure roots.
 Each selected product keeps the aggregate's root names. Node and Browser
