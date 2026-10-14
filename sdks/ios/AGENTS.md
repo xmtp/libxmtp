@@ -85,10 +85,12 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
   itself; a second `end()` returns without an error.
 - CI runs the test, example, and simulator recipes through `just backend ci`.
   This starts disposable native PostgreSQL, S3, and backend services.
-- `test-ios.yml` holds all iOS CI jobs. Its `swift` job runs `test-lifecycle`
-  and `check-consumer`. Its `tests` job runs `test skip-lifecycle`, so its macOS
-  run does not repeat the lifecycle checks. `test-simulator` still runs every
-  test on the simulator.
+- `test-ios.yml` has one iOS CI job. It runs `dev/bindings` once and fails
+  when the tracked Swift under `Sources/` differs from the generated Swift
+  (run `dev/bindings` and commit `Sources/`). Then it runs `test` (every test,
+  the lifecycle checks too), `check-examples`, `check-consumer`, and
+  `test-simulator`. `dev/bindings` skips the xcframework copy when
+  `Artifacts/.xcframework-store-path` names the same store path.
   A selected iOS suite gates aggregate `Test` in `ci.yml`.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.
 - Example builds select `arm64` to match the shipped simulator library.

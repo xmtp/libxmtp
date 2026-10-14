@@ -39,7 +39,10 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   compiler source. Provenance wrappers keep the complete source identity.
 - Checks that compile some packages use `xmtp.filesets.mkClosureSource`. It
   restores the Cargo path-dependency closure of its roots over the dummy
-  workspace. `dev = true` adds the roots' dev-dependencies and test data. In
+  workspace. `dev = true` adds the roots' dev-dependencies and test data.
+  `target = "wasm32-unknown-unknown"` leaves out the dependencies that Cargo
+  does not build for that target; a `[target.*]` key with a cfg name that
+  `targetCfgs` does not list fails evaluation. In
   `lib/filesets.nix`, add a new data file that a package compiles in to
   `compileData`, a file that `test-utils` code reads to `testUtilsData`, and a
   file that only the package's tests read to `testData`. After a source change,
@@ -50,15 +53,57 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   `cargoVendorDir = xmtp.base.mkCargoVendorDir rust`. Check an output with
   `nix eval --option allow-import-from-derivation false --raw .#<output>.drvPath`.
 
-`backend-ci` packages disposable PostgreSQL, VersityGW, and the native backend.
-It supports one command on an isolated macOS runner. It does not add services
-to development shells. Run `dev/nix-shell 'just backend ci COMMAND'`.
+`services/stack.nix` defines the test services once, as a process-compose
+module: a PostgreSQL primary and streaming replica, VersityGW with the
+attachments bucket, anvil, the backend, and toxiproxy. A port that the caller
+sets wins; every other port is a free loopback port. Commands and probes are
+store scripts, because process-compose substitutes `$NAME` in the whole config.
+`.#services` runs the stack; `dev/services up|env|ps|logs|down` runs it in the
+background on this worktree's ports, without Docker. `.#services-test` starts
+the stack, runs `XMTP_SERVICES_TEST_COMMAND`, exits with its status, and stops
+every service (`dev/nix-shell 'just backend ci COMMAND'`).
+`legacyPackages.mkServices { backend; replica; }` gives these outputs for
+another backend binary, so a test derivation keys on the binary that it starts;
+without `backend` it is the storage subset (PostgreSQL, replica, S3). Its
+`checkCommand` runs a
+check phase through `services-test`; the derivation merges its `sandbox`
+attributes (Darwin loopback networking, and `sendfile` for VersityGW, with no
+other host reachable). A Darwin build shares the host loopback, so a sandboxed
+check can reach any service that listens there, such as a developer's Docker
+stack or a localhost system proxy; remote hosts stay blocked. A Linux build has
+its own loopback. `checks.<system>.services` proves each service inside a
+build.
+
+The CI client tests match trunk's CI backend, whose replica URL was the
+database URL: `legacyPackages.clientServices` (`replica = false`) runs no
+replica and points `XMTP_REPLICA_URL` at the primary. `nextest`, the WASM
+partitions, and `.#services-test` (so every `just backend ci` of the iOS,
+Android, and JS jobs) use it. `backend-tests` (it tests replica behavior),
+`dev/services` (it matches the local Compose stack), and
+`checks.<system>.services` keep the streaming replica. A separate change can
+give the client tests real replica lag once the tests that sync once after
+another client's write poll instead (about 36 Rust call sites).
+
+`nextest.<system>` runs the workspace tests with `clientServices` inside the
+sandbox, on free ports.
+
+`wasm-nextest-archive.<system>` compiles the WASM tests into one nextest
+archive. `wasm-nextest-part-<n>.<system>` runs slice `n` of 4 from it, with
+`clientServices` started inside the build, so it needs no
+Docker stack. WASM bakes the service URLs in at compile time, so the services
+use the fixed port block 20000-20099, and each slice holds an exclusive lock
+on `/tmp/xmtp-wasm-nextest.lock` (a second slice waits). A backend change
+reruns the slices and substitutes the archive. The slices still run outside
+the sandbox (`__noChroot`, for Chrome). Run them with `just wasm nix-test`
+(all slices, one after another) or `just wasm nix-test-part <n>`.
 
 `backend-tests.<system>` runs the backend tests and the SQLx metadata check in
-the build sandbox. `package/backend-tests.sh` starts a PostgreSQL primary, a
-streaming replica, and VersityGW on free loopback ports. Linux runs all tests.
-Darwin skips the tests that need the system TLS trust service or fast replica
-replay. Build it with `nix build --no-link .#backend-tests.<system>`.
+the build sandbox, through `services-test` of the storage services (a
+PostgreSQL primary, a streaming replica, and VersityGW on free loopback
+ports). Linux runs all tests. Darwin skips the tests that need the system TLS
+trust service or fast replica replay. Build it with `nix build --no-link .#backend-tests.<system>`.
+`test-backend.yml` builds it on Linux and, in the `Native backend contract`
+job, on macOS.
 
 ## Generated SDK preparation
 

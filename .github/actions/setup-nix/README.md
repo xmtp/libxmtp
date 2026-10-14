@@ -254,7 +254,6 @@ stops running cargo.
 | `release-cli.yml / build` | `sdk-native-debug` | Reader |
 | `test-agent-sdk.yml / test` | `sdk-native-debug` | Protected push writer; otherwise reader |
 | `test-android.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
-| `test-backend.yml / native` | `backend-tests-debug` | Reader |
 | `test-browser-sdk.yml / test` | `sdk-products-debug` | Protected push writer; otherwise reader |
 | `test-node-sdk.yml / test` | `sdk-native-debug` | Protected push writer; otherwise reader |
 | `test-sdk-platform.yml / proof` | `sdk-browser-conformance` | Protected push writer; otherwise reader |

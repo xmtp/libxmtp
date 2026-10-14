@@ -127,6 +127,22 @@ func eventually(seconds: Double, _ condition: () async throws -> Bool) async ret
 	return try await condition()
 }
 
+/// The conversation `id` on `client`, or nil when it does not appear in
+/// `seconds`. The test services run a streaming database replica, and one sync
+/// right after another client's write can read it before the write arrives, so
+/// this syncs until the conversation appears.
+func syncedConversation(
+	_ client: SDKClient, id: ConversationId, seconds: Double = 20,
+) async throws -> Conversation? {
+	var found: Conversation?
+	_ = try await eventually(seconds: seconds) {
+		try await client.conversations.sync()
+		found = try await client.conversations.getById(id: id)
+		return found != nil
+	}
+	return found
+}
+
 /// The result of `operation`, or nil when it does not finish in `seconds`.
 func within<T: Sendable>(
 	seconds: Double, _ operation: @escaping @Sendable () async throws -> T,

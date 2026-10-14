@@ -97,20 +97,176 @@ let
   workspaceManifest = builtins.fromTOML (builtins.readFile (src + /Cargo.toml));
   workspaceDependencies = workspaceManifest.workspace.dependencies;
   patches = workspaceManifest.patch."crates-io";
+  # The cfg values of the targets that a closure can be narrowed to. Key-value
+  # names hold lists; bare names hold booleans. A `[target.*]` table that names
+  # anything else fails evaluation, so a new cfg cannot drop a table silently.
+  targetCfgs = {
+    wasm32-unknown-unknown = {
+      target_arch = [ "wasm32" ];
+      target_endian = [ "little" ];
+      target_env = [ "" ];
+      target_family = [ "wasm" ];
+      target_os = [ "unknown" ];
+      target_pointer_width = [ "32" ];
+      target_vendor = [ "unknown" ];
+      unix = false;
+      windows = false;
+    };
+  };
+  # The tokens of a cfg expression: names, quoted strings, and `(`, `)`, `,`, `=`.
+  cfgTokens =
+    expression:
+    builtins.filter (token: token != "") (
+      map (part: if builtins.isList part then builtins.head part else lib.trim part) (
+        builtins.split ''("[^"]*"|[(),=])'' expression
+      )
+    );
+  # Evaluate the predicate that starts at token `i`: `all(…)`, `any(…)`,
+  # `not(…)`, `name = "value"`, or `name`. Returns its value and the next index.
+  cfgPredicate =
+    cfg: tokens: i:
+    let
+      at = n: if n < builtins.length tokens then builtins.elemAt tokens n else null;
+      name = at i;
+      known = cfg ? ${name} || throw "filesets: unknown cfg name `${name}`; add it to targetCfgs";
+    in
+    if at (i + 1) == "(" then
+      let
+        list = cfgList cfg tokens (i + 2) [ ];
+      in
+      {
+        value =
+          if name == "all" then
+            builtins.all lib.id list.values
+          else if name == "any" then
+            builtins.any lib.id list.values
+          else if name == "not" && builtins.length list.values == 1 then
+            !(builtins.head list.values)
+          else
+            throw "filesets: unsupported cfg operator `${name}`";
+        inherit (list) next;
+      }
+    else if at (i + 1) == "=" then
+      {
+        value =
+          assert known && builtins.isList cfg.${name};
+          builtins.elem (lib.removePrefix "\"" (lib.removeSuffix "\"" (at (i + 2)))) cfg.${name};
+        next = i + 3;
+      }
+    else
+      {
+        value =
+          assert known && builtins.isBool cfg.${name};
+          cfg.${name};
+        next = i + 1;
+      };
+  # Evaluate a comma-separated predicate list up to its closing `)`.
+  cfgList =
+    cfg: tokens: i: values:
+    if builtins.elemAt tokens i == ")" then
+      {
+        inherit values;
+        next = i + 1;
+      }
+    else
+      let
+        predicate = cfgPredicate cfg tokens i;
+        comma = builtins.elemAt tokens predicate.next == ",";
+      in
+      cfgList cfg tokens (if comma then predicate.next + 1 else predicate.next) (
+        values ++ [ predicate.value ]
+      );
+  # Whether a `[target.<key>]` table applies to `target`: a `cfg(…)` key is
+  # evaluated, and any other key is a target triple.
+  targetApplies =
+    target: key:
+    let
+      tokens = cfgTokens (lib.removeSuffix ")" (lib.removePrefix "cfg(" key));
+      result = cfgPredicate targetCfgs.${target} tokens 0;
+    in
+    if lib.hasPrefix "cfg(" key && lib.hasSuffix ")" key then
+      assert lib.assertMsg (
+        result.next == builtins.length tokens
+      ) "filesets: cannot parse the target key `${key}`";
+      result.value
+    else
+      key == target;
+  # Evaluation-time cases for `targetApplies`, one per key shape in the manifests.
+  targetCases = [
+    {
+      key = ''cfg(all(target_family = "wasm", target_os = "unknown"))'';
+      applies = true;
+    }
+    {
+      key = ''cfg(not(all(target_family = "wasm", target_os = "unknown")))'';
+      applies = false;
+    }
+    {
+      key = ''cfg(not(any(target_os = "android", target_os = "ios", target_family = "wasm", target_os = "unknown")))'';
+      applies = false;
+    }
+    {
+      key = ''cfg(any(target_os = "android", target_os = "ios"))'';
+      applies = false;
+    }
+    {
+      key = ''cfg(target_arch = "wasm32")'';
+      applies = true;
+    }
+    {
+      key = ''cfg(not(target_arch = "wasm32"))'';
+      applies = false;
+    }
+    {
+      key = "cfg(unix)";
+      applies = false;
+    }
+    {
+      key = "cfg(all())";
+      applies = true;
+    }
+    {
+      key = "wasm32-unknown-unknown";
+      applies = true;
+    }
+    {
+      key = "x86_64-unknown-linux-gnu";
+      applies = false;
+    }
+  ];
+  checkedTargetApplies =
+    assert lib.all (
+      case:
+      lib.assertMsg (
+        targetApplies "wasm32-unknown-unknown" case.key == case.applies
+      ) "filesets: `${case.key}` must give ${lib.boolToString case.applies} for wasm32"
+    ) targetCases;
+    targetApplies;
   # Cargo resolves dev-dependencies only for the packages that a command selects.
+  # With a `target`, a `[target.*]` table that does not apply to it still adds its
+  # build dependencies: the filter drops only what the target cannot use, and
+  # build dependencies run on the build machine.
   dependencyTables =
-    dev: manifest:
+    dev: target: manifest:
     let
       kinds = [
         "dependencies"
         "build-dependencies"
       ]
       ++ lib.optional dev "dev-dependencies";
-      tables = section: map (kind: section.${kind} or { }) kinds;
+      tables = kinds: section: map (kind: section.${kind} or { }) kinds;
     in
-    tables manifest ++ lib.concatMap tables (builtins.attrValues (manifest.target or { }));
+    tables kinds manifest
+    ++ lib.concatLists (
+      lib.mapAttrsToList (
+        key: section:
+        tables (
+          if target == null || checkedTargetApplies target key then kinds else [ "build-dependencies" ]
+        ) section
+      ) (manifest.target or { })
+    );
   localDependencies =
-    dev: path:
+    dev: target: path:
     lib.concatMap (
       table:
       lib.concatLists (
@@ -131,7 +287,7 @@ let
             [ ]
         ) table
       )
-    ) (dependencyTables dev (builtins.fromTOML (builtins.readFile (path + "/Cargo.toml"))));
+    ) (dependencyTables dev target (builtins.fromTOML (builtins.readFile (path + "/Cargo.toml"))));
   asPath = key: src + (lib.removePrefix (toString src) key);
   # The package directories of the workspace `default-members`.
   defaultMembers = lib.concatMap (
@@ -151,17 +307,20 @@ let
   ) workspaceManifest.workspace.default-members;
   # The package directories that `roots` compile. With `dev`, this includes the
   # roots' dev-dependencies, but not the dev-dependencies of other packages.
+  # With `target` (a name in `targetCfgs`), dependencies that Cargo does not
+  # build for that target stay out.
   closure =
     {
       roots,
       dev ? false,
+      target ? null,
     }:
     map (entry: asPath entry.key) (
       builtins.genericClosure {
         startSet =
           map (root: { key = toString root; }) roots
-          ++ lib.optionals dev (lib.concatMap (localDependencies true) roots);
-        operator = entry: localDependencies false (asPath entry.key);
+          ++ lib.optionals dev (lib.concatMap (localDependencies true target) roots);
+        operator = entry: localDependencies false target (asPath entry.key);
       }
     );
   # Files outside Cargo sources and `.sql` files that a package reads when it
@@ -208,10 +367,11 @@ let
     {
       roots,
       dev ? false,
+      target ? null,
       extra ? [ ],
     }:
     let
-      crates = closure { inherit roots dev; };
+      crates = closure { inherit roots dev target; };
       data =
         table: packages:
         lib.concatMap (

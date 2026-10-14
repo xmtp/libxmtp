@@ -80,8 +80,8 @@ class RecipeTests(unittest.TestCase):
                 self.assertNotIn("--num-workers", commands)
 
     def test_lifecycle_checks_run_once_across_ci_jobs(self):
-        # The Swift lifecycle job selects these tests; the iOS job skips them.
-        # The two must name the same tests, or a proof runs twice or never.
+        # `test-lifecycle` selects these tests and `test skip-lifecycle` skips
+        # them. The two must name the same tests, or a proof runs twice or never.
         def swift_test_args(*recipe):
             result = subprocess.run(
                 ["just", "--dry-run", "ios", *recipe],

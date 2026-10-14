@@ -47,8 +47,18 @@ else
 fi
 
 mkdir -p "$ROOT/sdks/ios/Artifacts" "$package"
-rm -rf "$ROOT/sdks/ios/Artifacts/XmtpSdkFFI.xcframework"
-cp -rL "$framework" "$ROOT/sdks/ios/Artifacts/"
+# Copying the xcframework takes long (about 361 MiB), and every iOS recipe
+# runs this script. Skip it when the copy came from the same store path.
+stamp="$ROOT/sdks/ios/Artifacts/.xcframework-store-path"
+store_path=$(readlink "$output")
+if [[ ! -d "$ROOT/sdks/ios/Artifacts/XmtpSdkFFI.xcframework" ]] ||
+  [[ "$(cat "$stamp" 2>/dev/null)" != "$store_path" ]]; then
+  rm -f "$stamp"
+  rm -rf "$ROOT/sdks/ios/Artifacts/XmtpSdkFFI.xcframework"
+  cp -rL "$framework" "$ROOT/sdks/ios/Artifacts/"
+  chmod -R u+w "$ROOT/sdks/ios/Artifacts/XmtpSdkFFI.xcframework"
+  printf '%s\n' "$store_path" >"$stamp"
+fi
 cp "$sources/xmtp_sdk.swift" "$package/"
 if [[ -d "$sources/runtime" ]]; then
   rm -rf "$package/runtime"
@@ -56,4 +66,4 @@ if [[ -d "$sources/runtime" ]]; then
 else
   cp -r "$sources/." "$package/"
 fi
-chmod -R u+w "$ROOT/sdks/ios/Artifacts" "$package"
+chmod -R u+w "$package"

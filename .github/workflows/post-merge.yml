@@ -140,7 +140,10 @@ jobs:
           # as it announces. A "will be built" or "don't know how to build"
           # section, or any other line, fails. The store is empty, so a run
           # that fetches nothing checked nothing.
-          header='^(this path|these ([0-9]+) paths) will be fetched \([0-9.]+ MiB download, [0-9.]+ MiB unpacked\):$'
+          # Nix 2.31 prints sizes in MiB; Nix 2.34 picks the unit (KiB to
+          # GiB and up) with one decimal. dev/tests/test_post_merge_closure.py
+          # holds both forms.
+          header='^(this path|these ([0-9]+) paths) will be fetched \([0-9.]+ [KMGTPEZY]iB download, [0-9.]+ [KMGTPEZY]iB unpacked\):$'
           path='^  /nix/store/[0-9a-df-np-sv-z]{32}-[^[:space:]]+$'
           fetching=false
           headers=0

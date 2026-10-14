@@ -10,14 +10,24 @@ musl_arch := if arch() == "aarch64" { "aarch64" } else { "x86_64" }
 # variable always wins, so CI and one-off overrides are untouched.
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
-# Run one command with disposable native PostgreSQL, S3, and backend services.
-# A script recipe preserves the caller's shell and each argument.
-[script('/bin/sh')]
+# Run one command with fresh test services (nix/services `clientServices`:
+# PostgreSQL without a replica, S3, anvil, the backend, and toxiproxy) on this
+# worktree's ports. The services stop when the command exits. In CI the
+# service logs go to $RUNNER_TEMP/backend-ci-logs. A script recipe preserves
+# each argument.
+[script('bash')]
 [positional-arguments]
 ci +args:
+    set -euo pipefail
     # Do not pass this module's default Rust shell to the child command.
     if [ -z {{ quote(env("NIX_DEVSHELL", "")) }} ]; then unset NIX_DEVSHELL; fi
-    exec nix run {{ root }}#backend-ci -- "$@"
+    {{ _env }}
+    printf -v XMTP_SERVICES_TEST_COMMAND '%q ' "$@"
+    export XMTP_SERVICES_TEST_COMMAND
+    if [ -n "${RUNNER_TEMP:-}" ]; then
+      export XMTP_SERVICES_LOGS="${XMTP_SERVICES_LOGS:-$RUNNER_TEMP/backend-ci-logs}"
+    fi
+    exec nix run {{ root }}#services-test
 
 # Build the binary.
 build:

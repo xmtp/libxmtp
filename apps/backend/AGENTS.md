@@ -110,11 +110,13 @@ Backend metrics do not depend on trace sampling. Client span metrics do.
 
 See `docs/self-hosted/backend-operations.md` for image builds and deployment.
 
-For isolated macOS CI, run `dev/nix-shell 'just backend ci COMMAND'`.
-It starts fresh PostgreSQL, VersityGW, and backend processes with
-a private copy of `dev/backend/local-s3.toml`. Only the backend and metrics
-listeners change to loopback. It verifies the owned sockets and removes the
-config and service data at exit. Fixed ports are
-5050, 9464, 55432, and 9067. Occupied ports cause an error. Logs remain in
-`$RUNNER_TEMP/backend-ci-logs`, or the printed temporary path for manual runs.
-This command does not start Anvil and does not provide SCW test coverage.
+`dev/nix-shell 'just backend ci COMMAND'` runs one command with fresh test
+services from `nix/services` (`nix run .#services-test`): PostgreSQL (no
+replica: the backend's replica URL is the primary, as in trunk CI), VersityGW,
+anvil, the backend with a copy of `dev/backend/local-s3.toml`, and toxiproxy.
+They listen on this worktree's
+ports from `dev/docker/.env`; an occupied port is an error. The command exits
+with the status of COMMAND and removes the service data. In CI the service logs
+go to `$RUNNER_TEMP/backend-ci-logs`. `dev/services up` starts the same
+services with a streaming replica in the background without Docker; see
+`nix/AGENTS.md`.

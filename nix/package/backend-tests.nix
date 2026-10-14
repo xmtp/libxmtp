@@ -1,17 +1,17 @@
 # Backend unit, RPC, storage, replica, and HTTPS streaming tests, and the SQLx
-# metadata check. The check phase starts disposable PostgreSQL (a primary and a
-# streaming replica) and VersityGW on loopback ports in the build sandbox.
+# metadata check. The check phase runs through `services-test` of the storage
+# services (nix/services: a PostgreSQL primary, a streaming replica, and
+# VersityGW) on free loopback ports in the build sandbox. The tests start the
+# backend from source, so the services start no backend.
 {
   xmtp,
   lib,
   stdenv,
   writeShellScript,
   postgresql_18,
-  versitygw,
-  awscli2,
-  python3,
   sqlx-cli,
   cacert,
+  services,
 }:
 let
   inherit (xmtp) base;
@@ -56,9 +56,8 @@ let
     RUST_TEST_THREADS=4 ${test} -- ${skips}
     ${lib.optionalString (!darwin) ''
       lsn=$(psql "$DATABASE_URL" -Atc 'SELECT pg_current_wal_lsn()')
-      replica="postgres://xmtp@127.0.0.1:$XMTP_BACKEND_REPLICA_PORT/xmtp_backend"
       replayed() {
-        [[ $(psql "$replica" -Atc "SELECT pg_last_wal_replay_lsn() >= '$lsn'") == t ]]
+        [[ $(psql "$XMTP_REPLICA_URL" -Atc "SELECT pg_last_wal_replay_lsn() >= '$lsn'") == t ]]
       }
       for _ in $(seq 600); do replayed && break; sleep 0.1; done
       replayed
@@ -88,22 +87,17 @@ rust.mkCargoDerivation (
     version = xmtp.mkVersion rust;
     buildPhaseCargoCommand = "${test} --no-run";
     doCheck = true;
+    # psql waits for replica replay. The backend's HTTP clients read the
+    # trust store that cacert sets; a Linux sandbox has none.
     nativeCheckInputs = [
       postgresql_18
-      versitygw
-      awscli2
-      python3
       sqlx-cli
       cacert
     ];
-    # The Docker stack's bucket settings.
-    S3_POLICY = ../../dev/docker/s3/public-read.json;
-    S3_CORS = ../../dev/docker/s3/cors.json;
-    checkPhaseCargoCommand = "bash ${./backend-tests.sh} ${run}";
+    checkPhaseCargoCommand = services.checkCommand run;
     doInstallCargoArtifacts = false;
     # A check result must name no store path, so it substitutes on a hit.
     allowedReferences = [ ];
-    # A Darwin sandbox denies loopback networking unless the derivation allows it.
-    __darwinAllowLocalNetworking = true;
   }
+  // services.sandbox
 )

@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# This worktree's test services as native processes, without Docker: the
+# PostgreSQL primary and replica, S3, anvil, the backend, and toxiproxy
+# (nix/services). The ports are this worktree slot's (dev/worktree-env), so
+# the URLs in dev/docker/.env reach this stack.
+#
+#   dev/services up       # start in the background; return when every service is ready
+#   dev/services env      # export lines for this stack
+#   dev/services ps       # process states
+#   dev/services logs P   # the log of process P
+#   dev/services down     # stop, then remove the state and the socket
+#
+# Every service listens on 127.0.0.1. The backend has no authentication, so
+# it stays off other interfaces; the Android emulator reaches the host
+# loopback at 10.0.2.2, and a device uses `adb reverse`. To serve other
+# hosts, set XMTP_BACKEND_LISTEN_HOST=0.0.0.0.
+#
+# A variable that the caller sets wins, as in dev/worktree-env:
+# XMTP_SERVICES_STATE (state directory), PC_SOCKET_PATH (the daemon socket),
+# and XMTP_SERVICES_PACKAGE (a built `services` package to run instead of
+# `.#services`; dev/tests/test_services.py runs the storage stack this way).
+set -euo pipefail
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+"${repo_root}/dev/worktree-env"
+# shellcheck source=docker/load-env
+. "${repo_root}/dev/docker/load-env"
+
+# macOS limits a socket path to 104 bytes, and TMPDIR is long there.
+export PC_SOCKET_PATH="${PC_SOCKET_PATH:-/tmp/xmtp-services-$(id -u)-${XMTP_WORKTREE_SLOT}.sock}"
+# The state sits beside the socket, not under TMPDIR: dev/nix-shell gives
+# each call its own TMPDIR, so `env` and `down` would not find it.
+state="${XMTP_SERVICES_STATE:-${PC_SOCKET_PATH%.sock}.state}"
+export XMTP_SERVICES_STATE="${state}"
+
+# The package that `up` started, so later calls need no evaluation.
+package="${XMTP_SERVICES_PACKAGE:-}"
+if [ -z "${package}" ] && [ -f "${state}/package" ]; then package="$(cat "${state}/package")"; fi
+services() {
+  if [ -z "${package}" ]; then
+    package="$(nix build --no-link --print-out-paths "${repo_root}#services")"
+  fi
+  "${package}/bin/services" "$@"
+}
+
+running() { [ -S "${PC_SOCKET_PATH}" ] && services project state >/dev/null 2>&1; }
+
+# The caller can set the state path, so remove only a directory that `up`
+# marked, and only a socket.
+marker="${state}/.xmtp-services-state"
+remove_state() {
+  if [ -e "${state}" ]; then
+    if [ ! -f "${marker}" ]; then
+      echo "services: ${state} has no $(basename "${marker}") marker; not removing it" >&2
+      return 1
+    fi
+    rm -rf "${state}"
+  fi
+  if [ -S "${PC_SOCKET_PATH}" ]; then rm -f "${PC_SOCKET_PATH}"; fi
+}
+
+case "${1:-}" in
+  up)
+    if running; then
+      echo "services: already running (${state})" >&2
+      exit 0
+    fi
+    remove_state
+    mkdir -p "${state}"
+    touch "${marker}"
+    package="${XMTP_SERVICES_PACKAGE:-}"
+    # A cold build of the package can take minutes; the readiness deadline
+    # starts once the daemon runs.
+    services up --detached --use-uds
+    printf '%s\n' "${package}" >"${state}/package"
+    start=${SECONDS}
+    # Wait until every service is ready and every init process (s3-init,
+    # replica-init, ...) completed; fail at once when a process failed or was
+    # skipped (`services xmtp-state`, which brings its own jq). A service that
+    # never gets healthy fails its probe after 120 tries, so the deadline is
+    # above that.
+    until [ "$(services xmtp-state)" = ready ]; do
+      if ((SECONDS - start > 150)) || [ "$(services xmtp-state)" = failed ]; then
+        diagnostics="$(mktemp -d "${TMPDIR:-/tmp}/xmtp-services-diagnostics.XXXXXX")"
+        services process list --output wide >"${diagnostics}/processes.txt" 2>&1 || true
+        for name in $(services xmtp-state names); do
+          services process logs "${name}" --tail 200 >"${diagnostics}/${name}.log" 2>&1 || true
+        done
+        cp "${state}/process-compose.log" "${diagnostics}/" 2>/dev/null || true
+        echo "services: start failed; diagnostics in ${diagnostics}" >&2
+        services down >/dev/null 2>&1 || true
+        remove_state || true
+        exit 1
+      fi
+      sleep 0.2
+    done
+    echo "services: ready after $((SECONDS - start)) s; backend ${XMTP_BACKEND_URL}" >&2
+    ;;
+  env) cat "${state}/env" ;;
+  ps) services process list --output wide ;;
+  logs) services process logs "${2:?usage: dev/services logs PROCESS}" --tail "${3:-100}" ;;
+  down)
+    if running; then services down; fi
+    remove_state
+    ;;
+  *)
+    echo "usage: dev/services up|env|ps|logs PROCESS|down" >&2
+    exit 2
+    ;;
+esac

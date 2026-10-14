@@ -151,6 +151,7 @@
         "dev/docker/grafana/dashboards/backend.json",
         "dev/docker/{compose.yml,load-backend-image,load-env,up}",
         "dev/js/{.setup,sdk-*,tsconfig.*.json}",
+        "dev/services",
         "dev/tls/**",
         "dev/{tests,agents,specs,release-tools,fly,ci}/**",
         "nix/fmt.nix",
@@ -420,9 +421,7 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "backend-tests-debug"
-      ],
+      "kache": [],
       "products": [],
       "cargo_roots": [
         "xmtp_backend"
@@ -459,9 +458,8 @@
         "dev/docker/{postgres,s3,toxiproxy}/**",
         "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}",
         "nix/musl-docker.nix",
-        "nix/package/backend-tests.sh",
         "nix/package/backend.nix",
-        "nix/package/{backend,backend-ci}.nix",
+        "nix/services/**",
         "nix/{ci-checks,package/backend-tests}.nix"
       ]
     },
@@ -565,8 +563,9 @@
         "dev/docker/{postgres,s3,toxiproxy}/**",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
+        "nix/services/**",
         "{.config/nextest.toml,webdriver.json}",
-        "{nix/package/nextest.nix,nix/ci-checks.nix,dev/check-ephemeral-backend}"
+        "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
       ]
     },
     "test_keepalive": {
@@ -661,7 +660,6 @@
         "crates/xmtp_sdk/**"
       ],
       "workflow_files": [
-        ".github/actions/setup-js/**",
         ".github/actions/setup-nix/**",
         ".github/workflows/test-wasm.yml"
       ],
@@ -675,7 +673,8 @@
         "dev/docker/{postgres,s3,toxiproxy}/**",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
-        "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix}",
+        "nix/services/**",
+        "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
         "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       ]
     },

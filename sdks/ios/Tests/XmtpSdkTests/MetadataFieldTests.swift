@@ -28,8 +28,7 @@ final class MetadataFieldTests: XCTestCase {
 
 			try await group.updateMetadataField(field: groupName, operation: .replace(.string("Team")))
 			try await group.updateUserData(values: [UserFieldUpdate(field: displayName, value: .string("Alix"))])
-			try await bo.conversations.sync()
-			guard case let .group(boGroup)? = try await bo.conversations.getById(id: group.id()) else {
+			guard case let .group(boGroup)? = try await syncedConversation(bo, id: group.id()) else {
 				return XCTFail("Bo did not join the group")
 			}
 			try await boGroup.sync()

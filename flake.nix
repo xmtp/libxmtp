@@ -26,6 +26,9 @@
       flake = false;
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
+    # The test services (nix/services). The project has no release after
+    # 0.1.0, so pin a revision.
+    process-compose-flake.url = "github:Platonic-Systems/process-compose-flake/142d4b084026e91d9ab5822639d308aca5fb1b2b";
   };
 
   outputs =
@@ -47,23 +50,17 @@
         ./nix/node-packages.nix
         ./nix/android-packages.nix
         ./nix/apps.nix
+        ./nix/services
       ];
       perSystem =
         {
           pkgs,
           lib,
-          self',
           system,
           ...
         }:
         {
           _module.args.pkgs = lib.mkForce (self.lib.mkXmtpPkgs { inherit system; });
-          apps = lib.optionalAttrs pkgs.stdenv.isDarwin {
-            backend-ci = {
-              type = "app";
-              program = "${self'.packages.backend-ci}/bin/backend-ci";
-            };
-          };
           devShells = {
             rust = pkgs.callPackage ./nix/shells/rust.nix { };
             default = pkgs.callPackage ./nix/shells/local.nix { };
@@ -106,9 +103,6 @@
             # which inject -mmacos-version-min flags that
             # conflict with iOS cross-compilation. The builds are impure (__noChroot)
             # and use the system Xcode SDK directly via ios-env.nix paths.
-            backend-ci = pkgs.callPackage ./nix/package/backend-ci.nix {
-              backend = self'.packages.xmtp-backend;
-            };
             ios-libs =
               (pkgs.callPackage ./nix/package/ios.nix {
                 stdenv = pkgs.stdenvNoCC;
