@@ -2,6 +2,52 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-# Use build and render separately when a job needs several target sets.
-python3 crates/xmtp_sdk/dev/sdk-artifacts.py build "$@"
-python3 crates/xmtp_sdk/dev/sdk-artifacts.py render "$@"
+# XMTP_SDK_BUILD selects how target/sdk-generated is filled:
+#   cargo (default): build each artifact (debug unless --profile release), then
+#     render the selected targets. Use build and render separately when a job
+#     needs several target sets.
+#   nix: copy the release-profile Nix trees (`.#xmtp-sdk-generated-<target>`),
+#     which CI substitutes from the products jobs. Each tree keeps its receipt
+#     and its @ubjs links; the out-links in target/sdk-generated.nix are their
+#     GC roots.
+case "${XMTP_SDK_BUILD:-cargo}" in
+  cargo)
+    python3 crates/xmtp_sdk/dev/sdk-artifacts.py build "$@"
+    python3 crates/xmtp_sdk/dev/sdk-artifacts.py render "$@"
+    ;;
+  nix)
+    targets=swift,kotlin,node,browser
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --targets) targets="$2"; shift 2 ;;
+        --targets=*) targets="${1#--targets=}"; shift ;;
+        *) echo "XMTP_SDK_BUILD=nix takes only --targets, not $1" >&2; exit 2 ;;
+      esac
+    done
+    mkdir -p target/sdk-generated target/sdk-generated.nix
+    for target in ${targets//,/ }; do
+      case "$target" in
+        node) languages=typescript-napi ;;
+        browser) languages="typescript-wasm typescript-pure" ;;
+        swift|kotlin) languages="$target" ;;
+        *) echo "unknown SDK target: $target" >&2; exit 2 ;;
+      esac
+      nix build --out-link "target/sdk-generated.nix/$target" ".#xmtp-sdk-generated-$target"
+      for language in $languages; do
+        tree="target/sdk-generated/$language"
+        if [ -e "$tree" ]; then
+          chmod -R u+w "$tree"
+          rm -rf "$tree"
+        fi
+        # -R keeps the @ubjs links as links.
+        cp -R "target/sdk-generated.nix/$target/$language" "$tree"
+        chmod -R u+w "$tree"
+      done
+    done
+    echo "SDK generated $targets from Nix"
+    ;;
+  *)
+    echo "XMTP_SDK_BUILD must be cargo or nix, not ${XMTP_SDK_BUILD}" >&2
+    exit 2
+    ;;
+esac

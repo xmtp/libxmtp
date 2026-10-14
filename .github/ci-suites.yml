@@ -135,6 +135,7 @@ path_groups:
     - "nix/package/node.nix"
     - "nix/node-packages.nix"
     - "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix"
+    - "nix/sdk-platforms.json"
     - "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix"
     - "nix/lib/packages/napi-rs-cli/**"
   swift:
@@ -160,6 +161,13 @@ path_groups:
     - "apps/{cli,web-chat,docs}/**"
 
 products:
+  # The JavaScript suites' and the docs site's Nix products: the Node and
+  # browser trees and the browser platform fixtures. JS-only changes build no
+  # group; the suites substitute the warm outputs.
+  sdk_js:
+    path_filters:
+      - path_group: sdk_core
+      - "nix/ci-sets.nix"
   # The Android suites' Nix products: the Kotlin tree, the JNI libraries, and
   # the JNA host library. They are Rust builds of the SDK and do not read
   # sdks/android, so a Kotlin-only change builds no group.
@@ -440,10 +448,10 @@ suites:
     workflow: check-types.yml
     run_on: [ready_pr_push, merge]
     disable_on_forks: false
-    secrets: kache
+    secrets: none
     permissions: {contents: read}
-    kache: [sdk-products-debug]
-    products: []
+    kache: []
+    products: [sdk_js]
     path_filters:
       - path_group: js_workspace
       - path_group: js_packages
@@ -453,10 +461,10 @@ suites:
     workflow: check-sdk-products.yml
     run_on: [ready_pr_push, merge]
     disable_on_forks: false
-    secrets: kache
+    secrets: none
     permissions: {contents: read}
-    kache: [sdk-products-debug]
-    products: []
+    kache: []
+    products: [sdk_js, sdk_android]
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -470,8 +478,8 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
-    kache: [sdk-native-debug]
-    products: []
+    kache: []
+    products: [sdk_js]
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -485,8 +493,8 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
-    kache: [sdk-native-debug]
-    products: []
+    kache: []
+    products: [sdk_js]
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -499,8 +507,8 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
-    kache: [sdk-products-debug]
-    products: []
+    kache: []
+    products: [sdk_js]
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -517,8 +525,8 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
-    kache: [sdk-browser-conformance]
-    products: []
+    kache: []
+    products: [sdk_js]
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -530,8 +538,8 @@ suites:
     disable_on_forks: false
     secrets: kache
     permissions: {contents: read}
-    kache: [rust-reference, sdk-products-debug]
-    products: []
+    kache: [rust-reference]
+    products: [sdk_js]
     path_filters:
       - path_group: js_workspace
       - path_group: sdk_core

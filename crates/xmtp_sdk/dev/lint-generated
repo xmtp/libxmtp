@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
+# Check the generated SDK trees. `just sdk lint-source` checks the sources,
+# which need no generated tree, and `just sdk lint` runs both.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-
-crates/xmtp_sdk/dev/check-file-sizes
 
 generated=target/sdk-generated
 # The checks below read every target root. A missing root makes rg exit 2,
@@ -15,31 +15,18 @@ for language in swift kotlin typescript-napi typescript-wasm typescript-pure; do
     exit 1
   fi
 done
-crates/xmtp_sdk/dev/check-fork-pin
-crates/xmtp_sdk/dev/check-public-names "$generated"
-crates/xmtp_sdk/dev/check-test-hooks --self-test
+crates/xmtp_sdk/dev/check-generated-surface "$generated"
 crates/xmtp_sdk/dev/check-test-hooks "$generated"
-crates/xmtp_sdk/dev/check-conformance-exports "$generated"
-crates/xmtp_sdk/dev/check-encoded-content-shape "$generated"
-python3 crates/xmtp_sdk/dev/check-storage-path-async "$generated"
-crates/xmtp_sdk/dev/check-message-lifts "$generated"
 node crates/xmtp_sdk/dev/check-pure-wasm.mjs
-# Any @xmtp-name is marker text, unless it starts a package path (@xmtp-org/pkg).
-if rg -n '@xmtp-[a-z][a-z0-9-]*([^a-z0-9/-]|$)' "$generated" --glob '*.swift' --glob '*.kt' --glob '*.ts'; then
-  echo 'a metadata marker leaked into generated bindings' >&2
-  exit 1
-fi
 
 echo "Linting the runtime and generated files; stock ubrn output stays excluded."
-bash crates/xmtp_sdk/dev/link-runtime-packages \
-  "$generated/typescript-napi" "$generated/typescript-wasm" "$generated/typescript-pure"
 # The runtime imports the binding and the files generated beside it, so its
 # copies in the generated trees are linted and typechecked, with the real
 # binding. A target replaces some runtime files with its own.
-node_modules/.bin/oxfmt --config .oxfmtrc.json --check apps/xmtp_sdk_bindgen/runtime/ts
+typecheck=()
 for tree in typescript-napi typescript-wasm typescript-pure; do
   runtime="$generated/$tree/runtime"
-  # oxlint and oxfmt without a path read the whole repository.
+  # oxlint without a path reads the whole repository.
   if [ ! -d "$runtime" ]; then
     echo "missing $runtime: run \`just sdk generate\` first" >&2
     exit 1
@@ -53,21 +40,23 @@ for tree in typescript-napi typescript-wasm typescript-pure; do
     exit 1
   fi
   node_modules/.bin/oxlint --config .oxlintrc.json "${runtime_files[@]}"
-  node_modules/.bin/oxfmt --config .oxfmtrc.json --check "${runtime_files[@]}"
   if [ "$tree" != typescript-pure ]; then
-    sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --isolatedModules --esModuleInterop \
-      --module preserve --moduleResolution bundler --target es2024 --lib ES2024,DOM,WebWorker \
-      --typeRoots sdks/node/node_modules/@types --types node "${runtime_files[@]}"
+    typecheck+=("${runtime_files[@]}")
   fi
 done
 node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-napi/"*.gen.ts "$generated/typescript-napi/index.ts"
 node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-wasm/"*.gen.ts "$generated/typescript-wasm/"*.gen.test.ts "$generated/typescript-wasm/index.ts"
-node_modules/.bin/oxfmt --config apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json --check "$generated/typescript-wasm/"*.gen.ts "$generated/typescript-wasm/"*.gen.test.ts
-sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target es2022 --allowImportingTsExtensions --typeRoots sdks/node/node_modules/@types --types node "$generated/typescript-wasm/"*.gen.ts
-node crates/xmtp_sdk/dev/check-bridge-casts.mjs
 # The pure module's public entry: lint and strict types.
 node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-pure/"*.gen.ts "$generated/typescript-pure/index.ts"
-sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target es2022 --allowImportingTsExtensions "$generated/typescript-pure/index.ts"
-node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --allowImportingTsExtensions \
+# Two strict typechecks. The Node and worker runtime copies and the worker's
+# generated modules may use Node types; the pure public entry and the
+# browser platform proofs that import the worker tree must not, so a use of
+# `process` there fails.
+typecheck+=("$generated/typescript-wasm/"*.gen.ts)
+sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --isolatedModules --esModuleInterop \
+  --module preserve --moduleResolution bundler --target es2024 --lib ES2024,DOM,WebWorker \
+  --allowImportingTsExtensions --typeRoots sdks/node/node_modules/@types --types node "${typecheck[@]}"
+sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler \
+  --target es2022 --allowImportingTsExtensions "$generated/typescript-pure/index.ts" \
   sdks/browser/test/platform/suite.worker.ts sdks/browser/test/platform/attachment-lifetime.chromium.ts \
   sdks/browser/test/platform/storage.layout.chromium.ts

@@ -1,60 +1,56 @@
 name: Check SDK products
 'on':
   workflow_call:
-    secrets:
-      KACHE_S3_ACCESS_KEY_ID:
-        description: "Optional compiler cache reader access key ID"
-        required: false
-      KACHE_S3_SECRET_ACCESS_KEY:
-        description: "Optional compiler cache reader secret access key"
-        required: false
 jobs:
   generated:
     name: Check (generated SDK products)
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    environment:
-      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
     timeout-minutes: 90
     env:
       NIX_DEVSHELL: rust
+      # The release-profile Nix products (products_sdk_js), not a cargo build.
+      XMTP_SDK_BUILD: nix
     permissions:
       contents: read
     steps:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
     - uses: ./.github/actions/setup-nix
       with:
-        cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
+        cache-mode: ci
         github-token: ${{ github.token }}
-        kache: "true"
-        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
-        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
-        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
-        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-        kache-scope: sdk-products-debug
-        kache-readonly: "false"
     - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
     - uses: ./.github/actions/setup-js
       with:
-        cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
+        cache-mode: ci
       env:
         NIX_DEVSHELL: js
-    - name: Check native Nix inputs
+    # Source checks first: they need no generated tree.
+    - name: Check SDK sources
       env:
         NIX_DEVSHELL: rust
-      run: dev/nix-shell 'just sdk check-native-nix'
+      run: dev/nix-shell 'just sdk lint-source'
+    - name: Check the generated SDK build closures
+      env:
+        NIX_DEVSHELL: rust
+      run: dev/nix-shell 'just sdk check-generated-nix'
+    # The Kotlin tree and the Android fast consumer: files, receipts, source
+    # and render identities, and the ELF library (Swift only on Darwin).
+    - name: Check the SDK product receipts
+      env:
+        NIX_DEVSHELL: rust
+      run: dev/nix-shell 'python3 -B nix/check-sdk-products.py'
     - name: Check package scripts
       env:
         NIX_DEVSHELL: rust
       run: dev/nix-shell 'just sdk check-package-scripts'
-    - name: Generate local SDK products
+    # The Nix trees of every target; the cargo render path, including its
+    # stale-file cleanup, is covered by `check-package-scripts`.
+    - name: Generate SDK products from Nix
       run: dev/nix-shell 'just sdk generate'
-    - name: Check local clean SDK generation
-      run: dev/nix-shell 'just sdk check-clean-generate'
     - name: Check generated SDK bindings and runtime
       env:
         NIX_DEVSHELL: rust
-      run: dev/nix-shell 'just sdk lint'
+      run: dev/nix-shell 'just sdk lint-generated'
     - name: Local installed Node ESM package smoke
       run: dev/nix-shell 'just sdk package-smoke node'
     - name: Local installed Browser pure and worker package smoke

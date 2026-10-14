@@ -16,8 +16,10 @@ runs:
       shell: bash
     - name: Add targets
       if: ${{ inputs.targets != '' }}
+      env:
+        INPUT_TARGETS: ${{ inputs.targets }}
       run: |
-        IFS=',' read -ra TARGETS <<< "${{ inputs.targets }}"
+        IFS=',' read -ra TARGETS <<< "$INPUT_TARGETS"
         for target in "${TARGETS[@]}"; do
           target="${target#"${target%%[![:space:]]*}"}"
           target="${target%"${target##*[![:space:]]}"}"

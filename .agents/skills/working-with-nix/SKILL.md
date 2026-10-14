@@ -91,7 +91,7 @@ nix build .#xmtp-sdk-node-darwin-arm64               # Host-matching .node binar
 nix build .#xmtp-sdk-generated                 # Generated JS/TS bindings
 nix build .#xmtp-sdk-node-linux-x64-gnu      # Per-target .node (example)
 nix build .#android-sdk-libs                     # All Android targets
-nix build .#ios-libs                         # All iOS targets (macOS only)
+nix build .#ios-xcframeworks                 # iOS release XCFramework (macOS only)
 
 # Explore
 nix flake show           # List all outputs

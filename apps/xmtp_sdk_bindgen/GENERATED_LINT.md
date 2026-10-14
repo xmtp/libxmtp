@@ -10,9 +10,10 @@ this reason.
 generated bridge `*.gen.ts` and `*.gen.test.ts` files. The runtime in
 `apps/xmtp_sdk_bindgen/runtime/ts` imports the binding and the files that the
 generator writes beside it, so the lint reads its copy in each generated tree:
-Oxlint and Oxfmt check every copied runtime file, and `tsc` typechecks the
-Node and browser copies against the real binding and the `@ubjs` packages,
-which `crates/xmtp_sdk/dev/link-runtime-packages` links into each tree. Run
-`just sdk generate` first. It also rejects TypeScript type assertions in the
-bridge. Stock ubrn output stays excluded until its templates meet the root
+Oxlint checks every copied runtime file, and `tsc` typechecks the Node and
+browser copies against the real binding and the `@ubjs` packages that each
+tree links in its `node_modules`. Run
+`just sdk generate` first. The Oxlint rule `typescript/consistent-type-assertions`
+(an override in `.oxlintrc.json`) rejects type assertions in the bridge, its
+copies, and the generated bridge modules. Stock ubrn output stays excluded until its templates meet the root
 rules.

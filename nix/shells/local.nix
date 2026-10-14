@@ -28,6 +28,7 @@
   just,
   python311,
   uv,
+  oxfmt,
 }:
 let
   inherit (stdenv) isDarwin;
@@ -54,6 +55,9 @@ mkShell (
     meta.description = "Full libXMTP local development environment";
 
     XMTP_DEV_SHELL = "local";
+    # The SDK bindgen formats generated TypeScript with this binary, the same
+    # one the Nix render uses.
+    XMTP_SDK_OXFMT = "${oxfmt}/bin/oxfmt";
 
     # --- Rust base ---
     inherit (shellCommon.rustBase) hardeningDisable nativeBuildInputs LD_LIBRARY_PATH;

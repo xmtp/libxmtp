@@ -45,6 +45,9 @@ let
               xmtp-sdk-generated-node
               xmtp-sdk-generated-browser
               xmtp-sdk-generated-kotlin
+              # The browser platform proofs copy these test fixtures.
+              xmtp-sdk-wasm-fixture-panic
+              xmtp-sdk-pure-fixture-codec
               xmtp-backend
               backend-image-x86_64-unknown-linux-musl
               ;
@@ -61,6 +64,16 @@ let
             android-sdk-libs
             # release-android.yml (`just example-android apk`).
             example-android-apk
+            ;
+        };
+        # For the JavaScript suites and the docs site: the Node and browser
+        # trees and the browser platform fixtures.
+        sdk_js = mkSet pkgs "sdk_js" {
+          inherit (p)
+            xmtp-sdk-generated-node
+            xmtp-sdk-generated-browser
+            xmtp-sdk-wasm-fixture-panic
+            xmtp-sdk-pure-fixture-codec
             ;
         };
         # For the Android suites: the Kotlin tree, the JNI libraries (one ABI

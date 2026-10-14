@@ -18,7 +18,6 @@ from packaging_test_base import (
     android_inputs,
     artifacts,
     mobile,
-    receipt,
 )
 
 
@@ -303,45 +302,6 @@ class PackagingTests(
                         )
                         shutil.rmtree(output)
 
-    def test_bridge_fixture_builds_use_rust_shell(self):
-        source = Path(__file__).with_name("run-browser-platform-tests").read_text()
-        names = ("prepare-bridge-panic-fixture", "prepare-pure-codec-fixture")
-        commands = [
-            line
-            for line in source.splitlines()
-            if any("bash crates/xmtp_sdk/dev/" + name in line for name in names)
-        ]
-        self.assertEqual(len(commands), 2)
-        wrapper = self.root / "dev/nix-shell"
-        wrapper.parent.mkdir(parents=True)
-        wrapper.write_text(
-            '#!/usr/bin/env bash\nset -euo pipefail\nexport XMTP_DEV_SHELL="$NIX_DEVSHELL"\nexec bash -euc "$1"\n'
-        )
-        wrapper.chmod(0o755)
-        trace = self.root / "fixture-shells.txt"
-        for name in names:
-            fixture = self.root / "crates/xmtp_sdk/dev" / name
-            fixture.parent.mkdir(parents=True, exist_ok=True)
-            fixture.write_text(
-                'printf "%s:%s\\n" "'
-                + name
-                + '" "$XMTP_DEV_SHELL" >> "$SDK_SHELL_TRACE"\n'
-            )
-        for command in commands:
-            subprocess.run(
-                ["bash", "-euc", command],
-                cwd=self.root,
-                check=True,
-                env=dict(
-                    os.environ,
-                    XMTP_DEV_SHELL="js",
-                    NIX_DEVSHELL="js",
-                    SDK_SHELL_TRACE=str(trace),
-                ),
-            )
-        expected = [name + ":rust" for name in names]
-        self.assertEqual(trace.read_text().splitlines(), expected)
-
     def native_receipts(self, target="ios"):
         native = json.loads((self.args.artifacts / "artifacts.json").read_text())[
             "artifacts"
@@ -354,42 +314,21 @@ class PackagingTests(
                 json.dumps({"artifacts": {"native": dict(native, target=triple)}})
             )
 
-    def test_live_compile_inputs_invalidate_build_and_recorded_source(self):
-        for name in artifacts.COMPILE_INPUTS:
-            with self.subTest(input=name):
-                path = self.root / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("original embedded data")
-                artifacts.build(self.args)
-                artifacts.render(self.args)
-                before = artifacts.source_hash()
-                binaries = {
-                    role: Path(next(iter(item["files"])))
-                    for role, item in json.loads(
-                        (self.args.artifacts / "artifacts.json").read_text()
-                    )["artifacts"].items()
-                }
-                receipt.record(self.args.out, binaries)
-                old_record = json.loads(
-                    (self.args.out / "swift/sdk-contract.json").read_text()
-                )
-                before_calls = len(self.calls)
-                path.write_text("changed embedded data only")
-                self.assertNotEqual(artifacts.source_hash(), before)
-                receipt.record(self.args.out, binaries)
-                new_record = json.loads(
-                    (self.args.out / "swift/sdk-contract.json").read_text()
-                )
-                self.assertNotEqual(
-                    new_record["artifact"]["source"], old_record["artifact"]["source"]
-                )
-                artifacts.build(self.args)
-                self.assertEqual(len(self.calls), before_calls + 2)
-                path.write_text("original embedded data")
-                artifacts.build(self.args)
-                artifacts.render(self.args)
-                self.assertEqual(artifacts.source_hash(), before)
-                print("Embedded input changed source hash and rebuild; restored:", name)
+    def test_source_identity_change_invalidates_build_and_recorded_source(self):
+        path = self.root / "crates/xmtp_id/src/scw_verifier/chain_urls_default.json"
+        path.parent.mkdir(parents=True)
+        path.write_text("original embedded data")
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        old_record = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
+        before_calls = len(self.calls)
+        path.write_text("changed embedded data only")
+        self.assertNotEqual(artifacts.source_hash(), old_record["artifact"]["source"])
+        artifacts.build(self.args)
+        self.assertEqual(len(self.calls), before_calls + 2)
+        artifacts.render(self.args)
+        new_record = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
+        self.assertEqual(new_record["artifact"]["source"], artifacts.source_hash())
 
     def test_swapped_mobile_targets_rejected_before_assembly(self):
         for target in ("android", "ios"):
@@ -487,19 +426,13 @@ class PackagingTests(
         for path, original in original_receipts.items():
             self.assertEqual(path.read_bytes(), original)
 
-    def test_render_without_build_keeps_stale_generator_for_preflight(self):
+    def test_render_rejects_a_stale_generator(self):
         self.args.targets = ("swift", "kotlin")
         artifacts.build(self.args)
         artifacts.render(self.args)
-        for platform in ("ios", "android"):
-            self.native_receipts(platform)
-            mobile.preflight(self.args.out, self.root / "mobile", platform)
         (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("new template")
-        artifacts.render(self.args)
-        for platform in ("ios", "android"):
-            with self.subTest(platform=platform):
-                with self.assertRaisesRegex(ValueError, "binding generator mismatch"):
-                    mobile.preflight(self.args.out, self.root / "mobile", platform)
+        with self.assertRaisesRegex(ValueError, "generator mismatch"):
+            artifacts.render(self.args)
 
     def test_render_without_build_keeps_stale_source_for_preflight(self):
         self.args.targets = ("swift", "kotlin")
@@ -547,8 +480,12 @@ class PackagingTests(
         self.assertEqual(actual, native)
         artifacts.render(self.args)
         binding = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
-        self.assertEqual(binding["artifact"], native)
-        self.assertEqual(binding["generator"], artifacts.source_hash(True))
+        fields = ("source", "features", "profile", "target")
+        self.assertEqual(
+            {field: binding["artifact"][field] for field in fields},
+            {field: native[field] for field in fields},
+        )
+        self.assertEqual(binding["generator"], artifacts.render_hash("swift"))
         for path, original_receipt in native_receipts.items():
             self.assertEqual(path.read_bytes(), original_receipt)
         for platform in ("ios", "android"):
@@ -614,50 +551,23 @@ class PackagingTests(
         artifacts.build(self.args)
         artifacts.render(self.args)
 
-    def test_config_only_change_invalidates_cli_and_recorded_contract(self):
+    def test_config_only_change_invalidates_recorded_source(self):
         artifacts.build(self.args)
         artifacts.render(self.args)
         self.native_receipts()
-        original = self.config.read_text()
         before = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
-        binaries = {
-            role: Path(next(iter(item["files"])))
-            for role, item in json.loads(
-                (self.args.artifacts / "artifacts.json").read_text()
-            )["artifacts"].items()
-        }
-        receipt.record(self.args.out, binaries)
-        recorded_before = json.loads(
-            (self.args.out / "swift/sdk-contract.json").read_text()
-        )
         self.config.write_text("changed configuration only")
-        receipt.record(self.args.out, binaries)
-        recorded_after = json.loads(
-            (self.args.out / "swift/sdk-contract.json").read_text()
-        )
-        self.assertNotEqual(recorded_before["contract"], recorded_after["contract"])
-        self.assertNotEqual(before["generator"], recorded_after["generator"])
+        # The crate configuration is SDK source, not generator source.
+        self.assertNotEqual(artifacts.source_hash(), before["artifact"]["source"])
+        self.assertEqual(artifacts.render_hash("swift"), before["generator"])
+        with self.assertRaisesRegex(ValueError, "mobile binding source mismatch"):
+            mobile.preflight(self.args.out, self.root / "mobile", "ios")
+        artifacts.build(self.args)
+        artifacts.render(self.args)
         with self.assertRaisesRegex(ValueError, "mobile binding contract mismatch"):
             mobile.preflight(self.args.out, self.root / "mobile", "ios")
-        self.config.write_text(original)
-        artifacts.render(self.args)
-        mobile.preflight(self.args.out, self.root / "mobile", "ios")
-
-    def test_both_receipt_producers_pass_mobile_preflight(self):
-        artifacts.build(self.args)
-        artifacts.render(self.args)
         self.native_receipts()
         mobile.preflight(self.args.out, self.root / "mobile", "ios")
-        binaries = {
-            role: Path(next(iter(item["files"])))
-            for role, item in json.loads(
-                (self.args.artifacts / "artifacts.json").read_text()
-            )["artifacts"].items()
-        }
-        receipt.record(self.args.out, binaries)
-        mobile.preflight(self.args.out, self.root / "mobile", "ios")
-        recorded = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
-        self.assertEqual(recorded["artifact"]["source"], artifacts.source_hash())
 
     def test_conformance_bindings_rejected_before_mobile_assembly(self):
         self.args.features = "conformance"

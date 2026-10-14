@@ -11,10 +11,20 @@ generate targets="swift,kotlin,node,browser":
 check-clean-generate:
     bash "{{ root }}/crates/xmtp_sdk/dev/check-generate-cleans-stale"
 
+# Source checks that need no generated tree. CI runs them before generating.
+lint-source:
+    cd "{{ root }}" && crates/xmtp_sdk/dev/check-file-sizes
+    cd "{{ root }}" && crates/xmtp_sdk/dev/check-test-hooks --self-test
+    cd "{{ root }}" && crates/xmtp_sdk/dev/check-public-names
+    cd "{{ root }}" && node_modules/.bin/oxfmt --config .oxfmtrc.json --check apps/xmtp_sdk_bindgen/runtime/ts
+    cd "{{ root }}" && node_modules/.bin/oxfmt --config apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json --check apps/xmtp_sdk_bindgen/templates/bridge
+
 # Check generated names, test hooks, and the TypeScript bridge we maintain.
-# Run `just sdk generate` first: lint reads every generated target root.
-lint:
+# Run `just sdk generate` first: it reads every generated target root.
+lint-generated:
     bash "{{ root }}/crates/xmtp_sdk/dev/lint-generated"
+
+lint: lint-source lint-generated
 
 # Check every tracked or unignored SDK source file.
 check-file-sizes:
@@ -31,13 +41,13 @@ test-bridge *args:
 
 # Browser platform proofs in sdks/browser/test/platform: real WASM workers,
 # Chromium storage, package, logging and bridge proofs, and the Vitest
-# Playwright suite. Builds the panic and pure codec fixtures in the Rust shell.
+# Playwright suite. Copies the Nix-built panic and pure codec fixtures.
 test-browser:
     bash "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests"
 
 # Run only the real-worker and Chromium log queue proofs.
 test-browser-logging: wasm-init
-    cd "{{ root }}" && NIX_DEVSHELL=rust "{{ root }}/dev/nix-shell" 'bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture'
+    cd "{{ root }}" && bash crates/xmtp_sdk/dev/copy-browser-fixtures
     cd "{{ root }}" && NIX_DEVSHELL=js "{{ root }}/dev/nix-shell" 'NODE_OPTIONS=--preserve-symlinks sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/bridge.log.real.mts'
     cd "{{ root }}" && NIX_DEVSHELL=js "{{ root }}/dev/nix-shell" 'NODE_OPTIONS= sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/logging.chromium.mts'
 
@@ -63,18 +73,11 @@ stage target:
 package-smoke target="node":
     cd "{{ root }}" && bash crates/xmtp_sdk/dev/package-smoke "{{ target }}"
 
-# Evaluate native build inputs. This command does not compile a product.
-check-native-nix:
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/check-native-nix.py
-    cd "{{ root }}" && python3.11 -B crates/xmtp_sdk/dev/check-source-nix.py
-
 # Check the real generation and mobile consumer build closures.
 check-generated-nix:
     cd "{{ root }}" && python3.11 -B crates/xmtp_sdk/dev/check-generated-nix.py
 
 check-package-scripts:
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-native-nix-gate.py
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-generated-records.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-artifacts.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-packaging.py

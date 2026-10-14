@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Copy the Nix-built browser platform fixtures to where the proofs import them:
+# the worker tree with `bridge-panic-test,conformance` and the pure tree with
+# `pure-only,conformance`. Each copy keeps its node_modules/@ubjs links, and
+# the out-links under target/sdk-fixtures keep their targets alive.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+
+copy() {
+  local attr="$1" destination="$2"
+  nix build --out-link "target/sdk-fixtures/$attr" ".#$attr"
+  if [ -e "$destination" ]; then
+    chmod -R u+w "$destination"
+    rm -rf "$destination"
+  fi
+  mkdir -p "$(dirname "$destination")"
+  cp -R "target/sdk-fixtures/$attr/" "$destination"
+  chmod -R u+w "$destination"
+}
+
+copy xmtp-sdk-wasm-fixture-panic target/sdk-bridge-panic-fixture/typescript-wasm
+copy xmtp-sdk-pure-fixture-codec target/sdk-pure-codec-fixture/typescript-pure
+# The worker tree imports Timestamp from the pure tree beside it.
+ln -sfn ../sdk-generated/typescript-pure target/sdk-bridge-panic-fixture/typescript-pure

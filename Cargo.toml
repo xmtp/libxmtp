@@ -352,5 +352,6 @@ path = "crates/xmtp-workspace-hack"
 arc_with_non_send_sync = "allow"
 uninlined_format_args = "allow"
 [workspace.metadata.xmtp-sdk-fork]
-# Cargo.lock pins all three packages to this commit. SDK lint checks the lock.
+# Cargo.lock pins all three packages to this commit, and the `ubrn-src` flake
+# input names it too. Nix evaluation checks both (nix/lib/packages/ubrn.nix).
 rev = "ac44bb3bf53aa4360dda933faacedf35370588ec"

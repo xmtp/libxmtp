@@ -31,8 +31,7 @@ fi
 if [ "${1:-all}" = migration ]; then exit 0; fi
 
 bash crates/xmtp_sdk/dev/check-wasm-init
-NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture'
-NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-pure-codec-fixture'
+bash crates/xmtp_sdk/dev/copy-browser-fixtures
 # `just sdk test-bridge` runs bridge.real.mts and bridge.values.real.mts
 # through the generated conformance.gen.test.ts.
 NODE_OPTIONS="--preserve-symlinks --expose-gc" \

@@ -3,11 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-# The browser and pure trees import the @ubjs packages beside them. This
-# check loads both trees, and the browser suites that run it first load them
-# next.
-bash crates/xmtp_sdk/dev/link-runtime-packages \
-  target/sdk-generated/typescript-wasm target/sdk-generated/typescript-pure
-
+# The browser and pure trees import the @ubjs packages that their
+# node_modules link.
 export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--preserve-symlinks"
 sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/dev/check-wasm-init.mts

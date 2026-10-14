@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check native build context: source fingerprint, compiler inputs, and deployment floors."""
+"""Check native build context: source identity, compiler inputs, and deployment floors."""
 
 import json
 import os
@@ -10,14 +10,90 @@ import unittest
 from packaging_test_base import PackagingTestBase, artifacts
 
 
+# The fixture base replaces this; keep the real function for its own tests.
+REAL_PROVENANCE = artifacts.provenance.__wrapped__
+
+
 class NativeBuildContextTests(PackagingTestBase, unittest.TestCase):
-    def test_git_and_filtered_source_have_same_fingerprint(self):
-        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
-        subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
-        expected = (artifacts.source_hash(), artifacts.source_hash(True))
-        (self.root / ".git").rename(self.root / ".git-hidden")
-        actual = (artifacts.source_hash(), artifacts.source_hash(True))
-        self.assertEqual(actual, expected)
+    def test_untracked_input_files_fail_before_the_nix_evaluation(self):
+        def git(*args):
+            return subprocess.check_output(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                cwd=self.root,
+                text=True,
+            )
+
+        git("init", "--quiet")
+        git("add", "--all")
+        git("commit", "--quiet", "--no-verify", "--no-gpg-sign", "-m", "fixture")
+        added = self.root / "crates/xmtp_sdk/src/added.rs"
+        added.parent.mkdir(parents=True, exist_ok=True)
+        added.write_text("pub fn added() {}")
+        real = subprocess.check_output
+        evaluated = {"source": "closure", "generator": "bindgen closure"}
+
+        def nix_or_git(command, **kwargs):
+            if command[0] == "nix":
+                return json.dumps(evaluated).encode()
+            return real(command, **kwargs)
+
+        with (
+            patch.object(artifacts.sys, "platform", "linux"),
+            patch.object(artifacts.subprocess, "check_output", side_effect=nix_or_git),
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "git add.*crates/xmtp_sdk/src/added.rs"
+            ):
+                REAL_PROVENANCE()
+            git("add", "--all")
+            self.assertEqual(REAL_PROVENANCE(), evaluated)
+            # Files that are not SDK inputs do not block the evaluation.
+            for name in (
+                "crates/xmtp_sdk/proptest-regressions/lib.txt",
+                "crates/xmtp_sdk/src/lib.rs.orig",
+            ):
+                (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+                (self.root / name).write_text("not an input")
+            self.assertEqual(REAL_PROVENANCE(), evaluated)
+
+    def test_windows_identity_names_the_commit_and_uncommitted_inputs(self):
+        def git(*args):
+            return subprocess.check_output(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                cwd=self.root,
+                text=True,
+            ).strip()
+
+        def identity():
+            with patch.object(artifacts.sys, "platform", "win32"):
+                value = REAL_PROVENANCE()
+            self.assertEqual(value["source"], value["generator"])
+            return value["source"]
+
+        source = self.root / "crates/xmtp_sdk/src/lib.rs"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("pub fn committed() {}")
+        git("init", "--quiet")
+        git("add", "--all")
+        git("commit", "--quiet", "--no-verify", "--no-gpg-sign", "-m", "fixture")
+        clean = f"commit:{git('rev-parse', 'HEAD')}"
+        self.assertEqual(identity(), clean)
+        # Files outside the SDK inputs, such as a runtime checkout, do not count.
+        (self.root / "ubrn").mkdir()
+        (self.root / "ubrn/file.txt").write_text("other checkout")
+        self.assertEqual(identity(), clean)
+        source.write_text("pub fn edited() {}")
+        edited = identity()
+        self.assertTrue(edited.startswith(clean + "+dirty:"), edited)
+        source.write_text("pub fn committed() {}")
+        added = self.root / "apps/xmtp_sdk_bindgen/runtime/swift/new.swift"
+        added.parent.mkdir(parents=True, exist_ok=True)
+        added.write_text("// first")
+        untracked = identity()
+        self.assertTrue(untracked.startswith(clean + "+dirty:"), untracked)
+        self.assertNotEqual(untracked, edited)
+        added.write_text("// second")
+        self.assertNotIn(identity(), (clean, edited, untracked))
 
     def test_unqualified_compiler_inputs_change_native_cache_admission(self):
         names = (
