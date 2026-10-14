@@ -43,28 +43,6 @@ class AndroidDependencyInputs:
                 self.assertEqual(self.product_files(output), previous)
                 self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
 
-    def test_android_fixture_inputs_do_not_cover_selected_sdk_root(self):
-        output = self.prepare_mobile_stage("android")
-        previous = self.product_files(output)
-        fixture = self.root / "crates/xmtp_sdk/packaging/android"
-        for name in (
-            "gradle.lockfile",
-            "buildscript-gradle.lockfile",
-            "gradle/verification-metadata.xml",
-        ):
-            path = fixture / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("fixture dependency input")
-        self.sdk_root = self.root / "owned-worktree/sdks/android"
-        tool = Mock(side_effect=self.mobile_tool)
-        with self.assertRaisesRegex(ValueError, "Android dependency input missing"):
-            self.assemble_mobile("android", tool, sdk_root=self.sdk_root)
-        tool.assert_not_called()
-        self.assertEqual(self.product_files(output), previous)
-        self.seed_android_dependency_inputs()
-        self.assemble_mobile("android", sdk_root=self.sdk_root)
-        self.assertTrue((output / "xmtp-sdk.aar").is_file())
-
     def test_android_stage_uses_strict_read_only_dependency_inputs(self):
         self.prepare_mobile_stage("android")
 

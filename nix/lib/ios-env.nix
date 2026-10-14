@@ -190,7 +190,8 @@ let
     export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$_XCODE_CLANG"
     export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios --sysroot=$_IOS_SDK"
     export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=$_IOS_SIM_SDK"
-    export PATH="$_XCODE_DEV/usr/bin:$PATH"
+    # After the Nix paths, so `python3` and `git` stay the shell's tools.
+    export PATH="$PATH:$_XCODE_DEV/usr/bin"
   '';
 
 in

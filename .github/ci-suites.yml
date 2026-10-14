@@ -142,14 +142,13 @@ path_groups:
     - "sdks/ios/**"
     - "{Package.swift,Package.resolved,.spi.yml}"
     - "nix/lib/ios-env.nix"
-    - "nix/shells/ios.nix"
     - "nix/package/ios.nix"
     - "nix/lib/packages/{swiftformat,swiftlint}.nix"
     - "dev/check-apple-toolchain"
   android:
     - "sdks/android/**"
     - "nix/lib/android-*"
-    - "nix/shells/android.nix"
+    - "nix/shells/android{,-ci}.nix"
     - "nix/android-packages.nix"
     - "!docs/**"
   example_android:
@@ -228,7 +227,7 @@ suites:
       # Every tracked Rust file is under crates/ or apps/ today. This rule
       # does not select a Rust file elsewhere: a known path (for example under
       # sdks/android/) runs its own suites, and an unknown path runs all.
-      - "**/*.{nix,py,sh,toml,kt,kts,swift}"
+      - "**/*.{nix,py,sh,toml,kt,swift}"
       - "{crates,apps}/**/*.rs"
       - "{.editorconfig,sdks/ios/.swiftformat}"
       - ".github/**"
@@ -315,7 +314,7 @@ suites:
     products: []
     path_filters:
       - cargo_package: ["@default-members", xmtp-sdk-bindgen]
-      - "{.clippy.toml,dev/wasm.just,nix/shells/wasm.nix}"
+      - "{.clippy.toml,dev/wasm.just}"
   check_sdk_unit:
     phase: test
     workflow: check-sdk-unit.yml
@@ -408,7 +407,7 @@ suites:
           - xmtp_sdk
       - path_group: docker_backend
       - "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
-      - "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix,nix/lib/junit.nix}"
+      - "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}"
       - "nix/services/**"
   test_xdbg:
     phase: test
@@ -570,7 +569,7 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
-    kache: [sdk-android-release]
+    kache: []
     products: [sdk_android]
     path_filters:
       # sdk-build runs `gradlew build`, which includes Android Lint and

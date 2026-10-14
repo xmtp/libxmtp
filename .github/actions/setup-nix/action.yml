@@ -171,7 +171,8 @@ runs:
       if: ${{ inputs.kache == 'true' }}
       uses: kunobi-ninja/kache-action@1a33fb2ff51be23eb9e87abeae6edb65be78f71c
       with:
-        version: v1.0.0
+        # The version of nix/lib/packages/kache.nix; one Kache per cache.
+        version: v1.1.1
         cache-executables: "true"
         pr-comment: "false"
         github-cache: "false"

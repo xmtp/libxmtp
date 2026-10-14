@@ -7,25 +7,28 @@ description: Use when working with Nix flakes, selecting devShells, debugging en
 
 ## Quick Shell Selection
 
-| Task                              | Shell   | Command                 |
-| --------------------------------- | ------- | ----------------------- |
-| Focused Rust crates/bindings work | rust    | `nix develop .#rust`    |
-| Full local development (default)  | local   | `nix develop`           |
-| Android builds/testing            | android | `nix develop .#android` |
-| iOS builds/testing                | ios     | `nix develop .#ios`     |
-| JavaScript/Node.js                | js      | `nix develop .#js`      |
-| WebAssembly builds                | wasm    | `nix develop .#wasm`    |
+| Task                                   | Shell                 | Entry                                 |
+| -------------------------------------- | --------------------- | ------------------------------------- |
+| Local development, agents, iOS         | default (`ios` alias) | `dev/nix-shell '...'`                 |
+| CI Rust jobs, focused Rust work        | rust (`wasm` alias)   | `dev/nix-shell --shell rust '...'`    |
+| Local Android work                     | android               | `dev/nix-shell --shell android '...'` |
+| Android CI build jobs, Android release | android-ci (Linux)    | `NIX_DEVSHELL: android-ci`            |
+| Android CI emulator jobs               | android-ci-emulator   | `NIX_DEVSHELL: android-ci-emulator`   |
+| JavaScript and docs CI                 | js, js-node, docs     | `dev/nix-shell --shell js '...'`      |
 
 ## Environment Detection
 
 For agent commands, use `dev/nix-shell 'just <recipe>'`. The project Codex hook
-adds this wrapper when trusted. Nested calls reuse the same environment only
-when the worktree, shell, and input fingerprint match. Do not use the variables
-below as proof that a requested shell is current. See `docs/agent-tools.md`.
+adds this wrapper when trusted. The wrapper caches each evaluated shell
+environment by the files that the shells read, so a source edit needs no new
+evaluation; `dev/nix-shell --refresh ...` evaluates again. Nested calls reuse
+the same environment only when the worktree, shell, and key match. Do not use
+the variables below as proof that a requested shell is current. See
+`docs/agent-tools.md`.
 
 ```bash
 echo $XMTP_NIX_ENV     # "yes" if in any Rust-based Nix shell
-echo $XMTP_DEV_SHELL   # "local", "android", "ios", or unset
+echo $XMTP_DEV_SHELL   # rust, local, android, android-ci, or android-ci-emulator
 ```
 
 ## Critical Constraints
@@ -62,28 +65,31 @@ Verify the binary cache is active: `nix config show | grep substituters` — sho
 
 ## Shell Architecture
 
-Shells are independent — they compose from shared building blocks, not from each other:
+`rust` is the core: one Rust toolchain (host, wasm32, the Android ABIs, and
+on Darwin the Apple slices), the cargo, proto, and lint tools, Node, pnpm,
+Python 3.11, and `just`. `default` layers on it (`inputsFrom`) with editor,
+debug, and Swift tools and JDK 21; `android` takes its core packages and adds
+the Android SDK, NDK, emulator, JDK 17, Kotlin, and ktlint. All three merge
+`shellCommon.rustShellEnv`, so a switch between them changes no compiler
+variable, and on Darwin all three use Xcode clang with the 11.0 macOS floor.
 
 ```text
-shell-common.nix   → shared building blocks (rustBase, wasmEnv, tool groups)
-  ├── rust.nix     → focused Rust shell (crates/bindings, lint, test)
-  ├── local.nix    → full local dev (default) = all targets + debug + misc
-  ├── android.nix  → Android cross-compilation
-  └── ios.nix      → iOS cross-compilation (macOS only)
-js.nix             → JavaScript/browser testing (Node.js 26 and pnpm 11; no Rust)
-shells/wasm.nix    → WASM development shell
+shell-common.nix   → rustToolchain, rustCorePackages, rustShellEnv, rustShellHook
+  ├── rust.nix       → the core (also `wasm`)
+  ├── local.nix      → default = rust + local tools (also `ios`)
+  ├── android.nix    → core packages + Android SDK and NDK
+  └── android-ci.nix → slim CI shells: SDK, NDK, JDK 21; no Rust (Linux only)
+js.nix, js-node.nix, docs.nix → JavaScript and docs (no Rust)
 ```
 
 ## Essential Commands
 
 ```bash
-# Enter shells
-nix develop              # Default shell
-nix develop .#rust       # Focused Rust shell
-nix develop .#android    # Android shell
-nix develop .#ios        # iOS shell (macOS only)
-nix develop .#js         # JavaScript shell
-nix develop .#wasm       # WASM shell
+# Enter shells (the wrapper caches each evaluated environment)
+dev/nix-shell 'just check'                 # default shell
+dev/nix-shell --shell rust 'cargo check'   # Rust core
+dev/nix-shell --shell android 'just android check'
+dev/nix-shell --refresh true               # evaluate again
 
 # Build packages
 nix build .#xmtp-sdk-wasm                    # WASM compiled bindings
@@ -103,10 +109,10 @@ nix develop --show-trace  # Verbose error output
 
 ## Platform Support
 
-| Platform               | Shells Available                      |
-| ---------------------- | ------------------------------------- |
-| macOS (aarch64-darwin) | rust, default, android, ios, js, wasm |
-| Linux (x86_64-linux)   | rust, default, android, js, wasm      |
+| Platform               | Shells Available                                                                 |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| macOS (aarch64-darwin) | rust, default, android, ios, js, js-node, docs, wasm                             |
+| Linux (x86_64-linux)   | rust, default, android, android-ci, android-ci-emulator, js, js-node, docs, wasm |
 
 ## Key Files
 
@@ -122,12 +128,11 @@ nix develop --show-trace  # Verbose error output
 | `nix/lib/ios-env.nix`             | iOS targets, dynamic Xcode resolution                          |
 | `nix/lib/node-env.nix`            | Node targets, NAPI name mapping, cross-compilation             |
 | `nix/lib/packages/pnpm.nix`       | Workspace pnpm package; version comes from root `package.json` |
-| `nix/shells/rust.nix`             | Focused Rust dev shell                                         |
-| `nix/shells/local.nix`            | Full local dev shell (default)                                 |
-| `nix/shells/android.nix`          | Android dev shell                                              |
-| `nix/shells/ios.nix`              | iOS dev shell (macOS only)                                     |
+| `nix/shells/rust.nix`             | Rust core shell (also `wasm`)                                  |
+| `nix/shells/local.nix`            | Local dev shell (`default`, also `ios`)                        |
+| `nix/shells/android.nix`          | Local Android shell                                            |
+| `nix/shells/android-ci.nix`       | Slim Android CI shells (Linux)                                 |
 | `nix/js.nix`                      | JavaScript shell                                               |
-| `nix/shells/wasm.nix`             | WASM development shell                                         |
 | `nix/package/node.nix`            | Node.js per-target builds + JS/TS generation                   |
 | `nix/package/xmtp-sdk-native.nix` | Native SDK release build derivation                            |
 | `nix/package/ios.nix`             | iOS release build derivation                                   |
@@ -146,9 +151,7 @@ release. Do not publish an image from a local version update.
 
 - [Shell: Default](shells/default.md) — Full local dev shell reference
 - [Shell: Rust](shells/rust.md) — Focused Rust shell reference
-- [Shell: Android](shells/android.md) — Android shell reference
-- [Shell: iOS](shells/ios.md) — iOS shell reference
+- [Shell: Android](shells/android.md) — Android shells reference
 - [Shell: JavaScript](shells/js.md) — JavaScript shell reference
-- [Shell: WASM](shells/wasm.md) — WASM shell reference
 - [Nix Build Packages](packages.md) — All `nix build .#<package>` outputs
 - [Troubleshooting](troubleshooting.md) — Common issues and solutions

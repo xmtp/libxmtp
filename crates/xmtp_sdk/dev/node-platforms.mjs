@@ -18,15 +18,16 @@ const hash = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 
 // A Nix pair names the SDK closure identity, which must equal the binding's.
-// A cargo pair (no Nix system builds it) names its commit, which must be the
-// release commit.
+// A cargo pair (no Nix system builds it) names the source key of its SDK
+// inputs, which must be the release commit's, and the commit that built it:
+// a cache restore ships bytes that an earlier commit with the same key built.
 export function stageNodePlatforms(
   input,
   output,
   binding,
   runtimeRevision,
   packageName,
-  releaseCommit,
+  releaseSource,
 ) {
   const platforms = {};
   const exports = {};
@@ -42,7 +43,8 @@ export function stageNodePlatforms(
       receipt.target !== target ||
       receipt.rustTarget !== rustTarget ||
       (cargoBuilt
-        ? receipt.commit !== releaseCommit || "source" in receipt
+        ? receipt.source !== releaseSource ||
+          !/^[0-9a-f]{40}$/.test(receipt.commit ?? "")
         : receipt.source !== binding.artifact.source || "commit" in receipt) ||
       receipt.features !== binding.artifact.features ||
       receipt.profile !== "release" ||

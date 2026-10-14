@@ -30,14 +30,15 @@ test("the public product contains all six verified library and runtime pairs", (
       generator: "generator",
       artifact: { source: "rust-source", features: "", profile: "release" },
     };
-    const stage = (binding, revision = "pin", commit = "release") =>
+    const builder = "a".repeat(40);
+    const stage = (binding, revision = "pin", source = "tree:release") =>
       stageNodePlatforms(
         input,
         output,
         binding,
         revision,
         "@xmtp/node-sdk",
-        commit,
+        source,
       );
     const receiptFile = (target) =>
       join(input, target, "sdk-node-platform.json");
@@ -59,8 +60,11 @@ test("the public product contains all six verified library and runtime pairs", (
           schema: 1,
           target,
           rustTarget,
-          // Nix pairs name the closure identity; the cargo pair, its commit.
-          ...(cargoBuilt ? { commit: "release" } : { source: "rust-source" }),
+          // Nix pairs name the closure identity; the cargo pair, its source
+          // key and the commit that built it, which can be an earlier one.
+          ...(cargoBuilt
+            ? { commit: builder, source: "tree:release" }
+            : { source: "rust-source" }),
           features: "",
           profile: "release",
           runtimeRevision: "pin",
@@ -104,15 +108,12 @@ test("the public product contains all six verified library and runtime pairs", (
     );
     assert.throws(() => stage(binding, "other-pin"), /provenance mismatch/);
     assert.throws(
-      () => stage(binding, "pin", "other-commit"),
+      () => stage(binding, "pin", "tree:other"),
       /provenance mismatch: win32-x64-msvc/,
     );
-    editReceipt("win32-x64-msvc", (receipt) => ({
-      ...receipt,
-      source: "rust-source",
-    }));
+    editReceipt("win32-x64-msvc", ({ commit: _, ...receipt }) => receipt);
     assert.throws(() => stage(binding), /provenance mismatch: win32-x64-msvc/);
-    editReceipt("win32-x64-msvc", ({ source: _, ...receipt }) => receipt);
+    editReceipt("win32-x64-msvc", (receipt) => ({ ...receipt, commit: builder }));
     editReceipt("linux-x64-musl", ({ source: _, ...receipt }) => ({
       ...receipt,
       commit: "release",

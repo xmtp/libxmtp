@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import tomllib
 
 spec = importlib.util.spec_from_file_location(
     "artifacts", Path(__file__).with_name("sdk-artifacts.py")
@@ -35,12 +34,12 @@ def main():
     native_identity.add_argument("--native-provenance", type=Path)
     native_identity.add_argument("--native-artifacts", type=Path)
     parser.add_argument("--runtime-provenance", type=Path, required=True)
+    # A cargo pair's `sdk-artifacts.py key` output, taken before the build.
+    parser.add_argument("--source-key", type=Path)
     parser.add_argument("--runtime-source", type=Path)
     parser.add_argument("--out", type=Path, default=Path("target/sdk-node-platforms"))
     args = parser.parse_args()
-    revision = tomllib.loads((artifacts.ROOT / "Cargo.toml").read_text())["workspace"][
-        "metadata"
-    ]["xmtp-sdk-fork"]["rev"]
+    revision = artifacts.fork_revision()
     rust_target, library = PLATFORMS[args.target]
     addon = f"uniffi-runtime-napi.{args.target}.node"
     if args.native_provenance:
@@ -61,7 +60,19 @@ def main():
             raise ValueError("cargo Node library does not name its commit")
         if "+dirty:" in native["source"]:
             raise ValueError("cargo Node library has uncommitted changes")
-        identity = {"commit": native["source"].removeprefix("commit:")}
+        # A cache restore can ship these bytes for a later commit with the
+        # same SDK inputs, so the receipt names both the building commit and
+        # the source key; staging checks the key.
+        if not args.source_key:
+            raise ValueError("a cargo Node pair needs --source-key")
+        key = json.loads(args.source_key.read_text())
+        if key["forkRevision"] != revision:
+            raise ValueError("Node source key names another runtime fork")
+        identity = {
+            "commit": native["source"].removeprefix("commit:"),
+            "source": key["source"],
+            "sourceKey": key["key"],
+        }
     if (
         native["target"] != rust_target
         or native["features"]

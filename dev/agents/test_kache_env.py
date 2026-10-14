@@ -508,18 +508,11 @@ TRUSTED_CACHIX_WRITERS = {"post-merge.yml / build", "push-backend.yml / publish"
 # list only when it stops running cargo outside Nix, so dropping Kache from a
 # cargo job fails here even when its README row goes too.
 KACHE_CALLERS = {
-    "build-sdk-node-platforms.yml / assemble": "sdk-native-release",
     "check-rust.yml / native": "rust-clippy-native",
     "check-rust.yml / wasm": "rust-clippy-wasm",
     "check-sdk-unit.yml / unit": "sdk-tests-debug",
-    "deploy-web-chat.yml / deploy": "sdk-products-debug",
     "docs-rust-reference.yml / rust": "rust-reference",
-    "release-agent-sdk.yml / build": "sdk-native-debug",
-    "release-browser-sdk.yml / build": "sdk-products-debug",
-    "release-cli.yml / build": "sdk-native-debug",
-    "test-android.yml / android-stage": "sdk-android-release",
     "test-sdk.yml / sdk": "sdk-products-tests-conformance",
-    "test-sdk.yml / android-stage": "sdk-android-release",
 }
 
 
@@ -539,6 +532,15 @@ def action_step(name):
 
 
 class SetupNixTests(unittest.TestCase):
+    def test_action_installs_the_nix_kache_version(self):
+        # Two Kache versions in one job share the local cache directory and
+        # the S3 manifests, so the action installs the shell's version.
+        package = (ROOT / "nix/lib/packages/kache.nix").read_text()
+        version = re.search(r'^\s*version = "([^"]+)";', package, re.MULTILINE)
+        self.assertEqual(
+            action_step("Setup Kache")["with"]["version"], f"v{version[1]}"
+        )
+
     def test_action_has_no_sticky_disk(self):
         # Owner decision 8: no Blacksmith sticky disk. setup-gradle replaced
         # the ~/.gradle disk and its busy-process unmount hook.

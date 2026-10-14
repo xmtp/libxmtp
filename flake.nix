@@ -86,18 +86,31 @@
           # route reads them with `nix eval .#sdkProvenance`, so both routes
           # record the same values.
           legacyPackages.sdkProvenance = sdk.provenance;
-          devShells = {
-            rust = pkgs.callPackage ./nix/shells/rust.nix { };
-            default = pkgs.callPackage ./nix/shells/local.nix { };
-            android = pkgs.callPackage ./nix/shells/android.nix { };
-            js = pkgs.callPackage ./nix/js.nix { };
-            js-node = pkgs.callPackage ./nix/js-node.nix { };
-            docs = pkgs.callPackage ./nix/docs.nix { };
-            wasm = pkgs.callPackage ./nix/shells/wasm.nix { };
-          }
-          // lib.optionalAttrs pkgs.stdenv.isDarwin {
-            ios = pkgs.callPackage ./nix/shells/ios.nix { };
-          };
+          devShells =
+            let
+              # The Rust core; `default` layers on it, and `android` on its core
+              # packages and environment.
+              rustShell = pkgs.callPackage ./nix/shells/rust.nix { };
+              default = pkgs.callPackage ./nix/shells/local.nix { inherit rustShell; };
+            in
+            {
+              rust = rustShell;
+              inherit default;
+              android = pkgs.callPackage ./nix/shells/android.nix { };
+              js = pkgs.callPackage ./nix/js.nix { };
+              js-node = pkgs.callPackage ./nix/js-node.nix { };
+              docs = pkgs.callPackage ./nix/docs.nix { };
+              # Old names: `wasm` is the Rust core, `ios` the default shell.
+              wasm = rustShell;
+            }
+            // lib.optionalAttrs pkgs.stdenv.isDarwin {
+              ios = default;
+            }
+            # The Android CI jobs run on Linux.
+            // lib.optionalAttrs pkgs.stdenv.isLinux {
+              android-ci = pkgs.callPackage ./nix/shells/android-ci.nix { };
+              android-ci-emulator = pkgs.callPackage ./nix/shells/android-ci.nix { emulator = true; };
+            };
           packages = {
             kache = pkgs.kache;
             xmtp-sdk-libs = sdk.libs;
