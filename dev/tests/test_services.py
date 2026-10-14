@@ -14,6 +14,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 
@@ -154,12 +155,29 @@ class ServicesTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 text=True,
             )
-            time.sleep(2)
+            # Release the port only after the start reports that it waits, so
+            # a slow start cannot miss the busy port.
+            waited = threading.Event()
+            lines = []
+
+            def read_stderr():
+                for line in run.stderr:
+                    lines.append(line)
+                    if f"XMTP_S3_PORT={port} is in use; waiting" in line:
+                        waited.set()
+
+            reader = threading.Thread(target=read_stderr, daemon=True)
+            reader.start()
+            waited.wait(timeout=30)
         finally:
             holder.close()
-        stdout, stderr = run.communicate(timeout=180)
+        with run.stdout, run.stderr:
+            stdout = run.stdout.read()
+            run.wait(timeout=180)
+            reader.join(timeout=10)
+        stderr = "".join(lines)
+        self.assertTrue(waited.is_set(), stderr)
         self.assertEqual(run.returncode, 0, stdout + stderr)
-        self.assertIn(f"XMTP_S3_PORT={port} is in use; waiting", stderr)
         self.assertTrue((self.root / "ran").exists())
 
     def test_duplicate_caller_ports_fail_before_any_service_starts(self):
