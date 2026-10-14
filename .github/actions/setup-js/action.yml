@@ -6,7 +6,7 @@ inputs:
       The job's setup-nix cache mode; every job passes the same mode to both
       actions. "read": no pnpm store restore, so pnpm downloads each tarball
       and checks it against the lockfile. "ci": restore only. "trusted":
-      restore, and save pnpm-* entries.
+      restore, install without lifecycle scripts, and save pnpm-* entries.
     required: false
     default: "read"
   nix:
@@ -72,11 +72,17 @@ runs:
       shell: bash
       env:
         PNPM_FILTER: ${{ inputs.filter }}
-      run: dev/nix-shell --shell js-node 'pnpm install --frozen-lockfile --prefer-offline ${PNPM_FILTER:+--filter "$PNPM_FILTER"}'
+        # Install scripts can write into the store that a trusted job saves,
+        # and pnpm does not check restored store files against the lockfile.
+        PNPM_IGNORE_SCRIPTS: ${{ inputs.cache-mode == 'trusted' && 'true' || '' }}
+      run: dev/nix-shell --shell js-node 'pnpm install --frozen-lockfile --prefer-offline ${PNPM_FILTER:+--filter "$PNPM_FILTER"} ${PNPM_IGNORE_SCRIPTS:+--ignore-scripts}'
 
     - name: Install workspace dependencies
       if: ${{ inputs.nix != 'true' }}
       shell: bash
       env:
         PNPM_FILTER: ${{ inputs.filter }}
-      run: pnpm install --frozen-lockfile --prefer-offline ${PNPM_FILTER:+--filter "$PNPM_FILTER"}
+        # Install scripts can write into the store that a trusted job saves,
+        # and pnpm does not check restored store files against the lockfile.
+        PNPM_IGNORE_SCRIPTS: ${{ inputs.cache-mode == 'trusted' && 'true' || '' }}
+      run: pnpm install --frozen-lockfile --prefer-offline ${PNPM_FILTER:+--filter "$PNPM_FILTER"} ${PNPM_IGNORE_SCRIPTS:+--ignore-scripts}
