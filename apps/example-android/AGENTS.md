@@ -13,7 +13,6 @@ dev/nix-shell 'just example-android lint'
 dev/nix-shell 'just example-android format'
 dev/nix-shell 'just example-android test'
 dev/nix-shell 'just example-android test-integration'
-dev/nix-shell 'just example-android test-release-integration'
 dev/nix-shell 'just example-android support-fixture'
 dev/nix-shell 'just example-android io-fixture'
 dev/nix-shell 'just example-android metadata-fixture-test'
@@ -96,11 +95,9 @@ It preserves real S3 content and signed headers, with no connection reuse.
 The cancellation test controls only
 this relay. Its wrapper removes the listener and connections after the child
 scope exits. It does not change backend or shared fault-proxy configuration.
-`test-release-integration` tests the actual release build with temporary
-local test signing. It keeps DEBUG=false and the release resources. It forwards
-the backend port for the release loopback connection. The Gradle property
-`xmtpExampleReleaseTests=true` selects this test mode. It does not change URL
-admission. Run both host variants with
+Instrumented tests run only against the debug build. No device test runs the
+release build; README "Connect" states its transport rules. Run both host
+variants with
 `dev/nix-shell 'just example-android test :example:testReleaseUnitTest'`.
 It also forwards the backend proxy and its API. It supplies the `toxicBackendUrl`
 and `toxiproxyApi` runner arguments from the worktree environment. Attachment

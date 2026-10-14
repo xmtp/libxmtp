@@ -76,8 +76,8 @@ build the products themselves.
   The iOS `tests` job runs `just ios test skip-lifecycle`, so it does not
   repeat the lifecycle.
 
-- `test-example-android.yml` owns app build, lint, host, integration, and
-  release transport checks in two jobs: `messenger-build` (the APK derivation,
+- `test-example-android.yml` owns app build, lint, host, and integration
+  checks in two jobs: `messenger-build` (the APK derivation,
   then `just example-android check-all`: unit tests, lint, and every variant in
   one Gradle call) and `integration-tests`. App lint is in the test phase so
   that it can wait for the `sdk_android` products job.
