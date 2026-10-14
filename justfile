@@ -1,7 +1,9 @@
 mod chaos 'apps/chaos/chaos.just'
 mod backend 'apps/backend/backend.just'
 mod android 'sdks/android/android.just'
+mod example-android 'apps/example-android/example-android.just'
 mod ios 'sdks/ios/ios.just'
+mod example-ios 'apps/example-ios/example-ios.just'
 mod sdk 'crates/xmtp_sdk/sdk.just'
 mod wasm 'dev/wasm.just'
 mod js 'sdks/js.just'
@@ -12,10 +14,6 @@ mod web-chat 'apps/web-chat/web-chat.just'
 export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 
 set shell := ["./dev/nix-shell"]
-
-# Test agent helpers in their locked environment without starting a language server.
-agent-test: spec-test
-    UV_PROJECT_ENVIRONMENT="{{ justfile_directory() }}/.cache/agents/venv" UV_PYTHON_DOWNLOADS=never uv run --frozen --no-dev --project dev/agents --python "$(command -v python3.11)" python -m unittest discover -s dev/agents -p 'test_*.py' -v
 
 # --- SPECS ---
 # See docs/specs/SPEC-spec-format.md and .agents/skills/authoring-specs.
@@ -32,11 +30,6 @@ spec-index *args:
 spec-show id:
     python3.11 dev/specs/check.py show {{ id }}
 
-# The checker's own tests. Stdlib only, so no uv project.
-[script("bash")]
-spec-test:
-    cd dev/specs && python3.11 -m unittest discover -p 'test_*.py'
-
 nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
 # CI overrides to "cargo llvm-cov nextest --no-fail-fast --no-report" for coverage
@@ -45,7 +38,7 @@ cargo_test := env("CARGO_TEST_CMD", "dev/agent-run cargo nextest run")
 
 # Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
 # `_env` loads it so the Rust suites reach this worktree's own stack.
-_env := justfile_directory() + "/dev/worktree-env && . " + justfile_directory() + "/dev/docker/load-env"
+_env := ". " + justfile_directory() + "/dev/docker/load-env"
 
 [script("bash")]
 default:
@@ -54,6 +47,12 @@ default:
 # Install all JavaScript workspace dependencies from the root lockfile.
 install-js:
     pnpm install --frozen-lockfile
+
+# Install the JavaScript dependencies only when a fresh checkout has none
+# (the release-tools test stubs run its `tsx`).
+[private]
+_js-deps:
+    [ -x dev/release-tools/node_modules/.bin/tsx ] || pnpm install --frozen-lockfile
 
 # --- CHECK ---
 
@@ -73,28 +72,47 @@ _check-crate +crates:
 
 # --- LINT ---
 
-lint: lint-rust lint-config lint-markdown lint-proto spec-check
+# The CI lint suites lint_workspace, lint_js, lint_config, lint_proto,
+# lint_deny, and docs_quality, the WASM and SDK generator Clippy of check_rust,
+# and `spec-check`. It skips lint_ios and the Android example lint (a job of
+# test_example_android), which need mobile toolchains, and the cargo-deny
+# advisories check, which does not block.
+lint: _js-deps lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto lint-deny docs::test docs::check-source spec-check
 
 lint-proto:
     buf lint proto
 
-lint-rust:
+# Dependency bans, licenses, and sources. CI also checks advisories; only its
+# daily scheduled run fails on a new advisory.
+lint-deny:
+    cargo deny --locked check bans licenses sources
+
+# Clippy for the default members and the SDK generator, which is not one.
+# Format is checked once, by treefmt in `lint-config`.
+lint-rust: lint-rust-source
     dev/agent-run cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings
-    cargo fmt --check
+    dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings
+
+# Source checks do not compile Rust or generate SDK products.
+lint-rust-source:
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
 
-# Config linting: TOML, Nix, and shell scripts.
-lint-config: lint-treefmt
-    python3.11 dev/tests/test_android_release.py
-    python3.11 dev/tests/test_release_push.py
-    python3.11 dev/tests/test_android_clock.py
-    python3.11 dev/tests/test_android_emulator_start.py
-    python3.11 nix/lib/test-android-emulator-platform.py
+lint-js-source:
+    pnpm lint:source
+    node --test dev/js/test-lint-source.mjs
 
-lint-toml:
-    taplo format --check --diff
-    taplo check
+# Config linting: TOML, Nix, and shell scripts, and the dev tool tests.
+# dev/tests/run finds test_*.py files; add a test without editing this recipe.
+# The release-tools checks run here, so release-tools edits do not select
+# check_types.
+lint-config: _js-deps lint-treefmt
+    python3.11 -B dev/ci-suites check
+    python3.11 -B dev/tests/run
+    node --test dev/fly/render-dashboard.test.mjs
+    pnpm --filter @xmtp/release-tools --fail-if-no-match run typecheck
+    pnpm --filter @xmtp/release-tools --fail-if-no-match run lint
+    pnpm --filter @xmtp/release-tools --fail-if-no-match run test
 
 [script("bash")]
 lint-treefmt:
@@ -123,9 +141,9 @@ lint-js-format:
 
 # --- TEST ---
 
-# Run the Nix workspace tests.
+# Run the Nix workspace tests. `--inputs-from .` pins nom to flake.lock.
 nix-test:
-    nix run nixpkgs#nix-output-monitor build .#nextest.{{ nix_system }}
+    nix run --inputs-from . nixpkgs#nix-output-monitor -- build .#nextest.{{ nix_system }}
 
 # `just test`, `just test crate xmtp_mls xmtp_db`
 [script("bash")]
@@ -136,32 +154,54 @@ test target="workspace" *args="":
 _test-workspace *args="":
     {{ _env }} && SQLX_OFFLINE=true RUST_MIN_STACK="${RUST_MIN_STACK:-8388608}" {{ cargo_test }} --profile ci {{ args }}
 
+# Workspace coverage in this worktree's environment: coverage/lcov and
+# coverage/html. `--diff [BASE]` keeps only the Rust files changed since the
+# merge base with BASE (default origin/main, the trunk). Other arguments go to
+# `just test workspace`, for example `just coverage --diff origin/main -p xmtp_common`.
+[script("bash")]
+coverage *args:
+    set -euo pipefail
+    set -- {{ args }}
+    base=""
+    if [[ "${1:-}" == --diff ]]; then
+      shift
+      base=origin/main
+      if [[ $# -gt 0 && "$1" != -* ]]; then base="$1"; shift; fi
+      merge_base="$(git merge-base "$base" HEAD)" || { echo "Cannot find the merge base of $base and HEAD" >&2; exit 1; }
+    fi
+    cargo llvm-cov clean --profraw-only --workspace
+    CARGO_TEST_CMD="cargo llvm-cov nextest --no-fail-fast --no-report" just test workspace "$@"
+    rm -rf coverage
+    mkdir -p coverage
+    ignore='(xmtp_proto/src/gen)|(test/)|(mock/)|(mock\.rs)|(test_utils\.rs)|(test_utils/)|(tests\.rs)'
+    cargo llvm-cov report --ignore-filename-regex "$ignore" --lcov --output-path coverage/lcov
+    if [[ -z "$base" ]]; then
+      cargo llvm-cov report --ignore-filename-regex "$ignore" --html --output-dir coverage
+      echo "Coverage: coverage/lcov and coverage/html/index.html"
+      exit 0
+    fi
+    changed=()
+    while IFS= read -r file; do changed+=("*/$file"); done < <(git diff --name-only --diff-filter=ACMR "$merge_base" -- '*.rs')
+    if [[ ${#changed[@]} -eq 0 ]]; then
+      echo "No Rust file changed since $base"
+      exit 0
+    fi
+    lcov --ignore-errors unused --extract coverage/lcov "${changed[@]}" --output-file coverage/diff.lcov
+    genhtml --ignore-errors range coverage/diff.lcov --output-directory coverage/html
+    echo "Coverage of the files changed since $base: coverage/html/index.html"
+
 [private]
 _test-crate +crates:
     {{ _env }} && args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
     SQLX_OFFLINE=true RUST_MIN_STACK="${RUST_MIN_STACK:-8388608}" {{ cargo_test }} --profile ci $args
 
-# Verify the shared validation crate without workspace feature unification.
-check-validation:
-    dev/check-validation check
-
-# Run the shared validation crate tests on native and wasm Node.
-test-validation:
-    dev/check-validation test
-
-validation: check-validation test-validation
-
-# --- WORKTREE ---
-
-# Show this worktree's stack identity, ports, and URLs.
-worktree:
-    just backend status
+# `check`: standalone native and wasm consumer and dependency checks.
+# `test`: native and wasm Node payload tests and canonical encoding vectors.
+# Check and test the shared validation crate (mode check, test, or all).
+validation mode="all":
+    crates/xmtp_mls_validation/dev/check-validation {{ quote(mode) }}
 
 # --- DISK ---
-
-# Show sccache hit rates and cache size.
-cache-stats:
-    sccache --show-stats
 
 # Free space, and the target/ and incremental/ size of each worktree.
 [script("bash")]
@@ -271,10 +311,6 @@ ci-failures job:
     esc=""; if gh api --help | grep -- --allow-escape-sequences >/dev/null; then esc="--allow-escape-sequences"; fi
     gh api $esc repos/xmtp/libxmtp/actions/jobs/{{ job }}/logs \
       | dev/ci-failure-markers
-
-# Check failure markers with local logs. It does not use GitHub.
-ci-failures-filter-test:
-    python3 dev/tests/test_ci_failure_markers.py
 
 # Annotations for a check run. Cheaper than logs when the job records them.
 ci-annotations check:

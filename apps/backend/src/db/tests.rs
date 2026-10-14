@@ -4,7 +4,32 @@ use crate::{
     test_support::{TestDatabase, TestServer},
 };
 use sqlx::Connection;
+use xmtp_common::time::{Duration, timeout};
 use xmtp_mls_validation::test_utils::inline_welcome_envelope;
+
+const PRIMARY_READ_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn primary_read_pool_does_not_wait_for_recovery() {
+    let mut database = TestDatabase::new()?;
+    let mut config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    config.database.replica_url = Some(database.url().to_owned());
+    let store = timeout(PRIMARY_READ_STARTUP_TIMEOUT, Store::connect(&config)).await??;
+    assert!(
+        !sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe("SELECT pg_is_in_recovery()"))
+            .fetch_one(&store.read)
+            .await?
+    );
+    assert_eq!(
+        sqlx::query_scalar!("SELECT closed_sequence_id FROM allocation_boundary WHERE singleton")
+            .fetch_one(&store.read)
+            .await?,
+        0
+    );
+    store.read.close().await;
+    store.primary.close().await;
+    database.remove()?;
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_begin_returns_a_clean_connection() {
@@ -129,7 +154,9 @@ async fn concurrent_initializers_apply_one_migration_on_an_empty_database() {
     let migrations = sqlx::query_scalar!("SELECT count(*) FROM _sqlx_migrations WHERE success")
         .fetch_one(&left.primary)
         .await?;
-    assert_eq!(migrations, Some(1));
+    // Each migration is recorded once, not once per initializer.
+    let defined = sqlx::migrate!().iter().count();
+    assert_eq!(migrations, Some(i64::try_from(defined)?));
     assert_eq!(
         sqlx::query_scalar!("SELECT closed_sequence_id FROM allocation_boundary WHERE singleton")
             .fetch_one(&right.primary)
@@ -184,4 +211,51 @@ async fn storage_constraints_reject_invalid_rows() {
         1
     );
     server.stop().await?;
+}
+
+/// Insert one association row directly, bypassing admission.
+async fn insert_association(
+    store: &Store,
+    identifier: &str,
+    kind: i16,
+    inbox_id: [u8; 32],
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO identifier_association
+            (identifier, identifier_kind, inbox_id, association_sequence_id)
+         VALUES ($1, $2, $3, 1)",
+    )
+    .bind(identifier)
+    .bind(kind)
+    .bind(inbox_id.to_vec())
+    .execute(&store.primary)
+    .await
+    .map(|_| ())
+}
+
+/// The handle index admits one inbox per handle, as a backstop for the
+/// admission check. Other kinds are not affected: one Ethereum address may
+/// be associated with two inboxes, and an Ethereum row with a handle's text
+/// does not take the handle.
+#[xmtp_common::test(unwrap_try = true)]
+async fn handle_index_allows_one_inbox_per_handle() {
+    let mut database = TestDatabase::new()?;
+    let config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    let store = Store::connect(&config).await?;
+    let address = "0x1111111111111111111111111111111111111111";
+
+    insert_association(&store, "nick", 3, [1; 32]).await?;
+    let error = insert_association(&store, "nick", 3, [2; 32])
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&error, sqlx::Error::Database(error) if error.code().as_deref() == Some("23505")),
+        "{error:?}"
+    );
+    insert_association(&store, address, 1, [1; 32]).await?;
+    insert_association(&store, address, 1, [2; 32]).await?;
+    insert_association(&store, "nick", 1, [2; 32]).await?;
+
+    store.primary.close().await;
+    database.remove()?;
 }

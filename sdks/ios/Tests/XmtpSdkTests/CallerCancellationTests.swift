@@ -35,7 +35,7 @@ private actor StartGate {
 /// Runs the jobs of one call's task on a private queue. The test reads when the
 /// first job returned: the task then waits at its first suspension. When
 /// `holdAfterFirst` is set, the executor keeps every later job until `release()`.
-/// This is a test seam only. The shipped bindings do not change.
+/// This is a test hook only. The shipped bindings do not change.
 @available(macOS 15.0, iOS 18.0, *)
 private final class CallExecutor: TaskExecutor, @unchecked Sendable {
 	private let queue = DispatchQueue(label: "XmtpSdkTests.CallExecutor")
@@ -115,7 +115,7 @@ private func openFiles(in directory: URL) -> [String] {
 /// `create_adoption.rs` prove the Rust side. These tests prove that Swift task
 /// cancellation reaches the native future and that a cancelled call does not
 /// acknowledge, hand off or return a value. They cannot stop a call between its
-/// last native poll and its lift: both run in one job, with no seam outside the
+/// last native poll and its lift: both run in one job, with no hook outside the
 /// generated glue.
 final class CallerCancellationTests: XCTestCase {
 	/// Waits until `condition` is true, for up to 10 seconds.

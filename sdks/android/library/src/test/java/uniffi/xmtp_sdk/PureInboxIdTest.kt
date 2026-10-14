@@ -8,7 +8,8 @@ import org.junit.Test
 // Rust owns the vectors: xmtp_sdk/src/signer.rs::pure_inbox_calculation_matches_fixed_core_vectors,
 // ::pure_inbox_calculation_keeps_identity_validation_and_full_nonce.
 // This checks the generated lowering of each PublicIdentityKind and of the
-// ULong nonce, and the typed error lift. The vectors are the ones the deleted
+// ULong nonce, and the typed error lift. A handle is not an account, so it has
+// no inbox ID vector and fails as InvalidArgument. The vectors are the ones the deleted
 // Kotlin conformance check (RetainedInboxId.kt) used.
 class PureInboxIdTest {
     private val nonces = listOf(0uL, 1uL, 9_007_199_254_740_993uL, ULong.MAX_VALUE)
@@ -32,10 +33,13 @@ class PureInboxIdTest {
         )
 
     // The core vectors cross the native boundary with no client, for each
-    // identity kind, with an omitted, absent and full ULong nonce.
+    // account identity kind, with an omitted, absent and full ULong nonce.
     @Test
     fun pureInboxIdKeepsEachKindAndTheFullNonce() {
-        assertEquals(PublicIdentityKind.entries.toSet(), vectors.map { it.first.kind }.toSet())
+        assertEquals(
+            PublicIdentityKind.entries.toSet() - PublicIdentityKind.HANDLE,
+            vectors.map { it.first.kind }.toSet(),
+        )
         for ((identity, expected) in vectors) {
             val label = identity.kind
             assertEquals("$label omitted nonce", expected[0], generateInboxId(identity))
@@ -52,6 +56,7 @@ class PureInboxIdTest {
             listOf(
                 PublicIdentity("invalid", PublicIdentityKind.ETHEREUM),
                 PublicIdentity("not hex", PublicIdentityKind.PASSKEY),
+                PublicIdentity("nick", PublicIdentityKind.HANDLE),
             )
         for (identity in invalid) {
             val failure = runCatching { generateInboxId(identity) }.exceptionOrNull()

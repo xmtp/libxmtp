@@ -56,18 +56,19 @@ These ingress mechanisms must meet the transport requirements below. How far
 each path has been exercised differs by platform, so check a guide's own
 caveats, and the ingress contract below, before you rely on it.
 
-| Platform                              | Ingress mechanism                                                     | Native gRPC                                                                         |
-| ------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| [Fly.io](/deploy/fly/)                | Fly Proxy with TLS termination and h2c to the backend                 | Yes                                                                                 |
-| [Railway](/deploy/railway/)           | **DEVELOPMENT ONLY:** TCP proxy to a separate HAProxy TLS terminator  | Yes, through the TCP proxy and HAProxy. The HTTP edge does not support native gRPC. |
-| [AWS ECS (Fargate)](/deploy/aws-ecs/) | NLB TLS listener with ALPN `HTTP2Preferred` and a TCP target group    | Yes                                                                                 |
-| [Kubernetes](/deploy/kubernetes/)     | Gateway API HTTPS listener and HTTPRoute, with an h2c backend service | Yes, with a controller that preserves streaming and trailers                        |
+| Platform                                                      | Ingress mechanism                                                     | Native gRPC                                                                         |
+| ------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| [Local Linux or Mac with Tailscale](/deploy/local-tailscale/) | Tailscale Serve with private HTTPS and h2c to the backend             | Supported by current stable Tailscale Serve                                         |
+| [Fly.io](/deploy/fly/)                                        | Fly Proxy with TLS termination and h2c to the backend                 | Yes                                                                                 |
+| [Railway](/deploy/railway/)                                   | **DEVELOPMENT ONLY:** TCP proxy to a separate HAProxy TLS terminator  | Yes, through the TCP proxy and HAProxy. The HTTP edge does not support native gRPC. |
+| [AWS ECS (Fargate)](/deploy/aws-ecs/)                         | NLB TLS listener with ALPN `HTTP2Preferred` and a TCP target group    | Yes                                                                                 |
+| [Kubernetes](/deploy/kubernetes/)                             | Gateway API HTTPS listener and HTTPRoute, with an h2c backend service | Yes, with a controller that preserves streaming and trailers                        |
 
 ## Container image
 
 Pull `ghcr.io/xmtp/backend` without registry credentials. The image is public.
 
-- `:self-hosted` moves with the `self-hosted` branch.
+- `:self-hosted` moves with the `main` branch.
 - `:sha-<commit>` is the immutable tag for a full commit SHA. Use it to pin a deployment.
 - The publish workflow builds Linux `amd64` and `arm64` images and publishes both tags as manifest lists. The container runtime selects the matching image.
 
@@ -81,6 +82,13 @@ RPC listener binds. There is no separate migration job.
 Each schema change adds a new migration. There is no supported in-place
 upgrade path yet, so a schema change can require a fresh database. Back up
 the database before deployment. Startup never deletes an existing database.
+
+After the backend stores a handle claim, do not roll back to a backend build
+that predates handles. That build cannot read a stored claim, so it rejects
+every later identity update of each inbox that claimed a handle. The minimum
+name length is the `handles.min_name_length` setting; see
+[Run the backend](/get-started/run-the-backend/#handles) and
+[Handle limits](/reference/limits/#handle-limits).
 
 ### Connection budget
 

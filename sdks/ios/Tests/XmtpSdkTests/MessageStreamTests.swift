@@ -239,8 +239,7 @@ final class MessageStreamTests: XCTestCase {
 			let receiver = try await scope.create(signer: generateLocalSigner(), options: liveOptions(url: relayURL))
 			let sender = try await scope.create(signer: generateLocalSigner())
 			let group = try await sender.conversations.createGroup(members: [receiver.inboxId()])
-			try await receiver.conversations.sync()
-			guard case let .group(joined)? = try await receiver.conversations.getById(id: group.id()) else {
+			guard case let .group(joined)? = try await syncedConversation(receiver, id: group.id()) else {
 				return XCTFail("The receiver did not join the group")
 			}
 			let states = Shared<[ConnectionState]>([])

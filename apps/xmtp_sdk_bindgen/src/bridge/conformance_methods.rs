@@ -1,20 +1,7 @@
-//! Private native conformance metadata must not become browser operations.
+//! Private worker-only `Client` methods and records must not become browser
+//! operations. The metadata is a fixture: no SDK export has this shape now.
 use super::*;
 use uniffi_meta::{FnParamMetadata, MethodMetadata, ObjectMetadata, RecordMetadata};
-
-const SOURCE: &str = include_str!("../../../../crates/xmtp_sdk/src/client/event_conformance.rs");
-
-fn docs_before(source: &str, declaration: &str) -> String {
-    source
-        .split_once(declaration)
-        .expect("the native conformance declaration")
-        .0
-        .lines()
-        .rev()
-        .take_while(|line| line.trim_start().starts_with("///"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
 
 fn methods() -> Vec<Metadata> {
     [
@@ -22,6 +9,7 @@ fn methods() -> Vec<Metadata> {
             "sdk_conformance_emit_hmac_events",
             Type::UInt32,
             Some(Type::String),
+            "Fill the native conformance queue. @xmtp-worker @xmtp-internal",
         ),
         (
             "sdk_conformance_listener_counts",
@@ -30,10 +18,11 @@ fn methods() -> Vec<Metadata> {
                 name: "SdkConformanceListenerCounts".into(),
             },
             None,
+            "Read the native conformance queue. @xmtp-worker @xmtp-internal",
         ),
     ]
     .into_iter()
-    .map(|(name, output, throws)| {
+    .map(|(name, output, throws, docs)| {
         Metadata::Method(MethodMetadata {
             module_path: "xmtp_sdk".into(),
             self_name: "Client".into(),
@@ -45,7 +34,7 @@ fn methods() -> Vec<Metadata> {
             throws,
             takes_self_by_arc: false,
             checksum: None,
-            docstring: Some(docs_before(SOURCE, &format!("    pub fn {name}"))),
+            docstring: Some(docs.into()),
         })
     })
     .collect()
@@ -58,7 +47,7 @@ fn counts() -> Metadata {
         orig_name: None,
         remote: false,
         fields: vec![],
-        docstring: Some(docs_before(SOURCE, "#[derive(uniffi::Record)]")),
+        docstring: Some("Private listener counts. @xmtp-internal".into()),
     })
 }
 

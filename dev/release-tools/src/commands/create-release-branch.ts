@@ -5,13 +5,13 @@ import path from "node:path";
 import semver from "semver";
 import type { ArgumentsCamelCase, Argv } from "yargs";
 
+import { bumpVersion } from "@/lib/bump-version";
 import { listTags, tagExists } from "@/lib/git";
+import { scaffoldNotes } from "@/lib/scaffold-notes";
 import { getSdkConfig } from "@/lib/sdk-config";
 import { filterAndSortTags } from "@/lib/version";
 import { Sdk, BUMP_OPTIONS, type BumpType, type GlobalArgs } from "@/types";
 
-import { bumpVersion } from "./bump-version";
-import { scaffoldNotes } from "./scaffold-notes";
 import { setManifestVersion } from "./set-manifest-version";
 
 type SdkBump = {

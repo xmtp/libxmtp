@@ -1,0 +1,103 @@
+name: CI
+'on':
+  push:
+    branches:
+    - main
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+  workflow_dispatch: null
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # Merge runs are the full-coverage safety net, so a later merge must not
+  # cancel them. A new pull request push replaces the older run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# .github/ci-suites.yml declares the suites. dev/ci-suites generates
+# lint-generated.yml and test-generated.yml, which have one job per suite.
+jobs:
+  detect-changes:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      lint_suites: ${{ steps.select.outputs.lint_suites }}
+      test_suites: ${{ steps.select.outputs.test_suites }}
+      products: ${{ steps.select.outputs.products }}
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        fetch-depth: 2
+    - name: List changed paths
+      id: paths
+      if: github.event_name != 'workflow_dispatch'
+      continue-on-error: true
+      uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
+      with:
+        # The action shallow-fetches event.before by exact SHA only when it is missing.
+        base: ${{ github.ref }}
+        list-files: json
+        filters: |
+          all_files:
+          - '**'
+    - name: Select suites and write summary
+      id: select
+      env:
+        PATHS_OUTCOME: ${{ steps.paths.outcome }}
+        GITHUB_TOKEN: ${{ github.token }}
+      # JSON encoding keeps quotes and line breaks in file paths inside data.
+      # Use standard input so large file lists do not exceed environment limits.
+      run: |
+        python3 dev/ci-select <<'CI_PATH_DATA'
+        {
+          "changes": ${{ toJSON(steps.paths.outputs.changes) }},
+          "all_files_files": ${{ toJSON(steps.paths.outputs.all_files_files) }}
+        }
+        CI_PATH_DATA
+  lint-suites:
+    name: Lint suites
+    needs: detect-changes
+    uses: ./.github/workflows/lint-generated.yml
+    with:
+      suites: ${{ needs.detect-changes.outputs.lint_suites }}
+    secrets: inherit
+  # Grant every permission a test suite declares. Each generated job narrows
+  # the token to its suite's permissions.
+  test-suites:
+    name: Test suites
+    needs: detect-changes
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test-generated.yml
+    with:
+      suites: ${{ needs.detect-changes.outputs.test_suites }}
+      products: ${{ needs.detect-changes.outputs.products }}
+    secrets: inherit
+  # Branch protection requires the Lint and Test checks.
+  lint:
+    name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Draft lint' || 'Lint' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: always()
+    needs:
+    - detect-changes
+    - lint-suites
+    steps:
+    - name: Require detection and the selected lint suites
+      env:
+        DETECTED: ${{ needs.detect-changes.result }}
+        SUITES: ${{ needs.lint-suites.result }}
+      run: test "$DETECTED" = success && test "$SUITES" = success
+  test:
+    name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Draft checks' || 'Test' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: always()
+    needs:
+    - detect-changes
+    - test-suites
+    steps:
+    - name: Require detection and the selected test suites
+      env:
+        DETECTED: ${{ needs.detect-changes.result }}
+        SUITES: ${{ needs.test-suites.result }}
+      run: test "$DETECTED" = success && test "$SUITES" = success

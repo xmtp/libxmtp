@@ -10,19 +10,13 @@ root := justfile_directory()
 
 # The backend port differs per worktree. `_env` loads dev/docker/.env, written
 # by dev/worktree-env, so the suites reach this worktree's own backend.
-_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
+_env := ". " + root + "/dev/docker/load-env"
 
 # Build the generated SDK and Apple package
 
 # Package.swift is at repo root, so cd there for swift commands
 check:
     ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift build
-
-# Compile both retained example apps against this checkout's SDK.
-check-examples:
-    ./dev/bindings
-    env -u LD xcodebuild build -project XMTPiOSExample/XMTPiOSExample.xcodeproj -scheme XMTPiOSExample -destination 'generic/platform=iOS Simulator' ARCHS=arm64 CODE_SIGNING_ALLOWED=NO
-    env -u LD xcodebuild build -project example/example.xcodeproj -scheme example -destination 'generic/platform=iOS Simulator' ARCHS=arm64 CODE_SIGNING_ALLOWED=NO
 
 # Run SwiftLint + SwiftFormat check
 lint:
@@ -32,9 +26,29 @@ lint:
 format:
     swiftformat .
 
+# Lifecycle checks: reader teardown and the listener gate. `test-lifecycle`
+# runs only them, and `test skip-lifecycle` runs every other test.
+_lifecycle_tests := "'XmtpSdkTests\\.(ReaderTeardownTests|ListenerGateTests)'"
+
 # Run Swift tests on macOS. XMTP_BACKEND_URL selects the backend.
-test:
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q
+# `skip-lifecycle` leaves out the tests that `test-lifecycle` runs.
+test mode="all" *args="":
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q {{ if mode == "skip-lifecycle" { "--skip " + _lifecycle_tests } else if mode == "all" { "" } else { error("mode must be all or skip-lifecycle") } }} {{ args }}
+
+# The macOS unit tests against a cargo debug host library and its Swift render,
+# with no Nix release build: the inner loop after a Rust edit. The simulator,
+# the examples, and CI use the Nix release products (`just ios test`).
+test-host *args="":
+    {{ _env }} && cd "$(git rev-parse --show-toplevel)" && crates/xmtp_sdk/dev/host-package swift && swift test --parallel -q {{ args }}
+
+# Run only the lifecycle checks on macOS. XMTP_BACKEND_URL selects the backend.
+test-lifecycle:
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --filter {{ _lifecycle_tests }}
+
+# Run the consumer in Tests/Consumer as a bare executable, then check that the
+# negative consumers in Tests/Consumer/Negative do not compile.
+check-consumer:
+    ./dev/bindings && ./script/check-consumer.sh
 
 # Build iOS native bindings (xcframework)
 build:

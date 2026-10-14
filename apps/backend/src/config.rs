@@ -25,13 +25,14 @@ use xmtp_configuration::{
 
 pub mod application_components;
 pub mod auth;
+pub mod handles;
 pub mod push;
 mod schema;
 mod telemetry;
 pub use telemetry::TelemetryConfig;
 
 const SCHEMA_ID: &str =
-    "https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json";
+    "https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json";
 
 // These values are server implementation details. They are not configuration keys.
 pub(crate) const DELIVERY_FRAME_BYTES: usize = 2 * 1024 * 1024;
@@ -172,6 +173,8 @@ pub struct Config {
     pub limits: LimitsConfig,
     #[serde(default)]
     pub mls: MlsConfig,
+    #[serde(default)]
+    pub handles: handles::HandlesConfig,
     /// Group metadata fields clients register in the conversations they
     /// create. Published sorted by `component_id`.
     #[serde(default)]
@@ -255,6 +258,7 @@ impl Config {
         self.validate_chains()?;
         self.limits.validate()?;
         self.mls.validate()?;
+        self.handles.validate()?;
         application_components::validate(&self.application_components)?;
         // Inline signing keys are the only key source known before startup. A
         // JWKS deployment re-checks the assembled response once its key set
@@ -332,6 +336,9 @@ impl Config {
                 max_installations_per_inbox: self.mls.max_installations_per_inbox,
                 commit_log_enabled: Some(self.mls.commit_log_enabled),
             }),
+            handles: Some(api::HandlesConfiguration {
+                min_name_length: self.handles.min_name_length,
+            }),
             smart_contract_wallet_chains: self.chains.keys().cloned().collect(),
             attachments: self.attachments.as_ref().map(|attachments| {
                 api::AttachmentsConfiguration {
@@ -406,6 +413,7 @@ impl std::fmt::Debug for Config {
             .field("validation", &self.validation)
             .field("limits", &self.limits)
             .field("mls", &self.mls)
+            .field("handles", &self.handles)
             .field("application_components", &self.application_components)
             .finish()
     }

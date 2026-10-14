@@ -11,5 +11,6 @@
     "type-tests/publicSurface.ts",
     "type-tests/streamOptions.ts",
     "vite.config.ts"
-  ]
+  ],
+  "exclude": ["test/platform"]
 }

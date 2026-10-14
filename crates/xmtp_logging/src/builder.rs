@@ -106,7 +106,27 @@ mod tests {
     use crate::config::Level;
 
     #[test]
-    fn builder_from_config_sets_fields() {
+    fn builder_methods_mutate_config() {
+        let b = XmtpLogging::builder();
+        assert_eq!(b.cfg.level, Level::Info);
+        assert!(!b.cfg.json);
+        assert!(!b.cfg.native);
+        assert_eq!(b.cfg.native_level, None);
+        assert_eq!(b.cfg.stdout_level, None);
+        let b = b
+            .level(Level::Trace)
+            .json(true)
+            .with_native(true)
+            .with_performance(true)
+            .native_level(Level::Warn)
+            .stdout_level(Level::Warn);
+        assert_eq!(b.cfg.level, Level::Trace);
+        assert!(b.cfg.json);
+        assert!(b.cfg.native);
+        assert!(b.cfg.performance);
+        assert_eq!(b.cfg.native_level, Some(Level::Warn));
+        assert_eq!(b.cfg.stdout_level, Some(Level::Warn));
+
         let b = XmtpLoggingBuilder::from_config(LoggingConfig {
             level: Level::Debug,
             json: true,
@@ -114,43 +134,6 @@ mod tests {
         });
         assert_eq!(b.cfg.level, Level::Debug);
         assert!(b.cfg.json);
-    }
-
-    #[test]
-    fn builder_methods_mutate_config() {
-        let b = XmtpLogging::builder()
-            .level(Level::Trace)
-            .json(true)
-            .with_native(true)
-            .with_performance(true);
-        assert_eq!(b.cfg.level, Level::Trace);
-        assert!(b.cfg.json);
-        assert!(b.cfg.native);
-        assert!(b.cfg.performance);
-    }
-
-    #[test]
-    fn builder_default_is_info_compact() {
-        let b = XmtpLogging::builder();
-        assert_eq!(b.cfg.level, Level::Info);
-        assert!(!b.cfg.json);
-        assert!(!b.cfg.native);
-    }
-
-    #[test]
-    fn native_level_defaults_none_and_is_settable() {
-        let b = XmtpLogging::builder();
-        assert_eq!(b.cfg.native_level, None);
-        let b = b.native_level(Level::Warn);
-        assert_eq!(b.cfg.native_level, Some(Level::Warn));
-    }
-
-    #[test]
-    fn stdout_level_defaults_none_and_is_settable() {
-        let b = XmtpLogging::builder();
-        assert_eq!(b.cfg.stdout_level, None);
-        let b = b.stdout_level(Level::Warn);
-        assert_eq!(b.cfg.stdout_level, Some(Level::Warn));
     }
 
     // A single global-init test: `install()` can only succeed once per process,

@@ -110,6 +110,14 @@ android {
             jniLibs.srcDirs += [System.getenv("XMTP_SDK_ANDROID_JNI_DIR") ?: "${projectDir.parentFile}/.build/bindings/jniLibs"]
             assets.srcDirs += ["${buildDir}/generated/contract"]
         }
+        // `dev/check-consumers` adds one negative consumer to the unit test
+        // sources. That compile must fail.
+        def negativeConsumer = findProperty("xmtpNegativeConsumer")
+        if (negativeConsumer) {
+            test {
+                java.srcDirs += [file(negativeConsumer)]
+            }
+        }
     }
 }
 
@@ -123,7 +131,7 @@ tasks.register("stageSDKContract", Copy) {
 tasks.named("preBuild").configure { dependsOn "stageSDKContract" }
 
 dependencies {
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:${rootProject.ext.androidToolchain.getProperty('desugar')}"
     api 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0'
     implementation 'androidx.lifecycle:lifecycle-process:2.7.0'
     implementation "net.java.dev.jna:jna:5.18.1@aar"
@@ -157,7 +165,7 @@ afterEvaluate {
                     licenses {
                         license {
                             name = "MIT License"
-                            url = "https://github.com/xmtp/libxmtp/blob/self-hosted/sdks/android/LICENSE"
+                            url = "https://github.com/xmtp/libxmtp/blob/main/sdks/android/LICENSE"
                         }
                     }
                     developers {
@@ -171,7 +179,7 @@ afterEvaluate {
                     scm {
                         connection = "https://github.com/xmtp/libxmtp.git"
                         developerConnection = "https://github.com/xmtp/libxmtp.git"
-                        url = "https://github.com/xmtp/libxmtp/tree/self-hosted/sdks/android"
+                        url = "https://github.com/xmtp/libxmtp/tree/main/sdks/android"
                     }
                 }
             }
@@ -183,4 +191,12 @@ afterEvaluate {
         useInMemoryPgpKeys(signingKey, signingPassword)
         sign publishing.publications.release
     }
+}
+
+// Share the pinned legacy files with the native migration tests. The tests
+// load the host library through jna.library.path and call the local backend;
+// neither is a task input, so CI's build cache must not replay a result.
+tasks.withType(Test).configureEach {
+    systemProperty "xmtp.legacy.fixtures", rootProject.file("../../crates/xmtp_legacy_migration/fixtures").canonicalPath
+    outputs.cacheIf("tests use native code and a backend outside the task inputs") { false }
 }

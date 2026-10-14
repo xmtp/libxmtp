@@ -14,14 +14,12 @@ use xmtp_db::StorageError;
 use xmtp_db::XmtpDb;
 use xmtp_db::prelude::*;
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
-use xmtp_id::associations::verify_updates;
 use xmtp_id::{
     AsIdRef, InboxIdRef,
     associations::{
-        AssociationError, AssociationState, Identifier, IdentityAction, InstallationKeyContext,
-        MemberIdentifier,
+        AssociationError, AssociationState, Handle, Identifier, IdentityAction,
+        InstallationKeyContext, MemberIdentifier,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        get_state,
         unverified::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
@@ -39,10 +37,15 @@ use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 use xmtp_id::InboxUpdate;
 
 mod dependencies;
+mod state_store;
 pub use dependencies::{IdentityDependencyError, IdentityRequirement, IdentityResolutionRegistry};
 pub(crate) use dependencies::{
     require_association_state, resolve_identity_requirement, resolve_identity_requirements,
 };
+pub(crate) use state_store::get_association_state_for_client;
+#[cfg(test)]
+pub(crate) use state_store::store_association_state;
+use state_store::{ResolvedState, resolve_association_state};
 
 #[derive(Debug, Error)]
 pub enum IdentityUpdateError {
@@ -137,43 +140,22 @@ impl<Context> IdentityUpdates<Context> {
 
 /// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
 /// If no `to_sequence_id` is provided, use the latest value in the database
+///
+/// This path has no client, so storing a computed state emits no event. A
+/// client stores through [`IdentityUpdates::get_association_state`].
 pub async fn get_association_state_with_verifier(
     conn: &impl DbQuery,
     inbox_id: &str,
     to_sequence_id: Option<i64>,
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<AssociationState, ClientError> {
-    let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
-    let last_sequence_id = updates
-        .last()
-        .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
-        .sequence_id;
-    if let Some(to_sequence_id) = to_sequence_id
-        && to_sequence_id != last_sequence_id
-    {
-        return Err(AssociationError::MissingIdentityUpdate.into());
+    match resolve_association_state(conn, inbox_id, to_sequence_id, scw_verifier).await? {
+        ResolvedState::Cached(state) => Ok(state),
+        ResolvedState::Computed { sequence_id, state } => {
+            conn.write_to_cache(inbox_id.to_owned(), sequence_id, state.clone().into())?;
+            Ok(state)
+        }
     }
-
-    if let Some(association_state) = conn.read_from_cache(inbox_id, last_sequence_id)? {
-        return Ok(association_state.try_into().map_err(StorageError::from)?);
-    }
-
-    let unverified_updates = updates
-        .into_iter()
-        // deserialize identity update payload
-        .map(StoredIdentityUpdate::to_unverified)
-        .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
-    let updates = verify_updates(unverified_updates, scw_verifier).await?;
-
-    let association_state = get_state(updates)?;
-
-    conn.write_to_cache(
-        inbox_id.to_owned(),
-        last_sequence_id,
-        association_state.clone().into(),
-    )?;
-
-    Ok(association_state)
 }
 
 /// Whether the association state of the inbox in the database holds the
@@ -284,8 +266,15 @@ where
         conn: &impl DbQuery,
         identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
-        let verifier = self.context.scw_verifier();
-        batch_get_association_state_with_verifier(conn, identifiers, &verifier).await
+        try_join_all(identifiers.iter().map(|(inbox_id, to_sequence_id)| {
+            get_association_state_for_client(
+                &self.context,
+                conn,
+                inbox_id.as_ref(),
+                *to_sequence_id,
+            )
+        }))
+        .await
     }
 
     /// Get the latest association state available on the network for the given `inbox_id`
@@ -371,8 +360,7 @@ where
         inbox_id: InboxIdRef<'_>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        let verifier = self.context.scw_verifier();
-        get_association_state_with_verifier(conn, inbox_id, to_sequence_id, &verifier).await
+        get_association_state_for_client(&self.context, conn, inbox_id, to_sequence_id).await
     }
 
     /// Generate a `CreateInbox` signature request for the given wallet address.
@@ -458,6 +446,28 @@ where
             .server_configuration()
             .restrict(&mut signature_request);
 
+        Ok(signature_request)
+    }
+
+    /// Generate a `ClaimHandle` signature request for `handle`, signed by this
+    /// installation's key.
+    pub async fn claim_handle_request(
+        &self,
+        handle: Handle,
+    ) -> Result<SignatureRequest, ClientError> {
+        let installation_keys = &self.context.identity().installation_keys;
+        let installation_public_key = installation_keys.verifying_key();
+        let mut signature_request = SignatureRequestBuilder::new(self.context.inbox_id())
+            .claim_handle(handle, installation_public_key.into())
+            .build();
+        let signature = installation_keys
+            .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
+        signature_request
+            .add_signature(
+                UnverifiedSignature::new_installation_key(signature, installation_public_key),
+                &self.context.scw_verifier(),
+            )
+            .await?;
         Ok(signature_request)
     }
 
@@ -741,8 +751,7 @@ pub(crate) async fn load_identity_updates_for_client<Context: XmtpSharedContext>
         None
     };
     let before = if previous_sequence.is_some() {
-        let verifier = context.scw_verifier();
-        Some(get_association_state_with_verifier(conn, own_inbox, None, &verifier).await?)
+        Some(get_association_state_for_client(context, conn, own_inbox, None).await?)
     } else {
         None
     };

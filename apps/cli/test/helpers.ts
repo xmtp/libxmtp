@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 
+import { Client } from "@xmtp/node-sdk";
 import { execa } from "execa";
 import { generatePrivateKey } from "viem/accounts";
 
@@ -146,4 +147,69 @@ export async function createRegisteredIdentity(): Promise<{
  */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * A random handle name. Claims are permanent on the shared backend, so each
+ * test claims a new name.
+ */
+export function randomHandleName(): string {
+  return `cli${randomBytes(6).toString("hex")}`;
+}
+
+/**
+ * Wait until a handle lookup on the backend names an inbox for `handle`.
+ * A lookup can read a replica that has not seen a new claim yet.
+ */
+export async function waitForHandle(handle: string): Promise<void> {
+  const url = process.env.XMTP_BACKEND_URL;
+  if (!url) {
+    throw new Error("XMTP_BACKEND_URL is required for CLI tests");
+  }
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    const results = await Client.canMessage(
+      [{ kind: "handle", identifier: handle }],
+      { url },
+    );
+    if (results.get(`handle:${handle}`)) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`No inbox holds ${handle} on the backend`);
+    }
+    await sleep(250);
+  }
+}
+
+/**
+ * Claim `handle` for `identity` with the CLI, then wait until handle lookups
+ * see the claim.
+ */
+export async function claimHandle(
+  identity: { walletKey: string; dbEncryptionKey: string; dbPath: string },
+  handle: string,
+): Promise<void> {
+  const result = await runWithIdentity(identity, [
+    "client",
+    "handle-claim",
+    handle,
+    "--force",
+    "--json",
+  ]);
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to claim ${handle}: ${result.stderr}`);
+  }
+  await waitForHandle(handle);
+}
+
+/** Create a registered identity that holds `handle`, a new name by default. */
+export async function createIdentityWithHandle(
+  handle = randomHandleName(),
+): Promise<
+  Awaited<ReturnType<typeof createRegisteredIdentity>> & { handle: string }
+> {
+  const identity = await createRegisteredIdentity();
+  await claimHandle(identity, handle);
+  return { ...identity, handle };
 }

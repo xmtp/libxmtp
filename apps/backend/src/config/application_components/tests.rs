@@ -10,8 +10,8 @@ const MINIMAL: &str =
 fn entry(component_id: u32, name: &str) -> String {
     format!(
         "\n[[application_components]]\ncomponent_id = {component_id}\nname = '{name}'\n\
-         component_type = 'tls_map_inbox_id_string'\ninsert_policy = 'allow_if_self_or_non_member'\n\
-         update_policy = 'allow_if_self_or_non_member'\ndelete_policy = 'allow_if_admin'\n\
+         component_type = 'tls_map_inbox_id_string'\ninsert_policy = 'allow'\n\
+         update_policy = 'deny'\ndelete_policy = 'allow_if_admin'\n\
          in_groups = true\nin_dms = false\n"
     )
 }
@@ -26,58 +26,27 @@ fn base(policy: MetadataBasePolicy) -> mls::MetadataPolicy {
     }
 }
 
-/// Clients build their snapshot from this answer, so it carries every entry
-/// with the configured type, policies, and conversation flags, in ID order
-/// whatever order the file lists them in.
-// verifies: CONF-079
-#[xmtp_common::test(unwrap_try = true)]
-fn the_catalogue_is_published_in_id_order() {
-    let status = "\n[[application_components]]\ncomponent_id = 0xC000\nname = 'status'\n\
-        component_type = 'string'\ninsert_policy = 'allow'\nupdate_policy = 'deny'\n\
-        delete_policy = 'allow_if_super_admin'\nin_groups = false\nin_dms = true\n";
-    let config = load(&[entry(0xC002, "USER_PRONOUNS"), status.to_owned()])?;
-    let published = config.configuration_response(&[]).application_components;
-    assert_eq!(
-        published,
-        vec![
-            api::ApplicationComponentDefinition {
-                component_id: 0xC000,
-                name: "status".to_owned(),
-                component_type: ComponentType::String.into(),
-                permissions: Some(mls::ComponentPermissions {
-                    insert_policy: Some(base(MetadataBasePolicy::Allow)),
-                    update_policy: Some(base(MetadataBasePolicy::Deny)),
-                    delete_policy: Some(base(MetadataBasePolicy::AllowIfSuperAdmin)),
-                }),
-                in_groups: false,
-                in_dms: true,
-            },
-            api::ApplicationComponentDefinition {
-                component_id: 0xC002,
-                name: "USER_PRONOUNS".to_owned(),
-                component_type: ComponentType::TlsMapInboxIdString.into(),
-                permissions: Some(mls::ComponentPermissions {
-                    insert_policy: Some(base(MetadataBasePolicy::AllowIfSelfOrNonMember)),
-                    update_policy: Some(base(MetadataBasePolicy::AllowIfSelfOrNonMember)),
-                    delete_policy: Some(base(MetadataBasePolicy::AllowIfAdmin)),
-                }),
-                in_groups: true,
-                in_dms: false,
-            },
-        ]
-    );
-    assert!(
-        Config::load_str(MINIMAL)?
-            .configuration_response(&[])
-            .application_components
-            .is_empty()
-    );
-}
-
 /// Every type and base policy an operator can name maps to its own wire tag.
 // verifies: CONF-079
 #[xmtp_common::test(unwrap_try = true)]
 fn every_type_and_policy_name_maps_to_its_wire_tag() {
+    assert!(
+        load(&[])?
+            .configuration_response(&[])
+            .application_components
+            .is_empty(),
+        "an empty catalogue stays empty"
+    );
+    let groups_only = load(&[entry(0xC000, "groups")])?.configuration_response(&[]);
+    assert!(groups_only.application_components[0].in_groups);
+    assert!(!groups_only.application_components[0].in_dms);
+    let dms_only = load(&[entry(0xC000, "dms")
+        .replace("in_groups = true", "in_groups = false")
+        .replace("in_dms = false", "in_dms = true")])?
+    .configuration_response(&[]);
+    assert!(!dms_only.application_components[0].in_groups);
+    assert!(dms_only.application_components[0].in_dms);
+
     for (name, tag) in [
         ("bytes", ComponentType::Bytes),
         ("string", ComponentType::String),
@@ -113,6 +82,14 @@ fn every_type_and_policy_name_maps_to_its_wire_tag() {
         let source = entry(0xC000, "field").replace("'allow_if_admin'", &format!("'{name}'"));
         let published = load(&[source])?.configuration_response(&[]);
         let permissions = published.application_components[0].permissions.clone()?;
+        assert_eq!(
+            permissions.insert_policy,
+            Some(base(MetadataBasePolicy::Allow))
+        );
+        assert_eq!(
+            permissions.update_policy,
+            Some(base(MetadataBasePolicy::Deny))
+        );
         assert_eq!(permissions.delete_policy, Some(base(tag)));
     }
 }

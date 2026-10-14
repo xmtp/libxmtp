@@ -168,6 +168,28 @@ pub fn chunk_publish(units: &[PublishUnit]) -> Result<Vec<&[PublishUnit]>> {
     chunk_publish_within(units, &LimitsConfiguration::default())
 }
 
+/// The type URL of the structured detail on a refused publish.
+const PUBLISH_ERROR_TYPE_URL: &str = "type.googleapis.com/xmtp.backend.v1.PublishError";
+
+/// The reason in the structured `PublishError` detail of an
+/// `INVALID_ARGUMENT` publish refusal, or `None` when the error carries no
+/// such detail. The status message is never read.
+pub(crate) fn publish_error_reason(
+    error: &(dyn std::error::Error + 'static),
+) -> Option<wire::publish_error::Reason> {
+    if crate::preflight::failure(error).is_some() {
+        return None;
+    }
+    let status = grpc_status(error).filter(|status| status.code() == Code::InvalidArgument)?;
+    let details = tonic_types::pb::Status::decode(status.details()).ok()?;
+    details
+        .details
+        .iter()
+        .filter(|detail| detail.type_url == PUBLISH_ERROR_TYPE_URL)
+        .find_map(|detail| wire::PublishError::decode(detail.value.as_slice()).ok())
+        .and_then(|error| wire::publish_error::Reason::try_from(error.reason).ok())
+}
+
 pub(crate) fn size_error(error: &(dyn std::error::Error + 'static)) -> bool {
     if crate::preflight::failure(error).is_some() {
         return false;
@@ -178,14 +200,7 @@ pub(crate) fn size_error(error: &(dyn std::error::Error + 'static)) -> bool {
     match status.code() {
         Code::OutOfRange | Code::ResourceExhausted => true,
         Code::InvalidArgument => {
-            tonic_types::pb::Status::decode(status.details()).is_ok_and(|details| {
-                details.details.iter().any(|detail| {
-                    detail.type_url == "type.googleapis.com/xmtp.backend.v1.PublishError"
-                        && wire::PublishError::decode(detail.value.as_slice()).is_ok_and(|error| {
-                            error.reason == wire::publish_error::Reason::TooLarge as i32
-                        })
-                })
-            })
+            publish_error_reason(error) == Some(wire::publish_error::Reason::TooLarge)
         }
         _ => false,
     }

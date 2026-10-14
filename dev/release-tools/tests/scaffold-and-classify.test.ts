@@ -4,8 +4,8 @@ import path from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { scaffoldNotes } from "../src/commands/scaffold-notes";
 import { classifyNoteFiles } from "../src/lib/classify-notes";
+import { scaffoldNotes } from "../src/lib/scaffold-notes";
 
 describe("scaffold → classify end-to-end", () => {
   let tmpDir: string;
@@ -37,53 +37,22 @@ describe("scaffold → classify end-to-end", () => {
     return { path: repoRelative, content };
   }
 
-  it("classifies an unmodified scaffold with tag as empty", () => {
-    const filePath = scaffoldNotes("ios", tmpDir, "1.9.0", "ios-1.9.0");
-    const result = classifyNoteFiles([readNote(filePath)]);
-
-    expect(result.empty).toHaveLength(1);
-    expect(result.content).toHaveLength(0);
-    expect(result.empty[0]).toEqual({
-      sdk: "ios",
-      filePath: "docs/release-notes/ios/2.0.0.md",
-      previousReleaseVersion: "1.9.0",
-      previousReleaseTag: "ios-1.9.0",
-    });
-  });
-
-  it("classifies an unmodified scaffold without tag as empty", () => {
-    const filePath = scaffoldNotes("ios", tmpDir, "1.9.0", null);
-    const result = classifyNoteFiles([readNote(filePath)]);
-
-    expect(result.empty).toHaveLength(1);
-    expect(result.content).toHaveLength(0);
-    expect(result.empty[0]).toEqual({
-      sdk: "ios",
-      filePath: "docs/release-notes/ios/2.0.0.md",
-      previousReleaseVersion: "1.9.0",
-      previousReleaseTag: null,
-    });
-  });
-
-  it("classifies a modified scaffold with tag as content", () => {
-    const filePath = scaffoldNotes("android", tmpDir, "3.0.0", "android-3.0.0");
-    const original = fs.readFileSync(filePath, "utf-8");
-    const modified = original.replace(
-      "<!-- AI-generated draft - please review and edit -->",
-      "This release improves group messaging performance.",
+  it("scaffolds frontmatter with and without a since tag", () => {
+    const tagged = fs.readFileSync(
+      scaffoldNotes("ios", tmpDir, "1.9.0", "ios-1.9.0"),
+      "utf-8",
     );
-    fs.writeFileSync(filePath, modified);
+    expect(tagged).toContain("# iOS SDK 2.0.0");
+    expect(tagged).toContain('sdk = "ios"');
+    expect(tagged).toContain('previous_release_version = "1.9.0"');
+    expect(tagged).toContain('previous_release_tag = "ios-1.9.0"');
 
-    const result = classifyNoteFiles([readNote(filePath)]);
-
-    expect(result.empty).toHaveLength(0);
-    expect(result.content).toHaveLength(1);
-    expect(result.content[0]).toEqual({
-      sdk: "android",
-      filePath: "docs/release-notes/android/3.1.0.md",
-      previousReleaseVersion: "3.0.0",
-      previousReleaseTag: "android-3.0.0",
-    });
+    const untagged = fs.readFileSync(
+      scaffoldNotes("ios", tmpDir, "1.9.0", null),
+      "utf-8",
+    );
+    expect(untagged).toContain('previous_release_version = "1.9.0"');
+    expect(untagged).not.toContain("previous_release_tag");
   });
 
   it("classifies a modified scaffold without tag as content", () => {
@@ -132,12 +101,20 @@ describe("scaffold → classify end-to-end", () => {
     ]);
 
     expect(result.empty).toHaveLength(1);
-    expect(result.empty[0].sdk).toBe("ios");
-    expect(result.empty[0].previousReleaseTag).toBe("ios-1.9.0");
+    expect(result.empty[0]).toEqual({
+      sdk: "ios",
+      filePath: "docs/release-notes/ios/2.0.0.md",
+      previousReleaseVersion: "1.9.0",
+      previousReleaseTag: "ios-1.9.0",
+    });
 
     expect(result.content).toHaveLength(1);
-    expect(result.content[0].sdk).toBe("android");
-    expect(result.content[0].previousReleaseTag).toBe("android-3.0.0");
+    expect(result.content[0]).toEqual({
+      sdk: "android",
+      filePath: "docs/release-notes/android/3.1.0.md",
+      previousReleaseVersion: "3.0.0",
+      previousReleaseTag: "android-3.0.0",
+    });
   });
 
   it("classifies a mix with and without previous tags", () => {
@@ -153,12 +130,17 @@ describe("scaffold → classify end-to-end", () => {
     expect(result.empty).toHaveLength(2);
     expect(result.content).toHaveLength(0);
 
-    const ios = result.empty.find((n) => n.sdk === "ios")!;
-    expect(ios.previousReleaseVersion).toBe("1.9.0");
-    expect(ios.previousReleaseTag).toBe("ios-1.9.0");
-
-    const android = result.empty.find((n) => n.sdk === "android")!;
-    expect(android.previousReleaseVersion).toBe("3.0.0");
-    expect(android.previousReleaseTag).toBeNull();
+    expect(result.empty).toContainEqual({
+      sdk: "ios",
+      filePath: "docs/release-notes/ios/2.0.0.md",
+      previousReleaseVersion: "1.9.0",
+      previousReleaseTag: "ios-1.9.0",
+    });
+    expect(result.empty).toContainEqual({
+      sdk: "android",
+      filePath: "docs/release-notes/android/3.1.0.md",
+      previousReleaseVersion: "3.0.0",
+      previousReleaseTag: null,
+    });
   });
 });

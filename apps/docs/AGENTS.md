@@ -19,14 +19,15 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `just docs check-examples`: check source examples against the built local SDKs.
 - `just docs check-agent-docs`: check all reachable public Agent SDK declarations for TSDoc.
 - `just docs lint`: lint the site code and Markdown.
-- `just docs format-check`: check formatting.
-- `just docs format`: format the site files.
+- `just lint-js-format` and `just format-js` (repository root): check and
+  format the site files with the other packages.
 - `just docs test`: run the build-tool tests.
 - `just docs test-browser`: test the composed site in Chromium.
 - `just docs typecheck`: check the site and executable examples.
 - `just docs compose`: combine the site and generated references.
 - `dev/nix-shell 'just docs check'`: check source links and the composed artifact.
 - `dev/nix-shell 'just docs check-external'`: check external URLs with Lychee.
+- `dev/nix-shell 'just docs check-cutover'`: check the composed site origin, exports, and signature route. Pass the expected origin and staged site path to check a cutover candidate. This does not verify live DNS, certificates, or HTTP redirects.
 
 `just docs build` and `just docs check-examples` select each SDK product from its
 source manifest, then run its package tasks with the pnpm dependency graph. Do not
@@ -40,7 +41,7 @@ text exports. `parity/` preserves old URLs and Lighthouse score limits; it does
 not freeze page text.
 
 Oxfmt formats docs source except `.astro` files. Prettier with the Astro plugin
-formats `.astro` files. `just docs format-check` checks both formatters.
+formats `.astro` files. `just lint-js-format` checks both formatters.
 
 ## Content
 
@@ -50,8 +51,9 @@ and the labels `Browser`, `Node`, `Kotlin`, and `Swift`. A guide that also cover
 the Agent SDK can add `Agent` as the last tab. Package manager tabs
 use `syncKey="pkg"`. Do not add React Native examples until they can be verified.
 
-The public site deploys from `self-hosted`. Pull requests skip the Kotlin and
-Swift references with `DOCS_SKIP_NATIVE_REFERENCES=1`; pushes build them.
+The post-merge workflow (`post-merge.yml`) deploys the public site on each push to `main` and
+builds the Kotlin and Swift references. Pull requests and merge runs skip them
+with `DOCS_SKIP_NATIVE_REFERENCES=1`.
 
 ## TypeScript examples
 

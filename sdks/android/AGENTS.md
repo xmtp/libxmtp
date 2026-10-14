@@ -13,7 +13,18 @@ directory.
 
 Run from the repository root. Each recipe uses the Android Nix shell.
 Build tools use normal parallelism and preserve caller job settings.
-The format recipe uses strict dependency verification and stops its Gradle daemon.
+Gradle uses a 4 GiB heap in both SDK and app roots.
+When `ANDROID_NDK_HOME` is set, all Android modules use that NDK path and its
+`Pkg.Revision` for native library stripping. Keep the path and version matched.
+SDK `check` runs `gradlew build` and the instrumented test APK in one Gradle
+call, then `check-packages` on the debug and release AARs.
+The separate app `check` validates the moved Debug and Release APKs.
+The artifact check rejects static symbol and debug sections and requires the
+dynamic symbol sections in every packaged SDK JNI library. It uses NDK `llvm-readelf`.
+The package checker accepts `--require-all-abis` for the downloadable example APK;
+this also requires arm64-v8a, armeabi-v7a, x86_64, and x86.
+The format and lint recipes use strict dependency verification and stop their Gradle daemons.
+The lint recipe checks the SDK. Use the app lint recipe for the example.
 The dependency locks include the pinned Spotless formatter graph.
 The config check tests settings service startup and clock failure before emulator tests.
 
@@ -21,19 +32,37 @@ The config check tests settings service startup and clock failure before emulato
 dev/nix-shell 'just android build'
 dev/nix-shell 'just android assemble'
 dev/nix-shell 'just android check'
+dev/nix-shell 'just android check-packages' # checks existing build outputs
 dev/nix-shell 'just android lint'
 dev/nix-shell 'just android format'
 dev/nix-shell 'just android test'
+dev/nix-shell 'just android test-host' # Host-only loop: cargo debug JNA library, no Nix build.
 dev/nix-shell 'just android test-unit --tests uniffi.xmtp_sdk.AndroidStreamLifecycleTest'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
-dev/nix-shell 'just android docs'
+dev/nix-shell 'just android check-consumers'
+dev/nix-shell 'just android docs-generated'
 ```
+
+`docs-generated` builds the Kotlin API reference, locally and in CI. It selects the current release-profile
+`xmtp-sdk-generated-kotlin` output and gives Dokka its Kotlin, runtime, Android,
+and contract files. It uses a new empty JNI directory for each run. A hosted
+comparison verified that its reference output matches the full path byte for
+byte. JNI, AAR, JVM, and emulator checks stay in the build and test recipes.
 
 The Android floor is API 23. Generated timestamps use `java.time.Instant`. Keep
 core library desugaring on in the library and app consumers, with pinned
 `com.android.tools:desugar_jdk_libs:2.1.5`. Dependency locks and SHA256 Gradle
 verification metadata cover the final resolved graph.
+
+The Messenger app is at [apps/example-android](../../apps/example-android).
+Its Gradle root, recipes, and fixture rules are in that directory. SDK recipes
+build and test only the SDK. SDK changes also select app compatibility CI.
+
+The SDK root owns `gradle/toolchain.properties`, the Gradle wrapper, and the
+shared SHA256 dependency verification inventory. The app root reads these
+inputs. Refresh locks and checksums in the Android Nix shell, then run strict
+SDK and app checks. Keep parent POM checksums and Linux AAPT2 checksums.
 
 `test-min-sdk` requires a Linux x86_64 runner. It loads release JNI and checks
 generated `Instant` and `Date` conversions on API 23. It also creates public
@@ -62,12 +91,10 @@ these existing matched bindings and accepts Gradle test filters.
 
 ## Local services
 
-Run `dev/nix-shell 'just backend up'`. The library test BuildConfig reads backend
-and anvil ports from the worktree environment. The emulator reaches these
-services through `10.0.2.2`. Attachments use the backend's advertised loopback URL.
-Set `XMTP_ANDROID_BACKEND_URL` to use a test relay or another reachable endpoint.
-The integration recipe uses `adb reverse` for `XMTP_S3_PORT`; it must match the
-backend attachment URL. Tests set `allowPrivateNetwork = true` for this fixture.
+Run `dev/nix-shell 'just backend up'`. SDK instrumentation selects only
+`:library:connectedCheck`. App instrumentation uses the separate app recipe.
+The library BuildConfig reads worktree backend and anvil ports. Attachments
+use the advertised loopback URL with scoped reverse forwarding.
 
 ## Tests and lifecycle
 
@@ -80,6 +107,19 @@ exit; do not run them at the same time as other Toxiproxy tests in the
 worktree. Live tests create clients through `withClients`, which ends each
 client on every exit. `library/src/androidTest` has installed Android tests.
 Host JVM checks do not prove an Android AAR loads.
+
+`library/src/test/negative` holds negative consumers. They are not compiled
+with the tests. `check-consumers` adds one at a time to the unit test sources
+(the `xmtpNegativeConsumer` Gradle property) and checks that the compile fails
+with the expected diagnostics: typed IDs, typed content, Group and Dm types,
+and typed codec values. The required `test-android.yml` `sdk-build` job runs these
+consumers for broad Kotlin inputs, including when AAR staging is not selected.
+Specific native inputs select API 23 smoke, API 34 integration, and all-ABI
+AAR staging. Direct reusable calls keep unit, consumer, and platform checks
+by default. Host JVM tests retain the matched host library and fast JNI
+bindings. They do not replace the selected emulator or all-ABI proofs.
+The negative consumer check requires a compiler error at each invalid call.
+It uses Kotlin 2.2.20 diagnostic names and prints the log if a check fails.
 
 Instrumentation has no foreground Activity. Its fixtures disable
 `AndroidStreamLifecycle.enabled`, resume native streams, and restore the flag.
@@ -106,3 +146,7 @@ message reader fails with `XmtpException.ConsumerOwned`. Explicit `from` cursors
 permit independent replay/live readers that do not advance default progress. Use the
 generated reader options for scopes, filters, and replay. Keep typed errors and
 `ULong` values.
+
+`dev/nix-shell 'just android test --tests uniffi.xmtp_sdk.LegacyMigrationTest'` runs `LegacyMigrationTest` in the
+normal JVM target with matched bindings and the host library. Gradle supplies
+the pinned legacy fixture directory. The required Android `sdk-build` job includes this test.

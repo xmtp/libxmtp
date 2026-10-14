@@ -16,9 +16,9 @@ fn config() -> AttachmentsConfig {
     }
 }
 
-// verifies: ATCH-002
+// verifies: ATCH-002, ATCH-071
 #[xmtp_common::test(unwrap_try = true)]
-async fn base_url_rules() {
+async fn url_validation() {
     let mut config = config();
     for value in [
         "https://example.com/files",
@@ -52,71 +52,9 @@ async fn base_url_rules() {
         config.base_url = value.into();
         assert_eq!(config.validate().unwrap_err().field, "attachments.base_url");
     }
-}
 
-// verifies: ATCH-004
-#[xmtp_common::test(unwrap_try = true)]
-async fn retention_rules() {
-    let mut config = config();
-    assert!(config.validate().is_ok());
-    for value in [0, xmtp_configuration::MAX_ATTACHMENT_RETENTION_SECONDS] {
-        config.retention_seconds = Some(value);
-        assert!(config.validate().is_ok());
-    }
-    config.retention_seconds = Some(xmtp_configuration::MAX_ATTACHMENT_RETENTION_SECONDS + 1);
-    assert_eq!(
-        config.validate().unwrap_err().field,
-        "attachments.retention_seconds"
-    );
-}
-
-// verifies: ATCH-083
-#[xmtp_common::test(unwrap_try = true)]
-async fn presign_lifetime_bounds() {
-    let mut settings = config();
-    assert!(settings.validate().is_ok());
-
-    for value in [300, 3600] {
-        let TargetConfig::S3(s3) = &mut settings.target;
-        s3.presign_ttl_seconds = Some(value);
-        assert!(settings.validate().is_ok(), "{value}");
-    }
-    for value in [299, 3601] {
-        let TargetConfig::S3(s3) = &mut settings.target;
-        s3.presign_ttl_seconds = Some(value);
-        assert_eq!(
-            settings.validate().unwrap_err().field,
-            "attachments.target.S3.presign_ttl_seconds",
-            "{value}"
-        );
-    }
-}
-
-// verifies: ATCH-075
-#[xmtp_common::test(unwrap_try = true)]
-async fn key_prefix_rules() {
-    let mut config = config();
-    for value in ["", "a/", "a/b/", "Ab_09-x.y/z/"] {
-        let TargetConfig::S3(s3) = &mut config.target;
-        s3.key_prefix = value.into();
-        assert!(config.validate().is_ok(), "{value}");
-    }
-    for value in [
-        "/lead/", "a//b/", "a/./b", "a/../b", "a b/", "a%2Fb/", "a+b/", "é/", "a\\b/",
-    ] {
-        let TargetConfig::S3(s3) = &mut config.target;
-        s3.key_prefix = value.into();
-        assert_eq!(
-            config.validate().unwrap_err().field,
-            "attachments.target.S3.key_prefix"
-        );
-    }
-}
-
-// verifies: ATCH-071 (backend)
-#[xmtp_common::test(unwrap_try = true)]
-async fn storage_endpoint_requires_https_or_loopback_http() {
-    let mut config = config();
+    // The storage endpoint uses the same URL guard after the public URL is reset.
+    config.base_url = "https://attachments.example.com/objects".into();
     for endpoint in [
         "https://s3.example.com",
         "https://s3.example.com/prefix/",
@@ -169,33 +107,109 @@ async fn storage_endpoint_requires_https_or_loopback_http() {
     }
 }
 
-// verifies: ATCH-081
+// verifies: ATCH-003, ATCH-004, ATCH-075, ATCH-081, ATCH-083
 #[xmtp_common::test(unwrap_try = true)]
-async fn s3_names_rules() {
-    let mut settings = config();
-    let TargetConfig::S3(s3) = &mut settings.target;
-    s3.region = "us-east-1".into();
-    s3.bucket = "attachments.v2".into();
-    assert!(settings.validate().is_ok());
+async fn validation_bounds() {
+    let mut config = config();
+    assert!(config.validate().is_ok());
+    for value in [0, xmtp_configuration::MAX_ATTACHMENT_RETENTION_SECONDS] {
+        config.retention_seconds = Some(value);
+        assert!(config.validate().is_ok());
+    }
+    config.retention_seconds = Some(xmtp_configuration::MAX_ATTACHMENT_RETENTION_SECONDS + 1);
+    assert_eq!(
+        config.validate().unwrap_err().field,
+        "attachments.retention_seconds"
+    );
 
+    // Reset each invalid field before the next boundary family.
+    config.retention_seconds = None;
+    assert!(config.validate().is_ok());
+
+    for value in [300, 3600] {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.presign_ttl_seconds = Some(value);
+        assert!(config.validate().is_ok(), "{value}");
+    }
+    for value in [299, 3601] {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.presign_ttl_seconds = Some(value);
+        assert_eq!(
+            config.validate().unwrap_err().field,
+            "attachments.target.S3.presign_ttl_seconds",
+            "{value}"
+        );
+    }
+    {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.presign_ttl_seconds = None;
+    }
+
+    for value in ["", "a/", "a/b/", "Ab_09-x.y/z/"] {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.key_prefix = value.into();
+        assert!(config.validate().is_ok(), "{value}");
+    }
+    for value in [
+        "/lead/", "a//b/", "a/./b", "a/../b", "a b/", "a%2Fb/", "a+b/", "é/", "a\\b/",
+    ] {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.key_prefix = value.into();
+        assert_eq!(
+            config.validate().unwrap_err().field,
+            "attachments.target.S3.key_prefix"
+        );
+    }
+    {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.key_prefix.clear();
+    }
+
+    {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.region = "us-east-1".into();
+        s3.bucket = "attachments.v2".into();
+    }
+    assert!(config.validate().is_ok());
     for region in ["", "us east-1", "us-east-1\n"] {
-        let mut settings = config();
-        let TargetConfig::S3(s3) = &mut settings.target;
+        let TargetConfig::S3(s3) = &mut config.target;
         s3.region = region.into();
         assert_eq!(
-            settings.validate().unwrap_err().field,
+            config.validate().unwrap_err().field,
             "attachments.target.S3.region",
             "{region:?}"
         );
     }
+    {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.region = "us-east-1".into();
+    }
     for bucket in ["", "a/b", ".", ".."] {
-        let mut settings = config();
-        let TargetConfig::S3(s3) = &mut settings.target;
+        let TargetConfig::S3(s3) = &mut config.target;
         s3.bucket = bucket.into();
         assert_eq!(
-            settings.validate().unwrap_err().field,
+            config.validate().unwrap_err().field,
             "attachments.target.S3.bucket",
             "{bucket:?}"
+        );
+    }
+    {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.bucket = "attachments".into();
+    }
+
+    assert_eq!(config.upload_ceiling(), BACKEND_DEFAULT_MAX_UPLOAD_BYTES);
+    assert!(config.validate().is_ok());
+    for value in [1, xmtp_configuration::MAX_ATTACHMENT_UPLOAD_BYTES] {
+        config.max_upload_bytes = Some(value);
+        assert!(config.validate().is_ok());
+        assert_eq!(config.upload_ceiling(), value);
+    }
+    for value in [0, xmtp_configuration::MAX_ATTACHMENT_UPLOAD_BYTES + 1] {
+        config.max_upload_bytes = Some(value);
+        assert_eq!(
+            config.validate().unwrap_err().field,
+            "attachments.max_upload_bytes"
         );
     }
 }
@@ -203,6 +217,7 @@ async fn s3_names_rules() {
 // verifies: ATCH-073, CONF-065
 #[xmtp_common::test(unwrap_try = true)]
 async fn empty_required_credential_fields_name_the_key() {
+    let mut settings = config();
     for (credentials, field) in [
         (
             CredentialsConfig::Static {
@@ -271,7 +286,6 @@ async fn empty_required_credential_fields_name_the_key() {
             "role_arn",
         ),
     ] {
-        let mut settings = config();
         let TargetConfig::S3(s3) = &mut settings.target;
         s3.credentials = credentials;
         let error = settings.validate().unwrap_err();
@@ -290,29 +304,8 @@ async fn empty_required_credential_fields_name_the_key() {
         CredentialsConfig::Container,
         CredentialsConfig::Instance,
     ] {
-        let mut settings = config();
         let TargetConfig::S3(s3) = &mut settings.target;
         s3.credentials = credentials;
         assert!(settings.validate().is_ok());
-    }
-}
-
-// verifies: ATCH-003
-#[xmtp_common::test(unwrap_try = true)]
-async fn upload_ceiling_rules() {
-    let mut config = config();
-    assert_eq!(config.upload_ceiling(), BACKEND_DEFAULT_MAX_UPLOAD_BYTES);
-    assert!(config.validate().is_ok());
-    for value in [1, xmtp_configuration::MAX_ATTACHMENT_UPLOAD_BYTES] {
-        config.max_upload_bytes = Some(value);
-        assert!(config.validate().is_ok());
-        assert_eq!(config.upload_ceiling(), value);
-    }
-    for value in [0, xmtp_configuration::MAX_ATTACHMENT_UPLOAD_BYTES + 1] {
-        config.max_upload_bytes = Some(value);
-        assert_eq!(
-            config.validate().unwrap_err().field,
-            "attachments.max_upload_bytes"
-        );
     }
 }

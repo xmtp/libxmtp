@@ -2,7 +2,7 @@
 title: Privacy policy
 ---
 
-`docs.xmtp.org` uses Plausible analytics to measure overall website traffic.
+`xmtp.org` uses Plausible analytics to measure overall website traffic.
 These statistics help site contributors improve the documentation.
 
 Plausible states that it uses no cookies or persistent visitor identifiers.

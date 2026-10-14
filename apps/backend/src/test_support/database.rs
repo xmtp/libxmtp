@@ -3,6 +3,8 @@ use sqlx::{Connection, PgConnection};
 use std::time::Duration;
 
 const DATABASE_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const REPLICA_REPLAY_TIMEOUT: Duration = Duration::from_secs(30);
+const REPLICA_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(100);
 #[cfg(test)]
 mod tests;
@@ -40,6 +42,44 @@ impl TestDatabase {
             return Err(error);
         }
         Ok(database)
+    }
+
+    /// Wait before opening the per-test database on a streaming replica.
+    /// Connect through the existing admin database because CREATE DATABASE may
+    /// not have replayed yet. The WAL barrier also covers all primary writes
+    /// completed before this call. Connection and query errors are returned;
+    /// the whole operation has a 30 s deadline, including opening connections.
+    pub async fn wait_for_replica(&self, replica_url: &str) -> TestResult {
+        let mut replica_admin = url::Url::parse(replica_url)?;
+        replica_admin.set_path(url::Url::parse(&self.admin_url)?.path());
+        xmtp_common::time::timeout(REPLICA_REPLAY_TIMEOUT, async {
+            let mut primary = PgConnection::connect(&self.admin_url).await?;
+            let target: String =
+                sqlx::query_scalar(sqlx::AssertSqlSafe("SELECT pg_current_wal_lsn()::text"))
+                    .fetch_one(&mut primary)
+                    .await?;
+            let mut replica = PgConnection::connect(replica_admin.as_str()).await?;
+            loop {
+                let ready: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(
+                    "SELECT COALESCE(pg_last_wal_replay_lsn() >= $1::text::pg_lsn, false)",
+                ))
+                .bind(&target)
+                .fetch_one(&mut replica)
+                .await?;
+                if ready {
+                    return Ok::<_, sqlx::Error>(());
+                }
+                xmtp_common::time::sleep(REPLICA_POLL_INTERVAL).await;
+            }
+        })
+        .await
+        .map_err(|_| {
+            format!(
+                "replica did not replay test database {} within 30 s",
+                self.name.as_deref().unwrap_or("<removed>")
+            )
+        })??;
+        Ok(())
     }
 
     /// List database names on the server selected by DATABASE_URL.

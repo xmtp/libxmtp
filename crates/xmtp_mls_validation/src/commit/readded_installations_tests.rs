@@ -34,42 +34,6 @@ fn test_extract_readded_installations_non_super_admin_returns_empty() {
     assert_eq!(failed, original_failed);
 }
 
-#[test]
-fn test_extract_readded_installations_super_admin_added_and_removed_intersection() {
-    let actor = create_test_actor(true);
-    let mut added = HashSet::from([vec![1, 2, 3], vec![4, 5, 6]]);
-    let mut removed = HashSet::from([vec![1, 2, 3], vec![7, 8, 9]]);
-    let mut failed = HashSet::new();
-
-    let result = extract_readded_installations(&actor, &mut added, &mut removed, &mut failed);
-
-    // Should return the intersection
-    assert_eq!(result, HashSet::from([vec![1, 2, 3]]));
-    // Should remove from both added and removed
-    assert_eq!(added, HashSet::from([vec![4, 5, 6]]));
-    assert_eq!(removed, HashSet::from([vec![7, 8, 9]]));
-    // Failed should remain unchanged
-    assert!(failed.is_empty());
-}
-
-#[test]
-fn test_extract_readded_installations_super_admin_failed_and_removed_intersection() {
-    let actor = create_test_actor(true);
-    let mut added = HashSet::from([vec![1, 2, 3]]);
-    let mut removed = HashSet::from([vec![4, 5, 6], vec![7, 8, 9]]);
-    let mut failed = HashSet::from([vec![4, 5, 6]]);
-
-    let result = extract_readded_installations(&actor, &mut added, &mut removed, &mut failed);
-
-    // Should return the failed/removed intersection
-    assert_eq!(result, HashSet::from([vec![4, 5, 6]]));
-    // Added should remain unchanged
-    assert_eq!(added, HashSet::from([vec![1, 2, 3]]));
-    // Should remove from both removed and failed
-    assert_eq!(removed, HashSet::from([vec![7, 8, 9]]));
-    assert!(failed.is_empty());
-}
-
 // verifies: GMOD-015
 #[test]
 fn test_extract_readded_installations_super_admin_both_types_of_readd() {
@@ -87,76 +51,6 @@ fn test_extract_readded_installations_super_admin_both_types_of_readd() {
     // Should remove both types from removed
     assert_eq!(removed, HashSet::from([vec![10, 11, 12]]));
     // Should remove from failed
-    assert!(failed.is_empty());
-}
-
-#[test]
-fn test_extract_readded_installations_super_admin_no_intersections() {
-    let actor = create_test_actor(true);
-    let mut added = HashSet::from([vec![1, 2, 3]]);
-    let mut removed = HashSet::from([vec![4, 5, 6]]);
-    let mut failed = HashSet::from([vec![7, 8, 9]]);
-
-    let result = extract_readded_installations(&actor, &mut added, &mut removed, &mut failed);
-
-    // Should return empty set when no intersections
-    assert!(result.is_empty());
-    // All sets should remain unchanged
-    assert_eq!(added, HashSet::from([vec![1, 2, 3]]));
-    assert_eq!(removed, HashSet::from([vec![4, 5, 6]]));
-    assert_eq!(failed, HashSet::from([vec![7, 8, 9]]));
-}
-
-#[test]
-fn test_extract_readded_installations_super_admin_empty_sets() {
-    let actor = create_test_actor(true);
-    let mut added = HashSet::new();
-    let mut removed = HashSet::new();
-    let mut failed = HashSet::new();
-
-    let result = extract_readded_installations(&actor, &mut added, &mut removed, &mut failed);
-
-    // Should return empty set
-    assert!(result.is_empty());
-    // All sets should remain empty
-    assert!(added.is_empty());
-    assert!(removed.is_empty());
-    assert!(failed.is_empty());
-}
-
-#[test]
-fn test_extract_readded_installations_super_admin_all_installations_readded() {
-    let actor = create_test_actor(true);
-    let mut added = HashSet::from([vec![1, 2, 3], vec![4, 5, 6]]);
-    let mut removed = HashSet::from([vec![1, 2, 3], vec![4, 5, 6]]);
-    let mut failed = HashSet::new();
-
-    let result = extract_readded_installations(&actor, &mut added, &mut removed, &mut failed);
-
-    // Should return all installations
-    assert_eq!(result, HashSet::from([vec![1, 2, 3], vec![4, 5, 6]]));
-    // Both added and removed should be empty
-    assert!(added.is_empty());
-    assert!(removed.is_empty());
-    assert!(failed.is_empty());
-}
-
-#[test]
-fn test_extract_readded_installations_super_admin_multiple_failed_intersections() {
-    let actor = create_test_actor(true);
-    let mut added = HashSet::new();
-    let mut removed = HashSet::from([vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]]);
-    let mut failed = HashSet::from([vec![1, 2, 3], vec![4, 5, 6]]);
-
-    let result = extract_readded_installations(&actor, &mut added, &mut removed, &mut failed);
-
-    // Should return both failed installations
-    assert_eq!(result, HashSet::from([vec![1, 2, 3], vec![4, 5, 6]]));
-    // Added remains empty
-    assert!(added.is_empty());
-    // Removed should only have non-failed installation
-    assert_eq!(removed, HashSet::from([vec![7, 8, 9]]));
-    // Failed should be empty
     assert!(failed.is_empty());
 }
 

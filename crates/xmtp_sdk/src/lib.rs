@@ -36,8 +36,6 @@ mod diagnostics;
 mod error;
 #[cfg(not(feature = "pure-only"))]
 mod events;
-#[cfg(all(feature = "conformance", not(feature = "pure-only")))]
-pub use client::SdkConformanceListenerCounts;
 #[cfg(not(feature = "pure-only"))]
 mod foreign;
 #[cfg(not(feature = "pure-only"))]
@@ -48,6 +46,8 @@ mod logging;
 #[cfg(not(feature = "pure-only"))]
 mod message;
 mod metadata;
+#[cfg(not(feature = "pure-only"))]
+mod migration;
 #[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
 mod notifications;
 #[cfg(not(feature = "pure-only"))]
@@ -76,8 +76,8 @@ pub use client::{
 };
 #[cfg(not(feature = "pure-only"))]
 pub use configuration::{
-    AttachmentsConfiguration, AuthConfiguration, LimitsConfiguration, MlsConfiguration,
-    RetentionConfiguration, ServerConfiguration, SigningKeyDescription,
+    AttachmentsConfiguration, AuthConfiguration, HandlesConfiguration, LimitsConfiguration,
+    MlsConfiguration, RetentionConfiguration, ServerConfiguration, SigningKeyDescription,
 };
 #[cfg(feature = "conformance")]
 pub use content::StandardCodecSample;
@@ -107,7 +107,10 @@ pub use credentials::{
 #[cfg(all(test, not(feature = "pure-only")))]
 use delivery as reader;
 #[cfg(not(feature = "pure-only"))]
-pub use delivery::{ConnectionState, ConversationReader, MessageHistorySnapshot, MessageReader};
+pub use delivery::{
+    ConnectionState, ConversationReader, MessageHistoryPage, MessageHistoryPosition,
+    MessageHistorySnapshot, MessageReader, MessageRecoveryPage, MessageRecoveryPosition,
+};
 #[cfg(not(feature = "pure-only"))]
 pub use diagnostics::{ApiStats, Diagnostics, IdentityStats};
 pub use error::{
@@ -121,10 +124,10 @@ pub use events::{
     ConnectionStateChanged, ConsentChanged, ConsentEntityKind, ConversationJoined,
     ConversationPaused, ConversationRemoved, DeletionCause, EventConsentState, EventContentTypeId,
     EventConversationType, EventFilter, EventKind, EventListener, EventMessageStatus, EventReader,
-    GroupRef, HmacKeysUpdated, IdentityRegistered, InstallationRef, InstallationRevoked,
-    JoinOrigin, Lagged, ListenerError, ListenerId, LockoutChange, LockoutChanged,
-    MembershipChanged, MessageDeleted, MessageReceived, MessageRef, MessageStatusChanged,
-    MetadataChanged, NotificationsFailed, RejectionCause, RemovalCause,
+    GroupRef, HandleChanged, HmacKeysUpdated, IdentityRegistered, InstallationRef,
+    InstallationRevoked, JoinOrigin, Lagged, ListenerError, ListenerId, LockoutChange,
+    LockoutChanged, MembershipChanged, MessageDeleted, MessageReceived, MessageRef,
+    MessageStatusChanged, MetadataChanged, NotificationsFailed, RejectionCause, RemovalCause,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use identity::{
@@ -149,18 +152,22 @@ pub use metadata::{
     SetMutation, UserFieldUpdate, UserFieldValue,
 };
 pub use metadata::{MetadataFieldRef, WellKnownMetadataField, metadata_field_ref};
+#[cfg(all(not(feature = "pure-only"), target_arch = "wasm32"))]
+pub use migration::read_migration_archive;
+#[cfg(not(feature = "pure-only"))]
+pub use migration::{MigrationReport, PrepareMigrationArchiveArgs, prepare_migration_archive};
 #[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
 pub use notifications::{
     NotificationChannel, NotificationConfig, NotificationFailure, NotificationState,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use preferences::{ConsentEntity, ConsentRecord, ConsentState, Preferences};
-pub use signer::{PublicIdentity, PublicIdentityKind, generate_inbox_id};
 #[cfg(not(feature = "pure-only"))]
 pub use signer::{
-    Signature, Signer, SignerError, SignerKind, SigningRequest, generate_local_signer,
-    local_signer_from_private_key,
+    LocalSigningKey, Signature, Signer, SignerError, SignerKind, SigningRequest, generate_keys,
+    generate_local_signer, local_signer_from_private_key,
 };
+pub use signer::{PublicIdentity, PublicIdentityKind, generate_inbox_id};
 #[cfg(not(feature = "pure-only"))]
 pub use state::{
     CommitLogForkStatus, ConversationDebugInfo, ConversationState, DisappearingSettings,

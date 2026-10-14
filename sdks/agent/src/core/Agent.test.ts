@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   Dm,
   Conversations,
@@ -9,7 +11,15 @@ import {
   type Reaction,
   type RemoteAttachment,
 } from "@xmtp/node-sdk";
-import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import {
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
 
 import {
   Agent,
@@ -860,6 +870,42 @@ describe("Agent", () => {
       await waitForNetwork(() => {
         expect(callOrder).toEqual([errorMessage]);
       });
+    });
+  });
+
+  describe("handle helpers", () => {
+    let peer: Client;
+    let handle: string;
+
+    beforeAll(async () => {
+      peer = await createClient();
+      // Claims are permanent on the shared backend, so each run claims one
+      // random handle for a new inbox.
+      handle = `agent-${randomUUID().replaceAll("-", "").slice(0, 16)}`;
+      await peer.claimHandle(handle);
+      // A lookup can read a lagging replica. Wait until it sees the claim.
+      await waitForNetwork(async () => {
+        expect(
+          await peer.inboxIdFor({ identifier: handle, kind: "handle" }),
+        ).toBe(peer.inboxId);
+      });
+    });
+
+    it("createDmWithHandle_passes_handle_kind", async () => {
+      const dm = await agent.createDmWithHandle(handle);
+      expect(await dm.peerInboxId()).toBe(peer.inboxId);
+    });
+
+    it("createGroupWithHandles_passes_handle_kind", async () => {
+      const group = await agent.createGroupWithHandles([handle]);
+      const members = await group.members();
+      expect(members.map((member) => member.inboxId)).toContain(peer.inboxId);
+    });
+
+    it("addMembersWithHandles_passes_handle_kind", async () => {
+      const group = await agent.client.conversations.createGroup([]);
+      const result = await agent.addMembersWithHandles(group, [handle]);
+      expect(result.added).toEqual([peer.inboxId]);
     });
   });
 });

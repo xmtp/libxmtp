@@ -17,18 +17,9 @@ just install-js
 pnpm --filter @xmtp/release-tools cli <command> [flags]
 ```
 
-### `bump-version`
-
-Bump the version in an SDK manifest (e.g., podspec).
-
-| Flag     | Type                          | Required | Description       |
-| -------- | ----------------------------- | -------- | ----------------- |
-| `--sdk`  | string                        | yes      | SDK name          |
-| `--type` | `major` \| `minor` \| `patch` | yes      | Version bump type |
-
-```bash
-pnpm --filter @xmtp/release-tools cli bump-version --sdk ios --type minor
-```
+This file documents the commands that people run by hand. The release
+workflows in `.github/workflows` call the other commands; run
+`pnpm --filter @xmtp/release-tools cli --help` to list every command.
 
 ### `compute-version`
 
@@ -64,22 +55,6 @@ pnpm --filter @xmtp/release-tools cli publish-backend \
   --version 8.0.0-rc1 --release-type rc --dry-run
 ```
 
-### `update-spm-checksum`
-
-Update the binary target URL and checksum in `Package.swift`.
-
-| Flag         | Type   | Required | Description                      |
-| ------------ | ------ | -------- | -------------------------------- |
-| `--sdk`      | string | yes      | SDK name                         |
-| `--url`      | string | yes      | Artifact download URL            |
-| `--checksum` | string | yes      | SHA-256 checksum of the artifact |
-
-```bash
-pnpm --filter @xmtp/release-tools cli update-spm-checksum --sdk ios \
-  --url "https://github.com/xmtp/libxmtp/releases/download/ios-1.0.0/LibXMTP.xcframework.zip" \
-  --checksum "abc123..."
-```
-
 ### `create-release-branch`
 
 Create a release branch, prepare selected SDK versions and notes, and commit the result. Use `keep` when an SDK already has the target version. Existing notes are kept. The Rust workspace version changes only with `--libxmtp-version`.
@@ -101,7 +76,7 @@ The branch records the source commit and selected versions in `docs/release-note
 ```bash
 pnpm --filter @xmtp/release-tools cli create-release-branch \
   --version "8.0.0" \
-  --base self-hosted \
+  --base main \
   --ios keep \
   --android keep \
   --node-sdk keep \

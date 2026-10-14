@@ -68,7 +68,7 @@ memory = "512mb"
 `config.toml`:
 
 ```toml
-#:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
+#:schema https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json
 [server]
 # Change this to a reverse-DNS name you own. Never change it again once
 # clients have connected: every client database is bound to it.

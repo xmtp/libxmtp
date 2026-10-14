@@ -16,7 +16,67 @@ else
   echo "detected existing nix installation"
 fi
 
-./dev/nix-cache-up
+# Nix is not on PATH in this shell right after a fresh install.
+if ! command -v nix &>/dev/null && [[ -f /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]]; then
+  # shellcheck disable=SC1091
+  . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+fi
+
+# Configure the XMTP binary cache, so builds substitute instead of compiling.
+XMTP_SUBSTITUTER="https://xmtp.cachix.org"
+XMTP_PUBLIC_KEY="xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0="
+
+# Append a value to a nix.conf setting, or add the setting. $1 is the file;
+# $4 is "sudo" when root owns the file.
+add_to_setting() {
+  local conf_file="$1" setting="$2" value="$3" run=()
+  [[ "$4" == sudo ]] && run=(sudo)
+  if grep -q "^${setting}" "$conf_file" 2>/dev/null; then
+    if ! grep "^${setting}" "$conf_file" | grep -qF "$value"; then
+      # -i.bak works with both BSD and GNU sed.
+      "${run[@]+"${run[@]}"}" sed -i.bak "s|^\(${setting}.*\)|\1 ${value}|" "$conf_file"
+      "${run[@]+"${run[@]}"}" rm "${conf_file}.bak"
+    fi
+  else
+    echo "${setting} = ${value}" | "${run[@]+"${run[@]}"}" tee -a "$conf_file" >/dev/null
+  fi
+}
+
+restart_nix_daemon() {
+  if [[ "$OSTYPE" == darwin* ]]; then
+    for label in systems.determinate.nix-daemon org.nixos.nix-daemon; do
+      if sudo launchctl print "system/$label" &>/dev/null; then
+        sudo launchctl kickstart -k "system/$label"
+        return
+      fi
+    done
+  elif command -v systemctl &>/dev/null; then
+    sudo systemctl restart nix-daemon
+  fi
+}
+
+if ! command -v nix &>/dev/null; then
+  echo "Nix is not installed; skipping the binary cache setup."
+elif grep -qF "xmtp.cachix.org" /etc/nix/nix.conf /etc/nix/nix.custom.conf ~/.config/nix/nix.conf 2>/dev/null; then
+  echo "XMTP binary cache already configured."
+elif nix config show trusted-users 2>/dev/null | grep -qwF "$(whoami)"; then
+  # A trusted user may set substituters in the user configuration.
+  NIX_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/nix/nix.conf"
+  mkdir -p "$(dirname "$NIX_CONF")"
+  add_to_setting "$NIX_CONF" extra-substituters "$XMTP_SUBSTITUTER" user
+  add_to_setting "$NIX_CONF" extra-trusted-public-keys "$XMTP_PUBLIC_KEY" user
+  echo "XMTP binary cache configured in $NIX_CONF."
+else
+  # Determinate Nix rewrites /etc/nix/nix.conf and reads nix.custom.conf.
+  NIX_CONF=/etc/nix/nix.conf
+  [[ -f /etc/nix/nix.custom.conf ]] && NIX_CONF=/etc/nix/nix.custom.conf
+  echo "Configuring the XMTP binary cache in $NIX_CONF (needs sudo)."
+  add_to_setting "$NIX_CONF" extra-substituters "$XMTP_SUBSTITUTER" sudo
+  add_to_setting "$NIX_CONF" extra-trusted-public-keys "$XMTP_PUBLIC_KEY" sudo
+  restart_nix_daemon
+  echo "XMTP binary cache configured."
+fi
+
 echo "direnv will automatically enter the default nix environment upon entering a configured directory"
 read -p "install direnv? (y/n) " -n 1 -r
 if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -44,27 +104,8 @@ else
   echo "direnv not installed"
 fi
 
-# Create .envrc file for omnix integration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-ENVRC_PATH="$REPO_ROOT/.envrc"
-
-if [[ -f "$ENVRC_PATH" ]]; then
-  echo ".envrc already exists at $ENVRC_PATH"
-else
-  echo "Creating .envrc file..."
-  cat > "$ENVRC_PATH" << 'EOF'
-source_url \
-  https://omnix.page/om/develop/omnixrc/v1 \
-  'sha256-FBAVRYkaexKeFKQGUxaPHqhBnqA7km7++O77dKiyD0I='
-watch_file om.yaml
-use omnix
-EOF
-  echo ".envrc created at $ENVRC_PATH"
-fi
-
-# Allow direnv (needed after nix-down which runs direnv deny)
-if which direnv &>/dev/null; then
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if command -v direnv &>/dev/null; then
   echo "Allowing direnv environment..."
   direnv allow "$REPO_ROOT"
 fi

@@ -4,7 +4,7 @@
 //! a change of membership between two periods of time. [XIP-46](https://github.com/xmtp/XIPs/pull/53)
 
 use super::{
-    AssociationError, MemberIdentifier, MemberKind, ident,
+    AssociationError, Handle, MemberIdentifier, MemberKind, ident,
     member::{Identifier, Member},
 };
 use crate::InboxIdRef;
@@ -53,6 +53,10 @@ pub struct AssociationState {
     pub(crate) members: HashMap<MemberIdentifier, Member>,
     pub(crate) recovery_identifier: Identifier,
     pub(crate) seen_signatures: HashSet<Vec<u8>>,
+    /// Claimed handles in claim order; the last is the display handle.
+    pub(crate) handles: Vec<Handle>,
+    /// The number of `ClaimHandle` actions applied to produce this state.
+    pub(crate) handle_claims: u32,
 }
 
 impl std::fmt::Debug for AssociationState {
@@ -73,10 +77,16 @@ impl std::fmt::Debug for AssociationState {
             write!(signatures, ",")?;
         }
 
+        // A handle names an inbox, so a log line carries only the count.
         write!(
             f,
-            "AssociationState {{ inbox_id: {}, members: {}, recovery: {}, seen_signatures: {} }}",
-            self.inbox_id, members, self.recovery_identifier, signatures
+            "AssociationState {{ inbox_id: {}, members: {}, recovery: {}, seen_signatures: {}, handles: {}, handle_claims: {} }}",
+            self.inbox_id,
+            members,
+            self.recovery_identifier,
+            signatures,
+            self.handles.len(),
+            self.handle_claims
         )
     }
 }
@@ -132,6 +142,42 @@ impl AssociationState {
 
     pub fn has_seen(&self, signature: &Vec<u8>) -> bool {
         self.seen_signatures.contains(signature)
+    }
+
+    /// The state after a claim of `handle`: `handle` moves to the end of the
+    /// handles, or is added there, and the claim count rises by one. Members,
+    /// the recovery identifier, and chain ids are unchanged.
+    pub fn claim_handle(&self, handle: Handle) -> Self {
+        let mut new_state = self.clone();
+        new_state.handles.retain(|held| *held != handle);
+        new_state.handles.push(handle);
+        new_state.handle_claims += 1;
+
+        new_state
+    }
+
+    /// Every handle the inbox has claimed, in claim order, with a handle
+    /// claimed again at the position of its last claim.
+    pub fn handles(&self) -> &[Handle] {
+        &self.handles
+    }
+
+    /// The number of `ClaimHandle` actions applied to produce this state.
+    /// A claim of a handle the inbox already holds counts.
+    pub fn handle_claims(&self) -> u32 {
+        self.handle_claims
+    }
+
+    /// The inbox's current handle: the last one it claimed, or `None` when it
+    /// has claimed none.
+    pub fn display_handle(&self) -> Option<&Handle> {
+        self.handles.last()
+    }
+
+    /// The handles other than the display handle, the most recently claimed
+    /// first.
+    pub fn other_handles(&self) -> impl Iterator<Item = &Handle> {
+        self.handles.iter().rev().skip(1)
     }
 
     pub fn members(&self) -> Vec<Member> {
@@ -248,6 +294,8 @@ impl AssociationState {
             seen_signatures: HashSet::new(),
             recovery_identifier: account_identifier,
             inbox_id,
+            handles: Vec::new(),
+            handle_claims: 0,
         })
     }
 }

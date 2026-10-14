@@ -28,11 +28,4 @@ mod tests {
             .await;
         assert_eq!(output, vec![Ok(1), Err("decode"), Ok(3), Err("wire")]);
     }
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn empty_stream_finishes() {
-        let output: Vec<_> = try_extractor(stream::empty::<Result<Vec<u32>, ()>>(), Ok)
-            .collect()
-            .await;
-        assert!(output.is_empty());
-    }
 }

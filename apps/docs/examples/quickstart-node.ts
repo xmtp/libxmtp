@@ -1,8 +1,8 @@
 // #region client
-import { Client, generateLocalSigner } from "@xmtp/node-sdk";
+import { Client } from "@xmtp/node-sdk";
 
 // Use a new signer and an in-memory database for this local test.
-const signer = await generateLocalSigner();
+const signer = await Client.generateKeys();
 const client = await Client.create(signer, {
   backend: { url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:5050" },
   storage: {

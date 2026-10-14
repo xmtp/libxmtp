@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,6 +29,11 @@ try {
   };
   writeFileSync(join(root, "sdk-contract.json"), JSON.stringify(record));
   checkGeneratedAssets(generated, tree);
+  // A tree links its @ubjs runtimes through node_modules.
+  mkdirSync(join(generated, "runtime"));
+  symlinkSync(join(generated, "runtime"), join(root, "node_modules"));
+  checkGeneratedAssets(generated, tree);
+  rmSync(join(root, "node_modules"));
   writeFileSync(join(root, "unlisted.js"), "export const stale = true;\n");
   assert.throws(
     () => checkGeneratedAssets(generated, tree),
@@ -45,7 +56,7 @@ try {
   writeFileSync(join(root, "xmtp_sdk_bg.wasm"), wasm);
   checkGeneratedAssets(generated, tree);
   console.log(
-    "Generated assets: valid, extra, nested extra, changed, missing and restored checks pass",
+    "Generated assets: valid, linked node_modules, extra, nested extra, changed, missing and restored checks pass",
   );
 } finally {
   rmSync(generated, { recursive: true, force: true });

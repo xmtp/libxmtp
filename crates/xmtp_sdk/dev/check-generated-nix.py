@@ -15,7 +15,8 @@ let
     "xmtp-sdk-generated-browser" "xmtp-sdk-libs" "xmtp-sdk-bindgen"
     "xmtp-sdk-wasm" "xmtp-sdk-pure-wasm"
     "android-sdk-libs-fast" "android-sdk-libs" ]
-    ++ (if builtins.hasAttr "ios-libs" p then [ "ios-libs" "ios-libs-fast" ] else []);
+    ++ (if builtins.hasAttr "ios-xcframeworks" p
+      then [ "ios-xcframeworks" "ios-xcframeworks-fast" ] else []);
 in builtins.listToAttrs (map (name: {
   inherit name;
   value = p.${name}.drvPath;
@@ -73,7 +74,7 @@ def main():
     require("xmtp-sdk-generated", (*wasm, "xmtp-sdk-libs", "xmtp-sdk-bindgen"), ())
     for name in ("android-sdk-libs-fast", "android-sdk-libs"):
         require(name, ("xmtp-sdk-generated-kotlin",), (*wasm, "xmtp-sdk-generated"))
-    for name in ("ios-libs", "ios-libs-fast"):
+    for name in ("ios-xcframeworks", "ios-xcframeworks-fast"):
         if name in closures:
             require(name, ("xmtp-sdk-generated-swift",), (*wasm, "xmtp-sdk-generated"))
     if failures:

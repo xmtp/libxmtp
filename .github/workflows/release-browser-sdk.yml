@@ -51,7 +51,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       - uses: ./.github/actions/setup-release-tools
@@ -97,19 +97,18 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     env:
       NIX_DEVSHELL: js
+      # Ship the release-profile Nix products that CI tested.
+      XMTP_SDK_BUILD: nix
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
 
+      # Mode read: substitute from the trusted cache only, and build on a miss.
       - uses: ./.github/actions/setup-nix
         with:
-          nix-disk: "false"
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-
-      - uses: taiki-e/install-action@just
 
       - uses: ./.github/actions/setup-js
 
@@ -117,8 +116,18 @@ jobs:
         run: |
           dev/nix-shell 'pnpm --filter @xmtp/browser-sdk build'
 
+      - name: Require release-profile WASM
+        run: |
+          for tree in typescript-wasm typescript-pure; do
+            profile="$(jq -r '.artifact.profile' "target/sdk-generated/$tree/sdk-contract.json")"
+            if [ "$profile" != release ]; then
+              echo "::error::$tree was built with the '$profile' profile; the published browser SDK must ship release WASM"
+              exit 1
+            fi
+          done
+
       - name: Upload build output
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: browser_sdk_build
           path: target/sdk-packages/browser

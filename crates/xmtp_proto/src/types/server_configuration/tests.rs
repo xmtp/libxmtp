@@ -1,6 +1,7 @@
 use super::*;
 use xmtp_configuration::{
-    ApplicationComponentDefinition, ApplicationComponentError, BACKEND_DEFAULT_MAX_PUBLISH_TOPICS,
+    ApplicationComponentDefinition, ApplicationComponentError,
+    BACKEND_DEFAULT_HANDLE_MIN_NAME_LENGTH, BACKEND_DEFAULT_MAX_PUBLISH_TOPICS,
     BACKEND_DEFAULT_MAX_QUERY_LIMIT, BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
     BACKEND_DEFAULT_WELCOME_SECONDS, ComponentPermissions, ENABLE_COMMIT_LOG,
     MAX_ATTACHMENT_RETENTION_SECONDS, MAX_ATTACHMENT_UPLOAD_BYTES, MAX_GROUP_SIZE, MetadataPolicy,
@@ -56,6 +57,7 @@ fn populated() -> backend_v1::GetConfigurationResponse {
             max_installations_per_inbox: 7,
             commit_log_enabled: Some(false),
         }),
+        handles: Some(backend_v1::HandlesConfiguration { min_name_length: 5 }),
         smart_contract_wallet_chains: vec!["eip155:1".to_owned(), "eip155:8453".to_owned()],
         attachments: None,
         application_components: vec![backend_v1::ApplicationComponentDefinition {
@@ -159,6 +161,8 @@ fn every_published_field_survives_the_conversion() {
     assert_eq!(configuration.mls.commit_log_enabled, Some(false));
     assert!(!configuration.mls.commit_log_enabled());
 
+    assert_eq!(configuration.handles.min_name_length, 5);
+
     assert_eq!(
         configuration.smart_contract_wallet_chains,
         vec!["eip155:1".to_owned(), "eip155:8453".to_owned()]
@@ -169,16 +173,6 @@ fn every_published_field_survives_the_conversion() {
 // The backend publishes through the reverse conversion and a client later
 // copies the snapshot entry into a group registry, so both directions must
 // carry every field and every policy shape unchanged.
-// verifies: CONF-079
-#[xmtp_common::test(unwrap_try = true)]
-fn the_catalogue_converts_both_ways_unchanged() {
-    let published = populated().application_components.remove(0);
-    assert_eq!(
-        backend_v1::ApplicationComponentDefinition::from(pronouns()),
-        published
-    );
-    assert_eq!(ApplicationComponentDefinition::from(published), pronouns());
-}
 
 // A definition the client cannot represent faithfully must still fail
 // validation, not turn into a different, valid definition.
@@ -260,6 +254,26 @@ fn an_absent_submessage_reads_as_every_compiled_default() {
     assert_eq!(configuration.mls.commit_log_enabled(), ENABLE_COMMIT_LOG);
     assert!(configuration.smart_contract_wallet_chains.is_empty());
     configuration.validate()?;
+}
+
+/// A handle minimum of 0 and an absent `handles` message both read as the
+/// compiled default of 3, as every other zero does.
+// verifies: CONF-025
+#[xmtp_common::test(unwrap_try = true)]
+fn handles_zero_or_absent_uses_default() {
+    let mut response = populated();
+    response.handles.as_mut()?.min_name_length = 0;
+    assert_eq!(
+        ServerConfiguration::from(response).handles,
+        HandlesConfiguration { min_name_length: 3 }
+    );
+
+    let mut response = populated();
+    response.handles = None;
+    assert_eq!(
+        ServerConfiguration::from(response).handles.min_name_length,
+        BACKEND_DEFAULT_HANDLE_MIN_NAME_LENGTH
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]

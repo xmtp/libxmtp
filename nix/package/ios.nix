@@ -4,13 +4,19 @@
   stdenv,
   pkgs,
   xmtp,
+  sdk,
+  # true: the -local outputs, for a Mac whose Xcode is not `xmtp.iosEnv.xcode`.
+  # They skip the Xcode check, and caches do not hold them.
+  local ? false,
   ...
 }:
 let
-  sdk = pkgs.callPackage ./xmtp-sdk.nix { };
   version = "8.0.0";
   host = pkgs.stdenv.hostPlatform.rust.rustcTarget;
-  native = target: if target == host then sdk.libs else sdk.iosTargets.${target};
+  xcode = if local then "local" else xmtp.iosEnv.xcode.key;
+  slices = if local then sdk.iosTargetsLocal else sdk.iosTargets;
+  # The host slice uses the Nix toolchain, not Xcode, so it has no Xcode key.
+  native = target: if target == host then sdk.libs else slices.${target};
   swiftBindings = stdenv.mkDerivation {
     pname = "xmtp-sdk-swift";
     inherit version;
@@ -26,25 +32,6 @@ let
     installPhase = "true";
     passthru = {
       rendering = sdk.generatedSwift.rendering;
-      provenanceSource = sdk.provenanceSource;
-    };
-  };
-  mkIos = targetList: {
-    targets = lib.genAttrs targetList native;
-    inherit swiftBindings;
-    aggregate = stdenv.mkDerivation {
-      pname = "xmtp-sdk-apple-libs";
-      inherit version;
-      dontUnpack = true;
-      passthru = { inherit swiftBindings; };
-      installPhase = ''
-        mkdir -p "$out/swift"
-        ${lib.concatMapStringsSep "\n" (target: ''
-          mkdir -p "$out/${target}"
-          ln -s ${native target}/lib/libxmtp_sdk.a "$out/${target}/libxmtp_sdk.a"
-        '') targetList}
-        cp -r ${swiftBindings}/swift/. "$out/swift/"
-      '';
     };
   };
   framework =
@@ -55,6 +42,8 @@ let
       dontUnpack = true;
       dontFixup = true;
       __noChroot = true;
+      # xcodebuild assembles the framework, so its key holds the Xcode too.
+      XMTP_XCODE = xcode;
       installPhase = ''
         ${xmtp.iosEnv.envSetup host}
         export PATH="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin:/usr/bin:$PATH"
@@ -74,24 +63,28 @@ let
         done
       '';
     };
-  allTargets = [
-    host
-    "aarch64-apple-ios"
-    "aarch64-apple-ios-sim"
-  ];
-  fastTargets = [
-    host
-    "aarch64-apple-ios-sim"
-  ];
+  allTargets = [ host ] ++ xmtp.sdkPlatforms.apple;
+  # The fast framework adds the simulator slice of the build host's CPU.
+  hostSimulators = builtins.filter (
+    target:
+    lib.hasPrefix "${pkgs.stdenv.hostPlatform.parsed.cpu.name}-" target && lib.hasSuffix "-sim" target
+  ) xmtp.sdkPlatforms.apple;
+  fastTargets =
+    assert lib.assertMsg (
+      builtins.length hostSimulators == 1
+    ) "nix/sdk-platforms.json needs one Apple simulator target for ${host}";
+    [ host ] ++ hostSimulators;
   releaseFramework = framework allTargets;
 in
 {
-  inherit mkIos swiftBindings;
-  inherit (mkIos allTargets) targets aggregate;
+  inherit swiftBindings;
   devFast = framework fastTargets;
   release = stdenv.mkDerivation {
     pname = "xmtp-sdk-ios-release";
     inherit version;
+    # Only copies. The key marks it as an iOS output of this Xcode, so the
+    # rebuild command in sdks/ios/AGENTS.md finds the `local` one.
+    XMTP_XCODE = xcode;
     dontUnpack = true;
     installPhase = ''
       mkdir -p "$out/XmtpSdkFFI/Sources/XmtpSdk"

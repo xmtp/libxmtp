@@ -8,11 +8,11 @@ jobs:
     name: Lint (iOS)
     runs-on: warp-macos-15-arm64-6x
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
         with:
+          cache-mode: "ci"
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - name: Lint iOS SDK
         run: dev/nix-shell 'just ios lint'

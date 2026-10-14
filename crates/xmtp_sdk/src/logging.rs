@@ -100,19 +100,9 @@ mod sink {
     use std::sync::Arc;
     use xmtp_logging::LogSinkTarget;
 
-    /// Emit ordered records from one Rust thread for host callback checks.
-    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
-    #[xmtp_macro::sdk_export]
-    pub async fn sdk_conformance_emit(count: u32) -> Result<(), XmtpError> {
-        tokio::task::spawn_blocking(move || {
-            for sequence in 0..count {
-                tracing::error!(target: "xmtp_sdk::conformance", sequence, "conformance log");
-            }
-        })
-        .await
-        .map_err(XmtpError::from_core)
-    }
-
+    // The browser logging proofs emit ordered records and read the Rust queue
+    // through these exports. Only their test-only WASM fixtures enable them.
+    /// Emit ordered records for host callback checks.
     #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub async fn sdk_conformance_emit(count: u32) -> Result<(), XmtpError> {
@@ -123,12 +113,6 @@ mod sink {
     }
 
     /// Read errors observed by Rust after direct host sink calls.
-    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
-    #[xmtp_macro::sdk_export]
-    pub fn sdk_conformance_sink_error_count() -> Result<u64, XmtpError> {
-        Ok(queue().error_count())
-    }
-
     #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub async fn sdk_conformance_sink_error_count() -> Result<u64, XmtpError> {

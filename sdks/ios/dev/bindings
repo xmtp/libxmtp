@@ -3,18 +3,78 @@ set -euo pipefail
 ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 output="$ROOT/target/ios-sdk"
 package="$ROOT/sdks/ios/Sources/XmtpSdk"
-if [[ "${1:-}" == "--release" ]]; then
-  nix build --max-jobs 1 "$ROOT#ios-xcframeworks" --out-link "$output"
+
+# The CI and release outputs are keyed to one Xcode (`lib.xcode`) and fail to
+# build with another. Select the Xcode as the Nix build does (the system
+# setting), and print it in the form of `lib.xcode.key`.
+developer=$(DEVELOPER_DIR='' /usr/bin/xcode-select -p 2>/dev/null) || developer=""
+version=$("$developer/usr/bin/xcodebuild" -version 2>/dev/null) || version=""
+found="${version%%$'\n'*} (${version##*Build version }) at $developer"
+expected=$(nix eval --raw "$ROOT#lib.xcode.key")
+
+# --build-only stops after the out-link (target/ios-sdk), without copying it
+# into the package: `mobile-package.py stage ios` uses it.
+release=false
+build_only=false
+for argument in "$@"; do
+  case "$argument" in
+    --release) release=true ;;
+    --build-only) build_only=true ;;
+    *) echo "usage: $0 [--release] [--build-only]" >&2; exit 2 ;;
+  esac
+done
+
+if $release; then
+  attribute=ios-xcframeworks
   framework="$output/XmtpSdkFFI/XmtpSdkFFI.xcframework"
   sources="$output/XmtpSdkFFI/Sources/XmtpSdk"
 else
-  nix build --max-jobs 1 "$ROOT#ios-xcframeworks-fast" --out-link "$output"
+  attribute=ios-xcframeworks-fast
   framework="$output/XmtpSdkFFI.xcframework"
   sources="$output/swift"
 fi
+
+if [[ "$found" == "$expected" ]]; then
+  nix build "$ROOT#$attribute" --out-link "$output"
+elif [[ -n "${CI:-}" ]]; then
+  echo "error: CI builds the iOS outputs with $expected, but the selected Xcode is $found." >&2
+  echo "Select it with maxim-lobanov/setup-xcode." >&2
+  exit 1
+else
+  echo "notice: the selected Xcode is $found, not $expected." >&2
+  # A cached CI output works with any Xcode, so take it when a cache holds
+  # it: --max-jobs 0 substitutes and builds nothing. Without a builder Nix
+  # fails with "Unable to start any build"; any other failure is real.
+  log=$(mktemp)
+  trap 'rm -f "$log"' EXIT
+  if { nix build "$ROOT#$attribute" --out-link "$output" --max-jobs 0 2>&1 1>&3 | tee "$log" >&2; } 3>&1; then
+    echo "notice: using the cached CI output $attribute (built with $expected)." >&2
+  elif grep -q "Unable to start any build" "$log"; then
+    echo "notice: no cache holds $attribute; building $attribute-local with the selected Xcode." >&2
+    nix build "$ROOT#$attribute-local" --out-link "$output"
+    echo "notice: using $attribute-local, which no cache holds." >&2
+  else
+    exit 1
+  fi
+fi
+
+if $build_only; then
+  exit 0
+fi
+
 mkdir -p "$ROOT/sdks/ios/Artifacts" "$package"
-rm -rf "$ROOT/sdks/ios/Artifacts/XmtpSdkFFI.xcframework"
-cp -rL "$framework" "$ROOT/sdks/ios/Artifacts/"
+# Copying the xcframework takes long (about 361 MiB), and every iOS recipe
+# runs this script. Skip it when the copy came from the same store path.
+stamp="$ROOT/sdks/ios/Artifacts/.xcframework-store-path"
+store_path=$(readlink "$output")
+if [[ ! -d "$ROOT/sdks/ios/Artifacts/XmtpSdkFFI.xcframework" ]] ||
+  [[ "$(cat "$stamp" 2>/dev/null)" != "$store_path" ]]; then
+  rm -f "$stamp"
+  rm -rf "$ROOT/sdks/ios/Artifacts/XmtpSdkFFI.xcframework"
+  cp -rL "$framework" "$ROOT/sdks/ios/Artifacts/"
+  chmod -R u+w "$ROOT/sdks/ios/Artifacts/XmtpSdkFFI.xcframework"
+  printf '%s\n' "$store_path" >"$stamp"
+fi
 cp "$sources/xmtp_sdk.swift" "$package/"
 if [[ -d "$sources/runtime" ]]; then
   rm -rf "$package/runtime"
@@ -22,4 +82,4 @@ if [[ -d "$sources/runtime" ]]; then
 else
   cp -r "$sources/." "$package/"
 fi
-chmod -R u+w "$ROOT/sdks/ios/Artifacts" "$package"
+chmod -R u+w "$package"

@@ -4,6 +4,8 @@ import AddressAuthorized from "@/commands/address-authorized";
 import CanMessage from "@/commands/can-message";
 import ClientAddAccount from "@/commands/client/add-account";
 import ClientChangeRecoveryIdentifier from "@/commands/client/change-recovery-identifier";
+import ClientHandleAvailable from "@/commands/client/handle-available";
+import ClientHandleClaim from "@/commands/client/handle-claim";
 import ClientInboxId from "@/commands/client/inbox-id";
 import ClientInfo from "@/commands/client/info";
 import ClientKeyPackageStatus from "@/commands/client/key-package-status";
@@ -68,6 +70,8 @@ export const COMMANDS: Record<string, Command.Class> = {
   "can-message": CanMessage,
   "client:add-account": ClientAddAccount,
   "client:change-recovery-identifier": ClientChangeRecoveryIdentifier,
+  "client:handle-available": ClientHandleAvailable,
+  "client:handle-claim": ClientHandleClaim,
   "client:inbox-id": ClientInboxId,
   "client:info": ClientInfo,
   "client:key-package-status": ClientKeyPackageStatus,

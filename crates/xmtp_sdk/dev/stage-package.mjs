@@ -17,11 +17,15 @@ import {
   cpSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve, relative, delimiter } from "node:path";
+import { dirname, join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { checkGeneratedAssets } from "./check-generated-assets.mjs";
-import { stageNodePlatforms, usePlatformPackages } from "./node-platforms.mjs";
+import {
+  npmCli,
+  stageNodePlatforms,
+  usePlatformPackages,
+} from "./node-platforms.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const generated = resolve(
@@ -47,14 +51,55 @@ const trees =
 const contracts = trees.map((tree) =>
   JSON.parse(readFileSync(join(generated, tree, "sdk-contract.json"))),
 );
+// Each tree's contract digests its own library, so the browser's worker and
+// pure trees match on the generator and the source, profile, and Rust target
+// of their libraries instead.
 if (
   contracts.some(
     (record) =>
-      record.contract !== contracts[0].contract ||
-      record.generator !== contracts[0].generator,
+      record.generator !== contracts[0].generator ||
+      ["source", "profile", "target"].some(
+        (field) => record.artifact?.[field] !== contracts[0].artifact?.[field],
+      ),
   )
 )
   throw new Error("SDK generated contract mismatch");
+// target/sdk-generated is whatever the last generate wrote, so it must still
+// match this checkout: the library's source identity and the render identity
+// of its language. An explicit XMTP_SDK_GENERATED_DIR (a Nix output, or a
+// release render) names its own trees. Windows reads its commit identity.
+if (!process.env.XMTP_SDK_GENERATED_DIR) {
+  const [source, render] = execFileSync(
+    process.platform === "win32" ? "python" : "python3",
+    [join(root, "crates/xmtp_sdk/dev/sdk-artifacts.py"), "provenance"],
+    { cwd: root, encoding: "utf8" },
+  )
+    .trim()
+    .split(/\s+/);
+  trees.forEach((tree, i) => {
+    if (
+      contracts[i].artifact?.source !== source ||
+      contracts[i].generator !== render
+    )
+      throw new Error(
+        `${join(generated, tree)} was generated from other sources: run \`just sdk generate ${target}\``,
+      );
+  });
+}
+// A package ships only product libraries: no test exports such as
+// `conformance` (the Nix fixtures) in any tree.
+const productFeatures = {
+  "typescript-napi": "",
+  "typescript-wasm": "",
+  "typescript-pure": "pure-only",
+};
+trees.forEach((tree, i) => {
+  const features = contracts[i].artifact?.features;
+  if (features !== productFeatures[tree])
+    throw new Error(
+      `SDK generated ${tree} has features ${features}, expected "${productFeatures[tree]}"`,
+    );
+});
 const hash = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 function files(directory) {
@@ -64,15 +109,28 @@ function files(directory) {
     return item.isDirectory() ? files(path) : [path];
   });
 }
+// Copies of Nix store paths keep their read-only modes.
 function makeWritable(directory) {
   chmodSync(directory, 0o755);
   for (const item of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, item.name);
     if (item.isSymbolicLink())
-      throw new Error(`copied SDK runtime has a symbolic link: ${path}`);
+      throw new Error(`copied SDK input has a symbolic link: ${path}`);
     if (item.isDirectory()) makeWritable(path);
     else chmodSync(path, 0o644);
   }
+}
+// Removal needs write access to each directory. Restore it without following
+// links, so cleanup after a failed copy does not hide the first error.
+function removeTree(directory) {
+  if (!existsSync(directory)) return;
+  const open = (path) => {
+    chmodSync(path, 0o755);
+    for (const item of readdirSync(path, { withFileTypes: true }))
+      if (item.isDirectory()) open(join(path, item.name));
+  };
+  open(directory);
+  rmSync(directory, { recursive: true, force: true });
 }
 for (let i = 0; i < trees.length; i++) {
   checkGeneratedAssets(generated, trees[i], contracts[i]);
@@ -131,25 +189,34 @@ try {
   }
   let nodePlatforms;
   if (platformDirectory) {
-    const cargo = readFileSync(join(root, "Cargo.toml"), "utf8");
-    const runtimeRevision = cargo.match(
-      /\[workspace\.metadata\.xmtp-sdk-fork\][^[]*rev\s*=\s*"([0-9a-f]{40})"/,
-    )[1];
+    // The release commit's source key and runtime fork revision, from the
+    // one reader of both.
+    const release = JSON.parse(
+      execFileSync(
+        "python3",
+        [join(root, "crates/xmtp_sdk/dev/sdk-artifacts.py"), "key"],
+        { cwd: root, encoding: "utf8" },
+      ),
+    );
     nodePlatforms = stageNodePlatforms(
       resolve(platformDirectory),
       destination,
       contracts[0],
-      runtimeRevision,
+      release.forkRevision,
       sourceManifest.name,
+      release.source,
     );
   }
   const compile = mkdtempSync(join(output, ".sdk-compile-"));
   try {
-    for (const tree of trees)
+    for (const tree of trees) {
       cpSync(join(generated, tree), join(compile, tree), {
         recursive: true,
         filter: (path) => !path.split(/[\\/]/).includes("node_modules"),
       });
+      // The compile step rewrites manifests and sources in this copy.
+      makeWritable(join(compile, tree));
+    }
     if (nodePlatforms) {
       const ffi = join(compile, "typescript-napi/xmtp_sdk-ffi.ts");
       writeFileSync(
@@ -229,7 +296,7 @@ try {
       );
     }
   } finally {
-    rmSync(compile, { recursive: true, force: true });
+    removeTree(compile);
   }
   if (
     target === "node" &&
@@ -357,7 +424,12 @@ try {
     for (const name of runtimes)
       rewrite(join(destination, "node_modules/@ubjs", name));
   }
-  const contract = contracts[0].contract;
+  const contract =
+    contracts.length === 1
+      ? contracts[0].contract
+      : createHash("sha256")
+          .update(contracts.map((record) => record.contract).join("\n"))
+          .digest("hex");
   const assets = Object.fromEntries(
     files(destination)
       .filter((path) => !path.endsWith(".d.ts"))
@@ -366,30 +438,12 @@ try {
   {
     // npm removes files such as package-lock.json from bundled dependencies.
     // Check the runtime files that npm ships, including its loaders and binaries.
-    const npmCandidates = [
-      process.env.XMTP_SDK_NPM_CLI
-        ? resolve(process.env.XMTP_SDK_NPM_CLI)
-        : undefined,
-      join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
-      resolve(
-        dirname(process.execPath),
-        "../lib/node_modules/npm/bin/npm-cli.js",
-      ),
-    ];
-    for (const directory of (process.env.PATH ?? "").split(delimiter)) {
-      const link = join(directory, "npm");
-      if (existsSync(link)) {
-        const cli = realpathSync(link);
-        if (cli.endsWith("npm-cli.js")) npmCandidates.push(cli);
-      }
-    }
-    const npmCli = npmCandidates.find((path) => path && existsSync(path));
-    if (!npmCli) throw new Error("SDK package staging cannot find npm-cli.js");
+    const npm = npmCli();
     const packed = JSON.parse(
       execFileSync(
         process.execPath,
         [
-          npmCli,
+          npm,
           "pack",
           realpathSync(destination),
           "--dry-run",
@@ -496,5 +550,5 @@ try {
   console.log(`SDK staged ${target} ${contract} at ${product}`);
 } finally {
   // Preserve the backup if a filesystem error prevents rollback.
-  if (!existsSync(previous)) rmSync(staging, { recursive: true, force: true });
+  if (!existsSync(previous)) removeTree(staging);
 }

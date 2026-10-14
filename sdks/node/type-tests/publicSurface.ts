@@ -107,7 +107,7 @@ export type LogRecordShape = Assert<
 
 // Public value fields keep their projected types.
 export type IdentityKind = Assert<
-  Equal<PublicIdentity["kind"], "ethereum" | "passkey">
+  Equal<PublicIdentity["kind"], "ethereum" | "passkey" | "handle">
 >;
 export type SignerResult = Assert<
   Equal<Awaited<ReturnType<Signer["identity"]>>, PublicIdentity>

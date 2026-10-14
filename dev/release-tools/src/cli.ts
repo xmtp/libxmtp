@@ -2,17 +2,15 @@
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 
-import * as bumpVersion from "./commands/bump-version";
 import * as classifyNotes from "./commands/classify-notes";
 import * as computeVersion from "./commands/compute-version";
 import * as createReleaseBranch from "./commands/create-release-branch";
-import * as listSdks from "./commands/list-sdks";
 import * as pendingVersion from "./commands/pending-version";
 import * as publishBackend from "./commands/publish-backend";
 import * as resolveSdkVersion from "./commands/resolve-sdk-version";
 import * as setDependencyVersion from "./commands/set-dependency-version";
-import * as setDevcontainerImage from "./commands/set-devcontainer-image";
 import * as setManifestVersion from "./commands/set-manifest-version";
+import * as stampPackage from "./commands/stamp-package";
 import * as tagRelease from "./commands/tag-release";
 import * as updateSpmChecksum from "./commands/update-spm-checksum";
 import { getRepoRoot } from "./lib/git";
@@ -24,19 +22,17 @@ await yargs(hideBin(process.argv))
     default: getRepoRoot(),
     describe: "Repository root directory",
   })
-  .command(bumpVersion)
   .command(setManifestVersion)
   .command(computeVersion)
   .command(updateSpmChecksum)
   .command(createReleaseBranch)
   .command(classifyNotes)
   .command(tagRelease)
-  .command(setDevcontainerImage)
   .command(pendingVersion)
   .command(publishBackend)
   .command(resolveSdkVersion)
-  .command(listSdks)
   .command(setDependencyVersion)
+  .command(stampPackage)
   .demandCommand(1, "You must specify a command")
   .version(false)
   .strict()

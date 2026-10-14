@@ -35,10 +35,23 @@ dev/nix-shell --command printf '%s\n' 'one argument'
 
 The default shell contains the tools needed by Just script recipes. Just modules
 can select a different shell. Do not set `NIX_DEVSHELL=rust` globally: that can
-override module shell selection. The wrapper reuses a nested environment only
-when the worktree, shell selection, and shell inputs match. It enters Nix again
-after a relevant input changes. It does not infer reuse from `IN_NIX_SHELL` or
-from a direnv environment. Separate top-level commands still enter Nix.
+override module shell selection. Humans, the Codex hook, Murmur, Zed, and direnv
+(`.envrc`) all enter through this wrapper.
+
+The wrapper caches each evaluated environment (`nix print-dev-env`) under
+`${XDG_CACHE_HOME:-~/.cache}/xmtp/nix-shell`. The key is the system, the shell,
+and the files that the shells read (`key_paths` in `dev/nix-shell`: `nix/`,
+`flake.nix`, `flake.lock`, the root `package.json`, `webdriver.json`, and the
+Kache helpers). A Rust, Cargo, or nested `package.json` edit keeps the cached
+environment, so entry takes about 0.1 s. An edit to a key file evaluates
+again. `dev/nix-shell --refresh ...` evaluates again on request, for example
+after a change that the key cannot see. A shell file that reads a new file
+outside `nix/` must add it to `key_paths`; `dev/tests/test_agents.py` checks this.
+The cache entries hold Nix GC roots, and entries unused for a week are removed.
+
+A nested call reuses the environment when the worktree, shell, and key match
+(`XMTP_NIX_WRAPPER_ID`), with no new entry. The wrapper does not infer reuse
+from `IN_NIX_SHELL`.
 
 ## Zed checks
 
@@ -122,9 +135,8 @@ Use `rtk gain --project` to inspect estimated savings. Do not use `rtk just`,
 `rtk test just ...`, or a generic output pipeline around these recipes: those
 do not apply the dedicated child-command filters and can hide useful output.
 
-Run `dev/nix-shell 'just agent-test'` to verify routing, hook behavior, and
-navigation against the locked dependencies. These tests do not start Serena or
-backend services.
+`dev/nix-shell 'just lint-config'` runs the routing and hook tests
+(`dev/tests/test_agents.py`). They do not start Serena or backend services.
 
 ## Rust navigation
 
@@ -179,7 +191,7 @@ The key is never written into the repo or the VM image.
 ## Checks
 
 ```sh
-dev/nix-shell 'just agent-test'
+dev/nix-shell 'just lint-config'
 dev/serena test
 dev/serena smoke
 ```

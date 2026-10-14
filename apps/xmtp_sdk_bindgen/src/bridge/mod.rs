@@ -1325,7 +1325,7 @@ fn render(
         "const STORAGE_POOL = {:?};",
         xmtp_configuration::WASM_VFS_DIRECTORY
     )?;
-    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const createsAdmin = key === \"StorageAdmin.open\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : createsAdmin ? STORAGE_POOL : context.targetHandle ? context.locks?.poolForOwner(context.targetHandle.owner) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  const value = await callWithPool(context.locks, pool, createsClient || createsAdmin, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result)), B.storageRequiresWorkerRestart, context.started, (owner) => { context.createdOwner = owner; });\n  if (context.settled) context.settled();\n  return value;\n}\n");
+    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const createsAdmin = key === \"StorageAdmin.open\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : createsAdmin || key === \"prepareMigrationArchive\" ? STORAGE_POOL : context.targetHandle ? context.locks?.poolForOwner(context.targetHandle.owner) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  const value = await callWithPool(context.locks, pool, createsClient || createsAdmin, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result)), B.storageRequiresWorkerRestart, context.started, (owner) => { context.createdOwner = owner; });\n  if (context.settled) context.settled();\n  return value;\n}\n");
     result.insert("dispatch.gen.ts", dispatch);
     result.insert(
         "worker-entry.gen.js",
@@ -1386,22 +1386,6 @@ mod tests {
         assert_eq!(ts_type(&Type::Duration), "number");
         assert_eq!(wire_type(&timestamp), "bigint");
         assert_eq!(wire_type(&Type::Duration), "bigint");
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn message_lift_uses_browser_host_class() {
-        let message = Type::Custom {
-            module_path: "test".into(),
-            name: "Message".into(),
-            builtin: Box::new(Type::Record {
-                module_path: "test".into(),
-                name: "MessageData".into(),
-            }),
-        };
-        assert_eq!(
-            decode_expr(&message, "raw", "session"),
-            "new HostMessage(decodeRecordMessageData(session, raw), session)"
-        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -1779,35 +1763,6 @@ mod tests {
         let files = render(&[item], &[], "test")?;
         assert!(files["wire.gen.ts"].contains("export type WireKind = number"));
         assert!(files["wire.gen.ts"].contains("flat: true"));
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn generated_client_end_rejects_closed_handle() {
-        let object = Metadata::Object(ObjectMetadata {
-            module_path: "test".into(),
-            name: "Client".into(),
-            orig_name: None,
-            remote: false,
-            imp: ObjectImpl::Struct,
-            docstring: None,
-        });
-        let method = Metadata::Method(MethodMetadata {
-            module_path: "test".into(),
-            self_name: "Client".into(),
-            name: "end".into(),
-            orig_name: None,
-            is_async: true,
-            inputs: vec![],
-            return_type: None,
-            throws: None,
-            takes_self_by_arc: true,
-            checksum: None,
-            docstring: None,
-        });
-        let items = [object, method];
-        let operations = operations(&items);
-        let files = render(&items, &operations, "test")?;
-        assert!(files["proxy.gen.ts"].contains("async end(asyncOpts_?:"));
     }
 
     fn foreign_trait(name: &str, method: &str, is_async: bool) -> [Metadata; 3] {

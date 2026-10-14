@@ -60,8 +60,7 @@ for native staging, Gradle builds, and target tests.
 ### Dependency checks
 
 Keep dependency locks and SHA256 verification metadata in source control.
-The library, example, and plugin graphs use fixed versions. The separate
-consumer keeps its included library graph in its own `gradle/library.lockfile`.
+The library, example, and plugin graphs use fixed versions.
 
 `com.android.tools:desugar_jdk_libs:2.1.5` supplies generated `java.time` APIs on
 API 23 to 25. Keep desugaring on in the library and each app consumer.
@@ -70,7 +69,8 @@ After native staging, check the release library and example with frozen
 dependencies:
 
 ```sh
-dev/nix-shell 'cd sdks/android && ./gradlew --dependency-verification strict :library:assembleRelease :example:assembleDebug'
+dev/nix-shell 'just android assemble'
+dev/nix-shell 'just example-android check'
 ```
 
 For an approved dependency change, resolve the affected tasks with

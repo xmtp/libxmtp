@@ -23,6 +23,14 @@ export const combineProfiles = (
   displayName: address,
 });
 
+/** The handle fields that identity components take from a member. */
+export const memberHandles = (
+  member: Pick<Member, "handle" | "otherHandles">,
+) => ({
+  handle: member.handle ?? null,
+  otherHandles: member.otherHandles,
+});
+
 export type MemberProfile = Member & {
   address: string;
   avatar: string | null;

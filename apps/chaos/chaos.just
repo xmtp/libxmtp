@@ -3,7 +3,7 @@ set shell := ["./dev/nix-shell"]
 set working-directory := "../.."
 
 root := justfile_directory()
-_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
+_env := ". " + root + "/dev/docker/load-env"
 _binary := '"${CARGO_TARGET_DIR:-target}/debug/xchaos"'
 
 # Build the local chaos supervisor and its child process command.

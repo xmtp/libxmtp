@@ -15,7 +15,7 @@ Use the built-in browser when the user requests it.
 ## Setup
 
 Read the repository rules. Use the checkout the user selects. Create a worktree
-from `origin/self-hosted` only when the user requests one. Record which processes,
+from `origin/main` only when the user requests one. Record which processes,
 containers, and tabs this run starts so cleanup can stop the correct resources.
 
 Run these commands from the repository root:
@@ -52,8 +52,8 @@ terminal sessions, run:
 
 ```bash
 export XMTP_SMOKE_SKILL="$PWD/.agents/skills/smoke-check"
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && node "$XMTP_SMOKE_SKILL/scripts/ping-bot.mjs" "$PWD"'
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && node "$XMTP_SMOKE_SKILL/scripts/bleep-bot.mjs" "$PWD"'
+dev/nix-shell '. dev/docker/load-env && node "$XMTP_SMOKE_SKILL/scripts/ping-bot.mjs" "$PWD"'
+dev/nix-shell '. dev/docker/load-env && node "$XMTP_SMOKE_SKILL/scripts/bleep-bot.mjs" "$PWD"'
 ```
 
 Wait for each bot's `ready` event. Record its inbox ID, backend URL, run ID,
@@ -83,9 +83,9 @@ Start web chat in a third terminal:
 dev/nix-shell 'just web-chat dev'
 ```
 
-If products were just generated from this checkout, set
-`XMTP_SDK_GENERATED_DIR` to its absolute `target/sdk-generated` path before
-these commands to reuse that input. Keep the package stager's validation.
+When the SDK sources match a trunk commit, set `XMTP_SDK_BUILD=nix` before
+these commands: they then copy the release-profile Nix products from the cache
+instead of running a cargo debug build. Keep the package stager's validation.
 Read the frontend URL from Vite output; its port can change.
 
 ## Browser checks

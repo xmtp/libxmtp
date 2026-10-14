@@ -496,13 +496,6 @@ impl<I> Subscription<I> {
     pub fn is_closed(&self) -> bool {
         self.inner.state.lock().closed
     }
-
-    /// Read the actual queued, active, and discarded counts for conformance.
-    #[cfg(feature = "conformance")]
-    pub fn conformance_queue_counts(&self) -> (usize, usize, u64) {
-        let state = self.inner.state.lock();
-        (state.items.len(), state.in_flight, state.discarded)
-    }
 }
 
 impl<I: Clone> Subscription<I> {

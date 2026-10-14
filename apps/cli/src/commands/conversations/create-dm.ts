@@ -1,15 +1,20 @@
-import { Args, Flags } from "@oclif/core";
+import { Args } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
 import { conversationState } from "@/utils/conversation";
-import { identifierKindMap } from "@/utils/enums";
+import {
+  identifierKindFlag,
+  publicIdentity,
+  reportUnresolvedHandles,
+} from "@/utils/identity";
 import { memberDetails } from "@/utils/members";
 
 export default class ConversationsCreateDm extends BaseCommand {
   static description = `Create a new DM conversation.
 
 Creates a new direct message conversation with the specified user.
-The recipient is specified as an Ethereum address.
+The recipient is an Ethereum address, or a handle such as nick#2341 with
+--identifier-kind handle. An old handle of an inbox also finds it.
 
 If a DM already exists with this user, the existing DM will be returned.
 DMs are unique between two inbox IDs - you cannot have multiple DMs
@@ -28,6 +33,11 @@ Returns the DM's ID and details.`;
       description: "Explicitly specify identifier kind",
     },
     {
+      command:
+        "<%= config.bin %> <%= command.id %> nick#2341 --identifier-kind handle",
+      description: "Create DM with the inbox that holds a handle",
+    },
+    {
       command: "<%= config.bin %> <%= command.id %> <address> --json",
       description: "Output as JSON for scripting",
     },
@@ -35,30 +45,24 @@ Returns the DM's ID and details.`;
 
   static args = {
     identifier: Args.string({
-      description: "The identifier (e.g., Ethereum address) of the recipient",
+      description: "The Ethereum address or handle of the recipient",
       required: true,
     }),
   };
 
   static flags = {
     ...BaseCommand.baseFlags,
-    "identifier-kind": Flags.option({
-      options: ["ethereum"] as const,
-      description: "The type of identifier",
-      default: "ethereum",
-    })(),
+    "identifier-kind": identifierKindFlag(),
   };
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ConversationsCreateDm);
     const client = await this.initClient();
 
-    const identifier = {
-      identifier: args.identifier.toLowerCase(),
-      kind: identifierKindMap[flags["identifier-kind"]],
-    };
-
-    const dm = await client.conversations.createDm(identifier);
+    const identity = publicIdentity(args.identifier, flags["identifier-kind"]);
+    const dm = await reportUnresolvedHandles(client, [identity], () =>
+      client.conversations.createDm(identity),
+    );
 
     const state = await conversationState(dm);
     const members = await dm.members();
@@ -70,7 +74,7 @@ Returns the DM's ID and details.`;
       consentState: state.consentState,
       isActive: state.isActive,
       creatorInboxId: dm.creatorInboxId,
-      members: await memberDetails(client, members),
+      members: await memberDetails(client, members, this.jsonOutput),
     });
   }
 }

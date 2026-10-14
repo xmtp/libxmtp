@@ -14,7 +14,7 @@ workspace = true
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [features]
-conformance = ["xmtp_mls/conformance", "xmtp_events/conformance"]
+conformance = ["xmtp_mls/conformance"]
 bridge-panic-test = []
 pure-only = []
 
@@ -45,6 +45,7 @@ xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_events.workspace = true
 xmtp_id.workspace = true
+xmtp_legacy_migration.workspace = true
 xmtp_logging.workspace = true
 xmtp_macro.workspace = true
 xmtp_mls.workspace = true
@@ -68,6 +69,11 @@ xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
+
+# Handle tests that claim more than once per inbox run against a disposable
+# backend, because a claim on the shared backend is permanent.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+xmtp_backend = { path = "../../apps/backend", features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true

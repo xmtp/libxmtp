@@ -1,3 +1,4 @@
+use super::handle::{Handle, InvalidHandle, MAX_HANDLE_CLAIMS};
 use super::member::{HasMemberKind, Identifier, Member, MemberIdentifier, MemberKind};
 use super::serialization::DeserializationError;
 use super::signature::{SignatureError, SignatureKind};
@@ -92,6 +93,19 @@ pub enum AssociationError {
     #[error(transparent)]
     #[error_code(inherit)]
     Convert(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
+    #[error_code(inherit)]
+    InvalidHandle(#[from] InvalidHandle),
+    /// Claim not alone.
+    ///
+    /// An identity update that claims a handle carries another action. Not retryable.
+    #[error("an identity update that claims a handle must carry no other action")]
+    ClaimNotAlone,
+    /// Handle claim limit reached.
+    ///
+    /// The inbox's log already holds the most handle claims it can hold. Not retryable.
+    #[error("the inbox has reached the limit of handle claims")]
+    HandleClaimLimit,
 }
 
 pub trait IdentityAction: Send {
@@ -335,6 +349,50 @@ impl IdentityAction for ChangeRecoveryIdentity {
     }
 }
 
+/// ClaimHandle Action
+///
+/// `handle` is the text as carried. The grammar check runs when the action is
+/// applied, so a claim outside the grammar fails as an invalid identity update.
+#[derive(Debug, Clone)]
+pub struct ClaimHandle {
+    pub handle: String,
+    pub signature: VerifiedSignature,
+}
+
+impl IdentityAction for ClaimHandle {
+    /// Applies the claim: the grammar, a signer that is a current member on the
+    /// chain it was added on, and the claim limit. The backend's uniqueness,
+    /// name, and interval checks are not applied here, so a stored log always
+    /// replays.
+    // implements: IDENT-078, IDENT-080, IDENT-081, IDENT-082
+    fn update_state(
+        &self,
+        existing_state: Option<AssociationState>,
+        _client_timestamp_ns: u64,
+    ) -> Result<AssociationState, AssociationError> {
+        let existing_state = existing_state.ok_or(AssociationError::NotCreated)?;
+        self.replay_check(&existing_state)?;
+        let handle = Handle::parse(&self.handle)?;
+
+        // A recovery identifier that is not a member cannot sign a claim.
+        let signer = existing_state
+            .get(&self.signature.signer)
+            .ok_or(AssociationError::MissingExistingMember)?;
+        verify_chain_id_matches(signer, &self.signature)?;
+        allowed_signature_for_kind(&signer.kind(), &self.signature.kind)?;
+
+        if existing_state.handle_claims() >= MAX_HANDLE_CLAIMS {
+            return Err(AssociationError::HandleClaimLimit);
+        }
+
+        Ok(existing_state.claim_handle(handle))
+    }
+
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
+        vec![self.signature.replay_key.clone()]
+    }
+}
+
 /// All possible Action types that can be used inside an `IdentityUpdate`
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -342,6 +400,7 @@ pub enum Action {
     AddAssociation(AddAssociation),
     RevokeAssociation(RevokeAssociation),
     ChangeRecoveryIdentity(ChangeRecoveryIdentity),
+    ClaimHandle(ClaimHandle),
 }
 
 impl IdentityAction for Action {
@@ -361,6 +420,7 @@ impl IdentityAction for Action {
             Action::ChangeRecoveryIdentity(event) => {
                 event.update_state(existing_state, client_timestamp_ns)
             }
+            Action::ClaimHandle(event) => event.update_state(existing_state, client_timestamp_ns),
         }
     }
 
@@ -370,6 +430,7 @@ impl IdentityAction for Action {
             Action::AddAssociation(event) => event.replay_keys(),
             Action::RevokeAssociation(event) => event.replay_keys(),
             Action::ChangeRecoveryIdentity(event) => event.replay_keys(),
+            Action::ClaimHandle(event) => event.replay_keys(),
         }
     }
 }
@@ -404,10 +465,18 @@ impl IdentityUpdate {
             _ => None,
         })
     }
+
+    /// Whether this update carries a `ClaimHandle`. An update that carries one
+    /// and applies carries no other action.
+    pub fn claims_handle(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|action| matches!(action, Action::ClaimHandle(_)))
+    }
 }
 
 impl IdentityAction for IdentityUpdate {
-    // implements: IDENT-001, IDENT-002, IDENT-003
+    // implements: IDENT-001, IDENT-002, IDENT-003, IDENT-079
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
@@ -415,6 +484,11 @@ impl IdentityAction for IdentityUpdate {
     ) -> Result<AssociationState, AssociationError> {
         if self.actions.is_empty() {
             return Err(AssociationError::EmptyUpdate);
+        }
+        // Checked before any action applies, so one update cannot pass the
+        // backend's interval between claims for several claims.
+        if self.actions.len() > 1 && self.claims_handle() {
+            return Err(AssociationError::ClaimNotAlone);
         }
         let mut state = existing_state;
         for action in &self.actions {
@@ -561,6 +635,7 @@ mod tests {
                 UnverifiedAction::ChangeRecoveryAddress(a) => {
                     alias(&mut a.recovery_identifier_signature)
                 }
+                UnverifiedAction::ClaimHandle(a) => alias(&mut a.signature),
             }
         }
         update

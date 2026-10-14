@@ -1,6 +1,8 @@
 name: Test Workspace
 on:
   workflow_call:
+env:
+  NIX_DEVSHELL: rust
 jobs:
   test:
     name: Test (Rust Workspace)
@@ -8,33 +10,38 @@ jobs:
     timeout-minutes: 30
     env:
       SQLX_OFFLINE: "true"
-      DATABASE_URL: postgres://xmtp:xmtp@localhost:55432/xmtp_backend
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
         with:
-          disk-key: rust
-          docker-builder: "true"
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - name: Check ephemeral backend build boundaries
         run: dev/check-ephemeral-backend
-      - name: Start backend
-        run: just backend up
-      - name: Dump docker logs on failure
-        if: failure()
-        uses: jwalton/gh-docker-logs@v2
+      # The derivation starts its own test services (nix/services) on free
+      # loopback ports, so the job needs no Docker stack. `nix build` keeps
+      # the coverage report.
+      # junit-refs proves that the JUnit step leaves no store path. One call
+      # evaluates once; the first output links to workspace-tests.
       - name: Run workspace tests with coverage
-        # use `nix build` instead of `nix flake check` because we need the resulting coverage
         run: |
-          nix build .#nextest.x86_64-linux --out-link workspace-tests --option sandbox relaxed
-      - name: Warm sticky disk with build deps
-        run: dev/ci/warm-deps .#nextest.x86_64-linux
+          nix build .#nextest.x86_64-linux .#junit-refs.x86_64-linux \
+            --out-link workspace-tests --option sandbox relaxed --log-lines 500
+      # The JUnit report, also when the result came from the cache; a test
+      # that passed on retry shows as `flakyFailure`.
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-workspace
+          path: workspace-tests/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload coverage
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           files: workspace-tests/coverage
           token: ${{ secrets.CODECOV_TOKEN }}

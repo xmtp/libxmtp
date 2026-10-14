@@ -6,8 +6,8 @@ set shell := ["../../dev/nix-shell"]
 
 # Stage the selected local SDK products before docs package tasks.
 sdk-products:
-    ../../dev/js/sdk-stage node
-    ../../dev/js/sdk-stage browser
+    ../../dev/js/sdk-package node
+    ../../dev/js/sdk-package browser
 
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:
@@ -29,12 +29,6 @@ lint:
     # Docs lint is not type-aware and does not need SDK build output.
     pnpm run lint
 
-format-check:
-    pnpm --filter @xmtp/docs run format:check
-
-format:
-    pnpm --filter @xmtp/docs run format
-
 test:
     pnpm --filter @xmtp/docs run test
 
@@ -50,6 +44,14 @@ compose:
 check:
     node scripts/check-site.mjs --built
 
+# The site owner checks a composed current or staged artifact before routing changes.
+check-cutover origin="https://xmtp.org" site="_site":
+    node scripts/check-cutover.mjs "{{ origin }}" "{{ site }}"
+
+# Check the documentation source without a site build (docs_quality CI).
+check-source:
+    node scripts/check-site.mjs
+
 # Check external URLs with the flags and HTML scope removed from docs CI.
 check-external:
     node scripts/site-freshness.mjs
@@ -58,7 +60,7 @@ check-external:
     lychee --no-progress --max-retries 2 --scheme https --scheme http \
         --root-dir '{{ root }}/apps/docs/_site' \
         --exclude '^https://docs\.xmtp\.org/.*' \
-        --exclude '^https://self-hosted-docs\.xmtp\.to/.*' \
+        --exclude '^https://xmtp\.org/.*' \
         --exclude '^https://github\.com/xmtp/libxmtp/edit/.*' \
         --exclude '^https://github\.com/xmtp/libxmtp/blob/[0-9a-f]{40}/.*' \
         --exclude '^http://collector:4317/?$' \

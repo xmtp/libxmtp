@@ -9,6 +9,20 @@ signs one PUT request for each upload. Clients send the ciphertext to the
 storage target and fetch it from `base_url`. The backend does not store the
 ciphertext.
 
+Applications use the SDK's built-in attachment service to create a pending
+attachment, send its remote record, and upload the staged ciphertext. The
+service requests a signed PUT from the backend and sends the file directly to
+the target. The recipient explicitly requests a download; message receipt
+does not fetch the file. See
+[Native attachment uploads and downloads](/content-types/attachments/#native-attachment-uploads-and-downloads)
+for Kotlin and Swift examples, retry behavior, and local file management.
+
+The published upload limit bounds the encrypted envelope, including its MIME
+type, filename, framing, and authentication tag. A source file exactly at the
+limit can exceed it after encryption. Target retention controls how long a
+remote file remains available. It does not remove the plaintext copies that
+clients already downloaded.
+
 ## Configure the target
 
 ```toml

@@ -829,3 +829,317 @@ async fn send_completes_after_queued_state_changes() {
         1
     );
 }
+
+// verifies: GMOD-018
+#[xmtp_common::test(unwrap_try = true)]
+async fn pending_adds_welcome_every_new_leaf_after_commit_readback() {
+    use crate::groups::intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData};
+    use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = xmtp_common::wait_for_ok(|| async {
+        bo.sync_welcomes().await?;
+        bo.group(&group.group_id).map_err(GroupError::from)
+    })
+    .await?;
+    bo_group.receive().await?;
+    tester!(bo2, from: bo, disable_workers);
+    tester!(caro, disable_workers);
+    tester!(caro2, from: caro, disable_workers);
+    let proposal = QueueIntent::propose_member_update()
+        .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
+            vec![bo.inbox_id().into(), caro.inbox_id().into()],
+            vec![],
+        ))?)
+        .queue(&group)?;
+    group.sync_until_intent_resolved(proposal.id).await?;
+    let pending = group.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?;
+    assert!(pending >= 3);
+    xmtp_common::wait_for_some(|| async {
+        bo_group.receive().await.ok()?;
+        (bo_group
+            .with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))
+            .ok()?
+            == pending)
+            .then_some(())
+    })
+    .await?;
+    let intent = QueueIntent::commit_pending_proposals()
+        .data(Vec::<u8>::from(CommitPendingProposalsIntentData::default()))
+        .queue(&bo_group)?;
+    prepare_kind(&bo_group, IntentKind::CommitPendingProposals).await?;
+    bo_group.publish_intents().await?;
+    let published: StoredGroupIntent = bo.context.db().fetch(&intent.id)?.unwrap();
+    assert_eq!(published.state, IntentState::Published);
+    assert!(bo_group.prepare_required_welcomes(intent.id)?.is_none());
+    for joiner in [&bo2, &caro, &caro2] {
+        assert!(
+            bo.context
+                .api()
+                .query_welcome_messages(joiner.installation_public_key())
+                .await?
+                .is_empty()
+        );
+    }
+    bo_group.sync_until_intent_resolved(intent.id).await?;
+    let committed: StoredGroupIntent = bo.context.db().fetch(&intent.id)?.unwrap();
+    assert_eq!(committed.state, IntentState::Processed);
+    let cursor = Cursor(committed.sequence_id.unwrap() as u64);
+    assert!(cursor.0 > 0);
+    assert!(
+        bo.context
+            .db()
+            .topic_progress(&StreamTopic::group(group.group_id))?
+            .processed
+            >= cursor
+    );
+    for joiner in [&bo2, &caro, &caro2] {
+        let joined = xmtp_common::wait_for_ok(|| async {
+            joiner.sync_welcomes().await?;
+            joiner.group(&group.group_id).map_err(GroupError::from)
+        })
+        .await?;
+        assert_eq!(
+            joiner
+                .context
+                .db()
+                .topic_progress(&StreamTopic::group(group.group_id))?
+                .processed,
+            cursor
+        );
+        assert_eq!(
+            joined.epoch_authenticator().await?,
+            bo_group.epoch_authenticator().await?
+        );
+        assert_eq!(joined.members().await?.len(), 3);
+        assert_eq!(
+            joined.with_group_snapshot(|mls| Ok(mls.members().count()))?,
+            5
+        );
+    }
+}
+
+// verifies: SEND-016
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn rejected_own_application_echo_fails_atomically_and_survives_restart() {
+    use crate::{
+        Client, builder::DeviceSyncMode, groups::mls_sync::GroupHeadOutcome,
+        identity::IdentityStrategy, utils::DefaultTestClientCreator,
+    };
+    use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl, connection::SimpleConnection};
+    use std::sync::Arc;
+    use tls_codec::Deserialize;
+    use xmtp_db::{
+        ConnectionExt, StorageOption, TestDb, XmtpTestDb,
+        group_message::DeliveryStatus,
+        incoming_envelope::{IncomingRetry, QueryIncomingEnvelope, StreamTopic},
+    };
+    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
+    use xmtp_proto::{
+        api_client::ApiBuilder, prelude::XmtpTestClient, types::OrderedEnvelopeBatch,
+    };
+    tester!(alix, persistent_db, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let message_id =
+        group.send_message_optimistic(b"rejected own application", Default::default())?;
+    let (intent, mut attempt) = prepare_message(&group).await?;
+    let mut envelope = ClientEnvelope::decode(attempt.envelopes[0].as_slice())?;
+    let Some(Payload::GroupMessage(message)) = &mut envelope.payload else {
+        panic!("expected an application envelope");
+    };
+    // Retain valid MLS framing but put its public header in a future epoch.
+    let mut header = std::io::Cursor::new(&message.data[4..]);
+    let group_id = tls_codec::VLBytes::tls_deserialize(&mut header)?;
+    assert_eq!(group_id.as_slice(), group.group_id.as_slice());
+    let epoch_offset = 4 + header.position() as usize;
+    message.data[epoch_offset..epoch_offset + 8]
+        .copy_from_slice(&(attempt.base.epoch + 1).to_be_bytes());
+    attempt.payload_hash = sha256(&message.data).to_vec();
+    attempt.envelopes = vec![envelope.encode_to_vec()];
+    let bytes = xmtp_db::db_serialize(&attempt)?;
+    let db = alix.context.db();
+    db.raw_query(|conn| {
+        use xmtp_db::schema::group_intents::dsl;
+        diesel::update(dsl::group_intents.filter(dsl::id.eq(intent.id)))
+            .set((
+                dsl::payload_hash.eq(&attempt.payload_hash),
+                dsl::prepared_envelopes.eq(bytes),
+            ))
+            .execute(conn)
+    })?;
+    let topic = StreamTopic::group(group.group_id);
+    let before = db.topic_progress(&topic)?;
+    group.publish_intents().await?;
+    let wire = Topic::new_group_message(group.group_id);
+    let envelopes = xmtp_common::wait_for_some(|| async {
+        let envelopes = group
+            .context
+            .api()
+            .query_all(
+                [(wire.clone(), before.received)].into(),
+                group.context.api().limits().max_query_limit as u32,
+            )
+            .await
+            .ok()?;
+        (envelopes.len() == 1).then_some(envelopes)
+    })
+    .await?;
+    alix.mls_store().admit_incoming_batch(
+        &OrderedEnvelopeBatch {
+            topic: wire,
+            after: before.received,
+            envelopes,
+        },
+        group
+            .context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(topic.kind),
+    )?;
+    let received = db.topic_progress(&topic)?.received;
+    let hash = alix.context.mls_storage().hash_all()?;
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageStatusChanged]),
+        Some(8),
+    );
+    db.raw_query(|conn| conn.batch_execute("CREATE TRIGGER abort_rejected_echo BEFORE DELETE ON incoming_envelopes BEGIN SELECT RAISE(FAIL, 'test rollback'); END;"))?;
+    assert!(matches!(
+        group.process_pending_group_head(None)?,
+        GroupHeadOutcome::Waiting { .. }
+    ));
+    let unchanged: StoredGroupIntent = db.fetch(&intent.id)?.unwrap();
+    assert_eq!(unchanged.state, IntentState::Published);
+    assert_eq!(
+        db.get_group_message(&message_id)?.unwrap().delivery_status,
+        DeliveryStatus::Unpublished
+    );
+    assert_eq!(db.topic_progress(&topic)?.processed, before.processed);
+    assert!(db.read_last_rejection(&topic)?.is_none());
+    assert_eq!(alix.context.mls_storage().hash_all()?, hash);
+    assert!(events.drain().is_empty());
+    db.raw_query(|conn| conn.batch_execute("DROP TRIGGER abort_rejected_echo"))?;
+    db.set_incoming_retry(
+        &topic,
+        received,
+        &IncomingRetry {
+            retry_at_ns: 0,
+            blocked: false,
+            error_code: None,
+            retry_expires_at_ns: None,
+        },
+    )?;
+    assert!(matches!(
+        group.process_pending_group_head(None)?,
+        GroupHeadOutcome::Progress { result: Err(_), .. }
+    ));
+    let failed: StoredGroupIntent = db.fetch(&intent.id)?.unwrap();
+    assert_eq!(failed.state, IntentState::Error);
+    assert_eq!(
+        db.get_group_message(&message_id)?.unwrap().delivery_status,
+        DeliveryStatus::Failed
+    );
+    assert_eq!(db.topic_progress(&topic)?.processed, received);
+    assert!(db.first_pending_envelope(&topic)?.is_none());
+    assert_eq!(
+        db.read_last_rejection(&topic)?.unwrap().code,
+        "impossible_future_epoch"
+    );
+    assert!(
+        matches!(events.drain().as_slice(), [xmtp_events::EventEnvelope { client: Some(xmtp_events::ClientEvent::MessageStatusChanged(change)), .. }] if change.message_id == message_id && change.current == xmtp_events::MessageStatus::Failed)
+    );
+    let assert_reason = |error: GroupError| {
+        let GroupError::Sync(summary) = error else {
+            panic!("expected the rejected send cause");
+        };
+        assert!(
+            summary
+                .process
+                .errored
+                .iter()
+                .any(|(cursor, cause)| *cursor == received
+                    && matches!(
+                        cause,
+                        GroupMessageProcessingError::RejectedIntent("impossible_future_epoch")
+                            | GroupMessageProcessingError::FutureEpoch(..)
+                    ))
+        );
+    };
+    assert_reason(
+        group
+            .sync_until_intent_resolved(intent.id)
+            .await
+            .unwrap_err(),
+    );
+    let database = match alix.context.store().opts() {
+        StorageOption::Persistent(path) => path.clone(),
+        _ => panic!("expected persistent storage"),
+    };
+    let group_id = group.group_id;
+    assert!(
+        xmtp_common::wait_for_some(|| async {
+            alix.context
+                .incoming_runtime()
+                .coordinator
+                .lock()
+                .is_none()
+                .then_some(())
+        })
+        .await
+        .is_some()
+    );
+    drop(events);
+    drop(db);
+    drop(group);
+    drop(alix);
+    let store = TestDb::create_persistent_store(Some(database)).await;
+    let api = Arc::new(DefaultTestClientCreator::create().build()?);
+    let restarted = Client::builder(IdentityStrategy::CachedOnly)
+        .store(store)
+        .api_client(api)
+        .default_mls_store()?
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .with_disable_workers(true)
+        .with_commit_log_worker(false)
+        .with_device_sync_worker_mode(Some(DeviceSyncMode::Disabled))
+        .build()
+        .await?;
+    let group = restarted.group(&group_id)?;
+    assert_eq!(
+        group
+            .context
+            .db()
+            .get_group_message(&message_id)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Failed
+    );
+    assert_reason(
+        group
+            .sync_until_intent_resolved(intent.id)
+            .await
+            .unwrap_err(),
+    );
+    let next = group
+        .send_message(b"next intent", Default::default())
+        .await?;
+    assert_eq!(
+        group
+            .context
+            .db()
+            .get_group_message(&next)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Published
+    );
+    assert_reason(
+        group
+            .sync_until_intent_resolved(intent.id)
+            .await
+            .unwrap_err(),
+    );
+}

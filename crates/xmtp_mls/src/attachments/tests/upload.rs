@@ -6,9 +6,9 @@ struct KnownCredential(Arc<AtomicUsize>);
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_create_rolls_back_both_publication_points() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
     for after_staged in [false, true] {
-        let dir = tempfile::tempdir()?;
-        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
         let pause = Arc::new(CreatePublishPause {
             after_staged,
             path: Mutex::new(None),

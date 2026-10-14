@@ -82,7 +82,10 @@ services:
       retries: 30
 
   backend:
-    image: ghcr.io/xmtp/backend:self-hosted      # loaded from `nix build .#backend-image-<arch>` by `just backend up`
+    # `just backend up` loads this worktree's Nix build under the tag that
+    # dev/worktree-env writes to .env, so each stack runs its own build. The
+    # default is the Nix archive's tag, for a run without .env.
+    image: ${XMTP_BACKEND_IMAGE:-ghcr.io/xmtp/backend:self-hosted}
     depends_on:
       db: { condition: service_healthy }
       replica: { condition: service_healthy }
@@ -100,7 +103,7 @@ services:
       timeout: 5s
       retries: 30
   anvil:            # chain for the backend's SCW verification and for the existing SCW tests
-    image: ghcr.io/foundry-rs/foundry:stable
+    image: ghcr.io/foundry-rs/foundry:stable@sha256:043752653d5be351c71709091b3db97c4421c907eb40ea294195e7f532aadf46
     entrypoint: ["anvil", "--host", "0.0.0.0", "--base-fee", "100"]
     ports: ["127.0.0.1:${XMTP_ANVIL_PORT:-8545}:8545"]
   toxiproxy:

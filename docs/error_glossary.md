@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**35 error types** across **9 crates** with **406 total error codes**.
+**39 error types** across **10 crates** with **422 total error codes**.
 
 ## xmtp_api
 
@@ -25,6 +25,19 @@ This document lists all error codes defined in LibXMTP, the core library underly
 | `ApiError::InvalidEnvelope` | The payload cannot be parsed. Not retryable. |
 | `ApiError::Envelope` | A returned backend envelope cannot be decoded. Not retryable. |
 | `ApiError::ProtoConversion` | Proto conversion error. Protobuf conversion failed. Not retryable. |
+
+### HandleRejection <sub>enum</sub>
+
+<small>`crates/xmtp_api/src/lib.rs`</small>
+
+Why the backend refused a handle claim that the validators accept. The
+backend reports it in the structured `PublishError` detail of the publish.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `HandleRejection::Taken` | Another inbox holds the handle. Not retryable. |
+| `HandleRejection::NotAllowed` | The handle's name part is reserved or shorter than the deployment's minimum name length. Not retryable. |
+| `HandleRejection::TooSoon` | The inbox claimed a handle too recently to claim another. Not retryable. |
 
 ## xmtp_api_grpc
 
@@ -248,6 +261,8 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `AssociationError::ChainIdMismatch` | Chain ID mismatch. Smart contract wallet chain ID changed. Not retryable. |
 | `AssociationError::InvalidAccountAddress` | Invalid account address. Address is not 42-char hex starting with 0x. Not retryable. |
 | `AssociationError::NotIdentifier` | Not an identifier. Value is not a valid public identifier. Not retryable. |
+| `AssociationError::ClaimNotAlone` | Claim not alone. An identity update that claims a handle carries another action. Not retryable. |
+| `AssociationError::HandleClaimLimit` | Handle claim limit reached. The inbox's log already holds the most handle claims it can hold. Not retryable. |
 
 ### DeserializationError <sub>enum</sub>
 
@@ -266,8 +281,19 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `DeserializationError::InvalidHash` | Invalid hash. Hash must be 32 bytes. Not retryable. |
 | `DeserializationError::Unspecified` | Unspecified value. An unrecognized or unsupported value was encountered. Not retryable. |
 | `DeserializationError::Deprecated` | Deprecated field. A deprecated field was used. Not retryable. |
+| `DeserializationError::HandleNotIdentifier` | Handle is not an identifier. A handle names an inbox in a lookup, but it is not an account identifier. Not retryable. |
 | `DeserializationError::Ed25519` | Ed25519 key error. Failed to create public key from bytes. Not retryable. |
 | `DeserializationError::Bincode` | Unable to deserialize. Bincode deserialization failed. Not retryable. |
+
+### InvalidHandle <sub>struct</sub>
+
+<small>`crates/xmtp_id/src/associations/handle.rs`</small>
+
+Invalid handle.
+
+The string is not a handle under the handle grammar. Not retryable.
+
+**Error code:** `InvalidHandle`
 
 ### KeyPackageVerificationError <sub>enum</sub>
 
@@ -323,6 +349,23 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `VerifierError::MissingBlock` | Missing block. The chain did not return a block at or below its reported head. Retryable. |
 | `VerifierError::InvalidHash` | Invalid hash. Hash has invalid length or format. Not retryable. |
 | `VerifierError::Other` | Other error. Unclassified verifier error. May be retryable. |
+
+## xmtp_legacy_migration
+
+### MigrationError <sub>enum</sub>
+
+<small>`crates/xmtp_legacy_migration/src/lib.rs`</small>
+
+Stable failure categories. Inner causes remain available to Rust callers.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `MigrationError::InvalidInput` | The path, key, or source cannot be used. Not retryable without correction. |
+| `MigrationError::SourceBusy` | Another process holds a source lock. Retry after closing that process. |
+| `MigrationError::UnsupportedSchema` | The migration history is outside the supported range. Not retryable. |
+| `MigrationError::Migration` | A pinned database migration failed. Not retryable without correction. |
+| `MigrationError::RecordRead` | A required record could not be read. Not retryable without correction. |
+| `MigrationError::Output` | The archive could not be completed. Retry after correcting the output. |
 
 ## xmtp_mls
 
@@ -501,6 +544,17 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `GroupError::DeleteMessage` | Delete message error. Failed to delete message. Not retryable. |
 | `GroupError::DeviceSync` | Device sync error. Device sync operation failed. May be retryable. |
 
+### HandleError <sub>enum</sub>
+
+<small>`crates/xmtp_mls/src/inbox_handles.rs`</small>
+
+A handle operation that the client refuses.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `HandleError::NotFound` | No inbox holds the handle. Either the backend names no inbox for it, or the inbox it names does not hold the handle in any state the client derived from that inbox's log. Not retryable. |
+| `HandleError::LimitReached` | The inbox has made the most handle claims its identity log can hold, so a validator rejects another. Not retryable. |
+
 ### IdentityError <sub>enum</sub>
 
 <small>`crates/xmtp_mls/src/identity.rs`</small>
@@ -671,6 +725,7 @@ This general error type avoid circular hard-dependencies on crates further up th
 | `ConversionError::Decode` | Decode error. Protobuf decoding failed. Not retryable. |
 | `ConversionError::Encode` | Encode error. Protobuf encoding failed. Not retryable. |
 | `ConversionError::UnknownEnumValue` | Unknown enum value. Protobuf enum has unrecognized value. Not retryable. |
+| `ConversionError::NonSigningIdentifierKind` | Identifier kind that cannot sign. The identifier kind is a handle or a value that `IdentifierKind` does not list. Such an identifier cannot sign, so it cannot be an inbox's initial or recovery identifier. Not retryable. |
 | `ConversionError::EdSignature` | Ed25519 signature error. Ed25519 signature bytes invalid. Not retryable. |
 | `ConversionError::InvalidPublicKey` | Invalid public key. Public key validation failed. Not retryable. |
 | `ConversionError::InvalidVersion` | Invalid version. Protocol version not supported. Not retryable. |

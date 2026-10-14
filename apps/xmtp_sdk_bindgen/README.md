@@ -4,6 +4,16 @@
 `crates/xmtp_sdk`. Run it through `dev/nix-shell 'just sdk generate'`; see
 `crates/xmtp_sdk/AGENTS.md` for the recipes.
 
+`xmtp-sdk-bindgen render --lib <library> --target
+node|browser-worker|browser-pure|swift|kotlin --out <dir>` is the one renderer:
+the Nix render and `crates/xmtp_sdk/dev/sdk-artifacts.py` both call it. It
+writes one tree and its receipt, `sdk-contract.json`, from the source and
+generator identities that the caller passes (`nix eval .#sdkProvenance`). It
+formats generated TypeScript with the `oxfmt` binary that `--oxfmt` or
+`XMTP_SDK_OXFMT` names, and fails without one. Both routes use the nixpkgs
+`oxfmt`, so they write the same bytes. No check reads the generated format;
+`templates/bridge` has a source format check in `just sdk lint`.
+
 A routine façade change (a method, a getter, an event variant or payload
 record, a Client static, a record field, including one of `MessageData`)
 needs no edit here.
@@ -207,3 +217,29 @@ These stay outside the markers on purpose:
   `src/swift_async.rs`, `src/swift_events.rs`, `src/native_visibility.rs`,
   `src/swift_records.rs`): they pin stock UniFFI template text and change
   with the UniFFI version, not with façade edits.
+
+## Runtime tests
+
+`runtime-tests/ts` holds the unit tests of the TypeScript bridge runtime
+(`bridge.test.ts` and its `bridge-*.ts` parts), the reader stream consumers,
+the codec send policy, and the generated public projection. They import the
+runtime copy in the generated browser tree. `dev/nix-shell 'just sdk
+test-bridge'` runs them with the generated `conformance.gen.test.ts` against
+the staged SDK. The tests stay out of `runtime/` because generation copies
+that directory. The
+browser platform proofs that need Chromium, OPFS, or a fixture build are in
+`sdks/browser/test/platform` (`dev/nix-shell 'just sdk test-browser'`).
+
+Migration uses one storage lifetime rule in the generator. The browser projection
+runs `prepareMigrationArchive` through `WorkerSessions.runExclusive`. It rejects
+active clients and storage calls, starts a fresh worker, and waits for worker
+termination before it returns. The dispatch assigns the normal storage pool to
+this call. `readMigrationArchive` uses the normal worker and byte codec.
+
+## Local signing key exports
+
+`LocalSigningKey.toBytes()` and `toHex()` are synchronous in Swift and Kotlin.
+The native Rust exports are immutable getters; the JavaScript public projection
+keeps them as asynchronous methods for parity with the WebAssembly worker calls.
+The WebAssembly exports stay asynchronous and are never included in an object
+snapshot, so creating a key does not export its private material to JavaScript.

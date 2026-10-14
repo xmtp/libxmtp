@@ -1401,8 +1401,20 @@ public protocol ClientProtocol: AnyObject, Sendable {
     func appVersion()  -> String?
 
     /**
-     * Returns one entry per core identity. Keys use `ethereum:<core text>` or
-     * `passkey:<lowercase core hex>`.
+     * The handles for `name` that no inbox holds, the name itself first.
+     * `name` is a handle as a user typed it; its ASCII capitals become
+     * lowercase. A name with a code checks only that handle. A name without
+     * a code checks itself and 100 random codes in one lookup. Text outside
+     * the handle grammar fails with `InvalidArgument`, before any request.
+     * The SDK applies no other rule, so a claim of a returned handle can
+     * still fail with `HandleNotAllowed`. An unregistered client can call it.
+     */
+    func availableHandles(name: String) async throws  -> [String]
+
+    /**
+     * Returns one entry per core identity. Keys use `ethereum:<core text>`,
+     * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A
+     * handle is available when the backend names an inbox for it.
      */
     func canMessage(identities: [PublicIdentity]) async throws  -> [String: Bool]
 
@@ -1410,10 +1422,25 @@ public protocol ClientProtocol: AnyObject, Sendable {
 
     func changeRecoveryIdentifier(signer: Signer, identity: PublicIdentity) async throws
 
+    /**
+     * Claim `handle` for this inbox, signed by this installation's key. It
+     * becomes the inbox's current handle, including when the inbox claimed
+     * it before. Fails with `HandleTaken`, `HandleNotAllowed`,
+     * `HandleTooSoon`, or `HandleLimitReached`, none of them retryable, and
+     * with `InvalidArgument` for text outside the handle grammar.
+     */
+    func claimHandle(handle: String) async throws
+
     func decodeContent(encoded: EncodedContent) async throws  -> MessageContent
 
     func identity()  -> PublicIdentity
 
+    /**
+     * The inbox of an account or a handle, or `None`. A handle resolves only
+     * when the inbox the backend names holds it in its own identity log, and
+     * an old handle of an inbox still resolves to it. This never derives an
+     * inbox ID from a handle.
+     */
     func inboxIdFor(identity: PublicIdentity) async throws  -> InboxId?
 
     func inboxState(refreshFromNetwork: Bool) async throws  -> InboxState
@@ -1753,8 +1780,35 @@ open func appVersion() -> String?  {
 }
 
     /**
-     * Returns one entry per core identity. Keys use `ethereum:<core text>` or
-     * `passkey:<lowercase core hex>`.
+     * The handles for `name` that no inbox holds, the name itself first.
+     * `name` is a handle as a user typed it; its ASCII capitals become
+     * lowercase. A name with a code checks only that handle. A name without
+     * a code checks itself and 100 random codes in one lookup. Text outside
+     * the handle grammar fails with `InvalidArgument`, before any request.
+     * The SDK applies no other rule, so a claim of a returned handle can
+     * still fail with `HandleNotAllowed`. An unregistered client can call it.
+     */
+open func availableHandles(name: String)async throws  -> [String]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_client_available_handles(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(name)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Returns one entry per core identity. Keys use `ethereum:<core text>`,
+     * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A
+     * handle is available when the backend names an inbox for it.
      */
 open func canMessage(identities: [PublicIdentity])async throws  -> [String: Bool]  {
     return
@@ -1807,6 +1861,30 @@ open func changeRecoveryIdentifier(signer: Signer, identity: PublicIdentity)asyn
         )
 }
 
+    /**
+     * Claim `handle` for this inbox, signed by this installation's key. It
+     * becomes the inbox's current handle, including when the inbox claimed
+     * it before. Fails with `HandleTaken`, `HandleNotAllowed`,
+     * `HandleTooSoon`, or `HandleLimitReached`, none of them retryable, and
+     * with `InvalidArgument` for text outside the handle grammar.
+     */
+open func claimHandle(handle: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_client_claim_handle(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(handle)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_void,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_void,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_void,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
 open func decodeContent(encoded: EncodedContent)async throws  -> MessageContent  {
     return
         try  await uniffiRustCallAsync(
@@ -1833,6 +1911,12 @@ open func identity() -> PublicIdentity  {
 })
 }
 
+    /**
+     * The inbox of an account or a handle, or `None`. A handle resolves only
+     * when the inbox the backend names holds it in its own identity log, and
+     * an old handle of an inbox still resolves to it. This never derives an
+     * inbox ID from a handle.
+     */
 open func inboxIdFor(identity: PublicIdentity)async throws  -> InboxId?  {
     return
         try  await uniffiRustCallAsync(
@@ -2592,8 +2676,10 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
     func createDm(peer: InboxId, options: CreateDmOptions?) async throws  -> Dm
 
     /**
-     * Find or create a DM with an account identity. Hosts present this as a
-     * `createDm` overload or union.
+     * Find or create a DM with an account identity or a handle. Hosts
+     * present this as a `createDm` overload or union. A handle resolves
+     * through the verified handle resolver before the existing DM is looked
+     * up.
      */
 
     func createGroup(members: [InboxId], options: CreateGroupOptions?) async throws  -> Group
@@ -2601,8 +2687,10 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
     func createGroupOptimistic(options: CreateGroupOptions?) async throws  -> Group
 
     /**
-     * Create a group from account identities. Hosts present this as a
-     * `createGroup` overload or union.
+     * Create a group from account identities and handles. Hosts present
+     * this as a `createGroup` overload or union. Every handle resolves
+     * through the verified handle resolver before the group exists, and all
+     * members join in one commit.
      */
 
     func deleteMessage(id: MessageId) async throws  -> MessageId
@@ -2611,6 +2699,10 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
 
     func getById(id: ConversationId) async throws  -> Conversation?
 
+    /**
+     * The DM with an account or a handle, or `None`. A handle resolves
+     * through the verified handle resolver before the DM is looked up.
+     */
     func getDmByIdentity(identity: PublicIdentity) async throws  -> Dm?
 
     func getDmByInboxId(peer: InboxId) async throws  -> Dm?
@@ -2751,8 +2843,10 @@ open func createDm(peer: InboxId, options: CreateDmOptions? = nil)async throws  
 }
 
     /**
-     * Find or create a DM with an account identity. Hosts present this as a
-     * `createDm` overload or union.
+     * Find or create a DM with an account identity or a handle. Hosts
+     * present this as a `createDm` overload or union. A handle resolves
+     * through the verified handle resolver before the existing DM is looked
+     * up.
      */
 func createDmWithIdentity(peer: PublicIdentity, options: CreateDmOptions? = nil)async throws  -> Dm  {
     return
@@ -2806,8 +2900,10 @@ open func createGroupOptimistic(options: CreateGroupOptions? = nil)async throws 
 }
 
     /**
-     * Create a group from account identities. Hosts present this as a
-     * `createGroup` overload or union.
+     * Create a group from account identities and handles. Hosts present
+     * this as a `createGroup` overload or union. Every handle resolves
+     * through the verified handle resolver before the group exists, and all
+     * members join in one commit.
      */
 func createGroupWithIdentities(members: [PublicIdentity], options: CreateGroupOptions? = nil)async throws  -> Group  {
     return
@@ -2877,6 +2973,10 @@ open func getById(id: ConversationId)async throws  -> Conversation?  {
         )
 }
 
+    /**
+     * The DM with an account or a handle, or `None`. A handle resolves
+     * through the verified handle resolver before the DM is looked up.
+     */
 open func getDmByIdentity(identity: PublicIdentity)async throws  -> Dm?  {
     return
         try  await uniffiRustCallAsync(
@@ -3608,9 +3708,35 @@ public protocol DmProtocol: AnyObject, Sendable {
 
     func members() async throws  -> [Member]
 
+    /**
+     * Read Published history by sent time, then immutable local delivery order.
+     * Defaults are ascending order and limit 50. Messenger uses descending
+     * order for newest and older pages. Explicit limits must be positive.
+     * None or SentAt sort is accepted; InsertedAt and pending statuses fail.
+     * All other selection filters apply before the page limit.
+     * Before is strict tuple less-than; after is strict tuple greater-than.
+     * Direction never changes those meanings. Deleted boundaries stay valid.
+     * First/last positions cover consumed raw rows, even after conversion loss.
+     * A sentinel key sets has_more without loading its base body.
+     * This query does not acquire a reader lease or acknowledge messages.
+     */
+    func messageHistoryPage(options: ListMessagesOptions?, before: MessageHistoryPosition?, after: MessageHistoryPosition?) async throws  -> MessageHistoryPage
+
     func messageHistorySnapshot(limit: UInt32) async throws  -> MessageHistorySnapshot
 
     func messageReader(options: ConversationMessageReaderOptions?) async throws  -> MessageReader
+
+    /**
+     * Read Failed and Unpublished rows in sent-time and raw ID order.
+     * Defaults are ascending order, no kind filter, and limit 50.
+     * Explicit Failed or Unpublished is accepted. Published, InsertedAt,
+     * and zero limits fail. Other filters apply before the limit.
+     * Before and after are strict tuple bounds in either direction.
+     * Keep message_cursor opaque. Deleted and published boundaries remain valid.
+     * Raw positions and skipped_count cover rows that fail conversion.
+     * This query does not acquire a reader lease or allocate delivery numbers.
+     */
+    func messageRecoveryPage(options: ListMessagesOptions?, before: MessageRecoveryPosition?, after: MessageRecoveryPosition?) async throws  -> MessageRecoveryPage
 
     func messages(options: ListMessagesOptions?) async throws  -> [Message]
 
@@ -3992,6 +4118,35 @@ open func members()async throws  -> [Member]  {
         )
 }
 
+    /**
+     * Read Published history by sent time, then immutable local delivery order.
+     * Defaults are ascending order and limit 50. Messenger uses descending
+     * order for newest and older pages. Explicit limits must be positive.
+     * None or SentAt sort is accepted; InsertedAt and pending statuses fail.
+     * All other selection filters apply before the page limit.
+     * Before is strict tuple less-than; after is strict tuple greater-than.
+     * Direction never changes those meanings. Deleted boundaries stay valid.
+     * First/last positions cover consumed raw rows, even after conversion loss.
+     * A sentinel key sets has_more without loading its base body.
+     * This query does not acquire a reader lease or acknowledge messages.
+     */
+open func messageHistoryPage(options: ListMessagesOptions? = nil, before: MessageHistoryPosition? = nil, after: MessageHistoryPosition? = nil)async throws  -> MessageHistoryPage  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_dm_message_history_page(
+                        self.uniffiCloneHandle(),FfiConverterOptionTypeListMessagesOptions.lower(options),FfiConverterOptionTypeMessageHistoryPosition.lower(before),FfiConverterOptionTypeMessageHistoryPosition.lower(after)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMessageHistoryPage_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
 open func messageHistorySnapshot(limit: UInt32)async throws  -> MessageHistorySnapshot  {
     return
         try  await uniffiRustCallAsync(
@@ -4022,6 +4177,33 @@ open func messageReader(options: ConversationMessageReaderOptions? = nil)async t
             cancelFunc: ffi_xmtp_sdk_rust_future_cancel_u64,
             freeFunc: ffi_xmtp_sdk_rust_future_free_u64,
             liftFunc: FfiConverterTypeMessageReader_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Read Failed and Unpublished rows in sent-time and raw ID order.
+     * Defaults are ascending order, no kind filter, and limit 50.
+     * Explicit Failed or Unpublished is accepted. Published, InsertedAt,
+     * and zero limits fail. Other filters apply before the limit.
+     * Before and after are strict tuple bounds in either direction.
+     * Keep message_cursor opaque. Deleted and published boundaries remain valid.
+     * Raw positions and skipped_count cover rows that fail conversion.
+     * This query does not acquire a reader lease or allocate delivery numbers.
+     */
+open func messageRecoveryPage(options: ListMessagesOptions? = nil, before: MessageRecoveryPosition? = nil, after: MessageRecoveryPosition? = nil)async throws  -> MessageRecoveryPage  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_dm_message_recovery_page(
+                        self.uniffiCloneHandle(),FfiConverterOptionTypeListMessagesOptions.lower(options),FfiConverterOptionTypeMessageRecoveryPosition.lower(before),FfiConverterOptionTypeMessageRecoveryPosition.lower(after)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMessageRecoveryPage_lift,
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
@@ -5026,8 +5208,9 @@ public protocol GroupProtocol: AnyObject, Sendable {
     func addMembers(members: [InboxId]) async throws  -> MembershipResult
 
     /**
-     * Add members by account identity. Hosts present this as an
-     * `addMembers` overload or union.
+     * Add members by account identity or handle. Hosts present this as an
+     * `addMembers` overload or union. Every handle resolves through the
+     * verified handle resolver first, and all members join in one commit.
      */
 
     func addSuperAdmin(inboxId: InboxId) async throws
@@ -5077,9 +5260,35 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     func membershipCapabilities() async throws  -> GroupMembershipCapabilities
 
+    /**
+     * Read Published history by sent time, then immutable local delivery order.
+     * Defaults are ascending order and limit 50. Messenger uses descending
+     * order for newest and older pages. Explicit limits must be positive.
+     * None or SentAt sort is accepted; InsertedAt and pending statuses fail.
+     * All other selection filters apply before the page limit.
+     * Before is strict tuple less-than; after is strict tuple greater-than.
+     * Direction never changes those meanings. Deleted boundaries stay valid.
+     * First/last positions cover consumed raw rows, even after conversion loss.
+     * A sentinel key sets has_more without loading its base body.
+     * This query does not acquire a reader lease or acknowledge messages.
+     */
+    func messageHistoryPage(options: ListMessagesOptions?, before: MessageHistoryPosition?, after: MessageHistoryPosition?) async throws  -> MessageHistoryPage
+
     func messageHistorySnapshot(limit: UInt32) async throws  -> MessageHistorySnapshot
 
     func messageReader(options: ConversationMessageReaderOptions?) async throws  -> MessageReader
+
+    /**
+     * Read Failed and Unpublished rows in sent-time and raw ID order.
+     * Defaults are ascending order, no kind filter, and limit 50.
+     * Explicit Failed or Unpublished is accepted. Published, InsertedAt,
+     * and zero limits fail. Other filters apply before the limit.
+     * Before and after are strict tuple bounds in either direction.
+     * Keep message_cursor opaque. Deleted and published boundaries remain valid.
+     * Raw positions and skipped_count cover rows that fail conversion.
+     * This query does not acquire a reader lease or allocate delivery numbers.
+     */
+    func messageRecoveryPage(options: ListMessagesOptions?, before: MessageRecoveryPosition?, after: MessageRecoveryPosition?) async throws  -> MessageRecoveryPage
 
     func messages(options: ListMessagesOptions?) async throws  -> [Message]
 
@@ -5118,8 +5327,9 @@ public protocol GroupProtocol: AnyObject, Sendable {
     func removeMembers(members: [InboxId]) async throws
 
     /**
-     * Remove members by account identity. Hosts present this as a
-     * `removeMembers` overload or union.
+     * Remove members by account identity or handle. Hosts present this as
+     * a `removeMembers` overload or union. Every handle resolves through the
+     * verified handle resolver first, and all members leave in one commit.
      */
 
     func removeSuperAdmin(inboxId: InboxId) async throws
@@ -5290,8 +5500,9 @@ open func addMembers(members: [InboxId])async throws  -> MembershipResult  {
 }
 
     /**
-     * Add members by account identity. Hosts present this as an
-     * `addMembers` overload or union.
+     * Add members by account identity or handle. Hosts present this as an
+     * `addMembers` overload or union. Every handle resolves through the
+     * verified handle resolver first, and all members join in one commit.
      */
 func addMembersByIdentity(members: [PublicIdentity])async throws  -> MembershipResult  {
     return
@@ -5624,6 +5835,35 @@ open func membershipCapabilities()async throws  -> GroupMembershipCapabilities  
         )
 }
 
+    /**
+     * Read Published history by sent time, then immutable local delivery order.
+     * Defaults are ascending order and limit 50. Messenger uses descending
+     * order for newest and older pages. Explicit limits must be positive.
+     * None or SentAt sort is accepted; InsertedAt and pending statuses fail.
+     * All other selection filters apply before the page limit.
+     * Before is strict tuple less-than; after is strict tuple greater-than.
+     * Direction never changes those meanings. Deleted boundaries stay valid.
+     * First/last positions cover consumed raw rows, even after conversion loss.
+     * A sentinel key sets has_more without loading its base body.
+     * This query does not acquire a reader lease or acknowledge messages.
+     */
+open func messageHistoryPage(options: ListMessagesOptions? = nil, before: MessageHistoryPosition? = nil, after: MessageHistoryPosition? = nil)async throws  -> MessageHistoryPage  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_group_message_history_page(
+                        self.uniffiCloneHandle(),FfiConverterOptionTypeListMessagesOptions.lower(options),FfiConverterOptionTypeMessageHistoryPosition.lower(before),FfiConverterOptionTypeMessageHistoryPosition.lower(after)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMessageHistoryPage_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
 open func messageHistorySnapshot(limit: UInt32)async throws  -> MessageHistorySnapshot  {
     return
         try  await uniffiRustCallAsync(
@@ -5654,6 +5894,33 @@ open func messageReader(options: ConversationMessageReaderOptions? = nil)async t
             cancelFunc: ffi_xmtp_sdk_rust_future_cancel_u64,
             freeFunc: ffi_xmtp_sdk_rust_future_free_u64,
             liftFunc: FfiConverterTypeMessageReader_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Read Failed and Unpublished rows in sent-time and raw ID order.
+     * Defaults are ascending order, no kind filter, and limit 50.
+     * Explicit Failed or Unpublished is accepted. Published, InsertedAt,
+     * and zero limits fail. Other filters apply before the limit.
+     * Before and after are strict tuple bounds in either direction.
+     * Keep message_cursor opaque. Deleted and published boundaries remain valid.
+     * Raw positions and skipped_count cover rows that fail conversion.
+     * This query does not acquire a reader lease or allocate delivery numbers.
+     */
+open func messageRecoveryPage(options: ListMessagesOptions? = nil, before: MessageRecoveryPosition? = nil, after: MessageRecoveryPosition? = nil)async throws  -> MessageRecoveryPage  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_group_message_recovery_page(
+                        self.uniffiCloneHandle(),FfiConverterOptionTypeListMessagesOptions.lower(options),FfiConverterOptionTypeMessageRecoveryPosition.lower(before),FfiConverterOptionTypeMessageRecoveryPosition.lower(after)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMessageRecoveryPage_lift,
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
@@ -5860,8 +6127,9 @@ open func removeMembers(members: [InboxId])async throws   {
 }
 
     /**
-     * Remove members by account identity. Hosts present this as a
-     * `removeMembers` overload or union.
+     * Remove members by account identity or handle. Hosts present this as
+     * a `removeMembers` overload or union. Every handle resolves through the
+     * verified handle resolver first, and all members leave in one commit.
      */
 func removeMembersByIdentity(members: [PublicIdentity])async throws   {
     return
@@ -6437,6 +6705,247 @@ public func FfiConverterTypeGroup_lift(_ handle: UInt64) throws -> Group {
 #endif
 public func FfiConverterTypeGroup_lower(_ value: Group) -> UInt64 {
     return FfiConverterTypeGroup.lower(value)
+}
+
+
+
+
+
+
+/**
+ * An exportable Ethereum signing key. Only explicit export methods reveal its private key.
+ */
+public protocol LocalSigningKeyProtocol: AnyObject, Sendable {
+
+    func identity() async throws  -> PublicIdentity
+
+    func kind() async throws  -> SignerKind
+
+    func sign(request: SigningRequest) async throws  -> Signature
+
+    /**
+     * Export a copy of the private key. Store it securely; it controls the account.
+     */
+    func toBytes()  -> Data
+
+    /**
+     * Export the private key as lowercase, 0x-prefixed hex. Store it securely.
+     */
+    func toHex()  -> String
+
+}
+/**
+ * An exportable Ethereum signing key. Only explicit export methods reveal its private key.
+ */
+open class LocalSigningKey: LocalSigningKeyProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtp_sdk_fn_clone_localsigningkey(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_xmtp_sdk_fn_free_localsigningkey(handle, $0) }
+    }
+
+
+    /**
+     * Restore a 32-byte secp256k1 private key. The input is copied.
+     */
+public static func fromBytes(key: Data)async throws  -> LocalSigningKey  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_constructor_localsigningkey_from_bytes(FfiConverterData.lower(key)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_u64,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_u64,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_u64,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLocalSigningKey_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Restore a private key encoded as 0x followed by exactly 64 hexadecimal digits.
+     */
+public static func fromHex(key: String)async throws  -> LocalSigningKey  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_constructor_localsigningkey_from_hex(FfiConverterString.lower(key)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_u64,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_u64,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_u64,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLocalSigningKey_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+
+
+open func identity()async throws  -> PublicIdentity  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_localsigningkey_identity(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypePublicIdentity_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+open func kind()async throws  -> SignerKind  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_localsigningkey_kind(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeSignerKind_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+open func sign(request: SigningRequest)async throws  -> Signature  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_localsigningkey_sign(
+                        self.uniffiCloneHandle(),FfiConverterTypeSigningRequest_lower(request)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeSignature_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Export a copy of the private key. Store it securely; it controls the account.
+     */
+open func toBytes() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_method_localsigningkey_to_bytes(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+
+    /**
+     * Export the private key as lowercase, 0x-prefixed hex. Store it securely.
+     */
+open func toHex() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_method_localsigningkey_to_hex(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+
+
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocalSigningKey: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LocalSigningKey
+
+    public static func lift(_ handle: UInt64) throws -> LocalSigningKey {
+        return LocalSigningKey(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LocalSigningKey) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocalSigningKey {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LocalSigningKey, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalSigningKey_lift(_ handle: UInt64) throws -> LocalSigningKey {
+    return try FfiConverterTypeLocalSigningKey.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalSigningKey_lower(_ value: LocalSigningKey) -> UInt64 {
+    return FfiConverterTypeLocalSigningKey.lower(value)
 }
 
 
@@ -11305,6 +11814,134 @@ public func FfiConverterTypeGroupUpdated_lower(_ value: GroupUpdated) -> RustBuf
 }
 
 
+/**
+ * The current handle of an inbox changed: the client stored a newer
+ * association state for the inbox whose display handle differs.
+ */
+public struct HandleChanged: Equatable, Hashable {
+    public var inboxId: InboxId
+    /**
+     * The inbox's current handle.
+     */
+    public var handle: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(inboxId: InboxId,
+        /**
+         * The inbox's current handle.
+         */handle: String) {
+        self.inboxId = inboxId
+        self.handle = handle
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HandleChanged: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandleChanged: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandleChanged {
+        return
+            try HandleChanged(
+                inboxId: FfiConverterTypeInboxId.read(from: &buf),
+                handle: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HandleChanged, into buf: inout [UInt8]) {
+        FfiConverterTypeInboxId.write(value.inboxId, into: &buf)
+        FfiConverterString.write(value.handle, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandleChanged_lift(_ buf: RustBuffer) throws -> HandleChanged {
+    return try FfiConverterTypeHandleChanged.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandleChanged_lower(_ value: HandleChanged) -> RustBuffer {
+    return FfiConverterTypeHandleChanged.lower(value)
+}
+
+
+/**
+ * Handle settings the deployment applies when it admits a claim. They are
+ * for apps, for example to check a name as a user types it. The SDK never
+ * fails an operation or omits a handle because of them: the backend's
+ * answer when it admits a claim decides.
+ */
+public struct HandlesConfiguration: Equatable, Hashable {
+    /**
+     * The fewest characters a handle's name part, the text before `#`, can
+     * have in a new claim.
+     */
+    public var minNameLength: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The fewest characters a handle's name part, the text before `#`, can
+         * have in a new claim.
+         */minNameLength: UInt32) {
+        self.minNameLength = minNameLength
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HandlesConfiguration: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandlesConfiguration: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandlesConfiguration {
+        return
+            try HandlesConfiguration(
+                minNameLength: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HandlesConfiguration, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.minNameLength, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandlesConfiguration_lift(_ buf: RustBuffer) throws -> HandlesConfiguration {
+    return try FfiConverterTypeHandlesConfiguration.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandlesConfiguration_lower(_ value: HandlesConfiguration) -> RustBuffer {
+    return FfiConverterTypeHandlesConfiguration.lower(value)
+}
+
+
 public struct HmacKey: Equatable, Hashable {
     public var key: Data
     public var epoch: Int64
@@ -11572,15 +12209,35 @@ public struct InboxState: Equatable, Hashable {
     public var installations: [Installation]
     public var recoveryIdentity: PublicIdentity
     public var creationSignatureKind: SignatureKind?
+    /**
+     * The inbox's current handle: the one it claimed last, or `None` when
+     * it has claimed none. Show it as the text that identifies the inbox.
+     */
+    public var handle: String?
+    /**
+     * The inbox's other handles, the most recently claimed first. Each one
+     * still names the inbox. Show them only as secondary information.
+     */
+    public var otherHandles: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(inboxId: InboxId, identities: [PublicIdentity], installations: [Installation], recoveryIdentity: PublicIdentity, creationSignatureKind: SignatureKind?) {
+    public init(inboxId: InboxId, identities: [PublicIdentity], installations: [Installation], recoveryIdentity: PublicIdentity, creationSignatureKind: SignatureKind?,
+        /**
+         * The inbox's current handle: the one it claimed last, or `None` when
+         * it has claimed none. Show it as the text that identifies the inbox.
+         */handle: String?,
+        /**
+         * The inbox's other handles, the most recently claimed first. Each one
+         * still names the inbox. Show them only as secondary information.
+         */otherHandles: [String]) {
         self.inboxId = inboxId
         self.identities = identities
         self.installations = installations
         self.recoveryIdentity = recoveryIdentity
         self.creationSignatureKind = creationSignatureKind
+        self.handle = handle
+        self.otherHandles = otherHandles
     }
 
 
@@ -11603,7 +12260,9 @@ public struct FfiConverterTypeInboxState: FfiConverterRustBuffer {
                 identities: FfiConverterSequenceTypePublicIdentity.read(from: &buf),
                 installations: FfiConverterSequenceTypeInstallation.read(from: &buf),
                 recoveryIdentity: FfiConverterTypePublicIdentity.read(from: &buf),
-                creationSignatureKind: FfiConverterOptionTypeSignatureKind.read(from: &buf)
+                creationSignatureKind: FfiConverterOptionTypeSignatureKind.read(from: &buf),
+                handle: FfiConverterOptionString.read(from: &buf),
+                otherHandles: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
@@ -11613,6 +12272,8 @@ public struct FfiConverterTypeInboxState: FfiConverterRustBuffer {
         FfiConverterSequenceTypeInstallation.write(value.installations, into: &buf)
         FfiConverterTypePublicIdentity.write(value.recoveryIdentity, into: &buf)
         FfiConverterOptionTypeSignatureKind.write(value.creationSignatureKind, into: &buf)
+        FfiConverterOptionString.write(value.handle, into: &buf)
+        FfiConverterSequenceString.write(value.otherHandles, into: &buf)
     }
 }
 
@@ -12728,14 +13389,38 @@ public struct Member: Equatable, Hashable {
     public var identities: [PublicIdentity]
     public var permissionLevel: PermissionLevel
     public var consentState: ConsentState
+    /**
+     * The member's current handle, from the newest association state the
+     * client holds for the member, or `None` when it has claimed none. Show
+     * it as the text that identifies the member.
+     */
+    public var handle: String?
+    /**
+     * The member's other handles from that state, the most recently claimed
+     * first. Each one still names the member. Show them only as secondary
+     * information.
+     */
+    public var otherHandles: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(inboxId: InboxId, identities: [PublicIdentity], permissionLevel: PermissionLevel, consentState: ConsentState) {
+    public init(inboxId: InboxId, identities: [PublicIdentity], permissionLevel: PermissionLevel, consentState: ConsentState,
+        /**
+         * The member's current handle, from the newest association state the
+         * client holds for the member, or `None` when it has claimed none. Show
+         * it as the text that identifies the member.
+         */handle: String?,
+        /**
+         * The member's other handles from that state, the most recently claimed
+         * first. Each one still names the member. Show them only as secondary
+         * information.
+         */otherHandles: [String]) {
         self.inboxId = inboxId
         self.identities = identities
         self.permissionLevel = permissionLevel
         self.consentState = consentState
+        self.handle = handle
+        self.otherHandles = otherHandles
     }
 
 
@@ -12757,7 +13442,9 @@ public struct FfiConverterTypeMember: FfiConverterRustBuffer {
                 inboxId: FfiConverterTypeInboxId.read(from: &buf),
                 identities: FfiConverterSequenceTypePublicIdentity.read(from: &buf),
                 permissionLevel: FfiConverterTypePermissionLevel.read(from: &buf),
-                consentState: FfiConverterTypeConsentState.read(from: &buf)
+                consentState: FfiConverterTypeConsentState.read(from: &buf),
+                handle: FfiConverterOptionString.read(from: &buf),
+                otherHandles: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
@@ -12766,6 +13453,8 @@ public struct FfiConverterTypeMember: FfiConverterRustBuffer {
         FfiConverterSequenceTypePublicIdentity.write(value.identities, into: &buf)
         FfiConverterTypePermissionLevel.write(value.permissionLevel, into: &buf)
         FfiConverterTypeConsentState.write(value.consentState, into: &buf)
+        FfiConverterOptionString.write(value.handle, into: &buf)
+        FfiConverterSequenceString.write(value.otherHandles, into: &buf)
     }
 }
 
@@ -13103,6 +13792,178 @@ public func FfiConverterTypeMessageDeleted_lower(_ value: MessageDeleted) -> Rus
 
 
 /**
+ * A chronological Published page and the raw prefix it consumed.
+ * First and last positions follow the requested output direction.
+ * Empty messages can still have consumed positions and more history.
+ */
+public struct MessageHistoryPage: Equatable, Hashable {
+    /**
+     * Readable messages in sent-time and local-delivery order.
+     */
+    public var messages: [Message]
+    /**
+     * First consumed raw key, including when its message cannot be converted.
+     */
+    public var firstPosition: MessageHistoryPosition?
+    /**
+     * Last consumed raw key. Use it for the next page in the same direction.
+     */
+    public var lastPosition: MessageHistoryPosition?
+    /**
+     * One more eligible key exists. Its base body is not loaded or consumed.
+     */
+    public var hasMore: Bool
+    /**
+     * Consumed raw rows minus converted messages.
+     */
+    public var skippedCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Readable messages in sent-time and local-delivery order.
+         */messages: [Message],
+        /**
+         * First consumed raw key, including when its message cannot be converted.
+         */firstPosition: MessageHistoryPosition?,
+        /**
+         * Last consumed raw key. Use it for the next page in the same direction.
+         */lastPosition: MessageHistoryPosition?,
+        /**
+         * One more eligible key exists. Its base body is not loaded or consumed.
+         */hasMore: Bool,
+        /**
+         * Consumed raw rows minus converted messages.
+         */skippedCount: UInt32) {
+        self.messages = messages
+        self.firstPosition = firstPosition
+        self.lastPosition = lastPosition
+        self.hasMore = hasMore
+        self.skippedCount = skippedCount
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MessageHistoryPage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageHistoryPage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageHistoryPage {
+        return
+            try MessageHistoryPage(
+                messages: FfiConverterSequenceTypeMessage.read(from: &buf),
+                firstPosition: FfiConverterOptionTypeMessageHistoryPosition.read(from: &buf),
+                lastPosition: FfiConverterOptionTypeMessageHistoryPosition.read(from: &buf),
+                hasMore: FfiConverterBool.read(from: &buf),
+                skippedCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageHistoryPage, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeMessage.write(value.messages, into: &buf)
+        FfiConverterOptionTypeMessageHistoryPosition.write(value.firstPosition, into: &buf)
+        FfiConverterOptionTypeMessageHistoryPosition.write(value.lastPosition, into: &buf)
+        FfiConverterBool.write(value.hasMore, into: &buf)
+        FfiConverterUInt32.write(value.skippedCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageHistoryPage_lift(_ buf: RustBuffer) throws -> MessageHistoryPage {
+    return try FfiConverterTypeMessageHistoryPage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageHistoryPage_lower(_ value: MessageHistoryPage) -> RustBuffer {
+    return FfiConverterTypeMessageHistoryPage.lower(value)
+}
+
+
+/**
+ * A sent-time boundary with a committed database-local delivery position.
+ * Keep the cursor opaque. A retained boundary remains valid after deletion.
+ * A whole-database restore or another database rejects the cursor.
+ */
+public struct MessageHistoryPosition: Equatable, Hashable {
+    /**
+     * Exact signed nanoseconds from the boundary message or consumed raw key.
+     */
+    public var sentAt: Timestamp
+    /**
+     * The existing opaque delivery cursor from the same message or raw key.
+     */
+    public var deliveryCursor: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Exact signed nanoseconds from the boundary message or consumed raw key.
+         */sentAt: Timestamp,
+        /**
+         * The existing opaque delivery cursor from the same message or raw key.
+         */deliveryCursor: String) {
+        self.sentAt = sentAt
+        self.deliveryCursor = deliveryCursor
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MessageHistoryPosition: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageHistoryPosition: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageHistoryPosition {
+        return
+            try MessageHistoryPosition(
+                sentAt: FfiConverterTypeTimestamp.read(from: &buf),
+                deliveryCursor: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageHistoryPosition, into buf: inout [UInt8]) {
+        FfiConverterTypeTimestamp.write(value.sentAt, into: &buf)
+        FfiConverterString.write(value.deliveryCursor, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageHistoryPosition_lift(_ buf: RustBuffer) throws -> MessageHistoryPosition {
+    return try FfiConverterTypeMessageHistoryPosition.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageHistoryPosition_lower(_ value: MessageHistoryPosition) -> RustBuffer {
+    return FfiConverterTypeMessageHistoryPosition.lower(value)
+}
+
+
+/**
  * Retained messages and their replay boundary from one database snapshot.
  */
 public struct MessageHistorySnapshot: Equatable, Hashable {
@@ -13333,6 +14194,163 @@ public func FfiConverterTypeMessageReceived_lift(_ buf: RustBuffer) throws -> Me
 #endif
 public func FfiConverterTypeMessageReceived_lower(_ value: MessageReceived) -> RustBuffer {
     return FfiConverterTypeMessageReceived.lower(value)
+}
+
+
+/**
+ * A chronological pending page and the raw prefix it consumed.
+ */
+public struct MessageRecoveryPage: Equatable, Hashable {
+    /**
+     * Pending rows have no cursor until publication. An existing committed cursor is retained.
+     */
+    public var messages: [Message]
+    /**
+     * First consumed raw key, even when its message cannot be converted.
+     */
+    public var firstPosition: MessageRecoveryPosition?
+    /**
+     * Last consumed raw key. Use it for continuation in the same direction.
+     */
+    public var lastPosition: MessageRecoveryPosition?
+    /**
+     * An extra matching key exists. Its base body was not loaded or consumed.
+     */
+    public var hasMore: Bool
+    /**
+     * Consumed raw rows minus converted messages.
+     */
+    public var skippedCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Pending rows have no cursor until publication. An existing committed cursor is retained.
+         */messages: [Message],
+        /**
+         * First consumed raw key, even when its message cannot be converted.
+         */firstPosition: MessageRecoveryPosition?,
+        /**
+         * Last consumed raw key. Use it for continuation in the same direction.
+         */lastPosition: MessageRecoveryPosition?,
+        /**
+         * An extra matching key exists. Its base body was not loaded or consumed.
+         */hasMore: Bool,
+        /**
+         * Consumed raw rows minus converted messages.
+         */skippedCount: UInt32) {
+        self.messages = messages
+        self.firstPosition = firstPosition
+        self.lastPosition = lastPosition
+        self.hasMore = hasMore
+        self.skippedCount = skippedCount
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MessageRecoveryPage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageRecoveryPage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageRecoveryPage {
+        return
+            try MessageRecoveryPage(
+                messages: FfiConverterSequenceTypeMessage.read(from: &buf),
+                firstPosition: FfiConverterOptionTypeMessageRecoveryPosition.read(from: &buf),
+                lastPosition: FfiConverterOptionTypeMessageRecoveryPosition.read(from: &buf),
+                hasMore: FfiConverterBool.read(from: &buf),
+                skippedCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageRecoveryPage, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeMessage.write(value.messages, into: &buf)
+        FfiConverterOptionTypeMessageRecoveryPosition.write(value.firstPosition, into: &buf)
+        FfiConverterOptionTypeMessageRecoveryPosition.write(value.lastPosition, into: &buf)
+        FfiConverterBool.write(value.hasMore, into: &buf)
+        FfiConverterUInt32.write(value.skippedCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageRecoveryPage_lift(_ buf: RustBuffer) throws -> MessageRecoveryPage {
+    return try FfiConverterTypeMessageRecoveryPage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageRecoveryPage_lower(_ value: MessageRecoveryPage) -> RustBuffer {
+    return FfiConverterTypeMessageRecoveryPage.lower(value)
+}
+
+
+/**
+ * A sent-time boundary with an opaque database-local raw message key.
+ * The boundary remains valid after deletion or publication of the row.
+ */
+public struct MessageRecoveryPosition: Equatable, Hashable {
+    public var sentAt: Timestamp
+    public var messageCursor: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sentAt: Timestamp, messageCursor: String) {
+        self.sentAt = sentAt
+        self.messageCursor = messageCursor
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MessageRecoveryPosition: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageRecoveryPosition: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageRecoveryPosition {
+        return
+            try MessageRecoveryPosition(
+                sentAt: FfiConverterTypeTimestamp.read(from: &buf),
+                messageCursor: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageRecoveryPosition, into buf: inout [UInt8]) {
+        FfiConverterTypeTimestamp.write(value.sentAt, into: &buf)
+        FfiConverterString.write(value.messageCursor, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageRecoveryPosition_lift(_ buf: RustBuffer) throws -> MessageRecoveryPosition {
+    return try FfiConverterTypeMessageRecoveryPosition.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageRecoveryPosition_lower(_ value: MessageRecoveryPosition) -> RustBuffer {
+    return FfiConverterTypeMessageRecoveryPosition.lower(value)
 }
 
 
@@ -13751,6 +14769,71 @@ public func FfiConverterTypeMetadataFieldValue_lower(_ value: MetadataFieldValue
 }
 
 
+/**
+ * Counts records in the completed archive, before import deduplication.
+ */
+public struct MigrationReport: Equatable, Hashable {
+    public var archivePath: String
+    public var groupCount: UInt64
+    public var messageCount: UInt64
+    public var consentCount: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(archivePath: String, groupCount: UInt64, messageCount: UInt64, consentCount: UInt64) {
+        self.archivePath = archivePath
+        self.groupCount = groupCount
+        self.messageCount = messageCount
+        self.consentCount = consentCount
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MigrationReport: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMigrationReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MigrationReport {
+        return
+            try MigrationReport(
+                archivePath: FfiConverterString.read(from: &buf),
+                groupCount: FfiConverterUInt64.read(from: &buf),
+                messageCount: FfiConverterUInt64.read(from: &buf),
+                consentCount: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MigrationReport, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.archivePath, into: &buf)
+        FfiConverterUInt64.write(value.groupCount, into: &buf)
+        FfiConverterUInt64.write(value.messageCount, into: &buf)
+        FfiConverterUInt64.write(value.consentCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMigrationReport_lift(_ buf: RustBuffer) throws -> MigrationReport {
+    return try FfiConverterTypeMigrationReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMigrationReport_lower(_ value: MigrationReport) -> RustBuffer {
+    return FfiConverterTypeMigrationReport.lower(value)
+}
+
+
 public struct MlsConfiguration: Equatable, Hashable {
     public var maxGroupMembers: UInt64
     public var maxInstallationsPerInbox: UInt64
@@ -14112,6 +15195,71 @@ public func FfiConverterTypePermissionPolicySet_lift(_ buf: RustBuffer) throws -
 #endif
 public func FfiConverterTypePermissionPolicySet_lower(_ value: PermissionPolicySet) -> RustBuffer {
     return FfiConverterTypePermissionPolicySet.lower(value)
+}
+
+
+/**
+ * Closed legacy storage and a separate output path. Keep both keys private.
+ */
+public struct PrepareMigrationArchiveArgs: Equatable, Hashable {
+    public var databasePath: String
+    public var databaseKey: Data?
+    public var archiveKey: Data
+    public var outputPath: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(databasePath: String, databaseKey: Data? = nil, archiveKey: Data, outputPath: String) {
+        self.databasePath = databasePath
+        self.databaseKey = databaseKey
+        self.archiveKey = archiveKey
+        self.outputPath = outputPath
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PrepareMigrationArchiveArgs: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePrepareMigrationArchiveArgs: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PrepareMigrationArchiveArgs {
+        return
+            try PrepareMigrationArchiveArgs(
+                databasePath: FfiConverterString.read(from: &buf),
+                databaseKey: FfiConverterOptionData.read(from: &buf),
+                archiveKey: FfiConverterData.read(from: &buf),
+                outputPath: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PrepareMigrationArchiveArgs, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.databasePath, into: &buf)
+        FfiConverterOptionData.write(value.databaseKey, into: &buf)
+        FfiConverterData.write(value.archiveKey, into: &buf)
+        FfiConverterString.write(value.outputPath, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePrepareMigrationArchiveArgs_lift(_ buf: RustBuffer) throws -> PrepareMigrationArchiveArgs {
+    return try FfiConverterTypePrepareMigrationArchiveArgs.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePrepareMigrationArchiveArgs_lower(_ value: PrepareMigrationArchiveArgs) -> RustBuffer {
+    return FfiConverterTypePrepareMigrationArchiveArgs.lower(value)
 }
 
 
@@ -14773,6 +15921,7 @@ public struct ServerConfiguration: Equatable, Hashable {
     public var retention: RetentionConfiguration
     public var limits: LimitsConfiguration
     public var mls: MlsConfiguration
+    public var handles: HandlesConfiguration
     public var smartContractWalletChains: [String]
     /**
      * Omitted when the deployment offers no attachment service.
@@ -14785,7 +15934,7 @@ public struct ServerConfiguration: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(identifier: String, serverVersion: String, minLibxmtpVersion: String, auth: AuthConfiguration, retention: RetentionConfiguration, limits: LimitsConfiguration, mls: MlsConfiguration, smartContractWalletChains: [String],
+    public init(identifier: String, serverVersion: String, minLibxmtpVersion: String, auth: AuthConfiguration, retention: RetentionConfiguration, limits: LimitsConfiguration, mls: MlsConfiguration, handles: HandlesConfiguration, smartContractWalletChains: [String],
         /**
          * Omitted when the deployment offers no attachment service.
          */attachments: AttachmentsConfiguration?,
@@ -14799,6 +15948,7 @@ public struct ServerConfiguration: Equatable, Hashable {
         self.retention = retention
         self.limits = limits
         self.mls = mls
+        self.handles = handles
         self.smartContractWalletChains = smartContractWalletChains
         self.attachments = attachments
         self.applicationComponents = applicationComponents
@@ -14827,6 +15977,7 @@ public struct FfiConverterTypeServerConfiguration: FfiConverterRustBuffer {
                 retention: FfiConverterTypeRetentionConfiguration.read(from: &buf),
                 limits: FfiConverterTypeLimitsConfiguration.read(from: &buf),
                 mls: FfiConverterTypeMlsConfiguration.read(from: &buf),
+                handles: FfiConverterTypeHandlesConfiguration.read(from: &buf),
                 smartContractWalletChains: FfiConverterSequenceString.read(from: &buf),
                 attachments: FfiConverterOptionTypeAttachmentsConfiguration.read(from: &buf),
                 applicationComponents: FfiConverterSequenceTypeApplicationComponentDefinition.read(from: &buf)
@@ -14841,6 +15992,7 @@ public struct FfiConverterTypeServerConfiguration: FfiConverterRustBuffer {
         FfiConverterTypeRetentionConfiguration.write(value.retention, into: &buf)
         FfiConverterTypeLimitsConfiguration.write(value.limits, into: &buf)
         FfiConverterTypeMlsConfiguration.write(value.mls, into: &buf)
+        FfiConverterTypeHandlesConfiguration.write(value.handles, into: &buf)
         FfiConverterSequenceString.write(value.smartContractWalletChains, into: &buf)
         FfiConverterOptionTypeAttachmentsConfiguration.write(value.attachments, into: &buf)
         FfiConverterSequenceTypeApplicationComponentDefinition.write(value.applicationComponents, into: &buf)
@@ -16599,6 +17751,8 @@ public enum ClientEvent: Equatable, Hashable {
     )
     case attachmentDeleted(attachmentDeleted: AttachmentRef
     )
+    case handleChanged(handleChanged: HandleChanged
+    )
     case lagged(lagged: Lagged
     )
 
@@ -16703,7 +17857,10 @@ public struct FfiConverterTypeClientEvent: FfiConverterRustBuffer {
         case 27: return .attachmentDeleted(attachmentDeleted: try FfiConverterTypeAttachmentRef.read(from: &buf)
         )
 
-        case 28: return .lagged(lagged: try FfiConverterTypeLagged.read(from: &buf)
+        case 28: return .handleChanged(handleChanged: try FfiConverterTypeHandleChanged.read(from: &buf)
+        )
+
+        case 29: return .lagged(lagged: try FfiConverterTypeLagged.read(from: &buf)
         )
 
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -16849,8 +18006,13 @@ public struct FfiConverterTypeClientEvent: FfiConverterRustBuffer {
             FfiConverterTypeAttachmentRef.write(attachmentDeleted, into: &buf)
 
 
-        case let .lagged(lagged):
+        case let .handleChanged(handleChanged):
             writeInt(&buf, Int32(28))
+            FfiConverterTypeHandleChanged.write(handleChanged, into: &buf)
+
+
+        case let .lagged(lagged):
+            writeInt(&buf, Int32(29))
             FfiConverterTypeLagged.write(lagged, into: &buf)
 
         }
@@ -18281,6 +19443,7 @@ public enum EventKind: Equatable, Hashable {
     case attachmentDownloadCompleted
     case attachmentDownloadFailed
     case attachmentDeleted
+    case handleChanged
     case lagged
 
 
@@ -18357,7 +19520,9 @@ public struct FfiConverterTypeEventKind: FfiConverterRustBuffer {
 
         case 27: return .attachmentDeleted
 
-        case 28: return .lagged
+        case 28: return .handleChanged
+
+        case 29: return .lagged
 
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -18475,8 +19640,12 @@ public struct FfiConverterTypeEventKind: FfiConverterRustBuffer {
             writeInt(&buf, Int32(27))
 
 
-        case .lagged:
+        case .handleChanged:
             writeInt(&buf, Int32(28))
+
+
+        case .lagged:
+            writeInt(&buf, Int32(29))
 
         }
     }
@@ -21740,6 +22909,12 @@ public enum PublicIdentityKind: Equatable, Hashable {
 
     case ethereum
     case passkey
+    /**
+     * A handle that an inbox claimed, such as `nick` or `nick#2341`. A
+     * handle names an inbox, but it is not an account: it signs nothing, so
+     * an account call fails with `InvalidArgument` for it.
+     */
+    case handle
 
 
 
@@ -21765,6 +22940,8 @@ public struct FfiConverterTypePublicIdentityKind: FfiConverterRustBuffer {
 
         case 2: return .passkey
 
+        case 3: return .handle
+
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -21779,6 +22956,10 @@ public struct FfiConverterTypePublicIdentityKind: FfiConverterRustBuffer {
 
         case .passkey:
             writeInt(&buf, Int32(2))
+
+
+        case .handle:
+            writeInt(&buf, Int32(3))
 
         }
     }
@@ -23440,6 +24621,14 @@ enum XmtpError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     )
     case StorageBusy(ErrorDetails
     )
+    case MigrationUnsupportedSchema(ErrorDetails
+    )
+    case MigrationFailed(ErrorDetails
+    )
+    case MigrationRecordRead(ErrorDetails
+    )
+    case MigrationOutput(ErrorDetails
+    )
     case Signer(ErrorDetails
     )
     case Credential(ErrorDetails
@@ -23559,6 +24748,29 @@ enum XmtpError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     case UserLimitExceeded(ErrorDetails
     )
     /**
+     * Another inbox holds the handle. Not retryable; claim another handle.
+     */
+    case HandleTaken(ErrorDetails
+    )
+    /**
+     * The deployment refuses the handle's name part. Not retryable; choose
+     * another name.
+     */
+    case HandleNotAllowed(ErrorDetails
+    )
+    /**
+     * The inbox claimed a handle too recently. Not retryable until the
+     * deployment's interval between claims has passed.
+     */
+    case HandleTooSoon(ErrorDetails
+    )
+    /**
+     * The inbox has made the most handle claims its identity log can hold.
+     * Not retryable.
+     */
+    case HandleLimitReached(ErrorDetails
+    )
+    /**
      * A binding operation was cancelled before it finished. Partial effects and
      * retry safety depend on the operation. The browser runtime returns it.
      */
@@ -23610,149 +24822,173 @@ public struct FfiConverterTypeXmtpError: FfiConverterRustBuffer {
         case 5: return .StorageBusy(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 6: return .Signer(
+        case 6: return .MigrationUnsupportedSchema(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 7: return .Credential(
+        case 7: return .MigrationFailed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 8: return .ConfigurationUnavailable(
+        case 8: return .MigrationRecordRead(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 9: return .ConfigurationInvalid(
+        case 9: return .MigrationOutput(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 10: return .BackendMismatch(
+        case 10: return .Signer(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 11: return .ClientVersionTooOld(
+        case 11: return .Credential(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 12: return .AuthRequired(
+        case 12: return .ConfigurationUnavailable(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 13: return .ChainNotAccepted(
+        case 13: return .ConfigurationInvalid(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 14: return .CredentialRejected(
+        case 14: return .BackendMismatch(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 15: return .CredentialCallbackFailed(
+        case 15: return .ClientVersionTooOld(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 16: return .CallbackFailed(
+        case 16: return .AuthRequired(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 17: return .CredentialExhausted(
+        case 17: return .ChainNotAccepted(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 18: return .CredentialMissing(
+        case 18: return .CredentialRejected(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 19: return .PermissionDenied(
+        case 19: return .CredentialCallbackFailed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 20: return .InvalidArgument(
+        case 20: return .CallbackFailed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 21: return .OutOfRange(
+        case 21: return .CredentialExhausted(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 22: return .Unimplemented(
+        case 22: return .CredentialMissing(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 23: return .ChannelNotConfigured(
+        case 23: return .PermissionDenied(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 24: return .TaskRunnerDisabled(
+        case 24: return .InvalidArgument(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 25: return .ResourceExhausted(
+        case 25: return .OutOfRange(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 26: return .RequestTimeout(
+        case 26: return .Unimplemented(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 27: return .NotificationNotFound(
+        case 27: return .ChannelNotConfigured(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 28: return .NotificationApi(
+        case 28: return .TaskRunnerDisabled(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 29: return .NotificationStorage(
+        case 29: return .ResourceExhausted(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 30: return .NotificationGroup(
+        case 30: return .RequestTimeout(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 31: return .RecoveryExhausted(
+        case 31: return .NotificationNotFound(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 32: return .Storage(
+        case 32: return .NotificationApi(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 33: return .Lagged(
+        case 33: return .NotificationStorage(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 34: return .ConsumerOwned(
+        case 34: return .NotificationGroup(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 35: return .InvalidCursor(
+        case 35: return .RecoveryExhausted(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 36: return .ForeignCursor(
+        case 36: return .Storage(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 37: return .StorageLocation(
+        case 37: return .Lagged(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 38: return .Attachment(
+        case 38: return .ConsumerOwned(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 39: return .InvalidCursor(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 40: return .ForeignCursor(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 41: return .StorageLocation(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 42: return .Attachment(
             try FfiConverterTypeErrorDetails.read(from: &buf),
             try FfiConverterTypeAttachmentFailure.read(from: &buf)
             )
-        case 39: return .IdentityMismatch(
+        case 43: return .IdentityMismatch(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 40: return .UnknownField(
+        case 44: return .UnknownField(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 41: return .NotUserField(
+        case 45: return .NotUserField(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 42: return .DuplicateField(
+        case 46: return .DuplicateField(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 43: return .UnsupportedType(
+        case 47: return .UnsupportedType(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 44: return .TypeMismatch(
+        case 48: return .TypeMismatch(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 45: return .TypeChanged(
+        case 49: return .TypeChanged(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 46: return .CodecEncodeFailed(
+        case 50: return .CodecEncodeFailed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 47: return .CodecNotFound(
+        case 51: return .CodecNotFound(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 48: return .CodecDecodeFailed(
+        case 52: return .CodecDecodeFailed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 49: return .MalformedEnvelope(
+        case 53: return .MalformedEnvelope(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 50: return .PublishedButUnconfirmed(
+        case 54: return .PublishedButUnconfirmed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 51: return .UserLimitExceeded(
+        case 55: return .UserLimitExceeded(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 52: return .Cancelled(
+        case 56: return .HandleTaken(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 53: return .Unknown(
+        case 57: return .HandleNotAllowed(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 58: return .HandleTooSoon(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 59: return .HandleLimitReached(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 60: return .Cancelled(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 61: return .Unknown(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
 
@@ -23792,244 +25028,284 @@ public struct FfiConverterTypeXmtpError: FfiConverterRustBuffer {
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Signer(v1):
+        case let .MigrationUnsupportedSchema(v1):
             writeInt(&buf, Int32(6))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Credential(v1):
+        case let .MigrationFailed(v1):
             writeInt(&buf, Int32(7))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ConfigurationUnavailable(v1):
+        case let .MigrationRecordRead(v1):
             writeInt(&buf, Int32(8))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ConfigurationInvalid(v1):
+        case let .MigrationOutput(v1):
             writeInt(&buf, Int32(9))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .BackendMismatch(v1):
+        case let .Signer(v1):
             writeInt(&buf, Int32(10))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ClientVersionTooOld(v1):
+        case let .Credential(v1):
             writeInt(&buf, Int32(11))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .AuthRequired(v1):
+        case let .ConfigurationUnavailable(v1):
             writeInt(&buf, Int32(12))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ChainNotAccepted(v1):
+        case let .ConfigurationInvalid(v1):
             writeInt(&buf, Int32(13))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CredentialRejected(v1):
+        case let .BackendMismatch(v1):
             writeInt(&buf, Int32(14))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CredentialCallbackFailed(v1):
+        case let .ClientVersionTooOld(v1):
             writeInt(&buf, Int32(15))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CallbackFailed(v1):
+        case let .AuthRequired(v1):
             writeInt(&buf, Int32(16))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CredentialExhausted(v1):
+        case let .ChainNotAccepted(v1):
             writeInt(&buf, Int32(17))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CredentialMissing(v1):
+        case let .CredentialRejected(v1):
             writeInt(&buf, Int32(18))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .PermissionDenied(v1):
+        case let .CredentialCallbackFailed(v1):
             writeInt(&buf, Int32(19))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .InvalidArgument(v1):
+        case let .CallbackFailed(v1):
             writeInt(&buf, Int32(20))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .OutOfRange(v1):
+        case let .CredentialExhausted(v1):
             writeInt(&buf, Int32(21))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Unimplemented(v1):
+        case let .CredentialMissing(v1):
             writeInt(&buf, Int32(22))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ChannelNotConfigured(v1):
+        case let .PermissionDenied(v1):
             writeInt(&buf, Int32(23))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .TaskRunnerDisabled(v1):
+        case let .InvalidArgument(v1):
             writeInt(&buf, Int32(24))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ResourceExhausted(v1):
+        case let .OutOfRange(v1):
             writeInt(&buf, Int32(25))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .RequestTimeout(v1):
+        case let .Unimplemented(v1):
             writeInt(&buf, Int32(26))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .NotificationNotFound(v1):
+        case let .ChannelNotConfigured(v1):
             writeInt(&buf, Int32(27))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .NotificationApi(v1):
+        case let .TaskRunnerDisabled(v1):
             writeInt(&buf, Int32(28))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .NotificationStorage(v1):
+        case let .ResourceExhausted(v1):
             writeInt(&buf, Int32(29))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .NotificationGroup(v1):
+        case let .RequestTimeout(v1):
             writeInt(&buf, Int32(30))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .RecoveryExhausted(v1):
+        case let .NotificationNotFound(v1):
             writeInt(&buf, Int32(31))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Storage(v1):
+        case let .NotificationApi(v1):
             writeInt(&buf, Int32(32))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Lagged(v1):
+        case let .NotificationStorage(v1):
             writeInt(&buf, Int32(33))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ConsumerOwned(v1):
+        case let .NotificationGroup(v1):
             writeInt(&buf, Int32(34))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .InvalidCursor(v1):
+        case let .RecoveryExhausted(v1):
             writeInt(&buf, Int32(35))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ForeignCursor(v1):
+        case let .Storage(v1):
             writeInt(&buf, Int32(36))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .StorageLocation(v1):
+        case let .Lagged(v1):
             writeInt(&buf, Int32(37))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Attachment(v1,v2):
+        case let .ConsumerOwned(v1):
             writeInt(&buf, Int32(38))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .InvalidCursor(v1):
+            writeInt(&buf, Int32(39))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .ForeignCursor(v1):
+            writeInt(&buf, Int32(40))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .StorageLocation(v1):
+            writeInt(&buf, Int32(41))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .Attachment(v1,v2):
+            writeInt(&buf, Int32(42))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
             FfiConverterTypeAttachmentFailure.write(v2, into: &buf)
 
 
         case let .IdentityMismatch(v1):
-            writeInt(&buf, Int32(39))
-            FfiConverterTypeErrorDetails.write(v1, into: &buf)
-
-
-        case let .UnknownField(v1):
-            writeInt(&buf, Int32(40))
-            FfiConverterTypeErrorDetails.write(v1, into: &buf)
-
-
-        case let .NotUserField(v1):
-            writeInt(&buf, Int32(41))
-            FfiConverterTypeErrorDetails.write(v1, into: &buf)
-
-
-        case let .DuplicateField(v1):
-            writeInt(&buf, Int32(42))
-            FfiConverterTypeErrorDetails.write(v1, into: &buf)
-
-
-        case let .UnsupportedType(v1):
             writeInt(&buf, Int32(43))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .TypeMismatch(v1):
+        case let .UnknownField(v1):
             writeInt(&buf, Int32(44))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .TypeChanged(v1):
+        case let .NotUserField(v1):
             writeInt(&buf, Int32(45))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CodecEncodeFailed(v1):
+        case let .DuplicateField(v1):
             writeInt(&buf, Int32(46))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CodecNotFound(v1):
+        case let .UnsupportedType(v1):
             writeInt(&buf, Int32(47))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CodecDecodeFailed(v1):
+        case let .TypeMismatch(v1):
             writeInt(&buf, Int32(48))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .MalformedEnvelope(v1):
+        case let .TypeChanged(v1):
             writeInt(&buf, Int32(49))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .PublishedButUnconfirmed(v1):
+        case let .CodecEncodeFailed(v1):
             writeInt(&buf, Int32(50))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .UserLimitExceeded(v1):
+        case let .CodecNotFound(v1):
             writeInt(&buf, Int32(51))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Cancelled(v1):
+        case let .CodecDecodeFailed(v1):
             writeInt(&buf, Int32(52))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Unknown(v1):
+        case let .MalformedEnvelope(v1):
             writeInt(&buf, Int32(53))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .PublishedButUnconfirmed(v1):
+            writeInt(&buf, Int32(54))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .UserLimitExceeded(v1):
+            writeInt(&buf, Int32(55))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .HandleTaken(v1):
+            writeInt(&buf, Int32(56))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .HandleNotAllowed(v1):
+            writeInt(&buf, Int32(57))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .HandleTooSoon(v1):
+            writeInt(&buf, Int32(58))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .HandleLimitReached(v1):
+            writeInt(&buf, Int32(59))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .Cancelled(v1):
+            writeInt(&buf, Int32(60))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .Unknown(v1):
+            writeInt(&buf, Int32(61))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
         }
@@ -24750,6 +26026,30 @@ fileprivate struct FfiConverterOptionTypeListMessagesOptions: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeMessageHistoryPosition: FfiConverterRustBuffer {
+    typealias SwiftType = MessageHistoryPosition?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMessageHistoryPosition.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMessageHistoryPosition.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeMessageReaderOptions: FfiConverterRustBuffer {
     typealias SwiftType = MessageReaderOptions?
 
@@ -24766,6 +26066,30 @@ fileprivate struct FfiConverterOptionTypeMessageReaderOptions: FfiConverterRustB
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeMessageReaderOptions.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeMessageRecoveryPosition: FfiConverterRustBuffer {
+    typealias SwiftType = MessageRecoveryPosition?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMessageRecoveryPosition.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMessageRecoveryPosition.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -27975,6 +29299,25 @@ public func metadataFieldRef(field: WellKnownMetadataField) -> MetadataFieldRef 
 })
 }
 /**
+ * Prepare an archive without creating a client. Close the legacy SDK first.
+ * Source bytes stay unchanged. Import the completed archive into the correct inbox.
+ */
+public func prepareMigrationArchive(args: PrepareMigrationArchiveArgs)async throws  -> MigrationReport  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_func_prepare_migration_archive(FfiConverterTypePrepareMigrationArchiveArgs_lower(args)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMigrationReport_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+/**
  * Calculate an inbox ID from a public identity and a nonce.
  * An omitted nonce is 0, as in client creation. This operation does not use a backend or storage.
  */
@@ -27986,6 +29329,25 @@ public func generateInboxId(identity: PublicIdentity, nonce: UInt64? = nil)throw
         FfiConverterOptionUInt64.lower(nonce),uniffiCallStatus
     )
 })
+}
+/**
+ * Generate an exportable local key without a backend or client database.
+ */
+public func generateKeys()async  -> LocalSigningKey  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_func_generate_keys(
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_u64,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_u64,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_u64,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLocalSigningKey_lift,
+            errorHandler: nil
+
+        )
 }
 public func generateLocalSigner()async  -> Signer  {
     return
@@ -28019,8 +29381,9 @@ public func localSignerFromPrivateKey(key: Data)async throws  -> Signer  {
         )
 }
 /**
- * Returns one entry per core identity. Keys use `ethereum:<core text>` or
- * `passkey:<lowercase core hex>`.
+ * Returns one entry per core identity. Keys use `ethereum:<core text>`,
+ * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A handle is
+ * available when the backend names an inbox for it.
  */
 public func canMessageWithBackend(backend: BackendSource, identities: [PublicIdentity])async throws  -> [String: Bool]  {
     return
@@ -28037,6 +29400,13 @@ public func canMessageWithBackend(backend: BackendSource, identities: [PublicIde
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
+/**
+ * The inbox of an account or a handle. An account with no live inbox gets
+ * the inbox ID it would create with nonce 0. A handle never derives an inbox
+ * ID: it resolves only when the inbox the backend names holds it in its own
+ * identity log, and fails with `IdentityNotFound` otherwise. An old handle
+ * of an inbox still resolves to it.
+ */
 public func inboxIdForWithBackend(backend: BackendSource, identity: PublicIdentity)async throws  -> InboxId  {
     return
         try  await uniffiRustCallAsync(
@@ -28260,7 +29630,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_metadata_field_ref() != 37889) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_func_prepare_migration_archive() != 7183) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_func_generate_inbox_id() != 38075) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_func_generate_keys() != 5584) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_generate_local_signer() != 36191) {
@@ -28269,10 +29645,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_local_signer_from_private_key() != 30382) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_can_message_with_backend() != 36605) {
+    if (uniffi_xmtp_sdk_checksum_func_can_message_with_backend() != 19273) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 22458) {
+    if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 7019) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_inbox_states_with_backend() != 12284) {
@@ -28392,7 +29768,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_app_version() != 4853) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_can_message() != 18398) {
+    if (uniffi_xmtp_sdk_checksum_method_client_available_handles() != 13049) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_client_can_message() != 51852) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_catch_up_to_live() != 37718) {
@@ -28401,13 +29780,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_change_recovery_identifier() != 4646) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_method_client_claim_handle() != 40989) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_method_client_decode_content() != 41922) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_identity() != 61052) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_inbox_id_for() != 4254) {
+    if (uniffi_xmtp_sdk_checksum_method_client_inbox_id_for() != 1422) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_inbox_state() != 57646) {
@@ -28518,7 +29900,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm() != 578) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm_with_identity() != 18448) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm_with_identity() != 60772) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_group() != 23137) {
@@ -28527,7 +29909,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_optimistic() != 41274) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_with_identities() != 16919) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_with_identities() != 24231) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_delete_message() != 23841) {
@@ -28539,7 +29921,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_get_by_id() != 32520) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_identity() != 26592) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_identity() != 16124) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_inbox_id() != 61920) {
@@ -28629,10 +30011,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_members() != 35978) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_method_dm_message_history_page() != 37500) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_method_dm_message_history_snapshot() != 11434) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_message_reader() != 16038) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_dm_message_recovery_page() != 28719) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_messages() != 55325) {
@@ -28737,7 +30125,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_add_members() != 43735) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_add_members_by_identity() != 16919) {
+    if (uniffi_xmtp_sdk_checksum_method_group_add_members_by_identity() != 10876) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_add_super_admin() != 2507) {
@@ -28803,10 +30191,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_membership_capabilities() != 49952) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_method_group_message_history_page() != 49137) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_method_group_message_history_snapshot() != 50554) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_message_reader() != 32244) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_group_message_recovery_page() != 12885) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_messages() != 9628) {
@@ -28842,7 +30236,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_remove_members() != 34386) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_remove_members_by_identity() != 46738) {
+    if (uniffi_xmtp_sdk_checksum_method_group_remove_members_by_identity() != 29488) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_remove_super_admin() != 29988) {
@@ -29004,6 +30398,21 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_preferences_sync() != 3540) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_identity() != 47159) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_kind() != 49084) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_sign() != 26966) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_to_bytes() != 44337) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_to_hex() != 58335) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_method_signer_identity() != 1499) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29031,6 +30440,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_constructor_backend_connect() != 5995) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_constructor_localsigningkey_from_bytes() != 64520) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_constructor_localsigningkey_from_hex() != 35157) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
     uniffiCallbackInitCredentialSource()
     uniffiCallbackInitEventListener()
@@ -29054,3 +30469,6 @@ public func uniffiEnsureXmtpSdkInitialized() {
 }
 
 // swiftlint:enable all
+
+// The Rust-backed key can be passed directly to client creation.
+extension LocalSigningKey: Signer {}

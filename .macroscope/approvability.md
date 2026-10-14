@@ -1,7 +1,7 @@
 ---
 neverApprove:
   - .macroscope/**
-  - docs/self-hosted/agent-context.md
+  - AGENTS.md
   - docs/specs/**
   - .github/CODEOWNERS
   - apps/backend/migrations/**

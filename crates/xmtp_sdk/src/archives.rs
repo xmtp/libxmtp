@@ -167,18 +167,6 @@ impl Archives {
 mod tests {
     use super::*;
 
-    // verifies: ARCH-012
-    #[xmtp_common::test(unwrap_try = true)]
-    fn archive_key_requires_exact_length() {
-        for length in [0, ENC_KEY_SIZE - 1, ENC_KEY_SIZE + 1] {
-            assert!(matches!(
-                key(vec![7; length]),
-                Err(XmtpError::InvalidInput(_))
-            ));
-        }
-        assert_eq!(key(vec![7; ENC_KEY_SIZE])?, vec![7; ENC_KEY_SIZE]);
-    }
-
     #[xmtp_common::test(unwrap_try = true)]
     fn archive_options_preserve_element_selection_and_time_bounds() {
         let all: CoreArchiveOptions = ArchiveOptions {

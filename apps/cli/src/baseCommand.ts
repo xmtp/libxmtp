@@ -7,7 +7,13 @@ import type { BackendOptions, Client } from "@xmtp/node-sdk";
 import { parseBackendUrl, parseEnvironmentLabel } from "./utils/backend.js";
 import { createClient } from "./utils/client.js";
 import { loadConfig, mergeConfig, type XmtpConfig } from "./utils/config.js";
-import { formatHuman, isTTY, jsonStringify } from "./utils/output.js";
+import { formatOtherHandles, handleFields } from "./utils/handles.js";
+import {
+  escapeControlCharacters,
+  formatHuman,
+  isTTY,
+  jsonStringify,
+} from "./utils/output.js";
 
 export class BaseCommand extends Command {
   /** Flags shared by all commands (including those that don't need a client). */
@@ -108,6 +114,23 @@ export class BaseCommand extends Command {
     } else {
       this.log(formatHuman(data));
     }
+  }
+
+  /**
+   * The handle fields of an inbox for output. JSON output has the other
+   * handles as a list; human output has them as one line of text.
+   */
+  handleOutput(record: Parameters<typeof handleFields>[0]): {
+    handle: string | null;
+    otherHandles: string[] | string;
+  } {
+    const { handle, otherHandles } = handleFields(record);
+    return {
+      handle,
+      otherHandles: this.jsonOutput
+        ? otherHandles
+        : formatOtherHandles(otherHandles),
+    };
   }
 
   /**
@@ -248,7 +271,7 @@ export class BaseCommand extends Command {
 
   catch(error: Error): never {
     if (error instanceof Errors.CLIError) {
-      this.logToStderr(error.message);
+      this.logToStderr(terminalSafeErrorMessage(error, this.argv));
       this.exit(error.oclif.exit ?? 1);
     }
 
@@ -266,17 +289,65 @@ export class BaseCommand extends Command {
   }
 }
 
+// oclif styles its own messages, such as parse errors, with SGR sequences.
+// oxlint-disable-next-line no-control-regex
+const SGR_SEQUENCE = /\u001b\[[0-9;]*m/g;
+
+/** The line that oclif adds to the end of every parse error. */
+const PARSE_ERROR_SUFFIX = "\nSee more help with --help";
+
+/**
+ * Untrusted text for one terminal line. SGR styling (ESC [ ... m) is removed,
+ * so oclif's styled messages stay readable. Every other control character,
+ * LF and CR too, is shown as a visible escape, so the text cannot start a
+ * line of its own.
+ */
+export function terminalSafeText(text: string): string {
+  return escapeControlCharacters(text.replace(SGR_SEQUENCE, ""));
+}
+
+/**
+ * The text of a CLI error for the terminal. No byte of user input can start
+ * a line:
+ * - This CLI's own messages are one line.
+ * - An oclif parse error gets its user text only from the arguments. It keeps
+ *   its template's line breaks when no argument holds LF or CR; otherwise its
+ *   body is one line. The "See more help" line stays.
+ */
+export function terminalSafeErrorMessage(
+  error: Errors.CLIError,
+  argv: readonly string[],
+): string {
+  if (!("parse" in error)) {
+    return terminalSafeText(error.message);
+  }
+  const suffix = error.message.endsWith(PARSE_ERROR_SUFFIX)
+    ? PARSE_ERROR_SUFFIX
+    : "";
+  const body = error.message.slice(0, error.message.length - suffix.length);
+  const userLineBreak = argv.some((arg) => /[\n\r]/.test(arg));
+  const safe = userLineBreak
+    ? terminalSafeText(body)
+    : body.split("\n").map(terminalSafeText).join("\n");
+  return `${safe}${suffix}`;
+}
+
 const UNSUPPORTED_DATABASE_CODES = [
   "StorageError::PreTransitionDatabase",
   "StorageError::OldStreamDatabase",
 ] as const;
 
+/**
+ * The terminal text of an error that is not a CLI error: its message on one
+ * line, then the database path for an unsupported database.
+ */
 export function formatStorageErrorMessage(
   error: Error & { code?: string },
   dbPath?: string,
 ): string {
+  const message = terminalSafeText(error.message);
   if (!dbPath) {
-    return error.message;
+    return message;
   }
 
   const isUnsupportedDatabase = UNSUPPORTED_DATABASE_CODES.some(
@@ -284,6 +355,6 @@ export function formatStorageErrorMessage(
   );
 
   return isUnsupportedDatabase
-    ? `${error.message}\nDatabase path: ${dbPath}`
-    : error.message;
+    ? `${message}\nDatabase path: ${terminalSafeText(dbPath)}`
+    : message;
 }

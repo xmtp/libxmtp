@@ -116,6 +116,23 @@ export class MainSession {
     );
   }
 
+  /** A completed value call needs no later worker idle message for migration. */
+  get canRetireForMigration(): boolean {
+    if (
+      this.dead ||
+      this.localCalls !== 0 ||
+      this.callbacks.hasActiveLog ||
+      this.releaseScheduled ||
+      this.releases.size !== 0
+    )
+      return false;
+    for (const handle of this.proxies.keys()) {
+      const proxy = this.liveProxy(handle);
+      if (proxy && !this.endedOwners.has(proxy.handle.owner)) return false;
+    }
+    return true;
+  }
+
   private notifyIdle(): void {
     if (this.isIdle) this.onIdle?.();
   }

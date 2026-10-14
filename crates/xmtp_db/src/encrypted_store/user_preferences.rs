@@ -3,7 +3,7 @@ use super::{
     schema::user_preferences::{self, dsl},
 };
 use crate::{StorageError, Store};
-use diesel::{insert_into, prelude::*};
+use diesel::{insert_into, prelude::*, upsert::excluded};
 use xmtp_common::time::now_ns;
 
 #[derive(
@@ -70,19 +70,7 @@ impl StoredUserPreferences {
         Ok(pref.unwrap_or_default())
     }
 
-    fn store(&self, conn: &impl crate::DbQuery) -> Result<(), StorageError> {
-        conn.raw_query(|conn| {
-            insert_into(dsl::user_preferences)
-                .values(self)
-                .on_conflict(user_preferences::id)
-                .do_update()
-                .set(self)
-                .execute(conn)
-        })?;
-
-        Ok(())
-    }
-
+    // implements: SYNC-022
     pub fn store_hmac_key(
         conn: &impl crate::DbQuery,
         key: &[u8],
@@ -92,17 +80,36 @@ impl StoredUserPreferences {
             return Err(StorageError::InvalidHmacLength);
         }
 
-        let mut preferences = Self::load(conn)?;
+        use diesel::query_dsl::methods::FilterDsl;
 
-        if let (Some(old), Some(new)) = (preferences.hmac_key_cycled_at_ns, cycled_at)
-            && old > new
-        {
-            return Ok(());
-        }
-
-        preferences.hmac_key = Some(key.to_vec());
-        preferences.hmac_key_cycled_at_ns = Some(cycled_at.unwrap_or_else(now_ns));
-        preferences.store(conn)?;
+        let local_cycle = cycled_at.is_none();
+        let cycled_at = cycled_at.unwrap_or_else(now_ns);
+        let preferences = Self {
+            hmac_key: Some(key.to_vec()),
+            hmac_key_cycled_at_ns: Some(cycled_at),
+            ..Self::default()
+        };
+        conn.raw_query(|conn| {
+            insert_into(dsl::user_preferences)
+                .values(&preferences)
+                .on_conflict(dsl::id)
+                .do_update()
+                .set((
+                    dsl::hmac_key.eq(excluded(dsl::hmac_key)),
+                    dsl::hmac_key_cycled_at_ns.eq(excluded(dsl::hmac_key_cycled_at_ns)),
+                ))
+                .filter(
+                    local_cycle
+                        .into_sql::<diesel::sql_types::Bool>()
+                        .or(dsl::hmac_key.is_null())
+                        .or(dsl::hmac_key_cycled_at_ns.is_null())
+                        .or(dsl::hmac_key_cycled_at_ns.lt(cycled_at))
+                        .or(dsl::hmac_key_cycled_at_ns
+                            .eq(cycled_at)
+                            .and(dsl::hmac_key.lt(key))),
+                )
+                .execute(conn)
+        })?;
 
         Ok(())
     }
@@ -142,5 +149,134 @@ mod tests {
                 .unwrap();
             assert_eq!(result.len(), 1);
         })
+    }
+
+    // verifies: SYNC-022
+    #[xmtp_common::test(unwrap_try = true)]
+    fn root_keys_converge_under_time_and_byte_order() {
+        crate::test_utils::with_connection(|conn| {
+            let mut lower = [0x80; 42];
+            let mut higher = lower;
+            lower[41] = 0x7f;
+            higher[41] = 0x80;
+            for (first, second) in [(lower, higher), (higher, lower)] {
+                conn.raw_query(|conn| diesel::delete(dsl::user_preferences).execute(conn))?;
+                StoredUserPreferences::store_hmac_key(conn, &first, Some(20))?;
+                let mut preferences = StoredUserPreferences::load(conn)?;
+                preferences.dm_group_updates_migrated = true;
+                Store::store(&preferences, conn)?;
+                StoredUserPreferences::store_hmac_key(conn, &second, Some(20))?;
+                StoredUserPreferences::store_hmac_key(conn, &second, Some(20))?;
+                StoredUserPreferences::store_hmac_key(conn, &[0xff; 42], Some(10))?;
+                let preferences = StoredUserPreferences::load(conn)?;
+                assert_eq!(preferences.hmac_key, Some(higher.to_vec()));
+                assert_eq!(preferences.hmac_key_cycled_at_ns, Some(20));
+                assert!(preferences.dm_group_updates_migrated);
+                StoredUserPreferences::store_hmac_key(conn, &lower, Some(30))?;
+                let preferences = StoredUserPreferences::load(conn)?;
+                assert_eq!(preferences.hmac_key, Some(lower.to_vec()));
+                assert_eq!(preferences.hmac_key_cycled_at_ns, Some(30));
+                assert!(preferences.dm_group_updates_migrated);
+            }
+            Ok::<_, StorageError>(())
+        })?;
+    }
+
+    // verifies: SYNC-022
+    #[xmtp_common::test(unwrap_try = true)]
+    fn invalid_root_key_lengths_leave_preferences_unchanged() {
+        crate::test_utils::with_connection(|conn| {
+            for has_key in [false, true] {
+                if has_key {
+                    StoredUserPreferences::store_hmac_key(conn, &[1; 42], Some(10))?;
+                }
+                let before = StoredUserPreferences::load(conn)?;
+                for length in [0, 41, 43] {
+                    assert!(matches!(
+                        StoredUserPreferences::store_hmac_key(conn, &vec![2; length], Some(20)),
+                        Err(StorageError::InvalidHmacLength)
+                    ));
+                    assert_eq!(StoredUserPreferences::load(conn)?, before);
+                }
+            }
+            Ok::<_, StorageError>(())
+        })?;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    struct PauseAfterQuery<C> {
+        inner: C,
+        pause: std::sync::Arc<std::sync::Barrier>,
+        first: std::sync::atomic::AtomicBool,
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl<C: ConnectionExt> ConnectionExt for PauseAfterQuery<C> {
+        fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+        where
+            F: FnOnce(&mut diesel::SqliteConnection) -> Result<T, diesel::result::Error>,
+        {
+            let result = self.inner.raw_query(fun);
+            if self.first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                // Let the other update commit between this query and the next.
+                self.pause.wait();
+                self.pause.wait();
+            }
+            result
+        }
+
+        fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+            self.inner.disconnect()
+        }
+
+        fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+            self.inner.reconnect()
+        }
+    }
+
+    // verifies: SYNC-022
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn concurrent_root_key_updates_retain_the_winner_after_reopen() {
+        use crate::XmtpTestDb;
+        let path = xmtp_common::tmp_path();
+        {
+            let store = crate::TestDb::create_persistent_store(Some(path.clone())).await;
+            let conn = store.db();
+            StoredUserPreferences::store_hmac_key(&conn, &[1; 42], Some(10))?;
+            for (lower_time, winner_time) in [(20, 30), (40, 40)] {
+                let pause = std::sync::Arc::new(std::sync::Barrier::new(2));
+                let contender = crate::DbConnection::new(PauseAfterQuery {
+                    inner: store.conn(),
+                    pause: pause.clone(),
+                    first: std::sync::atomic::AtomicBool::new(true),
+                });
+                std::thread::scope(|scope| {
+                    let update = scope.spawn(|| {
+                        StoredUserPreferences::store_hmac_key(
+                            &contender,
+                            &[2; 42],
+                            Some(lower_time),
+                        )
+                    });
+                    pause.wait();
+                    let winner =
+                        StoredUserPreferences::store_hmac_key(&conn, &[3; 42], Some(winner_time));
+                    pause.wait();
+                    winner?;
+                    update.join().unwrap()?;
+                    Ok::<_, StorageError>(())
+                })?;
+                let preferences = StoredUserPreferences::load(&conn)?;
+                assert_eq!(preferences.hmac_key, Some(vec![3; 42]));
+                assert_eq!(preferences.hmac_key_cycled_at_ns, Some(winner_time));
+            }
+        }
+        let store = crate::TestDb::create_persistent_store(Some(path)).await;
+        let conn = store.db();
+        StoredUserPreferences::store_hmac_key(&conn, &[2; 42], Some(40))?;
+        let preferences = StoredUserPreferences::load(&conn)?;
+        assert_eq!(preferences.hmac_key, Some(vec![3; 42]));
+        assert_eq!(preferences.hmac_key_cycled_at_ns, Some(40));
     }
 }

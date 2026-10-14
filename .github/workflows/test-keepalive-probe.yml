@@ -1,6 +1,8 @@
 name: Test keepalive-probe
 on:
   workflow_call:
+env:
+  NIX_DEVSHELL: rust
 jobs:
   check:
     name: Check (keepalive-probe)
@@ -8,14 +10,11 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
         with:
-          disk-key: rust
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
       - name: Check keepalive-probe compiles
         run: nix build --no-link .#cargo-clippy.x86_64-linux.keepalive-probe
-      - name: Warm sticky disk with build deps
-        run: dev/ci/warm-deps .#cargo-clippy.x86_64-linux.keepalive-probe

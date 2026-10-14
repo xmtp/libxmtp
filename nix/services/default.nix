@@ -1,0 +1,167 @@
+# The test services as one process-compose definition (stack.nix).
+#
+#   nix run .#services                        # the stack in the foreground
+#   dev/services up | env | ps | logs | down  # this worktree's stack, in the background
+#   XMTP_SERVICES_TEST_COMMAND=CMD nix run .#services-test
+#                                             # start, run CMD, exit with its status, stop
+#   nix build .#checks.<system>.services      # the stack inside a Nix build
+#
+# `legacyPackages.mkServices { backend; replica; }` gives the same outputs for
+# another backend binary, so a test derivation keys on the binary that it
+# starts. Without `backend` it is the storage subset: PostgreSQL, the replica,
+# and S3. `replica = false` runs no replica and points XMTP_REPLICA_URL at the
+# primary, as trunk's CI backend did; `clientServices` is that stack for the
+# client tests (nextest, the WASM partitions, `services-test`, so every
+# `just backend ci`). `services` (dev/services), `storageServices`
+# (backend-tests), and `checks.services` keep the streaming replica.
+{ inputs, ... }:
+{
+  perSystem =
+    {
+      pkgs,
+      lib,
+      self',
+      ...
+    }:
+    let
+      repo = lib.fileset.toSource {
+        root = ../..;
+        fileset = lib.fileset.unions [
+          ../../dev/backend/local-s3.toml
+          ../../dev/docker/s3/public-read.json
+          ../../dev/docker/s3/cors.json
+          ../../dev/docker/toxiproxy/config.json
+        ];
+      };
+      # The sandbox settings of a derivation that runs the services. A Darwin
+      # sandbox denies loopback networking unless __darwinAllowLocalNetworking
+      # is set. It also checks sendfile(2) as outbound traffic from the
+      # socket's local address, which Nix's rules do not allow, so sendfile
+      # fails with EPERM; VersityGW (Go sends a file with sendfile) then ends
+      # a GetObject of 64 KiB or more with an empty body. The profile allows
+      # outbound traffic by local address, then denies every remote address
+      # except localhost, so the build still reaches no other host. A Linux
+      # build ignores both settings and has its own loopback.
+      sandbox = {
+        __darwinAllowLocalNetworking = true;
+        sandboxProfile = ''
+          (allow network-outbound (local ip "localhost:*"))
+          (deny network-outbound (remote ip "*:*"))
+          (allow network-outbound (remote ip "localhost:*"))
+        '';
+      };
+      mkServices =
+        {
+          backend ? null,
+          replica ? true,
+        }:
+        let
+          # Not the process-compose-flake flake module: its generated check has
+          # no __darwinAllowLocalNetworking, and its API server listens on TCP
+          # port 8080, so parallel builds on one loopback would collide.
+          outputs =
+            (lib.evalModules {
+              specialArgs = {
+                inherit pkgs;
+                name = "services";
+              };
+              modules = [
+                "${inputs.process-compose-flake}/nix/process-compose"
+                (import ./stack.nix { inherit repo backend replica; })
+              ];
+            }).config.outputs;
+          # Start, wait, run XMTP_SERVICES_TEST_COMMAND, exit with its status,
+          # and stop every service. It removes the state directory that it
+          # creates. On a failure with XMTP_SERVICES_LOGS set, it prints the
+          # end of each service log.
+          test = pkgs.writeShellApplication {
+            name = "services-test";
+            runtimeInputs = [ pkgs.coreutils ];
+            text = ''
+              if [ -z "''${XMTP_SERVICES_STATE:-}" ]; then
+                parent="''${TMPDIR:-/tmp}"
+                if [ "$(uname -s)" = Linux ] && [ -d /dev/shm ] && [ -w /dev/shm ]; then
+                  parent=/dev/shm
+                fi
+                XMTP_SERVICES_STATE="$(mktemp -d "''${parent%/}/xmtp-services.XXXXXX")"
+                trap 'rm -rf "$XMTP_SERVICES_STATE"' EXIT
+              fi
+              export XMTP_SERVICES_STATE
+              # Forward TERM and INT to process-compose, which then stops every
+              # service, and wait for it: a killed `just backend ci` must not
+              # leave services on this worktree's ports.
+              ${lib.getExe outputs.testPackage} up -t=false --no-server "$@" &
+              compose=$!
+              trap 'kill -TERM "$compose" 2>/dev/null || true' TERM INT
+              while true; do
+                status=0
+                wait "$compose" || status=$?
+                kill -0 "$compose" 2>/dev/null || break
+              done
+              # A Nix build deletes its TMPDIR, and with it the logs, so a
+              # failure prints the end of each service log. Nix shows only the
+              # last lines of a failed build (`log-lines`), so the end of the
+              # command output (for nextest, the failed tests) and the exit
+              # status come last.
+              if [ "$status" -ne 0 ] && [ -n "''${XMTP_SERVICES_LOGS:-}" ]; then
+                for log in "$XMTP_SERVICES_LOGS"/*.log; do
+                  [ -f "$log" ] || continue
+                  echo "--- last lines of $log" >&2
+                  tail -n 30 "$log" >&2
+                done
+                if [ -f "$XMTP_SERVICES_LOGS/test-output.txt" ]; then
+                  echo "--- last lines of the test command output" >&2
+                  tail -n 60 "$XMTP_SERVICES_LOGS/test-output.txt" >&2
+                fi
+                echo "services-test: exit status $status" >&2
+              fi
+              exit "$status"
+            '';
+          };
+        in
+        {
+          inherit (outputs) package;
+          inherit test sandbox;
+          # A check-phase command that runs `command` (a store script) with the
+          # services. The derivation must include `sandbox` (or set
+          # __noChroot).
+          checkCommand = command: ''
+            HOME="$TMPDIR" XMTP_SERVICES_LOGS="$TMPDIR/services-logs" \
+              XMTP_SERVICES_TEST_COMMAND=${command} ${lib.getExe test}
+          '';
+        };
+      services = mkServices { backend = self'.packages.xmtp-backend; };
+      clientServices = mkServices {
+        backend = self'.packages.xmtp-backend;
+        replica = false;
+      };
+      healthCheck = pkgs.writeShellApplication {
+        name = "services-health-check";
+        runtimeInputs = with pkgs; [
+          postgresql_18
+          awscli2
+          curl
+          jq
+          grpc-health-probe
+          coreutils
+          gnugrep
+        ];
+        text = builtins.readFile ./health-check.sh;
+      };
+    in
+    {
+      legacyPackages = {
+        inherit mkServices clientServices;
+        storageServices = mkServices { };
+      };
+      packages = {
+        services = services.package;
+        services-test = clientServices.test;
+      };
+      # Each service with its own client, inside a Nix build.
+      checks.services = pkgs.runCommand "services-check" sandbox ''
+        ${services.checkCommand (lib.getExe healthCheck)}
+        touch "$out"
+      '';
+    };
+}

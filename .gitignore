@@ -203,6 +203,10 @@ docs/plans
 .claude/scheduled_tasks.lock
 /target-linux-amd64
 
+# Python runtime bytecode
+__pycache__/
+*.pyc
+
 # Agent Python runtime and bytecode
 dev/agents/.venv/
 dev/agents/__pycache__/
@@ -214,3 +218,9 @@ dev/specs/__pycache__/
 
 # Private chaos runs and evidence
 /.chaos/
+
+# Signing keys and service credentials, anywhere in the tree. The retired
+# apps/android/xmtpv3_example ignored these; keep them out of every checkout.
+*.jks
+*.keystore
+google-services.json

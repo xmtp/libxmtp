@@ -12,8 +12,8 @@ stay `@xmtp/node-sdk`, `@xmtp/browser-sdk`, and `@xmtp/agent-sdk`.
 ```bash
 just install-js                        # install the root pnpm workspace once
 just js sdk-products                    # stage Node and Browser products
-just js build-node-sdk                  # stage the generated Node product
-just js build-browser-sdk               # stage the generated Browser product
+just js sdk-products node               # stage the generated Node product
+just js sdk-products browser            # stage the generated Browser product
 just js check-node                       # typecheck Node and agent SDKs
 just js check-notification-surface       # published Node types; Browser/WASM absence
 just js lint-node                      # lint Node and agent SDKs
@@ -38,10 +38,11 @@ Native streams stay open during retryable network faults and resume in order.
 
 SDK recipes stage the selected SDK products before package tasks. The public
 product is `target/sdk-packages/<target>`. Local imports use a full copy in
-`sdks/<target>/dist`, with the pinned runtime assets. Source package builds run
-`dev/nix-shell 'just sdk generate <target>'` before staging. An explicit
-`XMTP_SDK_GENERATED_DIR` reuses that input and keeps the strict staging checks.
-Do not use
+`sdks/<target>/dist`, with the pinned runtime assets. Source package builds
+(`dev/js/sdk-package`) run `just sdk generate <target>` before staging; with
+`XMTP_SDK_BUILD=nix` they copy the release-profile Nix trees instead, as CI and
+release do. The helper refuses `XMTP_SDK_GENERATED_DIR`: it stages only what it
+generated. Do not use
 `--parallel` or `--no-sort`; they can bypass task dependencies. See the
 `writing-typescript` skill for the root pnpm workspace and formatting.
 

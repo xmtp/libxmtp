@@ -127,22 +127,6 @@ mod tests {
     use crate::{StoreOrIgnore, with_connection};
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_add_pending_remove() {
-        with_connection(|conn| {
-            PendingRemove {
-                inbox_id: "123".to_string(),
-                group_id: GroupId::ONE,
-                message_id: vec![1, 2, 3],
-            }
-            .store_or_ignore(conn)?;
-            let users = conn.get_pending_remove_users(&GroupId::ONE).unwrap();
-            assert_eq!(users.len(), 1);
-            let users = conn.get_pending_remove_users(&GroupId::TWO).unwrap();
-            assert_eq!(users.len(), 0);
-        })
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
     fn test_delete_pending_remove_user() {
         with_connection(|conn| {
             PendingRemove {
@@ -151,6 +135,8 @@ mod tests {
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
+            assert_eq!(conn.get_pending_remove_users(&GroupId::ONE)?.len(), 1);
+            assert!(conn.get_pending_remove_users(&GroupId::TWO)?.is_empty());
             PendingRemove {
                 inbox_id: "2".to_string(),
                 group_id: GroupId::ONE,
@@ -166,6 +152,7 @@ mod tests {
             let group_id = GroupId::ONE;
             let users = conn.get_pending_remove_users(&group_id).unwrap();
             assert_eq!(users.len(), 3);
+            assert!(conn.get_pending_remove_users(&GroupId::TWO)?.is_empty());
             let deleted_users = conn
                 .delete_pending_remove_users(&group_id, vec!["1".to_string(), "2".to_string()])
                 .unwrap();

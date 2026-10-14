@@ -117,7 +117,7 @@ export async function compose({
     if (installReferences) await installReferences({ siteRoot: stage });
     const redirects = JSON.parse(await readFile(redirectsPath, "utf8"));
     await writeRedirects(stage, redirects);
-    // The Swift reference is built on push only; see references.mjs.
+    // The Swift reference is built only in the post-merge workflow; see references.mjs.
     if (installReferences && process.env.DOCS_SKIP_NATIVE_REFERENCES !== "1")
       await validateDocC(stage);
 

@@ -210,7 +210,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     /// never fetches, stores, refreshes, or checks the identifier. Rust tests
     /// only; not exposed through the bindings.
     pub(crate) config_provider: Option<Arc<dyn xmtp_configuration::ConfigProvider>>,
-    #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+    #[cfg(any(test, feature = "test-utils"))]
     application_components_for_test:
         Option<Vec<xmtp_configuration::ApplicationComponentDefinition>>,
 }
@@ -295,7 +295,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: false,
             worker_config: crate::worker::WorkerConfig::default(),
             config_provider: None,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test: None,
         }
     }
@@ -340,7 +340,7 @@ where
             disable_workers: false,
             worker_config: client.context.worker_config.clone(),
             config_provider: None,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test: None,
         }
     }
@@ -435,7 +435,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers,
             worker_config,
             config_provider,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test,
             ..
         } = self;
@@ -594,7 +594,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             None => crate::server_configuration::resolve(&api_client, &conn, allow_offline).await?,
         };
 
-        #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+        #[cfg(any(test, feature = "test-utils"))]
         let server_configuration = match application_components_for_test {
             Some(components) => server_configuration.with_application_components(components),
             None => server_configuration,
@@ -775,6 +775,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
             foreground_calls: Default::default(),
+            #[cfg(any(test, target_arch = "wasm32"))]
+            message_clock: Default::default(),
             delivery_owner: Default::default(),
             identity_resolutions: Default::default(),
         });
@@ -981,7 +983,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test: self.application_components_for_test,
         })
     }
@@ -1029,7 +1031,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test: self.application_components_for_test,
             attachments_dir: self.attachments_dir,
             attachment_options: self.attachment_options,
@@ -1075,7 +1077,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test: self.application_components_for_test,
             attachments_dir: self.attachments_dir,
             attachment_options: self.attachment_options,
@@ -1111,7 +1113,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test: self.application_components_for_test,
             attachments_dir: self.attachments_dir,
             attachment_options: self.attachment_options,
@@ -1152,8 +1154,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     }
 
     /// Replace only the application catalogue after normal configuration admission.
-    /// Used by SDK metadata conformance fixtures.
-    #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+    /// Used by SDK metadata test fixtures.
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn application_components_for_test(
         mut self,
         components: Vec<xmtp_configuration::ApplicationComponentDefinition>,
@@ -1204,7 +1206,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test: self.application_components_for_test,
             attachments_dir: self.attachments_dir,
             attachment_options: self.attachment_options,
@@ -1355,7 +1357,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test: self.application_components_for_test,
             attachments_dir: self.attachments_dir,
             attachment_options: self.attachment_options,
@@ -1393,7 +1395,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test: self.application_components_for_test,
             attachments_dir: self.attachments_dir,
             attachment_options: self.attachment_options,
@@ -1442,7 +1444,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
-            #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+            #[cfg(any(test, feature = "test-utils"))]
             application_components_for_test: self.application_components_for_test,
             attachments_dir: self.attachments_dir,
             attachment_options: self.attachment_options,

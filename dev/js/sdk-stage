@@ -1,4 +1,0 @@
-#!/bin/bash
-# Stage the generated public SDK product.
-source "$(dirname "$0")/.setup"
-exec "$ROOT/dev/js/sdk-package" "$@"

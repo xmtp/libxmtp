@@ -8,7 +8,7 @@ use xmtp_api_backend::TestClient;
 use xmtp_proto::{
     api::HasStats,
     api_client::{ApiBuilder, XmtpBackendClient, XmtpMlsStreams, XmtpTestClient},
-    types::TopicCursor,
+    types::{IncomingBatchLimits, IncomingEvent, TopicCursor},
 };
 
 fn backend() -> ApiClientWrapper<TestClient> {
@@ -89,7 +89,20 @@ async fn read_topic_boundaries(#[case] read: Read, #[case] cap: usize) {
                     .map(|topic| PublishUnit::single(welcome_for(topic, vec![1])))
                     .collect::<crate::Result<Vec<_>>>()
                     .unwrap();
-                api.publish_units(units).await.unwrap();
+                let metas = api.publish_units(units).await.unwrap();
+                wait_for_newest(
+                    &api,
+                    metas.iter().map(|meta| {
+                        (
+                            Topic::parse(&meta.topic.as_ref().unwrap().topic).unwrap(),
+                            Cursor(meta.cursor.as_ref().unwrap().sequence_id),
+                        )
+                    }),
+                )
+                .await
+                .unwrap();
+                // Count only the measured read, not the reads of the wait.
+                let before = api.api_client.mls_stats().query_newest.get_count();
                 let full = matches!(read, Read::NewestFull);
                 let results = api.newest(topics.clone(), full).await.unwrap();
                 let returned: HashSet<_> = results
@@ -99,7 +112,7 @@ async fn read_topic_boundaries(#[case] read: Read, #[case] cap: usize) {
                 assert_eq!(returned, topics.into_iter().collect());
                 assert_eq!(results.len(), count);
                 assert!(results.iter().all(|row| row.envelope.is_some() == full));
-                api.api_client.mls_stats().query_newest.get_count()
+                api.api_client.mls_stats().query_newest.get_count() - before
             }
         };
         assert_eq!(rows, count.div_ceil(cap));
@@ -434,6 +447,47 @@ async fn static_topic_boundary(#[case] extra: usize) {
     assert_eq!(returned, topics.into_iter().collect());
     // ApiStats counts logical subscriptions; the adapter's mock test counts wires.
     assert_eq!(api.api_client.mls_stats().subscribe_static.get_count(), 1);
+}
+
+/// Twenty rows from one publish reach a static stream as one frame. The client
+/// splits a frame above its receive rows instead of failing. Browser clients
+/// receive through this path with 128-row deliveries.
+// verifies: PROC-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn static_frame_above_receive_rows_splits() {
+    const ROWS: usize = 20;
+    const MAX_ROWS: usize = 8;
+    let api = backend();
+    let topic = welcome_topics(1).remove(0);
+    let units = (0..ROWS as u8)
+        .map(|index| PublishUnit::single(welcome_for(&topic, vec![index])))
+        .collect::<crate::Result<Vec<_>>>()
+        .unwrap();
+    api.publish_units(units).await.unwrap();
+    let mut events = api
+        .api_client
+        .subscribe_envelopes_with_cursors(
+            &[(topic, Cursor(0))].into(),
+            IncomingBatchLimits {
+                max_rows: MAX_ROWS,
+                max_bytes: BACKEND_DEFAULT_MAX_REQUEST_BYTES,
+            },
+        )
+        .await
+        .unwrap()
+        .events;
+    let mut batches = Vec::new();
+    xmtp_common::time::timeout(Duration::from_secs(30), async {
+        while batches.iter().sum::<usize>() < ROWS {
+            if let IncomingEvent::OrderedBatch(batch) = events.next().await.unwrap().unwrap() {
+                batches.push(batch.envelopes.len());
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(batches.iter().all(|&rows| rows <= MAX_ROWS), "{batches:?}");
+    assert_eq!(batches.iter().sum::<usize>(), ROWS);
 }
 
 /// A full identity log rejects one more update without a retry.

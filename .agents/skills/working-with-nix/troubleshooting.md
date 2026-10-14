@@ -175,7 +175,7 @@ Use the dedicated WASM shell:
 
 ```bash
 nix develop .#wasm
-dev/nix-shell 'just js build-browser-sdk'
+dev/nix-shell 'just js sdk-products browser'
 ```
 
 The WASM shell uses Chrome/ChromeDriver for testing (not Firefox). It has a separate `fenix.stable` Rust toolchain with the WASM target pre-configured.

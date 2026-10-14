@@ -8,6 +8,7 @@ export default class PreferencesInboxStates extends BaseCommand {
 Retrieves inbox states from the local database cache for the specified
 inbox IDs. This includes for each inbox:
 - Inbox ID
+- Current handle and other handles, if the inbox has claimed any
 - Recovery identifier
 - Associated installations (devices/apps)
 - Associated identifiers (wallet addresses)
@@ -57,6 +58,7 @@ latest data if changes were made recently.`;
 
     const output = states.map((state) => ({
       inboxId: state.inboxId,
+      ...this.handleOutput(state),
       recoveryIdentifier: state.recoveryIdentity,
       installations: state.installations.map((installation) => ({
         id: installation.id,

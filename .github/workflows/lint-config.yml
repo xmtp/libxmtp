@@ -9,12 +9,39 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
         with:
-          disk-key: rust
+          cache-mode: "ci"
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - uses: ./.github/actions/setup-js
+        with:
+          cache-mode: "ci"
       - name: Lint config files (TOML, Nix, shell)
         run: just lint-config
+
+  # post-merge.yml is the first job that builds the Darwin warm sets, so a pull
+  # request that breaks their evaluation would pass. Evaluating every drvPath
+  # catches that in about 2.5 minutes, beside the lint job.
+  ci-sets:
+    name: Evaluate the warm sets
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: "ci"
+          github-token: ${{ github.token }}
+      - name: Evaluate every ciSets drvPath
+        shell: bash
+        run: |
+          # The sets read the ubrn fork source through import from derivation.
+          # Its fetch has the same output path on every system, and this
+          # runner can run only the x86_64-linux fetch, so evaluate
+          # x86_64-linux first: the other systems then find the path valid
+          # even when no cache holds it yet.
+          nix eval --json .#ciSets.x86_64-linux --apply 'builtins.mapAttrs (_: set: set.drvPath)'
+          nix eval --json .#ciSets --apply 'builtins.mapAttrs (_: builtins.mapAttrs (_: set: set.drvPath))'

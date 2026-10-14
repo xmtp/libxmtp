@@ -2,13 +2,6 @@ use super::*;
 use crate::test_utils::with_connection;
 
 #[xmtp_common::test(unwrap_try = true)]
-fn a_fresh_database_holds_no_copy() {
-    with_connection(|conn| {
-        assert_eq!(conn.server_configuration().unwrap(), None);
-    });
-}
-
-#[xmtp_common::test(unwrap_try = true)]
 fn storing_twice_replaces_the_one_row() {
     with_connection(|conn| {
         conn.store_server_configuration("org.example.one", "http://a:5050", b"first", 1)

@@ -631,7 +631,9 @@ impl NativeDbConnection {
 
     fn db_disconnect(&self) -> Result<(), PlatformStorageError> {
         tracing::warn!("released sqlite database connection");
-        self.pool.store(None);
+        if let Some(pool) = self.pool.swap(None) {
+            pool.close();
+        }
         Ok(())
     }
 

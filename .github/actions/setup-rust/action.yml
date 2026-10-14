@@ -16,8 +16,10 @@ runs:
       shell: bash
     - name: Add targets
       if: ${{ inputs.targets != '' }}
+      env:
+        INPUT_TARGETS: ${{ inputs.targets }}
       run: |
-        IFS=',' read -ra TARGETS <<< "${{ inputs.targets }}"
+        IFS=',' read -ra TARGETS <<< "$INPUT_TARGETS"
         for target in "${TARGETS[@]}"; do
           target="${target#"${target%%[![:space:]]*}"}"
           target="${target%"${target##*[![:space:]]}"}"
@@ -25,6 +27,6 @@ runs:
         done
       shell: bash
     - name: Rust cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       with:
         workspaces: ${{ inputs.workspaces }}

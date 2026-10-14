@@ -4,12 +4,12 @@ name: Deploy xmtp.chat
 # contains the worker, WASM modules, and pinned runtimes from this source tree.
 
 on:
-  # Every merge to self-hosted deploys, with no paths filter. The app bundles
+  # Every merge to main deploys, with no paths filter. The app bundles
   # the SDK WASM modules, so a commit touching only crates/ still changes
   # what ships; keeping the trigger unfiltered means the deployed build always
   # matches the branch head.
   push:
-    branches: [self-hosted]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -24,6 +24,8 @@ concurrency:
 
 env:
   NIX_DEVSHELL: js
+  # Ship the release-profile Nix products that CI tested.
+  XMTP_SDK_BUILD: nix
 
 jobs:
   deploy:
@@ -33,13 +35,13 @@ jobs:
       name: web-chat
       url: ${{ steps.deploy.outputs.url }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Check for a newer commit
         id: current
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/self-hosted" --jq .object.sha)"
+          head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
           if [ "$head" = "$GITHUB_SHA" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
@@ -48,10 +50,8 @@ jobs:
       - uses: ./.github/actions/setup-nix
         if: steps.current.outputs.deploy == 'true'
         with:
-          disk-key: web
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
         if: steps.current.outputs.deploy == 'true'
       - uses: ./.github/actions/setup-js
         if: steps.current.outputs.deploy == 'true'
@@ -62,6 +62,17 @@ jobs:
           XMTP_BACKEND_URL: ""
           VITE_PROJECT_ID: ${{ secrets.WALLETCONNECT_PROJECT_ID }}
         run: just web-chat build
+      # Runs before the Vercel step, so a debug build never replaces the live one.
+      - name: Require release-profile WASM
+        if: steps.current.outputs.deploy == 'true'
+        run: |
+          for tree in typescript-wasm typescript-pure; do
+            profile="$(jq -r '.artifact.profile' "target/sdk-generated/$tree/sdk-contract.json")"
+            if [ "$profile" != release ]; then
+              echo "::error::$tree was built with the '$profile' profile; xmtp.chat must ship release WASM"
+              exit 1
+            fi
+          done
       - name: Deploy to Vercel
         id: deploy
         if: steps.current.outputs.deploy == 'true'

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
   runWithIdentity,
@@ -8,6 +9,8 @@ import {
 
 interface Member {
   inboxId: string;
+  handle: string | null;
+  otherHandles: string[];
   installationIds: string[];
   accountIdentifiers: Array<{
     identifier: string;
@@ -82,5 +85,53 @@ describe("conversation members", () => {
           ?.installationIds,
       ).toContain(identity.installationId);
     }
+  });
+
+  it("shows each member's current handle", async () => {
+    const creator = await createRegisteredIdentity();
+    const member = await createIdentityWithHandle();
+
+    const groupResult = await runWithIdentity(creator, [
+      "conversations",
+      "create-group",
+      member.address,
+      "--json",
+    ]);
+    expect(groupResult.exitCode).toBe(0);
+    const group = parseJsonOutput<{ id: string }>(groupResult.stdout);
+
+    const json = await runWithIdentity(creator, [
+      "conversation",
+      "members",
+      group.id,
+      "--json",
+    ]);
+    expect(json.exitCode).toBe(0);
+    const members = parseJsonOutput<Member[]>(json.stdout);
+    const handles = (inboxId: string) => {
+      const found = members.find((entry) => entry.inboxId === inboxId);
+      return { handle: found?.handle, otherHandles: found?.otherHandles };
+    };
+    expect(handles(member.inboxId)).toEqual({
+      handle: member.handle,
+      otherHandles: [],
+    });
+    expect(handles(creator.inboxId)).toEqual({
+      handle: null,
+      otherHandles: [],
+    });
+
+    const human = await runWithIdentity(creator, [
+      "conversation",
+      "members",
+      group.id,
+    ]);
+    expect(human.exitCode).toBe(0);
+    const [header, , ...rows] = human.stdout.split("\n");
+    expect(header.split(/\s+/)).toContain("handle");
+    expect(header).not.toContain("otherHandles");
+    expect(
+      rows.find((row) => row.startsWith(member.inboxId))?.split(/\s+/)[1],
+    ).toBe(member.handle);
   });
 });

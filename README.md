@@ -1,317 +1,145 @@
-<!-- The branded header uses HTML and places status badges before the title. -->
-<!-- markdownlint-configure-file {"MD041": false, "MD033": {"allowed_elements": ["h1", "p", "img", "br", "a"]}} -->
+<!-- markdownlint-configure-file {"MD041": false, "MD033": {"allowed_elements": ["p", "img"]}} -->
 
-[![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml)
-[![Test](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test.yml)
-![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
-
-<!-- LOGO -->
-<h1>
 <p align="center">
-  <img src="https://raw.githubusercontent.com/xmtp/brand/1bf5822708c9ce7e06964b85121093d69b3a4ff2/assets/postmark-outlined-color.svg" alt="Logo" width="128">
-  <br>libXMTP
-</h1>
-  <p align="center">
-    shared library encapsulating the core functionality of the XMTP messaging
-    protocol, such as cryptography, networking, and language bindings.
-    <br />
-    <a href="https://docs.xmtp.org/">Documentation</a>
-    ·
-    <a href="CONTRIBUTING.md">Contributing</a>
-  </p>
+  <img src="https://raw.githubusercontent.com/xmtp/brand/1bf5822708c9ce7e06964b85121093d69b3a4ff2/assets/postmark-outlined-color.svg" alt="XMTP" width="128">
 </p>
 
-## Requirements
+# XMTP
 
-- [Rustup](https://rustup.rs/)
-- [Docker](https://www.docker.com/get-started/)
-- [Foundry](https://book.getfoundry.sh/getting-started/installation#using-foundryup)
-- [just](https://github.com/casey/just) (optional for testing)
+**Build secure messaging into your app.**
 
-## Development
+[![CI](https://github.com/xmtp/libxmtp/actions/workflows/ci.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/ci.yml)
+[![Version 8 RC](https://img.shields.io/badge/SDKs-8.0.0--rc1-blue)](https://xmtp.org/get-started/install/)
+[![MIT license](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-Adding Dependencies
+XMTP is an open protocol for end-to-end encrypted direct messages and group conversations. Use it to add chat to your mobile or web app, connect people with agents from other apps, or connect agents to agents.
 
-- adding dependencies will require re-generating the `workspace-hack` crate,
-  which can be done with:
+This repository contains the shared Rust implementation, a ready to deploy messaging backend, and SDKs for browsers, Node.js, Android, iOS, and agents. The SDKs handle message encryption, identity, group state, and local storage so you can focus on your app.
 
-```bash
-nix develop --command cargo hakari generate
-```
+[Documentation](https://xmtp.org/) · [SDK source](https://github.com/xmtp/libxmtp/tree/main/sdks) · [Example apps](https://github.com/xmtp/libxmtp/tree/main/apps) · [Contributing](https://github.com/xmtp/libxmtp/blob/main/CONTRIBUTING.md)
 
-to verify correctness you can optionally run
+## Why use XMTP
 
-```bash
-nix develop --command cargo hakari verify
-```
+- **Security built on MLS.** Messaging Layer Security provides end-to-end encryption, forward secrecy, and post-compromise security. XMTP provides protection against harvest now, decrypt later (HNDL) attacks, where messages are stored today for a future quantum computer to try to decrypt. SQLCipher is officially supported for encrypting native client databases at rest. See the [security model](https://xmtp.org/protocol/security/).
 
-Start Docker Desktop.
+- **Private groups and profiles.** Conversation members can manage membership and permissions without the server operator seeing either. Keep group metadata and member profiles encrypted, with configurable fields and permissions. See the [group guide](https://xmtp.org/sdk/groups/).
 
-- To install other dependencies and start background services:
+- **Private keys are first class identities.** Create an account with a cryptographic private key. The identity registry provides an immutable ledger of all keys added to or removed from accounts. Clients verify signed updates, and your app keeps the private key. See the [identity model](https://xmtp.org/protocol/identity/).
 
-  ```bash
-  ./dev/up
-  ```
+- **Rich messages.** Use standard content types for replies, reactions, and attachments. Add custom content types for your app. XMTP supports remote attachments for encrypted files. See the [content type guide](https://xmtp.org/content-types/overview/).
 
-  Specifically, this command creates and runs an XMTP node in Docker Desktop.
+- **One stack across platforms.** Build with Browser or Node SDKs and Android and iOS native SDKs. XMTP includes a ready to deploy messaging backend.
 
-- This project uses [`just`](https://github.com/casey/just) as a command runner.
-  Run `just` to list all available recipes, including submodules for Android,
-  iOS, Node.js, and WASM:
+XMTP powers messaging in products from [Coinbase](https://help.coinbase.com/en/base/social-feed/chat), [World](https://world.org/worldchat), and [Zora](https://support.zora.co/en/articles/8912129). The [XMTP ecosystem](https://xmtp.org/) includes 4,500+ developers and 1,700+ production miniapps.
 
-  ```bash
-  just          # List all recipes
-  just format   # Format code
-  just lint     # Run all linting
-  ```
+XMTP supports tens of thousands of active conversations for a single user. Explore the [SDK performance suite](https://github.com/xmtp/libxmtp/blob/main/crates/xmtp_sdk/benchmarks/README.md) and [database conversation benchmark](https://github.com/xmtp/libxmtp/blob/main/crates/xmtp_db/benches/conversation_list.rs) for the measured workloads. See [benchmark commands](DEVELOPMENT.md#benchmarks) to run them.
 
-- To run tests:
+## Start building an app
 
-  ```bash
-  RUST_LOG=off cargo test
-  ```
+This README uses the version 8 release candidate, `8.0.0-rc1`, for the SDKs and messaging backend. Choose your platform below and follow the [installation guide](https://xmtp.org/get-started/install/) to get started. App developers can use the SDK packages directly.
 
-  Many team members also install and use `cargo nextest` for better test
-  isolation and log output behavior.
-
-- run tests and open coverage in a browser:
-
-```bash
-./dev/test/coverage
-```
-
-- To run WebAssembly tests headless:
-
-  ```bash
-  just wasm test
-  ```
-
-Note: If the tests fail with "bind() failed: Cannot assign requested address,"
-Chrome is unable to bind to IPv6 and will fall back to IPv4. Although this
-should be a warning, Chromedriver currently logs this message as SEVERE, which
-halts the wasm-bindgen-test. You can optionally disable the Chromedriver logs
-output to prevent this.
-
-```bash
-CHROMEDRIVER_ARGS="--log-level=OFF" just wasm test
-```
-
-- To run WebAssembly tests interactively for a package, for example, `xmtp_mls`:
-
-  ```bash
-  ./dev/test/wasm-interactive xmtp_mls
-  ```
-
-- To run browser SDK tests:
-
-  ```bash
-  ./dev/test/browser-sdk
-  ```
-
-## Tips & Tricks
-
-### Log Output Flags for Tests
-
-`#[xmtp_common::test]` installs the test logger. Control it with environment
-variables:
-
-```bash
-RUST_LOG=xmtp_mls=debug,xmtp_api=off,xmtp_id=info cargo test   # filter by crate
-STRUCTURED=1 cargo test                                        # JSON lines for a log viewer
-SHOW_SPAN_FIELDS=1 cargo test                                  # include tracing span fields
-XMTP_TEST_LOGGING=false cargo test                             # no test logging; CI=true does the same
-```
-
-Give test clients a name so log lines can be matched to them. `tester!(alix)`
-does this for you; a hand-built client uses the builder:
-
-```rust
-let tester = Tester::builder().with_name("alix").build().await;
-```
-
-The name is logged with the client's installation id in an `AssociateName`
-event. See `.agents/skills/writing-rust-tests/` for the full test guide.
-
-## Quick Start (Dev Containers)
-
-This project supports containerized development. From Visual Studio Code Dev
-Containers extension specify the Dockerfile as the target:
-
-`Reopen in Container`
-
-or
-
-Command line build using docker
-
-```bash
-docker build . -t libxmtp:1
-```
-
-## Quick Start (nix)
-
-This project supports [Determinate Nix](https://docs.determinate.systems/) for
-reproducible development environments. Nix provides pinned toolchains for Rust,
-Android, iOS, WebAssembly, and Node.js builds.
-
-```bash
-./dev/nix-up    # One-time setup: install Determinate Nix + direnv + binary caches
-nix develop     # Enter the default dev shell
-```
-
-To temporarily disable/enable direnv without uninstalling anything:
-
-```bash
-./dev/direnv-down  # Disable direnv auto-activation
-./dev/direnv-up    # Re-enable direnv
-```
-
-See [docs/nix-setup.md](docs/nix-setup.md) for the full setup guide, including
-binary cache configuration, available dev shells, and direnv usage.
-
-## Structure
-
-libxmtp/
-
-├ apps/
-
-│ ├ [`android`](./apps/android): Example Android app (in progress) │ ├
-[`xdbg`](./apps/xmtp_debug): comprehensive CLI for sending/load testing XMTP
-clients & network
-
-service
-
-├ [`sdks`](./sdks): Generated public SDK packages
-
-├ crates/
-
-│ ├ [`xmtp_api_grpc`](./crates/xmtp_api_grpc): API client for XMTP's gRPC API
-
-│ ├ [`xmtp_cryptography`](./crates/xmtp_cryptography): Cryptographic operations
-
-│ ├ [`xmtp_mls`](./crates/xmtp_mls): Version 3 of XMTP which implements
-[Messaging Layer Security](https://messaginglayersecurity.rocks/)
-
-│ └ [`xmtp_proto`](./crates/xmtp_proto): Generated code for handling XMTP
-protocol buffers
-
-├ sdks/
-
-│ ├ [`agent`](./sdks/agent): Agent SDK (TypeScript)
-
-│ ├ [`android`](./sdks/android): Android SDK (Kotlin)
-
-│ ├ [`browser`](./sdks/browser): Browser SDK (TypeScript)
-
-│ ├ [`ios`](./sdks/ios): iOS SDK (Swift)
-
-│ └ [`node`](./sdks/node): Node SDK (TypeScript)
-
-### Run the benchmarks
-
-Run commands from the repository root through `dev/nix-shell`.
-
-#### Rust benchmarks
-
-The following table lists all registered Criterion benchmark targets. Each
-target requires the `bench` feature. The source links show the individual cases
-and data sizes.
-
-| Package | Target | Measurements |
-| --- | --- | --- |
-| `xmtp_mls` | [`group_limit`](./crates/xmtp_mls/benches/group_limit.rs) | Add members by identity or inbox ID to empty and existing groups. Remove all or half of the members. Add one member across group sizes. |
-| `xmtp_mls` | [`crypto`](./crates/xmtp_mls/benches/crypto.rs) | Wrap Welcome payloads with Curve25519 and post-quantum HPKE across payload sizes. |
-| `xmtp_mls` | [`identity`](./crates/xmtp_mls/benches/identity.rs) | Register an identity with an externally owned account (EOA). |
-| `xmtp_mls` | [`groups`](./crates/xmtp_mls/benches/groups.rs) | Find groups, list conversations, and find groups with filters across database sizes. |
-| `xmtp_mls` | [`messages`](./crates/xmtp_mls/benches/messages.rs) | Query messages with `find_messages` and `find_messages_v2`. Cases cover ordering, time bounds, message kind, delivery status, content types, and sender filters. |
-| `xmtp_mls` | [`consent`](./crates/xmtp_mls/benches/consent.rs) | Find consent by DM ID across consent-record counts. |
-| `xmtp_mls` | [`sync_conversations`](./crates/xmtp_mls/benches/sync_conversations.rs) | Sync conversations across 10 or 100 groups, with different counts of groups that have new messages. |
-| `xmtp_db` | [`db_init_latency`](./crates/xmtp_db/benches/db_init_latency.rs) | Initialize a fresh encrypted database with injected fsync and write latency. Report SQLite I/O operation counts. |
-| `xmtp_db` | [`conversation_list`](./crates/xmtp_db/benches/conversation_list.rs) | List conversations and find groups with consent, type, sync-group, and activity filters. Read five pages and find one group by ID. |
-
-Run a target that needs no backend:
+Use an existing backend or [run the messaging backend](https://xmtp.org/get-started/run-the-backend/). For a Node.js app, install the SDK in your app project:
 
 ```sh
-dev/nix-shell 'dev/agent-run cargo bench -p xmtp_mls --features bench --bench crypto'
-dev/nix-shell 'dev/agent-run cargo bench -p xmtp_db --features bench --bench db_init_latency'
-dev/nix-shell 'dev/agent-run cargo bench -p xmtp_db --features bench --bench conversation_list'
+npm install --save-exact @xmtp/node-sdk@8.0.0-rc1
 ```
 
-`conversation_list` uses 10,000 conversations by default. Set
-`XMTP_BENCH_CONVERSATIONS` to change that count. Set `XMTP_BENCH_DIR` to select
-the database directory for `db_init_latency`.
+Follow the [chat app quickstart](https://xmtp.org/get-started/quickstart/) to create a signer and client with a 32-byte database encryption key. Create a conversation with a registered recipient's inbox ID. Send a message and receive it with the other client. Use the same backend for both clients.
 
-The other `xmtp_mls` targets need a backend. Use `just backend ci` to run them
-with disposable local services and the correct connection settings:
+For an agent, use the [Agent quickstart](https://xmtp.org/agents/quickstart/). It covers key setup, a text handler, and testing the agent. For a browser or mobile app, use the [chat app quickstart](https://xmtp.org/get-started/quickstart/) and select your platform.
+
+See [Create a client](https://xmtp.org/sdk/client/) for backend and storage settings.
+
+## SDKs and packages
+
+Each version 8 RC SDK has source, an installation guide, and an API reference.
+
+| SDK | Language | Source | Documentation | Package |
+| --- | --- | --- | --- | --- |
+| Browser | TypeScript | [Source](https://github.com/xmtp/libxmtp/tree/main/sdks/browser) | [Install](https://xmtp.org/get-started/install/#browser-node-and-agent-packages) · [API](https://xmtp.org/reference/browser-sdk/classes/client/) | [npm — @xmtp/browser-sdk](https://www.npmjs.com/package/@xmtp/browser-sdk) |
+| Node | TypeScript | [Source](https://github.com/xmtp/libxmtp/tree/main/sdks/node) | [Install](https://xmtp.org/get-started/install/#browser-node-and-agent-packages) · [API](https://xmtp.org/reference/node-sdk/classes/client/) | [npm — @xmtp/node-sdk](https://www.npmjs.com/package/@xmtp/node-sdk) |
+| Agent | TypeScript | [Source](https://github.com/xmtp/libxmtp/tree/main/sdks/agent) | [Guide](https://xmtp.org/agents/quickstart/) · [API](https://xmtp.org/reference/agent-sdk/classes/agent/) | [npm — @xmtp/agent-sdk](https://www.npmjs.com/package/@xmtp/agent-sdk) |
+| Android | Kotlin | [Source](https://github.com/xmtp/libxmtp/tree/main/sdks/android) | [Install](https://xmtp.org/get-started/install/#android-package) · [API](https://xmtp.org/reference/kotlin/) | [Maven Central — org.xmtp:android](https://central.sonatype.com/artifact/org.xmtp/android) |
+| iOS | Swift | [Source](https://github.com/xmtp/libxmtp/tree/main/sdks/ios) | [Install](https://xmtp.org/get-started/install/#swift-package) · [API](https://xmtp.org/reference/swift/documentation/xmtpsdk/) | [Swift Package Manager](https://github.com/xmtp/libxmtp) · [CocoaPods — XMTP](https://cocoapods.org/pods/XMTP) |
+
+## Explore the examples
+
+- [Web chat](https://github.com/xmtp/libxmtp/tree/main/apps/web-chat): Run a browser client against your backend.
+
+- [Android Messenger](https://github.com/xmtp/libxmtp/tree/main/apps/example-android): Test messaging and debug the Android SDK.
+
+- [iOS examples](https://github.com/xmtp/libxmtp/tree/main/apps/example-ios): Build a mobile client with the local Swift package.
+
+- [Agent demos](https://github.com/xmtp/libxmtp/tree/main/sdks/agent/src/demo): Explore message handlers and app-specific behavior.
+
+For more Agent SDK examples, see [XMTP Agent Examples](https://github.com/xmtplabs/xmtp-agent-examples).
+
+## Getting started working in this repo
+
+The local setup uses Nix to provide pinned development tools. The setup script below targets macOS, with Apple Silicon as the primary platform. Install and start Docker for test services.
+
+1. Clone the repository and create a branch for your change.
+
+   ```sh
+   git clone https://github.com/xmtp/libxmtp.git
+   cd libxmtp
+   git switch -c my-change
+   ```
+
+2. Set up Nix and the binary cache. Follow the script prompts.
+
+   ```sh
+   ./dev/nix-up
+   ```
+
+3. Start the backend and check the workspace.
+
+   ```sh
+   dev/nix-shell 'just backend up'
+   dev/nix-shell 'just check'
+   dev/nix-shell 'just test'
+   ```
+
+4. Run the shared checks. Then run the build and tests listed in the guide for the directory you changed.
+
+   ```sh
+   dev/nix-shell 'just lint'
+   ```
+
+`just test` covers the default Rust workspace members and excludes backend database tests. Run those tests with `dev/nix-shell 'just backend test'`. Use each SDK's guide for platform builds and tests. Run `dev/nix-shell 'just'` to list the available tasks.
+
+To run the full backend and web example:
 
 ```sh
-dev/nix-shell 'just backend ci dev/agent-run cargo bench -p xmtp_mls --features bench --bench group_limit'
-dev/nix-shell 'just backend ci ./dev/bench'
-dev/nix-shell 'just backend ci ./dev/bench add_1_member_to_group'
+dev/nix-shell 'just backend up'
+dev/nix-shell 'just backend status'
+dev/nix-shell 'just install-js'
+dev/nix-shell 'just web-chat dev'
 ```
 
-`./dev/bench` runs all `xmtp_mls` benchmarks. Its optional argument filters the
-benchmark names. Criterion writes results under `target/criterion/`. To collect
-tracing data, set `XMTP_FLAMEGRAPH=trace` for a target that uses the benchmark
-logger. The logger writes `tracing.folded`.
+Open the URL printed by the app. See the [web chat guide](https://xmtp.org/tools/web-chat/) for connection settings. Use the addresses printed by `backend status`; worktrees have separate port blocks. See the [backend guide](https://xmtp.org/get-started/run-the-backend/) for configuration and service details.
 
-#### SDK host benchmarks
+## Find your way around
 
-The SDK suite runs the following workloads on all four hosts:
-
-| Workload | Measurements |
+| Path | Contents |
 | --- | --- |
-| `cold_start` | Create a client with a fresh database and a real ECDSA signer, after module load. |
-| `page` | Read and normalize 1,000 messages with text, replies, attachments, and reactions. |
-| `stream` | Publish 1,000 messages and 250 reactions while a group stream reads all 1,250 events. |
+| [sdks](https://github.com/xmtp/libxmtp/tree/main/sdks) | Public SDK source and platform packages |
+| [crates](https://github.com/xmtp/libxmtp/tree/main/crates) | Shared Rust code for messaging, identity, storage, and cryptography |
+| [apps/backend](https://github.com/xmtp/libxmtp/tree/main/apps/backend) | Ready to deploy messaging backend |
+| [apps](https://github.com/xmtp/libxmtp/tree/main/apps) | Example apps, command-line tools, and developer tools |
+| [docs/specs](https://xmtp.org/specs/) | Behavior specifications |
+| [docs](https://xmtp.org/) | Setup, operations, and SDK guides |
 
-Each workload reports duration and peak memory, with p50 and p95. The stream
-workload also reports message and event rates. The suite records package size;
-Browser runs also record main-thread long tasks. Memory measurements have a
-different scope on each host.
+## Contribute
 
-Stage the matching SDK package and start this worktree's backend before a run.
-Swift needs an iOS Simulator. Kotlin needs an Android device or emulator. See
-the [SDK benchmark guide](./crates/xmtp_sdk/benchmarks/README.md) for setup,
-options, and result fields.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for dependency changes, test logging, coverage, and benchmark commands.
 
-| Host | Command |
-| --- | --- |
-| Node | `dev/nix-shell 'just sdk bench node --samples 5'` |
-| Browser (Chromium) | `dev/nix-shell 'NIX_DEVSHELL=js just sdk bench browser --samples 5'` |
-| Swift (iOS Simulator) | `dev/nix-shell 'NIX_DEVSHELL=ios just sdk bench swift --samples 5'` |
-| Kotlin (Android) | `dev/nix-shell 'NIX_DEVSHELL=android just sdk bench kotlin --samples 5'` |
+Start with [CONTRIBUTING.md](https://github.com/xmtp/libxmtp/blob/main/CONTRIBUTING.md) and [AGENTS.md](https://github.com/xmtp/libxmtp/blob/main/AGENTS.md). Read the instructions in the directory you change. Check the [specifications](https://xmtp.org/specs/) for the relevant behavior.
 
-Each command runs all three workloads and writes `results.json` under
-`target/sdk-bench/`. To check the runners without a backend, device, or SDK
-build, run `dev/nix-shell 'just sdk bench-check'`.
+Open an [issue](https://github.com/xmtp/libxmtp/issues) for a bug or to discuss a substantial change. Branch from `main` and target your pull request at `main`. Explain what changed and how you checked it. Include a test that detects the bug when you fix behavior, and show that the test fails without the fix.
 
-#### Database query benchmark
+For help building an app, see the [debugging guide](https://xmtp.org/sdk/debug/) or open an [issue](https://github.com/xmtp/libxmtp/issues). For the protocol's security properties, see the [security documentation](https://xmtp.org/protocol/security/).
 
-The [`xmtp-db-tools` query benchmark](./apps/db_tools/src/tasks/db_bench.rs)
-measures queries on an existing database. It covers groups, messages, consent,
-association state, identity updates, group intents, refresh state, key-package
-history, conversation lists, commit logs, DMs, message deletion, device sync,
-tasks, re-add status, pending removals, identity rotation, and group versions.
+## License
 
-Run it on a copy of a populated database. Some cases update records or delete
-expired messages. Supply `--db-key` when the database is encrypted:
-
-```sh
-dev/nix-shell 'dev/agent-run cargo run -p xmtp-db-tools -- query-bench /path/to/database-copy.db3'
-```
-
-## Code Coverage
-
-Code coverage is generated using `cargo llvm-cov` and is integrated into ci and
-reported to [codecov](https://codecov.io).
-
-To run the tests locally you can run the `dev/llvm-cov` script to run the same
-workspace tests and generate both an lcov and html report.
-
-If you have installed the `Coverage Gutters` extension in vscode (or a
-derivative) you can get coverage information in your IDE.
-
-## Contributing
-
-See our [contribution guide](./CONTRIBUTING.md) to learn more about contributing
-to this project.
+[MIT](https://github.com/xmtp/libxmtp/blob/main/LICENSE).

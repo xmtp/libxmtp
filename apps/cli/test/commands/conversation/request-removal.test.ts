@@ -7,34 +7,6 @@ import {
 } from "../../helpers.js";
 
 describe("conversation request-removal", () => {
-  it("requests removal from a group", async () => {
-    const creator = await createRegisteredIdentity();
-    const member = await createRegisteredIdentity();
-
-    const groupResult = await runWithIdentity(creator, [
-      "conversations",
-      "create-group",
-      member.address,
-      "--json",
-    ]);
-    const group = parseJsonOutput<{ id: string }>(groupResult.stdout);
-
-    // Use member to request removal, not creator (creator is super admin)
-    // First, member needs to sync to see the group
-    await runWithIdentity(member, ["conversations", "sync"]);
-
-    const result = await runWithIdentity(member, [
-      "conversation",
-      "request-removal",
-      group.id,
-      "--json",
-    ]);
-
-    // May fail if member can't see the group yet
-    // Just check the command runs without crashing
-    expect(result.exitCode).toBeDefined();
-  });
-
   it("fails for DM conversation", async () => {
     const sender = await createRegisteredIdentity();
     const recipient = await createRegisteredIdentity();

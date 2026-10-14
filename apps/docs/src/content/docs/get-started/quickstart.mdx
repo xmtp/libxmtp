@@ -45,7 +45,10 @@ Follow the [Swift installation instructions](/get-started/install/).
 
 The signer provides `identity()`, `kind()`, and `sign(request)`. Its `sign`
 method returns a `Signature` with the raw signature bytes. The SDK's
-`generateLocalSigner()` implements these methods for the examples below.
+`Client.generateKeys()` (`SDKClient.generateKeys()` in Kotlin and Swift) returns
+a local signing key that implements these methods. For a persistent account,
+[save and restore the private key](/sdk/signer/#save-and-restore-a-local-key)
+before opening the client. The examples below create temporary accounts.
 The backend URL is required. Use the URL of your running backend. These examples
 create temporary identities for testing. Do not use their key lifecycle in a
 production app: store the signer key and database encryption key securely and
@@ -80,7 +83,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 suspend fun createDemoClient(context: Context, backendUrl: String): SDKClient {
-    val signingKey = generateLocalSigner()
+    val signingKey = SDKClient.generateKeys()
     val keyBytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
     return SDKClient.create(
         context = context,
@@ -130,7 +133,7 @@ import Foundation
 import XmtpSdk
 
 func createDemoClient(backendUrl: String, databaseKey: Data) async throws -> SDKClient {
-  let signer = await generateLocalSigner()
+  let signer = await SDKClient.generateKeys()
   return try await SDKClient.create(
     signer: signer,
     options: ClientOptions(

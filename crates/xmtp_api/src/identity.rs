@@ -1,5 +1,7 @@
 use crate::{
-    ApiClientWrapper, ApiError, PublishUnit, Result, chunk::MAX_READ_CHUNKS_IN_FLIGHT, dyn_err,
+    ApiClientWrapper, ApiError, HandleRejection, PublishUnit, Result,
+    chunk::{MAX_READ_CHUNKS_IN_FLIGHT, publish_error_reason},
+    dyn_err,
 };
 use futures::{StreamExt, TryStreamExt, stream};
 use std::collections::HashMap;
@@ -10,6 +12,18 @@ use xmtp_proto::{
     types::{ApiIdentifier, Cursor, IdentityUpdateLog, Topic, TopicCursor},
     xmtp::identity::associations::{IdentifierKind, IdentityUpdate},
 };
+
+/// The handle rejection that a refused identity publish reports in its
+/// structured detail.
+fn handle_rejection(error: &ApiError) -> Option<HandleRejection> {
+    use wire::publish_error::Reason;
+    match publish_error_reason(error)? {
+        Reason::HandleTaken => Some(HandleRejection::Taken),
+        Reason::HandleNotAllowed => Some(HandleRejection::NotAllowed),
+        Reason::HandleTooSoon => Some(HandleRejection::TooSoon),
+        _ => None,
+    }
+}
 
 /// Read updates after the exclusive sequence id on this inbox topic.
 #[derive(Debug)]
@@ -45,7 +59,9 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             {
                 Err(ApiError::IdentityUpdateConflict)
             }
-            Err(error) => Err(error),
+            Err(error) => Err(handle_rejection(&error)
+                .map(ApiError::HandleRejected)
+                .unwrap_or(error)),
         }
     }
     #[xmtp_common::rpc_span]

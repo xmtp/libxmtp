@@ -580,6 +580,7 @@ async fn rust_kinds_equal_the_approved_spec_kinds() {
         "attachment.download_completed",
         "attachment.download_failed",
         "attachment.deleted",
+        "handle.changed",
         "lagged",
     ];
     let actual: Vec<_> = EventKind::ALL.into_iter().map(EventKind::name).collect();

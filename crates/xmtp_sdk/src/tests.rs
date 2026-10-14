@@ -1,11 +1,13 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+mod history_pages;
 mod history_snapshot;
 mod reader_ack_cancellation;
 mod reader_admission;
 mod reader_cancellation_regressions;
 mod reader_restored;
 mod reader_selection;
+mod recovery_pages;
 
 use std::sync::{
     Arc,
@@ -571,6 +573,7 @@ async fn assert_undecodable_standard_read_paths(
     group: &Arc<crate::Group>,
     id: MessageId,
     expected_raw: &[u8],
+    case: &str,
 ) -> Result<(), XmtpError> {
     let stored = client
         .inner
@@ -591,7 +594,7 @@ async fn assert_undecodable_standard_read_paths(
     let outcomes = [("direct", direct), ("by ID", by_id), ("history", history)]
         .into_iter()
         .map(|(path, message)| {
-            let preserved = matches!(message.0.content,
+            let preserved = message.0.id == id && matches!(message.0.content,
                 MessageContent::Unknown { encoded, raw_bytes, .. }
                     if raw_bytes.as_slice() == expected_raw
                         && encoded.as_ref().is_none_or(|value| value.r#type.authority_id == "xmtp.org" && value.r#type.type_id == "text"));
@@ -600,7 +603,7 @@ async fn assert_undecodable_standard_read_paths(
         .collect::<Vec<_>>();
     assert!(
         outcomes.iter().all(|(_, preserved)| *preserved),
-        "failed standard content was not Unknown with raw bytes: {outcomes:?}"
+        "{case}: failed standard content was not Unknown with raw bytes: {outcomes:?}"
     );
     Ok(())
 }
@@ -623,6 +626,7 @@ mod event_listeners;
 mod event_readers;
 mod foreign_callbacks;
 mod group_options;
+mod handles;
 mod history_errors;
 mod identity_routes;
 mod lifecycle;
@@ -634,6 +638,7 @@ mod query_costs;
 mod reader_delivery;
 mod reader_recovery;
 mod retained_content;
+mod shared_auth;
 mod signers;
 mod standard_sends;
 mod storage;

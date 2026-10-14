@@ -6,13 +6,14 @@ macOS.
 ## Prerequisites
 
 - **macOS** (aarch64-darwin is the primary supported platform)
-- **Docker** — required for running the local XMTP node (`dev/up` starts it in
-  Docker)
+- **Docker** — required for running the local XMTP node (`just backend up`
+  starts it in Docker)
 
 ## Install Determinate Nix
 
 The easiest way to get started is the `./dev/nix-up` script, which installs
-Determinate Nix and direnv interactively:
+Determinate Nix, configures the XMTP binary cache, and installs direnv
+interactively:
 
 ```bash
 ./dev/nix-up
@@ -27,7 +28,7 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 [Determinate Nix](https://docs.determinate.systems/) is a distribution of Nix
 designed for developer and CI workflows with built-in caching support.
 
-To fully uninstall Nix and direnv, run `./dev/nix-down`. Note that
+To fully uninstall Determinate Nix, run `/nix/nix-installer uninstall`. Note that
 re-installing requires re-downloading all dependencies (5+ minutes depending on
 connection speed). If you just want to temporarily disable direnv, see
 [Disabling direnv](#disabling-direnv) below.
@@ -53,7 +54,9 @@ eval "$(direnv hook bash)"
 ```
 
 direnv automatically loads the default Nix dev shell when you `cd` into the
-repo. Run `direnv allow` to authorize it and `direnv deny` to revoke.
+repo. Run `direnv allow` to authorize it and `direnv deny` to revoke. `.envrc`
+loads the environment that `dev/nix-shell` caches, so direnv and the wrapper
+share one evaluation; `dev/nix-shell --refresh true` evaluates it again.
 
 The default shell is also used by Zed's Rust language server and default agent
 commands. This keeps native compiler, linker, and SDK settings consistent. Do not
@@ -63,11 +66,11 @@ command. See [Zed checks](agent-tools.md#zed-checks) for check scope and migrati
 ## Disabling direnv
 
 If direnv's shell integration is slowing down your terminal or you want to
-temporarily stop the auto-activation, use the lightweight toggle scripts:
+temporarily stop the auto-activation, toggle it for this repository:
 
 ```bash
-dev/direnv-down   # Disable direnv for this repo (runs direnv deny)
-dev/direnv-up     # Re-enable direnv for this repo (runs direnv allow)
+direnv deny    # Disable direnv for this repo
+direnv allow   # Re-enable direnv for this repo
 ```
 
 These do **not** uninstall anything — they just toggle whether direnv activates
@@ -82,30 +85,27 @@ compiling from source:
 
 - `xmtp.cachix.org` — project-specific cache (XMTP derivations, Android NDK, etc.)
 
-The script runs `cachix use xmtp` (via `nix run nixpkgs#cachix`), which
-automatically chooses the right Nix config approach based on whether you are a
-trusted user. If you installed Nix manually (without `dev/nix-up`), you can
-configure the cache yourself:
-
-```bash
-nix run nixpkgs#cachix -- use xmtp
-```
-
-If you are not a trusted Nix user, you may need sudo:
-
-```bash
-sudo nix run nixpkgs#cachix -- use xmtp
-```
+The script adds `extra-substituters` and `extra-trusted-public-keys` lines.
+A trusted Nix user (`nix config show trusted-users` names you) gets them in
+`~/.config/nix/nix.conf`. Any other user gets them through `sudo` in
+`/etc/nix/nix.custom.conf` when it exists (Determinate Nix manages
+`/etc/nix/nix.conf`), else in `/etc/nix/nix.conf`, and the script then restarts
+the Nix daemon. If you installed Nix without `dev/nix-up`, run it once to
+configure the cache.
 
 ## Available Dev Shells
 
-| Shell     | Command                 | Description                                  |
-| --------- | ----------------------- | -------------------------------------------- |
-| `default` | `nix develop`           | General Rust development for libxmtp         |
-| `android` | `nix develop .#android` | Android cross-compilation (NDK, cargo-ndk)   |
-| `ios`     | `nix develop .#ios`     | iOS/Swift builds (macOS only)                |
-| `js`      | `nix develop .#js`      | Node.js bindings development                 |
-| `wasm`    | `nix develop .#wasm`    | WebAssembly builds (wasm-pack, wasm-bindgen) |
+| Shell                   | Description                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `default`               | Local development: the Rust core plus editor, debug, and iOS tools              |
+| `rust`                  | The Rust core: one toolchain, cargo tools, Node, and pnpm (CI Rust)             |
+| `android`               | The Rust core packages plus the Android SDK, NDK, and emulator                  |
+| `android-ci`            | Slim Android CI shell, no Rust (Linux); `android-ci-emulator` adds the emulator |
+| `js`, `js-node`, `docs` | JavaScript and docs work, no Rust                                               |
+| `ios`, `wasm`           | Old names of `default` and `rust`                                               |
+
+Enter a shell with `dev/nix-shell --shell <name> '<command>'`; it caches the
+evaluated environment.
 
 ## Common Commands
 
@@ -132,91 +132,61 @@ nix flake show
   pre-configured environments for Android (NDK), iOS (Xcode toolchain), and
   WebAssembly (wasm-pack/wasm-bindgen)
 - **CI caching** — [Cachix](https://cachix.org) stores built Nix derivations so
-  CI and local builds skip redundant work
-- **Omnix for CI orchestration** — the `.envrc` integrates with
-  [omnix](https://omnix.page) for CI workflow management
+  CI and local builds skip redundant work. On every push to trunk,
+  `.github/workflows/post-merge.yml` builds and pins the outputs in
+  `nix/ci-sets.nix`. Developers, release, and deploys read only the trusted
+  cache `xmtp`; pull request and merge-run jobs also read and write the
+  CI-only cache `xmtp-pr`
 
-## Shared Build Cache (sccache)
+## Compiler cache
 
-Each git worktree keeps its own `target/` directory. A shared compilation cache
-can reuse eligible dependency builds across worktrees. It does not replace
-`target/` or remove old build artifacts.
+The Rust, local, WASM, Android, and iOS shells enable pinned Kache by default.
+CI uses the same helper through `setup-nix`. Nix derivations keep their own
+Nix/Crane caches. Each worktree keeps its own Cargo target directory.
 
-`sccache` is in the `rust` and `default` dev shells. It is **off by default**.
-Turn it on inside each Nix shell that needs it:
+The helper preserves local compiler flags and profiles. CI sets
+`CARGO_INCREMENTAL=0` and disables adaptive and preserved incremental policies.
+On Darwin, only explicit library compiles are cached. Linked outputs, tests,
+proc macros, static libraries, and unknown forms go directly to rustc with
+unchanged arguments. Output verification remains enabled.
 
-```bash
-source dev/sccache-env
-dev/nix-shell 'dev/agent-run cargo build -p xmtp_common'
-```
+Run `dev/nix-shell 'kache stats --full'` to inspect hits, misses, and scheduler wait. To opt out,
+use `XMTP_KACHE=0 dev/nix-shell 'just check'`. The default store is
+`${XDG_CACHE_HOME:-$HOME/.cache}/kache`, with a local default limit of 50 GiB.
+The CI action uses a 10 GiB limit. Existing nonempty `KACHE_CACHE_DIR` and
+`KACHE_MAX_SIZE` values are kept.
 
-The helper selects `sccache` from `PATH` as `RUSTC_WRAPPER`. Each worktree keeps
-its own Cargo build lock. Do not point several worktrees at one mutable target
-directory. The helper does not change compiler flags, features, or profiles.
+Kache's scheduler is on. It does two things (Kache 1.1.1
+`docs/how-it-works/limits.mdx`). After a local and remote miss, a compile joins
+a machine-wide flight for its cache key, so a second process that misses the
+same key waits and then restores the first one's entry; `kache stats --full`
+reports that wait as "on a shared compile". The compile then takes a permit
+from a pool of one slot per CPU per cache directory (machine-wide here, because
+the worktrees share `~/.cache/kache`). A slot is the machine's memory divided by
+the pool, at least 512 MiB; a measured crate takes as many slots as its peak
+memory needs, an unmeasured compile one, and an unmeasured link two. Under
+memory pressure (on macOS, the kernel's warning level) a compile asks for the
+whole pool, so compiles run one at a time. Hits and passthroughs never wait.
+The switches: `KACHE_SCHEDULER_MEMORY_PRESSURE=0` turns off only the pressure
+mode; `KACHE_SCHEDULER=0` turns off the scheduler (two processes that miss
+the same crate still share one compile when the first stores an entry that the
+second can restore, but the shared-compile wait is no longer measured). Change
+a switch only when `kache stats --full` shows permit waits while
+cores are idle; bare `kache stats` shows no scheduler wait.
 
-### Local incremental builds and cache reuse
+Locally, Kache's adaptive incremental mode (on by default) gives a workspace
+crate whose sources changed isolated incremental state, also when it is a
+dependency such as `crates/xmtp_mls` under an `xmtp_sdk` build. On the owner
+Mac a one-line `xmtp_mls` edit rebuilt the SDK host library in about 6 s from
+the second edit on (19 s for the first), against 31 s per edit with
+`KACHE_ADAPTIVE_INCREMENTAL=0`, so neither `-p` lists nor
+`KACHE_PRESERVE_INCREMENTAL=1` are needed.
 
-The helper unsets `CARGO_INCREMENTAL`, including an inherited `0` or `1`.
-Cargo then uses the profile defaults: local dev crates use incremental builds,
-and the repository disables incremental builds for non-local dependencies.
-The WASM test profile and `just wasm check` disable incremental builds to limit
-the size of WASM build data. Repeat local WASM checks can take longer.
-sccache passes incremental builds through without caching them. Do not export
-`CARGO_INCREMENTAL=1` while this wrapper is active: sccache 0.16 rejects that
-explicit override before compilation.
+`KACHE_MAX_SIZE` limits the store's private blob bytes on each machine; blobs
+that a target directory still holds (hardlinked or cloned) are not freed until
+that target goes. `kache clean --stale 14d --dry-run`, then `--yes`, removes
+target directories that no build used for 14 days, which frees their bytes.
 
-An isolated two-worktree test with sccache 0.16 reused the registry dependency
-and passed local incremental builds through. This proves cache eligibility,
-not a workspace speedup. A separate non-incremental test still missed the cache
-for local crates at different worktree paths. `SCCACHE_BASEDIRS` did not remove
-those misses. Different toolchains, features, profiles, and environment values
-can also split cache entries. In particular, different `CARGO_TARGET_DIR` values
-prevented reuse in the test. Keep the normal per-worktree `target/` path.
-
-Linked binaries, proc macros, and many check-only calls cannot be cached.
-See the [sccache Rust limits](https://github.com/mozilla/sccache/blob/v0.16.0/docs/Rust.md).
-Use `just cache-stats` to measure actual reuse. To disable the helper in this shell:
-
-```bash
-unset RUSTC_WRAPPER
-```
-
-This does not restore a previous wrapper or incremental override. If you need
-those settings, restore them explicitly. Existing build artifacts are not deleted.
-
-### Cache size
-
-The local cache evicts least-recently-used entries. The helper requests a 10 GiB
-cap in `~/.cache/sccache`. Set `SCCACHE_CACHE_SIZE` or `SCCACHE_DIR` before
-sourcing to use a different cap or location. Nonempty explicit values are kept.
-
-A running sccache server keeps the settings from its startup. Sourcing the helper
-does not restart it or reduce an existing 60 GiB cap. Check the actual cache
-location and maximum size with `just cache-stats`. To apply changed settings,
-wait until all builds that use that server have stopped, then run
-`sccache --stop-server`. The next build starts a server with the new settings.
-Do not stop a server that other worktrees are using. Cache storage is additional
-disk use; the cap does not limit any worktree's `target/` directory.
-
-```bash
-just cache-stats                        # hit rates and current size
-just disk                               # free space, target/ size per worktree
-just clean-incremental                  # delete incremental/ dirs unused 14+ days
-just clean-incremental 30               # ...or a different age
-just clean-incremental --minutes 30     # delete crate caches unchanged for 30 min
-```
-
-During a long run with several worktrees, start a disk guard before the first
-build, for example
-`while just clean-incremental --minutes 30 && df -h .; do sleep 600; done`
-in a background shell.
-
-### CI and releases
-
-`dev/sccache-env` is never sourced automatically and is for local use only.
-
-- **Nix builds** (`nix build`, releases, `.#validation`, `.#nextest`) run in a
-  sandbox and never see `RUSTC_WRAPPER`. They are unaffected.
-- **CI** sets its own sccache through the `sccache` input of
-  `.github/actions/setup-nix`, backed by the GitHub Actions cache. Workflows
-  that build inside `nix build` set `sccache: "false"` on purpose.
+CI cache writes are limited to trusted pushes on main. Other
+contexts can restore the cache. Keep credentials out of source and derivations.
+Compiler cache hits do not qualify a whole-workflow time or cost target.

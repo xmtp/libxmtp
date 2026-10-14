@@ -37,7 +37,7 @@ sample ratio `1.0`, and resource attributes `xmtp.chaos.run` and
 `Agent.reconnect.test.ts` can export the Agent SDK call path:
 
 ```sh
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && XMTP_RECOVERY_TRACE_ENDPOINT="http://127.0.0.1:${XMTP_OTLP_GRPC_PORT}" XMTP_RECOVERY_TRACE_RUN="agent-recovery-local" just js test-agent-sdk-ci src/core/Agent.reconnect.test.ts'
+dev/nix-shell '. dev/docker/load-env && XMTP_RECOVERY_TRACE_ENDPOINT="http://127.0.0.1:${XMTP_OTLP_GRPC_PORT}" XMTP_RECOVERY_TRACE_RUN="agent-recovery-local" just js test-agent-sdk-ci src/core/Agent.reconnect.test.ts'
 ```
 
 Run this fault suite alone. Use a unique run label and a bounded time range:
@@ -61,7 +61,7 @@ Both `start` and `end` are required when you specify a time range; they use
 Unix **seconds**. Returned span timestamps use Unix **nanoseconds**.
 
 ```sh
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && python3 - <<"PY"
+dev/nix-shell '. dev/docker/load-env && python3 - <<"PY"
 import json, os, time, urllib.parse, urllib.request
 
 base = "http://127.0.0.1:" + os.environ["XMTP_TEMPO_PORT"]
@@ -97,7 +97,7 @@ Fetch a selected ID with `GET /api/traces/TRACE_ID`. This example keeps output
 to selected fields and at most 60 spans. Replace `TRACE_ID` first.
 
 ```sh
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && python3 - <<"PY"
+dev/nix-shell '. dev/docker/load-env && python3 - <<"PY"
 import json, os, urllib.request
 
 trace_id = "TRACE_ID"

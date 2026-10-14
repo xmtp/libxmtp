@@ -63,7 +63,7 @@ on:
         description: "Release PR target branch (only applies to final releases)"
         required: false
         type: string
-        default: "self-hosted"
+        default: "main"
       dry-run:
         description: "Build npm packages and selected backend images; skip mobile jobs, publishing, and tags"
         required: false
@@ -235,6 +235,8 @@ jobs:
       && (needs.validate.outputs.release-type != 'nightly'
           || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
     uses: ./.github/workflows/release-android.yml
+    permissions:
+      contents: write
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
@@ -351,12 +353,10 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
       - name: Merge release PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_BRANCH: ${{ needs.validate.outputs.ref }}
           PR_BASE: ${{ inputs.pr-base }}
         run: |
@@ -400,12 +400,17 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      should-release: ${{ steps.guard.outputs.should-release }}
+      version: ${{ steps.hubver.outputs.version }}
+      source-sha: ${{ steps.tag.outputs.source-sha }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.validate.outputs.ref }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: ./.github/actions/setup-release-tools
       # Don't mint an empty hub release. A manual nightly dispatch can disable
       # every SDK (ios=android=node=browser=false), which would otherwise produce a
@@ -471,14 +476,70 @@ jobs:
           if ! grep -qE '^- ' /tmp/nightly-changelog.md; then
             : > /tmp/nightly-changelog.md
           fi
+      # This job runs repository code, so it only creates the tag locally.
+      # push-release-tag.yml pushes it with the release GitHub App token, in
+      # a job that runs no repository code. A v* tag ruleset can list the App
+      # as its bypass actor; it cannot list GITHUB_TOKEN.
       - name: Tag libxmtp hub
-        if: steps.guard.outputs.should-release == 'true'
-        run: xmtp-release tag-release --sdk libxmtp --version "${{ steps.hubver.outputs.version }}" --ignore-if-exists
-      - name: Create hub GitHub Release
+        id: tag
         if: steps.guard.outputs.should-release == 'true'
         env:
+          VERSION: ${{ steps.hubver.outputs.version }}
+        run: |
+          set -euo pipefail
+          xmtp-release tag-release --sdk libxmtp --version "$VERSION" --ignore-if-exists --no-push
+          # On a retry the tag already exists; push that tag again.
+          echo "source-sha=$(git rev-parse "refs/tags/v${VERSION}^{commit}")" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/release-tag"
+          git bundle create "$RUNNER_TEMP/release-tag/release.bundle" "refs/tags/v${VERSION}"
+          mkdir -p "$RUNNER_TEMP/hub-changelog"
+          cp /tmp/nightly-changelog.md "$RUNNER_TEMP/hub-changelog/nightly-changelog.md"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: steps.guard.outputs.should-release == 'true'
+        with:
+          name: release-tag-libxmtp
+          path: ${{ runner.temp }}/release-tag
+          if-no-files-found: error
+      # hub-release reads only the changelog, not the tag bundle and its history.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: steps.guard.outputs.should-release == 'true'
+        with:
+          name: hub-changelog
+          path: ${{ runner.temp }}/hub-changelog
+          if-no-files-found: error
+
+  hub-tag:
+    needs: [hub]
+    if: needs.hub.outputs.should-release == 'true'
+    uses: ./.github/workflows/push-release-tag.yml
+    with:
+      sdk: libxmtp
+      version: ${{ needs.hub.outputs.version }}
+      source-sha: ${{ needs.hub.outputs.source-sha }}
+    secrets: inherit
+
+  hub-release:
+    needs: [plan, hub, hub-tag, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli]
+    if: >-
+      !cancelled() && needs.hub.outputs.should-release == 'true'
+      && needs.hub-tag.result == 'success'
+    concurrency:
+      group: hub-release-notes-${{ needs.plan.outputs.version }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hub-changelog
+          path: ${{ runner.temp }}/hub-changelog
+      - name: Create hub GitHub Release
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HUB_VERSION: ${{ steps.hubver.outputs.version }}
+          GH_REPO: ${{ github.repository }}
+          HUB_VERSION: ${{ needs.hub.outputs.version }}
+          CHANGELOG: ${{ runner.temp }}/hub-changelog/nightly-changelog.md
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
           NODE_VERSION: ${{ needs.release-node-sdk.outputs.version }}
@@ -506,12 +567,12 @@ jobs:
           )
           # Append the per-nightly changelog (delta since the previous nightly),
           # if git-cliff produced any entries.
-          if [ -s /tmp/nightly-changelog.md ]; then
+          if [ -s "$CHANGELOG" ]; then
             BODY="${BODY}
 
           ## Changes since the last nightly
 
-          $(cat /tmp/nightly-changelog.md)"
+          $(cat "$CHANGELOG")"
           fi
           if gh release view "v${HUB_VERSION}" >/dev/null 2>&1; then
             gh release edit "v${HUB_VERSION}" \
@@ -519,18 +580,19 @@ jobs:
               --notes "$BODY" \
               --prerelease
           else
-            gh release create "v${HUB_VERSION}" \
+            # --verify-tag: the App pushed the tag; never create it here.
+            gh release create "v${HUB_VERSION}" --verify-tag \
               --title "libxmtp ${HUB_VERSION}" \
               --notes "$BODY" \
               --prerelease
           fi
 
   notify:
-    needs: [validate, plan, hub, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, release-backend, merge-pr]
+    needs: [validate, plan, hub, hub-tag, hub-release, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, release-backend, merge-pr]
     if: always() && needs.validate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - id: compute
         env:
           IOS_RESULT: ${{ needs.release-ios.result }}

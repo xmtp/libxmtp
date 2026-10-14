@@ -19,6 +19,12 @@ archive URL and checksum in `ReleaseArtifacts.json`. An invalid receipt fails
 evaluation. The `ios-<version>` tag is a release source template. It does not
 mean that an unpublished version has an available tag or archive.
 
+Create a local signer with `let signer = await SDKClient.generateKeys()`.
+Save `signer.toHex()` securely and restore it with
+`try await LocalSigningKey.fromHex(key: saved)` on later starts. `toBytes()` and
+`fromBytes(key:)` use 32-byte `Data`. Exports are synchronous; generation and
+restoration use `await`. Keep this key separate from the database key.
+
 Create a client with a signer and explicit backend options. A database encryption
 key is optional. The example below uses the app's stored 32-byte key:
 
@@ -50,10 +56,7 @@ or open an unencrypted database. Encryption is recommended for stored messages
 and keys. If you supply a database key, store it in the Keychain and use the same
 key to open the database again. Do not write the key to logs.
 
-The simple example stores its signer and database key in the
-Keychain before it opens the database. Later logins reuse those keys. The larger
-example stores its database key and address before it creates a client. It can
-reopen the saved account. A Keychain read or write error stops the connection.
+The [example app](../../apps/example-ios) demonstrates app-owned storage.
 Use `.directory` or `.explicit` when the app selects its own path. Use
 `.inMemory` for a temporary client. Call `end()` when the app releases a client.
 Automatic Apple lifecycle management is on by default. It suspends live streams
@@ -68,11 +71,10 @@ Run commands from the repository root:
 ```sh
 dev/nix-shell 'just ios build'
 dev/nix-shell 'just ios check'
-dev/nix-shell 'just ios check-examples'
+dev/nix-shell 'just example-ios build'
 dev/nix-shell 'just ios test'
 dev/nix-shell 'just ios test-simulator'
 ```
 
-Both [example apps](./example) and [XMTPiOSExample](./XMTPiOSExample) use the
-local package. Set `XMTP_BACKEND_URL` to the backend for the tested commit. A
+The [example app](../../apps/example-ios) uses the local package. Set `XMTP_BACKEND_URL` to the backend for the tested commit. A
 physical device needs a backend address that it can reach.

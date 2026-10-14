@@ -1,28 +1,60 @@
 #!/usr/bin/env bash
+# Run a command in a Nix dev shell of this flake.
+#
+#   dev/nix-shell [--shell NAME] [--refresh] STRING
+#   dev/nix-shell [--shell NAME] [--refresh] --command ARGS...
+#   dev/nix-shell [--refresh] --print-env [NAME]    (direnv: .envrc)
+#
+# The evaluated environment (`nix print-dev-env`) is cached under
+# ${XDG_CACHE_HOME:-~/.cache}/xmtp/nix-shell, keyed by the system, the shell,
+# and the files that the shells read (key_paths), so entry after a source edit
+# needs no Nix evaluation. --refresh evaluates again.
 
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 shell_name="${NIX_DEVSHELL:-default}"
-if [[ "${1:-}" == --shell ]]; then
-  shell_name="${2:?Expected a shell name}"
-  shift 2
-fi
-if [[ "${1:-}" == --command ]]; then
+refresh=false
+print_env=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --shell) shell_name="${2:?Expected a shell name}"; shift 2 ;;
+    --refresh) refresh=true; shift ;;
+    --print-env)
+      print_env=true
+      shift
+      if [[ $# -gt 0 ]]; then shell_name="$1"; shift; fi
+      break
+      ;;
+    *) break ;;
+  esac
+done
+if $print_env; then
+  [[ $# -eq 0 ]] || { echo 'Usage: dev/nix-shell [--refresh] --print-env [NAME]' >&2; exit 2; }
+elif [[ "${1:-}" == --command ]]; then
   shift
   [[ $# -gt 0 ]] || { echo 'Expected a command after --command' >&2; exit 2; }
   command_args=("$@")
 else
-  [[ $# -eq 1 ]] || { echo 'Usage: dev/nix-shell [--shell NAME] STRING | --command ARGS...' >&2; exit 2; }
+  [[ $# -eq 1 ]] || { echo 'Usage: dev/nix-shell [--shell NAME] [--refresh] STRING | --command ARGS...' >&2; exit 2; }
   command_args=(bash -euc "$1")
 fi
 
-# Reuse only an environment entered by this wrapper with the same inputs.
+# The repository files that the dev shells read. A shell file that reads
+# another file outside nix/ must add it here; dev/tests/test_agents.py checks
+# this. Rust sources, Cargo files, and nested package.json files are not shell
+# inputs, so an edit to them keeps the cached environment.
+key_paths=(
+  nix
+  flake.nix
+  flake.lock
+  package.json
+  webdriver.json
+  dev/kache-env
+  dev/nix-shell
+)
 fingerprint="$(
   cd "$REPO_ROOT"
-  git ls-files -z --cached --others --exclude-standard -- \
-    '*.nix' flake.lock Cargo.lock '*Cargo.toml' '*package.json' package.json \
-    pnpm-lock.yaml pnpm-workspace.yaml \
-    '*webdriver.json' dev/nix-shell |
+  git ls-files -z --cached --others --exclude-standard -- "${key_paths[@]}" |
     while IFS= read -r -d '' path; do
       if [[ -f "$path" ]]; then printf '%s\0' "$path"; fi
     done |
@@ -31,11 +63,85 @@ fingerprint="$(
     xargs -0 -n 128 sh -c 'if [ "$#" -gt 0 ]; then exec shasum -a 256 -- "$@"; fi' sh |
     shasum -a 256
 )"
-identity="$REPO_ROOT:$shell_name:$fingerprint"
+key="$(printf '%s\n%s\n%s\n' "$(uname -sm)" "$shell_name" "$fingerprint" | shasum -a 256)"
+key="$shell_name-${key%% *}"
+identity="$REPO_ROOT:$shell_name:$key"
+
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/xmtp/nix-shell"
+env_file="$cache/$key.sh"
+profile="$cache/$key.profile"
+# Evaluate again when the GC root is gone (its links were removed, or a GC
+# took the environment): -e follows the profile links to the store path.
+if $refresh || [[ ! -s "$env_file" || ! -e "$profile" ]]; then
+  mkdir -p "$cache"
+  # Entries unused for a week go, with their GC roots. A reuse touches the
+  # environment and its profile links, so an entry in use keeps its root.
+  find "$cache" -maxdepth 1 -name "$shell_name-*" -mtime +7 -exec rm -f {} + 2>/dev/null || true
+  temporary="$(mktemp "$cache/.$key.XXXXXX")"
+  # --profile makes the environment a GC root; keep one generation per key.
+  rm -f "$profile" "$profile"-*-link
+  if ! nix print-dev-env --profile "$profile" "$REPO_ROOT#$shell_name" > "$temporary"; then
+    rm -f "$temporary"
+    exit 1
+  fi
+  mv "$temporary" "$env_file"
+else
+  touch "$env_file"
+  # -c: a concurrent evaluation of this key may have just replaced the links;
+  # GNU touch -h would fail on the missing path and end the wrapper.
+  touch -ch "$profile" "$profile"-*-link
+fi
+
+# The environment makes a temporary directory per entry (NIX_BUILD_TOP) and
+# points TMPDIR, TMP, TEMP, and TEMPDIR at it. Keep the caller's values
+# instead, as nix-direnv does, and remove only a directory that this entry
+# made: an inherited NIX_BUILD_TOP belongs to an outer shell.
+# shellcheck disable=SC2016
+keep_caller_temp=(
+  'xmtp_caller_temp="$(export -p | grep -E "^(declare -x|export) (TMPDIR|TMP|TEMP|TEMPDIR|NIX_BUILD_TOP)=" || true)"'
+  'xmtp_caller_top="${NIX_BUILD_TOP-}"'
+)
+# shellcheck disable=SC2016
+restore_caller_temp=(
+  'if [[ -n "${NIX_BUILD_TOP-}" && "$NIX_BUILD_TOP" != "$xmtp_caller_top" ]]; then rm -rf "$NIX_BUILD_TOP"; fi'
+  'unset TMPDIR TMP TEMP TEMPDIR NIX_BUILD_TOP'
+  'eval "$xmtp_caller_temp"'
+  'unset xmtp_caller_temp xmtp_caller_top'
+)
+
+if $print_env; then
+  printf '%s\n' "${keep_caller_temp[@]}"
+  cat "$env_file"
+  printf '%s\n' "${restore_caller_temp[@]}" "export XMTP_NIX_WRAPPER_ID='$identity'"
+  exit 0
+fi
+
+# This worktree's service ports and URLs (dev/worktree-env writes the file),
+# so an ad-hoc `cargo test` reaches this worktree's stack, not slot 0's. A
+# variable that the caller set wins.
+if [[ -f "$REPO_ROOT/dev/docker/.env" ]]; then
+  # shellcheck source=docker/load-env
+  . "$REPO_ROOT/dev/docker/load-env"
+fi
+# A set DATABASE_URL makes the sqlx macros check queries against the live
+# database at compile time. Use the committed metadata unless the caller asks.
+export SQLX_OFFLINE="${SQLX_OFFLINE:-true}"
+
+# Reuse only an environment entered by this wrapper with the same inputs.
 if [[ "${XMTP_NIX_WRAPPER_ID:-}" == "$identity" ]]; then
   exec "${command_args[@]}"
 fi
-# shellcheck disable=SC2016
-exec nix develop "${REPO_ROOT}#${shell_name}" --command bash -euc \
-  'export XMTP_NIX_WRAPPER_ID="$1"; shift; exec "$@"' \
-  nix-shell "$identity" "${command_args[@]}"
+# Source the environment with its own bash, the stdenv shell that it names
+# (CONFIG_SHELL), as `nix develop` does: the script needs bash 4 or later, and
+# the caller's `bash` can be macOS's 3.2, which stops at the first newer
+# construct before the caller's PATH is appended.
+shell="$(sed -n "s/^CONFIG_SHELL='\(.*\)'\$/\1/p" "$env_file" | head -n 1)"
+[[ -x "$shell" ]] || shell=bash
+exec "$shell" --noprofile --norc -c "
+  ${keep_caller_temp[*]/%/;}
+  source \"\$1\"
+  ${restore_caller_temp[*]/%/;}
+  export XMTP_NIX_WRAPPER_ID=\"\$2\"
+  shift 2
+  exec \"\$@\"
+" nix-shell "$env_file" "$identity" "${command_args[@]}"

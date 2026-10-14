@@ -3,21 +3,24 @@
 {
   lib,
   stdenv,
+  buildEnv,
+  sqlcipher,
+  darwin,
+  git,
+  just,
+  python311,
   openssl,
   zlib,
   llvmPackages,
   wasm-bindgen-cli,
-  wasm-pack,
-  binaryen,
-  emscripten,
-  wasm-tools,
   cargo-nextest,
   cargo-deny,
   cargo-machete,
   cargo-hakari,
-  sccache,
+  kache,
   sqlx-cli,
   grpc-health-probe,
+  grpcurl,
   lcov,
   cargo-llvm-cov,
   buf,
@@ -25,6 +28,7 @@
   protolint,
   taplo,
   shellcheck,
+  ruff,
   nixfmt,
   lldb,
   vscode-extensions,
@@ -68,8 +72,6 @@ let
       }
     )
   );
-in
-{
   # Core Rust build environment: env vars, hardening, native deps, LD_LIBRARY_PATH
   rustBase = xmtp.base.commonArgs // {
     env = {
@@ -100,14 +102,14 @@ in
     CHROMEDRIVER = "${lib.getBin chromedriver}/bin/chromedriver";
   };
 
-  # WASM tooling
+in
+rec {
+  inherit rustBase wasmEnv;
+
+  # WASM tooling: `wasm-bindgen` and the cargo test runner's browser.
   wasmTools = [
     wasm-bindgen-cli
-    wasm-pack
-    binaryen
-    emscripten
     chromedriver
-    wasm-tools
   ]
   # chromium unsupported on darwin
   # google-chrome unsupported on aarch64-linux
@@ -126,13 +128,85 @@ in
     cargo-hakari
     sqlx-cli
     grpc-health-probe
-    # Shared compilation cache across worktrees. Inert until RUSTC_WRAPPER is
-    # set; see dev/sccache-env and docs/nix-setup.md.
-    sccache
+    grpcurl
+    kache
   ];
 
-  # CI-only cargo tools (coverage — Linux only)
-  cargoCiTools = lib.optionals isLinux [
+  # Set only the shell environment. Nix build derivations stay hermetic.
+  compilerCacheHook = "\nsource ${../../dev/kache-env}\n";
+
+  # The one Rust toolchain of the rust, default, and android shells: the
+  # host, wasm32, the Android ABIs, and on Darwin the Apple slices.
+  rustToolchain =
+    xmtp.mkNativeToolchain
+      (
+        [
+          "wasm32-unknown-unknown"
+          "x86_64-unknown-linux-gnu"
+        ]
+        ++ xmtp.androidEnv.androidTargets
+        ++ lib.optionals stdenv.isDarwin xmtp.iosEnv.iosTargets
+      )
+      [
+        "rust-src"
+        "clippy-preview"
+        "rustfmt-preview"
+        "llvm-tools-preview"
+      ];
+
+  # The packages of every Rust shell: the toolchain, the native build inputs,
+  # the cargo tools, git, Python, and just. `rust` adds the CI and SDK tools;
+  # `android` adds the Android SDK.
+  rustCorePackages =
+    rustBase.buildInputs
+    ++ [
+      rustToolchain
+      # In-shell Nix fetchGit must use Nix git with this shell's LD_LIBRARY_PATH.
+      git
+      just
+      (python311.withPackages (packages: [ packages.pyyaml ]))
+    ]
+    ++ cargoTools
+    ++ [ sqlcipher ]
+    ++ lib.optionals stdenv.isDarwin [ darwin.cctools ];
+
+  # A shell's other tools, as one package that links only their `bin`. Their
+  # libraries then add nothing to PKG_CONFIG_PATH (or to the compiler search
+  # paths), which C build scripts track, so the Rust shells hold the same
+  # values and a switch between them rebuilds no C code.
+  mkTools =
+    name: paths:
+    buildEnv {
+      name = "${name}-tools";
+      inherit paths;
+      pathsToLink = [ "/bin" ];
+    };
+
+  # The environment that every Rust shell sets, so a switch between them
+  # changes no variable that a C build script tracks. `inputsFrom` passes
+  # only packages and shellHook, so each shell merges this set.
+  rustShellEnv = {
+    inherit (rustBase) hardeningDisable LD_LIBRARY_PATH;
+    inherit (wasmEnv)
+      CC_wasm32_unknown_unknown
+      AR_wasm32_unknown_unknown
+      CFLAGS_wasm32_unknown_unknown
+      ;
+  }
+  // rustBase.env;
+
+  # The shellHook of every Rust shell: Kache, and on Darwin one compiler
+  # environment, Xcode clang with the 11.0 macOS floor, for the host and
+  # the Apple slices. SDKROOT stays unset so xcrun picks the SDK per target.
+  rustShellHook =
+    "\nsource ${../../dev/kache-env}\n"
+    + lib.optionalString stdenv.isDarwin ''
+      unset SDKROOT
+      ${xmtp.iosEnv.envSetupAll}
+    '';
+
+  # Coverage tools for `just coverage` and the CI coverage run.
+  cargoCiTools = [
     lcov
     cargo-llvm-cov
   ];
@@ -149,6 +223,8 @@ in
   lintTools = [
     taplo
     shellcheck
+    # dev/tests/test_script_lint.py lints extensionless Python scripts.
+    ruff
     nixfmt
   ];
 

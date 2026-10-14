@@ -39,7 +39,7 @@ dev/nix-shell 'gh run download <run-id> --name docs-site --dir apps/docs/dist'
 dev/nix-shell 'gh run download <run-id> --name docs-rust --dir apps/docs/generated/reference/rust'
 ```
 
-For the pull request setup, compose and check without Kotlin and Swift references.
+For the pull request and merge run setup, compose and check without Kotlin and Swift references.
 Keep the same setting for `check-external`, because it composes the site again:
 
 ```sh
@@ -62,7 +62,7 @@ HTML patterns, and exclusions. It checks the site root, the guide sections, and
 the Browser, Node, Agent, error glossary, and limits references. Rust, Kotlin, and
 Swift generated HTML is outside this scan, as it was in CI.
 
-The exclusions cover the two canonical docs domains, GitHub edit URLs, GitHub
+The exclusions cover xmtp.org and the legacy docs.xmtp.org domain, GitHub edit URLs, GitHub
 source URLs with a full commit hash, the example collector URL, and the IANA
 registry. Local links still use `check`. Run with network access. If GitHub needs
 a token, supply `GITHUB_TOKEN` in the environment; do not put it in a command or

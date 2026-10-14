@@ -1,10 +1,15 @@
+[graph]
+# cargo-deny-action passed --all-features; keep local and CI checks the same.
+all-features = true
+
 [advisories]
 ignore = [
-  { id = "RUSTSEC-2024-0436", reason = "required by uniffi" },
+  { id = "RUSTSEC-2026-0329", reason = "libcrux-hmac-drbg can panic when an auto-reseed request is a nonzero multiple of 65536 bytes. The fix is in 0.0.2, but the pinned xmtp/openmls provider requires ^0.0.1. Remove when the provider accepts a fixed release." },
+  { id = "RUSTSEC-2024-0436", reason = "paste is required by alloy-primitives, syn-solidity, and the pinned uniffi-bindgen-react-native fork. Current upstream versions still use it. Remove when upgrades in this repository remove all paths." },
+  { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml is required by serde_yaml through ubrn_common in the pinned uniffi-bindgen-react-native fork. There is no patched release, and current upstream still uses serde_yaml. Fork changes are outside the approved scope. Remove when an upstream upgrade replaces the YAML parser." },
   { id = "RUSTSEC-2025-0141", reason = "migrate from bincode" },
-  { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; transitive via alloy-sol-macro, no upstream fix yet" },
+  { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 is required by hax-lib-macros 0.3.7 under cfg(hax), through libcrux. Alloy already uses proc-macro-error3. Remove when compatible dependency upgrades remove the old Hax path." },
   { id = "RUSTSEC-2023-0071", reason = "Marvin timing attack in rsa 0.9, reached through jsonwebtoken's rust_crypto backend for RS256/384/512. Production uses this crate only to verify public-key signatures. FCM OAuth private-key signing uses ring instead. The attack recovers a private key through timing of decryption or signing. No fixed rsa release exists." },
-  { id = "RUSTSEC-2026-0258", reason = "h2 empty DATA frames DoS. The production stack (hyper 1.x) is patched to h2 0.4.16; the only residual is h2 0.3.x, pulled solely by the test-only toxiproxy_rust via reqwest 0.11, which has no 0.3.x fix. Not reachable in shipped code." },
 ]
 
 # This rustsec can be added to ignore list if using mls `test_utils` for tests

@@ -1,17 +1,17 @@
 use super::{
-    MemberIdentifier, ident,
+    Handle, InvalidHandle, MemberIdentifier, ident,
     member::{Identifier, Member},
     signature::AccountId,
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
-        UnsignedAddAssociation, UnsignedChangeRecoveryAddress, UnsignedCreateInbox,
-        UnsignedRevokeAssociation,
+        UnsignedAddAssociation, UnsignedChangeRecoveryAddress, UnsignedClaimHandle,
+        UnsignedCreateInbox, UnsignedRevokeAssociation,
     },
     unverified::{
         UnverifiedAction, UnverifiedAddAssociation, UnverifiedChangeRecoveryAddress,
-        UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature,
-        UnverifiedRecoverableEcdsaSignature, UnverifiedRevokeAssociation, UnverifiedSignature,
-        UnverifiedSmartContractWalletSignature,
+        UnverifiedClaimHandle, UnverifiedCreateInbox, UnverifiedIdentityUpdate,
+        UnverifiedInstallationKeySignature, UnverifiedRecoverableEcdsaSignature,
+        UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
     },
 };
 use crate::scw_verifier::ValidationResponse;
@@ -27,8 +27,8 @@ use xmtp_proto::xmtp::identity::{
     associations::{
         AddAssociation as AddAssociationProto, AssociationState as AssociationStateProto,
         AssociationStateDiff as AssociationStateDiffProto,
-        ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
-        IdentifierKind, IdentityAction as IdentityActionProto,
+        ChangeRecoveryAddress as ChangeRecoveryAddressProto, ClaimHandle as ClaimHandleProto,
+        CreateInbox as CreateInboxProto, IdentifierKind, IdentityAction as IdentityActionProto,
         IdentityUpdate as IdentityUpdateProto, Member as MemberProto,
         MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
         Passkey as PasskeyProto, RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
@@ -102,6 +102,12 @@ pub enum DeserializationError {
     /// A deprecated field was used. Not retryable.
     #[error("Field is deprecated: {0}")]
     Deprecated(&'static str),
+    /// Handle is not an identifier.
+    ///
+    /// A handle names an inbox in a lookup, but it is not an account
+    /// identifier. Not retryable.
+    #[error("a handle is not an account identifier")]
+    HandleNotIdentifier,
     /// Ed25519 key error.
     ///
     /// Failed to create public key from bytes. Not retryable.
@@ -173,10 +179,7 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                 })
             }
             IdentityActionKindProto::CreateInbox(action_proto) => {
-                let kind = match action_proto.initial_identifier_kind() {
-                    IdentifierKind::Unspecified => IdentifierKind::Ethereum,
-                    kind => kind,
-                };
+                let kind = signing_kind(action_proto.initial_identifier_kind)?;
                 let account_identifier = canonical(Identifier::from_proto(
                     &action_proto.initial_identifier,
                     kind,
@@ -194,10 +197,7 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                 })
             }
             IdentityActionKindProto::ChangeRecoveryAddress(action_proto) => {
-                let kind = match action_proto.new_recovery_identifier_kind() {
-                    IdentifierKind::Unspecified => IdentifierKind::Ethereum,
-                    kind => kind,
-                };
+                let kind = signing_kind(action_proto.new_recovery_identifier_kind)?;
                 let new_recovery_identifier = canonical(Identifier::from_proto(
                     &action_proto.new_recovery_identifier,
                     kind,
@@ -230,7 +230,30 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                     },
                 })
             }
+            IdentityActionKindProto::ClaimHandle(action_proto) => {
+                UnverifiedAction::ClaimHandle(UnverifiedClaimHandle {
+                    signature: action_proto.signature.try_into()?,
+                    // Kept as carried: the grammar check runs when the claim
+                    // is applied, never here, and never rewrites the text.
+                    unsigned_action: UnsignedClaimHandle {
+                        handle: action_proto.handle,
+                    },
+                })
+            }
         })
+    }
+}
+
+/// The kind of an identifier that signs, which an inbox's initial and recovery
+/// identifiers are. An unset kind reads as Ethereum. A handle signs nothing,
+/// so it and every value `IdentifierKind` does not list are rejected, never
+/// read as Ethereum.
+// implements: IDENT-077
+fn signing_kind(kind: i32) -> Result<IdentifierKind, ConversionError> {
+    match IdentifierKind::try_from(kind) {
+        Ok(IdentifierKind::Unspecified | IdentifierKind::Ethereum) => Ok(IdentifierKind::Ethereum),
+        Ok(IdentifierKind::Passkey) => Ok(IdentifierKind::Passkey),
+        Ok(IdentifierKind::Handle) | Err(_) => Err(ConversionError::NonSigningIdentifierKind(kind)),
     }
 }
 
@@ -376,6 +399,12 @@ impl From<UnverifiedAction> for IdentityActionProto {
                         action.recovery_identifier_signature.into(),
                     ),
                     member_to_revoke: Some(action.unsigned_action.revoked_member.into()),
+                })
+            }
+            UnverifiedAction::ClaimHandle(action) => {
+                IdentityActionKindProto::ClaimHandle(ClaimHandleProto {
+                    handle: action.unsigned_action.handle,
+                    signature: Some(action.signature.into()),
                 })
             }
         };
@@ -580,6 +609,8 @@ impl From<AssociationState> for AssociationStateProto {
             recovery_identifier_kind: kind as i32,
             seen_signatures: state.seen_signatures.into_iter().collect(),
             relying_party,
+            handles: state.handles.into_iter().map(String::from).collect(),
+            handle_claims: state.handle_claims,
         }
     }
 }
@@ -617,11 +648,24 @@ impl TryFrom<AssociationStateProto> for AssociationState {
             })
             .collect::<Result<HashMap<MemberIdentifier, Member>, ConversionError>>()?;
 
+        let handles = proto
+            .handles
+            .iter()
+            .map(|handle| Handle::parse(handle))
+            .collect::<Result<Vec<_>, InvalidHandle>>()
+            .map_err(|_| ConversionError::InvalidValue {
+                item: "association state handle",
+                expected: "a handle under the handle grammar",
+                got: "a string outside the grammar".to_string(),
+            })?;
+
         Ok(AssociationState {
             inbox_id: proto.inbox_id,
             members,
             recovery_identifier,
             seen_signatures: HashSet::from_iter(proto.seen_signatures),
+            handles,
+            handle_claims: proto.handle_claims,
         })
     }
 }
@@ -767,6 +811,46 @@ pub(crate) mod tests {
         let reserialized = IdentityUpdateProto::from(deserialized_update);
 
         assert_eq!(serialized_update, reserialized);
+    }
+
+    /// A claim keeps its handle as carried and its signature through the wire
+    /// form, and a state keeps its handles in order and its claim count.
+    // verifies: IDENT-001
+    #[xmtp_common::test(unwrap_try = true)]
+    fn claim_and_state_round_trip() {
+        let account_identifier = Identifier::rand_ethereum();
+        let claim = UnverifiedIdentityUpdate::new(
+            account_identifier.inbox_id(0)?,
+            rand_u64(),
+            vec![UnverifiedAction::ClaimHandle(UnverifiedClaimHandle {
+                unsigned_action: UnsignedClaimHandle {
+                    handle: "nick#2341".into(),
+                },
+                signature: UnverifiedSignature::new_recoverable_ecdsa(rand_vec::<65>()),
+            })],
+        );
+        let proto = IdentityUpdateProto::from(claim.clone());
+        let Some(IdentityActionKindProto::ClaimHandle(wire)) = &proto.actions[0].kind else {
+            panic!("a claim encodes as field 5 of the action: {proto:?}");
+        };
+        assert_eq!(wire.handle, "nick#2341");
+        let decoded = UnverifiedIdentityUpdate::try_from(IdentityUpdateProto::decode(
+            proto.encode_to_vec().as_slice(),
+        )?)?;
+        assert_eq!(decoded, claim);
+
+        let state = AssociationState::new(account_identifier, 0, None)?
+            .claim_handle(Handle::parse("a")?)
+            .claim_handle(Handle::parse("b#0001")?)
+            .claim_handle(Handle::parse("a")?);
+        let proto = AssociationStateProto::from(state.clone());
+        assert_eq!(proto.handles, ["b#0001", "a"]);
+        assert_eq!(proto.handle_claims, 3);
+        let decoded = AssociationState::try_from(AssociationStateProto::decode(
+            proto.encode_to_vec().as_slice(),
+        )?)?;
+        assert_eq!(decoded.handles(), state.handles());
+        assert_eq!(decoded.handle_claims(), 3);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

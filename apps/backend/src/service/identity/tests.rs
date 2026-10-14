@@ -1,5 +1,7 @@
 use crate::test_support as support;
 
+mod handles;
+
 use crate::api;
 use crate::api::publish_error::Reason;
 use prost::Message;
@@ -587,8 +589,11 @@ fn encoded_identity_envelope(update: &[u8]) -> Vec<u8> {
 /// argument, before any chain call, and leaves the log and the identifier
 /// lookups exactly as they were: an empty update, a recovery identifier in
 /// mixed case, an add of a current member, a smart contract wallet signature
-/// outside `eip155`, and a signature in the retired field 4.
-// verifies: IDENT-001, IDENT-013, IDENT-040, IDENT-060
+/// outside `eip155`, and a signature in the retired field 4. Each fails with
+/// the reason for the rule it breaks. Only an inbox id that names no identity
+/// topic, one byte short or not hexadecimal, is a malformed payload, even when
+/// the update would break a rule as well.
+// verifies: IDENT-001, IDENT-013, IDENT-040, IDENT-060, API-230, TOPIC-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_invalid_mutations_are_rejected_on_admission() {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -618,6 +623,14 @@ async fn identity_invalid_mutations_are_rejected_on_admission() {
         inbox_id: inbox_id.clone(),
         client_timestamp_ns: 1,
         actions: vec![],
+    };
+    let short_inbox = IdentityUpdate {
+        inbox_id: inbox_id[2..].to_string(),
+        ..empty.clone()
+    };
+    let non_hex_inbox = IdentityUpdate {
+        inbox_id: "z".repeat(inbox_id.len()),
+        ..empty.clone()
     };
     let mixed_case = Identifier::from_proto(
         wallet
@@ -663,7 +676,7 @@ async fn identity_invalid_mutations_are_rejected_on_admission() {
         (
             "mixed-case recovery",
             IdentityUpdate::from(mixed_case_recovery.build_identity_update()?).encode_to_vec(),
-            Reason::MalformedPayload,
+            Reason::InvalidIdentityUpdate,
         ),
         (
             "duplicate add",
@@ -678,6 +691,16 @@ async fn identity_invalid_mutations_are_rejected_on_admission() {
         (
             "retired field 4",
             retired_signature_create_inbox(&legacy_inbox, LEGACY_WALLET),
+            Reason::InvalidIdentityUpdate,
+        ),
+        (
+            "short inbox id",
+            short_inbox.encode_to_vec(),
+            Reason::MalformedPayload,
+        ),
+        (
+            "non-hex inbox id",
+            non_hex_inbox.encode_to_vec(),
             Reason::MalformedPayload,
         ),
     ] {
@@ -695,7 +718,7 @@ async fn identity_invalid_mutations_are_rejected_on_admission() {
 /// stored update carrying the retired field 4 makes every later update on its
 /// inbox fail, with no change to the log or the identifier lookups. The same
 /// later update is accepted once the stored update is restored.
-// verifies: IDENT-001
+// verifies: IDENT-001, API-230
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_invalid_mutations_retired_signature_fails_replay() {
     let server = TestServer::new(|_| {}).await?;
@@ -744,7 +767,11 @@ async fn identity_invalid_mutations_retired_signature_fails_replay() {
         })
         .await
         .unwrap_err();
-    assert_eq!(rejection(&error)?, Reason::MalformedPayload, "{error:?}");
+    assert_eq!(
+        rejection(&error)?,
+        Reason::InvalidIdentityUpdate,
+        "{error:?}"
+    );
     assert_eq!(identity_rows(&server).await?, before);
 
     set_payload(original.clone()).await?;

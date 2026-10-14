@@ -11,8 +11,9 @@
 
 use xmtp_configuration::{
     ApplicationComponentDefinition, AttachmentsConfiguration, AuthConfiguration,
-    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, ComponentPermissions, LimitsConfiguration, MetadataPolicy,
-    MlsConfiguration, RetentionConfiguration, ServerConfiguration, SigningKeyDescription,
+    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, ComponentPermissions, HandlesConfiguration,
+    LimitsConfiguration, MetadataPolicy, MlsConfiguration, RetentionConfiguration,
+    ServerConfiguration, SigningKeyDescription,
     attachments::{
         AttachmentConfigurationError, check_base_url, check_max_upload_bytes,
         check_retention_seconds,
@@ -139,6 +140,14 @@ impl From<backend_v1::MlsConfiguration> for MlsConfiguration {
     }
 }
 
+impl From<backend_v1::HandlesConfiguration> for HandlesConfiguration {
+    fn from(handles: backend_v1::HandlesConfiguration) -> Self {
+        Self {
+            min_name_length: or_default(handles.min_name_length, Self::default().min_name_length),
+        }
+    }
+}
+
 impl From<mls::MetadataPolicy> for MetadataPolicy {
     fn from(policy: mls::MetadataPolicy) -> Self {
         let all =
@@ -260,6 +269,7 @@ impl From<backend_v1::GetConfigurationResponse> for ServerConfiguration {
             retention: response.retention.unwrap_or_default().into(),
             limits: response.limits.unwrap_or_default().into(),
             mls: response.mls.unwrap_or_default().into(),
+            handles: response.handles.unwrap_or_default().into(),
             attachments,
             smart_contract_wallet_chains: response.smart_contract_wallet_chains,
             application_components: response

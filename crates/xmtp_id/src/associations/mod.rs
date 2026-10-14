@@ -1,9 +1,12 @@
 #[cfg(test)]
+mod handle_claims;
+#[cfg(test)]
 mod identity_invalid_mutations;
 mod verify_updates;
 pub use verify_updates::verify_updates;
 mod association_log;
 pub mod builder;
+pub mod handle;
 pub mod ident;
 pub(super) mod member;
 pub(super) mod serialization;
@@ -16,6 +19,7 @@ pub mod unverified;
 pub mod verified_signature;
 
 pub use self::association_log::*;
+pub use self::handle::{Handle, InvalidHandle, MAX_HANDLE_CLAIMS, MAX_HANDLE_NAME_LEN};
 pub use self::member::{HasMemberKind, Identifier, Member, MemberIdentifier, MemberKind};
 pub use self::serialization::{DeserializationError, map_vec, try_map_vec};
 pub use self::signature::*;

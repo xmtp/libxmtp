@@ -467,17 +467,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sqlcipher_version() {
-        let db_path = tmp_path();
-        {
-            let opts = Persistent(db_path.clone());
-            let mut conn = SqliteConnection::establish(&db_path).unwrap();
-            let v = EncryptedConnection::check_for_sqlcipher(&opts, &mut conn).unwrap();
-            println!("SQLCipher Version {}", v.cipher_version);
-        }
-    }
-
-    #[tokio::test]
     async fn test_db_creates_with_plaintext_header() {
         let db_path = tmp_path();
         {
@@ -733,6 +722,7 @@ mod tests {
         };
         assert_eq!(has_index("group_messages_sent_at_sort")?, 1);
         assert_eq!(has_index("group_messages_sent_at_id_sort")?, 0);
+        assert_eq!(has_index("group_messages_group_reference")?, 0);
 
         EncryptedMessageStore::new(database)?;
         connection.raw_query(|conn| {
@@ -740,6 +730,8 @@ mod tests {
         })?;
         assert_eq!(has_index("group_messages_sent_at_sort")?, 0);
         assert_eq!(has_index("group_messages_sent_at_id_sort")?, 1);
+        assert_eq!(has_index("group_messages_pending_history_position")?, 1);
+        assert_eq!(has_index("group_messages_group_reference")?, 1);
         let latest = connection.raw_query(|conn| {
             conn.applied_migrations()
                 .map_err(diesel::result::Error::QueryBuilderError)

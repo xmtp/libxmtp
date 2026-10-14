@@ -162,6 +162,11 @@ impl Identifier {
                 })?,
                 relying_party,
             }),
+            IdentifierKind::Handle => {
+                return Err(ConversionError::NonSigningIdentifierKind(
+                    IdentifierKind::Handle as i32,
+                ));
+            }
         };
         Ok(ident)
     }
@@ -339,6 +344,7 @@ impl TryFrom<ApiIdentifier> for Identifier {
                     .map_err(|_| DeserializationError::InvalidPasskey)?,
                 relying_party: None,
             }),
+            IdentifierKind::Handle => return Err(DeserializationError::HandleNotIdentifier),
         };
         Ok(ident)
     }
@@ -446,5 +452,40 @@ pub(crate) mod tests {
         assert!(installation_1 != installation_2);
         assert!(installation_1.ne(&installation_2));
         assert!(installation_1 == installation_1_copy);
+    }
+
+    /// A handle signs nothing, so no conversion reads a handle kind as an
+    /// account identifier: not a wire kind, and not the recovery identifier of
+    /// a stored association state. The error names the kind, never Ethereum.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn handle_kind_does_not_convert_to_an_identifier() {
+        assert!(matches!(
+            Identifier::from_proto("nick", IdentifierKind::Handle, None),
+            Err(ConversionError::NonSigningIdentifierKind(3))
+        ));
+        let stored = xmtp_proto::xmtp::identity::associations::AssociationState {
+            inbox_id: Identifier::rand_ethereum().inbox_id(0)?,
+            recovery_identifier: "nick".into(),
+            recovery_identifier_kind: IdentifierKind::Handle.into(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            super::super::AssociationState::try_from(stored),
+            Err(ConversionError::NonSigningIdentifierKind(3))
+        ));
+    }
+
+    /// A lookup identifier of the handle kind names an inbox, not an account,
+    /// so it does not convert to an account identifier.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn handle_lookup_is_not_an_account_identifier() {
+        let lookup = ApiIdentifier {
+            identifier: "nick".into(),
+            identifier_kind: IdentifierKind::Handle,
+        };
+        assert!(matches!(
+            Identifier::try_from(lookup),
+            Err(DeserializationError::HandleNotIdentifier)
+        ));
     }
 }

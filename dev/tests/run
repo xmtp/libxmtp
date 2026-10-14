@@ -1,0 +1,120 @@
+#!/usr/bin/env python3.11
+"""Run every dev test module that `just lint-config` owns.
+
+Each start directory contributes its `test_*.py` files. A new test file in one
+of these directories runs without a recipe or workflow edit. The tests import
+sibling modules by bare name, so each directory runs in its own Python process
+with that directory first on `sys.path`. A test cannot pass here by importing
+a module from another start directory.
+"""
+
+import importlib
+import io
+import subprocess
+import sys
+import time
+import traceback
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+
+START_DIRS = (
+    "dev/tests",
+    "dev/specs",
+    "apps/example-android/fixtures",
+    "apps/example-android/performance",
+    "nix/lib",
+)
+
+# The last stdout line of a directory process: tests run and failed modules.
+SUMMARY = "dev-tests-run-summary"
+
+
+def run_module(path):
+    """Import and run one module.
+
+    Return (tests run, tests skipped, failure detail or None).
+    """
+    output = io.StringIO()
+    try:
+        module = importlib.import_module(path.stem)
+        suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+        result = unittest.TextTestRunner(stream=output, verbosity=0).run(suite)
+    except KeyboardInterrupt:
+        raise
+    except BaseException:  # noqa: BLE001
+        # An import error, or a SystemExit from setUpModule or setUpClass.
+        return 0, 0, output.getvalue() + traceback.format_exc()
+    skipped = len(result.skipped)
+    if not result.wasSuccessful():
+        return result.testsRun, skipped, output.getvalue()
+    if result.testsRun == 0:
+        return 0, 0, "No tests ran. Use unittest.TestCase classes.\n"
+    if skipped and skipped == result.testsRun:
+        return result.testsRun, skipped, "Every test was skipped.\n"
+    return result.testsRun, skipped, None
+
+
+def run_directory(start):
+    """Run the modules of one start directory in this process."""
+    directory = ROOT / start
+    files = sorted(directory.glob("test_*.py"))
+    failed = []
+    if not files:
+        failed.append((start, "No test_*.py files. Update START_DIRS.\n"))
+    # Python put this script's directory first; only the selected one stays.
+    runner = Path(__file__).resolve().parent
+    sys.path[:] = [p for p in sys.path if not p or Path(p).resolve() != runner]
+    sys.path.insert(0, str(directory))
+    total = 0
+    for path in files:
+        label = path.relative_to(ROOT).as_posix()
+        started = time.monotonic()
+        count, skipped, detail = run_module(path)
+        seconds = time.monotonic() - started
+        total += count
+        status = "ok" if detail is None else "FAIL"
+        counts = f"{count} tests, {skipped} skipped, {seconds:.1f} s"
+        print(f"{status:5} {label} ({counts})", flush=True)
+        if detail is not None:
+            failed.append((label, detail))
+    for label, detail in failed:
+        print(f"\n===== {label}\n{detail}", file=sys.stderr, flush=True)
+    print(f"{SUMMARY} {total} {len(failed)}", flush=True)
+    return 1 if failed else 0
+
+
+def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--directory":
+        return run_directory(sys.argv[2])
+    if len(sys.argv) != 1:
+        print("Usage: dev/tests/run", file=sys.stderr)
+        return 2
+    total = 0
+    failed = 0
+    for start in START_DIRS:
+        command = [sys.executable, "-B", __file__, "--directory", start]
+        child = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, text=True)
+        summary = None
+        for line in child.stdout:
+            if line.startswith(SUMMARY + " "):
+                summary = line.split()[1:]
+            else:
+                print(line, end="", flush=True)
+        code = child.wait()
+        if summary is None:
+            print(f"ERROR {start}: the test process exited {code} without a summary")
+            failed += 1
+            continue
+        total += int(summary[0])
+        failed += int(summary[1])
+        if code != 0 and int(summary[1]) == 0:
+            print(f"ERROR {start}: the test process exited {code}")
+            failed += 1
+    print(f"{total} tests; {failed} failed modules")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

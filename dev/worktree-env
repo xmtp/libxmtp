@@ -8,7 +8,8 @@
 # This script resolves a worktree to a slot number, derives a port block from
 # it, and writes dev/docker/.env. Compose reads that file automatically; the
 # justfiles and dev/docker/* scripts source it. Nothing else derives ports, so
-# nothing can disagree about them.
+# nothing can disagree about them. The file also names the worktree's backend
+# image, so each stack runs its own worktree's build.
 #
 #   port = base + slot * 100
 #
@@ -405,6 +406,7 @@ main() {
   else
     project="libxmtp-${name}-${slot}"
   fi
+  project="$(effective XMTP_COMPOSE_PROJECT "${project}")"
 
   local tmp
   tmp="$(mktemp "${env_file}.XXXXXX")"
@@ -431,9 +433,13 @@ main() {
     grafana_port="$(effective XMTP_GRAFANA_PORT "$((BASE_GRAFANA_PORT + offset))")"
     s3_port="$(effective XMTP_S3_PORT "$((BASE_S3_PORT + offset))")"
 
-    emit XMTP_COMPOSE_PROJECT "$(effective XMTP_COMPOSE_PROJECT "${project}")"
+    emit XMTP_COMPOSE_PROJECT "${project}"
     emit XMTP_WORKTREE_NAME "$(effective XMTP_WORKTREE_NAME "${name}")"
     emit XMTP_WORKTREE_SLOT "$(effective XMTP_WORKTREE_SLOT "${slot}")"
+    # `just backend up` loads this worktree's build under this tag. Every Nix
+    # build carries the same tag, so a shared one would let Compose recreate
+    # this stack's backend from whichever worktree loaded last.
+    emit XMTP_BACKEND_IMAGE "$(effective XMTP_BACKEND_IMAGE "xmtp-backend:${project}")"
     emit XMTP_BACKEND_DB_PORT "${db_port}"
     emit XMTP_BACKEND_REPLICA_PORT "${replica_port}"
     emit XMTP_BACKEND_PORT "${backend_port}"

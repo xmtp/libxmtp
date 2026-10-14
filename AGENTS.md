@@ -4,8 +4,6 @@ Rust workspace. MLS messaging. SDKs: `sdks/{agent,android,browser,ios,node}`.
 
 ## Read first
 
-- `docs/self-hosted/agent-context.md` — self-hosted project rules.
-  Read it once at session start. Do not re-read it.
 - `docs/specs/` — approved specs. They win over code, plans, and XIPs. Read the
   ones that cover what you are working on, not all of them;
   `docs/specs/README.md` says which spec owns what.
@@ -35,21 +33,27 @@ just check crate <name>      # check one crate
 just test                    # test default members
 just test crate <name>       # test one crate
 just test workspace -p <name> <args> # focused nextest options and filters
-just lint                    # Rust, config, Markdown, and proto
+just lint                    # CI lint except lint_ios/android/example_android, plus spec-check
+dev/nix-shell 'just lint-js-source' # source Oxlint without generated SDK products
+dev/nix-shell 'just lint-rust-source' # Rust manifests, without Clippy
 just backend up              # shared services
 just backend status          # worktree ports and URLs
 just outline <paths...>      # declarations and line ranges
 just show <file> <name>      # source of a named symbol
 just ci-status <pr>          # CI failures and summary
+just format                  # format Rust, Nix, TOML, Python, shell, JS, Kotlin, Swift
+just disk                    # free space and target/ size of each worktree
 ```
 
 The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
 `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
 `just backend db-up` starts only `db` and `replica`, without an image build.
 `just backend logs [services...]` shows service logs.
+Failed Compose startup retains project logs and container state under
+`$RUNNER_TEMP/backend-startup-logs`, or the printed temporary path for local runs.
 Use `XMTP_BACKEND_URL=http://127.0.0.1:5050` when local IPv6 forwarding fails.
-Ports above are the main checkout's. Every worktree gets its own Compose project
-and port block, so run `just backend status` for the checkout you are in. See the
+Ports above are the main checkout's. Every worktree gets its own Compose project,
+port block, and backend image tag, so run `just backend status` for the checkout you are in. See the
 `working-with-worktrees` skill.
 `just test` excludes backend database tests; run them with `just backend test`.
 
@@ -57,6 +61,9 @@ and port block, so run `just backend status` for the checkout you are in. See th
 
 ## Rules
 
+- Branch from `origin/main` and target `main` for new PRs.
+- Changes that add, amend, or remove a spec requirement need an approved Ref
+  plan before implementation. Routine docs, CI, and tooling changes do not.
 - Rust tests use `#[xmtp_common::test(unwrap_try = true)]`, not `#[test]`, unless
   the package documents an exception to avoid a dependency cycle.
 - Prove that a new test can fail, in any language. Break the behavior it
@@ -77,10 +84,14 @@ and port block, so run `just backend status` for the checkout you are in. See th
 - For CI results use `just ci-status <pr>` and `just ci-failures <job>`, never a
   raw log fetch. See the `check-ci` skill.
 - After changes to the CI failure filter, run
-  `dev/nix-shell 'just ci-failures-filter-test'`. It checks local log fixtures.
-- `dev/nix-shell 'just lint-config'` also checks Android emulator startup,
-  scoped test teardown, platform selection, and clock synchronization with local
-  process fixtures.
+  `dev/nix-shell 'python3.11 -B dev/tests/test_ci_failure_markers.py'`. It
+  checks local log fixtures.
+- `dev/nix-shell 'just lint-config'` checks Rust and config format with treefmt.
+  It also runs the dev tool tests: `dev/tests/run` runs every `test_*.py` in
+  the directories it lists, so a new test there needs no recipe edit. They
+  check CI selection, result gates, action pins, release pushes, cache modes,
+  Android emulator startup and teardown, and Docker startup diagnostics with
+  local process fixtures.
 
 ## Android release workflow
 

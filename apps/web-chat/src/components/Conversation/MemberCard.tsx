@@ -11,6 +11,9 @@ export type Member = {
   displayName: string | null;
   avatar: string | null;
   description: string | null;
+  // the current handle identifies the inbox when it has one
+  handle: string | null;
+  inboxId: string;
 };
 
 export type MemberCardProps = Member & {
@@ -25,12 +28,15 @@ export const MemberCard = forwardRef<HTMLDivElement, MemberCardProps>(
       displayName,
       avatar,
       description,
+      handle,
+      inboxId,
       withClass = true,
       shortenAddress = true,
     },
     ref,
   ) => {
     const { setOpened } = useMemberPopover();
+    const shownInboxId = shortenAddress ? shortAddress(inboxId) : inboxId;
     return (
       <Card
         ref={ref}
@@ -48,11 +54,16 @@ export const MemberCard = forwardRef<HTMLDivElement, MemberCardProps>(
           <Avatar src={avatar} size="md" radius="xl" variant="default" />
           <Stack gap="0" flex={1} style={{ overflow: "hidden" }}>
             <Text size="sm" truncate>
-              {displayName ||
-                (shortenAddress ? shortAddress(address) : address)}
+              {handle ||
+                displayName ||
+                (address
+                  ? shortenAddress
+                    ? shortAddress(address)
+                    : address
+                  : shownInboxId)}
             </Text>
             <Text size="xs" truncate c="dimmed">
-              {description}
+              {handle ? shownInboxId : description}
             </Text>
           </Stack>
         </Group>

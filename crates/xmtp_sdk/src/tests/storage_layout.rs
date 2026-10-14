@@ -593,39 +593,8 @@ async fn explicit_storage_sends_no_identity_request_to_a_deployment_it_refuses()
 
 // verifies: CONF-064, CONF-072
 #[xmtp_common::test(unwrap_try = true)]
-async fn explicit_storage_without_identity_sends_no_request_after_a_recorded_conflict() {
-    use xmtp_db::prelude::QueryServerConfiguration;
-
-    let relay = CountingRelay::start().await?;
-    let root = temp_root("explicit-recorded-conflict");
-    std::fs::create_dir_all(&root)?;
-    let mut settings = layout_options();
-    settings.backend = relay.backend();
-    settings.storage.location = explicit(&root);
-    // The database holds no identity, so create does not know the inbox.
-    let db_path = root.join("chosen.sqlite");
-    let store =
-        crate::client::open_store(&settings.storage, Some(&db_path.to_string_lossy())).await?;
-    store
-        .db()
-        .store_server_configuration("stored-deployment", &relay.url, b"", 0)?;
-    store
-        .db()
-        .record_server_configuration_conflict("another-deployment")?;
-    drop(store);
-
-    let created = Client::create(crate::generate_local_signer().await, settings).await;
-    assert!(
-        matches!(created, Err(XmtpError::BackendMismatch(_))),
-        "create: {:?}",
-        created.err()
-    );
-    assert_eq!(relay.connections(), 0, "create sent a request");
-    std::fs::remove_dir_all(root)?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_without_identity_updates_opens_offline_only_for_its_creator() {
+    use xmtp_db::prelude::QueryServerConfiguration;
     use xmtp_db::{ConnectionExt, diesel::RunQueryDsl};
 
     let relay = CountingRelay::start().await?;
@@ -662,6 +631,34 @@ async fn explicit_storage_without_identity_updates_opens_offline_only_for_its_cr
     assert_eq!(reopened.inbox_id(), inbox_id);
     reopened.end().await?;
     assert_eq!(relay.connections(), 0, "offline check sent a request");
+
+    // A separate explicit database keeps the creator's identity intact.
+    let conflict_root = root.join("conflict");
+    std::fs::create_dir_all(&conflict_root)?;
+    let mut conflict_settings = layout_options();
+    conflict_settings.backend = relay.backend();
+    conflict_settings.storage.location = explicit(&conflict_root);
+    conflict_settings.allow_offline = false;
+    let conflict_db = conflict_root.join("chosen.sqlite");
+    let store = crate::client::open_store(
+        &conflict_settings.storage,
+        Some(&conflict_db.to_string_lossy()),
+    )
+    .await?;
+    store
+        .db()
+        .store_server_configuration("stored-deployment", &relay.url, b"", 0)?;
+    store
+        .db()
+        .record_server_configuration_conflict("another-deployment")?;
+    drop(store);
+    let created = Client::create(crate::generate_local_signer().await, conflict_settings).await;
+    assert!(
+        matches!(created, Err(XmtpError::BackendMismatch(_))),
+        "create: {:?}",
+        created.err()
+    );
+    assert_eq!(relay.connections(), 0, "conflict check sent a request");
     std::fs::remove_dir_all(root)?;
 }
 

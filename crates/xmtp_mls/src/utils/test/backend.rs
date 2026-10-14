@@ -24,6 +24,17 @@ impl EphemeralBackend {
         &self.0.backend.config
     }
 
+    /// Move the stored identity history of `inbox_id` back in server time by
+    /// `by`, so a test passes the interval between handle claims without
+    /// waiting.
+    pub async fn age_identity_history(
+        &self,
+        inbox_id: &str,
+        by: std::time::Duration,
+    ) -> TestResult {
+        self.0.age_identity_history(inbox_id, by).await
+    }
+
     /// Stop the server and remove its database. Return cleanup errors.
     pub async fn stop(self) -> TestResult {
         self.0.stop().await

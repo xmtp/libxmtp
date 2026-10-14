@@ -71,6 +71,8 @@ pub enum EventKind {
     AttachmentDownloadFailed,
     #[sdk(kind = "attachment.deleted")]
     AttachmentDeleted,
+    #[sdk(kind = "handle.changed")]
+    HandleChanged,
     #[sdk(kind = "lagged")]
     Lagged,
 }
@@ -105,6 +107,7 @@ impl From<EventKind> for core::EventKind {
             EventKind::AttachmentDownloadCompleted => Self::AttachmentDownloadCompleted,
             EventKind::AttachmentDownloadFailed => Self::AttachmentDownloadFailed,
             EventKind::AttachmentDeleted => Self::AttachmentDeleted,
+            EventKind::HandleChanged => Self::HandleChanged,
             EventKind::Lagged => Self::Lagged,
         }
     }
@@ -339,6 +342,15 @@ pub struct ConnectionStateChanged {
     pub current: ConnectionState,
 }
 
+/// The current handle of an inbox changed: the client stored a newer
+/// association state for the inbox whose display handle differs.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct HandleChanged {
+    pub inbox_id: InboxId,
+    /// The inbox's current handle.
+    pub handle: String,
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct Lagged {
     pub discarded: u64,
@@ -426,6 +438,9 @@ pub enum ClientEvent {
     },
     AttachmentDeleted {
         attachment_deleted: AttachmentRef,
+    },
+    HandleChanged {
+        handle_changed: HandleChanged,
     },
     Lagged {
         lagged: Lagged,
@@ -600,6 +615,12 @@ impl ClientEvent {
             },
             core::ClientEvent::AttachmentDeleted(v) => Self::AttachmentDeleted {
                 attachment_deleted: v.into(),
+            },
+            core::ClientEvent::HandleChanged(v) => Self::HandleChanged {
+                handle_changed: HandleChanged {
+                    inbox_id: InboxId::unchecked(v.inbox_id),
+                    handle: v.handle,
+                },
             },
             core::ClientEvent::Lagged(v) => Self::Lagged {
                 lagged: Lagged {

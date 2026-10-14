@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -25,4 +25,4 @@ if [ "${1:-}" = "--cert-only" ]; then
   exit 0
 fi
 echo "stack 'libxmtp-tls': https://127.0.0.1:18443"
-exec docker compose -f "$script_dir/compose.yml" -p libxmtp-tls up --detach --remove-orphans --wait "$@"
+exec "$script_dir/compose" up --detach --remove-orphans --wait "$@"

@@ -7,7 +7,7 @@
 use std::process::Command;
 
 #[test]
-#[ignore = "requires `dev/up` running locally"]
+#[ignore = "requires `just backend up` running locally"]
 fn healthcheck_passes_on_local_backend() {
     let xdbg = env!("CARGO_BIN_EXE_xdbg");
     let tmp = tempfile::tempdir().expect("tempdir");

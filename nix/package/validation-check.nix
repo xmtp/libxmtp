@@ -1,7 +1,6 @@
 # Focused native, wasm, and dependency-isolation checks for xmtp_mls_validation.
 {
   xmtp,
-  lib,
   wasm-bindgen-cli,
   nodejs_24,
   python3,
@@ -10,15 +9,17 @@
 let
   inherit (xmtp) craneLib base;
   root = ./../..;
-  rust-toolchain = p: xmtp.mkToolchain p [ "wasm32-unknown-unknown" ] [ ];
-  rust = craneLib.overrideToolchain rust-toolchain;
+  rust = craneLib.overrideToolchain xmtp.hostToolchain;
 
-  src = lib.fileset.toSource {
-    inherit root;
-    fileset = lib.fileset.unions [
-      xmtp.filesets.workspace
-      (root + /dev/check-validation)
+  # The tested packages, their dev-dependencies, and the check script.
+  src = xmtp.filesets.mkClosureSource rust {
+    roots = [
+      (root + /crates/xmtp_mls_validation)
+      (root + /crates/xmtp_proto)
+      (root + /crates/xmtp_id)
     ];
+    dev = true;
+    extra = [ (root + /crates/xmtp_mls_validation/dev/check-validation) ];
   };
 
   commonArgs = base.commonArgs // {
@@ -29,8 +30,8 @@ let
       ;
   };
 
-  cargoArtifacts = base.mkCargoArtifacts rust false (
-    (removeAttrs commonArgs [ "src" ])
+  cargoArtifacts = base.mkCargoArtifacts rust (
+    commonArgs
     // {
       buildPhaseCargoCommand = ''
         cargo test --locked --no-run -p xmtp_mls_validation --features test-utils
@@ -51,6 +52,7 @@ rust.buildPackage (
   commonArgs
   // {
     inherit src cargoArtifacts;
+    cargoVendorDir = base.mkCargoVendorDir rust;
     pname = "xmtp-mls-validation-check";
     version = xmtp.mkVersion rust;
     nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
@@ -59,9 +61,11 @@ rust.buildPackage (
       python3
       taplo
     ];
-    buildPhaseCargoCommand = "bash dev/check-validation all";
+    buildPhaseCargoCommand = "bash crates/xmtp_mls_validation/dev/check-validation all";
     doCheck = false;
     doInstallCargoArtifacts = false;
+    # A check result must name no store path, so it substitutes on a hit.
+    allowedReferences = [ ];
     doNotPostBuildInstallCargoBinaries = true;
     installPhaseCommand = "touch $out";
   }

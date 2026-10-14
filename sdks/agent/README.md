@@ -384,6 +384,16 @@ await group.addMembers(["0x789"]);
 await group.send("Hello group!");
 ```
 
+You can also start a conversation with a handle, such as `nick` or `nick#2341`:
+
+```ts
+const dm = await agent.createDmWithHandle("nick#2341");
+const group = await agent.createGroupWithHandles(["nick", "ana"]);
+await agent.addMembersWithHandles(group, ["bo#0042"]);
+```
+
+To find and claim a handle for the agent, use `agent.client.availableHandles(name)` and `agent.client.claimHandle(handle)`.
+
 ### 6. Utilities
 
 The Agent SDK includes various utilities. You can for example get a testing URL or details of your Agent:

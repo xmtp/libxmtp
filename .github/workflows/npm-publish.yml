@@ -81,14 +81,17 @@ jobs:
       version: ${{ inputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
           fetch-depth: 0
+          # Full history for the release tag, without blobs; git-cliff, which
+          # fails on a blobless clone, does not run here.
+          filter: blob:none
 
       - name: Download build artifacts
         if: ${{ inputs.artifact-pattern != '' }}
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: ${{ inputs.artifact-pattern }}
           merge-multiple: true
@@ -111,7 +114,7 @@ jobs:
         env:
           PACKAGE_DIRECTORY: ${{ inputs.package-dir }}
           PACKAGE_VERSION: ${{ inputs.version }}
-        run: node crates/xmtp_sdk/dev/stamp-package.mjs "$PACKAGE_DIRECTORY" "$PACKAGE_VERSION"
+        run: xmtp-release stamp-package --dir "$PACKAGE_DIRECTORY" --version "$PACKAGE_VERSION"
 
       - name: Determine NPM tag
         id: npm-tag
@@ -168,7 +171,7 @@ jobs:
           git bundle create "$RUNNER_TEMP/release.bundle" "$tag_ref"
       - name: Store release tag
         if: ${{ inputs.dry-run != true }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-tag-${{ inputs.sdk }}
           path: ${{ runner.temp }}/release.bundle

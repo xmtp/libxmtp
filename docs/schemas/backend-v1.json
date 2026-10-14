@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json",
+  "$id": "https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Config",
   "description": "Complete backend configuration.",
@@ -144,6 +144,12 @@
         "max_group_members": 250,
         "max_installations_per_inbox": 10,
         "commit_log_enabled": true
+      }
+    },
+    "handles": {
+      "$ref": "#/$defs/HandlesConfig",
+      "default": {
+        "min_name_length": 3
       }
     },
     "application_components": {
@@ -1305,6 +1311,20 @@
           "description": "Publish and read the remote commit log. False switches both off for\nevery client of this deployment.",
           "type": "boolean",
           "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "HandlesConfig": {
+      "type": "object",
+      "properties": {
+        "min_name_length": {
+          "description": "The shortest name part, the text before `#`, admitted in a new claim.\nA change applies only to later claims; handles claimed before it stay\nvalid.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1,
+          "maximum": 27,
+          "default": 3
         }
       },
       "additionalProperties": false

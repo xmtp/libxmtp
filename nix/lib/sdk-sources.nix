@@ -1,111 +1,52 @@
 { lib, xmtp }:
 let
   root = ./../..;
-  inherit (lib.fileset) unions fileFilter toSource;
-  cargoSources = xmtp.craneLib.fileset.commonCargoSources;
-  workspaceManifest = builtins.fromTOML (builtins.readFile (root + /Cargo.toml));
-  workspaceDependencies = workspaceManifest.workspace.dependencies;
-  patches = workspaceManifest.patch."crates-io";
-  dependencyTables =
-    manifest:
-    [
-      (manifest.dependencies or { })
-      (manifest.build-dependencies or { })
-    ]
-    ++ lib.concatMap (target: [
-      (target.dependencies or { })
-      (target.build-dependencies or { })
-    ]) (builtins.attrValues (manifest.target or { }));
-  localDependencies =
-    path: manifest:
-    lib.concatMap (
-      table:
-      lib.concatLists (
-        lib.mapAttrsToList (
-          name: value:
-          let
-            inherited = builtins.isAttrs value && (value.workspace or false);
-            dependency = if inherited then workspaceDependencies.${name} else value;
-            package = if builtins.isAttrs dependency then dependency.package or name else name;
-            patch = patches.${package} or { };
-            base = if inherited then root else path;
-          in
-          if builtins.isAttrs dependency && dependency ? path then
-            [ { key = toString (base + "/${dependency.path}"); } ]
-          else if patch ? path then
-            [ { key = toString (root + "/${patch.path}"); } ]
-          else
-            [ ]
-        ) table
-      )
-    ) (dependencyTables manifest);
-  asPath = key: root + (lib.removePrefix (toString root) key);
-  closure =
-    package:
-    map (entry: asPath entry.key) (
-      builtins.genericClosure {
-        startSet = [ { key = toString package; } ];
-        operator =
-          entry:
-          localDependencies (asPath entry.key) (
-            builtins.fromTOML (builtins.readFile "${entry.key}/Cargo.toml")
-          );
-      }
-    );
-  sdkCrates = closure (root + /crates/xmtp_sdk);
-  bindgenCrates = closure (root + /apps/xmtp_sdk_bindgen);
+  inherit (lib.fileset) unions toSource;
   workspaceSource = toSource {
     inherit root;
     fileset = xmtp.filesets.workspace;
   };
-  embedded = [
-    (root + /proto)
-    (root + /crates/xmtp_db/migrations)
-    (root + /crates/xmtp_attachments/src/address-registry.txt)
-    (root + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
-    (root + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
-  ];
-  restored =
-    crates: extra:
-    toSource {
-      inherit root;
-      fileset = unions (
-        [ (root + /Cargo.toml) ]
-        ++ map cargoSources crates
-        ++ map (crate: fileFilter (file: lib.hasSuffix ".sql" file.name) crate) crates
-        ++ extra
-      );
-    };
-  sdkInputs = restored sdkCrates embedded;
-  bindgenInputs = restored bindgenCrates [
-    (root + /apps/xmtp_sdk_bindgen/templates)
-    (root + /apps/xmtp_sdk_bindgen/src/swift_event_fixture.swift)
-    (root + /apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.ts)
-    (root + /crates/xmtp_sdk/src/client/event_conformance.rs)
-  ];
-  mkCompileSource =
-    rust: inputs:
-    rust.mkDummySrc {
-      src = workspaceSource;
-      extraDummyScript = ''
-        cp --recursive --remove-destination ${inputs}/. $out/
-      '';
-    };
+  # Compiler sources restore the selected local dependency graph over a dummy
+  # workspace. The closure adds the data files that its packages compile in.
+  sdkClosure = {
+    roots = [ (root + /crates/xmtp_sdk) ];
+  };
+  bindgenClosure = {
+    roots = [ (root + /apps/xmtp_sdk_bindgen) ];
+    extra = [
+      (root + /apps/xmtp_sdk_bindgen/templates)
+      (root + /apps/xmtp_sdk_bindgen/src/swift_event_fixture.swift)
+      (root + /apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.ts)
+    ];
+  };
+  sdkInputs = xmtp.filesets.closureSource sdkClosure;
+  bindgenInputs = xmtp.filesets.closureSource bindgenClosure;
+  # Each render reads only its own runtime, so a Kotlin runtime edit keeps the
+  # Swift and TypeScript renders.
+  runtimeInputs = {
+    swift = [ (root + /apps/xmtp_sdk_bindgen/runtime/swift) ];
+    kotlin = [
+      (root + /apps/xmtp_sdk_bindgen/runtime/kotlin)
+      (root + /apps/xmtp_sdk_bindgen/runtime/android)
+    ];
+    typescript = [
+      (root + /apps/xmtp_sdk_bindgen/runtime/ts)
+      (root + /apps/xmtp_sdk_bindgen/typescript.toml)
+      # The formatter configuration of generated TypeScript.
+      (root + /apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json)
+    ];
+  };
   generationInputs =
     language:
     toSource {
       inherit root;
-      fileset = unions [
-        (root + /apps/xmtp_sdk_bindgen/uniffi-global.toml)
-        (root + /apps/xmtp_sdk_bindgen/typescript.toml)
-        (root + /crates/xmtp_sdk/uniffi.toml)
-        (
-          if language == "swift" then
-            root + /apps/xmtp_sdk_bindgen/runtime/swift
-          else
-            root + /apps/xmtp_sdk_bindgen/runtime
-        )
-      ];
+      fileset = unions (
+        [
+          (root + /apps/xmtp_sdk_bindgen/uniffi-global.toml)
+          (root + /crates/xmtp_sdk/uniffi.toml)
+        ]
+        ++ runtimeInputs.${if lib.hasPrefix "typescript-" language then "typescript" else language}
+      );
     };
   # The stock Swift/Kotlin renderer still asks Cargo for workspace metadata.
   # Keep manifests and target stubs without adding real compilation sources.
@@ -117,40 +58,45 @@ let
         cp --recursive --remove-destination ${generationInputs language}/. $out/
       '';
     };
-  # Keep the complete source used by both existing identity producers.
-  provenanceSource = toSource {
-    inherit root;
-    fileset = unions [
-      xmtp.filesets.workspace
-      (fileFilter (
-        file:
-        lib.hasSuffix ".rs" file.name
-        || lib.hasSuffix ".proto" file.name
-        || lib.hasSuffix ".sql" file.name
-        || file.name == "Cargo.toml"
-      ) (root + /crates))
-      (fileFilter (
-        file:
-        lib.hasSuffix ".rs" file.name
-        || lib.hasSuffix ".proto" file.name
-        || lib.hasSuffix ".sql" file.name
-        || file.name == "Cargo.toml"
-      ) (root + /apps))
-      (root + /flake.lock)
-      (root + /rust-toolchain.toml)
-      (root + /crates/xmtp_sdk)
-      (root + /apps/xmtp_sdk_bindgen)
-      (root + /crates/xmtp_configuration)
-    ];
+  # Each identity is a digest that Nix computes at evaluation: the store paths
+  # of its sources plus the files that every compile reads. It names no store
+  # path in a product, and every system and build route records the same value
+  # (`sdk-artifacts.py` reads it with `nix eval`).
+  identity =
+    inputs:
+    builtins.hashString "sha256" (
+      builtins.toJSON (
+        map (input: builtins.unsafeDiscardStringContext "${input}") inputs
+        ++ [
+          (builtins.hashFile "sha256" (root + /Cargo.lock))
+          (builtins.hashFile "sha256" (root + /.cargo/config.toml))
+          (builtins.hashFile "sha256" (root + /rust-toolchain.toml))
+        ]
+      )
+    );
+  provenance = {
+    source = identity [ sdkInputs ];
+    # The bindgen executable.
+    generator = identity [ bindgenInputs ];
+    # A generated tree is the bindgen's output over its own language's runtime
+    # and configuration. Its receipt records this identity, so a runtime edit
+    # changes only the trees of that language.
+    render = lib.genAttrs [ "swift" "kotlin" "typescript" ] (
+      language:
+      identity [
+        bindgenInputs
+        (generationInputs language)
+      ]
+    );
   };
 in
 {
   inherit
-    provenanceSource
+    provenance
     generationSource
     sdkInputs
     bindgenInputs
     ;
-  sdk = rust: mkCompileSource rust sdkInputs;
-  bindgen = rust: mkCompileSource rust bindgenInputs;
+  sdk = rust: xmtp.filesets.mkClosureSource rust sdkClosure;
+  bindgen = rust: xmtp.filesets.mkClosureSource rust bindgenClosure;
 }

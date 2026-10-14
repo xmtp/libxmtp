@@ -19,7 +19,7 @@ A requirement without a proving test needs a waiver under SPEC-055, SPEC-094, an
 | `AUTH` | [Backend auth](AUTH-backend-auth.md) | Request authentication and authorization, client credentials, terminal auth failures | draft |
 | `OPS` | [Backend operations](OPS-backend-operations.md) | Retention and pruning, readiness and health, shutdown as observed, the metric catalogue | draft |
 | `PUSH` | [Push subscriptions and webhooks](PUSH-push-subscriptions.md) | Recipient registration, channels, subscription sync, dispatch, HMAC suppression, webhook signing | draft |
-| `IDENT` | [Identity updates](IDENT-identity-updates.md) | Association log, signature kinds, inbox id derivation, replay protection, installation lifecycle | draft |
+| `IDENT` | [Identity updates](IDENT-identity-updates.md) | Association log, signature kinds, inbox id derivation, replay protection, installation lifecycle, local signing-key persistence | draft |
 | `JOIN` | [Joining groups](JOIN-joining-groups.md) | Key packages, Welcomes, welcome pointers, when a Welcome replaces local state, join validation | draft |
 | `GMOD` | [Modifying groups](GMOD-modifying-groups.md) | Commits and proposals, commit validation, adding members, failed installations | draft |
 | `PERM` | [Group permissions](PERM-group-permissions.md) | The policy set, evaluation, admin semantics, policy versioning | draft |
@@ -31,6 +31,7 @@ A requirement without a proving test needs a waiver under SPEC-055, SPEC-094, an
 | `CONS` | [Consent](CONS-consent.md) | Consent states, precedence, defaults, gating of listing and streaming | draft |
 | `SYNC` | [Device sync](SYNC-device-sync.md) | The sync group, preference updates, trust of sync invitations | draft |
 | `ARCH` | [Archive format](ARCH-archive-format.md) | The backup export and import format and its compatibility promise | draft |
+| `MIG` | [Legacy database migration](MIG-legacy-database-migration.md) | Closed legacy source conversion, source preservation, metadata fallback, and atomic local archives | draft |
 | `CTYPE` | [Content types](CTYPE-content-types.md) | Content type ids, the encoded-content envelope, the standard catalogue | draft |
 | `STORE` | [Client storage](STORE-client-storage.md) | Client database locations, storage lifecycle, and unencrypted database support | draft |
 | `ATCH` | [Remote attachments](ATCH-remote-attachments.md) | Published attachment storage, download URLs, the upload request, pending attachments, local attachment files, downloads | draft |

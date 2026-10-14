@@ -28,103 +28,34 @@ def script(name, workflow=WORKFLOW):
     return dedent("\n".join(lines))
 
 
+def release_tools(binary):
+    """Write an xmtp-release command that runs the local CLI source."""
+    tools = ROOT / "dev/release-tools"
+    wrapper = binary / "xmtp-release"
+    wrapper.write_text(
+        f'#!/usr/bin/env bash\nexec "{tools}/node_modules/.bin/tsx" '
+        f'--tsconfig "{tools}/tsconfig.json" "{tools}/src/cli.ts" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+
+
+def git_runner(env, cwd=None, strip=True):
+    def git(*args, cwd=cwd):
+        out = subprocess.run(
+            ["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True
+        ).stdout
+        return out.strip() if strip else out
+
+    return git
+
+
 class ReleasePushTest(unittest.TestCase):
-    def test_selected_source_is_fixed_before_sdk_commands(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            env = {
-                key: value
-                for key, value in os.environ.items()
-                if not key.startswith("GIT_")
-            }
-            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
-
-            def git(*args):
-                return subprocess.run(
-                    ["git", *args],
-                    cwd=root,
-                    env=env,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                ).stdout.strip()
-
-            git("init", "--initial-branch=caller")
-            git("config", "user.name", "Test")
-            git("config", "user.email", "test@example.com")
-            git("-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "caller")
-            caller_sha = git("rev-parse", "HEAD")
-            git("switch", "-c", "release")
-            git(
-                "-c",
-                "commit.gpgSign=false",
-                "commit",
-                "--allow-empty",
-                "-m",
-                "selected",
-            )
-            selected_sha = git("rev-parse", "HEAD")
-            output = root / "source-output"
-            subprocess.run(
-                [
-                    "bash",
-                    "-euc",
-                    script(
-                        "Resolve release source",
-                        ROOT / ".github/workflows/check-release-push.yml",
-                    ),
-                ],
-                cwd=root,
-                env=dict(env, GITHUB_SHA=caller_sha, GITHUB_OUTPUT=str(output)),
-                check=True,
-            )
-            snapshot = output.read_text().strip().removeprefix("sha=")
-            self.assertEqual(snapshot, selected_sha)
-            self.assertNotEqual(snapshot, caller_sha)
-            # A later branch update must not change the saved source commit.
-            git("-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "later")
-            self.assertNotEqual(git("rev-parse", "release"), snapshot)
-            git("checkout", "--detach", snapshot)
-            git("-c", "tag.gpgSign=false", "tag", "android-1.2.3")
-            temporary = root / "runner"
-            (temporary / "release-tag").mkdir(parents=True)
-            git(
-                "bundle",
-                "create",
-                str(temporary / "release-tag/release.bundle"),
-                "refs/tags/android-1.2.3",
-            )
-            subprocess.run(
-                ["bash", "-euc", script("Import release tag")],
-                cwd=root,
-                env=dict(
-                    env,
-                    SOURCE_SHA=snapshot,
-                    SDK="android",
-                    VERSION="1.2.3",
-                    RUNNER_TEMP=str(temporary),
-                ),
-                check=True,
-                capture_output=True,
-            )
-
     def test_production_version_scripts_keep_requested_ref_classification(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binary = root / "bin"
             binary.mkdir()
-            tools = ROOT / "dev/release-tools"
-            wrapper = binary / "xmtp-release"
-            wrapper.write_text(
-                '#!/usr/bin/env bash\nexec "'
-                + str(tools / "node_modules/.bin/tsx")
-                + '" --tsconfig "'
-                + str(tools / "tsconfig.json")
-                + '" "'
-                + str(tools / "src/cli.ts")
-                + '" "$@"\n'
-            )
-            wrapper.chmod(0o755)
+            release_tools(binary)
             for path in [
                 "sdks/node/package.json",
                 "sdks/browser/package.json",
@@ -149,15 +80,7 @@ class ReleasePushTest(unittest.TestCase):
                 PATH=str(binary) + os.pathsep + env["PATH"],
             )
 
-            def git(*args):
-                return subprocess.run(
-                    ["git", *args],
-                    cwd=root,
-                    env=env,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                ).stdout.strip()
+            git = git_runner(env, root)
 
             git("init", "--initial-branch=pinned")
             git("config", "user.name", "Test")
@@ -247,13 +170,141 @@ class ReleasePushTest(unittest.TestCase):
                         )
                         self.assertEqual(actual, expected)
 
+    def test_release_source_is_the_checked_out_ref_not_the_caller(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("GIT_")
+            }
+            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+            git = git_runner(env, cwd=root)
+            git("init", "--initial-branch=caller")
+            for message in ("caller", "selected"):
+                if message == "selected":
+                    git("switch", "--quiet", "-c", "release")
+                git(
+                    "-c",
+                    "user.name=T",
+                    "-c",
+                    "user.email=t@example.com",
+                    "-c",
+                    "commit.gpgSign=false",
+                    "commit",
+                    "--allow-empty",
+                    "-m",
+                    message,
+                )
+            caller_sha = git("rev-parse", "caller")
+            output = root / "source-output"
+            subprocess.run(
+                [
+                    "bash",
+                    "-euc",
+                    script(
+                        "Resolve release source",
+                        ROOT / ".github/workflows/check-release-push.yml",
+                    ),
+                ],
+                cwd=root,
+                env=dict(env, GITHUB_SHA=caller_sha, GITHUB_OUTPUT=str(output)),
+                check=True,
+            )
+            # Every release caller builds, tags, and publishes this commit.
+            self.assertEqual(output.read_text(), f"sha={git('rev-parse', 'release')}\n")
+
+    def test_release_source_must_be_on_trunk_or_a_release_branch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("GIT_")
+            }
+            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+            git = git_runner(env)
+
+            work = root / "work"
+            work.mkdir()
+            git("init", "--initial-branch=main", cwd=work)
+            commits = {}
+            for branch in (
+                "main",
+                "self-hosted",
+                "release/1.0",
+                "feature",
+                "release-notes",
+            ):
+                if branch != "main":
+                    git("switch", "--quiet", "-C", branch, "main", cwd=work)
+                git(
+                    "-c",
+                    "user.name=T",
+                    "-c",
+                    "user.email=t@e",
+                    "-c",
+                    "commit.gpgSign=false",
+                    "commit",
+                    "--allow-empty",
+                    "-m",
+                    branch,
+                    cwd=work,
+                )
+                commits[branch] = git("rev-parse", "HEAD", cwd=work)
+            origin = root / "origin.git"
+            git("clone", "--quiet", "--bare", str(work), str(origin), cwd=root)
+            git("config", "uploadpack.allowFilter", "true", cwd=origin)
+            check = script(
+                "Check that the source is on a release branch",
+                ROOT / ".github/workflows/check-release-push.yml",
+            )
+            for branch, allowed in (
+                ("main", True),
+                ("self-hosted", False),
+                ("release/1.0", True),
+                ("feature", False),
+                ("release-notes", False),
+            ):
+                with self.subTest(branch=branch):
+                    # A shallow checkout of the source, as actions/checkout makes.
+                    clone = root / f"clone-{branch.replace('/', '-')}"
+                    git(
+                        "clone",
+                        "--quiet",
+                        "--depth=1",
+                        "--no-tags",
+                        f"file://{origin}",
+                        str(clone),
+                        "--branch",
+                        branch,
+                        cwd=root,
+                    )
+                    result = subprocess.run(
+                        ["bash", "-euc", check],
+                        cwd=clone,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        result.returncode == 0, allowed, result.stdout + result.stderr
+                    )
+                    self.assertEqual(
+                        git("rev-parse", "HEAD", cwd=clone), commits[branch]
+                    )
+
     def test_bundle_push_retains_commit_without_persisting_token(self):
-        for sdk in ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+        # libxmtp is the nightly hub tag of release.yml.
+        # One SDK of each release shape: SwiftPM tag, npm tag, and the hub tag.
+        for sdk in ["ios", "node-sdk", "libxmtp"]:
             with self.subTest(sdk=sdk):
                 self.bundle_push(sdk)
 
     def bundle_push(self, sdk):
         requests = []
+        tag = "v1.2.3" if sdk == "libxmtp" else f"{sdk}-1.2.3"
         with tempfile.TemporaryDirectory(prefix="release-push-") as directory:
             root = Path(directory)
             source = root / "source"
@@ -267,15 +318,7 @@ class ReleasePushTest(unittest.TestCase):
             }
             env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
 
-            def git(*args, cwd=source):
-                return subprocess.run(
-                    ["git", *args],
-                    cwd=cwd,
-                    env=env,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                ).stdout
+            git = git_runner(env, source, strip=False)
 
             git("init", "--initial-branch=main")
             git("config", "user.name", "Test")
@@ -287,7 +330,7 @@ class ReleasePushTest(unittest.TestCase):
                 git("add", "Package.swift")
                 git("-c", "commit.gpgSign=false", "commit", "-m", "release")
             expected = git("rev-parse", "HEAD").strip()
-            git("-c", "tag.gpgSign=false", "tag", f"{sdk}-1.2.3")
+            git("-c", "tag.gpgSign=false", "tag", tag)
             hook = source / ".git/hooks/pre-push"
             hook.write_text("#!/bin/sh\nexit 99\n")
             hook.chmod(0o755)
@@ -295,7 +338,7 @@ class ReleasePushTest(unittest.TestCase):
                 "bundle",
                 "create",
                 str(temporary / "release-tag/release.bundle"),
-                f"refs/tags/{sdk}-1.2.3",
+                f"refs/tags/{tag}",
             )
             remote = root / "fixture/repo.git"
             git("init", "--bare", str(remote))
@@ -373,9 +416,7 @@ class ReleasePushTest(unittest.TestCase):
                 )
                 self.assertEqual(
                     expected,
-                    git(
-                        "--git-dir=" + str(remote), "rev-parse", f"{sdk}-1.2.3"
-                    ).strip(),
+                    git("--git-dir=" + str(remote), "rev-parse", tag).strip(),
                 )
                 self.assertTrue(requests)
                 self.assertTrue(
@@ -387,6 +428,7 @@ class ReleasePushTest(unittest.TestCase):
                 self.assertNotIn(encoded, config)
                 self.assertNotIn("extraheader", config)
                 self.assertNotIn("credential", config)
+                self.check_calling_run(git, root, remote, step_env)
             finally:
                 server.shutdown()
                 worker.join()
@@ -406,6 +448,61 @@ class ReleasePushTest(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
 
+    def check_calling_run(self, git, root, remote, step_env):
+        """Only a protected trunk or release branch run may mint the token."""
+        git("push", "--no-verify", str(remote), "main:main", "main:self-hosted")
+        other = root / "fixture/other.git"
+        work = root / "other-work"
+        git("init", "--initial-branch=main", str(work))
+        git(
+            "-c",
+            "user.name=T",
+            "-c",
+            "user.email=t@e",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "unrelated",
+            cwd=work,
+        )
+        git("init", "--bare", str(other))
+        git(
+            "push", "--no-verify", str(other), "main:main", "main:self-hosted", cwd=work
+        )
+        trunk = {"EVENT_NAME": "push", "CALLER_REF": "refs/heads/main"}
+        for change, allowed in [
+            ({}, True),
+            ({"CALLER_REF": "refs/heads/self-hosted"}, False),
+            ({"EVENT_NAME": "schedule"}, True),
+            (
+                {
+                    "EVENT_NAME": "workflow_dispatch",
+                    "CALLER_REF": "refs/heads/release/1.0",
+                },
+                True,
+            ),
+            ({"EVENT_NAME": "pull_request"}, False),
+            ({"EVENT_NAME": "pull_request_target"}, False),
+            ({"CALLER_REF": "refs/heads/feature"}, False),
+            ({"CALLER_REF": "refs/tags/v1.2.3"}, False),
+            ({"REF_PROTECTED": "false"}, False),
+            # The source commit is on no release branch of the repository.
+            ({"GITHUB_REPOSITORY": "fixture/other"}, False),
+        ]:
+            with self.subTest(change=change):
+                result = subprocess.run(
+                    ["bash", "-euc", script("Check the calling run")],
+                    cwd=root,
+                    env=step_env | {"REF_PROTECTED": "true"} | trunk | change,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(
+                    result.returncode == 0, allowed, result.stdout + result.stderr
+                )
+
     def test_rejects_a_release_commit_that_changes_workflows(self):
         for sdk in ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "cli"]:
             with self.subTest(sdk=sdk), tempfile.TemporaryDirectory() as directory:
@@ -419,15 +516,7 @@ class ReleasePushTest(unittest.TestCase):
                 }
                 env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
 
-                def git(*args):
-                    return subprocess.run(
-                        ["git", *args],
-                        cwd=root,
-                        env=env,
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    ).stdout.strip()
+                git = git_runner(env, root)
 
                 git("init", "--initial-branch=main")
                 git("config", "user.name", "Test")
@@ -472,11 +561,34 @@ class ReleasePushTest(unittest.TestCase):
     def test_app_token_is_confined_to_separate_push_job(self):
         text = WORKFLOW.read_text()
         self.assertIn("permissions: {}", text)
+        # The App secrets live in the `release` environment, which admits only
+        # main and release/*, so a pull request run cannot mint
+        # the token. Every job that reads them runs in that environment.
+        readers = []
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            jobs = path.read_text().split("\njobs:\n", 1)[-1]
+            for body in re.split(r"(?m)^  [a-z][a-z0-9-]*:\n", jobs):
+                if "GH_APP_ID" in body or "GH_APP_PK" in body:
+                    readers.append(path.name)
+                    with self.subTest(workflow=path.name):
+                        # check-release-push.yml skips the token on a dry run.
+                        self.assertRegex(
+                            body,
+                            r"(?m)^    environment: (release|\$\{\{ inputs\.dry-run "
+                            r"!= true && 'release' \|\| '' \}\})$",
+                        )
+        self.assertEqual(
+            sorted(readers), ["check-release-push.yml", "push-release-tag.yml"]
+        )
         self.assertNotIn("checkout@", text)
         self.assertNotIn("xmtp-release", text)
         self.assertNotIn("uses: ./", text)
         self.assertLess(
             text.index("- name: Import release tag"),
+            text.index("- name: Check the calling run"),
+        )
+        self.assertLess(
+            text.index("- name: Check the calling run"),
             text.index("- name: Create release push token"),
         )
         self.assertRegex(
@@ -535,18 +647,7 @@ class ReleasePushTest(unittest.TestCase):
             binary.mkdir()
             runner = root / "runner"
             runner.mkdir()
-            tools = ROOT / "dev/release-tools"
-            wrapper = binary / "xmtp-release"
-            wrapper.write_text(
-                '#!/usr/bin/env bash\nexec "'
-                + str(tools / "node_modules/.bin/tsx")
-                + '" --tsconfig "'
-                + str(tools / "tsconfig.json")
-                + '" "'
-                + str(tools / "src/cli.ts")
-                + '" "$@"\n'
-            )
-            wrapper.chmod(0o755)
+            release_tools(binary)
             env = {
                 key: value
                 for key, value in os.environ.items()
@@ -559,15 +660,7 @@ class ReleasePushTest(unittest.TestCase):
                 RUNNER_TEMP=str(runner),
             )
 
-            def git(*args):
-                return subprocess.run(
-                    ["git", *args],
-                    cwd=root,
-                    env=env,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                ).stdout.strip()
+            git = git_runner(env, root)
 
             git("init", "--initial-branch=main")
             git("config", "user.name", "Test")
@@ -585,7 +678,8 @@ class ReleasePushTest(unittest.TestCase):
             )
             source = git("rev-parse", "HEAD")
             git("remote", "add", "origin", str(root / "missing-remote"))
-            for sdk in ["node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+            # One SDK package and the CLI package share the job.
+            for sdk in ["node-sdk", "cli"]:
                 with self.subTest(sdk=sdk):
                     subprocess.run(
                         ["bash", "-euc", script("Prepare release tag", npm)],

@@ -28,6 +28,7 @@ Out of scope: the backend's configuration file and its keys; credentials and aut
 | [AUTH](AUTH-backend-auth.md#6-client-credentials) | Owns what a credential is, when a client attaches one, and which failures are terminal. This spec owns only what is published about it. |
 | [API section 7](API-backend-api.md#7-bounds-errors-and-transport) | Owns what the backend does when a request exceeds a limit, and the fixed transport ceiling. This spec owns the published values and what a client does before it sends. |
 | [OPS](OPS-backend-operations.md) | Owns retention enforcement, health, and the identifier's use in telemetry. |
+| [IDENT](IDENT-identity-updates.md) | Owns handles: the grammar and the rules for a claim in an identity log. This spec owns only the published minimum name length. |
 | `EVENT` | EVENT-016 keeps local event subscriptions open after a server rejection. EVENT-001 owns the `client.rejected_by_server` event. |
 
 ## Terms
@@ -59,11 +60,14 @@ The backend validates its configuration before it serves. The checks below are t
 | CONF-008 | Request budgets fit the transport | When the configured `max_request_bytes` or `max_response_bytes` is greater than the transport ceiling API-282 states, the backend MUST refuse to start. | A larger budget publishes a request size the transport refuses to carry, so a client sized to it fails every large request. |
 | CONF-009 | Public configuration stays small | When the encoded `GetConfigurationResponse` the backend would publish is longer than 65536 bytes (64 KiB), the backend MUST refuse to start. | The message is served without a credential, so an unbounded one is an amplification source. Bounding the whole message bounds every list in it without a limit per list. |
 | CONF-078 | Valid application catalogue | When an operator configures an application component, the backend MUST refuse to start unless its `component_id` is in `0xC000`–`0xFEFF`, its `name` contains 1 to 100 UTF-8 bytes, its `component_type` is one of the seven types in META section 2, all three member policies are present, and at least one of `in_groups` and `in_dms` is true; it MUST refuse duplicate IDs or names and a name equal to a well-known component name in META section 2. | An unusable or ambiguous definition would be published to every client, and a duplicate name makes name lookup ambiguous. |
+| CONF-080 | Handle name minimum in range | When the configured `handles.min_name_length` is less than 1 or greater than 27, the backend MUST refuse to start. | A client reads a published 0 as not provided (CONF-025), so an app would check names against the compiled default instead. Above 27, every claim fails, because no name part is longer than 27 characters. |
 | CONF-065 | Refusal names the key | When the backend refuses to start under a rule in this section, it MUST report the configuration key that failed, or that the public configuration is too large. | |
 
 Application component definitions are a sending catalogue: a client copies them into the registry of a conversation it creates or refreshes, and the committed group registry, not the catalogue, governs every received change. CONF-009 applies to the response including the catalogue. Operator documentation states that a published definition's ID, name, type, policies, and conversation selection should stay stable, because a change reaches only conversations that register the ID later; no receive-side rule depends on that advice.
 
 API-282 states the transport ceiling and the failure rule for a message above the ceiling or byte budget. API-281 owns the status codes.
+
+A handle is a public name, such as `nick` or `nick#2341`, that an inbox claims in its identity log. `handles.min_name_length` is the shortest name part the backend admits in a claim. IDENT-078 states the handle grammar, whose name part is 1 to 27 characters, and IDENT-084 forbids a validator to check a claim's name part against this setting when it validates an identity log. API-297 makes the backend fail a publish with `REASON_HANDLE_NOT_ALLOWED` when a claim in it has a name part shorter than this setting. A change of the setting applies only to later claims. A handle claimed before the change stays valid.
 
 ## 2. What is published and what is not
 
@@ -132,6 +136,12 @@ message MlsConfiguration {
   optional bool commit_log_enabled = 3;
 }
 
+// Handle settings.
+message HandlesConfiguration {
+  // The shortest name part, the text before "#", the backend admits in a claim.
+  uint32 min_name_length = 1;
+}
+
 // One operator-defined application component. A client registers it in the
 // conversations the flags select; it carries no initial value.
 message ApplicationComponentDefinition {
@@ -161,6 +171,8 @@ message GetConfigurationResponse {
   xmtp.backend.v1.AttachmentsConfiguration attachments = 9;
   // Sorted by component_id ascending.
   repeated ApplicationComponentDefinition application_components = 10;
+  // Set on every deployment.
+  HandlesConfiguration handles = 11;
 }
 ```
 
@@ -171,7 +183,7 @@ message GetConfigurationResponse {
 | CONF-079 | Publish application catalogue | When the backend answers `GetConfiguration`, it MUST set `application_components` to every configured application component under the wire block in section 2.1, sorted by `component_id` ascending. | Clients need a stable public view of the operator's field definitions. |
 | CONF-011 | Nothing secret is published | The backend MUST NOT place in any field of `GetConfigurationResponse` a signing key's key material, a JWKS URL, a database URL, a chain RPC URL, or an API key value. | The message has no access control, so the only protection a value has is not being in it. |
 | CONF-012 | Stable for a process | While a backend process is running, it MUST answer every `GetConfiguration` with the same `GetConfigurationResponse`. | |
-| CONF-069 | Published values are the applied values | The backend MUST set every field of `LimitsConfiguration` and `RetentionConfiguration` to the value it enforces or applies for that key, every field of `MlsConfiguration` to the configured value, and `min_libxmtp_version` to the configured minimum or to the empty string when none is configured. It MUST NOT set a numeric field of those three messages to 0. | A client reads 0 as "not provided" (CONF-025), so a 0 for a value the backend enforces tells the client to use a different one. |
+| CONF-069 | Published values are the applied values | The backend MUST set every field of `LimitsConfiguration`, `RetentionConfiguration`, and `HandlesConfiguration` to the value it enforces or applies for that key, every field of `MlsConfiguration` to the configured value, and `min_libxmtp_version` to the configured minimum or to the empty string when none is configured. It MUST set `retention`, `limits`, `mls`, and `handles`, and MUST NOT set a numeric field of those four messages to 0. | A client reads 0 as "not provided" (CONF-025), so a 0 for a value the backend enforces tells the client to use a different one. |
 | CONF-068 | Auth summary equals enforcement | The backend MUST set `AuthConfiguration.enabled` to the configured `auth.enabled`. While that is `true`, it MUST set `keys` to the `kid` and `alg` of each signing key accepted at startup and `audiences`, `issuers`, and `required_scopes` to the values it checks credentials against; while it is `false`, it MUST leave every other field of `AuthConfiguration` empty. | Leftover scopes from a disabled table would tell a client to satisfy demands nothing checks. |
 | CONF-070 | Published chains are the verifiable set | The backend MUST set `smart_contract_wallet_chains` to the CAIP-2 identifier of every chain it verifies smart contract wallet signatures on, and to no other. | |
 
@@ -213,6 +225,7 @@ A field the snapshot does not carry, or carries as 0 or empty, takes the compile
 | `mls.max_group_members` | 250 |
 | `mls.max_installations_per_inbox` | 10 |
 | `mls.commit_log_enabled` (absent) | `true` |
+| `handles.min_name_length` | 3 |
 | `smart_contract_wallet_chains` (empty) | No chain: every app-supplied smart contract wallet signature is rejected under CONF-046 |
 | `attachments` (absent) | No attachment storage: creation fails under ATCH-030 |
 | `attachments.max_upload_bytes` | 104857600 |
@@ -284,6 +297,8 @@ The chain check runs on a signature an app is about to produce. It does not run 
 
 The version gate and the credential requirement fail creation, so an app gets one clear reason instead of every request failing.
 
+`handles.min_name_length` is published for an app, which may check a name a user types against it before a claim. Only the backend applies it, when it admits a claim (section 1).
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CONF-073 | Size every request to the snapshot | The client MUST split or bound every request it sends so that it stays within each bound in the table above. When one envelope alone is longer than `max_envelope_bytes`, the client MUST reject the publish before it sends any request. | |
@@ -295,6 +310,7 @@ The version gate and the credential requirement fail creation, so an app gets on
 | CONF-049 | Too old to run | When the snapshot's `min_libxmtp_version` is greater than the client's version under CONF-050, the client MUST fail creation, naming both versions. | |
 | CONF-050 | Version compare ignores prerelease | When the client compares its version with a `min_libxmtp_version`, it MUST compare the major, minor, and patch numbers in that order ([Semantic Versioning 2.0.0 §11](https://semver.org/spec/v2.0.0.html#spec-item-11)) and MUST ignore the pre-release and build metadata of both. | A prerelease build of the version the operator named would otherwise be too old, which stops every development build. |
 | CONF-051 | Credentials required but absent | When the snapshot's `AuthConfiguration.enabled` is `true` and the app supplied no credential source, the client MUST fail creation and MUST report `required_scopes`. | |
+| CONF-081 | Client never applies name minimum | The client and an SDK MUST NOT fail an operation, and MUST NOT omit a handle from a result they return to an app, because a handle's name part is shorter than the snapshot's `handles.min_name_length`. | A snapshot can be older than the deployment's setting (CONF-020), and a raised minimum leaves the shorter handles claimed before it valid. A client that applied it would refuse a claim the backend admits, and hide a handle that other clients show. |
 
 AUTH-020 owns when the client attaches a credential, including when `enabled` is `false` and the app supplied a source.
 
@@ -318,6 +334,8 @@ The backend does not read a client's version on a request. `min_libxmtp_version`
 A deployment behind one address may be more than one process, and two of them may hold different configurations during a rolling change. A client holds whichever it fetched. A limit lowered on one of them is still enforced by that one, so the client's request is rejected rather than silently accepted; a differing identifier across processes is an operator error and stops every client that reaches the odd one.
 
 An operator's change reaches an existing client's stored copy within one refresh interval and its behaviour only when a client is next created. If every refresh fails there is no upper bound on how stale a stored copy may be; the client keeps using it rather than falling back to the compiled defaults.
+
+An app that checks a name against the snapshot's `handles.min_name_length` uses the value from when the client was created (CONF-020). After the operator changes the setting, such an app can refuse a name the backend admits, or pass a name the backend refuses. The backend's answer to the claim decides.
 
 Anyone who can reach the backend API can read the public configuration, including the auth summary and the accepted chains (CONF-010). CONF-011 keeps it harmless to disclose.
 

@@ -45,6 +45,19 @@ line:
 dev/nix-shell 'just ci-annotations 103435038571'
 ```
 
+## Run timing and specific log lines
+
+`dev/ci/metrics` measures runs: wall time, runner minutes by runner class, the
+slowest steps, and the change class. For a merge run it also says whether the
+PR's last run tested the same tree and whether the test outputs were fetched.
+
+```bash
+dev/nix-shell 'python3.11 -B dev/ci/metrics runs --branch main --event push --limit 5'
+dev/nix-shell "python3.11 -B dev/ci/metrics marker 115531426546 'will be fetched'"
+```
+
+`marker` prints only the log lines that match the pattern.
+
 ## Waiting
 
 Block. Do not poll.

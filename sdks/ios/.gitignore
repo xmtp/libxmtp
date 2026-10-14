@@ -1,5 +1,3 @@
-XMTPiOSExample/Pods/
-XMTPiOSExample/build
 
 .DS_Store
 
@@ -14,8 +12,6 @@ DerivedData/
 .netrc
 
 .vscode
-XMTPiOSExample/Pods
-XMTPiOSExample/XMTPiOSExample.xcworkspace
 
 ngrok-*.pid
 ngrok-*.log

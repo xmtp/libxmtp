@@ -1,6 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Stage a public generated SDK and copy its complete product for local imports.
-source "$(dirname "$0")/.setup"
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 target="${1:-}"
 case "$target" in
@@ -9,10 +10,17 @@ case "$target" in
 esac
 
 cd "$ROOT"
-# Normal source callers build matched inputs before staging. Explicit generated
-# inputs are checked by the stager and keep the build/render reuse path.
-if [[ -z "${XMTP_SDK_GENERATED_DIR:-}" ]]; then
-  NIX_DEVSHELL=default "$ROOT/dev/nix-shell" "just sdk generate $target"
+# This helper stages what it generates. Another generated tree goes straight to
+# crates/xmtp_sdk/dev/stage-package.mjs.
+if [[ -n "${XMTP_SDK_GENERATED_DIR:-}" ]]; then
+  echo "$0 generates its own input; unset XMTP_SDK_GENERATED_DIR (XMTP_SDK_BUILD=nix copies the Nix products)" >&2
+  exit 2
+fi
+if [[ "${XMTP_SDK_BUILD:-cargo}" == nix ]]; then
+  # The Nix route copies built trees, so it needs no Rust shell.
+  crates/xmtp_sdk/dev/generate --targets "$target"
+else
+  NIX_DEVSHELL=rust "$ROOT/dev/nix-shell" "just sdk generate $target"
 fi
 node crates/xmtp_sdk/dev/stage-package.mjs "$target" --public
 

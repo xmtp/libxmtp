@@ -2,7 +2,64 @@ use crate::foreign;
 use alloy::signers::local::PrivateKeySigner;
 use std::{collections::HashMap, sync::Arc};
 use xmtp_common::{MaybeSend, MaybeSync};
-use xmtp_id::{InboxOwner, associations::unverified::UnverifiedSignature};
+use xmtp_id::{
+    InboxOwner,
+    associations::{handle::Handle, unverified::UnverifiedSignature},
+};
+use xmtp_mls::inbox_handles::IdentityTarget;
+
+/// A handle as a user typed it: ASCII capitals become lowercase. Text outside
+/// the handle grammar fails with `InvalidArgument`, before any request. No
+/// other rule applies, so a name shorter than the deployment's minimum
+/// length is accepted.
+// implements: CONF-081
+pub(crate) fn handle_input(input: &str) -> Result<Handle, XmtpError> {
+    Handle::from_input(input).map_err(|_| XmtpError::invalid_argument("invalid handle"))
+}
+
+impl PublicIdentity {
+    /// The core target of this identity: an account, or a handle that only
+    /// the verified handle resolver turns into an inbox.
+    pub(crate) fn to_target(&self) -> Result<IdentityTarget, XmtpError> {
+        match self.kind {
+            PublicIdentityKind::Handle => {
+                Ok(IdentityTarget::Handle(handle_input(&self.identifier)?))
+            }
+            PublicIdentityKind::Ethereum | PublicIdentityKind::Passkey => {
+                Ok(IdentityTarget::Account(self.to_core()?))
+            }
+        }
+    }
+}
+
+/// The targets of `identities`, in order. The first invalid identity fails
+/// the whole list, before any request.
+pub(crate) fn targets(identities: &[PublicIdentity]) -> Result<Vec<IdentityTarget>, XmtpError> {
+    identities.iter().map(PublicIdentity::to_target).collect()
+}
+
+/// Split `targets` into accounts and handles, each in its original order.
+pub(crate) fn split_targets(targets: Vec<IdentityTarget>) -> (Vec<Identifier>, Vec<Handle>) {
+    let mut accounts = Vec::new();
+    let mut handles = Vec::new();
+    for target in targets {
+        match target {
+            IdentityTarget::Account(identifier) => accounts.push(identifier),
+            IdentityTarget::Handle(handle) => handles.push(handle),
+        }
+    }
+    (accounts, handles)
+}
+
+/// `can_message` result entries for handles, keyed `handle:<canonical handle>`.
+pub(crate) fn handle_results(
+    results: impl IntoIterator<Item = (Handle, bool)>,
+) -> HashMap<String, bool> {
+    results
+        .into_iter()
+        .map(|(handle, available)| (format!("handle:{handle}"), available))
+        .collect()
+}
 
 pub(crate) fn can_message_results(
     results: impl IntoIterator<Item = (Identifier, bool)>,
@@ -126,10 +183,10 @@ pub trait Signer: MaybeSend + MaybeSync + 'static {
     async fn sign(&self, request: SigningRequest) -> Result<Signature, SignerError>;
 }
 
-struct LocalSigner(PrivateKeySigner);
+include!("local.rs");
 
 #[xmtp_common::async_trait]
-impl Signer for LocalSigner {
+impl Signer for LocalSigningKey {
     async fn identity(&self) -> Result<PublicIdentity, SignerError> {
         Ok(PublicIdentity {
             identifier: self
@@ -159,23 +216,29 @@ impl Signer for LocalSigner {
 
 #[xmtp_macro::sdk_export]
 pub async fn generate_local_signer() -> Arc<dyn Signer> {
-    Arc::new(LocalSigner(PrivateKeySigner::random()))
+    generate_keys().await
 }
 
 #[xmtp_macro::sdk_export]
 pub async fn local_signer_from_private_key(key: Vec<u8>) -> Result<Arc<dyn Signer>, XmtpError> {
-    let signer = PrivateKeySigner::from_slice(&key)
-        .map_err(|_| XmtpError::invalid("invalid local signer private key"))?;
-    Ok(Arc::new(LocalSigner(signer)))
+    Ok(LocalSigningKey::parse_bytes(&key)?)
 }
 
+/// The account a signer signs for. A signer that names a handle fails with
+/// `InvalidArgument`: a handle signs nothing.
 pub(crate) async fn identity(
     signer: std::sync::Arc<dyn Signer>,
 ) -> Result<PublicIdentity, XmtpError> {
-    foreign::call(async move { signer.identity().await })
+    let identity = foreign::call(async move { signer.identity().await })
         .await
         .map_err(XmtpError::unknown)?
-        .map_err(|_| XmtpError::signer())
+        .map_err(|_| XmtpError::signer())?;
+    if matches!(identity.kind, PublicIdentityKind::Handle) {
+        return Err(XmtpError::invalid_argument(
+            "a signer identity must be an account, not a handle",
+        ));
+    }
+    Ok(identity)
 }
 
 pub(crate) async fn kind(signer: std::sync::Arc<dyn Signer>) -> Result<SignerKind, XmtpError> {

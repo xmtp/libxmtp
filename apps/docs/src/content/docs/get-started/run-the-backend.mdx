@@ -35,7 +35,7 @@ values never appear in errors or logs.
 A minimal file needs the deployment identifier and the database URL:
 
 ```toml
-#:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
+#:schema https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json
 [server]
 # Change this to a name you own.
 identifier = "org.example.xmtp"
@@ -268,6 +268,20 @@ these values; clients read them and apply them locally.
 | `max_installations_per_inbox` | integer, 1 to 65535 | `10`    | Installations a client keeps for one inbox. Advisory.             |
 | `commit_log_enabled`          | boolean             | `true`  | Whether clients write and read the commit log on this deployment. |
 
+### `[handles]`
+
+Settings for handles, the public names an inbox claims. The backend publishes
+them, and applies them only when it admits a new claim.
+
+| Key               | Type             | Default | Purpose                                                                                              |
+| ----------------- | ---------------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| `min_name_length` | integer, 1 to 27 | `3`     | Shortest name part, the text before `#`, of a new claim. Handles claimed before a change stay valid. |
+
+The other claim limits, such as 64 claims per inbox, are fixed. See
+[Handle limits](/reference/limits/#handle-limits). After the backend stores a
+claim, do not roll back to a build without handles. See
+[Database and migrations](/deploy/overview/#database-and-migrations).
+
 ### `[[application_components]]`
 
 Group metadata fields the backend publishes for clients to register in the
@@ -298,6 +312,16 @@ left; it denies every other type.
 ```toml
 [[application_components]]
 component_id = 0xC000
+name = "GROUP_CATEGORY"
+component_type = "string"
+insert_policy = "allow_if_admin"
+update_policy = "allow_if_admin"
+delete_policy = "allow_if_super_admin"
+in_groups = true
+in_dms = false
+
+[[application_components]]
+component_id = 0xC001
 name = "USER_PRONOUNS"
 component_type = "tls_map_inbox_id_string"
 insert_policy = "allow_if_self_or_non_member"
@@ -307,10 +331,27 @@ in_groups = true
 in_dms = true
 ```
 
+`GROUP_CATEGORY` is one string for the group. `USER_PRONOUNS` is one string per
+inbox in each group or DM. The name prefix does not grant permissions. The map
+type and the three policies control how members can change their entries.
+These values are encrypted conversation metadata. The backend publishes their
+definitions but cannot read their values.
+
+IDs from `0xC000` through `0xFCFF` are mutable. IDs from `0xFD00` through
+`0xFEFF` are immutable: a value can be set once, then cannot be changed or
+removed. Registration leaves the value unset in either range. Application
+scalars, collection keys, and collection values are limited to 8,192 bytes;
+serialized collection snapshots are limited to 65,536 bytes.
+
+See [Configurable fields](/sdk/groups/#configurable-fields) for field discovery,
+typed reads and writes, and user data examples.
+
 Keep a published field's ID, name, type, policies, and `in_groups` and `in_dms`
 stable. A conversation copies the definition when it registers the ID, so a
-change reaches only conversations that register it later; existing ones keep
-the old definition. Retire a field by removing it and publish a replacement
+change reaches only conversations that register it later; existing registered
+fields keep the old definition. A client with registry write authority can
+register missing eligible fields in an existing conversation when it makes a
+commit. Retire a field by removing it and publish a replacement
 under a new ID and name.
 
 Prefix the name of a field that holds one value per inbox with `USER_`, as the
@@ -324,7 +365,8 @@ The call needs no credential, so a client can learn what a deployment requires
 before it holds one. The response is built once at startup and does not change
 while the process runs. It carries the identifier, the backend version, the
 minimum client version, a summary of `[auth]`, the retention periods, the
-published limits, the `[mls]` policy, the configured chain IDs, the attachment
+published limits, the `[mls]` policy, the `[handles]` settings, the configured
+chain IDs, the attachment
 offer when configured, and the
 `[[application_components]]` table sorted by `component_id`.
 

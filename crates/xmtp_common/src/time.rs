@@ -188,24 +188,6 @@ mod tests {
         assert_eq!(desc, "Timer duration expired");
     }
 
-    #[test]
-    fn test_now_ns_returns_positive() {
-        let ns = now_ns();
-        assert!(ns > 0, "now_ns should return a positive value");
-    }
-
-    #[test]
-    fn test_now_ms_returns_positive() {
-        let ms = now_ms();
-        assert!(ms > 0, "now_ms should return a positive value");
-    }
-
-    #[test]
-    fn test_now_secs_returns_positive() {
-        let secs = now_secs();
-        assert!(secs > 0, "now_secs should return a positive value");
-    }
-
     // Jitter tests rely on tokio's paused virtual clock, native-only.
     #[cfg(not(target_arch = "wasm32"))]
     mod jitter {

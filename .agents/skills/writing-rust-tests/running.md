@@ -86,15 +86,16 @@ Nix derivations give hermetic builds:
 
 ```bash
 just nix-test          # native tests through Nix
-just wasm test-ci
-just node test-ci
+just wasm nix-test     # 4 WASM slices, one after another
+just wasm nix-test-part 1
+just js test-node-sdk-ci
 ```
 
 ## Coverage
 
 ```bash
-dev/nix-shell 'dev/llvm-cov'             # full run; coverage/lcov and coverage/html
-dev/nix-shell 'dev/test/diff-coverage'   # files changed vs the parent branch
+dev/nix-shell 'just coverage'                    # full run; coverage/lcov and coverage/html
+dev/nix-shell 'just coverage --diff' # files changed since the merge base with the trunk
 ```
 
 `CARGO_TEST_CMD="cargo llvm-cov nextest --no-fail-fast --no-report" just test` also works.

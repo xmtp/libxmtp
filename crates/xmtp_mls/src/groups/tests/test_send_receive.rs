@@ -1021,3 +1021,192 @@ async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
         "envelope processing logs full local or sender installation IDs while a row is pending"
     );
 }
+
+// verifies: EVENT-018
+#[xmtp_common::test(unwrap_try = true)]
+async fn stitched_dm_received_event_names_the_stored_group() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let bo_dm = bo.find_or_create_dm(alix.inbox_id(), None).await?;
+    let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    assert_ne!(bo_dm.group_id, alix_dm.group_id);
+    alix.sync_all_welcomes_and_groups(None).await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let presentation = alix.stitched_group(&bo_dm.group_id)?;
+    let physical = if presentation.group_id == bo_dm.group_id {
+        alix_dm.group_id
+    } else {
+        bo_dm.group_id
+    };
+    let sender = bo.group(&physical)?;
+    let receiver = alix.group(&physical)?;
+    let events = alix
+        .context
+        .events()
+        .subscribe(EventFilter::new([EventKind::MessageReceived]), Some(16));
+    let message_id = sender
+        .send_message(b"stitched message", Default::default())
+        .await?;
+    receiver.receive().await?;
+    let stored = alix.context.db().get_group_message(&message_id)?.unwrap();
+    assert_eq!(stored.group_id, physical);
+    assert_ne!(stored.group_id, presentation.group_id);
+    assert!(
+        presentation
+            .find_messages(&MsgQueryArgs::default())?
+            .iter()
+            .any(|message| message.id == message_id)
+    );
+    assert!(
+        matches!(events.drain().as_slice(), [xmtp_events::EventEnvelope { client: Some(ClientEvent::MessageReceived(message)), .. }] if message.message_id == stored.id && message.group_id == stored.group_id.as_slice())
+    );
+    receiver.receive().await?;
+    assert!(events.drain().is_empty());
+    let another_id = sender
+        .send_message(b"stored through presentation", Default::default())
+        .await?;
+    let another = bo.context.db().get_group_message(&another_id)?.unwrap();
+    crate::state_tx::state_write_with_events(
+        alix.context.mls_storage(),
+        alix.context.events(),
+        |tx, buffer| {
+            presentation.store_external_application_message(&tx.storage(), &another, buffer)?;
+            Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
+                xmtp_db::TransactionOutcome::Continue(()),
+            )
+        },
+    )?;
+    let stored = alix.context.db().get_group_message(&another_id)?.unwrap();
+    assert_ne!(stored.group_id, presentation.group_id);
+    assert!(
+        matches!(events.drain().as_slice(), [xmtp_events::EventEnvelope { client: Some(ClientEvent::MessageReceived(message)), .. }] if message.message_id == stored.id && message.group_id == stored.group_id.as_slice())
+    );
+}
+
+// verifies: EVENT-019
+#[xmtp_common::test(unwrap_try = true)]
+async fn application_component_commit_names_each_changed_item() {
+    use crate::groups::{
+        intents::AppDataUpdateIntentData, tests::test_dictionary_creation::definition,
+    };
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+    for (id, expected) in [
+        (0x8000, "COMPONENT_REGISTRY"),
+        (0x8001, "SUPER_ADMIN_LIST"),
+        (0x8002, "ADMIN_LIST"),
+        (0x8003, "GROUP_MEMBERSHIP"),
+        (0x8004, "group_name"),
+        (0x8005, "description"),
+        (0x8006, "group_image_url_square"),
+        (0x8007, "message_disappear_from_ns"),
+        (0x8008, "message_disappear_in_ns"),
+        (0x8009, "app_data"),
+        (0x800a, "minimum_supported_protocol_version"),
+        (0x800b, "_commit_log_signer"),
+        (0x800c, "USER_DISPLAY_NAME"),
+        (0x800d, "GROUP_IMAGE"),
+        (0xbffc, "ONESHOT_MESSAGE"),
+        (0xbffd, "DM_MEMBERS"),
+        (0xbffe, "CREATOR_INBOX_ID"),
+        (0xbfff, "CONVERSATION_TYPE"),
+        (0xc01a, "component:c01a"),
+        (0x8abc, "component:8abc"),
+    ] {
+        assert_eq!(ComponentId::new(id).event_name(), expected);
+    }
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentType, metadata_policy::MetadataBasePolicy,
+    };
+    tester!(alix, disable_workers, configured: |config| config.application_components = vec![definition(0xc01a, ComponentType::Bytes, MetadataBasePolicy::Allow, true, false)]);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = receive_group_invite(&bo).await;
+    let own = alix.context.events().subscribe(
+        EventFilter::new([EventKind::ConversationMetadataChanged]),
+        Some(16),
+    );
+    let remote = bo.context.events().subscribe(
+        EventFilter::new([EventKind::ConversationMetadataChanged]),
+        Some(16),
+    );
+    let intent = QueueIntent::app_data_update()
+        .data(Vec::<u8>::from(AppDataUpdateIntentData::new(
+            0xc01a,
+            b"value".to_vec(),
+        )))
+        .queue(&group)?;
+    group.sync_until_intent_resolved(intent.id).await?;
+    bo_group.receive().await?;
+    for events in [&own, &remote] {
+        assert!(
+            matches!(events.drain().as_slice(), [xmtp_events::EventEnvelope { client: Some(ClientEvent::ConversationMetadataChanged(change)), .. }] if change.group_id == group.group_id.as_slice() && change.changed == ["component:c01a"])
+        );
+    }
+    group.sync().await?;
+    bo_group.receive().await?;
+    assert!(own.drain().is_empty());
+    assert!(remote.drain().is_empty());
+}
+
+// A frozen send clock exercises the WASM path on native as well as WASM.
+#[xmtp_common::test(unwrap_try = true)]
+async fn same_millisecond_optimistic_sends_keep_recovery_order() {
+    use crate::utils::id::calculate_message_id;
+    use xmtp_db::delivery::QueryDelivery;
+    use xmtp_db::group_message::{RecoveryQueryArgs, SortDirection};
+
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    // Select keys whose IDs sort opposite to send order, so raw time fails reliably.
+    let content = b"same millisecond";
+    let mut keys = ["first", "second"];
+    if calculate_message_id(group.group_id, content, keys[0])
+        < calculate_message_id(group.group_id, content, keys[1])
+    {
+        keys.swap(0, 1);
+    }
+    let wall_ns = xmtp_common::time::now_ns() / 1_000_000 * 1_000_000;
+    alix.context.message_clock.freeze(wall_ns);
+    let send = |key: &str| {
+        group.send_message_optimistic(
+            content,
+            SendMessageOpts {
+                idempotency_key: Some(key.into()),
+                ..Default::default()
+            },
+        )
+    };
+    let first = send(keys[0])?;
+    let second = send(keys[1])?;
+    assert!(first > second);
+    let db = alix.context.db();
+    let query = |direction, after| RecoveryQueryArgs {
+        messages: MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            limit: Some(1),
+            direction: Some(direction),
+            ..Default::default()
+        },
+        after,
+        ..Default::default()
+    };
+    let page = db.recovery_page_rows(&group.group_id, &query(SortDirection::Ascending, None))?;
+    assert_eq!(page.rows[0].stored.id, first);
+    assert_eq!(page.rows[0].stored.sent_at_ns, wall_ns);
+    assert!(page.has_more);
+    let next = db.recovery_page_rows(
+        &group.group_id,
+        &query(SortDirection::Ascending, page.last_position),
+    )?;
+    assert_eq!(next.rows[0].stored.id, second);
+    assert_eq!(next.rows[0].stored.sent_at_ns, wall_ns + 1);
+    assert!(!next.has_more);
+    let descending =
+        db.recovery_page_rows(&group.group_id, &query(SortDirection::Descending, None))?;
+    assert_eq!(descending.rows[0].stored.id, second);
+    // An idempotent retry retains the original message and timestamp.
+    assert_eq!(send(keys[0])?, first);
+    assert_eq!(db.get_group_message(&first)?.unwrap().sent_at_ns, wall_ns);
+}

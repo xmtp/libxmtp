@@ -15,6 +15,10 @@ public extension SDKClient {
         raw.attachments()
     }
 
+    func availableHandles(name: String) async throws -> [String] {
+        try await raw.availableHandles(name: name)
+    }
+
     func canMessage(identities: [PublicIdentity]) async throws -> [String: Bool] {
         try await raw.canMessage(identities: identities)
     }
@@ -25,6 +29,10 @@ public extension SDKClient {
 
     func changeRecoveryIdentifier(signer: Signer, identity: PublicIdentity) async throws {
         try await raw.changeRecoveryIdentifier(signer: signer, identity: identity)
+    }
+
+    func claimHandle(handle: String) async throws {
+        try await raw.claimHandle(handle: handle)
     }
 
     func decodeContent(encoded: EncodedContent) async throws -> MessageContent {
@@ -189,6 +197,10 @@ public extension SDKClient {
 
     static func `fetchServerConfiguration`(backend: BackendSource) async throws -> ServerConfiguration {
         try await XmtpSdk.fetchServerConfiguration(backend: backend)
+    }
+
+    static func `generateKeys`() async -> LocalSigningKey {
+        await XmtpSdk.generateKeys()
     }
 
     static func `inboxIdFor`(identity: PublicIdentity, backend: BackendSource) async throws -> InboxId {

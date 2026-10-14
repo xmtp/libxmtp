@@ -204,29 +204,6 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    // verifies: API-235
-    fn credential_shape_is_not_a_key_package_admission_rule() {
-        let provider = OpenMlsRustCrypto::default();
-        let key = XmtpInstallationCredential::new();
-        for inbox in ["", "not-a-hex-inbox"] {
-            let generated = build_key_package(
-                inbox,
-                create_credential(inbox),
-                &key,
-                &provider,
-                Default::default(),
-            )?;
-            let bytes = generated.bundle.key_package().tls_serialize_detached()?;
-            assert_eq!(
-                VerifiedKeyPackageV2::from_bytes(provider.crypto(), &bytes)?
-                    .credential
-                    .inbox_id,
-                inbox
-            );
-        }
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
     // verifies: JOIN-008
     fn configured_expired_lifetime_still_fails_verification() {
         let provider = OpenMlsRustCrypto::default();

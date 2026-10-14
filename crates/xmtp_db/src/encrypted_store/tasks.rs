@@ -352,32 +352,6 @@ pub(crate) mod tests {
     use super::*;
     use crate::test_utils::with_connection;
 
-    #[xmtp_common::test]
-    fn get_tasks_returns_empty_list_initially() {
-        with_connection(|conn| {
-            let tasks = conn.get_tasks().unwrap();
-            assert!(tasks.is_empty());
-        })
-    }
-
-    #[xmtp_common::test]
-    fn update_task_returns_error_when_not_found() {
-        with_connection(|conn| {
-            // Try to update a task that doesn't exist
-            let result = conn.update_task(999, 5, 1000, 2000);
-            // The update should fail when the task doesn't exist
-            assert!(result.is_err());
-        })
-    }
-
-    #[xmtp_common::test]
-    fn delete_task_returns_false_when_not_found() {
-        with_connection(|conn| {
-            let deleted = conn.delete_task(999).unwrap();
-            assert!(!deleted);
-        })
-    }
-
     // Generate a random task data for testing to ensure that the hashes are unique
     fn gen_task_data() -> TaskProto {
         TaskProto {
@@ -428,6 +402,7 @@ pub(crate) mod tests {
             // 3. Verify no tasks initially
             assert!(conn.get_next_task().unwrap().is_none());
             assert!(conn.get_tasks().unwrap().is_empty());
+            assert!(conn.update_task(999, 5, 1000, 2000).is_err());
 
             // 4. Create both tasks
             let created_task1 = conn.create_task(task1).unwrap();

@@ -49,13 +49,16 @@ that `NIX_DEVSHELL` names. Set it inside the command, because the `js` and
 - `browser`: stage with `just sdk generate browser` and
   `just sdk stage browser`. Run
   `dev/nix-shell 'NIX_DEVSHELL=js just sdk bench browser'`.
-- `swift`: stage with `just sdk generate swift`, `just sdk mobile-build ios`
-  and `just sdk mobile-stage ios`. Boot one iOS Simulator. Run
+- `swift`: stage the release libraries of `.#ios-xcframeworks` with
+  `just sdk mobile-stage ios`. Boot one iOS Simulator. Run
   `dev/nix-shell 'NIX_DEVSHELL=ios just sdk bench swift'`.
-- `kotlin`: stage with `just sdk generate kotlin`,
-  `just sdk mobile-build android` and `just sdk mobile-stage android`. Start
-  one device or emulator. Run
+- `kotlin`: stage the AAR over the release libraries of `.#android-sdk-libs`
+  with `XMTP_SDK_BUILD=nix just sdk generate kotlin` and
+  `just sdk mobile-stage android`. Start one device or emulator. Run
   `dev/nix-shell 'NIX_DEVSHELL=android just sdk bench kotlin'`.
+
+Both mobile hosts measure the release bytes that ship; no cargo build route
+is left for them.
 
 Options: `--samples N` (default 5), `--output DIR` (a new directory; the
 default is `target/sdk-bench/<host>-<time>`), `--timeout SECONDS` per host
@@ -81,8 +84,8 @@ commit and environment) and `logs/` (stderr and launcher logs per call). Swift
 and Kotlin runs build the host app into the output directory and start
 `hosts/signer-server.mjs`, which signs with generated test accounts.
 
-`dev/nix-shell 'just sdk bench-check'` runs `test_bench.py`,
-`test_workload.mjs` and the static runner checks (`bench.py check`). It needs
+`dev/nix-shell 'just sdk bench-check'` runs `test_workload.mjs` and the
+static runner checks (`bench.py check`). It needs
 no backend, device or SDK build.
 
 ## Files
@@ -106,13 +109,7 @@ no backend, device or SDK build.
   `gradle/verification-metadata.xml`. For an approved dependency change,
   build once with `--write-locks --write-verification-metadata sha256`, as in
   `sdks/android/CONTRIBUTING.md`, and review the new versions and checksums.
-- `test_bench.py` checks the memory sampler (also with zero RSS readings and
-  a descendant that keeps the output pipes open), the host-call timeout (a
-  zero timeout still kills, and the CLI rejects it), the percentile helper,
-  the stream rates, the sample checks, the run integrity check, the iOS and
-  Android timeout cleanup, a failed iOS stop, a stuck `adb reverse --remove`
-  and the Android backend port.
-  `test_workload.mjs` checks the Node and browser stream workload: the
+- `test_workload.mjs` checks the Node and browser stream workload: the
   teardown runs once, outside the timer, and also after a read failure, a
   duplicate event or a publish failure. It also checks that a browser long
   task that overlaps the timer counts with its time inside the timer. The Swift and Kotlin stream workloads

@@ -37,16 +37,13 @@ where
         // The member limit is enforced in `add_members`, the one method both entry
         // points reach.
         if inbox_id_map.len() != account_identifiers.len() {
-            let found_addresses: HashSet<&Identifier> = inbox_id_map.keys().collect();
-            let to_add_hashset = HashSet::from_iter(account_identifiers.iter());
-
-            let missing_addresses = found_addresses.difference(&to_add_hashset);
-            return Err(GroupError::AddressNotFound(
-                missing_addresses
-                    .into_iter()
-                    .map(|ident| format!("{ident}"))
-                    .collect(),
-            ));
+            // The requested identifiers with no inbox, in request order.
+            let missing_addresses = account_identifiers
+                .iter()
+                .filter(|identifier| !inbox_id_map.contains_key(*identifier))
+                .map(|identifier| identifier.to_string())
+                .collect();
+            return Err(GroupError::AddressNotFound(missing_addresses));
         }
 
         self.add_members(&inbox_id_map.into_values().collect::<Vec<_>>())

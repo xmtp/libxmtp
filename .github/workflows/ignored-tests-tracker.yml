@@ -18,6 +18,8 @@ env:
 
 jobs:
   run-ignored:
+    env:
+      NIX_DEVSHELL: rust
     name: Ignored Tests (${{ matrix.name }})
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 90
@@ -33,20 +35,16 @@ jobs:
             junit: target/nextest/ci/junit.xml
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - uses: ./.github/actions/setup-nix
         with:
-          disk-key: rust
-          docker-builder: "true"
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
 
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
 
       - name: Cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: ignored-${{ matrix.name }}
           workspaces: |
@@ -57,7 +55,7 @@ jobs:
 
       - name: Dump docker logs on failure
         if: failure()
-        uses: jwalton/gh-docker-logs@v2
+        uses: jwalton/gh-docker-logs@2741064ab9d7af54b0b1ffb6076cf64c16f0220e # v2
 
       # Failing tests (nextest exit code 100) are expected here: tests are
       # often ignored precisely because they fail. Any other nonzero exit
@@ -77,7 +75,7 @@ jobs:
           echo "exit-code=$code" >> "$GITHUB_OUTPUT"
 
       - name: Upload test results
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ matrix.name }}-results
           path: results/
@@ -99,10 +97,10 @@ jobs:
       issues: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: artifacts
 

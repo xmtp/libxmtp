@@ -1,0 +1,29 @@
+name: Check JavaScript types and full lint
+'on':
+  workflow_call:
+env:
+  NIX_DEVSHELL: js
+  # JS jobs test the release-profile Nix products (products_sdk_js), not a
+  # cargo debug build.
+  XMTP_SDK_BUILD: nix
+jobs:
+  check:
+    name: Check (JavaScript types and full lint)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+    - uses: ./.github/actions/setup-nix
+      with:
+        cache-mode: ci
+        github-token: ${{ github.token }}
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
+    - uses: ./.github/actions/setup-js
+      with:
+        cache-mode: ci
+    - name: Prepare SDK declarations
+      run: just js sdk-products
+    - name: Typecheck JavaScript workspace
+      run: dev/nix-shell 'pnpm -r run typecheck'
+    - name: Full Oxlint rules
+      run: dev/nix-shell 'pnpm -r run lint'

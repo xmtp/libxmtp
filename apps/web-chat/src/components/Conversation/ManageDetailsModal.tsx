@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router";
 
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
+import { IdentityBadge } from "@/components/IdentityBadge";
 import { Modal } from "@/components/Modal";
+import { getMemberAddress } from "@/helpers/xmtp";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useConversation } from "@/hooks/useConversation";
 import { ContentLayout } from "@/layouts/ContentLayout";
@@ -58,6 +60,10 @@ export const ManageDetailsModal: React.FC = () => {
     void loadConsentState();
   }, [conversation]);
 
+  const addedBy = conversation.addedByInboxId
+    ? members.get(conversation.addedByInboxId)
+    : undefined;
+
   const conversationType =
     conversation instanceof Dm ? "Direct Message" : "Group";
 
@@ -98,11 +104,20 @@ export const ManageDetailsModal: React.FC = () => {
               </Group>
               <Group gap="md" wrap="nowrap">
                 <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
-                  Added By Inbox ID
+                  Added by
                 </Text>
-                <BadgeWithCopy
-                  value={conversation.addedByInboxId ?? "Unknown"}
-                />
+                <Stack gap="xs">
+                  {addedBy?.handle && (
+                    <IdentityBadge
+                      address={getMemberAddress(addedBy)}
+                      displayName={null}
+                      handle={addedBy.handle}
+                    />
+                  )}
+                  <BadgeWithCopy
+                    value={conversation.addedByInboxId ?? "Unknown"}
+                  />
+                </Stack>
               </Group>
               <Group gap="md" wrap="nowrap">
                 <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>

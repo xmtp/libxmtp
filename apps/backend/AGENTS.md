@@ -16,15 +16,25 @@ dev/nix-shell 'just backend schema'                    # regenerate public confi
 dev/nix-shell 'just backend test'
 dev/nix-shell 'just backend test --lib config'         # one module
 dev/nix-shell 'just backend test --lib https_passthrough' # HTTPS streaming ingress check
+nix build --no-link .#backend-tests.<system>          # tests and SQL check, disposable services, no Docker
 dev/nix-shell 'just backend image'                     # host architecture image
 dev/nix-shell 'just backend image aarch64'            # explicit architecture image
 dev/nix-shell 'just backend observe-check'             # client operations, shared trace, metrics, Grafana
 dev/nix-shell 'just backend tls-check'                 # build, start, check, and remove the TLS stack
 dev/nix-shell 'just backend down'                      # stop the shared stack
+dev/nix-shell 'just backend release'                   # stop the stack, free the slot, remove the image tag
 dev/nix-shell 'just backend logs backend tempo'
 dev/nix-shell 'just backend run'
-dev/nix-shell 'just backend db-down'
 ```
+
+`up` and `tls-check` load the `image` build as `XMTP_BACKEND_IMAGE`, which is
+`xmtp-backend:<compose project>`, through `dev/docker/load-backend-image`. Both
+Compose files run that tag. Every build has the tag
+`ghcr.io/xmtp/backend:self-hosted`, so a plain `docker load` would let one
+worktree's stack run another worktree's build. Do not use it for the stack.
+Any other `XMTP_BACKEND_IMAGE` value is an image to run instead: start it with
+`dev/docker/up`. The recipes still build, but never load a build under that tag
+or remove it. `release` removes the derived tag.
 
 `dev/nix-shell 'just backend run'` uses `dev/backend/local.toml` without attachment storage.
 The `build` and `image` recipes remove `LD_LIBRARY_PATH` from the Nix process.
@@ -34,13 +44,13 @@ VersityGW. Both files set default and maximum query row limits to 50, so SDK
 tests exercise paging. Run `dev/nix-shell 'just backend s3-up'` before attachment integration
 tests. `dev/nix-shell 'just backend status'` prints the worktree's S3 URL.
 
-`db-down` stops the entire shared stack, not only PostgreSQL.
+`down` stops the entire shared stack, including after `db-up`.
 For an explicit database-port override, set `XMTP_BACKEND_DB_PORT` and
 `XMTP_BACKEND_REPLICA_PORT` before startup. Set `DATABASE_URL` to its primary
 port for tests and SQL checks. Replica tests use `XMTP_BACKEND_REPLICA_PORT`.
 
 `dev/nix-shell 'just backend tls-check'` checks the local HTTPS ingress. See
-`docs/self-hosted/backend-operations.md` for its scope and the TLS runbook.
+`apps/docs/src/content/docs/deploy/overview.md` for the public ingress requirements.
 
 Set `XMTP_DATABASE_URL` and `XMTP_REPLICA_URL` for startup with the local config.
 Test and SQL recipes use this worktree's database unless `DATABASE_URL` is set.
@@ -53,6 +63,10 @@ Export fixtures for other crates through `xmtp_backend/test-utils`; backend
 unit tests use the existing dev-dependencies.
 Use the shared `TestDatabase` guard for disposable databases. Its cleanup survives
 assertion failures and test-runtime teardown; do not add success-only cleanup.
+Before connecting a new test database on a streaming replica, call
+`TestDatabase::wait_for_replica`; `TestServer` does this automatically. The helper
+waits up to 30 seconds for the primary WAL position through the existing admin
+database. Backend startup handles migration visibility after that connection.
 Replica tests that pause replay use `test_support::replica::with_paused_replay`
 under the replay mutex. Run this suite with `cargo test`; that mutex is process-local.
 Use a total deadline for stream termination, not a new deadline for each frame.
@@ -97,13 +111,15 @@ See [observability](../../docs/backend-observability.md).
 architecture spec and observability guide; the catalogue test checks both.
 Backend metrics do not depend on trace sampling. Client span metrics do.
 
-See `docs/self-hosted/backend-operations.md` for image builds and deployment.
+See `dev/fly/README.md` for development image publication and deployment.
 
-For isolated macOS CI, run `dev/nix-shell 'just backend ci COMMAND'`.
-It starts fresh PostgreSQL, VersityGW, and backend processes with
-a private copy of `dev/backend/local-s3.toml`. Only the backend and metrics
-listeners change to loopback. It verifies the owned sockets and removes the
-config and service data at exit. Fixed ports are
-5050, 9464, 55432, and 9067. Occupied ports cause an error. Logs remain in
-`$RUNNER_TEMP/backend-ci-logs`, or the printed temporary path for manual runs.
-This command does not start Anvil and does not provide SCW test coverage.
+`dev/nix-shell 'just backend ci COMMAND'` runs one command with fresh test
+services from `nix/services` (`nix run .#services-test`): PostgreSQL (no
+replica: the backend's replica URL is the primary, as in trunk CI), VersityGW,
+anvil, the backend with a copy of `dev/backend/local-s3.toml`, and toxiproxy.
+They listen on this worktree's
+ports from `dev/docker/.env`; an occupied port is an error. The command exits
+with the status of COMMAND and removes the service data. In CI the service logs
+go to `$RUNNER_TEMP/backend-ci-logs`. `dev/services up` starts the same
+services with a streaming replica in the background without Docker; see
+`nix/AGENTS.md`.

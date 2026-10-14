@@ -13,8 +13,10 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
 import { AppMenu } from "@/components/App/AppMenu";
+import { HandleText } from "@/components/Handles/HandleText";
 import { backendHost } from "@/helpers/backend";
 import { shortAddress } from "@/helpers/strings";
+import { useOwnHandles } from "@/hooks/useOwnHandles";
 import { useSettings } from "@/hooks/useSettings";
 import { IconChevronDown } from "@/icons/IconChevronDown";
 
@@ -48,6 +50,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const navigate = useNavigate();
   const { backendUrl } = useSettings();
   const accountIdentifier = client.identity.identifier.toLowerCase();
+  const { handle } = useOwnHandles();
 
   const handleClick = () => {
     void navigate("/identity");
@@ -69,7 +72,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             aria-label={accountIdentifier || ""}
             className={classes.button}
             onClick={handleClick}>
-            {accountIdentifier ? shortAddress(accountIdentifier) : "..."}
+            {handle ? (
+              <HandleText handle={handle} withPrefix inherit />
+            ) : accountIdentifier ? (
+              shortAddress(accountIdentifier)
+            ) : (
+              "..."
+            )}
           </Button>
         </Flex>
       </Flex>

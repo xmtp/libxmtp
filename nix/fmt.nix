@@ -8,16 +8,14 @@
     {
       treefmt = {
         flakeFormatter = true;
-        flakeCheck = true;
+        # lint_config runs treefmt; no job builds flake checks.
+        flakeCheck = false;
         projectRootFile = "flake.nix";
         programs = {
           nixfmt.enable = true;
           rustfmt = {
             enable = true;
             package = rustfmt;
-            excludes = [
-              "crates/xmtp-workspace-hack/*"
-            ];
           };
           ruff-format.enable = true;
           ruff-check.enable = true;

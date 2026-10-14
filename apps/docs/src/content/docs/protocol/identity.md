@@ -2,7 +2,7 @@
 title: Identity model
 ---
 
-XMTP's identity model includes an inbox ID and its associated identities and installations.
+XMTP's identity model includes an inbox ID, its associated identities and installations, and its handles.
 
 | Term              | Meaning                                                       |
 | ----------------- | ------------------------------------------------------------- |
@@ -10,6 +10,7 @@ XMTP's identity model includes an inbox ID and its associated identities and ins
 | Identity          | Addressable account linked to an inbox                        |
 | Recovery identity | First identity; can manage other identities and installations |
 | Installation      | One app instance with its own cryptographic keys              |
+| Handle            | Public name that an inbox claimed, such as `nick#2341`        |
 
 An inbox can contain several account identifiers. Messages to any linked identifier reach the same inbox. Supported identifiers include Ethereum EOAs, smart contract wallets, and passkeys.
 
@@ -32,3 +33,11 @@ Each identity can authenticate new installations:
 ```
 
 See [inboxes and installations](/sdk/inboxes/) for the SDK operations and limits.
+
+## Handles
+
+An inbox claims a handle with a `ClaimHandle` action in its identity log. Any current member signs the claim: an installation, an Ethereum account, or a passkey. A handle is not an identity: it signs nothing. Its name part has 1 to 27 characters: a lowercase letter, then lowercase letters, digits, `_`, or `-`. An optional `#` and 4 digits follow. Validators reject any other spelling and never rewrite a signed handle. An update that claims a handle carries no other action, and one log holds at most 64 claims. The last claim is the display handle. Before a client uses the inbox from a handle lookup answer, it checks the answer against the inbox's own log, so a backend cannot point a handle at an inbox that did not claim it. A report only that a handle has an owner gives no inbox, and the client does not check it.
+
+Handles are public and permanent. Every client reads the whole identity log, and anyone who can query the deployment can read it, so every claim stays readable. No action removes a handle, so an old handle still finds its inbox. Only the backend makes a handle unique. It applies its reserved names, its minimum name length, and 7 days between claims only when it admits a claim.
+
+See [Handles](/sdk/inboxes/#handles) for the SDK calls that claim, find, and show handles.

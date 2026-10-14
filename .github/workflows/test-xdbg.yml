@@ -1,6 +1,8 @@
 name: Test XDBG
 on:
   workflow_call:
+env:
+  NIX_DEVSHELL: rust
 jobs:
   check:
     name: Check (xdbg)
@@ -8,14 +10,35 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
         with:
-          disk-key: rust
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
       - name: Check xdbg compiles
         run: nix build --no-link .#cargo-clippy.x86_64-linux.xdbg
-      - name: Warm sticky disk with build deps
-        run: dev/ci/warm-deps .#cargo-clippy.x86_64-linux.xdbg
+  observe:
+    name: Observability check
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
+      # `just backend up` builds and loads the backend image first.
+      # The check builds xdbg as a traffic client.
+      - name: Verify observability
+        run: |
+          just backend up
+          just backend observe-check
+      - name: Backend logs and cleanup
+        if: always()
+        run: |
+          just backend logs || true
+          just backend down

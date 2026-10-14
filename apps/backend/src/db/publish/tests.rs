@@ -6,7 +6,10 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-use support::TestServer;
+use support::{
+    TestServer,
+    locks::{publish_task, wait_for_lock},
+};
 use tokio::sync::Notify;
 use tonic::Code;
 use xmtp_id::{
@@ -147,39 +150,6 @@ async fn changed_history_aborts_all_new_rows_after_verification() {
         .await?;
     assert_eq!(count, Some(1));
     server.stop().await?;
-}
-
-fn publish_task(
-    server: &TestServer,
-    envelope: api::ClientEnvelope,
-) -> tokio::task::JoinHandle<Result<tonic::Response<api::PublishResponse>, tonic::Status>> {
-    let mut client = server.publisher();
-    tokio::spawn(async move {
-        client
-            .publish(api::PublishRequest {
-                envelopes: vec![envelope],
-            })
-            .await
-    })
-}
-
-async fn wait_for_lock(pool: &sqlx::PgPool, lock_type: &'static str) -> support::TestResult {
-    xmtp_common::wait_for_eq(
-        || async {
-            sqlx::query_scalar!(
-                r#"SELECT EXISTS (SELECT 1 FROM pg_locks
-                WHERE database = (SELECT oid FROM pg_database WHERE datname = current_database())
-                  AND locktype = $1 AND NOT granted) AS "waiting!""#,
-                lock_type
-            )
-            .fetch_one(pool)
-            .await
-            .unwrap()
-        },
-        true,
-    )
-    .await?;
-    Ok(())
 }
 
 async fn ordered_writers(

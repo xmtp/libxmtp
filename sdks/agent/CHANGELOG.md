@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Minor Changes
+
+- Added `createDmWithHandle`, `createGroupWithHandles`, and `addMembersWithHandles`. They accept handles such as `nick` or `nick#2341`. `agent.client.availableHandles` and `agent.client.claimHandle` find and claim a handle for the agent.
+
 ### Behavior Changes
 
 - `streamAllMessages` now excludes denied conversations when no consent list is set. Pass an explicit consent list to include them.

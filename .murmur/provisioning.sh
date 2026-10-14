@@ -207,7 +207,7 @@ warm_step() {
   return "$rc"
 }
 
-if git clone --depth 1 --branch self-hosted \
+if git clone --depth 1 --branch main \
      https://github.com/xmtp/libxmtp "$WARM_DIR" 2>&1; then
   chown -R murmur:murmur "$WARM_DIR"
 
@@ -216,8 +216,8 @@ if git clone --depth 1 --branch self-hosted \
   # out-link under gcroots pins the entire closure -- no requisites walk, and
   # no cap on how much gets pinned.
   #
-  # The `rust` shell is what .envrc selects and what backend.just defaults to;
-  # `default` is what `dev/nix-shell` picks with no NIX_DEVSHELL set.
+  # `default` is what `dev/nix-shell` and .envrc pick with no NIX_DEVSHELL
+  # set; it layers on the `rust` core, which backend.just and CI Rust jobs use.
   # Cap each shell against the budget that is actually left, not a fixed 20m.
   # Two fixed 20m caps plus the later steps' caps total more than the 1h
   # recipe ceiling, so a slow pair of shells could run the bake out of time
@@ -251,8 +251,8 @@ if git clone --depth 1 --branch self-hosted \
 
   # `just backend up` depends on `just backend image`, which cross-compiles the
   # backend for musl. This is the single most expensive cold-start cost.
-  # fh-cache.yml pushes this image to Cachix on every push to self-hosted, so
-  # the normal case is a download; the cap covers the cache-miss case, which
+  # post-merge.yml pushes this image (its dev set) to Cachix on every push to trunk,
+  # so the normal case is a download; the cap covers the cache-miss case, which
   # happens when a commit changes the closure and nothing matches the cache.
   #
   # Build it outside any devshell, per the note in backend.just: a devshell

@@ -101,59 +101,6 @@ test("homepage links open the install, security, and client guides", async ({
   }
 });
 
-test("group avatars fit their badges and diagram nodes do not overlap", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page
-    .getByRole("tab", { name: "Create an agent group", exact: true })
-    .click();
-  await page.evaluate(() => document.fonts.ready);
-  for (const width of [320, 390, 768, 1024, 1440]) {
-    await page.setViewportSize({ width, height: 900 });
-    const issues = await page.locator(".network").evaluate((network) => {
-      const failures = [];
-      const panel = network.getBoundingClientRect();
-      for (const badge of network.querySelectorAll(".badge")) {
-        const box = badge.getBoundingClientRect();
-        const avatar = badge.querySelector("img");
-        const image = avatar.getBoundingClientRect();
-        if (!avatar.alt) failures.push("Avatar has no accessible name");
-        if (
-          image.left < box.left ||
-          image.right > box.right ||
-          image.top < box.top ||
-          image.bottom > box.bottom
-        ) {
-          failures.push(`Avatar exceeds badge: ${avatar.alt}`);
-        }
-      }
-      const nodes = [...network.querySelectorAll(".group-agent, .center")];
-      nodes.forEach((node, index) => {
-        const box = node.getBoundingClientRect();
-        if (box.left < panel.left || box.right > panel.right) {
-          failures.push(`Node exceeds panel: ${node.textContent}`);
-        }
-        for (const other of nodes.slice(index + 1)) {
-          const next = other.getBoundingClientRect();
-          if (
-            box.left < next.right &&
-            box.right > next.left &&
-            box.top < next.bottom &&
-            box.bottom > next.top
-          ) {
-            failures.push(
-              `Nodes overlap: ${node.textContent} / ${other.textContent}`,
-            );
-          }
-        }
-      });
-      return failures;
-    });
-    expect(issues, `${width}px diagram`).toEqual([]);
-  }
-});
-
 test("homepage layout and agent tabs work with keyboard input", async ({
   page,
 }) => {
@@ -182,13 +129,41 @@ test("homepage layout and agent tabs work with keyboard input", async ({
   await expect(page.locator("example-transcript .message:visible")).toHaveCount(
     6,
   );
-  for (const width of [320, 390, 768, 1440]) {
+  await page.evaluate(() => document.fonts.ready);
+  const network = page.locator(".network");
+  for (const width of [320, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
+    const issues = await network.evaluate((element) => {
+      const panel = element.getBoundingClientRect();
+      const nodes = [...element.querySelectorAll(".group-agent, .center")];
+      const failures = [];
+      nodes.forEach((node, index) => {
+        const box = node.getBoundingClientRect();
+        if (box.left < panel.left || box.right > panel.right) {
+          failures.push(`Node exceeds panel: ${node.textContent}`);
+        }
+        for (const other of nodes.slice(index + 1)) {
+          const next = other.getBoundingClientRect();
+          if (
+            box.left < next.right &&
+            box.right > next.left &&
+            box.top < next.bottom &&
+            box.bottom > next.top
+          ) {
+            failures.push(
+              `Nodes overlap: ${node.textContent} / ${other.textContent}`,
+            );
+          }
+        }
+      });
+      return failures;
+    });
+    expect(issues, `${width}px agent diagram`).toEqual([]);
   }
 });
 

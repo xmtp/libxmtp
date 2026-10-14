@@ -20,6 +20,8 @@ pub enum Error {
     Database(#[from] sqlx::Error),
     #[error("database migration failed")]
     Migration(#[from] sqlx::migrate::MigrateError),
+    #[error("startup allocation-boundary read exceeded {timeout_ms}ms")]
+    StartupBoundaryTimeout { timeout_ms: u64 },
     #[error("storage invariant failed: {0}")]
     Invariant(&'static str),
 }
@@ -29,6 +31,8 @@ pub enum AdmissionError {
     Validation(std::sync::Arc<ValidationError>),
     TooLarge(&'static str),
     InvalidIdentity(&'static str),
+    /// A claim that every validator accepts and the backend's handle policy refuses.
+    Handle(crate::handles::HandleRejection),
 }
 
 impl From<ValidationError> for AdmissionError {

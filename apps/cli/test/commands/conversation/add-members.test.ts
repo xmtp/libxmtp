@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
+  randomHandleName,
   runWithIdentity,
 } from "../../helpers.js";
 
@@ -89,5 +91,72 @@ describe("conversation add-members", () => {
     ]);
     const members = parseJsonOutput<Member[]>(membersResult.stdout);
     expect(members.length).toBe(4);
+  });
+
+  it("adds a member by handle", async () => {
+    const creator = await createRegisteredIdentity();
+    const member1 = await createRegisteredIdentity();
+    const member2 = await createIdentityWithHandle();
+
+    const groupResult = await runWithIdentity(creator, [
+      "conversations",
+      "create-group",
+      member1.address,
+      "--json",
+    ]);
+    expect(groupResult.exitCode).toBe(0);
+    const group = parseJsonOutput<{ id: string }>(groupResult.stdout);
+
+    const addResult = await runWithIdentity(creator, [
+      "conversation",
+      "add-members",
+      group.id,
+      member2.handle,
+      "--identifier-kind",
+      "handle",
+      "--json",
+    ]);
+
+    expect(addResult.exitCode).toBe(0);
+
+    const membersResult = await runWithIdentity(creator, [
+      "conversation",
+      "members",
+      group.id,
+      "--json",
+    ]);
+    const members = parseJsonOutput<Member[]>(membersResult.stdout);
+    expect(members.length).toBe(3);
+    expect(members.map((m) => m.inboxId)).toContain(member2.inboxId);
+  });
+
+  it("names a handle that no inbox holds", async () => {
+    const creator = await createRegisteredIdentity();
+    const member = await createRegisteredIdentity();
+    const handle = randomHandleName();
+
+    const groupResult = await runWithIdentity(creator, [
+      "conversations",
+      "create-group",
+      member.address,
+      "--json",
+    ]);
+    expect(groupResult.exitCode).toBe(0);
+    const group = parseJsonOutput<{ id: string }>(groupResult.stdout);
+
+    const addResult = await runWithIdentity(creator, [
+      "conversation",
+      "add-members",
+      group.id,
+      handle,
+      "--identifier-kind",
+      "handle",
+    ]);
+
+    expect(addResult.exitCode).not.toBe(0);
+    expect(addResult.stderr.split("\n")).toContain(
+      `No inbox has the handle ${handle}.`,
+    );
+    expect(addResult.stderr).not.toContain("USAGE");
   });
 });

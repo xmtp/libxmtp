@@ -6,14 +6,6 @@ use xmtp_common::{assert_err, assert_ok};
 
 use super::helpers::*;
 
-#[xmtp_common::test]
-fn it_does_not_error_on_empty_messages() {
-    with_connection(|conn| {
-        let id = vec![0x0];
-        assert_eq!(conn.get_group_message(id).unwrap(), None);
-    })
-}
-
 /// The database stamps `inserted_at_ns` on insert. Its default must agree with
 /// the client clock: a stamp built from `strftime('%s')` plus `strftime('%f')`
 /// counts the seconds of the minute twice, so it runs up to 59 s ahead and

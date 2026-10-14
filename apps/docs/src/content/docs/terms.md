@@ -5,7 +5,7 @@ description: Documentation licensing terms.
 
 Our content licensing policies are based on those of the [Google Developer](https://developers.google.com/site-policies) website.
 
-We are pleased to license much of the documentation on `docs.xmtp.org` under terms that explicitly encourage people to take, modify, reuse, re-purpose, and remix this content as they see fit.
+We are pleased to license much of the documentation on `xmtp.org` under terms that explicitly encourage people to take, modify, reuse, re-purpose, and remix this content as they see fit.
 
 The guide footer shows this notice:
 

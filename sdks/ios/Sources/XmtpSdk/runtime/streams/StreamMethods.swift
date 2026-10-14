@@ -62,8 +62,8 @@ private func streamOwner(_ key: UInt64) throws -> SDKClient {
     return owner
 }
 
-// These typed adapters own selection and host lifetime policy. The generator
-// supplies only the declared owner getter and reader opener.
+/// These typed adapters own selection and host lifetime policy. The generator
+/// supplies only the declared owner getter and reader opener.
 private func openConversationStreamOptions(
     ownerKey: () -> UInt64,
     open: @escaping @Sendable (ConversationReaderOptions?) async throws -> ConversationReader,

@@ -1,13 +1,15 @@
 name: Docs Quality
-
-on:
-  pull_request:
-  push:
-    branches: [main, self-hosted]
-
+'on':
+  workflow_call:
+    secrets:
+      KACHE_S3_ACCESS_KEY_ID:
+        description: "Optional compiler cache reader access key ID"
+        required: false
+      KACHE_S3_SECRET_ACCESS_KEY:
+        description: "Optional compiler cache reader secret access key"
+        required: false
 permissions:
   contents: read
-
 jobs:
   quality:
     name: Docs lint, format, and tests
@@ -16,15 +18,17 @@ jobs:
     env:
       NIX_DEVSHELL: docs
     steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: web
-          github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@just
-      - uses: ./.github/actions/setup-js
-      - run: just docs test
-      - name: Lint repository Markdown
-        run: just lint-markdown
-      - name: Check documentation source
-        run: dev/nix-shell 'cd apps/docs && node scripts/check-site.mjs'
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        cache-mode: "ci"
+        github-token: ${{ github.token }}
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
+    - uses: ./.github/actions/setup-js
+      with:
+        cache-mode: "ci"
+    - run: just docs test
+    - name: Lint repository Markdown
+      run: just lint-markdown
+    - name: Check documentation source
+      run: just docs check-source

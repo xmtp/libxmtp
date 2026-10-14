@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Compile each negative consumer in library/src/test/negative with the unit
+# test sources. Each compile must fail with the expected diagnostics. Run
+# `just android build` first.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+work="$(mktemp -d)"
+log="$work/compile.log"
+cleanup() {
+  local result=$?
+  if (( result != 0 )); then cat "$log" >&2; fi
+  rm -rf "$work"
+  exit "$result"
+}
+trap cleanup EXIT
+mkdir -p "$work/src"
+
+compile_negative() {
+  rm -f "$work/src/"*.kt
+  cp "library/src/test/negative/$1" "$work/src/ConsumerNegative.kt"
+  if ./gradlew -p . :library:compileDebugUnitTestKotlin -PxmtpNegativeConsumer="$work/src" \
+    ${CI:+--build-cache} --dependency-verification=strict --no-daemon >"$log" 2>&1; then
+    echo "Kotlin negative consumer $1 compiled" >&2
+    exit 1
+  fi
+}
+
+require_error() {
+  local line
+  line=$(grep -nF "$1" "$work/src/ConsumerNegative.kt" | cut -d: -f1)
+  grep -Eq "^e: .*ConsumerNegative.kt:${line}:[0-9]+ $2" "$log"
+}
+
+compile_negative ConsumerNegative.kt
+require_error 'val id: ConversationId' "Initializer type mismatch: expected 'String', actual 'Int'"
+require_error 'MessageId.fromString(' "Unresolved reference 'fromString'"
+require_error 'val encoded: EncodedContent' "Initializer type mismatch: expected 'EncodedContent', actual 'MessageContent'"
+require_error 'val group: Group' "Initializer type mismatch: expected 'Group', actual 'Conversation'"
+require_error 'StandardContent.DeleteMessage(42)' "Argument type mismatch: actual type is 'Int', but 'String' was expected"
+compile_negative CodecTypeNegative.kt
+# The encode, Group and Dm send and prepareMessage, Conversation send, and
+# reply calls each reject an Int value with a type mismatch: seven distinct
+# source lines. Check each call so an unrelated error cannot replace its proof.
+for call in 'TextCodec().encode(' 'group.send(' 'group.prepareMessage(' \
+  'dm.send(' 'dm.prepareMessage(' 'conversation.send(' 'message.reply('; do
+  require_error "$call" "(Argument type mismatch: actual type is 'Int'|None of the following candidates is applicable)"
+done
+require_error 'TextCodec().encode(' "Argument type mismatch: actual type is 'Int', but 'String' was expected"
+require_error 'val removed: SDKContentCodec' "Unresolved reference 'SDKContentCodec'"
+echo "Kotlin ID, content, and Group/Dm consumer checks passed"

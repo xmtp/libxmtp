@@ -1183,7 +1183,9 @@ async fn deletion_clears_an_undecodable_deletable_row_and_parent() {
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     let mut text_content = TextCodec::encode("placeholder".to_string())?;
-    text_content.content = vec![0xff, 0xfe];
+    // Ids print as byte lists, so a short marker can match them by chance.
+    // No UTF-8 text holds these bytes.
+    text_content.content = vec![0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8];
     text_content.fallback = Some("secret-fallback".to_string());
     let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
     let original_id = alix_group
@@ -1241,7 +1243,10 @@ async fn deletion_clears_an_undecodable_deletable_row_and_parent() {
         assert_eq!(message.fallback_text, None, "{path} kept the fallback");
         let debug = format!("{message:?}");
         assert!(!debug.contains("secret"), "{path} kept the fallback text");
-        assert!(!debug.contains("255, 254"), "{path} kept the raw bytes");
+        assert!(
+            !debug.contains("255, 254, 253, 252, 251, 250, 249, 248"),
+            "{path} kept the raw bytes"
+        );
     }
 }
 

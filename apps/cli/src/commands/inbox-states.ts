@@ -2,6 +2,7 @@ import { Args } from "@oclif/core";
 import { Client } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
+import { formatOtherHandles, handleFields } from "@/utils/handles";
 import { formatPublicIdentityKind, formatTimestampNs } from "@/utils/output";
 
 export default class InboxStates extends BaseCommand {
@@ -9,6 +10,7 @@ export default class InboxStates extends BaseCommand {
 
 Queries the XMTP network to retrieve the current state of the specified
 inbox IDs. This includes information about:
+- Current handle and other handles, if the inbox has claimed any
 - Recovery identifier for the inbox
 - Associated installations (devices/apps)
 - Associated identifiers (wallet addresses)
@@ -62,6 +64,7 @@ Use this command to inspect the state of any inbox on the network.`;
     if (this.jsonOutput) {
       const output = states.map((state) => ({
         inboxId: state.inboxId,
+        ...handleFields(state),
         recoveryIdentifier: state.recoveryIdentity,
         installations: state.installations.map((installation) => ({
           id: installation.id,
@@ -75,6 +78,14 @@ Use this command to inspect the state of any inbox on the network.`;
         const lines: string[] = [];
 
         lines.push(`Inbox ID: ${state.inboxId}`);
+        if (state.handle !== undefined) {
+          lines.push(`Handle: ${state.handle}`);
+        }
+        if (state.otherHandles.length > 0) {
+          lines.push(
+            `Other handles: ${formatOtherHandles(state.otherHandles)}`,
+          );
+        }
         lines.push("");
 
         const recoveryKind = formatPublicIdentityKind(

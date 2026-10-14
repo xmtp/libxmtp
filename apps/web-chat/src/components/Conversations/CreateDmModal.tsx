@@ -76,7 +76,7 @@ export const CreateDmModal: React.FC = () => {
         <Box p="md">
           <TextInput
             size="sm"
-            label="Address or inbox ID"
+            label="Address, inbox ID, or handle"
             styles={{
               label: {
                 marginBottom: "var(--mantine-spacing-xxs)",
@@ -85,7 +85,7 @@ export const CreateDmModal: React.FC = () => {
             error={memberIdError}
             value={memberId}
             onChange={(event) => {
-              setMemberId(event.target.value.toLowerCase().replace(/\s/g, ""));
+              setMemberId(event.target.value);
             }}
             onKeyDown={(event) => {
               if (event.key === " ") {

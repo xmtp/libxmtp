@@ -4,22 +4,22 @@ SDK and backend releases use **Actions > Release** (`release.yml`). The release 
 workflow prepares versions and notes. The Release workflow builds and publishes
 packages and creates backend release tags. Do not edit manifest versions by hand.
 
-## Prepare SDK 8.0 from self-hosted
+## Prepare SDK 8.0 from main
 
 The iOS, Android, Node, Browser, and Agent manifests already contain `8.0.0`.
 Use `keep` for these SDKs. A `major` bump would produce `9.0.0`.
 The Rust workspace version is separate. Leave `libxmtp-version` empty to keep
 it. The branch label `8.0.0` does not set any manifest version.
 
-1. Merge the release preparation PR into `self-hosted`.
-2. Select the `self-hosted` workflow revision in **Actions > Create Release Branch**.
+1. Merge the release preparation PR into `main`.
+2. Select the `main` workflow revision in **Actions > Create Release Branch**.
 3. Set these inputs:
 
    | Input | Value |
    | --- | --- |
-   | `base-ref` | The approved `self-hosted` commit SHA |
+   | `base-ref` | The approved `main` commit SHA |
    | `version` | `8.0.0` |
-   | `pr-base` | `self-hosted` |
+   | `pr-base` | `main` |
    | `ios-bump` | `keep` |
    | `android-bump` | `keep` |
    | `node-sdk-bump` | `keep` |
@@ -28,17 +28,17 @@ it. The branch label `8.0.0` does not set any manifest version.
    | `cli-bump` | `none` |
    | `libxmtp-version` | Empty |
 
-4. Run the workflow. It creates `release/8.0.0` and a PR into `self-hosted`.
+4. Run the workflow. It creates `release/8.0.0` and a PR into `main`.
 5. Review the prepared notes and the PR checks before publishing an RC.
 
 The command form is:
 
 ```sh
 gh workflow run create-release-branch.yml \
-  --ref self-hosted \
-  -f base-ref=self-hosted \
+  --ref main \
+  -f base-ref=main \
   -f version=8.0.0 \
-  -f pr-base=self-hosted \
+  -f pr-base=main \
   -f ios-bump=keep \
   -f android-bump=keep \
   -f node-sdk-bump=keep \
@@ -47,9 +47,9 @@ gh workflow run create-release-branch.yml \
   -f cli-bump=none
 ```
 
-Replace `base-ref=self-hosted` with the approved commit SHA to fix the source
+Replace `base-ref=main` with the approved commit SHA to fix the source
 commit. `--ref` selects the workflow revision. `base-ref` selects the source
-for the new branch. Use the workflow from `self-hosted` so it includes the
+for the new branch. Use the workflow from `main` so it includes the
 release preparation changes.
 
 ## Create another release branch
@@ -72,7 +72,7 @@ record contains the source commit, Rust version, and selected SDK versions.
 It gives the release PR a file change when all notes and versions are already
 prepared.
 
-The PR target defaults to `self-hosted`. Use an explicit `pr-base` for a
+The PR target defaults to `main`. Use an explicit `pr-base` for a
 maintenance release that targets another branch. Use the same target when
 publishing the final release.
 
@@ -145,7 +145,7 @@ Do not overwrite a published package. If the source changes, increment the RC
 number. If Node succeeded and Agent failed, run **Release Agent SDK** from the
 same release branch with `release-type=rc`, the same `rc-number`, and
 `node-sdk-version` set to the published Node RC version. Put fixes on
-`self-hosted`, then bring them into the release branch.
+`main`, then bring them into the release branch.
 
 ## Publish the final release
 
@@ -156,7 +156,7 @@ After RC validation, run **Release** with:
 | Workflow revision and `ref` | The release branch |
 | `release-type` | `final` |
 | SDK switches and `backend` | The validated release targets |
-| `pr-base` | The release PR target, normally `self-hosted` |
+| `pr-base` | The release PR target, normally `main` |
 | `dry-run` | `false` |
 | `no-merge` | `true` to leave the PR open; `false` to merge it after publication |
 
@@ -202,7 +202,7 @@ bring that change into the release branch before selecting `backend=true`.
 
 Dev releases can use any branch. Select `release-type=dev`, the source `ref`,
 and the SDK switches. Select the source branch as the workflow revision too.
-Dev versions from a branch such as `self-hosted` use `<version>-dev.<sha7>`.
+Dev versions from another branch use `<version>-dev.<sha7>`.
 Dev versions from `main` use `<version>-pre.<timestamp>.dev.<sha7>`.
 Dev releases publish real packages; they are not a dry run.
 
