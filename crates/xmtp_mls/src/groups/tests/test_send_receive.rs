@@ -1149,3 +1149,64 @@ async fn application_component_commit_names_each_changed_item() {
     assert!(own.drain().is_empty());
     assert!(remote.drain().is_empty());
 }
+
+// A frozen send clock exercises the WASM path on native as well as WASM.
+#[xmtp_common::test(unwrap_try = true)]
+async fn same_millisecond_optimistic_sends_keep_recovery_order() {
+    use crate::utils::id::calculate_message_id;
+    use xmtp_db::delivery::QueryDelivery;
+    use xmtp_db::group_message::{RecoveryQueryArgs, SortDirection};
+
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    // Select keys whose IDs sort opposite to send order, so raw time fails reliably.
+    let content = b"same millisecond";
+    let mut keys = ["first", "second"];
+    if calculate_message_id(group.group_id, content, keys[0])
+        < calculate_message_id(group.group_id, content, keys[1])
+    {
+        keys.swap(0, 1);
+    }
+    let wall_ns = xmtp_common::time::now_ns() / 1_000_000 * 1_000_000;
+    alix.context.message_clock.freeze(wall_ns);
+    let send = |key: &str| {
+        group.send_message_optimistic(
+            content,
+            SendMessageOpts {
+                idempotency_key: Some(key.into()),
+                ..Default::default()
+            },
+        )
+    };
+    let first = send(keys[0])?;
+    let second = send(keys[1])?;
+    assert!(first > second);
+    let db = alix.context.db();
+    let query = |direction, after| RecoveryQueryArgs {
+        messages: MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            limit: Some(1),
+            direction: Some(direction),
+            ..Default::default()
+        },
+        after,
+        ..Default::default()
+    };
+    let page = db.recovery_page_rows(&group.group_id, &query(SortDirection::Ascending, None))?;
+    assert_eq!(page.rows[0].stored.id, first);
+    assert_eq!(page.rows[0].stored.sent_at_ns, wall_ns);
+    assert!(page.has_more);
+    let next = db.recovery_page_rows(
+        &group.group_id,
+        &query(SortDirection::Ascending, page.last_position),
+    )?;
+    assert_eq!(next.rows[0].stored.id, second);
+    assert_eq!(next.rows[0].stored.sent_at_ns, wall_ns + 1);
+    assert!(!next.has_more);
+    let descending =
+        db.recovery_page_rows(&group.group_id, &query(SortDirection::Descending, None))?;
+    assert_eq!(descending.rows[0].stored.id, second);
+    // An idempotent retry retains the original message and timestamp.
+    assert_eq!(send(keys[0])?, first);
+    assert_eq!(db.get_group_message(&first)?.unwrap().sent_at_ns, wall_ns);
+}

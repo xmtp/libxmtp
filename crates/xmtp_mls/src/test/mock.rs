@@ -91,6 +91,8 @@ impl Clone for NewMockContext {
             cancellation_token: self.cancellation_token.clone(),
             shutdown_complete: self.shutdown_complete.clone(),
             foreground_calls: self.foreground_calls.clone(),
+            #[cfg(any(test, target_arch = "wasm32"))]
+            message_clock: self.message_clock.clone(),
             delivery_owner: self.delivery_owner.clone(),
             incoming_runtime: self.incoming_runtime.clone(),
             identity_resolutions: self.identity_resolutions.clone(),
@@ -214,6 +216,10 @@ impl XmtpSharedContext for NewMockContext {
     fn mark_shutdown_complete(&self) {
         self.shutdown_complete
             .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    fn message_timestamp_ns(&self) -> i64 {
+        xmtp_common::time::now_ns()
     }
 
     fn foreground_calls(&self) -> &Arc<crate::context::ForegroundCalls> {
