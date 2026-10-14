@@ -278,7 +278,7 @@ private actor DelayedIdentityQueries: IdentityQueries {
 }
 
 @MainActor @Test func successfulClaimPersistsAfterRouteCloses() async throws {
-	let account = HandleFake(); let gate = ReviewGate()
+	let account = HandleFake(); let gate = DelayedClaimGate()
 	account.claimHook = { await gate.wait() }
 	let store = HandleStore(
 		account: account,
@@ -303,4 +303,16 @@ private actor DelayedIdentityQueries: IdentityQueries {
 	try #require(gate.started)
 	let closing = Task { await store.close() }; await Task.yield(); gate.release(); await closing.value
 	#expect(account.claimTimes["abc#0001"] != nil)
+}
+
+@MainActor private final class DelayedClaimGate {
+	var started = false
+	private var continuation: CheckedContinuation<Void, Never>?
+	func wait() async {
+		started = true; await withCheckedContinuation { continuation = $0 }
+	}
+
+	func release() {
+		continuation?.resume(); continuation = nil
+	}
 }

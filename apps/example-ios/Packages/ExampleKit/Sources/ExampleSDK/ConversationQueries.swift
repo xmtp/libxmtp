@@ -11,6 +11,15 @@ func unreadOptions(marker: Int64, ownInboxID: String) -> ListMessagesOptions {
 	)
 }
 
+func enrichPeerHandle(_ record: ConversationRecord,
+                      lookup: @Sendable () async throws -> String?) async throws -> ConversationRecord
+{
+	var result = record
+	do { result.peerHandle = try await lookup() } catch is CancellationError { throw CancellationError() } catch {
+	/* Keep state when optional identity enrichment fails. */ }
+	return result
+}
+
 public final class SDKConversationQueries: ConversationQueries, Sendable {
 	private let client: SDKClient
 	private let limiter: AsyncLimiter
@@ -73,17 +82,15 @@ public final class SDKConversationQueries: ConversationQueries, Sendable {
 		let state = try await limiter.withPermit { try await dm.state() }
 		result.consent = Self.coreConsent(state.consentState)
 		result.peerInboxID = try await limiter.withPermit { try await dm.peerInboxId() }
-		if let peer = result.peerInboxID {
+		guard let peer = result.peerInboxID else { return result }
+		return try await enrichPeerHandle(result) { [identityDirectory, limiter, client] in
 			if let identityDirectory {
 				try await identityDirectory.load([peer])
-				result.peerHandle = await identityDirectory.identities[peer]?.handle
-			} else {
-				result.peerHandle = try await limiter.withPermit {
-					try await self.client.inboxStates(ids: [peer], refreshFromNetwork: false).first?.handle
-				}
+				return await identityDirectory.identities[peer]?.handle
 			}
+			return try await limiter
+				.withPermit { try await client.inboxStates(ids: [peer], refreshFromNetwork: false).first?.handle }
 		}
-		return result
 	}
 
 	private static func preview(_ message: Message) -> String {
