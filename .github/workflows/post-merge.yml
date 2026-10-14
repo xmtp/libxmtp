@@ -36,7 +36,7 @@ jobs:
     env:
       SYSTEM: ${{ matrix.system }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
       # and a build with another fails, so select it before the build.
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
@@ -75,7 +75,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
@@ -94,21 +94,27 @@ jobs:
               members = builtins.attrValues set.passthru.members;
               drv = set.drvPath;
             }))' > "$RUNNER_TEMP/ci-sets.json"
+          # Each list goes through a file: bash ignores the exit status of a
+          # process substitution, so a failed jq or nix would shrink the check.
+          jq -r '.[][].members[]' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/members.txt"
+          jq -r '.[][].drv' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/drvs.txt"
           paths=()
           while read -r member; do
             paths+=("$member")
-          done < <(jq -r '.[][].members[]' "$RUNNER_TEMP/ci-sets.json")
+          done < "$RUNNER_TEMP/members.txt"
           drvs=()
           while read -r drv; do
             drvs+=("$drv")
-          done < <(jq -r '.[][].drv' "$RUNNER_TEMP/ci-sets.json")
+          done < "$RUNNER_TEMP/drvs.txt"
           # Crane sets CRANE_BUILD_DEPS_ONLY on each dependency layer.
-          while read -r layer; do
-            paths+=("$layer^out")
-          done < <(nix derivation show --store "$store" -r "${drvs[@]}" |
+          nix derivation show --store "$store" -r "${drvs[@]}" |
             jq -r '(.derivations // .) | to_entries[]
               | select(.value.env.CRANE_BUILD_DEPS_ONLY != null) | .key
-              | if startswith("/") then . else "/nix/store/" + . end')
+              | if startswith("/") then . else "/nix/store/" + . end' \
+            > "$RUNNER_TEMP/dependency-layers.txt"
+          while read -r layer; do
+            paths+=("$layer^out")
+          done < "$RUNNER_TEMP/dependency-layers.txt"
           echo "Checking ${#paths[@]} set members and dependency layers"
           # The dry run exits 0 also when a path cannot substitute, and has no
           # machine-readable form (--json lists the requested paths only).
