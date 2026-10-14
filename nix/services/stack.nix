@@ -316,6 +316,16 @@ in
               echo 'services-test: set XMTP_SERVICES_TEST_COMMAND' >&2
               exit 2
             }
+            # process-compose runs a process whose dependency was skipped
+            # before the process started waiting (src/app/project_runner.go:
+            # 287-322 at v1.120.0: a skipped process is neither running nor
+            # done), so check that every service listens.
+            for port in ${lib.concatMapStringsSep " " (name: ''"''$${name}"'') ports}; do
+              if ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+                echo "services-test: nothing listens on port $port; a service failed or was skipped" >&2
+                exit 1
+              fi
+            done
             ${bin coreutils "touch"} "$XMTP_SERVICES_STATE/test-started"
             exec ${pkgs.bash}/bin/bash -c "$XMTP_SERVICES_TEST_COMMAND"
           '';

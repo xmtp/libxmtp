@@ -10,6 +10,11 @@
 #   dev/services logs P   # the log of process P
 #   dev/services down     # stop, then remove the state and the socket
 #
+# Every service listens on 127.0.0.1. The backend has no authentication, so
+# it stays off other interfaces; the Android emulator reaches the host
+# loopback at 10.0.2.2, and a device uses `adb reverse`. To serve other
+# hosts, set XMTP_BACKEND_LISTEN_HOST=0.0.0.0.
+#
 # A variable that the caller sets wins, as in dev/worktree-env:
 # XMTP_SERVICES_STATE (state directory), PC_SOCKET_PATH (the daemon socket),
 # and XMTP_SERVICES_PACKAGE (a built `services` package to run instead of
@@ -26,9 +31,6 @@ state="${XMTP_SERVICES_STATE:-${TMPDIR:-/tmp}}"
 export XMTP_SERVICES_STATE="${state}"
 # macOS limits a socket path to 104 bytes, and TMPDIR is long there.
 export PC_SOCKET_PATH="${PC_SOCKET_PATH:-/tmp/xmtp-services-$(id -u)-${XMTP_WORKTREE_SLOT}.sock}"
-# The Android emulator reaches the host loopback at 10.0.2.2; bind all
-# interfaces as the Docker stack does.
-export XMTP_BACKEND_LISTEN_HOST="${XMTP_BACKEND_LISTEN_HOST:-0.0.0.0}"
 
 # The package that `up` started, so later calls need no evaluation.
 package="${XMTP_SERVICES_PACKAGE:-}"
