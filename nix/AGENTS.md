@@ -125,7 +125,11 @@ The `ubrn-src` flake input is the bindgen fork. Evaluation reads its
 `Cargo.lock` with no build. `nix/lib/packages/ubrn.nix` fails evaluation
 unless the input revision equals `Cargo.toml [workspace.metadata.xmtp-sdk-fork]`
 and `Cargo.lock` takes `ubrn_bindgen`, `ubrn_common`, and `uniffi-runtime-wasm`
-from the fork at that revision. To bump the fork:
+from the fork at that revision. Only outputs that use `xmtp.ubrn` evaluate the
+check: `ubjs-*`, the `xmtp-sdk-node-*` packages, and the TypeScript consumers
+(`xmtp-sdk-generated`, `-node`, `-browser`, and the WASM test fixtures, whose
+trees link the runtimes). `xmtp-sdk-generated-swift` and `-kotlin` do not, and
+`just sdk lint` no longer checks the pin. To bump the fork:
 
 1. Set the new revision in `Cargo.toml` (the three dependencies and
    `[workspace.metadata.xmtp-sdk-fork]`), and update `Cargo.lock`.
