@@ -534,6 +534,15 @@ def action_step(name):
 
 
 class SetupNixTests(unittest.TestCase):
+    def test_action_installs_the_nix_kache_version(self):
+        # Two Kache versions in one job share the local cache directory and
+        # the S3 manifests, so the action installs the shell's version.
+        package = (ROOT / "nix/lib/packages/kache.nix").read_text()
+        version = re.search(r'^\s*version = "([^"]+)";', package, re.MULTILINE)
+        self.assertEqual(
+            action_step("Setup Kache")["with"]["version"], f"v{version[1]}"
+        )
+
     def test_action_has_no_sticky_disk(self):
         # Owner decision 8: no Blacksmith sticky disk. setup-gradle replaced
         # the ~/.gradle disk and its busy-process unmount hook.
