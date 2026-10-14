@@ -319,6 +319,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - path_group: example_ios
       - path_group: swift
@@ -620,6 +621,7 @@ suites:
     secrets: inherit
     permissions: {contents: read}
     kache: []
+    products: []
     path_filters:
       - path_group: example_ios
       - path_group: swift
