@@ -128,7 +128,7 @@ jobs:
       SQLX_OFFLINE: "true"
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
     - uses: ./.github/actions/setup-nix
       with:
         cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
@@ -143,7 +143,7 @@ jobs:
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
         kache-scope: sdk-android-release
         kache-readonly: "false"
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
     - name: Build Kotlin SDK artifacts
       run: dev/nix-shell 'just sdk build kotlin --profile release'
     - name: Render Kotlin SDK bindings
@@ -155,7 +155,7 @@ jobs:
     - name: Stage Android AAR with strict dependency verification
       run: dev/nix-shell 'just sdk mobile-stage android'
     - name: Retain Android AAR and contract
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: android-sdk-stage
         if-no-files-found: error
