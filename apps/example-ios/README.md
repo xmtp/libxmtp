@@ -4,6 +4,14 @@ A SwiftUI example for iOS 26 and later, built against the SDK in this checkout. 
 
 For team distribution, follow the [TestFlight guide](TESTFLIGHT.md).
 
+## Screenshots
+
+Captured from the running iPhone simulator with local test accounts.
+
+| Join a server | Direct messaging | Group details | Settings |
+| --- | --- | --- | --- |
+| ![Join a server with a ready local backend](docs/screenshots/join-server.png) | ![Direct chat showing sent and received messages](docs/screenshots/chat.png) | ![Group details with members and conversation controls](docs/screenshots/group-details.png) | ![Account, server and notification settings](docs/screenshots/settings.png) |
+
 ## Code structure
 
 - `ExampleApp` owns SwiftUI views, native glass controls, protected local files and APNs integration.
