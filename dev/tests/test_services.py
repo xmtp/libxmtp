@@ -182,6 +182,35 @@ class ServicesTests(unittest.TestCase):
                 f"--- last lines of {self.root}/logs/{name}.log", result.stderr
             )
 
+    def test_term_stops_every_service(self):
+        # A killed `just backend ci` must not leave services on the ports.
+        ports = free_ports(len(PORTS))
+        state = self.root / "state"
+        run = subprocess.Popen(
+            [str(self.test_bin)],
+            cwd=self.root,
+            env={
+                **self.env,
+                **dict(zip(PORTS, map(str, ports))),
+                "XMTP_SERVICES_STATE": str(state),
+                "XMTP_SERVICES_TEST_COMMAND": "sleep 300",
+            },
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.addCleanup(stop_group, run)
+        deadline = time.monotonic() + 120
+        while not (state / "test-started").exists() and time.monotonic() < deadline:
+            time.sleep(0.2)
+        self.assertTrue((state / "test-started").exists(), "the command never started")
+        run.send_signal(signal.SIGTERM)
+        run.wait(timeout=60)
+        deadline = time.monotonic() + 10
+        while any(map(listening, ports)) and time.monotonic() < deadline:
+            time.sleep(0.2)
+        self.assertEqual([port for port in ports if listening(port)], [])
+
     def test_caller_port_in_use_fails_before_any_service_starts(self):
         with socket.socket() as holder:
             holder.bind(("127.0.0.1", 0))

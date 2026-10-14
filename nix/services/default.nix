@@ -87,8 +87,17 @@
                 trap 'rm -rf "$XMTP_SERVICES_STATE"' EXIT
               fi
               export XMTP_SERVICES_STATE
-              status=0
-              ${lib.getExe outputs.testPackage} up -t=false --no-server "$@" || status=$?
+              # Forward TERM and INT to process-compose, which then stops every
+              # service, and wait for it: a killed `just backend ci` must not
+              # leave services on this worktree's ports.
+              ${lib.getExe outputs.testPackage} up -t=false --no-server "$@" &
+              compose=$!
+              trap 'kill -TERM "$compose" 2>/dev/null || true' TERM INT
+              while true; do
+                status=0
+                wait "$compose" || status=$?
+                kill -0 "$compose" 2>/dev/null || break
+              done
               # A Nix build deletes its TMPDIR, and with it the logs, so a
               # failure prints the end of each service log.
               if [ "$status" -ne 0 ] && [ -n "''${XMTP_SERVICES_LOGS:-}" ]; then
