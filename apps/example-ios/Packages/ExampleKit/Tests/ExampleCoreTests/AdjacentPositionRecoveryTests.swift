@@ -13,17 +13,24 @@ import Testing
 
 	private func queries(count: Int = 125, content: (Int) -> ChatContent) -> ChatQueryFake {
 		let queries = ChatQueryFake()
-		queries.rows = (1 ... count).reversed().map { value in
-			ChatMessage(
-				id: String(value),
+		var rows: [ChatMessage] = []
+		for value in stride(from: count, through: 1, by: -1) {
+			let messageID = String(value)
+			let marker = Int64(value)
+			let body: ChatContent = content(value)
+			let position = HistoryPosition(sentAt: marker, cursor: messageID)
+			let row = ChatMessage(
+				id: messageID,
 				conversationID: "chat",
 				sender: "peer",
-				sentAt: Int64(value),
-				insertedAt: Int64(value),
-				content: content(value),
-				position: HistoryPosition(sentAt: Int64(value), cursor: String(value)),
+				sentAt: marker,
+				insertedAt: marker,
+				content: body,
+				position: position,
 			)
+			rows.append(row)
 		}
+		queries.rows = rows
 		return queries
 	}
 

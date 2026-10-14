@@ -1,60 +1,6 @@
 import Foundation
 import Observation
 
-@MainActor public final class AttachmentDraftStore {
-	private let names: () throws -> [String]
-	private let read: (String) throws -> FileDraft?
-	private let write: (String, FileDraft) throws -> Void
-	private let remove: (String) throws -> Void
-	private let references: () throws -> [String]
-	private let saveReferences: ([String]) throws -> Void
-	public init(
-		names: @escaping () throws -> [String],
-		read: @escaping (String) throws -> FileDraft?,
-		write: @escaping (String, FileDraft) throws -> Void,
-		remove: @escaping (String) throws -> Void,
-		references: @escaping () throws -> [String],
-		saveReferences: @escaping ([String]) throws -> Void,
-	) {
-		self.names = names
-		self.read = read
-		self.write = write
-		self.remove = remove
-		self.references = references
-		self
-			.saveReferences = saveReferences
-	}
-
-	public func all() throws -> [FileDraft] {
-		try references().compactMap { try read($0) }
-	}
-
-	public func save(_ draft: FileDraft) throws {
-		let key = "attachment-" + draft.id.uuidString
-		try write(key, draft)
-		var refs = try references()
-		if !refs.contains(key) {
-			refs.append(key)
-			try saveReferences(refs)
-		}
-	}
-
-	public func remove(_ draft: FileDraft) throws {
-		let key = "attachment-" + draft.id.uuidString
-		try remove(key)
-		try saveReferences(references().filter { $0 != key })
-	}
-
-	public func cleanOrphans() throws {
-		let refs = try Set(references())
-		for key in try names() where !refs.contains(key) {
-			try remove(key)
-		}
-		let surviving = try references().filter { try read($0) != nil }
-		try saveReferences(surviving)
-	}
-}
-
 public struct AttachmentState: Equatable, Sendable {
 	public var limit: UInt64?
 	public var drafts: [FileDraft] = []
@@ -274,21 +220,26 @@ public enum AttachmentAction: Sendable {
 	}
 
 	private func queue(_ draft: FileDraft, conversation: String, generation: UInt64) async throws -> String {
-		try await coordinator.queue(
-			draft: SendDraft(id: draft.id, conversationID: conversation), content: .attachment(draft.descriptor),
-			admission: { self.canSend(draft.id, generation: generation) },
-			acknowledge: { [drafts] id in
-				var accepted = draft
-				accepted.acceptedID = id
-				accepted.phase = .complete
-				try drafts.save(accepted)
-			},
-			beforeQueue: {
-				var queueing = draft
-				queueing.phase = .unknown
-				try self.drafts.save(queueing)
-			},
-		)
+		do {
+			return try await coordinator.queue(
+				draft: SendDraft(id: draft.id, conversationID: conversation), content: .attachment(draft.descriptor),
+				admission: { self.canSend(draft.id, generation: generation) },
+				acknowledge: { [drafts] id in
+					var accepted = draft
+					accepted.acceptedID = id
+					accepted.phase = .complete
+					try drafts.save(accepted)
+				},
+				beforeQueue: {
+					var queueing = draft
+					queueing.phase = .unknown
+					try self.drafts.save(queueing)
+				},
+			)
+		} catch let error as ChatError where error == .rejected || error == .unavailable || error == .stale {
+			try restoreRejectedQueue(draft, generation: generation)
+			throw error
+		}
 	}
 
 	private func download(_ id: String, descriptor: FileDescriptor) async throws {
@@ -339,6 +290,15 @@ public enum AttachmentAction: Sendable {
 }
 
 private extension AttachmentStore {
+	func restoreRejectedQueue(_ draft: FileDraft, generation: UInt64) throws {
+		guard coordinator.acceptsSession, !discardedIDs.contains(draft.id),
+		      generations[draft.id, default: 0] == generation else { return }
+		var queueing = draft
+		queueing.phase = .unknown
+		guard try drafts.all().first(where: { $0.id == draft.id }) == queueing else { return }
+		try drafts.save(draft)
+	}
+
 	func finishSend(_ draft: FileDraft) async throws {
 		guard coordinator.acceptsSession else { return }
 		guard let current = try drafts.all().first(where: { $0.id == draft.id }), current == draft,
