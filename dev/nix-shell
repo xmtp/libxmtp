@@ -93,19 +93,27 @@ else
   touch -ch "$profile" "$profile"-*-link
 fi
 
+# The environment makes a temporary directory per entry (NIX_BUILD_TOP) and
+# points TMPDIR, TMP, TEMP, and TEMPDIR at it. Keep the caller's values
+# instead, as nix-direnv does, and remove only a directory that this entry
+# made: an inherited NIX_BUILD_TOP belongs to an outer shell.
+# shellcheck disable=SC2016
+keep_caller_temp=(
+  'xmtp_caller_temp="$(export -p | grep -E "^(declare -x|export) (TMPDIR|TMP|TEMP|TEMPDIR|NIX_BUILD_TOP)=" || true)"'
+  'xmtp_caller_top="${NIX_BUILD_TOP-}"'
+)
+# shellcheck disable=SC2016
+restore_caller_temp=(
+  'if [[ -n "${NIX_BUILD_TOP-}" && "$NIX_BUILD_TOP" != "$xmtp_caller_top" ]]; then rm -rf "$NIX_BUILD_TOP"; fi'
+  'unset TMPDIR TMP TEMP TEMPDIR NIX_BUILD_TOP'
+  'eval "$xmtp_caller_temp"'
+  'unset xmtp_caller_temp xmtp_caller_top'
+)
+
 if $print_env; then
-  # Keep the caller's temporary directory, not the per-entry one that the
-  # environment makes (nix-direnv does the same).
-  # shellcheck disable=SC2016
-  printf '%s\n' 'xmtp_saved_tmpdir="${TMPDIR-}"'
+  printf '%s\n' "${keep_caller_temp[@]}"
   cat "$env_file"
-  # shellcheck disable=SC2016
-  printf '%s\n' \
-    'rm -rf "$NIX_BUILD_TOP"' \
-    'unset NIX_BUILD_TOP TMP TEMP TEMPDIR' \
-    'if [[ -n "$xmtp_saved_tmpdir" ]]; then export TMPDIR="$xmtp_saved_tmpdir"; else unset TMPDIR; fi' \
-    'unset xmtp_saved_tmpdir' \
-    "export XMTP_NIX_WRAPPER_ID='$identity'"
+  printf '%s\n' "${restore_caller_temp[@]}" "export XMTP_NIX_WRAPPER_ID='$identity'"
   exit 0
 fi
 
@@ -130,13 +138,11 @@ fi
 # construct before the caller's PATH is appended.
 shell="$(sed -n "s/^CONFIG_SHELL='\(.*\)'\$/\1/p" "$env_file" | head -n 1)"
 [[ -x "$shell" ]] || shell=bash
-# The environment makes a temporary directory per entry; remove it on exit,
-# as `nix develop` does.
-# shellcheck disable=SC2016
-exec "$shell" --noprofile --norc -c '
-  source "$1"
-  trap "rm -rf \"\$NIX_BUILD_TOP\"" EXIT
-  export XMTP_NIX_WRAPPER_ID="$2"
+exec "$shell" --noprofile --norc -c "
+  ${keep_caller_temp[*]/%/;}
+  source \"\$1\"
+  ${restore_caller_temp[*]/%/;}
+  export XMTP_NIX_WRAPPER_ID=\"\$2\"
   shift 2
-  "$@"
-' nix-shell "$env_file" "$identity" "${command_args[@]}"
+  exec \"\$@\"
+" nix-shell "$env_file" "$identity" "${command_args[@]}"

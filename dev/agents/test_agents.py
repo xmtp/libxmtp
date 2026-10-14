@@ -52,7 +52,15 @@ class NixWrapperTests(unittest.TestCase):
             "XDG_CACHE_HOME": str(self.root / "cache"),
             "TEST_STORE": str(self.root / "store/environment"),
         }
-        for name in ("XMTP_NIX_WRAPPER_ID", "NIX_DEVSHELL", "TEST_NIX_FAIL"):
+        for name in (
+            "XMTP_NIX_WRAPPER_ID",
+            "NIX_DEVSHELL",
+            "TEST_NIX_FAIL",
+            "NIX_BUILD_TOP",
+            "TMP",
+            "TEMP",
+            "TEMPDIR",
+        ):
             self.env.pop(name, None)
 
     def run_wrapper(self, *args):
@@ -189,11 +197,11 @@ class NixWrapperTests(unittest.TestCase):
 
     def test_environment_and_temporary_directory(self):
         result = self.run_wrapper(
-            'printf "%s" "$XMTP_TEST_SHELL"; echo "$NIX_BUILD_TOP" >&2'
+            'printf "%s|%s" "$XMTP_TEST_SHELL" "${NIX_BUILD_TOP-unset}"'
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, f"{self.root}#default")
-        self.assertFalse(Path(result.stderr.strip()).exists())
+        # The per-entry directory is removed before the command runs.
+        self.assertEqual(result.stdout, f"{self.root}#default|unset")
 
     def test_source_edits_reuse_the_cached_environment(self):
         for edit in (
@@ -283,6 +291,34 @@ class NixWrapperTests(unittest.TestCase):
         result = self.run_wrapper("host-tool")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "host tool\n")
+
+    def test_commands_keep_the_callers_temporary_directory(self):
+        # The environment points TMPDIR at a per-entry directory; here it has
+        # already removed it. An outer shell's NIX_BUILD_TOP is not ours to
+        # remove.
+        caller = self.root / "caller-tmp"
+        caller.mkdir()
+        self.env.update(TMPDIR=str(caller), NIX_BUILD_TOP=str(caller))
+        make_temp = shlex.join(
+            [sys.executable, "-c", "import tempfile; print(tempfile.mkstemp()[1])"]
+        )
+        for name, environment in (
+            (
+                "removed",
+                'export NIX_BUILD_TOP="$(mktemp -d)"; export TMPDIR="$NIX_BUILD_TOP"; rmdir "$TMPDIR"',
+            ),
+            ("inherited", "export TMPDIR=/nonexistent-entry-dir"),
+        ):
+            with self.subTest(environment=name):
+                (self.root / "bin/nix").write_text(
+                    "#!/usr/bin/env bash\nset -eu\n"
+                    'mkdir -p "$TEST_STORE"; ln -sfn "$TEST_STORE" "$3"\n'
+                    f"printf '%s\\n' {shlex.quote(environment)}\n"
+                )
+                result = self.run_wrapper("--refresh", make_temp)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(result.stdout.startswith(str(caller)), result.stdout)
+                self.assertTrue(caller.is_dir())
 
     def test_failed_evaluation_caches_nothing(self):
         self.env["TEST_NIX_FAIL"] = "1"
