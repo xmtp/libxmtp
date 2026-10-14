@@ -48,6 +48,12 @@ jobs:
     uses: ./.github/workflows/lint-deny.yml
     permissions:
       contents: read
+  lint_example_ios:
+    if: contains(fromJSON(inputs.suites), 'lint_example_ios')
+    uses: ./.github/workflows/lint-example-ios.yml
+    permissions:
+      contents: read
+    secrets: inherit
   required:
     name: Require selected suites
     if: always()
@@ -61,6 +67,7 @@ jobs:
     - docs_quality
     - lint_ios
     - lint_deny
+    - lint_example_ios
     steps:
     - name: Check that every selected suite passed
       env:
