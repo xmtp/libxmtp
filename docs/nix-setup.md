@@ -187,6 +187,6 @@ that a target directory still holds (hardlinked or cloned) are not freed until
 that target goes. `kache clean --stale 14d --dry-run`, then `--yes`, removes
 target directories that no build used for 14 days, which frees their bytes.
 
-CI cache writes are limited to trusted pushes on main or self-hosted. Other
+CI cache writes are limited to trusted pushes on main. Other
 contexts can restore the cache. Keep credentials out of source and derivations.
 Compiler cache hits do not qualify a whole-workflow time or cost target.

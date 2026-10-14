@@ -39,8 +39,7 @@ with the `cache-mode` input:
 when:
 
 - the mode is not `read`, `ci`, or `trusted`;
-- the mode is `trusted` and the event is not a protected push to `main` or
-  `self-hosted`;
+- the mode is `trusted` and the event is not a protected push to `main`;
 - a `read` or `trusted` job receives the `xmtp-pr` token;
 - a `read` or `ci` job receives the trusted token.
 
@@ -61,7 +60,7 @@ cachix-pr-auth-token: ${{ !(<protected push>) && secrets.CACHIX_PR_AUTH_TOKEN ||
 ```
 
 Only a job that resolves to `trusted` receives the trusted token. The writer
-environment's branch policy (`main`, `self-hosted`) also keeps it from pull
+environment's branch policy (`main`) also keeps it from pull
 request jobs once the repository-level `CACHIX_AUTH_TOKEN` is deleted.
 `setup-js` takes the same `cache-mode`, and every job passes the same mode to
 both actions: `read` restores no pnpm store (pnpm then downloads each tarball
@@ -146,16 +145,15 @@ Use the reader pair as repository secrets:
 - `KACHE_S3_SECRET_ACCESS_KEY`
 
 Create environment `kache-s3-writer`. Set deployment branches and tags to
-**Selected branches and tags** and add only the exact branches `main` and
-`self-hosted`, with no tag or wildcard rule. Each writer branch must also be
-protected. Configure those rules before adding writer keys. Use the writer
+**Selected branches and tags** and add only the exact branch `main`,
+with no tag or wildcard rule. The writer branch must also be protected. Configure those rules before adding writer keys. Use the writer
 pair as environment secrets with the same two names. GitHub substitutes them
 for the repository reader secrets in jobs that select the writer environment.
 Set both fields of each pair together. Do not put writer keys at repository
 or organization scope.
 
 Audited compiler jobs select this environment only on a protected branch push
-to `main` or `self-hosted`. Other events use an empty environment name and
+to `main`. Other events use an empty environment name and
 select no GitHub environment. Same-repository pull request runs use repository
 reader secrets. Fork and Dependabot runs have no reader secrets and build
 local-only. No reader environment is needed.

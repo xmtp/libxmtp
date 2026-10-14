@@ -12,7 +12,7 @@ Run commands from the repository root in the Nix shell. Run
   that edits no SDK crate (a Cachix fetch and a copy). The cargo route takes
   the bindgen from `nix build .#xmtp-sdk-bindgen` unless a file of the
   bindgen's crates (`dev/sdk-artifacts.py paths xmtp-sdk-bindgen`) or a Cargo
-  input differs from the merge base with `origin/self-hosted`; then it builds
+  input differs from the merge base with `origin/main`; then it builds
   a cargo debug bindgen. CI keeps cargo. `XMTP_SDK_BINDGEN=nix|cargo`
   overrides the choice. A browser-only build skips the host library, and the
   two WASM builds share one target directory. For Swift and Kotlin unit tests

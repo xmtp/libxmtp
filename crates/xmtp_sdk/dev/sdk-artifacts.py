@@ -183,7 +183,7 @@ def render_hash(language):
 
 
 # The branch whose commits the warm workflow builds into the trusted cache.
-TRUNK = "origin/self-hosted"
+TRUNK = "origin/main"
 # Files outside the crates that change every Cargo build of a package.
 CARGO_INPUTS = ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo")
 

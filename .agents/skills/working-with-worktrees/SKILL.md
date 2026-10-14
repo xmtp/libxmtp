@@ -12,7 +12,7 @@ Every port in `docs/` and `AGENTS.md` is a slot-0 value.
 ## Start work in a new worktree
 
 ```sh
-git worktree add ../<name>/libxmtp -b <branch> origin/self-hosted
+git worktree add ../<name>/libxmtp -b <branch> origin/main
 cd ../<name>/libxmtp
 dev/nix-shell 'just backend up'      # this worktree's own stack
 dev/nix-shell 'just backend status'  # project, slot, image, ports, URLs

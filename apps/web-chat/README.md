@@ -34,7 +34,7 @@ dev/nix-shell 'just web-chat dev'
 ## Deployment
 
 The app is deployed at <https://self-hosted.xmtp.chat>. A merge to
-`self-hosted` deploys it with `.github/workflows/deploy-web-chat.yml`. Pull
+`main` deploys it with `.github/workflows/deploy-web-chat.yml`. Pull
 requests do not deploy.
 
 GitHub Actions generates and stages `@xmtp/browser-sdk` under Nix. The stage

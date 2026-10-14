@@ -11,7 +11,7 @@ Never include these names in the iOS cleanup scripts.
 | Tempo | `xmtp-backend-dev-tempo` | Private OTLP and query listeners |
 | Trace metrics | `xmtp-backend-dev-prometheus` | Private Tempo remote-write receiver |
 | Grafana | `xmtp-backend-dev-grafana` | Local Fly proxy and Grafana login |
-| Docs | GitHub Pages for `xmtp/libxmtp` | `https://self-hosted-docs.xmtp.to` |
+| Docs | GitHub Pages for `xmtp/libxmtp` | `https://xmtp.org` |
 
 The backend identifier is `org.xmtp.backend.dev`. Do not change it after clients
 connect. The database and observability volumes persist across deployments.
@@ -79,7 +79,7 @@ client traces; backend traces alone cannot populate them.
 
 ## Deployments
 
-Every push to `self-hosted` publishes an immutable backend image, then calls
+Every push to `main` publishes an immutable backend image, then calls
 `deploy-backend-dev.yml`. That workflow serializes deploys and skips superseded
 commits. It deploys observability configuration, then the unauthenticated
 backend.
@@ -126,14 +126,15 @@ Fly. Check issuance with:
 fly certs check backend-dev.xmtp.to --app xmtp-backend-dev
 ```
 
-For the docs, set the repository's Pages custom domain to
-`self-hosted-docs.xmtp.to` first. Then add a DNS-only Cloudflare CNAME named
-`self-hosted-docs` with target `xmtp.github.io`. Enable **Enforce HTTPS** in
-Pages settings after certificate issuance.
+For the docs, verify xmtp.org in the XMTP organization Pages settings first.
+Set the repository Pages custom domain to xmtp.org before routing DNS to it.
+Use the provider-supported apex records for GitHub Pages and a www CNAME to
+xmtp.github.io. Confirm the new certificate, then enforce HTTPS. Keep the old
+docs hosts on their redirect service with valid TLS. Check Pages settings
+for domain and certificate status.
 
-The existing docs workflow builds the site and Rust, Swift, Kotlin, and
-JavaScript references on every push to `self-hosted`. It publishes only after
-the composed site's checks pass. Pull requests validate without publishing.
+The docs workflow builds the site and full references on main pushes.
+Pull requests validate without publishing.
 
 ## Checks and recovery
 

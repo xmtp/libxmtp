@@ -32,7 +32,7 @@ mod telemetry;
 pub use telemetry::TelemetryConfig;
 
 const SCHEMA_ID: &str =
-    "https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json";
+    "https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json";
 
 // These values are server implementation details. They are not configuration keys.
 pub(crate) const DELIVERY_FRAME_BYTES: usize = 2 * 1024 * 1024;

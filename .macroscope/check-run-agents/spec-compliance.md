@@ -13,8 +13,7 @@ and regressions in existing requirements. This is a focused review of the PR,
 not an audit of all spec coverage. A completed review passes unless the evidence
 establishes a blocker under the rules below.
 
-Read `AGENTS.md`, `docs/self-hosted/agent-context.md`, and relevant directory
-guidance. Use `.agents/skills/checking-spec-compliance/SKILL.md` to find
+Read `AGENTS.md` and relevant directory guidance. Use `.agents/skills/checking-spec-compliance/SKILL.md` to find
 requirements and evidence. The scope, evidence threshold, and verdict rules in
 this file govern this check; the skill's broader audit checklist is not a list
 of reasons to fail it.

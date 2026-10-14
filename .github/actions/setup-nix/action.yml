@@ -10,7 +10,7 @@ inputs:
       "read": xmtp only, no push. "ci": xmtp and xmtp-pr, pushes only to
       xmtp-pr with cachix-pr-auth-token, Kache read-only. "trusted": xmtp
       only, pushes to xmtp with cachix-auth-token, and fails unless the event
-      is a protected push to main or self-hosted.
+      is a protected push to main.
     required: false
     default: "read"
   cachix-auth-token:

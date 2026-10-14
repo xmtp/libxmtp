@@ -76,7 +76,7 @@ The branch records the source commit and selected versions in `docs/release-note
 ```bash
 pnpm --filter @xmtp/release-tools cli create-release-branch \
   --version "8.0.0" \
-  --base self-hosted \
+  --base main \
   --ios keep \
   --android keep \
   --node-sdk keep \

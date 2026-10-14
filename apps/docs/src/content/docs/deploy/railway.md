@@ -30,7 +30,7 @@ documented request limit, though Railway guarantees none either. See
 Use a scratch directory outside the repository. Save this as `config.toml`:
 
 ```toml title="config.toml"
-#:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
+#:schema https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json
 [server]
 # Change this to a reverse-DNS name you own. Never change it again once
 # clients have connected: every client database is bound to it.
@@ -95,7 +95,7 @@ configuration. The backend's default metrics listener remains private. Omitting
 ## Prepare the HAProxy service
 
 Save the following files in a separate `haproxy` directory. The configuration is
-an exact copy of [`dev/tls/haproxy.cfg`](https://github.com/xmtp/libxmtp/blob/self-hosted/dev/tls/haproxy.cfg).
+an exact copy of [`dev/tls/haproxy.cfg`](https://github.com/xmtp/libxmtp/blob/main/dev/tls/haproxy.cfg).
 Its existing `resolve-prefer ipv6` supports legacy `*.railway.internal` DNS.
 No routing or timeout setting changes for Railway. The local certificate
 comment describes the repository's local test stack only. This deployment
@@ -143,7 +143,7 @@ backend xmtp
 
 One frontend and one `proto h2` backend serve both client kinds. The
 repository's local TLS stack serves native gRPC and HTTP/1.1 gRPC-Web through
-this same backend, with no routing split. Its [`dev/tls/check.py`](https://github.com/xmtp/libxmtp/blob/self-hosted/dev/tls/check.py)
+this same backend, with no routing split. Its [`dev/tls/check.py`](https://github.com/xmtp/libxmtp/blob/main/dev/tls/check.py)
 also checks trailers, CORS, and incremental delivery.
 
 **Keep both 24 h timeouts.** `timeout tunnel` governs a tunnel: TCP mode, a

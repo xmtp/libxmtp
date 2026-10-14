@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json",
+  "$id": "https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Config",
   "description": "Complete backend configuration.",

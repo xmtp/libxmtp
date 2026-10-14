@@ -28,7 +28,7 @@
 #   workflow          The suite's workflow file in .github/workflows.
 #   run_on            Events that can run the suite: draft_pr_push and
 #                     ready_pr_push (pull request pushes) and merge (pushes to
-#                     main or self-hosted). A merge runs every suite that lists
+#                     main). A merge runs every suite that lists
 #                     it. A manual run runs every suite.
 #   disable_on_forks  true skips the suite for fork pull requests.
 #   secrets           `inherit` (all secrets), `kache` (only the Kache keys),
@@ -247,9 +247,8 @@ suites:
       # dev/tests/test_sdk_package.py runs it.
       - "dev/js/sdk-package"
       # dev/tests/test_script_lint.py lints every extensionless script; they
-      # live under a dev/ directory, except these two.
+      # live under a dev/ directory, except this one.
       - "**/dev/**"
-      - "docs/self-hosted/sdk-migration/check-examples"
       - "sdks/browser/test/platform/object-store/with-object-store"
       - "sdks/android/android.just"
       - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"

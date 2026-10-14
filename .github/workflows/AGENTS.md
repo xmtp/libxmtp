@@ -22,8 +22,8 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
 `just lint-config` checks the tag transfer with a local Git HTTP remote.
 The nightly libxmtp hub tag (`v<version>`, `release.yml`) uses the same tag
 push job, so a `v*` tag ruleset can list the App as its bypass actor.
-`check-release-push.yml` refuses a source commit that is not on `main`,
-`self-hosted`, or a `release/**` branch; dry runs skip that check.
+`check-release-push.yml` refuses a source commit that is not on `main`
+or a `release/**` branch; dry runs skip that check.
 
 Every `setup-nix` call states its Cachix cache mode (`read`, `ci`, or
 `trusted`), and `setup-js` gets the same mode. Release, publish, deploy,
@@ -137,7 +137,7 @@ their call succeed. Branch protection on `main` requires them by name.
 
 Pull request pushes run the suites whose inputs changed. Draft pushes run only
 suites with `draft_pr_push` in `run_on`; their aggregates are named `Draft lint`
-and `Draft checks`. A merge to `main` or `self-hosted` runs every suite with
+and `Draft checks`. A merge to `main` runs every suite with
 `merge` in `run_on`. A manual run runs every suite. These cases also run every
 eligible suite: a shared input, a path that no rule names, more than 3,000
 changed files, and unavailable detection. Rename-expanded path counts do not
@@ -169,7 +169,7 @@ full types, full lint, Clippy, SDK and runtime checks. Pull requests that only
 change Rust core crates omit the SDK and mobile suites; the merge run covers
 them. The standalone Rust reference keeps rustdoc and glossary checks for Rust
 changes. Automatic PR backend image checks use amd64; two-architecture
-publication runs only on main, self-hosted, tag pushes, or reusable calls.
+publication runs only on main, tag pushes, or reusable calls.
 
 All CI commands select a targeted Nix shell. Full root Nix warming still builds
 all outputs and dependencies, including the default developer shell. Kache is
@@ -189,7 +189,7 @@ mode, and `dev/tests/test_kache_env.py` checks the wiring.
 S3. No keys selects local-only; a partial pair fails before the action starts.
 
 Audited compiler jobs select `kache-s3-writer` only for protected branch pushes to
-`main` or `self-hosted`. Other events use an empty environment name and select
+`main`. Other events use an empty environment name and select
 no GitHub environment. Same-repository PRs use repository reader secrets; fork
 PRs build local-only. Writer secrets belong only in the restricted writer
 environment. Do not create a reader environment.

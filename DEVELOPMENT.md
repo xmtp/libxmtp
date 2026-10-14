@@ -138,7 +138,7 @@ dev/nix-shell 'dev/agent-run cargo run -p xmtp-db-tools -- query-bench /path/to/
 ## Code coverage
 
 Generate LCOV and HTML reports under `coverage/`. `--diff` limits the report
-to the Rust files changed since the merge base with `origin/self-hosted` (or a given
+to the Rust files changed since the merge base with `origin/main` (or a given
 base):
 
 ```sh

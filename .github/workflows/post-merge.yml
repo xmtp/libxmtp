@@ -10,7 +10,6 @@ on:
   push:
     branches:
       - main
-      - self-hosted
 permissions:
   contents: read
 # A run in progress always finishes, so every run that starts pushes and pins
@@ -237,7 +236,7 @@ jobs:
         run: |
           if ! curl --fail --silent --show-error --retry 3 --retry-delay 10 \
             --connect-timeout 10 --max-time 30 --retry-all-errors \
-            --output /dev/null https://self-hosted-docs.xmtp.to/; then
+            --output /dev/null https://xmtp.org/; then
             echo "::warning::Pages published, but the custom domain HTTPS check failed. Check DNS and the Pages certificate."
             echo "Pages published. The custom domain HTTPS check failed; check DNS and the Pages certificate." >> "$GITHUB_STEP_SUMMARY"
           fi

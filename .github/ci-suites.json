@@ -172,7 +172,6 @@
         "dev/services",
         "dev/tls/**",
         "dev/{tests,agents,specs,release-tools,fly,ci}/**",
-        "docs/self-hosted/sdk-migration/check-examples",
         "nix/fmt.nix",
         "nix/lib/packages/pnpm.nix",
         "nix/{js,js-node}.nix",

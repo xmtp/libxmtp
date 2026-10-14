@@ -17,7 +17,7 @@ on:
 # Nightly libxmtp Image Rebake
 
 Rebake the `libxmtp` recipe so the `dev` workspace image stays fresh against
-the tip of the `self-hosted` branch, then roll the workspace forward.
+the tip of the `main` branch, then roll the workspace forward.
 
 The image's value is its pre-warmed Nix store: the `default` and `rust` dev
 shells and the backend musl container image are built in at bake time. That
@@ -34,10 +34,10 @@ Read the current workspace image and find the commit the last bake used:
     murmur get workspace dev
     murmur get image <imageRef>
 
-Compare the tip of `self-hosted` against the last bake. The bake clones the
+Compare the tip of `main` against the last bake. The bake clones the
 branch itself, so the comparison that matters is whether the branch moved:
 
-    git ls-remote https://github.com/xmtp/libxmtp refs/heads/self-hosted
+    git ls-remote https://github.com/xmtp/libxmtp refs/heads/main
 
 Record the commit the current image was built from. If you cannot determine
 it, treat the rebake as warranted and say so.

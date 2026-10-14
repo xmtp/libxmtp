@@ -48,7 +48,7 @@ test("old-host redirects retain queries and use explicit route mappings", () => 
     "https://xmtp.org/sdk/client/?source=old",
   );
   assert.equal(
-    redirectTarget("https://self-hosted-docs.xmtp.to/signatures?lang=en", map),
+    redirectTarget("https://docs.xmtp.org/signatures?lang=en", map),
     "https://xmtp.org/sdk/use-signatures/?lang=en",
   );
   assert.equal(
@@ -68,20 +68,20 @@ test("old-host redirects retain queries and use explicit route mappings", () => 
   );
 });
 
-test("current and target origins pass complete artifact checks", async (t) => {
-  await checkCutover(await site(t, "https://self-hosted-docs.xmtp.to"));
+test("legacy and target origins pass complete artifact checks", async (t) => {
+  await checkCutover(await site(t, "https://docs.xmtp.org"));
   await checkCutover(await site(t, "https://xmtp.org"));
 });
 
 test("mixed origins and missing exports cannot pass staging checks", async (t) => {
   const options = await site(t, "https://xmtp.org");
   await assert.rejects(
-    checkCutover({ ...options, origin: "https://self-hosted-docs.xmtp.to" }),
+    checkCutover({ ...options, origin: "https://docs.xmtp.org" }),
     /wrong origin/,
   );
   await writeFile(
     join(options.siteRoot, "sitemap.xml"),
-    "<loc>https://self-hosted-docs.xmtp.to/sdk/client/</loc>",
+    "<loc>https://docs.xmtp.org/sdk/client/</loc>",
   );
   await assert.rejects(checkCutover(options), /Sitemap/);
   await writeFile(
@@ -90,7 +90,7 @@ test("mixed origins and missing exports cannot pass staging checks", async (t) =
   );
   await writeFile(
     join(options.siteRoot, "llms.txt"),
-    "https://self-hosted-docs.xmtp.to/sdk/client/",
+    "https://docs.xmtp.org/sdk/client/",
   );
   await assert.rejects(checkCutover(options), /LLM/);
   await writeFile(

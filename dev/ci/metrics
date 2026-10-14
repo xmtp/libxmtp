@@ -21,8 +21,8 @@ or when the search ends before it finds that run (unless a listed file
 already proves class L).
 
     dev/ci/metrics runs 38294462023 38279019973
-    dev/ci/metrics runs --workflow ci.yml --branch self-hosted --event push --limit 10
-    dev/ci/metrics runs --branch self-hosted --event push --class R
+    dev/ci/metrics runs --workflow ci.yml --branch main --event push --limit 10
+    dev/ci/metrics runs --branch main --event push --class R
 
 `marker` reads one job log and prints only the lines that match a regular
 expression. The repository allows only filtered CI log reads.
