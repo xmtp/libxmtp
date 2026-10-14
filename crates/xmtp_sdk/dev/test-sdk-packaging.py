@@ -569,19 +569,6 @@ class PackagingTests(
         self.native_receipts()
         mobile.preflight(self.args.out, self.root / "mobile", "ios")
 
-    def test_conformance_bindings_rejected_before_mobile_assembly(self):
-        self.args.features = "conformance"
-        artifacts.build(self.args)
-        artifacts.render(self.args)
-        self.native_receipts()
-        with self.assertRaisesRegex(ValueError, "mobile binding feature mismatch"):
-            mobile.preflight(self.args.out, self.root / "mobile", "ios")
-        self.assertFalse((self.root / "products").exists())
-        self.args.features = ""
-        artifacts.build(self.args)
-        artifacts.render(self.args)
-        mobile.preflight(self.args.out, self.root / "mobile", "ios")
-
     def test_android_build_selects_all_four_ndk_target_tools(self):
         tools = self.root / "ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
         tools.mkdir(parents=True)

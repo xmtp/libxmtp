@@ -27,5 +27,9 @@ watch=(
   --watch dev/js/sdk-package
   --watch dev/js/sdk-watch
 )
+# The other workspace crates that the SDK builds with, such as crates/xmtp_mls.
+while IFS= read -r crate; do
+  [[ "$crate" == crates/xmtp_sdk ]] || watch+=(--watch "$crate")
+done < <(NIX_DEVSHELL=rust "$ROOT/dev/nix-shell" 'python3 crates/xmtp_sdk/dev/sdk-artifacts.py paths xmtp_sdk')
 exec watchexec --on-busy-update queue --debounce 300ms "${watch[@]}" \
   --shell=none -- bash dev/js/sdk-package "$target"

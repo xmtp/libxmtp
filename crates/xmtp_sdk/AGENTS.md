@@ -8,7 +8,14 @@ Run commands from the repository root in the Nix shell. Run
   `XMTP_SDK_BUILD` picks the route: `cargo` (the default; debug unless
   `--profile release`) or `nix`, which copies the release-profile
   `.#xmtp-sdk-generated-<target>` trees (out-links in `target/sdk-generated.nix`).
-  CI JavaScript jobs and the docs site use `nix`. In
+  CI JavaScript jobs and the docs site use `nix`; use it locally too for work
+  that edits no SDK crate (a Cachix fetch and a copy). The cargo route takes
+  the bindgen from `nix build .#xmtp-sdk-bindgen` unless a file of the
+  bindgen's crates (`dev/sdk-artifacts.py paths xmtp-sdk-bindgen`) or a Cargo
+  input differs from the merge base with `origin/self-hosted`; then it builds
+  a cargo debug bindgen. CI keeps cargo. `XMTP_SDK_BINDGEN=nix|cargo`
+  overrides the choice. A browser-only build skips the host library, and the
+  two WASM builds share one target directory. In
   each TypeScript tree, `index.ts` is the package root: the public layer that
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only

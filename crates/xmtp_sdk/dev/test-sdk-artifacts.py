@@ -336,12 +336,15 @@ class ArtifactTests(unittest.TestCase):
             artifacts=self.root / "artifacts",
             targets=("node",),
             out=self.root / "generated",
-            features="",
             rust_target="",
             skip_bindgen=False,
-            reuse_bindgen=None,
             profile="debug",
         )
+        # The cargo bindgen unless a test selects the Nix one.
+        self.route_patch = patch.object(
+            artifacts, "bindgen_route", return_value="cargo"
+        )
+        self.route_patch.start()
         self.hash_patch = patch.object(
             artifacts, "source_hash", return_value="fixture-source"
         )
@@ -370,6 +373,7 @@ class ArtifactTests(unittest.TestCase):
         self.runtime_patch.start()
 
     def tearDown(self):
+        self.route_patch.stop()
         self.runtime_patch.stop()
         self.formatter_patch.stop()
         self.run_patch.stop()
@@ -380,7 +384,11 @@ class ArtifactTests(unittest.TestCase):
 
     def command(self, command, **kwargs):
         self.calls.append(command)
-        if command[0] == "dev/agent-run":
+        if command[0] == "nix":
+            binary = Path(command[command.index("--out-link") + 1]) / "bin"
+            binary.mkdir(parents=True, exist_ok=True)
+            (binary / "xmtp-sdk-bindgen").write_text("fixture Nix bindgen")
+        elif command[0] == "dev/agent-run":
             self.cargo_environments.append(dict(kwargs["env"]))
             out = Path(kwargs["env"]["CARGO_TARGET_DIR"])
             if "--target" in command:
@@ -465,17 +473,90 @@ class ArtifactTests(unittest.TestCase):
             artifacts.build(self.args)
         self.assertEqual(len(self.calls), 4)
 
-    def test_bindgen_is_reused_across_default_and_conformance_artifacts(self):
+    def test_nix_bindgen_replaces_the_cargo_build(self):
+        self.route_patch.stop()
+        with patch.object(artifacts, "bindgen_route", return_value="nix"):
+            artifacts.build(self.args)
+            artifacts.render(self.args)
+        self.route_patch.start()
+        self.assertEqual(self.calls[0][0], "dev/agent-run")
+        self.assertNotIn("xmtp-sdk-bindgen", self.calls[0])
+        self.assertEqual(self.calls[1][-1], ".#xmtp-sdk-bindgen")
+        self.assertEqual(
+            self.calls[2][0],
+            str(self.args.artifacts.resolve() / "bindgen-nix/bin/xmtp-sdk-bindgen"),
+        )
+
+    def test_browser_only_builds_skip_the_host_library_and_share_a_wasm_target(self):
+        self.args.targets = ("browser",)
         artifacts.build(self.args)
-        shared = self.args.artifacts
-        self.args.artifacts = self.root / "conformance"
-        self.args.features = "conformance"
-        self.args.reuse_bindgen = shared
-        before = len(self.calls)
-        artifacts.build(self.args)
-        self.assertEqual(len(self.calls), before + 1)
-        self.assertIn("conformance", self.calls[-1])
-        self.assertNotIn("xmtp-sdk-bindgen", self.calls[-1])
+        cargo = [command for command in self.calls if command[0] == "dev/agent-run"]
+        self.assertEqual(
+            sorted(command[command.index("-p") + 1] for command in cargo),
+            ["xmtp-sdk-bindgen", "xmtp_sdk", "xmtp_sdk"],
+        )
+        self.assertTrue(all("--target" in command for command in cargo[1:]))
+        wasm = {env["CARGO_TARGET_DIR"] for env in self.cargo_environments[1:]}
+        self.assertEqual(wasm, {str(self.args.artifacts.resolve() / "build/wasm")})
+        artifacts.render(self.args)
+        self.assertTrue((self.args.out / "typescript-pure/index.ts").is_file())
+
+    def test_bindgen_route_follows_the_bindgen_closure(self):
+        self.route_patch.stop()
+        self.addCleanup(self.route_patch.start)
+        root = self.root / "repo"
+        (root / "apps/xmtp_sdk_bindgen").mkdir(parents=True)
+        (root / "crates/xmtp_mls").mkdir(parents=True)
+        for name in ("apps/xmtp_sdk_bindgen/lib.rs", "crates/xmtp_mls/lib.rs"):
+            (root / name).write_text("fn main() {}")
+
+        def git(*args):
+            subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+
+        git("init", "-q")
+        git("add", "-A")
+        git("commit", "-q", "--no-verify", "--no-gpg-sign", "-m", "trunk")
+        git("update-ref", "refs/remotes/origin/self-hosted", "HEAD")
+        environment = {
+            k: v for k, v in os.environ.items() if k not in ("CI", "XMTP_SDK_BINDGEN")
+        }
+        with (
+            patch.object(artifacts, "ROOT", root),
+            patch.object(
+                artifacts, "closure_paths", return_value=["apps/xmtp_sdk_bindgen"]
+            ),
+            patch.dict(os.environ, environment, clear=True),
+        ):
+            self.assertEqual(artifacts.bindgen_route(), "nix")
+            # An edit outside the bindgen's crates keeps the Nix bindgen.
+            (root / "crates/xmtp_mls/lib.rs").write_text("// edit")
+            self.assertEqual(artifacts.bindgen_route(), "nix")
+            for edit in (
+                "apps/xmtp_sdk_bindgen/lib.rs",
+                "apps/xmtp_sdk_bindgen/new.rs",
+                "Cargo.lock",
+            ):
+                with self.subTest(edit=edit):
+                    (root / edit).write_text("// edit")
+                    self.assertEqual(artifacts.bindgen_route(), "cargo")
+                    git("checkout", "-q", "--", ".")
+                    git("clean", "-qfd", "apps", "Cargo.lock")
+            self.assertEqual(artifacts.bindgen_route(), "nix")
+            for name, value, route in (
+                ("CI", "true", "cargo"),
+                ("XMTP_SDK_BINDGEN", "cargo", "cargo"),
+            ):
+                with self.subTest(variable=name), patch.dict(os.environ, {name: value}):
+                    self.assertEqual(artifacts.bindgen_route(), route)
+            git("update-ref", "-d", "refs/remotes/origin/self-hosted")
+            self.assertEqual(artifacts.bindgen_route(), "cargo")
+            with patch.dict(os.environ, {"XMTP_SDK_BINDGEN": "nix"}):
+                self.assertEqual(artifacts.bindgen_route(), "nix")
 
     def test_render_replaces_stale_files_without_building(self):
         artifacts.build(self.args)
