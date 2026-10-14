@@ -27,6 +27,11 @@ let
     # Darwin setup replaces this variable before the Cargo build.
     preBuild = "export MACOSX_DEPLOYMENT_TARGET=11.0";
   }
+  # rustc's release default `strip = "debuginfo"` passes `--strip-debug`, and
+  # zig's linker strips the whole static symbol table for it. UniFFI reads its
+  # metadata from that table, so the renders of this host library need it.
+  # The fixup phase still removes debug sections.
+  // lib.optionalAttrs isGnu { CARGO_PROFILE_RELEASE_STRIP = "none"; }
   // lib.optionalAttrs android { buildInputs = [ ]; }
   // lib.optionalAttrs stdenv.hostPlatform.isMusl { RUSTFLAGS = "-C target-feature=-crt-static"; };
   command =
