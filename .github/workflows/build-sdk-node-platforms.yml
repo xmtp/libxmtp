@@ -42,6 +42,7 @@ jobs:
             ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl",
             "aarch64-unknown-linux-gnu", "aarch64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
           ALLOWED_LIBRARIES: '["libxmtp_sdk.dylib", "libxmtp_sdk.so", "xmtp_sdk.dll"]'
+          ALLOWED_GLIBC_FLOOR: "2.27"
           ALLOWED_RUNNERS: >-
             ["blacksmith-16vcpu-ubuntu-2404", "ubuntu-24.04-arm", "ubuntu-latest",
             "warp-macos-15-arm64-6x", "windows-latest"]
@@ -51,7 +52,7 @@ jobs:
         run: |
           rejected=$(jq -r --argjson runners "$ALLOWED_RUNNERS" --argjson images "$ALLOWED_IMAGES" \
             --argjson targets "$ALLOWED_TARGETS" --argjson rustTargets "$ALLOWED_RUST_TARGETS" \
-            --argjson libraries "$ALLOWED_LIBRARIES" '
+            --argjson libraries "$ALLOWED_LIBRARIES" --arg glibcFloor "$ALLOWED_GLIBC_FLOOR" '
             # A runner label fits a target when it has the target OS and,
             # on Linux, its architecture.
             def fits($target):
@@ -59,7 +60,8 @@ jobs:
                 test("ubuntu") and (($target | contains("arm64")) == contains("-arm"))
               elif ($target | startswith("win32-")) then startswith("windows-")
               else test("macos") end;
-            ([.node[] | (.runner // empty), .loadRunner] - $runners | map("runner \(.)"))
+            ([.glibcFloor] - [$glibcFloor] | map("glibc floor \(.)"))
+            + ([.node[] | (.runner // empty), .loadRunner] - $runners | map("runner \(.)"))
             + ([.node[] | .loadImage // empty] - $images | map("image \(.)"))
             + ([.node[] | .target] - $targets | map("target \(.)"))
             + ([.node[] | .rustTarget] - $rustTargets | map("Rust target \(.)"))

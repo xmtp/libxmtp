@@ -75,8 +75,18 @@ let
       mkVersion = import ./mkVersion.nix;
       toNapiTarget = import ./napiTarget.nix;
       # Node platforms, Android ABIs, Apple slices, and the glibc floor.
-      # Scripts and workflows read the same file.
-      sdkPlatforms = lib.importJSON ../sdk-platforms.json;
+      # Scripts and workflows read the same file. The glibc floor joins the
+      # zigbuild target in a build command, so it must be MAJOR.MINOR digits,
+      # which need no shell quoting.
+      sdkPlatforms =
+        let
+          platforms = lib.importJSON ../sdk-platforms.json;
+          floor = platforms.glibcFloor or null;
+        in
+        assert lib.assertMsg (
+          builtins.isString floor && builtins.match "[0-9]+\\.[0-9]+" floor != null
+        ) "nix/sdk-platforms.json: glibcFloor must be MAJOR.MINOR digits, not ${builtins.toJSON floor}";
+        platforms;
       # The `@ubjs` runtimes of the pinned bindgen fork, built on the host.
       ubrn = host.callPackage ./packages/ubrn.nix { src = inputs.ubrn-src; };
       gitSha = self.shortRev or self.dirtyShortRev or "unknown";
