@@ -110,7 +110,7 @@ struct NewConversationView: View {
 				}
 				Text(localized(store.state
 						.group ? "Separate multiple people with commas." : "Enter one handle, Ethereum address, or inbox ID."))
-				if store.state.group {
+				if store.state.group, store.state.maximumMembers > 0 {
 					Text("A handle can start with @. Up to " + String(max(0, store.state.maximumMembers)) + " members, including you.")
 				}
 			}
