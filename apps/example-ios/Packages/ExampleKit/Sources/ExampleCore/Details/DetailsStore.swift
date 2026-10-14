@@ -78,7 +78,10 @@ public struct DetailsState: Equatable, Sendable {
 			state.details = details
 			state.pendingMembers = state.pendingMembers.filter { id, _ in !details.members.contains { $0.id == id } }
 			state.pendingRoles = state.pendingRoles
-				.filter { id, role in !details.members.contains { $0.id == id && $0.role == role } }
+				.filter { id, role in
+					guard let member = details.members.first(where: { $0.id == id }) else { return false }
+					return member.role != role
+				}
 			state.pendingRemoval = state.pendingRemoval.filter { id in details.members.contains { $0.id == id } }
 			state.pendingLeave = details.pendingLeave
 		}

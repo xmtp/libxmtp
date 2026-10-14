@@ -84,6 +84,10 @@ struct MetadataView: View {
 
 	@ViewBuilder private func ownEditor(_ field: MetadataField) -> some View {
 		if !field.canWrite {
+			Text(field
+				.present ?
+				(field.entries.isEmpty ? field.scalar : field.entries.map { $0.key + ($0.value.isEmpty ? "" : ": " + $0.value) }
+					.joined(separator: "\n")) : metadataCopy("Absent"))
 			Text(metadataCopy(field.immutable && field
 					.componentPresent ? "Immutable field: this component is already set." : "Unsupported field type or policy."))
 				.foregroundStyle(.secondary)
@@ -92,11 +96,14 @@ struct MetadataView: View {
 				field.name,
 				text: Binding(get: { draft.value(for: field.id).text }, set: { draft.set(field.id, to: .value($0)) }),
 				axis: .vertical,
-			).textInputAutocapitalization(.never).autocorrectionDisabled()
+			).textInputAutocapitalization(.never).autocorrectionDisabled().disabled(!field.canSet)
 			Text(metadataCopy(draft.changed(field.id) ? "Changed" : draft.value(for: field.id) == .absent ? "Absent" : "Saved"))
 				.font(.caption).foregroundStyle(.secondary)
-			HStack { Button(metadataCopy("Set empty")) { draft.set(field.id, to: .value("")) }.buttonStyle(.glass)
+			HStack {
+				Button(metadataCopy("Set empty")) { draft.set(field.id, to: .value("")) }.buttonStyle(.glass)
+					.disabled(!field.canSet)
 				Button(metadataCopy("Clear")) { draft.set(field.id, to: .absent) }.buttonStyle(.glass)
+					.disabled(!field.allows(.delete))
 			}
 		}
 	}
@@ -126,8 +133,9 @@ struct GroupFieldEditor: View {
 		} else if field.shape == .string || field.shape == .bytes {
 			LabeledContent(metadataCopy("Current value"), value: field.present ? field.scalar : metadataCopy("Absent"))
 			TextField(field.name, text: $value, axis: .vertical).textInputAutocapitalization(.never).autocorrectionDisabled()
-			HStack { Button(metadataCopy("Set")) { send(.scalar(field.id, value)) }.buttonStyle(.glassProminent)
-				Button(metadataCopy("Clear")) { send(.scalar(field.id, nil)) }.buttonStyle(.glass)
+			HStack {
+				Button(metadataCopy("Set")) { send(.scalar(field.id, value)) }.buttonStyle(.glassProminent).disabled(!field.canSet)
+				Button(metadataCopy("Clear")) { send(.scalar(field.id, nil)) }.buttonStyle(.glass).disabled(!field.allows(.delete))
 			}
 		} else {
 			ForEach(field.entries, id: \.key) { entry in
@@ -145,7 +153,7 @@ struct GroupFieldEditor: View {
 				}
 				Button(role: .destructive) { send(.entry(field.id, .delete, entry.key, "")) } label: {
 					Image(systemName: Symbol.delete)
-				}.accessibilityLabel(metadataCopy("Delete entry")).buttonStyle(.glass)
+				}.accessibilityLabel(metadataCopy("Delete entry")).buttonStyle(.glass).disabled(!field.allows(.delete))
 				}
 			}
 			TextField(metadataCopy(field.shape == .inboxSet ? "Inbox ID" : "Key in hex"), text: $key)
@@ -162,7 +170,9 @@ struct GroupFieldEditor: View {
 					entryValue,
 				))
 			}.buttonStyle(.glassProminent)
-				.disabled(field.shape != .byteMap && field.entries.contains { $0.key == key })
+				.disabled(!field
+					.allows(field.shape == .byteMap && field.entries.contains { $0.key == key } ? .update : .insert) ||
+					(field.shape != .byteMap && field.entries.contains { $0.key == key }))
 		}
 	}
 }

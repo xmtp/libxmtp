@@ -18,6 +18,9 @@ public struct MetadataField: Identifiable, Equatable, Sendable {
 	public var name: String
 	public var shape: FieldShape
 	public var policy: String
+	public var canInsert: Bool
+	public var canUpdate: Bool
+	public var canDelete: Bool
 	public var editable: Bool
 	public var present: Bool
 	public var componentPresent: Bool
@@ -34,7 +37,11 @@ public struct MetadataField: Identifiable, Equatable, Sendable {
 		scalar: String = "",
 		entries: [FieldEntry] = [],
 		userField: Bool? = nil,
+		canInsert: Bool = true,
+		canUpdate: Bool = true,
+		canDelete: Bool = true,
 	) {
+		self.canInsert = canInsert; self.canUpdate = canUpdate; self.canDelete = canDelete
 		self.userField = userField ?? (shape == .userString || shape == .userBytes)
 		self.id = id
 		self.name = name
@@ -52,7 +59,20 @@ public struct MetadataField: Identifiable, Equatable, Sendable {
 	}
 
 	public var canWrite: Bool {
-		editable && shape != .unsupported && (!immutable || !componentPresent)
+		editable && (canInsert || canUpdate || canDelete) && shape != .unsupported && (!immutable || !componentPresent)
+	}
+
+	public func allows(_ action: FieldEntryAction) -> Bool {
+		guard canWrite else { return false }
+		switch action {
+		case .insert: return canInsert
+		case .update: return canUpdate
+		case .delete: return canDelete
+		}
+	}
+
+	public var canSet: Bool {
+		allows(present ? .update : .insert)
 	}
 }
 
@@ -150,7 +170,8 @@ public enum MetadataRules {
 
 	public static func unchanged(_ before: MetadataField, _ now: MetadataField) throws {
 		guard before.id == now.id, before.shape == now.shape, before.policy == now.policy, before.userField == now.userField,
-		      before.editable == now.editable else { throw MetadataRuleError.changed }
+		      before.editable == now.editable, before.canInsert == now.canInsert, before.canUpdate == now.canUpdate,
+		      before.canDelete == now.canDelete else { throw MetadataRuleError.changed }
 		guard now.canWrite else { throw MetadataRuleError.immutable }
 	}
 }

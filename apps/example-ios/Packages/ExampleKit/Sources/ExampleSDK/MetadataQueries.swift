@@ -39,6 +39,22 @@ func metadataPolicy(_ policy: MetadataPolicy) -> (String, Bool) {
 	}
 }
 
+func metadataAllows(_ policy: MetadataPolicy, role: GroupRole, ownEntry: Bool) -> Bool {
+	switch policy {
+	case let .base(base):
+		switch base {
+		case .allow: true
+		case .deny, .unknown: false
+		case .allowIfAdmin: role == .admin || role == .superAdmin
+		case .allowIfSuperAdmin: role == .superAdmin
+		case .allowIfSelfOrNonMember: ownEntry
+		}
+	case let .and(children): !children.isEmpty && children
+		.allSatisfy { metadataAllows($0, role: role, ownEntry: ownEntry) }
+	case let .any(children): children.contains { metadataAllows($0, role: role, ownEntry: ownEntry) }
+	}
+}
+
 private func scalarText(_ value: FieldValue) -> String {
 	switch value {
 	case let .string(text): text
@@ -53,7 +69,9 @@ private func keyText(_ value: FieldKey) -> String {
 	}
 }
 
-func metadataField(_ descriptor: MetadataFieldDescriptor, value: MetadataValue?) -> MetadataField {
+func metadataField(_ descriptor: MetadataFieldDescriptor, value: MetadataValue?,
+                   role: GroupRole = .member) -> MetadataField
+{
 	let policies = [descriptor.permissions.insert, descriptor.permissions.update, descriptor.permissions.delete]
 		.map(metadataPolicy)
 	var result = MetadataField(
@@ -65,6 +83,9 @@ func metadataField(_ descriptor: MetadataFieldDescriptor, value: MetadataValue?)
 		present: value != nil,
 		componentPresent: value != nil,
 		userField: descriptor.isUserField,
+		canInsert: metadataAllows(descriptor.permissions.insert, role: role, ownEntry: descriptor.isUserField),
+		canUpdate: metadataAllows(descriptor.permissions.update, role: role, ownEntry: descriptor.isUserField),
+		canDelete: metadataAllows(descriptor.permissions.delete, role: role, ownEntry: descriptor.isUserField),
 	)
 	switch value {
 	case let .scalar(scalar): result.scalar = scalarText(scalar)
@@ -96,10 +117,17 @@ func metadataField(_ descriptor: MetadataFieldDescriptor, value: MetadataValue?)
 		guard valid() else { throw CancellationError() }
 	}
 
+	private func ownRole(_ conversation: Conversation) async throws -> GroupRole {
+		let members = try await reads.withPermit { try await conversation.members() }
+		let own = members.first { $0.inboxId == client.inboxId() }
+		return own?.permissionLevel == .superAdmin ? .superAdmin : own?.permissionLevel == .admin ? .admin : .member
+	}
+
 	public func load() async throws -> MetadataSnapshot {
 		try check()
 		let conversation = try await conversation()
 		let descriptors = try await reads.withPermit { try await conversation.metadataFields() }
+		let role = try await ownRole(conversation)
 		var fields: [MetadataField] = []
 		let users = descriptors.filter { $0.isUserField && metadataShape($0) != .unsupported }
 		let profiles = try await reads
@@ -107,7 +135,7 @@ func metadataField(_ descriptor: MetadataFieldDescriptor, value: MetadataValue?)
 		for descriptor in descriptors
 			where descriptor.isUserField || (0xC000 ... 0xFEFF).contains(descriptor.field.componentId)
 		{
-			var field = metadataField(descriptor, value: nil)
+			var field = metadataField(descriptor, value: nil, role: role)
 			if field.shape != .unsupported {
 				if descriptor.isUserField {
 					let value = profiles[client.inboxId()]?.first { $0.field.componentId == descriptor.field.componentId }?.value
@@ -120,12 +148,12 @@ func metadataField(_ descriptor: MetadataFieldDescriptor, value: MetadataValue?)
 					}
 				} else {
 					let value = try await reads.withPermit { try await conversation.metadataValue(field: descriptor.field) }
-					field = metadataField(descriptor, value: value)
+					field = metadataField(descriptor, value: value, role: role)
 				}
 			}
 			fields.append(field)
 		}
-		let members = profiles.filter { $0.key != client.inboxId() }.map { inbox, values in
+		let memberFields = profiles.filter { $0.key != client.inboxId() }.map { inbox, values in
 			MemberMetadata(inboxID: inbox, fields: users.map { descriptor in
 				var field = metadataField(descriptor, value: nil)
 				let value = values.first { $0.field.componentId == descriptor.field.componentId }?.value
@@ -145,7 +173,7 @@ func metadataField(_ descriptor: MetadataFieldDescriptor, value: MetadataValue?)
 		let missing = client.serverConfiguration().applicationComponents
 			.filter { (group ? $0.inGroups : $0.inDms) && !ids.contains($0.componentId) }.map(\.name)
 		try check()
-		return MetadataSnapshot(fields: fields.sorted { $0.id < $1.id }, members: members, missing: missing)
+		return MetadataSnapshot(fields: fields.sorted { $0.id < $1.id }, members: memberFields, missing: missing)
 	}
 
 	private func value(_ text: String, shape: FieldShape) throws -> FieldValue {
@@ -192,6 +220,7 @@ func metadataField(_ descriptor: MetadataFieldDescriptor, value: MetadataValue?)
 		guard !field.userField && (field.shape == .string || field.shape == .bytes)
 		else { throw MetadataRuleError.unsupported }
 		guard !field.immutable || text != nil else { throw MetadataRuleError.immutable }
+		guard text == nil ? field.allows(.delete) : field.canSet else { throw MetadataRuleError.immutable }
 		let operation: ComponentMutation = try text.map { try .replace(value($0, shape: field.shape)) } ?? .remove
 		try check()
 		try await conversation.updateMetadataField(field: ref, operation: operation)
@@ -205,6 +234,7 @@ func metadataField(_ descriptor: MetadataFieldDescriptor, value: MetadataValue?)
 		conversation: Conversation,
 	) async throws {
 		let (field, ref) = pair
+		guard field.allows(action) else { throw MetadataRuleError.immutable }
 		guard !field.userField else { throw MetadataRuleError.unsupported }
 		guard !field.immutable || action == .insert else { throw MetadataRuleError.immutable }
 		let canonical = try MetadataRules.key(text, shape: field.shape)
@@ -245,6 +275,7 @@ func metadataField(_ descriptor: MetadataFieldDescriptor, value: MetadataValue?)
 			if field.present == (value != nil) && field.scalar == (value.map(scalarText) ?? "") {
 				continue
 			}
+			guard value == nil ? field.allows(.delete) : field.canSet else { throw MetadataRuleError.immutable }
 			let snapshot = try await reads.withPermit { try await conversation.metadataValue(field: ref) }
 			guard !field.immutable || (snapshot == nil && value != nil) else { throw MetadataRuleError.immutable }
 			var entries: [FieldEntry] = []
