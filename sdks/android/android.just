@@ -3,14 +3,20 @@ set shell := ["../../dev/nix-shell"]
 
 root := justfile_directory()
 
+# Under CI (the `CI` variable is set), Gradle calls add `--build-cache`: the CI
+# jobs restore Gradle User Home, with its local build cache, through
+# setup-gradle. No call uses the configuration cache: the release build reads
+# signing secrets at configuration time, and a fresh checkout has no entry.
+
 # The backend and anvil ports differ per worktree. `_env` loads dev/docker/.env,
 # written by dev/worktree-env, so Gradle bakes this worktree's endpoints into
 # BuildConfig (see library/build.gradle).
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
-# Verify Android SDK builds (bindings + Gradle)
+# Build and test the SDK in one Gradle call: `build` (unit tests, Android Lint,
+# Spotless, both AARs) and the instrumented test APK. CI's SDK build job.
 check: build _test-host
-  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . build --dependency-verification=strict --no-daemon --stacktrace
+  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . build :library:assembleDebugAndroidTest ${CI:+--build-cache} --dependency-verification=strict --no-daemon --stacktrace
   just android check-packages
 
 # Verify JNI stripping in the built debug and release AARs.
@@ -19,11 +25,11 @@ check-packages:
 
 # Compile both SDK variants and its instrumented tests.
 assemble: build
-  ./gradlew -p . :library:assembleDebug :library:assembleRelease :library:assembleDebugAndroidTest --dependency-verification=strict --no-daemon
+  ./gradlew -p . :library:assembleDebug :library:assembleRelease :library:assembleDebugAndroidTest ${CI:+--build-cache} --dependency-verification=strict --no-daemon
 
 # Run Spotless and SDK Android Lint.
 lint: build
-  ./gradlew -p . spotlessCheck --continue --dependency-verification=strict --no-daemon && ./gradlew -p . :library:lintDebug --dependency-verification=strict --no-daemon
+  ./gradlew -p . spotlessCheck :library:lintDebug --continue ${CI:+--build-cache} --dependency-verification=strict --no-daemon
 
 # Format Kotlin code
 format:
@@ -36,7 +42,7 @@ _test-host:
 
 # Run unit tests with the generated SDK and its matched host library.
 test: build _test-host
-  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest --dependency-verification=strict --no-daemon
+  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest ${CI:+--build-cache} --dependency-verification=strict --no-daemon
 
 
 # Test legacy conversion through the normal Kotlin package.
@@ -49,11 +55,11 @@ test-unit *args:
 
 # Run integration tests (requires emulator)
 test-integration: build
-  {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:${XMTP_S3_PORT:-9067} tcp:${XMTP_S3_PORT:-9067}; exec ./gradlew -p . :library:connectedCheck --continue'
+  {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:${XMTP_S3_PORT:-9067} tcp:${XMTP_S3_PORT:-9067}; exec ./gradlew -p . :library:connectedCheck --continue ${CI:+--build-cache}'
 
 # Check release JNI, public clients, timestamps, and cancel/replay on API 23.
 test-min-sdk:
-  {{ _env }} && ./dev/bindings --release && NIX_ANDROID_EMULATOR_API=23 run-test-emulator -- ./gradlew -p . :library:assembleRelease :library:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=uniffi.xmtp_sdk.AndroidPackageTest\#generatedTimestampsLoadAndConvertWithDesugaring,uniffi.xmtp_sdk.AndroidPackageTest\#contextFactoryPreservesExplicitAndInMemoryStorage,uniffi.xmtp_sdk.AndroidPackageTest\#cancelledCollectorReplaysTheUnacknowledgedMessage --dependency-verification strict --no-daemon
+  {{ _env }} && ./dev/bindings --release && NIX_ANDROID_EMULATOR_API=23 run-test-emulator -- ./gradlew -p . :library:assembleRelease :library:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=uniffi.xmtp_sdk.AndroidPackageTest\#generatedTimestampsLoadAndConvertWithDesugaring,uniffi.xmtp_sdk.AndroidPackageTest\#contextFactoryPreservesExplicitAndInMemoryStorage,uniffi.xmtp_sdk.AndroidPackageTest\#cancelledCollectorReplaysTheUnacknowledgedMessage ${CI:+--build-cache} --dependency-verification strict --no-daemon
 
 # Check that the negative consumers in library/src/test/negative do not compile.
 check-consumers: build

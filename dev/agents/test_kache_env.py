@@ -153,75 +153,114 @@ class DarwinWrapperTests(unittest.TestCase):
                     self.assertEqual(lines[1:], argv[1:] if direct else argv)
 
 
-class KacheWritePolicyTests(unittest.TestCase):
-    def test_real_policy_allows_only_trusted_branch_pushes(self):
-        with tempfile.TemporaryDirectory() as folder:
-            output = Path(folder) / "outputs"
-            for event, kind, ref, protected, expected in (
-                ("push", "branch", "refs/heads/self-hosted", "true", "true"),
-                ("push", "branch", "refs/heads/main", "true", "true"),
-                ("push", "branch", "refs/heads/self-hosted", "false", "false"),
-                ("push", "branch", "refs/heads/main", "", "false"),
-                ("push", "branch", "refs/heads/codex/experiment", "true", "false"),
-                ("push", "tag", "refs/tags/release", "true", "false"),
-                ("pull_request", "branch", "refs/heads/self-hosted", "true", "false"),
-                ("pull_request_target", "branch", "refs/heads/main", "true", "false"),
-                ("workflow_dispatch", "branch", "refs/heads/main", "true", "false"),
-                ("schedule", "branch", "refs/heads/main", "true", "false"),
-                ("", "", "", "", "false"),
-            ):
-                with self.subTest(event=event, kind=kind, ref=ref):
-                    output.write_text("")
-                    env = dict(
-                        os.environ,
-                        GITHUB_ACTIONS="true",
-                        GITHUB_EVENT_NAME=event,
-                        GITHUB_REF_TYPE=kind,
-                        GITHUB_REF=ref,
-                        GITHUB_REF_PROTECTED=protected,
-                        KACHE_CI_BACKEND="s3",
-                        KACHE_CI_READONLY="false",
-                        GITHUB_OUTPUT=str(output),
-                    )
-                    result = subprocess.run(
-                        [shutil.which("bash"), str(ROOT / "dev/kache-ci-policy")],
-                        env=env,
-                        capture_output=True,
-                        text=True,
-                    )
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(output.read_text(), f"cache-write={expected}\n")
+TRUNK_PUSH = {
+    "GITHUB_EVENT_NAME": "push",
+    "GITHUB_REF_TYPE": "branch",
+    "GITHUB_REF": "refs/heads/main",
+    "GITHUB_REF_PROTECTED": "true",
+}
 
-    def test_readonly_and_local_jobs_cannot_write_on_protected_pushes(self):
+
+class CachePolicyTests(unittest.TestCase):
+    """dev/kache-ci-policy: the cache mode, the event, and the tokens."""
+
+    def policy(self, **values):
         with tempfile.TemporaryDirectory() as folder:
             output = Path(folder) / "outputs"
-            for backend, readonly, actions in (
-                ("s3", "true", "true"),
-                ("s3", "", "true"),
-                ("local", "false", "true"),
-                ("", "false", "true"),
-                ("s3", "false", "false"),
-            ):
-                with self.subTest(backend=backend, readonly=readonly, actions=actions):
-                    output.write_text("")
-                    result = subprocess.run(
-                        [shutil.which("bash"), str(ROOT / "dev/kache-ci-policy")],
-                        env={
-                            "PATH": os.environ["PATH"],
-                            "GITHUB_OUTPUT": str(output),
-                            "GITHUB_ACTIONS": actions,
-                            "GITHUB_EVENT_NAME": "push",
-                            "GITHUB_REF_TYPE": "branch",
-                            "GITHUB_REF": "refs/heads/main",
-                            "GITHUB_REF_PROTECTED": "true",
-                            "KACHE_CI_BACKEND": backend,
-                            "KACHE_CI_READONLY": readonly,
-                        },
-                        capture_output=True,
-                        text=True,
-                    )
+            output.write_text("")
+            env = {
+                "PATH": os.environ["PATH"],
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_ACTIONS": "true",
+                **values,
+            }
+            result = subprocess.run(
+                [shutil.which("bash"), str(ROOT / "dev/kache-ci-policy")],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            return result, output.read_text()
+
+    def test_trusted_mode_runs_only_on_protected_trunk_pushes(self):
+        for event, kind, ref, protected, allowed in (
+            ("push", "branch", "refs/heads/self-hosted", "true", True),
+            ("push", "branch", "refs/heads/main", "true", True),
+            ("push", "branch", "refs/heads/self-hosted", "false", False),
+            ("push", "branch", "refs/heads/main", "", False),
+            ("push", "branch", "refs/heads/codex/experiment", "true", False),
+            ("push", "tag", "refs/tags/release", "true", False),
+            ("pull_request", "branch", "refs/heads/self-hosted", "true", False),
+            ("pull_request_target", "branch", "refs/heads/main", "true", False),
+            ("workflow_dispatch", "branch", "refs/heads/main", "true", False),
+            ("schedule", "branch", "refs/heads/main", "true", False),
+            ("", "", "", "", False),
+        ):
+            with self.subTest(event=event, kind=kind, ref=ref, protected=protected):
+                result, output = self.policy(
+                    XMTP_CACHE_MODE="trusted",
+                    GITHUB_EVENT_NAME=event,
+                    GITHUB_REF_TYPE=kind,
+                    GITHUB_REF=ref,
+                    GITHUB_REF_PROTECTED=protected,
+                    KACHE_CI_BACKEND="s3",
+                    KACHE_CI_READONLY="false",
+                )
+                if allowed:
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(output.read_text(), "cache-write=false\n")
+                    self.assertEqual(output, "cache-write=true\n")
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("protected push", result.stderr)
+                    self.assertEqual(output, "")
+        result, _ = self.policy(
+            XMTP_CACHE_MODE="trusted", GITHUB_ACTIONS="", **TRUNK_PUSH
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_only_trusted_writer_jobs_upload_to_kache(self):
+        for mode, backend, readonly, expected in (
+            ("trusted", "s3", "false", "true"),
+            ("ci", "s3", "false", "false"),
+            ("read", "s3", "false", "false"),
+            ("", "s3", "false", "false"),
+            ("trusted", "s3", "true", "false"),
+            ("trusted", "s3", "", "false"),
+            ("trusted", "local", "false", "false"),
+            ("trusted", "", "false", "false"),
+        ):
+            with self.subTest(mode=mode, backend=backend, readonly=readonly):
+                result, output = self.policy(
+                    XMTP_CACHE_MODE=mode,
+                    KACHE_CI_BACKEND=backend,
+                    KACHE_CI_READONLY=readonly,
+                    **TRUNK_PUSH,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output, f"cache-write={expected}\n")
+
+    def test_each_mode_accepts_only_its_own_token(self):
+        for mode, trusted, pr, allowed in (
+            ("ci", "false", "true", True),
+            ("ci", "true", "true", False),
+            ("ci", "true", "false", False),
+            ("trusted", "true", "false", True),
+            ("read", "false", "false", True),
+            ("read", "false", "true", False),
+            ("trusted", "true", "true", False),
+            ("read", "true", "false", False),
+            ("write", "false", "false", False),
+        ):
+            with self.subTest(mode=mode, trusted=trusted, pr=pr):
+                result, output = self.policy(
+                    XMTP_CACHE_MODE=mode,
+                    XMTP_CACHIX_TOKEN=trusted,
+                    XMTP_CACHIX_PR_TOKEN=pr,
+                    **TRUNK_PUSH,
+                )
+                self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                if not allowed:
+                    self.assertEqual(output, "")
 
 
 class KacheBackendTests(unittest.TestCase):
@@ -417,7 +456,7 @@ class KacheWorkflowWiringTests(unittest.TestCase):
         self.assertEqual(fields["s3-prefix"], "libxmtp/trusted")
         self.assertEqual(
             fields["save-cache"],
-            "${{ steps.compiler-cache-policy.outputs.cache-write }}",
+            "${{ steps.cache-policy.outputs.cache-write }}",
         )
         for key in (
             "s3-bucket",
@@ -452,6 +491,7 @@ class KacheWorkflowWiringTests(unittest.TestCase):
 
 ACTION = ROOT / ".github/actions/setup-nix/action.yml"
 SETUP_NIX = "./.github/actions/setup-nix"
+SETUP_GRADLE = "gradle/actions/setup-gradle@"
 S3_INPUTS = (
     "kache-s3-bucket",
     "kache-s3-region",
@@ -459,6 +499,10 @@ S3_INPUTS = (
     "kache-s3-access-key-id",
     "kache-s3-secret-access-key",
 )
+
+# Jobs that select the writer environment only for its trusted Cachix token,
+# not for Kache. CacheModeWiringTests checks when each one is trusted.
+TRUSTED_CACHIX_WRITERS = {"post-merge.yml / build", "push-backend.yml / publish"}
 
 # Jobs that run cargo outside Nix, with their Kache scope. A job leaves this
 # list only when it stops running cargo outside Nix, so dropping Kache from a
@@ -504,17 +548,31 @@ def action_step(name):
 
 
 class SetupNixTests(unittest.TestCase):
-    def test_action_has_no_nix_or_buildx_sticky_disk(self):
+    def test_action_has_no_sticky_disk(self):
+        # Owner decision 8: no Blacksmith sticky disk. setup-gradle replaced
+        # the ~/.gradle disk and its busy-process unmount hook.
         action = yaml.safe_load(ACTION.read_text())
-        for name in ("disk-key", "nix-disk", "docker-builder"):
+        for name in ("disk-key", "nix-disk", "docker-builder", "gradle-disk"):
             self.assertNotIn(name, action["inputs"])
-        disks = [
-            step["with"]["path"]
-            for step in action["runs"]["steps"]
-            if step.get("uses", "").startswith("useblacksmith/stickydisk@")
+        text = ACTION.read_text()
+        for marker in ("useblacksmith/", "setup-docker-builder", "fuser", ".gradle"):
+            self.assertNotIn(marker, text)
+
+    def test_cache_mode_policy_runs_before_every_cache_step(self):
+        steps = yaml.safe_load(ACTION.read_text())["runs"]["steps"]
+        names = [step.get("name") for step in steps]
+        policy = action_step("Cache mode policy")
+        self.assertNotIn("if", policy)
+        self.assertIn("dev/kache-ci-policy", policy["run"])
+        caches = [
+            index
+            for index, step in enumerate(steps)
+            if step.get("uses", "").startswith(
+                ("cachix/", "nixbuild/", "kunobi-ninja/")
+            )
         ]
-        self.assertEqual(disks, ["~/.gradle"])
-        self.assertNotIn("setup-docker-builder", ACTION.read_text())
+        self.assertTrue(caches)
+        self.assertLess(names.index("Cache mode policy"), min(caches))
 
     def test_nix_builds_one_derivation_per_cpu_with_all_cores(self):
         for name, field in (
@@ -541,7 +599,7 @@ class SetupNixTests(unittest.TestCase):
         self.assertGreater(len(calls), 40)
         for workflow, job_id, job, inputs in calls:
             with self.subTest(caller=f"{workflow} / {job_id}"):
-                for name in ("disk-key", "nix-disk", "docker-builder"):
+                for name in ("disk-key", "nix-disk", "docker-builder", "gradle-disk"):
                     self.assertNotIn(name, inputs)
                 environment = repr(job.get("environment") or "")
                 if inputs.get("kache") == "true":
@@ -552,7 +610,11 @@ class SetupNixTests(unittest.TestCase):
                     self.assertEqual(
                         [name for name in inputs if name.startswith("kache")], []
                     )
-                    self.assertNotIn("kache-s3-writer", environment)
+                    if f"{workflow} / {job_id}" in TRUSTED_CACHIX_WRITERS:
+                        self.assertIn("kache-s3-writer", environment)
+                        self.assertIn("cachix-auth-token", inputs)
+                    else:
+                        self.assertNotIn("kache-s3-writer", environment)
 
     def test_kache_callers_match_the_cargo_job_list(self):
         callers = {
@@ -637,6 +699,414 @@ class SetupNixTests(unittest.TestCase):
         self.assertIn("runner.os == 'Linux'", register["if"])
         # Posts run in reverse order: the first registered post runs last.
         self.assertEqual(names.index("Register kernel OOM report"), 1)
+
+
+# GitHub expressions in the checked fields use literals, context properties,
+# ==, !=, !, &&, || and parentheses. Each becomes the Python operator with the
+# same result (&& and || return an operand, as `and` and `or` do). A function
+# call or an unknown context fails in `lookup`, so a new construct fails loudly
+# instead of being guessed. Where Python groups differently (chained
+# comparisons, a negated operand of a comparison), evaluation raises. Python
+# compares strings case-sensitively; every compared value is lowercase.
+TOKEN = re.compile(
+    r"\s*(?:('(?:[^']|'')*')|(==|!=|&&|\|\||!|\(|\))|([A-Za-z_][\w.-]*))"
+)
+PYTHON = {
+    "&&": "and",
+    "||": "or",
+    "!": "not",
+    "true": "True",
+    "false": "False",
+    "null": "None",
+}
+
+
+def truthy(value):
+    return value not in (None, False, 0, "")
+
+
+def reject_python_precedence(ops, text):
+    """Raise for the forms where Python and GitHub group differently.
+
+    `ops` holds each token's operator, or None for an operand. Python chains
+    `a == b == c` and binds `not` looser than `==`; GitHub reads
+    `(a == b) == c` and `(!a) == b`. No workflow needs either form.
+    """
+
+    def operand_end(index):
+        # The index after the operand that starts at `index`.
+        if ops[index] == "!":
+            return operand_end(index + 1)
+        if ops[index] == "(":
+            depth = 0
+            for end in range(index, len(ops)):
+                depth += {"(": 1, ")": -1}.get(ops[end], 0)
+                if depth == 0:
+                    return end + 1
+        return index + 1
+
+    compared = [False]
+    for index, op in enumerate(ops):
+        if op == "!":
+            end = operand_end(index + 1)
+            if end < len(ops) and ops[end] in ("==", "!="):
+                raise ValueError(f"negated operand of a comparison: {text!r}")
+        elif op == "(":
+            compared.append(False)
+        elif op == ")":
+            compared.pop()
+        elif op in ("&&", "||"):
+            compared[-1] = False
+        elif op in ("==", "!="):
+            if compared[-1]:
+                raise ValueError(f"chained comparison: {text!r}")
+            compared[-1] = True
+
+
+class Context:
+    def __init__(self, github, inputs, secrets, matrix=None):
+        self.github = github
+        # One `strategy.matrix.include` entry, or None outside a matrix leg.
+        self.matrix = matrix
+        # Input name -> function that returns the value, so a caller's
+        # `with:` value is evaluated only when the callee reads it.
+        self.inputs = inputs
+        # None: every repository secret is available.
+        self.secrets = secrets
+
+    def lookup(self, path):
+        head, _, name = path.partition(".")
+        if head == "github":
+            return self.github[name]
+        if head == "inputs":
+            return self.inputs[name]() if name in self.inputs else None
+        if head == "secrets":
+            if self.secrets is None:
+                return f"<{name}>"
+            return self.secrets.get(name, "")
+        if head == "vars":
+            return ""
+        if head == "matrix" and self.matrix is not None and name in self.matrix:
+            return self.matrix[name]
+        if head == "runner" and name == "os":
+            return "Linux"
+        raise ValueError(f"unsupported context: {path}")
+
+    def evaluate(self, text):
+        source = []
+        ops = []
+        position = 0
+        text = text.strip()
+        while position < len(text):
+            match = TOKEN.match(text, position)
+            if not match:
+                raise ValueError(f"cannot parse {text!r} at {position}")
+            string, op, word = match.groups()
+            if string is not None:
+                source.append(repr(string[1:-1].replace("''", "'")))
+                ops.append(None)
+            elif op:
+                source.append(PYTHON.get(op, op))
+                ops.append(op)
+            elif word in PYTHON:
+                source.append(PYTHON[word])
+                ops.append(None)
+            else:
+                source.append(f"_({word!r})")
+                ops.append(None)
+            position = match.end()
+        reject_python_precedence(ops, text)
+        return eval(" ".join(source), {"__builtins__": {}}, {"_": self.lookup})
+
+    def value(self, raw):
+        """Evaluate a workflow value: a literal, or ${{ }} templates in a string."""
+        if not isinstance(raw, str) or "${{" not in raw:
+            return raw
+        whole = re.fullmatch(r"\s*\$\{\{(.*?)\}\}\s*", raw, re.S)
+        if whole:
+            return self.evaluate(whole.group(1))
+
+        def text(match):
+            result = self.evaluate(match.group(1))
+            return (
+                str(result).lower() if isinstance(result, bool) else str(result or "")
+            )
+
+        return re.sub(r"\$\{\{(.*?)\}\}", text, raw)
+
+
+def workflow(name):
+    document = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+    # YAML 1.1 reads the key `on` as true.
+    triggers = document.get("on", document.get(True))
+    if isinstance(triggers, str):
+        triggers = {triggers: None}
+    elif isinstance(triggers, list):
+        triggers = dict.fromkeys(triggers)
+    return document, triggers
+
+
+TRUNK = ("main", "self-hosted")
+
+
+def entry_contexts(triggers):
+    """Yield (label, github context, dispatch inputs) for each way a run starts."""
+
+    def branch(event, name):
+        return {
+            "event_name": event,
+            "ref": f"refs/heads/{name}",
+            "ref_type": "branch",
+            "ref_protected": name in TRUNK,
+        }
+
+    for event, config in triggers.items():
+        if event == "push":
+            for name in (config or {}).get("branches") or TRUNK:
+                yield f"push to {name}", branch("push", name), {}
+                if name in TRUNK:
+                    # A trunk branch that lost its protection is not trusted.
+                    context = branch("push", name)
+                    context["ref_protected"] = False
+                    context["unprotected trunk"] = True
+                    yield f"push to unprotected {name}", context, {}
+            for name in (config or {}).get("tags") or ():
+                yield (
+                    f"push of tag {name}",
+                    {
+                        "event_name": "push",
+                        "ref": f"refs/tags/{name}",
+                        "ref_type": "tag",
+                        "ref_protected": False,
+                    },
+                    {},
+                )
+        elif event in ("pull_request", "pull_request_target"):
+            context = branch(event, "feature")
+            context["ref"] = "refs/pull/1/merge"
+            yield event, context, {}
+        elif event == "workflow_dispatch":
+            inputs = {
+                name: (lambda default=spec.get("default"): default)
+                for name, spec in ((config or {}).get("inputs") or {}).items()
+            }
+            for name in ("main", "feature"):
+                yield f"dispatch on {name}", branch(event, name), inputs
+        elif event in ("schedule", "workflow_run"):
+            yield event, branch(event, "main"), {}
+
+
+def cache_calls():
+    """Yield one record per setup-nix call, per entry workflow and event.
+
+    Called workflows get the inputs and secrets their caller passes, so a mode
+    that depends on a caller (deploy-docs.yml inside post-merge.yml) is evaluated as
+    that caller runs it.
+    """
+
+    def walk(name, context, entry, label):
+        document, _ = workflow(name)
+        for job_id, job in (document.get("jobs") or {}).items():
+            uses = job.get("uses", "")
+            if uses.startswith("./.github/workflows/"):
+                callee = uses.rsplit("/", 1)[1]
+                _, callee_triggers = workflow(callee)
+                declared = (callee_triggers.get("workflow_call") or {}).get(
+                    "inputs"
+                ) or {}
+                given = job.get("with") or {}
+                inputs = {
+                    input_name: (
+                        (lambda raw=given[input_name]: context.value(raw))
+                        if input_name in given
+                        else (lambda default=spec.get("default"): default)
+                    )
+                    for input_name, spec in declared.items()
+                }
+                passed = job.get("secrets")
+                if passed == "inherit":
+                    secrets = context.secrets
+                elif isinstance(passed, dict):
+                    secrets = {key: context.value(raw) for key, raw in passed.items()}
+                else:
+                    secrets = {}
+                yield from walk(
+                    callee, Context(context.github, inputs, secrets), entry, label
+                )
+                continue
+            environment = job.get("environment") or ""
+            if isinstance(environment, dict):
+                environment = environment.get("name") or ""
+            steps = job.get("steps") or []
+            nix = [
+                step.get("with") or {}
+                for step in steps
+                if step.get("uses") == SETUP_NIX
+            ]
+            js = [
+                step.get("with") or {}
+                for step in steps
+                if step.get("uses") == "./.github/actions/setup-js"
+            ]
+            release_tools = any(
+                step.get("uses") == "./.github/actions/setup-release-tools"
+                for step in steps
+            )
+            gradle = [
+                step.get("with") or {}
+                for step in steps
+                if step.get("uses", "").startswith(SETUP_GRADLE)
+            ]
+            # The Gradle cache rule is checked through the job's cache mode.
+            assert nix or not gradle, (
+                f"{name} / {job_id}: setup-gradle without setup-nix"
+            )
+            # Each `include` entry of a matrix is one leg. Another matrix form
+            # leaves `matrix` unset, so a checked field that reads it fails.
+            matrix = (job.get("strategy") or {}).get("matrix")
+            legs = matrix.get("include") if isinstance(matrix, dict) else None
+            for leg in legs or [None]:
+                yield from job_calls(
+                    Context(context.github, context.inputs, context.secrets, leg),
+                    f"{entry} ({label}): {name} / {job_id}"
+                    + ("" if leg is None else f" {leg}"),
+                    entry,
+                    environment,
+                    nix,
+                    js,
+                    release_tools,
+                    gradle,
+                )
+
+    def job_calls(context, where, entry, environment, nix, js, release_tools, gradle):
+        for inputs in nix:
+            yield {
+                "where": where,
+                "entry": entry,
+                "github": context.github,
+                "environment": context.value(environment),
+                "mode": context.value(inputs.get("cache-mode")) or "read",
+                "trusted-token": context.value(inputs.get("cachix-auth-token")) or "",
+                "pr-token": context.value(inputs.get("cachix-pr-auth-token")) or "",
+                "js-modes": [context.value(i.get("cache-mode")) or "read" for i in js]
+                + (["read"] if release_tools else []),
+                "gradle": [
+                    {key: context.value(raw) for key, raw in inputs.items()}
+                    for inputs in gradle
+                ],
+            }
+
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        _, triggers = workflow(path.name)
+        for label, github, inputs in entry_contexts(triggers):
+            yield from walk(path.name, Context(github, inputs, None), path.name, label)
+
+
+def protected_trunk_push(github):
+    return (
+        github["event_name"] == "push"
+        and github["ref_type"] == "branch"
+        and github["ref_protected"]
+        and github["ref"] in ("refs/heads/main", "refs/heads/self-hosted")
+    )
+
+
+# Entry workflows whose jobs may read xmtp-pr (mode ci). Every other entry
+# (release, publish, deploy, post-merge, schedules, manual tools) reads only xmtp.
+# A docs dispatch builds without deploying; post-merge.yml deploys.
+CI_ENTRIES = {
+    "ci.yml",
+    "deploy-docs.yml",
+    "lint-deny.yml",
+    "test-backend.yml",
+    "test-sdk.yml",
+}
+
+
+def gradle_cache_is_ci_only(call):
+    """Only mode ci restores the Gradle cache; only protected trunk pushes save it."""
+    return all(
+        call["mode"] == "ci"
+        and len(call["gradle"]) == 1
+        and not {"cache-disabled", "cache-write-only"} & set(inputs)
+        and truthy(inputs.get("cache-read-only"))
+        != protected_trunk_push(call["github"])
+        for inputs in call["gradle"]
+    )
+
+
+# Each rule holds for every setup-nix call of every entry workflow and event.
+WIRING_RULES = (
+    (
+        "the mode is read, ci, or trusted",
+        lambda c: c["mode"] in ("read", "ci", "trusted"),
+    ),
+    (
+        "the writer environment goes with mode trusted",
+        lambda c: (c["environment"] == "kache-s3-writer") == (c["mode"] == "trusted"),
+    ),
+    # On a trunk push without branch protection, a job that is trusted
+    # outright (post-merge.yml) fails in dev/kache-ci-policy (CachePolicyTests).
+    (
+        "mode trusted runs only on a protected trunk push",
+        lambda c: (
+            c["mode"] != "trusted"
+            or c["github"].get("unprotected trunk")
+            or protected_trunk_push(c["github"])
+        ),
+    ),
+    (
+        "only mode ci gets the xmtp-pr token",
+        lambda c: not c["pr-token"] or c["mode"] == "ci",
+    ),
+    (
+        "only mode trusted gets the trusted Cachix token",
+        lambda c: not c["trusted-token"] or c["mode"] == "trusted",
+    ),
+    (
+        "release, deploy, and post-merge runs never read xmtp-pr",
+        lambda c: c["entry"] in CI_ENTRIES or c["mode"] != "ci",
+    ),
+    (
+        "setup-js uses the setup-nix mode of its job",
+        lambda c: all(mode == c["mode"] for mode in c["js-modes"]),
+    ),
+    (
+        "the Gradle cache is CI-only and written only on trunk pushes",
+        gradle_cache_is_ci_only,
+    ),
+)
+
+
+class CacheModeWiringTests(unittest.TestCase):
+    def test_evaluator_rejects_forms_python_groups_differently(self):
+        context = Context({"event_name": "push", "ref_protected": True}, {}, {})
+        for text in (
+            "github.event_name == 'push' == true",
+            "!(github.ref_protected) == false",
+            "!github.ref_protected != true",
+        ):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                context.evaluate(text)
+        # Parentheses give the GitHub grouping, which Python then follows.
+        self.assertTrue(context.evaluate("(github.event_name == 'push') == true"))
+        self.assertFalse(context.evaluate("!(github.event_name == 'push')"))
+
+    def test_every_call_follows_the_wiring_rules(self):
+        calls = list(cache_calls())
+        # The walk reaches the trusted, release, and Gradle jobs.
+        self.assertTrue(
+            {"ci.yml", "post-merge.yml", "release.yml"} <= {c["entry"] for c in calls}
+        )
+        self.assertTrue(any(c["gradle"] for c in calls))
+        broken = [
+            f"{call['where']}: {rule}"
+            for call in calls
+            for rule, holds in WIRING_RULES
+            if not holds(call)
+        ]
+        if broken:
+            self.fail("\n".join(broken))
 
 
 if __name__ == "__main__":

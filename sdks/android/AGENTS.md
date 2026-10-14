@@ -16,7 +16,8 @@ Build tools use normal parallelism and preserve caller job settings.
 Gradle uses a 4 GiB heap in both SDK and app roots.
 When `ANDROID_NDK_HOME` is set, all Android modules use that NDK path and its
 `Pkg.Revision` for native library stripping. Keep the path and version matched.
-SDK `check` also runs `check-packages` on the debug and release AARs.
+SDK `check` runs `gradlew build` and the instrumented test APK in one Gradle
+call, then `check-packages` on the debug and release AARs.
 The separate app `check` validates the moved Debug and Release APKs.
 The artifact check rejects static symbol and debug sections and requires the
 dynamic symbol sections in every packaged SDK JNI library. It uses NDK `llvm-readelf`.
@@ -115,7 +116,7 @@ Host JVM checks do not prove an Android AAR loads.
 with the tests. `check-consumers` adds one at a time to the unit test sources
 (the `xmtpNegativeConsumer` Gradle property) and checks that the compile fails
 with the expected diagnostics: typed IDs, typed content, Group and Dm types,
-and typed codec values. The required `test-android.yml` unit job runs these
+and typed codec values. The required `test-android.yml` `sdk-build` job runs these
 consumers for broad Kotlin inputs, including when AAR staging is not selected.
 Specific native inputs select API 23 smoke, API 34 integration, and all-ABI
 AAR staging. Direct reusable calls keep unit, consumer, and platform checks
@@ -152,4 +153,4 @@ generated reader options for scopes, filters, and replay. Keep typed errors and
 
 `dev/nix-shell 'just android test-migration'` runs `LegacyMigrationTest` in the
 normal JVM target with matched bindings and the host library. Gradle supplies
-the pinned legacy fixture directory. The required Android unit job includes this test.
+the pinned legacy fixture directory. The required Android `sdk-build` job includes this test.

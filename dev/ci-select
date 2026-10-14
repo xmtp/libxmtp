@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Select CI suites for the changed paths and record the decision."""
+"""Select CI suites and product groups for the changed paths and record the decision."""
 
 from __future__ import annotations
 
@@ -20,6 +20,9 @@ MANIFEST = json.loads(MANIFEST_PATH.read_text())
 SUITES = MANIFEST["suites"]
 EVENT_KINDS = ("draft_pr_push", "ready_pr_push", "merge")
 LARGE_PR = 3000
+# Runs that Dependabot triggers, and their re-runs, get no Actions secrets, so
+# a products job could not push to xmtp-pr.
+DEPENDABOT = "dependabot[bot]"
 
 
 @functools.lru_cache(maxsize=None)
@@ -73,12 +76,30 @@ class Rules:
 
     def __init__(self, manifest):
         self.manifest = manifest
-        self.suites = {}
-        for name, suite in manifest["suites"].items():
-            include = suite["crates"] + suite["workflow_files"]
-            include += [p for p in suite["paths"] if not p.startswith("!")]
-            exclude = [p[1:] for p in suite["paths"] if p.startswith("!")]
-            self.suites[name] = (include, exclude)
+        self.suites = {
+            name: self._split(suite["crates"] + suite["workflow_files"], suite["paths"])
+            for name, suite in manifest["suites"].items()
+        }
+        self.products = {
+            group: self._split(spec["crates"], spec["paths"])
+            for group, spec in manifest.get("products", {}).items()
+        }
+
+    @staticmethod
+    def _split(include, paths):
+        include = include + [p for p in paths if not p.startswith("!")]
+        return include, [p[1:] for p in paths if p.startswith("!")]
+
+    def _matching(self, rules, path):
+        # Neutral files select only through a repository-wide glob.
+        neutral = self.neutral(path)
+        found = []
+        for name, (include, exclude) in rules.items():
+            if neutral:
+                include = [p for p in include if p.startswith("**/")]
+            if any_match(include, path) and not any_match(exclude, path):
+                found.append(name)
+        return found
 
     def neutral(self, path):
         return any_match(self.manifest["neutral"], path)
@@ -87,15 +108,10 @@ class Rules:
         return not self.neutral(path) and any_match(self.manifest["shared"], path)
 
     def suites_for(self, path):
-        # Neutral files select a suite only through a repository-wide glob.
-        neutral = self.neutral(path)
-        found = []
-        for name, (include, exclude) in self.suites.items():
-            if neutral:
-                include = [p for p in include if p.startswith("**/")]
-            if any_match(include, path) and not any_match(exclude, path):
-                found.append(name)
-        return found
+        return self._matching(self.suites, path)
+
+    def products_for(self, path):
+        return self._matching(self.products, path)
 
     def known(self, path):
         return (
@@ -142,9 +158,11 @@ def select_suites(
     fork = bool(pr) and head_repo.get("full_name") != (
         event.get("repository", {}).get("full_name")
     )
+    dependabot = (event.get("sender") or {}).get("login") == DEPENDABOT
     kind = event_kind(event_name, event)
     rules = Rules(MANIFEST)
     matched, shared, unknown, details, reasons = set(), [], [], [], []
+    matched_products = set()
     if kind == "manual":
         reasons.append("explicit_request")
     elif kind == "merge":
@@ -166,6 +184,7 @@ def select_suites(
         else:
             for path in files:
                 matched.update(rules.suites_for(path))
+                matched_products.update(rules.products_for(path))
             # A deletion or rename can leave a rule that names no file.
             if deleted:
                 matched.update(MANIFEST["on_deleted_path"])
@@ -185,9 +204,18 @@ def select_suites(
     selected = {
         name for name in selected if SUITES[name]["covered_by"] not in selected
     }
+    # A suite whose group does not run builds the products itself.
+    waited = {group for name in selected for group in SUITES[name]["products"]}
+    if fork or dependabot:
+        products = set()
+    elif reasons:
+        products = waited
+    else:
+        products = waited & matched_products
     return {
         "event_kind": kind,
         "fork": fork,
+        "dependabot": dependabot,
         "changed_files": changed_files,
         "reasons": reasons,
         "details": details,
@@ -200,6 +228,8 @@ def select_suites(
             phase: [n for n in SUITES if n in selected and SUITES[n]["phase"] == phase]
             for phase in ("lint", "test")
         },
+        "matched_products": sorted(matched_products),
+        "products": [g for g in MANIFEST["products"] if g in products],
     }
 
 
@@ -214,6 +244,7 @@ def summary(result):
     fields = {
         "Event": result["event_kind"],
         "Fork": str(result["fork"]).lower(),
+        "Dependabot": str(result["dependabot"]).lower(),
         "Selection": "full" if result["reasons"] else "path-selected",
         "PR changed files": result["changed_files"]
         if result["changed_files"] is not None
@@ -230,6 +261,8 @@ def summary(result):
         "Suites excluded by event or fork policy": result["policy_excluded"],
         "Selected lint suites": result["suites"]["lint"],
         "Selected test suites": result["suites"]["test"],
+        "Product groups matched by paths": result["matched_products"],
+        "Selected product groups": result["products"],
     }
     for title, values in lists.items():
         lines.extend(["", f"### {title}", ""])
@@ -292,6 +325,7 @@ def main():
     with open(env["GITHUB_OUTPUT"], "a") as output:
         for phase, names in result["suites"].items():
             output.write(f"{phase}_suites={json.dumps(names, separators=(',', ':'))}\n")
+        output.write(f"products={json.dumps(result['products'], separators=(',', ':'))}\n")
     with open(env["GITHUB_STEP_SUMMARY"], "a") as output:
         output.write(summary(result))
 

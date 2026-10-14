@@ -1,0 +1,222 @@
+# Runs after each push to trunk. It builds the warm sets (nix/ci-sets.nix) for
+# the newest push, pushes them to the trusted Cachix cache `xmtp`, and pins
+# them; release, developers, and CI jobs then substitute these outputs. Then it
+# checks that the sets substitute, builds the docs, and deploys GitHub Pages.
+#
+# Trusted: only pushes to trunk start this workflow, and only the writer
+# environment holds the trusted Cachix token.
+name: Post-merge
+on:
+  push:
+    branches:
+      - main
+      - self-hosted
+permissions:
+  contents: read
+# A run in progress always finishes, so every run that starts pushes and pins
+# complete sets for its commit. A newer push replaces a pending older run.
+concurrency:
+  group: post-merge-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Build (${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: blacksmith-16vcpu-ubuntu-2404
+          # The macOS image of the iOS test and release jobs.
+          - system: aarch64-darwin
+            runner: warp-macos-15-arm64-12x
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    environment: kache-s3-writer
+    env:
+      SYSTEM: ${{ matrix.system }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
+      # and a build with another fails, so select it before the build.
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        if: runner.os == 'macOS'
+        with:
+          xcode-version: "26.3"
+      - name: Show the Xcode version
+        if: runner.os == 'macOS'
+        run: xcodebuild -version
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: "trusted"
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          github-token: ${{ github.token }}
+      - name: Build the warm sets
+        run: nix build --keep-going --no-link ".#ciSets.$SYSTEM.dev" ".#ciSets.$SYSTEM.release"
+      # The Cachix daemon pushes each path that this job builds. `cachix push`
+      # pushes every closure path that Cachix reports missing, also paths that
+      # this job substituted; `xmtp` reports a path of its upstream
+      # cache.nixos.org as present. A pin keeps the pinned path; the closure
+      # job checks that the rest of each closure can substitute.
+      - name: Push and pin the warm sets
+        run: |
+          # One evaluation for both sets: each takes 25-35 s.
+          paths=$(nix eval --json ".#ciSets.$SYSTEM" --apply 'builtins.mapAttrs (_: set: set.outPath)')
+          for set in dev release; do
+            path=$(jq -r --arg set "$set" '.[$set]' <<< "$paths")
+            cachix push xmtp "$path"
+            cachix pin xmtp "$set-$SYSTEM" "$path" --keep-revisions 3
+          done
+
+  closure:
+    name: Check that the warm sets substitute
+    # Waits for both build jobs, after their post steps finish the uploads.
+    needs: build
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+      # An empty-store dry run reads the narinfo of each path from the
+      # configured substituters and walks the reference closure. It lists
+      # each set member (an output path) and each crane dependency layer
+      # (a build-time input outside the runtime closure). The link farms set
+      # allowSubstitutes = false; always-allow-substitutes overrides that.
+      - name: Dry-run the set members and dependency layers in an empty store
+        # bash -eo pipefail: a failed nix or jq in a pipeline fails the step.
+        # Without `shell`, GitHub runs bash -e only.
+        shell: bash
+        run: |
+          store="$RUNNER_TEMP/empty"
+          # The sets read the ubrn fork source through import from derivation.
+          # Its fetch has the same output path on every system, and this
+          # runner can run only the x86_64-linux fetch, so evaluate
+          # x86_64-linux first: the Darwin sets then find the path valid even
+          # when `xmtp` does not hold it.
+          nix eval --store "$store" --json .#ciSets.x86_64-linux \
+            --apply 'builtins.mapAttrs (_: set: set.drvPath)' > /dev/null
+          # Write the drvs into the empty store: a drv of the host store is
+          # unknown there.
+          nix eval --store "$store" --json .#ciSets --apply '
+            builtins.mapAttrs (_: builtins.mapAttrs (_: set: {
+              members = builtins.attrValues set.passthru.members;
+              drv = set.drvPath;
+            }))' > "$RUNNER_TEMP/ci-sets.json"
+          # Each list goes through a file: bash ignores the exit status of a
+          # process substitution, so a failed jq or nix would shrink the check.
+          jq -r '.[][].members[]' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/members.txt"
+          jq -r '.[][].drv' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/drvs.txt"
+          paths=()
+          while read -r member; do
+            paths+=("$member")
+          done < "$RUNNER_TEMP/members.txt"
+          drvs=()
+          while read -r drv; do
+            drvs+=("$drv")
+          done < "$RUNNER_TEMP/drvs.txt"
+          # Crane sets CRANE_BUILD_DEPS_ONLY on each dependency layer.
+          nix derivation show --store "$store" -r "${drvs[@]}" |
+            jq -r '(.derivations // .) | to_entries[]
+              | select(.value.env.CRANE_BUILD_DEPS_ONLY != null) | .key
+              | if startswith("/") then . else "/nix/store/" + . end' \
+            > "$RUNNER_TEMP/dependency-layers.txt"
+          # Every set holds crane builds, so an empty list means the query broke.
+          if [[ ! -s "$RUNNER_TEMP/dependency-layers.txt" ]]; then
+            echo "::error title=Warm closure::found no crane dependency layer in the set derivations"
+            exit 1
+          fi
+          while read -r layer; do
+            paths+=("$layer^out")
+          done < "$RUNNER_TEMP/dependency-layers.txt"
+          echo "Checking ${#paths[@]} set members and dependency layers"
+          # The dry run exits 0 also when a path cannot substitute, and has no
+          # machine-readable form (--json lists the requested paths only).
+          nix build --dry-run --store "$store" --option always-allow-substitutes true \
+            "${paths[@]}" 2>&1 | tee "$RUNNER_TEMP/dry-run.txt"
+          # Fail closed: accept only one "will be fetched" header (it holds
+          # the count and the sizes) and exactly as many indented store paths
+          # as it announces. A "will be built" or "don't know how to build"
+          # section, or any other line, fails. The store is empty, so a run
+          # that fetches nothing checked nothing.
+          header='^(this path|these ([0-9]+) paths) will be fetched \([0-9.]+ MiB download, [0-9.]+ MiB unpacked\):$'
+          path='^  /nix/store/[0-9a-df-np-sv-z]{32}-[^[:space:]]+$'
+          fetching=false
+          headers=0
+          announced=0
+          fetched=0
+          unexpected=()
+          while IFS= read -r line; do
+            if [[ -z "$line" ]]; then
+              continue
+            elif [[ "$line" =~ $header ]]; then
+              headers=$((headers + 1))
+              # "this path" announces one.
+              announced=${BASH_REMATCH[2]:-1}
+              fetching=true
+            elif $fetching && [[ "$line" =~ $path ]]; then
+              fetched=$((fetched + 1))
+            else
+              fetching=false
+              unexpected+=("$line")
+            fi
+          done < "$RUNNER_TEMP/dry-run.txt"
+          if (( ${#unexpected[@]} > 0 || headers != 1 || fetched == 0 || fetched != announced )); then
+            echo "::error title=Warm closure::$headers fetch headers announce $announced paths and list $fetched; ${#unexpected[@]} lines show a path that cannot substitute or output this check does not know"
+            printf '%s\n' "${unexpected[@]}"
+            exit 1
+          fi
+          echo "Every set member and dependency layer substitutes ($fetched paths)."
+
+  # Pages content comes only from trusted trunk pushes. docs builds the site
+  # and the Swift and Kotlin references after the warm build, so they
+  # substitute its outputs; a failed build only makes them build on a miss, so
+  # it does not hold back the deploy.
+  docs:
+    name: Docs
+    needs: build
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/deploy-docs.yml
+    with:
+      deploy: true
+    # Mode read: the docs jobs need only the Kache reader keys.
+    secrets:
+      KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+      KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+  deploy:
+    name: Deploy docs to GitHub Pages
+    needs: docs
+    # A failed build leg skips the jobs that need docs by default; deploy
+    # whenever docs succeeded.
+    if: ${{ !cancelled() && needs.docs.result == 'success' }}
+    # The repository has one Pages site, so every ref shares one group. One
+    # deploy runs at a time. queue: max keeps up to 100 pending deploys in
+    # FIFO order instead of replacing them, and cancel-in-progress: false
+    # never cancels a running one, so every post-merge run that reaches its deploy
+    # publishes.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+      queue: max
+    # Successful deploys take 14-160 s; actions/deploy-pages waits 10 min.
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+      - name: Check the published custom domain
+        run: |
+          if ! curl --fail --silent --show-error --retry 3 --retry-delay 10 \
+            --connect-timeout 10 --max-time 30 --retry-all-errors \
+            --output /dev/null https://self-hosted-docs.xmtp.to/; then
+            echo "::warning::Pages published, but the custom domain HTTPS check failed. Check DNS and the Pages certificate."
+            echo "Pages published. The custom domain HTTPS check failed; check DNS and the Pages certificate." >> "$GITHUB_STEP_SUMMARY"
+          fi

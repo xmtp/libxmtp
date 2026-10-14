@@ -4,8 +4,24 @@ inputs:
   github-token:
     description: "GitHub token for Nix installation"
     required: true
+  cache-mode:
+    description: >-
+      Which Cachix caches this job reads and writes (README "Cache modes").
+      "read": xmtp only, no push. "ci": xmtp and xmtp-pr, pushes only to
+      xmtp-pr with cachix-pr-auth-token, Kache read-only. "trusted": xmtp
+      only, pushes to xmtp with cachix-auth-token, and fails unless the event
+      is a protected push to main or self-hosted.
+    required: false
+    default: "read"
   cachix-auth-token:
-    description: "Cachix auth token for xmtp cache"
+    description: >-
+      Trusted Cachix token for xmtp, from the writer environment. Used only
+      in mode trusted; mode read fails when it receives one.
+    required: false
+  cachix-pr-auth-token:
+    description: >-
+      Cachix token for the CI-only cache xmtp-pr. Only mode ci may receive
+      it; fork and Dependabot runs have none and push nothing.
     required: false
   kache:
     description: >-
@@ -38,15 +54,9 @@ inputs:
     required: false
     default: ""
   kache-readonly:
-    description: "Disable remote uploads; false still requires a trusted protected branch push"
+    description: "Disable remote uploads; false still requires cache-mode trusted"
     required: false
     default: "true"
-  gradle-disk:
-    description: >-
-      Mount the shared repo-wide sticky disk at ~/.gradle (Linux); enable in CI
-      jobs that run Gradle. Release jobs must not enable it: CI jobs commit it.
-    required: false
-    default: "false"
 runs:
   using: "composite"
   steps:
@@ -81,39 +91,31 @@ runs:
       uses: webiny/action-post-run@2a0e96f0e55f0e698cf2a3d85670e3577ae30a30 # 3.1.0
       with:
         run: bash ${{ runner.temp }}/kernel-oom-report.sh
-    # Gradle wrapper dist + dependency/transform caches for Android jobs.
-    # One disk repo-wide (not per workflow): contents are append-only
-    # downloads, so a lost commit race just re-downloads a few jars.
-    # Must be registered before the busy-process cleanup below so the cleanup
-    # post (which kills gradle/kotlin daemons) runs before this unmounts.
-    - name: Mount ~/.gradle sticky disk
-      if: ${{ inputs.gradle-disk == 'true' && runner.os == 'Linux' }}
-      uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1
-      with:
-        key: ${{ github.repository }}-gradle-${{ runner.os }}-${{ runner.arch }}
-        path: ~/.gradle
-        commit: ${{ !startsWith(github.event_name, 'pull_request') && 'on-change' || 'false' }}
-    # Posts run in reverse order: registered after the mount = runs right
-    # before unmount+commit. Gradle and Kotlin daemons hold ~/.gradle busy.
-    # See convos-releases#31.
-    - name: Write ~/.gradle busy-process cleanup script
-      if: ${{ runner.os == 'Linux' && inputs.gradle-disk == 'true' }}
-      run: |
-        cat > "$RUNNER_TEMP/gradle-unmount-cleanup.sh" << 'EOF'
-        #!/usr/bin/env bash
-        for pid in $(sudo fuser -M -m "$HOME/.gradle" 2>/dev/null); do
-          sudo kill -9 "$pid" 2>/dev/null
-        done
-        sleep 2
-        exit 0
-        EOF
-        chmod +x "$RUNNER_TEMP/gradle-unmount-cleanup.sh"
+    - name: Compiler cache backend
+      if: ${{ inputs.kache == 'true' }}
+      id: compiler-cache-backend
+      env:
+        KACHE_CI_BUCKET: ${{ inputs.kache-s3-bucket }}
+        KACHE_CI_REGION: ${{ inputs.kache-s3-region }}
+        KACHE_CI_ENDPOINT: ${{ inputs.kache-s3-endpoint }}
+        KACHE_CI_ACCESS_KEY: ${{ inputs.kache-s3-access-key-id }}
+        KACHE_CI_SECRET_KEY: ${{ inputs.kache-s3-secret-access-key }}
+        KACHE_CI_SCOPE: ${{ inputs.kache-scope }}
+        KACHE_CI_READONLY: ${{ inputs.kache-readonly }}
+      run: bash dev/kache-ci-config
       shell: bash
-    - name: Register ~/.gradle busy-process cleanup
-      if: ${{ runner.os == 'Linux' && inputs.gradle-disk == 'true' }}
-      uses: webiny/action-post-run@2a0e96f0e55f0e698cf2a3d85670e3577ae30a30 # 3.1.0
-      with:
-        run: bash ${{ runner.temp }}/gradle-unmount-cleanup.sh
+    # Runs in every job, before any cache is configured. It passes only
+    # whether each token is set, never the token.
+    - name: Cache mode policy
+      id: cache-policy
+      env:
+        XMTP_CACHE_MODE: ${{ inputs.cache-mode }}
+        XMTP_CACHIX_TOKEN: ${{ inputs.cachix-auth-token != '' }}
+        XMTP_CACHIX_PR_TOKEN: ${{ inputs.cachix-pr-auth-token != '' }}
+        KACHE_CI_BACKEND: ${{ steps.compiler-cache-backend.outputs.backend }}
+        KACHE_CI_READONLY: ${{ inputs.kache-readonly }}
+      run: bash dev/kache-ci-policy
+      shell: bash
     # Build independent derivations in parallel, one per CPU (`max-jobs`), and
     # give each build all cores (`cores = 0`). Nix defaults to max-jobs = 1.
     # Lower max-jobs for one job only after a kernel OOM record (above) or a
@@ -141,36 +143,24 @@ runs:
           accept-flake-config = true
           max-jobs = auto
           cores = 0
+    # One cache mode per job (README "Cache modes"). Each mode has its own
+    # Cachix step; dev/kache-ci-policy fails first on an unknown mode, a mode
+    # that does not fit the event, or a token that does not fit the mode.
     - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-      if: ${{ inputs.cachix-auth-token != '' }}
+      if: ${{ inputs.cache-mode == 'read' }}
+      with:
+        name: xmtp
+    - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+      if: ${{ inputs.cache-mode == 'ci' }}
+      with:
+        name: xmtp-pr
+        extraPullNames: xmtp
+        authToken: ${{ inputs.cachix-pr-auth-token }}
+    - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+      if: ${{ inputs.cache-mode == 'trusted' }}
       with:
         name: xmtp
         authToken: ${{ inputs.cachix-auth-token }}
-    - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-      if: ${{ inputs.cachix-auth-token == '' }}
-      with:
-        name: xmtp
-    - name: Compiler cache backend
-      if: ${{ inputs.kache == 'true' }}
-      id: compiler-cache-backend
-      env:
-        KACHE_CI_BUCKET: ${{ inputs.kache-s3-bucket }}
-        KACHE_CI_REGION: ${{ inputs.kache-s3-region }}
-        KACHE_CI_ENDPOINT: ${{ inputs.kache-s3-endpoint }}
-        KACHE_CI_ACCESS_KEY: ${{ inputs.kache-s3-access-key-id }}
-        KACHE_CI_SECRET_KEY: ${{ inputs.kache-s3-secret-access-key }}
-        KACHE_CI_SCOPE: ${{ inputs.kache-scope }}
-        KACHE_CI_READONLY: ${{ inputs.kache-readonly }}
-      run: bash dev/kache-ci-config
-      shell: bash
-    - name: Compiler cache write policy
-      if: ${{ inputs.kache == 'true' }}
-      id: compiler-cache-policy
-      env:
-        KACHE_CI_BACKEND: ${{ steps.compiler-cache-backend.outputs.backend }}
-        KACHE_CI_READONLY: ${{ inputs.kache-readonly }}
-      run: bash dev/kache-ci-policy
-      shell: bash
     - name: Setup Kache
       if: ${{ inputs.kache == 'true' }}
       uses: kunobi-ninja/kache-action@1a33fb2ff51be23eb9e87abeae6edb65be78f71c
@@ -185,7 +175,7 @@ runs:
         s3-prefix: libxmtp/trusted
         s3-access-key-id: ${{ steps.compiler-cache-backend.outputs.backend == 's3' && inputs.kache-s3-access-key-id || '' }}
         s3-secret-access-key: ${{ steps.compiler-cache-backend.outputs.backend == 's3' && inputs.kache-s3-secret-access-key || '' }}
-        save-cache: ${{ steps.compiler-cache-policy.outputs.cache-write }}
+        save-cache: ${{ steps.cache-policy.outputs.cache-write }}
         manifest-key: ${{ steps.compiler-cache-backend.outputs.manifest-key }}
         namespace: ${{ steps.compiler-cache-backend.outputs.manifest-key }}
         sync: "false"

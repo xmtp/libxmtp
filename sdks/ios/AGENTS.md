@@ -50,6 +50,23 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
 ## Rules
 
 - Darwin only. The iOS recipes use `NIX_DEVSHELL=ios`.
+- `dev/bindings` builds the XCFramework that CI caches when the selected Xcode
+  (`xcode-select -p`) is `lib.xcode` from `nix/lib/ios-env.nix`. In CI another
+  Xcode is an error. On a developer Mac, which names its install
+  `/Applications/Xcode.app`, it first substitutes the CI output
+  (`--max-jobs 0`) and builds the `-local` output only when no cache holds it.
+  It prints which one it used.
+- The `-local` outputs are keyed `local`, not by Xcode version, so after an
+  Xcode upgrade they reuse the outputs that the old Xcode built. To rebuild
+  them, delete them and run `dev/bindings` again:
+
+  ```bash
+  rm -f target/ios-sdk
+  dev/nix-shell 'nix derivation show -r .#ios-xcframeworks-fast-local .#ios-xcframeworks-local |
+    jq -r "(.derivations // .)[] | select(.env.XMTP_XCODE == \"local\") | .outputs.out.path | \"/nix/store/\" + ltrimstr(\"/nix/store/\")" |
+    xargs nix store delete'
+  ```
+
 - Start the backend with `dev/nix-shell 'just backend up'`.
 - Tests read `XMTP_BACKEND_URL`. The test recipe loads this worktree's URL.
 - The stream recovery test sends its client through a loopback relay

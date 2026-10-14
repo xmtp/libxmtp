@@ -95,43 +95,52 @@ let
   iosRust = (xmtp.craneLib.overrideScope (_: _: { stdenv = pkgs.stdenvNoCC; })).overrideToolchain (
     p: xmtp.mkToolchain p [ hostTarget "aarch64-apple-ios" "aarch64-apple-ios-sim" ] [ ]
   );
-  iosTargets = lib.optionalAttrs pkgs.stdenv.isDarwin (
-    lib.genAttrs [ "aarch64-apple-ios" "aarch64-apple-ios-sim" ] (
-      target:
-      let
-        envSetup = xmtp.iosEnv.envSetup target;
-        command = ''
-          ${envSetup}
-          cargo build --release --locked -p xmtp_sdk --lib --target ${target}
-        '';
-      in
-      iosRust.buildPackage (
-        common
-        // nativeArgs
-        // {
-          pname = "xmtp-sdk-ios-${target}";
-          src = sources.sdk iosRust;
-          cargoVendorDir = xmtp.base.mkCargoVendorDir iosRust;
-          CARGO_BUILD_TARGET = target;
-          __noChroot = true;
-          cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false (
-            nativeArgs
-            // {
-              CARGO_BUILD_TARGET = target;
-              __noChroot = true;
-              buildPhaseCargoCommand = command;
-            }
-          );
-          buildPhaseCargoCommand = command;
-          installPhaseCommand = ''
-            mkdir -p $out/lib
-            cp target/${target}/release/libxmtp_sdk.a $out/lib/
-            cp target/${target}/release/libxmtp_sdk.dylib $out/lib/
+  # The slices and their dependency layer compile C code with Xcode clang, so
+  # their key holds the Xcode (`xcode`): `xmtp.iosEnv.xcode.key` for the CI and
+  # release outputs, which fail on another Xcode, or `local`.
+  mkIosTargets =
+    xcode:
+    lib.optionalAttrs pkgs.stdenv.isDarwin (
+      lib.genAttrs [ "aarch64-apple-ios" "aarch64-apple-ios-sim" ] (
+        target:
+        let
+          envSetup = xmtp.iosEnv.envSetup target;
+          command = ''
+            ${envSetup}
+            cargo build --release --locked -p xmtp_sdk --lib --target ${target}
           '';
-        }
+        in
+        iosRust.buildPackage (
+          common
+          // nativeArgs
+          // {
+            pname = "xmtp-sdk-ios-${target}";
+            src = sources.sdk iosRust;
+            cargoVendorDir = xmtp.base.mkCargoVendorDir iosRust;
+            CARGO_BUILD_TARGET = target;
+            XMTP_XCODE = xcode;
+            __noChroot = true;
+            cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false (
+              nativeArgs
+              // {
+                CARGO_BUILD_TARGET = target;
+                XMTP_XCODE = xcode;
+                __noChroot = true;
+                buildPhaseCargoCommand = command;
+              }
+            );
+            buildPhaseCargoCommand = command;
+            installPhaseCommand = ''
+              mkdir -p $out/lib
+              cp target/${target}/release/libxmtp_sdk.a $out/lib/
+              cp target/${target}/release/libxmtp_sdk.dylib $out/lib/
+            '';
+          }
+        )
       )
-    )
-  );
+    );
+  iosTargets = mkIosTargets xmtp.iosEnv.xcode.key;
+  iosTargetsLocal = mkIosTargets "local";
   ubrn = pkgs.callPackage ../lib/packages/ubrn.nix { };
   nativeLibrary = "${nativeBuild}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"}";
   mkRender =
@@ -238,6 +247,7 @@ in
     generatedNode
     generatedBrowser
     iosTargets
+    iosTargetsLocal
     nativeBuild
     ;
   generationSource = sources.generationSource;

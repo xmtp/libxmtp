@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check CI suite selection, result gates, and decision summaries."""
 
+import copy
 import importlib.machinery
 import importlib.util
 import json
@@ -99,7 +100,6 @@ class SelectionTests(unittest.TestCase):
         platforms = {
             "test_android",
             "test_example_android",
-            "lint_example_android",
             "test_ios",
             "test_browser",
             "test_agent",
@@ -296,6 +296,79 @@ class SelectionTests(unittest.TestCase):
         self.assertNotIn("<img src=x>", text)
 
 
+def with_groups():
+    """Two groups: test_android waits for both, test_example_android for one."""
+    manifest = copy.deepcopy(SELECTOR.MANIFEST)
+    manifest["products"] = {
+        "alpha": {"cargo_roots": [], "crates": [], "paths": ["crates/xmtp_sdk/**"]},
+        "beta": {
+            "cargo_roots": [],
+            "crates": [],
+            "paths": ["sdks/android/**", "!sdks/android/**/*.md"],
+        },
+    }
+    for name, suite in manifest["suites"].items():
+        suite["products"] = []
+    manifest["suites"]["test_android"]["products"] = ["alpha", "beta"]
+    manifest["suites"]["test_example_android"]["products"] = ["beta"]
+    return mock.patch.multiple(SELECTOR, MANIFEST=manifest, SUITES=manifest["suites"])
+
+
+class ProductSelectionTests(unittest.TestCase):
+    kotlin = "sdks/android/library/src/main/java/Client.kt"
+    sdk = "crates/xmtp_sdk/src/client.rs"
+
+    def test_groups_need_a_waiting_suite_and_a_matching_path(self):
+        with with_groups():
+            for files, expected in [
+                ([self.kotlin], ["beta"]),
+                # One suite that waits for two groups.
+                ([self.kotlin, self.sdk], ["alpha", "beta"]),
+                # test_android runs, but no path matches beta's filters.
+                ([self.sdk], ["alpha"]),
+                ([self.sdk.replace("client.rs", "AGENTS.md")], []),
+                (["sdks/android/README.md"], []),
+                # No selected suite waits for a group.
+                (["crates/xmtp_mls/src/client.rs"], []),
+                (["apps/example-android/app/build.gradle"], []),
+            ]:
+                with self.subTest(files=files):
+                    result = select(files)
+                    self.assertEqual(result["products"], expected)
+
+    def test_full_runs_build_every_group_a_selected_suite_waits_for(self):
+        with with_groups():
+            for result, expected in [
+                (select(["proto/a.proto"]), ["alpha", "beta"]),
+                (select(["docs/a.md"], name="push", payload={}), ["alpha", "beta"]),
+                (
+                    select(
+                        None, name="workflow_dispatch", payload={}, outcome="skipped"
+                    ),
+                    ["alpha", "beta"],
+                ),
+                # A draft runs only lint suites, which wait for no group.
+                (select(["proto/a.proto"], payload=event(draft=True)), []),
+            ]:
+                with self.subTest(kind=result["event_kind"]):
+                    self.assertEqual(result["products"], expected)
+
+    def test_forks_and_dependabot_build_no_group(self):
+        dependabot = event() | {"sender": {"login": "dependabot[bot]"}}
+        human = event() | {"sender": {"login": "octocat"}}
+        with with_groups():
+            for payload, files, expected in [
+                (event(fork=True), [self.kotlin], []),
+                (event(fork=True), ["proto/a.proto"], []),
+                (dependabot, [self.kotlin, self.sdk], []),
+                (human, [self.kotlin], ["beta"]),
+            ]:
+                with self.subTest(payload=payload.get("sender"), files=files):
+                    result = select(files, payload=payload)
+                    self.assertIn("test_android", selected(result))
+                    self.assertEqual(result["products"], expected)
+
+
 class MatchTests(unittest.TestCase):
     def test_glob_semantics(self):
         for pattern, path, expected in [
@@ -443,21 +516,24 @@ class WorkflowTests(unittest.TestCase):
         }
         values, text = self.run_select(data)
         self.assertEqual(json.loads(values["test_suites"]), ["docs_site"])
+        self.assertEqual(json.loads(values["products"]), [])
         # The path is not in the checkout, so it counts as deleted.
         lint = json.loads(values["lint_suites"])
         self.assertEqual(set(lint), {"docs_quality", "lint_config"})
         self.assertIn("docs_site", text)
         outputs = self.workflow["jobs"]["detect-changes"]["outputs"]
-        self.assertEqual(set(outputs), {"lint_suites", "test_suites"})
+        self.assertEqual(set(outputs), {"lint_suites", "test_suites", "products"})
 
     def test_generated_workflows_have_one_job_per_suite(self):
         for phase, workflow in self.generated.items():
             names = {n for n, s in SELECTOR.SUITES.items() if s["phase"] == phase}
+            if phase == "test":
+                names |= {f"products_{g}" for g in SELECTOR.MANIFEST["products"]}
             jobs = workflow["jobs"]
             self.assertEqual(set(jobs) - {"required"}, names, phase)
             self.assertEqual(set(jobs["required"]["needs"]), names, phase)
             for name in names:
-                self.assertIn(f"'{name}'", jobs[name]["if"])
+                self.assertIn(f"'{name.removeprefix('products_')}'", jobs[name]["if"])
             call = self.workflow["jobs"][f"{phase}-suites"]
             self.assertEqual(call["uses"], f"./.github/workflows/{phase}-generated.yml")
             self.assertIn(f"outputs.{phase}_suites", call["with"]["suites"])
@@ -471,7 +547,9 @@ class WorkflowTests(unittest.TestCase):
         ).returncode
 
     def test_suite_gate_requires_every_selected_suite(self):
-        script = self.generated["test"]["jobs"]["required"]["steps"][0]["run"]
+        step = self.generated["test"]["jobs"]["required"]["steps"][0]
+        script = step["run"]
+        static = {"PRODUCTS": "[]", "WAITS": step["env"]["WAITS"]}
         results = {
             "docs_site": {"result": "success"},
             "test_ios": {"result": "skipped"},
@@ -483,9 +561,12 @@ class WorkflowTests(unittest.TestCase):
             ("cancelled", 1),
         ]:
             results["docs_site"]["result"] = state
-            env = {"SELECTED": '["docs_site"]', "RESULTS": json.dumps(results)}
+            env = static | {
+                "SELECTED": '["docs_site"]',
+                "RESULTS": json.dumps(results),
+            }
             self.assertEqual(self.gate(script, env), expected, state)
-        env = {"SELECTED": "[]", "RESULTS": json.dumps(results)}
+        env = static | {"SELECTED": "[]", "RESULTS": json.dumps(results)}
         self.assertEqual(self.gate(script, env), 0)
 
     def test_cargo_deny_advisories_block_only_the_scheduled_run(self):

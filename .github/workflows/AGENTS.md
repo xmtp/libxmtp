@@ -20,6 +20,35 @@ that changes only the iOS release files. The push job checks this before it
 creates its token.
 Npm dry runs resolve the source but do not create an App token or push a tag.
 `just lint-config` checks the tag transfer with a local Git HTTP remote.
+The nightly libxmtp hub tag (`v<version>`, `release.yml`) uses the same tag
+push job, so a `v*` tag ruleset can list the App as its bypass actor.
+`check-release-push.yml` refuses a source commit that is not on `main`,
+`self-hosted`, or a `release/**` branch; dry runs skip that check.
+
+Every `setup-nix` call states its Cachix cache mode (`read`, `ci`, or
+`trusted`), and `setup-js` gets the same mode. Release, publish, deploy,
+schedule, and post-merge jobs use `read`; CI jobs use `ci`; writer jobs use the
+protected-push expression. See "Cache modes" in
+`.github/actions/setup-nix/README.md`. `dev/agents/test_kache_env.py` checks
+the wiring for every entry workflow and event.
+
+Android CI jobs in mode `ci` restore Gradle User Home with
+`gradle/actions/setup-gradle` (pinned by SHA), placed after `setup-nix`. Its
+`cache-read-only` is the negated protected-push expression: protected trunk
+pushes save the CI-only Gradle cache, and every other run only reads it.
+Release, deploy, benchmark, and trusted jobs (including `android-stage`) do not
+use it. Under `CI`, the Android recipes pass `--build-cache` and never
+`--configuration-cache`; `Test` tasks are not cacheable, because they load the
+host library and call the backend outside their task inputs. The job that runs
+`check-consumers` sets `cache-cleanup: always`, because those compiles fail by
+design.
+
+Product groups (`products:` in `.github/ci-suites.yml`) each get one generated
+`products_<group>` job in `test-generated.yml`. It builds
+`.#ciSets.x86_64-linux.<group>` (listed in `nix/ci-sets.nix`) in mode `ci`, so
+the suites that wait for the group substitute the products from `xmtp-pr`. A
+suite still builds every product it uses: when the group did not run, its jobs
+build the products themselves.
 
 - Do not enable full Nix build logs by default in CI. For explicit debugging, run `nix log <drv-path>` or add `--print-build-logs` to a manual `nix build` command.
 - Pass JavaScript shard flags directly to the `just` recipe. An extra `--` is forwarded to Vitest and prevents sharding.
@@ -34,7 +63,7 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   current when native setup inputs change.
   The `native` job in `test-backend.yml` checks wrapper cleanup and the real S3
   contract. It also checks the owned loopback listeners and metrics endpoint.
-  It does not pass a cache-write token to setup-nix, and fork pull requests
+  It runs in cache mode `ci` without the `xmtp-pr` token, and fork pull requests
   skip it. Service logs are retained for 7 days.
 - The Linux job in `test-backend.yml` builds `.#backend-tests.x86_64-linux`.
   The derivation starts its own PostgreSQL primary, streaming replica, and
@@ -47,9 +76,15 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   The iOS `tests` job runs `just ios test skip-lifecycle`, so it does not
   repeat the lifecycle.
 
-- `test-example-android.yml` owns app build, host, integration, and release transport
-  checks. `lint-example-android.yml` owns app lint. Register
-  both suites in `.github/ci-suites.yml`. App-only changes do not select SDK
+- `test-example-android.yml` owns app build, lint, host, integration, and
+  release transport checks in two jobs: `messenger-build` (the APK derivation,
+  then `just example-android check-all`: unit tests, lint, and every variant in
+  one Gradle call) and `integration-tests`. App lint is in the test phase so
+  that it can wait for the `sdk_android` products job.
+- `test-android.yml` has three jobs: `sdk-build` (`just android check`, one
+  Gradle call for `gradlew build` and the instrumented test APK, then
+  `check-consumers`), `sdk-emulator` (API 34 tests, then the API 23 smoke), and
+  `android-stage`. App-only changes do not select SDK
   checks; SDK and shared toolchain changes select app compatibility checks.
 - Benchmark workloads require an explicit command or a `workflow_dispatch`
   workflow. Do not include them in normal test suites or generated CI suites.
@@ -65,8 +100,9 @@ After the isolated tag push, it attaches the test-signed
 universal APK to the matching GitHub Release for every release type. Keep the
 APK upload job dependent on the tag push and use `--verify-tag` on creation.
 The APK build needs no signing secret. Its Nix derivation uses the public AOSP
-testing key. The `apk` job in `test-example-android.yml` checks that derivation
-without a host Gradle cache or a running backend.
+testing key. The `messenger-build` job in `test-example-android.yml` builds that
+derivation first; it uses its own pinned Gradle downloads, not the restored
+Gradle User Home, and no backend.
 
 ## CI selection
 
@@ -120,7 +156,7 @@ advisory does not fail a pull request or merge; the daily scheduled run on the
 default branch fails on one. A backend change selects the backend suites and
 the client suites `test_workspace`, `test_wasm`, `test_node`, and
 `check_sdk_unit`; the Android, iOS, browser, agent, and SDK platform suites run
-on the merge. Android lint has no suite of its own: `check-android` in
+on the merge. Android lint has no suite of its own: `sdk-build` in
 `test-android.yml` runs `gradlew build`, which includes it.
 Source lint does not generate SDK products or run compiler checks. Test owns
 full types, full lint, Clippy, SDK and runtime checks. Pull requests that only

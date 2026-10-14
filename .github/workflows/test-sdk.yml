@@ -6,6 +6,8 @@ jobs:
   node-platforms:
     if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/build-sdk-node-platforms.yml
+    with:
+      cache-mode: ci
     secrets: inherit
 
   sdk:
@@ -22,12 +24,14 @@ jobs:
       DATABASE_URL: postgres://xmtp:xmtp@localhost:55432/xmtp_backend
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: ./.github/actions/setup-nix
         with:
+          cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
+          cachix-auth-token: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && secrets.CACHIX_AUTH_TOKEN || '' }}
+          cachix-pr-auth-token: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           kache: "true"
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
           kache-s3-region: ${{ vars.KACHE_S3_REGION }}
           kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
@@ -35,8 +39,10 @@ jobs:
           kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
           kache-scope: sdk-products-tests-conformance
           kache-readonly: "false"
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
       - uses: ./.github/actions/setup-js
+        with:
+          cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
       - name: Install JavaScript tools
         run: dev/nix-shell 'just install-js'
       - name: Start backend
@@ -73,7 +79,7 @@ jobs:
         run: dev/nix-shell 'just sdk test-browser'
       - name: Dump Docker logs on failure
         if: failure()
-        uses: jwalton/gh-docker-logs@v2
+        uses: jwalton/gh-docker-logs@2741064ab9d7af54b0b1ffb6076cf64c16f0220e # v2.2.2
 
   android-stage:
     name: Android SDK staging
@@ -88,13 +94,14 @@ jobs:
       SQLX_OFFLINE: "true"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: ./.github/actions/setup-nix
         with:
-          gradle-disk: "true"
+          cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
+          cachix-auth-token: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && secrets.CACHIX_AUTH_TOKEN || '' }}
+          cachix-pr-auth-token: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           kache: "true"
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
           kache-s3-region: ${{ vars.KACHE_S3_REGION }}
           kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
@@ -102,7 +109,7 @@ jobs:
           kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
           kache-scope: sdk-android-release
           kache-readonly: "false"
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
       - name: Build Kotlin SDK artifacts
         run: dev/nix-shell 'just sdk build kotlin --profile release'
       - name: Render Kotlin SDK bindings
@@ -114,7 +121,7 @@ jobs:
       - name: Stage Android AAR with strict dependency verification
         run: dev/nix-shell 'just sdk mobile-stage android'
       - name: Retain Android AAR and contract
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: android-sdk-stage
           if-no-files-found: error

@@ -7,6 +7,7 @@ dev/nix-shell 'just example-android start'
 dev/nix-shell 'just example-android apk'
 dev/nix-shell 'just example-android apk-update-deps'
 dev/nix-shell 'just example-android check'
+dev/nix-shell 'just example-android check-all' # unit tests, lint, and builds in one Gradle call (CI)
 dev/nix-shell 'just example-android preview-check'
 dev/nix-shell 'just example-android lint'
 dev/nix-shell 'just example-android format'
@@ -158,8 +159,8 @@ target. Do not add an arbitrary backend argument or remote opt-in.
 
 ## Verification
 
-CI uses `test-example-android.yml` and `lint-example-android.yml`. Benchmark
-workloads are not part of these suites. SDK input
+CI uses `test-example-android.yml`, which also runs app lint. Benchmark
+workloads are not part of this suite. SDK input
 changes also select these compatibility gates. SDK package, public consumer,
 API 23, and all-ABI proofs stay in their SDK workflows.
 

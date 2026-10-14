@@ -42,6 +42,7 @@
         inputs.treefmt-nix.flakeModule
         ./nix/musl-docker.nix
         ./nix/ci-checks.nix
+        ./nix/ci-sets.nix
         ./nix/fmt.nix
         ./nix/node-packages.nix
         ./nix/android-packages.nix
@@ -130,6 +131,18 @@
             ios-xcframeworks-fast =
               (pkgs.callPackage ./nix/package/ios.nix {
                 stdenv = pkgs.stdenvNoCC;
+              }).devFast;
+            # For a Mac whose Xcode is not the CI Xcode (`lib.xcode`):
+            # sdks/ios/dev/bindings selects these. Caches do not hold them.
+            ios-xcframeworks-local =
+              (pkgs.callPackage ./nix/package/ios.nix {
+                stdenv = pkgs.stdenvNoCC;
+                local = true;
+              }).release;
+            ios-xcframeworks-fast-local =
+              (pkgs.callPackage ./nix/package/ios.nix {
+                stdenv = pkgs.stdenvNoCC;
+                local = true;
               }).devFast;
           };
         };

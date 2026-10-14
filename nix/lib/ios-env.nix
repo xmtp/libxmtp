@@ -24,6 +24,20 @@ let
     "aarch64-apple-ios-sim"
   ];
 
+  # The Xcode that builds the CI and release iOS outputs. Every CI job that
+  # builds or pushes them selects it with maxim-lobanov/setup-xcode, which runs
+  # `xcode-select -s` on the versioned app. The key holds the developer
+  # directory too: Cargo records the Xcode clang path in build-script and linker
+  # fingerprints, so a build under another path recompiles every crate.
+  # A new Xcode changes these values and every setup-xcode pin in one change.
+  xcode = rec {
+    version = "26.3";
+    build = "17C529";
+    developerDir = "/Applications/Xcode_26.3.app/Contents/Developer";
+    # The form that checkXcode and sdks/ios/dev/bindings print for an Xcode.
+    key = "Xcode ${version} (${build}) at ${developerDir}";
+  };
+
   # Default Xcode path — used as fallback when /usr/bin/xcode-select is unavailable.
   defaultDeveloperDir = "/Applications/Xcode.app/Contents/Developer";
 
@@ -129,7 +143,25 @@ let
       export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$_XCODE_CLANG"
       export CFLAGS_aarch64_apple_ios_sim="--sysroot=$_IOS_SDKROOT"
       export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=$_IOS_SDKROOT"
-    '';
+    ''
+    + checkXcode;
+
+  # Shell snippet that fails a build unless the selected Xcode is the one in the
+  # derivation's XMTP_XCODE key, `xcode.key` for the CI and release outputs.
+  # Key `local` (the -local outputs) skips the check. Nix runs no build on a
+  # substitution, so a path from a cache is never checked: its key names the
+  # Xcode of the runner that built it, which passed this check.
+  checkXcode = ''
+    if [[ "''${XMTP_XCODE:?an iOS derivation must set XMTP_XCODE}" != local ]]; then
+      _XCODE_VERSION=$("$_XCODE_DEV/usr/bin/xcodebuild" -version) || _XCODE_VERSION=""
+      _XCODE_FOUND="''${_XCODE_VERSION%%$'\n'*} (''${_XCODE_VERSION##*Build version }) at $_XCODE_DEV"
+      if [[ "$_XCODE_FOUND" != "$XMTP_XCODE" ]]; then
+        echo "error: this iOS output is keyed to $XMTP_XCODE, but the selected Xcode is $_XCODE_FOUND." >&2
+        echo "Select that Xcode (maxim-lobanov/setup-xcode in CI), or build the -local output." >&2
+        exit 1
+      fi
+    fi
+  '';
 
   # Shell snippet that sets all cross-compilation env vars for the dev shell.
   # Unlike envSetup (which targets a single platform), this configures env vars
@@ -172,6 +204,7 @@ in
 {
   inherit
     iosTargets
+    xcode
     defaultDeveloperDir
     isIosTarget
     envSetup

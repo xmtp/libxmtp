@@ -257,20 +257,32 @@ class AndroidReleaseTest(unittest.TestCase):
             gradle.write_text(
                 "#!/usr/bin/env bash\nset -eu\n"
                 'printf "%s\\n" "$*" >&2\n'
-                'test "$*" = "-p . :library:connectedCheck --continue"\n'
+                'test "$*" = "$EXPECTED"\n'
             )
             gradle.chmod(0o755)
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"])
             env["ANDROID_SERIAL"] = "fixture-device"
             env["XMTP_S3_PORT"] = "9067"
-            result = subprocess.run(
-                ["bash", "-euc", command],
-                cwd=root,
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            env.pop("CI", None)
+            # CI Gradle calls add the build cache (setup-gradle restores it).
+            for ci, expected in (
+                (None, "-p . :library:connectedCheck --continue"),
+                ("true", "-p . :library:connectedCheck --continue --build-cache"),
+            ):
+                with self.subTest(ci=ci):
+                    run_env = dict(env, EXPECTED=expected)
+                    if ci:
+                        run_env["CI"] = ci
+                    result = subprocess.run(
+                        ["bash", "-euc", command],
+                        cwd=root,
+                        env=run_env,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
 
     def test_live_environment_reaches_gradle(self):
         command = step("Build and test").split("        run: ", 1)[1].strip()
@@ -347,20 +359,23 @@ class AndroidReleaseTest(unittest.TestCase):
             WORKFLOW.read_text(),
             r"uses: taiki-e/install-action@[0-9a-f]{40}(?:\s|$)",
         )
-        # Release and publish jobs run setup-nix, so every action it uses is
-        # pinned by commit SHA, not by a tag that can move.
-        action = yaml.safe_load(
-            (ROOT / ".github/actions/setup-nix/action.yml").read_text()
-        )
-        uses = [step["uses"] for step in action["runs"]["steps"] if "uses" in step]
-        self.assertTrue(uses)
-        for value in uses:
-            with self.subTest(uses=value):
-                self.assertRegex(value, r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")
+        # Release and publish jobs run setup-nix and setup-js, so every action
+        # they use is pinned by commit SHA, not by a tag that can move.
+        for name in ("setup-nix", "setup-js"):
+            action = yaml.safe_load(
+                (ROOT / f".github/actions/{name}/action.yml").read_text()
+            )
+            uses = [step["uses"] for step in action["runs"]["steps"] if "uses" in step]
+            self.assertTrue(uses)
+            for value in uses:
+                with self.subTest(action=name, uses=value):
+                    self.assertRegex(value, r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 
-    def test_release_reads_no_sticky_disk(self):
-        # CI jobs commit the ~/.gradle disk; a release must not read a store
-        # that CI jobs write. Compose builds no image, so no buildx disk.
+    def test_release_reads_no_ci_gradle_cache(self):
+        # CI jobs write the Gradle cache (setup-gradle); a release must not
+        # read a store that CI jobs write, and its Gradle properties enable no
+        # build or configuration cache. Compose builds no image, so no buildx
+        # disk.
         setup = yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]
         inputs = [
             item.get("with", {})
@@ -368,8 +383,15 @@ class AndroidReleaseTest(unittest.TestCase):
             if item.get("uses") == "./.github/actions/setup-nix"
         ]
         self.assertEqual(len(inputs), 1)
-        self.assertEqual(inputs[0].get("gradle-disk", "false"), "false")
+        self.assertNotIn("gradle-disk", inputs[0])
         self.assertNotIn("docker-builder", inputs[0])
+        for path in (WORKFLOW, ROOT / "sdks/android/gradle.properties"):
+            with self.subTest(path=path.name):
+                self.assertNotRegex(
+                    path.read_text(),
+                    r"setup-gradle|actions/cache|configuration-cache|build-cache"
+                    r"|org\.gradle\.(caching|configuration-cache)",
+                )
 
 
 if __name__ == "__main__":

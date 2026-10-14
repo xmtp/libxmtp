@@ -25,6 +25,7 @@ jobs:
     outputs:
       lint_suites: ${{ steps.select.outputs.lint_suites }}
       test_suites: ${{ steps.select.outputs.test_suites }}
+      products: ${{ steps.select.outputs.products }}
     steps:
     - uses: actions/checkout@v6
       with:
@@ -69,11 +70,10 @@ jobs:
     needs: detect-changes
     permissions:
       contents: read
-      pages: write
-      id-token: write
     uses: ./.github/workflows/test-generated.yml
     with:
       suites: ${{ needs.detect-changes.outputs.test_suites }}
+      products: ${{ needs.detect-changes.outputs.products }}
     secrets: inherit
   # Branch protection requires the Lint and Test checks.
   lint:

@@ -20,7 +20,7 @@
     "**/{AGENTS,CLAUDE}.md",
     ".github/**/*.md",
     "{README,CONTRIBUTING,ONBOARDING,TEST_SCENARIOS}.md",
-    "{LICENSE,.envrc,.gitignore,.git-blame-ignore-revs,.gitattributes,.dockerignore,codecov.yml,om.yaml,cliff.toml}",
+    "{LICENSE,.envrc,.gitignore,.git-blame-ignore-revs,.gitattributes,.dockerignore,codecov.yml,cliff.toml}",
     "{.agents,.claude,.codex,.devcontainer,.macroscope,.murmur,.vscode,.zed}/**",
     "{img,diagrams}/**",
     "apps/.gitkeep",
@@ -31,6 +31,27 @@
     "dev/{nix-up,nix-down,nix-status,nix-cache-up}",
     "dev/nix/**"
   ],
+  "products": {
+    "sdk_android": {
+      "cargo_roots": [],
+      "crates": [],
+      "paths": [
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_sdk/**",
+        "nix/android-packages.nix",
+        "nix/ci-sets.nix",
+        "nix/lib/android-env.nix",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/node-packages.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "{Cargo.toml,Cargo.lock}"
+      ]
+    }
+  },
   "suites": {
     "lint_workspace": {
       "phase": "lint",
@@ -47,6 +68,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -76,6 +98,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -110,6 +133,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -154,6 +178,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -179,6 +204,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -214,6 +240,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -245,6 +272,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -254,47 +282,6 @@
       "paths": [
         "**/Cargo.toml",
         "{Cargo.lock,deny.toml}"
-      ]
-    },
-    "lint_example_android": {
-      "phase": "lint",
-      "workflow": "lint-example-android.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-example-android.yml"
-      ],
-      "paths": [
-        "apps/example-android/**",
-        "apps/xmtp_sdk_bindgen/**",
-        "crates/xmtp_sdk/**",
-        "nix/android-packages.nix",
-        "nix/lib/android-*",
-        "nix/lib/packages/napi-rs-cli/**",
-        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
-        "nix/node-packages.nix",
-        "nix/package/example-android-apk*",
-        "nix/package/libffi-zig-cross.site",
-        "nix/package/node.nix",
-        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
-        "nix/shells/android.nix",
-        "sdks/android/**",
-        "{Cargo.toml,Cargo.lock}",
-        "!**/*.md",
-        "!docs/**"
       ]
     },
     "check_rust": {
@@ -314,6 +301,7 @@
         "rust-clippy-native",
         "rust-clippy-wasm"
       ],
+      "products": [],
       "cargo_roots": [
         "@default-members",
         "xmtp-sdk-bindgen"
@@ -372,6 +360,7 @@
       "kache": [
         "sdk-tests-debug"
       ],
+      "products": [],
       "cargo_roots": [
         "xmtp_sdk"
       ],
@@ -434,6 +423,7 @@
       "kache": [
         "backend-tests-debug"
       ],
+      "products": [],
       "cargo_roots": [
         "xmtp_backend"
       ],
@@ -489,6 +479,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [
         "xmtp_id",
         "xmtp_mls_validation",
@@ -530,6 +521,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [
         "@default-members"
       ],
@@ -591,6 +583,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [
         "keepalive-probe"
       ],
@@ -628,6 +621,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [
         "xmtp_api",
         "xmtp_api_backend",
@@ -699,6 +693,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [
         "xdbg"
       ],
@@ -761,6 +756,7 @@
       "kache": [
         "rust-reference"
       ],
+      "products": [],
       "cargo_roots": [
         "@default-members",
         "error_glossary"
@@ -818,6 +814,7 @@
       "kache": [
         "sdk-products-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -861,6 +858,7 @@
       "kache": [
         "sdk-products-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -905,6 +903,7 @@
       "kache": [
         "sdk-native-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -955,6 +954,7 @@
       "kache": [
         "sdk-native-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -998,6 +998,7 @@
       "kache": [
         "sdk-products-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1043,6 +1044,7 @@
       "kache": [
         "sdk-browser-conformance"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1077,17 +1079,16 @@
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "inherit",
+      "secrets": "kache",
       "permissions": {
-        "contents": "read",
-        "pages": "write",
-        "id-token": "write"
+        "contents": "read"
       },
       "covered_by": null,
       "kache": [
         "rust-reference",
         "sdk-products-debug"
       ],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1134,6 +1135,7 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1176,6 +1178,9 @@
       "kache": [
         "sdk-android-release"
       ],
+      "products": [
+        "sdk_android"
+      ],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1214,6 +1219,9 @@
       },
       "covered_by": null,
       "kache": [],
+      "products": [
+        "sdk_android"
+      ],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [

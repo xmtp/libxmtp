@@ -13,8 +13,88 @@ failure, and adds a warning when it finds one. On macOS, check memory pressure.
 
 The Nix store is not persisted between jobs. Each job substitutes from Cachix
 and cache.nixos.org, and Nix checks the signature of every path it adds.
-The `gradle-disk` input mounts the repo-wide `~/.gradle` sticky disk for CI
-Gradle jobs. CI jobs commit it, so release jobs do not mount it.
+
+## Cache modes
+
+Two Cachix caches hold CI outputs:
+
+- `xmtp` is trusted. Release, deploys, publish jobs, the post-merge workflow, and
+  developers substitute from it. Only jobs in mode `trusted` write it.
+- `xmtp-pr` (public key
+  `xmtp-pr.cachix.org-1:QV97uslBSzm8N6XoUKzyifkel14qZVsq1kzZVkgJ70g=`) is
+  CI-only. Pull request jobs and the other merge-run jobs write it, so its
+  content can come from unreviewed code.
+
+**The rule:** a job that reads a CI-only store writes no trusted store
+(Cachix `xmtp`, Kache S3, the saved pnpm store). Each caller states its mode
+with the `cache-mode` input:
+
+| Mode | Reads | Writes | Token input | Kache | Used by |
+| --- | --- | --- | --- | --- | --- |
+| `read` (default) | `xmtp` | nothing | none | read-only | release, publish, and deploy jobs, the post-merge closure and docs jobs, schedules, manual tools |
+| `ci` | `xmtp`, `xmtp-pr` | `xmtp-pr` | `cachix-pr-auth-token` (`CACHIX_PR_AUTH_TOKEN`) | read-only | pull request and merge-run jobs |
+| `trusted` | `xmtp` | `xmtp`, Kache S3 | `cachix-auth-token` (`CACHIX_AUTH_TOKEN` of the writer environment) | writes when `kache-readonly: "false"` | the post-merge build, and writer jobs on a protected push to trunk |
+
+`dev/kache-ci-policy` runs before any cache is configured and fails the job
+when:
+
+- the mode is not `read`, `ci`, or `trusted`;
+- the mode is `trusted` and the event is not a protected push to `main` or
+  `self-hosted`;
+- a `read` or `trusted` job receives the `xmtp-pr` token;
+- a `read` or `ci` job receives the trusted token.
+
+Fork and Dependabot runs have no
+`xmtp-pr` token: they read both caches and push nothing.
+
+A writer job selects the writer environment `kache-s3-writer` exactly when
+its mode is `trusted`, with the same protected-push expression in both
+places:
+
+```yaml
+environment:
+  name: ${{ <protected push> && 'kache-s3-writer' || '' }}
+...
+cache-mode: ${{ <protected push> && 'trusted' || 'ci' }}
+cachix-auth-token: ${{ <protected push> && secrets.CACHIX_AUTH_TOKEN || '' }}
+cachix-pr-auth-token: ${{ !(<protected push>) && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
+```
+
+Only a job that resolves to `trusted` receives the trusted token. The writer
+environment's branch policy (`main`, `self-hosted`) also keeps it from pull
+request jobs once the repository-level `CACHIX_AUTH_TOKEN` is deleted.
+`setup-js` takes the same `cache-mode`, and every job passes the same mode to
+both actions: `read` restores no pnpm store (pnpm then downloads each tarball
+and checks it against the lockfile), `ci` restores only, and `trusted` also
+saves `pnpm-*` entries. `dev/agents/test_kache_env.py` evaluates each
+caller's mode, environment, and tokens for pull request, trunk push,
+schedule, and dispatch events, and checks these rules.
+
+Merge-run jobs in mode `ci` reuse what the pull request's last run pushed to
+`xmtp-pr` when the merge tree equals the tree that run tested, and they hand
+off inside the run through `xmtp-pr`.
+
+### Repair a suspected poisoned `xmtp-pr`
+
+A pull request author can upload a crafted output for any path that
+`xmtp-pr` does not hold yet. Release, deploys, and the post-merge workflow never
+read `xmtp-pr`, so shipped bytes stay safe; CI jobs in mode `ci` substitute
+the crafted output until it leaves the cache. Nobody knows which path is
+crafted, so deleting one entry is not enough, and `xmtp-pr` holds only
+results that CI can build again. An admin clears the whole cache with a
+personal token, then reruns the affected merge run:
+
+```bash
+curl -fsS -X POST -H "Authorization: Bearer $CACHIX_PERSONAL_TOKEN" \
+  https://app.cachix.org/api/v1/cache/xmtp-pr/clear
+```
+
+What a clear keeps (name, key, tokens, settings) is not verified; ask Cachix
+support first (Task 1 step 10 of the Nix build plan asks the same for `xmtp`).
+The Gradle cache is not part of `setup-nix`. Android CI jobs in mode `ci` add
+`gradle/actions/setup-gradle` after it: protected trunk pushes write that
+CI-only cache, and every other run only reads it. Release, deploy, benchmark,
+and trusted jobs do not restore it (`CacheModeWiringTests`).
 
 ## CI compiler cache
 
@@ -34,8 +114,11 @@ Kache is off by default (`kache: "false"`). Only jobs that run cargo outside
 Nix set `kache: "true"`; Nix derivations cannot use Kache, so a job that only
 runs `nix build` gains nothing from it. The 21 enabled callers in the table
 below use S3 when the reader key pair is available. Every other caller passes
-no Kache input and selects no writer environment. The 11 stable scope
-families follow the outer Cargo build variant. The action adds runner OS and
+no Kache input and selects no writer environment, except the `post-merge.yml` build
+job: it runs only on pushes to trunk and selects the writer environment for
+the trusted Cachix token. Kache writes also need mode `trusted` (see "Cache
+modes"). The 11 stable scope families follow the outer Cargo
+build variant. The action adds runner OS and
 architecture. All callers use `libxmtp/trusted`, prefetch expensive outputs,
 and do not pull the whole bucket at startup.
 
@@ -78,8 +161,8 @@ reader secrets. Fork and Dependabot runs have no reader secrets and build
 local-only. No reader environment is needed.
 
 `kache-readonly` defaults to `true`. An audited writer caller sets it to
-`false`; the write helper still requires S3, the push event, the exact branch,
-and branch protection. The Kache action receives `save-cache: false` for all
+`false`; the write helper still requires S3, mode `trusted`, the push event,
+the exact branch, and branch protection. The Kache action receives `save-cache: false` for all
 reader jobs. It writes read-only mode to its daemon config before startup.
 Provider IAM permissions are the access boundary; the save flag is a second
 check.
@@ -87,9 +170,9 @@ check.
 Existing deployment jobs keep their deployment environment and URL. The
 `web-chat` environment must contain no writer keys under the two Kache secret
 names. Leave those environment secrets absent to use repository reader keys.
-Release jobs, jobs that build a selected ref, manual recovery, and native
-backend acceptance use `kache-readonly: true` and never select the writer
-environment. Source lint, docs quality and composition, Nix output warming,
+Release jobs, jobs that build a selected ref, manual recovery, native
+backend acceptance, and the docs site job use `kache-readonly: true` and never
+select the writer environment. Source lint, docs quality and composition, Nix output warming,
 and the iOS and Android test jobs leave Kache off and select no writer
 environment, because they run no cargo outside Nix.
 Native backend acceptance receives only the Kache pair through an explicit
@@ -162,9 +245,9 @@ stops running cargo.
 | `check-sdk-products.yml / generated` | `sdk-products-debug` | Protected push writer; otherwise reader |
 | `check-sdk-unit.yml / unit` | `sdk-tests-debug` | Protected push writer; otherwise reader |
 | `check-types.yml / check` | `sdk-products-debug` | Protected push writer; otherwise reader |
-| `deploy-docs.yml / site` | `sdk-products-debug` | Protected push writer; otherwise reader |
+| `deploy-docs.yml / site` | `sdk-products-debug` | Reader |
 | `deploy-web-chat.yml / deploy` | `sdk-products-debug` | Reader |
-| `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer; otherwise reader |
+| `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer (CI merge run); reader inside `post-merge.yml` and otherwise |
 | `manual-sdk-recovery.yml / recovery` | `sdk-native-debug` | Reader |
 | `release-agent-sdk.yml / build` | `sdk-native-debug` | Reader |
 | `release-browser-sdk.yml / build` | `sdk-products-debug` | Reader |

@@ -21,13 +21,7 @@ class BenchmarkPolicyTest(unittest.TestCase):
             normal["jobs"],
             "Benchmark runs in normal Android CI",
         )
-        expected = {
-            "unit-tests",
-            "min-sdk-smoke",
-            "integration-tests",
-            "check-android",
-            "android-stage",
-        }
+        expected = {"sdk-build", "sdk-emulator", "android-stage"}
         self.assertEqual(expected, set(normal["jobs"]["results"]["needs"]))
         passed = normal["jobs"]["results"]["steps"][0]["env"]["PASSED"]
         self.assertNotIn("needs.messenger-performance", passed)

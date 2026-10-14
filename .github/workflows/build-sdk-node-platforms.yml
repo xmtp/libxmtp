@@ -5,6 +5,12 @@ on:
       ref:
         type: string
         default: ""
+      cache-mode:
+        description: >-
+          setup-nix and setup-js cache mode: read (default) for release, ci
+          for CI runs.
+        type: string
+        default: read
     outputs:
       artifact:
         value: sdk_node_public
@@ -25,6 +31,9 @@ jobs:
           - target: linux-x64-musl
             library: libxmtp_sdk.so
             runner: blacksmith-16vcpu-ubuntu-2404
+          # No warm set holds the native linux-arm64 pairs, and a release
+          # reads only, so a release builds these two cold. That stays until
+          # release takes the Node pairs from the products build.
           - target: linux-arm64-gnu
             library: libxmtp_sdk.so
             runner: ubuntu-24.04-arm
@@ -40,8 +49,9 @@ jobs:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-nix
         with:
+          cache-mode: ${{ inputs.cache-mode }}
+          cachix-pr-auth-token: ${{ inputs.cache-mode == 'ci' && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Build matched SDK and pinned runtime pair
         env:
           TARGET: ${{ matrix.target }}
@@ -130,9 +140,10 @@ jobs:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-nix
         with:
+          cache-mode: ${{ inputs.cache-mode }}
+          cachix-pr-auth-token: ${{ inputs.cache-mode == 'ci' && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
           kache: "true"
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
           kache-s3-region: ${{ vars.KACHE_S3_REGION }}
           kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
@@ -142,6 +153,8 @@ jobs:
           kache-readonly: "true"
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
+        with:
+          cache-mode: ${{ inputs.cache-mode }}
       - uses: actions/download-artifact@v8
         with:
           pattern: sdk_node_pair_*

@@ -46,7 +46,6 @@ def select(paths, *, draft=False, event="pull_request", available=True):
 
 class SelectionTest(unittest.TestCase):
     def assert_app(self, result):
-        self.assertIn("lint_example_android", result["suites"]["lint"])
         self.assertIn("test_example_android", result["suites"]["test"])
 
     def test_app_inputs_select_app_without_sdk_platform_or_bindings(self):
@@ -145,7 +144,6 @@ class SelectionTest(unittest.TestCase):
             ["apps/example-android/app/src/main/java/Screen.kt"], draft=True
         )
         self.assertNotIn("test_example_android", result["suites"]["test"])
-        self.assertNotIn("lint_example_android", result["suites"]["lint"])
         self.assertIn("lint_config", result["suites"]["lint"])
         self.assert_app(select([], event="push"))
 
@@ -170,60 +168,58 @@ class SelectionTest(unittest.TestCase):
     def test_app_jobs_require_every_child_and_generated_gate(self):
         self.assert_child_gate(
             ".github/workflows/test-example-android.yml",
-            ("apk", "unit-tests", "integration-tests"),
+            ("messenger-build", "integration-tests"),
         )
-        for phase, suite in (
-            ("lint", "lint_example_android"),
-            ("test", "test_example_android"),
+        suite = "test_example_android"
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/test-generated.yml").read_text()
+        )
+        jobs = workflow["jobs"]
+        self.assertIn(suite, jobs["required"]["needs"])
+        self.assertEqual(
+            jobs[suite]["uses"], "./.github/workflows/test-example-android.yml"
+        )
+        self.assertIn(f"'{suite}'", jobs[suite]["if"])
+        step = jobs["required"]["steps"][0]
+        for state, expected in (
+            ("success", 0),
+            ("failure", 1),
+            ("skipped", 1),
+            ("cancelled", 1),
         ):
-            workflow = yaml.safe_load(
-                (ROOT / f".github/workflows/{phase}-generated.yml").read_text()
+            result = subprocess.run(
+                ["bash", "-c", step["run"]],
+                env=os.environ
+                | {
+                    "SELECTED": json.dumps([suite]),
+                    "PRODUCTS": "[]",
+                    "WAITS": step["env"]["WAITS"],
+                    "RESULTS": json.dumps({suite: {"result": state}}),
+                },
+                capture_output=True,
+                text=True,
             )
-            jobs = workflow["jobs"]
-            self.assertIn(suite, jobs["required"]["needs"])
-            self.assertEqual(
-                jobs[suite]["uses"], f"./.github/workflows/{phase}-example-android.yml"
-            )
-            self.assertIn(f"'{suite}'", jobs[suite]["if"])
-            gate = jobs["required"]["steps"][0]["run"]
-            for state, expected in (
-                ("success", 0),
-                ("failure", 1),
-                ("skipped", 1),
-                ("cancelled", 1),
-            ):
-                result = subprocess.run(
-                    ["bash", "-c", gate],
-                    env=os.environ
-                    | {
-                        "SELECTED": json.dumps([suite]),
-                        "RESULTS": json.dumps({suite: {"result": state}}),
-                    },
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(result.returncode, expected, (phase, state))
+            self.assertEqual(result.returncode, expected, state)
 
-    def test_sdk_gate_keeps_staging_consumers_and_minimum_platform(self):
+    def test_sdk_jobs_require_every_child_and_consumers_clean_the_gradle_cache(self):
         workflow = self.assert_child_gate(
             ".github/workflows/test-android.yml",
-            (
-                "unit-tests",
-                "min-sdk-smoke",
-                "integration-tests",
-                "check-android",
-                "android-stage",
-            ),
+            ("sdk-build", "sdk-emulator", "android-stage"),
         )
-        text = json.dumps(workflow)
-        for command in (
-            "just android check",
-            "just sdk mobile-stage android",
-            "just sdk mobile-build android",
-            "just android check-consumers",
-            "just android test-min-sdk",
-        ):
-            self.assertIn(command, text)
+        # check-consumers compiles fail by design, so its job cleans up the
+        # trunk Gradle cache entry even after a failed Gradle build.
+        consumers = [
+            job
+            for job in workflow["jobs"].values()
+            if "just android check-consumers" in json.dumps(job.get("steps"))
+        ]
+        self.assertEqual(len(consumers), 1)
+        gradle = [
+            step.get("with") or {}
+            for step in consumers[0]["steps"]
+            if step.get("uses", "").startswith("gradle/actions/setup-gradle@")
+        ]
+        self.assertEqual([inputs.get("cache-cleanup") for inputs in gradle], ["always"])
 
 
 class BenchmarkPolicyTest(unittest.TestCase):
@@ -373,6 +369,9 @@ class CommandPathTest(unittest.TestCase):
                     "python3.11 -", 'export GRADLE_ARGS="$*"\npython3.11 -'
                 )
             )
+            sdk_gradle = root / "sdks/android/gradlew"
+            sdk_gradle.write_text(gradle.read_text())
+            sdk_gradle.chmod(0o755)
             environment = dict(
                 os.environ,
                 PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
@@ -380,19 +379,25 @@ class CommandPathTest(unittest.TestCase):
                 STAGE_LOG=str(root / "stages.txt"),
                 SCREENSHOT_LOG=str(root / "screenshots.txt"),
                 ANDROID_NDK_HOME=str(root / "ndk"),
+                # CI Gradle calls use the restored build cache, never the
+                # configuration cache.
+                CI="true",
             )
-            for recipe in (
-                "check",
-                "test",
-                "test-integration",
-                "test-release-integration",
+            for module, recipe in (
+                ("example-android", "check"),
+                ("example-android", "test"),
+                ("example-android", "test-integration"),
+                ("example-android", "test-release-integration"),
+                ("example-android", "check-all"),
+                ("android", "check"),
+                ("android", "lint"),
             ):
                 result = subprocess.run(
                     [
                         "just",
                         "--justfile",
                         str(root / "justfile"),
-                        "example-android",
+                        module,
                         recipe,
                     ],
                     cwd=root,
@@ -401,7 +406,7 @@ class CommandPathTest(unittest.TestCase):
                     capture_output=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                if recipe == "check":
+                if module == "example-android" and recipe in ("check", "check-all"):
                     self.assertIn("example-debug.apk", result.stdout)
                     self.assertIn("example-release-unsigned.apk", result.stdout)
             result = subprocess.run(
@@ -424,10 +429,40 @@ class CommandPathTest(unittest.TestCase):
                 json.loads(line)
                 for line in (root / "commands.jsonl").read_text().splitlines()
             ]
-            self.assertEqual(len(commands), 4)
+            # One Gradle call per recipe; the SDK `check` call also runs the
+            # library's `check-packages`, which calls no Gradle.
+            self.assertEqual(len(commands), 7)
+            for command in commands:
+                self.assertIn("--build-cache", command["args"].split())
+                self.assertNotIn("configuration-cache", command["args"])
             self.assertTrue(
-                all(c["cwd"] == str(root / "apps/example-android") for c in commands)
+                all(
+                    c["cwd"] == str(root / "apps/example-android") for c in commands[:5]
+                )
             )
+            self.assertTrue(
+                all(c["cwd"] == str(root / "sdks/android") for c in commands[5:])
+            )
+            # The CI build jobs: Messenger tests, lint, and builds, and the SDK
+            # `build` with the instrumented test APK, each in one call.
+            check_all = commands[4]["args"].split()
+            for task in (
+                ":example:testDebugUnitTest",
+                ":example-shared:testDebugUnitTest",
+                "spotlessCheck",
+                ":example:lintDebug",
+                ":example:assembleRelease",
+                ":example:assembleDebugAndroidTest",
+                ":example-shared:assembleRelease",
+                "--continue",
+            ):
+                self.assertIn(task, check_all)
+            self.assertIn("sdks/android/.build/test-host/lib", commands[4]["host"])
+            self.assertIn("build", commands[5]["args"].split())
+            self.assertIn(":library:assembleDebugAndroidTest", commands[5]["args"])
+            self.assertIn("sdks/android/.build/test-host/lib", commands[5]["host"])
+            for task in ("spotlessCheck", ":library:lintDebug"):
+                self.assertIn(task, commands[6]["args"].split())
             self.assertIn(":example:assembleRelease", commands[0]["args"])
             self.assertIn(":example-shared:assembleDebug", commands[0]["args"])
             self.assertIn("sdks/android/.build/test-host/lib", commands[1]["host"])
@@ -460,7 +495,7 @@ class CommandPathTest(unittest.TestCase):
             )
             self.assertNotIn("/sdcard/", screenshot_calls)
             self.assertFalse((root / "sdks/android/app").exists())
-            self.assertEqual((root / "stages.txt").read_text().count("bindings\n"), 4)
+            self.assertEqual((root / "stages.txt").read_text().count("bindings\n"), 7)
             self.assertEqual((root / "stages.txt").read_text().count("admission\n"), 1)
 
 

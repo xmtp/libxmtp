@@ -7,9 +7,27 @@ on:
         description: JSON list of the suites to run.
         type: string
         required: true
+      products:
+        description: JSON list of the product groups to build.
+        type: string
+        required: true
 permissions:
   contents: read
 jobs:
+  products_sdk_android:
+    name: Products (sdk_android)
+    if: contains(fromJSON(inputs.products), 'sdk_android')
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 60
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        cache-mode: ci
+        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+        github-token: ${{ github.token }}
+    - name: Build the sdk_android products
+      run: nix build --keep-going --no-link .#ciSets.x86_64-linux.sdk_android
   check_rust:
     if: contains(fromJSON(inputs.suites), 'check_rust')
     uses: ./.github/workflows/check-rust.yml
@@ -115,9 +133,9 @@ jobs:
     uses: ./.github/workflows/deploy-docs.yml
     permissions:
       contents: read
-      pages: write
-      id-token: write
-    secrets: inherit
+    secrets:
+      KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+      KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
   test_ios:
     if: contains(fromJSON(inputs.suites), 'test_ios')
     uses: ./.github/workflows/test-ios.yml
@@ -125,13 +143,17 @@ jobs:
       contents: read
     secrets: inherit
   test_android:
-    if: contains(fromJSON(inputs.suites), 'test_android')
+    if: ${{ !cancelled() && contains(fromJSON(inputs.suites), 'test_android') && needs.products_sdk_android.result != 'failure' }}
+    needs:
+    - products_sdk_android
     uses: ./.github/workflows/test-android.yml
     permissions:
       contents: read
     secrets: inherit
   test_example_android:
-    if: contains(fromJSON(inputs.suites), 'test_example_android')
+    if: ${{ !cancelled() && contains(fromJSON(inputs.suites), 'test_example_android') && needs.products_sdk_android.result != 'failure' }}
+    needs:
+    - products_sdk_android
     uses: ./.github/workflows/test-example-android.yml
     permissions:
       contents: read
@@ -142,6 +164,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
     needs:
+    - products_sdk_android
     - check_rust
     - check_sdk_unit
     - test_backend
@@ -165,9 +188,18 @@ jobs:
     - name: Check that every selected suite passed
       env:
         SELECTED: ${{ inputs.suites }}
+        PRODUCTS: ${{ inputs.products }}
+        WAITS: '{"test_android":["sdk_android"],"test_example_android":["sdk_android"]}'
         RESULTS: ${{ toJSON(needs) }}
       run: |
-        jq -en \
+        jq -enr \
           --argjson selected "$SELECTED" \
+          --argjson products "$PRODUCTS" \
+          --argjson waits "$WAITS" \
           --argjson results "$RESULTS" \
-          '$selected | all(.[]; $results[.].result == "success")'
+          '[$products[] | "products_\(.)" | select($results[.].result != "success")] as $broken
+          | [$selected[] | select($results[.].result != "success")
+              | select(any(($waits[.] // [])[]; "products_\(.)" | IN($broken[])) | not)] as $failed
+          | ($broken[] | "\(.): \($results[.].result); the suites that wait for it did not run"),
+            ($failed[] | "\(.): \($results[.].result)"),
+            ($broken + $failed == [])'

@@ -21,9 +21,10 @@ jobs:
       NIX_DEVSHELL: rust
       SQLX_OFFLINE: 'true'
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
     - uses: ./.github/actions/setup-nix
       with:
+        cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
         kache: 'true'
         github-token: ${{ github.token }}
         kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
@@ -33,11 +34,11 @@ jobs:
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
         kache-scope: sdk-tests-debug
         kache-readonly: "false"
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
     - name: Start local backend
       run: dev/nix-shell 'just backend up'
     - name: Run SDK crate tests with the existing debug test profile
       run: dev/nix-shell 'just test crate xmtp_sdk'
     - name: Dump Docker logs on failure
       if: failure()
-      uses: jwalton/gh-docker-logs@v2
+      uses: jwalton/gh-docker-logs@2741064ab9d7af54b0b1ffb6076cf64c16f0220e # v2.2.2

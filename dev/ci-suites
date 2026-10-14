@@ -4,7 +4,7 @@
 Commands:
   generate          Write .github/ci-suites.json and the {lint,test}-generated.yml workflows.
   check             Fail when the generated files are stale or the declaration is wrong.
-  explain PATH...   Show which suites each path selects.
+  explain PATH...   Show which suites and product groups each path selects.
   replay [N] [REF]  Replay the last N first-parent commits of REF as pull requests.
 """
 
@@ -40,17 +40,23 @@ SUITE_KEYS = {
     "permissions",
     "covered_by",
     "kache",
+    "products",
     "path_filters",
 }
 FILTER_KEYS = {"cargo_package", "path_group"}
 EVENT_KINDS = ("draft_pr_push", "ready_pr_push", "merge")
-TOP_KEYS = {"version", "on_deleted_path", "shared", "neutral", "path_groups", "suites"}
+TOP_KEYS = {"version", "on_deleted_path", "shared", "neutral", "path_groups", "products", "suites"}
 # covered_by is the only optional suite key.
 REQUIRED_SUITE_KEYS = SUITE_KEYS - {"covered_by"}
 KACHE_SECRETS = ("KACHE_S3_ACCESS_KEY_ID", "KACHE_S3_SECRET_ACCESS_KEY")
 # inherit passes every secret, kache only the Kache keys, none no secret.
 SECRET_MODES = ("inherit", "kache", "none")
 GATE_RUNNER = "blacksmith-4vcpu-ubuntu-2404"
+# A products job compiles the group on most runs where it runs.
+PRODUCTS_RUNNER = "blacksmith-16vcpu-ubuntu-2404"
+PRODUCTS_SYSTEM = "x86_64-linux"
+# A group name is part of a job id and a flake attribute.
+GROUP_NAME = re.compile(r"[a-z][a-z0-9_]*\Z")
 PERMISSION_LEVELS = {"none": 0, "read": 1, "write": 2}
 
 
@@ -245,6 +251,37 @@ def expand_filters(filters, groups, where, stack=()):
     return packages, globs
 
 
+def compile_filters(filters, groups, graph, where):
+    """The Cargo roots, crate globs, and path globs that a path_filters list selects."""
+    cargo, paths = expand_filters(filters, groups, where)
+    crates = graph.closure(sorted(set(cargo))) if cargo else []
+    if crates:
+        paths += ["Cargo.toml", "Cargo.lock"]
+    return {
+        "cargo_roots": sorted(set(cargo)),
+        "crates": [f"{c}/**" for c in crates],
+        "paths": sorted({p for p in paths if not p.startswith("!")})
+        + sorted({p for p in paths if p.startswith("!")}),
+    }
+
+
+def compile_products(products, groups, graph):
+    if not isinstance(products, dict):
+        raise DeclarationError("products must map product group names to their path_filters")
+    compiled = {}
+    for group, spec in products.items():
+        if not isinstance(group, str) or not GROUP_NAME.match(group):
+            raise DeclarationError(
+                f"Product group {group!r} needs a name of lowercase letters, digits, and underscores"
+            )
+        if not isinstance(spec, dict) or set(spec) != {"path_filters"}:
+            raise DeclarationError(f"Product group {group} needs exactly the key path_filters")
+        compiled[group] = compile_filters(spec["path_filters"], groups, graph, f"products.{group}")
+        if not compiled[group]["crates"] and not compiled[group]["paths"]:
+            raise DeclarationError(f"Product group {group} needs path_filters")
+    return compiled
+
+
 def compile_declaration(root: Path = ROOT, declaration=None):
     data = declaration if declaration is not None else yaml.safe_load((root / DECLARATION).read_text())
     # Every key except covered_by is explicit. Nothing has a default.
@@ -254,6 +291,7 @@ def compile_declaration(root: Path = ROOT, declaration=None):
         raise DeclarationError("Unsupported declaration version")
     graph = CargoGraph(root)
     groups = data["path_groups"]
+    products = compile_products(data["products"], groups, graph)
     suites = {}
     for name, suite in data["suites"].items():
         if not REQUIRED_SUITE_KEYS <= set(suite) <= SUITE_KEYS:
@@ -276,10 +314,15 @@ def compile_declaration(root: Path = ROOT, declaration=None):
             raise DeclarationError(f"Suite {name} permissions must map scopes to read, write, or none")
         if "covered_by" in suite and not isinstance(suite["covered_by"], str):
             raise DeclarationError(f"Suite {name} covered_by must be a suite name")
-        cargo, paths = expand_filters(suite["path_filters"], groups, f"{name}.path_filters")
-        crates = graph.closure(sorted(set(cargo))) if cargo else []
-        if crates:
-            paths += ["Cargo.toml", "Cargo.lock"]
+        filters = compile_filters(suite["path_filters"], groups, graph, f"{name}.path_filters")
+        waits = as_list(suite["products"], f"{name}.products")
+        unknown = sorted(set(waits) - set(products))
+        if unknown:
+            raise DeclarationError(f"Suite {name} waits for unknown product groups {unknown}")
+        # A lint suite runs in lint-generated.yml, which cannot need a job of
+        # test-generated.yml.
+        if waits and suite["phase"] != "test":
+            raise DeclarationError(f"Suite {name} is a lint suite and cannot wait for products")
         workflow_files, scopes = workflow_closure(root, f"{WORKFLOWS}/{suite['workflow']}")
         declared = set(as_list(suite["kache"], f"{name}.kache"))
         if declared != scopes:
@@ -296,11 +339,11 @@ def compile_declaration(root: Path = ROOT, declaration=None):
             "permissions": permissions,
             "covered_by": suite.get("covered_by"),
             "kache": sorted(declared),
-            "cargo_roots": sorted(set(cargo)),
-            "crates": [f"{c}/**" for c in crates],
+            "products": [group for group in products if group in waits],
+            "cargo_roots": filters["cargo_roots"],
+            "crates": filters["crates"],
             "workflow_files": workflow_files,
-            "paths": sorted({p for p in paths if not p.startswith("!")})
-            + sorted({p for p in paths if p.startswith("!")}),
+            "paths": filters["paths"],
         }
     for name, suite in suites.items():
         if suite["covered_by"] and suite["covered_by"] not in suites:
@@ -312,6 +355,9 @@ def compile_declaration(root: Path = ROOT, declaration=None):
                 raise DeclarationError(f"Suite {name} is in a covered_by cycle")
             seen.add(cover)
             cover = suites[cover]["covered_by"]
+    unused = [g for g in products if not any(g in s["products"] for s in suites.values())]
+    if unused:
+        raise DeclarationError(f"No suite waits for product groups {unused}")
     on_deleted = as_list(data["on_deleted_path"], "on_deleted_path")
     if not on_deleted or set(on_deleted) - set(suites):
         raise DeclarationError("on_deleted_path must name one or more suites")
@@ -320,6 +366,7 @@ def compile_declaration(root: Path = ROOT, declaration=None):
         "on_deleted_path": on_deleted,
         "shared": as_list(data["shared"], "shared"),
         "neutral": as_list(data["neutral"], "neutral"),
+        "products": products,
         "suites": suites,
     }
 
@@ -329,8 +376,14 @@ def render_manifest(manifest):
 
 
 def render_workflow(manifest, phase):
-    """One job per suite in the phase, plus a job that requires every selected suite to pass."""
+    """One job per suite in the phase, plus a job that requires every selected suite to pass.
+
+    The test phase also gets one products job per product group. A suite that
+    waits for a group needs its job and runs when that job succeeded or was
+    skipped.
+    """
     suites = {n: s for n, s in manifest["suites"].items() if s["phase"] == phase}
+    groups = list(manifest["products"]) if phase == "test" else []
     lines = [
         "# Generated by dev/ci-suites from .github/ci-suites.yml. Do not edit.",
         f"name: {phase.capitalize()} suites",
@@ -341,14 +394,52 @@ def render_workflow(manifest, phase):
         "        description: JSON list of the suites to run.",
         "        type: string",
         "        required: true",
+    ]
+    if groups:
+        lines += [
+            "      products:",
+            "        description: JSON list of the product groups to build.",
+            "        type: string",
+            "        required: true",
+        ]
+    lines += [
         "permissions:",
         "  contents: read",
         "jobs:",
     ]
-    for name, suite in suites.items():
+    for group in groups:
         lines += [
-            f"  {name}:",
-            f"    if: contains(fromJSON(inputs.suites), '{name}')",
+            f"  products_{group}:",
+            f"    name: Products ({group})",
+            f"    if: contains(fromJSON(inputs.products), '{group}')",
+            f"    runs-on: {PRODUCTS_RUNNER}",
+            "    timeout-minutes: 60",
+            "    steps:",
+            "    - uses: actions/checkout@v6",
+            # Mode ci pushes what the job builds to xmtp-pr, where the
+            # suites' jobs (also mode ci) substitute it.
+            "    - uses: ./.github/actions/setup-nix",
+            "      with:",
+            "        cache-mode: ci",
+            "        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}",
+            "        github-token: ${{ github.token }}",
+            f"    - name: Build the {group} products",
+            f"      run: nix build --keep-going --no-link .#ciSets.{PRODUCTS_SYSTEM}.{group}",
+        ]
+    for name, suite in suites.items():
+        selected = f"contains(fromJSON(inputs.suites), '{name}')"
+        waits = [f"products_{group}" for group in suite["products"]]
+        lines.append(f"  {name}:")
+        if waits:
+            # Without a status function GitHub skips a job whose needed job was
+            # skipped; !cancelled() lets the suite build the products itself.
+            built = " && ".join(f"needs.{job}.result != 'failure'" for job in waits)
+            lines.append(f"    if: ${{{{ !cancelled() && {selected} && {built} }}}}")
+            lines.append("    needs:")
+            lines += [f"    - {job}" for job in waits]
+        else:
+            lines.append(f"    if: {selected}")
+        lines += [
             f"    uses: ./{WORKFLOWS}/{suite['workflow']}",
             "    permissions:",
         ]
@@ -366,18 +457,43 @@ def render_workflow(manifest, phase):
         "    timeout-minutes: 5",
         "    needs:",
     ]
+    lines += [f"    - products_{group}" for group in groups]
     lines += [f"    - {name}" for name in suites]
     lines += [
         "    steps:",
         "    - name: Check that every selected suite passed",
         "      env:",
         "        SELECTED: ${{ inputs.suites }}",
+    ]
+    if not groups:
+        lines += [
+            "        RESULTS: ${{ toJSON(needs) }}",
+            "      run: |",
+            "        jq -en \\",
+            '          --argjson selected "$SELECTED" \\',
+            '          --argjson results "$RESULTS" \\',
+            "          '$selected | all(.[]; $results[.].result == \"success\")'",
+        ]
+        return "\n".join(lines) + "\n"
+    waits = {name: suite["products"] for name, suite in suites.items() if suite["products"]}
+    # A failed products job skips the suites that wait for it. The gate names
+    # the products job once instead of each skipped suite.
+    lines += [
+        "        PRODUCTS: ${{ inputs.products }}",
+        f"        WAITS: '{json.dumps(waits, separators=(',', ':'))}'",
         "        RESULTS: ${{ toJSON(needs) }}",
         "      run: |",
-        "        jq -en \\",
+        "        jq -enr \\",
         '          --argjson selected "$SELECTED" \\',
+        '          --argjson products "$PRODUCTS" \\',
+        '          --argjson waits "$WAITS" \\',
         '          --argjson results "$RESULTS" \\',
-        "          '$selected | all(.[]; $results[.].result == \"success\")'",
+        """          '[$products[] | "products_\\(.)" | select($results[.].result != "success")] as $broken""",
+        """          | [$selected[] | select($results[.].result != "success")""",
+        """              | select(any(($waits[.] // [])[]; "products_\\(.)" | IN($broken[])) | not)] as $failed""",
+        """          | ($broken[] | "\\(.): \\($results[.].result); the suites that wait for it did not run"),""",
+        """            ($failed[] | "\\(.): \\($results[.].result)"),""",
+        """            ($broken + $failed == [])'""",
     ]
     return "\n".join(lines) + "\n"
 
@@ -424,8 +540,22 @@ def validate(manifest, root: Path = ROOT, files=None):
         triggers = document.get("on", document.get(True))
         if not isinstance(triggers, dict) or "workflow_call" not in triggers:
             errors.append(f"{name}: {suite['workflow']} is not a reusable workflow")
-        elif (triggers["workflow_call"] or {}).get("inputs"):
-            errors.append(f"{name}: {suite['workflow']} must not take inputs")
+        else:
+            # The generated caller passes no inputs; an optional input keeps its default.
+            inputs = (triggers["workflow_call"] or {}).get("inputs") or {}
+            required = sorted(key for key, spec in inputs.items() if (spec or {}).get("required"))
+            if required:
+                errors.append(f"{name}: {suite['workflow']} must not require inputs {required}")
+        # GitHub rejects the whole run when a called job asks for more than the
+        # suite grants, even when that job's `if` skips it.
+        for job_id, job in (document.get("jobs") or {}).items():
+            permissions = job.get("permissions") or {}
+            if not isinstance(permissions, dict):
+                errors.append(f"{name}: {suite['workflow']} job {job_id} must list permission scopes")
+                continue
+            for scope, level in permissions.items():
+                if PERMISSION_LEVELS[level] > PERMISSION_LEVELS[suite["permissions"].get(scope, "none")]:
+                    errors.append(f"{name}: {suite['workflow']} job {job_id} needs {scope}: {level}")
         if suite["secrets"] == "kache":
             declared = ((triggers or {}).get("workflow_call") or {}).get("secrets") or {}
             missing = [s for s in KACHE_SECRETS if s not in declared]
@@ -440,6 +570,12 @@ def validate(manifest, root: Path = ROOT, files=None):
             continue
         # GitHub rejects the whole run when a called job asks for more than its caller grants.
         granted = callers[0].get("permissions", ci_document.get("permissions", {}))
+        if phase == "test":
+            # test-generated.yml takes the products input only when a group exists.
+            given = (callers[0].get("with") or {}).get("products")
+            expected = "${{ needs.detect-changes.outputs.products }}" if manifest["products"] else None
+            if given != expected:
+                errors.append(f"ci.yml must pass {path} products: {expected}, not {given}")
         for name, suite in manifest["suites"].items():
             if suite["phase"] != phase:
                 continue
@@ -454,6 +590,8 @@ def validate(manifest, root: Path = ROOT, files=None):
         errors.append("Tracked files that no rule names:\n  " + "\n  ".join(unknown))
     patterns = [("shared", p) for p in manifest["shared"]]
     patterns += [("neutral", p) for p in manifest["neutral"]]
+    for group, spec in manifest["products"].items():
+        patterns += [(f"products.{group}", p.lstrip("!")) for p in spec["paths"]]
     for name, suite in manifest["suites"].items():
         patterns += [(name, p.lstrip("!")) for p in suite["paths"]]
     stale = sorted(
@@ -504,9 +642,15 @@ def command_explain(paths):
         elif not rules.known(path):
             verdict = "unknown (every suite)"
         else:
-            verdict = ", ".join(rules.suites_for(path)) or "no suite"
+            suites = rules.suites_for(path)
+            verdict = ", ".join(suites) or "no suite"
             if rules.neutral(path):
                 verdict += " (neutral)"
+            # A group runs only for a suite that waits for it.
+            waited = {g for name in suites for g in rules.manifest["suites"][name]["products"]}
+            groups = [g for g in rules.products_for(path) if g in waited]
+            if groups:
+                verdict += "; products: " + ", ".join(groups)
         print(f"{path}: {verdict}")
 
 
@@ -535,10 +679,12 @@ def command_replay(count=100, ref="origin/self-hosted"):
         reasons.update(result["reasons"])
         causes.update(result["shared_paths"] + result["unknown_paths"])
         selected.update(result["suites"]["lint"] + result["suites"]["test"])
+        selected.update(f"products_{group}" for group in result["products"])
     total = len(log)
     print(f"{total} commits, {full} full runs ({100 * full / total:.0f}%), reasons {dict(reasons)}")
     print("Most common full-run paths:", ", ".join(f"{p} ({n})" for p, n in causes.most_common(10)))
-    for name in sorted(selector.SUITES, key=lambda n: -selected[n]):
+    names = list(selector.SUITES) + [f"products_{g}" for g in selector.MANIFEST["products"]]
+    for name in sorted(names, key=lambda n: -selected[n]):
         print(f"  {name:20} {100 * selected[name] / total:5.0f}%")
 
 

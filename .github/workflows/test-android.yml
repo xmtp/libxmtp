@@ -4,112 +4,76 @@ name: Test Android
 permissions:
   contents: read
 jobs:
-  min-sdk-smoke:
-    name: JNI, public client, and timestamp smoke (API 23)
+  # The job ids are unique across test-android.yml and
+  # test-example-android.yml: setup-gradle keys its entries by job id and the
+  # calling workflow, so a shared id would mix two Gradle User Homes.
+  sdk-build:
+    name: Build, unit tests, and consumers (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 45
+    timeout-minutes: 40
+    env:
+      NIX_DEVSHELL: android
     steps:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix
       with:
-        gradle-disk: 'true'
+        cache-mode: "ci"
+        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
         github-token: ${{ github.token }}
-        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      with:
+        # CI-only Gradle cache: protected trunk pushes write it, and every
+        # other run only reads it. Release and deploy jobs never restore it.
+        cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
+        # check-consumers compiles fail by design, so clean up the trunk
+        # entry even when a Gradle build in this job failed.
+        cache-cleanup: always
     - uses: taiki-e/install-action@just
     - name: Start backend
-      env:
-        NIX_DEVSHELL: android
       run: dev/nix-shell 'just backend up'
-    - name: Enable KVM
-      run: 'echo ''KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"'' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-
-        sudo udevadm control --reload-rules
-
-        sudo udevadm trigger --name-match=kvm
-
-        '
-    - name: Run the minimum SDK smoke
-      env:
-        NIX_DEVSHELL: android
-        NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/android-emulator-startup
-        # API 23 can corrupt guest pages in the RAM bank above 4 GiB.
-        # Keep its RAM below that bank. The smoke tests fit in 3072 MiB.
-        NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 3072 -partition-size 8192 -verbose
-          -show-kernel
-      run: dev/nix-shell 'just android test-min-sdk'
-    - name: Upload minimum SDK proof
-      if: always()
+    # One Gradle call: `gradlew build` (unit tests, Android Lint, Spotless,
+    # both AARs) and the instrumented test APK, then the AAR package checks.
+    - name: Build and test the SDK
+      run: dev/nix-shell 'just android check'
+    - name: Check Kotlin consumers
+      run: dev/nix-shell 'just android check-consumers'
+    - name: Retain backend startup diagnostics
+      if: failure()
       uses: actions/upload-artifact@v7
       with:
-        name: android-api23-proof
-        retention-days: 7
+        name: android-check-backend-startup-logs
+        path: ${{ runner.temp }}/backend-startup-logs
         if-no-files-found: ignore
-        path: 'sdks/android/library/build/outputs/aar/library-release.aar
-
-          sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
-
-          sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
-
-          ${{ runner.temp }}/android-emulator-startup/
-
-          '
-        include-hidden-files: 'true'
-  unit-tests:
-    name: Unit Tests (Android)
+        retention-days: 7
+  sdk-emulator:
+    name: Emulator tests, API 34 and API 23 (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+    timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: android
     steps:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/setup-nix
       with:
-        gradle-disk: 'true'
+        cache-mode: "ci"
+        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
         github-token: ${{ github.token }}
-        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-    - uses: taiki-e/install-action@just
-    - name: Start backend
-      env:
-        NIX_DEVSHELL: android
-      run: dev/nix-shell 'just backend up'
-    - name: Run unit tests
-      env:
-        NIX_DEVSHELL: android
-      run: dev/nix-shell 'just android test'
-    - name: Compile SDK and test APK
-      env:
-        NIX_DEVSHELL: android
-      run: dev/nix-shell 'just android assemble'
-    - name: Check Kotlin consumers
-      env:
-        NIX_DEVSHELL: android
-      run: dev/nix-shell 'just android check-consumers'
-  integration-tests:
-    name: Integration Tests (Android)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 45
-    steps:
-    - uses: actions/checkout@v6
-    - uses: ./.github/actions/setup-nix
+    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       with:
-        gradle-disk: 'true'
-        github-token: ${{ github.token }}
-        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        # CI-only Gradle cache: protected trunk pushes write it, and every
+        # other run only reads it. Release and deploy jobs never restore it.
+        cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) }}
     - uses: taiki-e/install-action@just
     - name: Start backend
-      env:
-        NIX_DEVSHELL: android
       run: dev/nix-shell 'just backend up'
     - name: Enable KVM
-      run: 'echo ''KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"'' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
         sudo udevadm control --reload-rules
-
         sudo udevadm trigger --name-match=kvm
-
-        '
-    - name: Run integration tests
+    - name: Run integration tests (API 34)
       timeout-minutes: 30
       env:
-        NIX_DEVSHELL: android
         NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/android-emulator-startup
         NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192 -verbose
           -show-kernel
@@ -126,32 +90,31 @@ jobs:
           sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
           ${{ runner.temp }}/android-emulator-startup/
         include-hidden-files: 'true'
-  check-android:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
-    env:
-      NIX_DEVSHELL: android
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v6
-    - uses: ./.github/actions/setup-nix
-      with:
-        gradle-disk: 'true'
-        github-token: ${{ github.token }}
-        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-    - uses: taiki-e/install-action@just
-    - name: Start backend
-      run: dev/nix-shell 'just backend up'
-    - name: Check Android SDK compile
-      run: dev/nix-shell 'just android check'
-    - name: Retain backend startup diagnostics
-      if: failure()
+    # The API 23 smoke boots its own emulator after the API 34 run ends. It
+    # also runs when the API 34 tests fail, as it did in its own job.
+    - name: Run the minimum SDK smoke (API 23)
+      if: ${{ !cancelled() }}
+      timeout-minutes: 30
+      env:
+        NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/android-api23-emulator-startup
+        # API 23 can corrupt guest pages in the RAM bank above 4 GiB.
+        # Keep its RAM below that bank. The smoke tests fit in 3072 MiB.
+        NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 3072 -partition-size 8192 -verbose
+          -show-kernel
+      run: dev/nix-shell 'just android test-min-sdk'
+    - name: Upload minimum SDK proof
+      if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: android-check-backend-startup-logs
-        path: ${{ runner.temp }}/backend-startup-logs
-        if-no-files-found: ignore
+        name: android-api23-proof
         retention-days: 7
+        if-no-files-found: ignore
+        path: |
+          sdks/android/library/build/outputs/aar/library-release.aar
+          sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
+          sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
+          ${{ runner.temp }}/android-api23-emulator-startup/
+        include-hidden-files: 'true'
   android-stage:
     name: Android SDK staging
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -165,13 +128,14 @@ jobs:
       SQLX_OFFLINE: "true"
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
     - uses: ./.github/actions/setup-nix
       with:
-        gradle-disk: "true"
+        cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci' }}
+        cachix-auth-token: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && secrets.CACHIX_AUTH_TOKEN || '' }}
+        cachix-pr-auth-token: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')) && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
         kache: "true"
         github-token: ${{ github.token }}
-        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
         kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
         kache-s3-region: ${{ vars.KACHE_S3_REGION }}
         kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
@@ -179,7 +143,7 @@ jobs:
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
         kache-scope: sdk-android-release
         kache-readonly: "false"
-    - uses: taiki-e/install-action@just
+    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
     - name: Build Kotlin SDK artifacts
       run: dev/nix-shell 'just sdk build kotlin --profile release'
     - name: Render Kotlin SDK bindings
@@ -191,7 +155,7 @@ jobs:
     - name: Stage Android AAR with strict dependency verification
       run: dev/nix-shell 'just sdk mobile-stage android'
     - name: Retain Android AAR and contract
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: android-sdk-stage
         if-no-files-found: error
@@ -204,12 +168,10 @@ jobs:
     timeout-minutes: 1
     if: always()
     needs:
-    - unit-tests
-    - min-sdk-smoke
-    - integration-tests
-    - check-android
+    - sdk-build
+    - sdk-emulator
     - android-stage
     steps:
     - env:
-        PASSED: ${{ needs.unit-tests.result == 'success' && needs.min-sdk-smoke.result == 'success' && needs.integration-tests.result == 'success' && needs.check-android.result == 'success' && needs.android-stage.result == 'success' }}
+        PASSED: ${{ needs.sdk-build.result == 'success' && needs.sdk-emulator.result == 'success' && needs.android-stage.result == 'success' }}
       run: test "$PASSED" = true
