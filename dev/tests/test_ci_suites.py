@@ -159,9 +159,18 @@ class RenderTests(unittest.TestCase):
     def test_secrets_and_permissions_follow_the_declaration(self):
         manifest = copy.deepcopy(self.manifest)
         manifest["suites"]["docs_site"]["permissions"]["pages"] = "write"
-        jobs = yaml.safe_load(SUITES.render_workflow(manifest, "test"))["jobs"]
-        self.assertEqual(jobs["test_ios"]["secrets"], "inherit")
-        self.assertEqual(set(jobs["check_rust"]["secrets"]), set(SUITES.KACHE_SECRETS))
+        jobs = {}
+        for phase in SUITES.GENERATED_WORKFLOWS:
+            jobs.update(yaml.safe_load(SUITES.render_workflow(manifest, phase))["jobs"])
+        for name, suite in declaration()["suites"].items():
+            with self.subTest(suite=name):
+                job = jobs[name]
+                if suite["secrets"] == "none":
+                    self.assertNotIn("secrets", job)
+                elif suite["secrets"] == "kache":
+                    self.assertEqual(set(job["secrets"]), set(SUITES.KACHE_SECRETS))
+                else:
+                    self.assertEqual(job["secrets"], "inherit")
         self.assertEqual(jobs["docs_site"]["permissions"]["pages"], "write")
         self.assertEqual(jobs["test_ios"]["permissions"], {"contents": "read"})
         for phase, name in (("lint", "lint_example_ios"), ("test", "test_example_ios")):

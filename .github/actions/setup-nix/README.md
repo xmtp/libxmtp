@@ -226,10 +226,11 @@ start Kache or access S3.
 
 The action appends runner OS and architecture to each scope below.
 "Protected push writer" requires all event and branch checks above. Every
-other event is a reader. `dev/tests/test_kache_env.py` checks that this table
-and its `KACHE_CALLERS` list name exactly the callers with `kache: "true"`.
-A job that runs cargo outside Nix belongs in both; remove it only when it
-stops running cargo.
+other event is a reader. `dev/tests/test_kache_env.py` checks that its
+`KACHE_CALLERS` list names exactly the callers with `kache: "true"`. No test
+reads this table, so update it by hand when you add a caller or rename a
+scope. A job that runs cargo outside Nix belongs in both; remove it only when
+it stops running cargo.
 
 | Workflow / job | Scope | Access |
 | --- | --- | --- |

@@ -160,7 +160,6 @@
       ],
       "paths": [
         "**/*.{nix,py,sh,toml,kt,swift}",
-        "**/.github/actions/setup-nix/README.md",
         "**/dev/**",
         ".github/**",
         "apps/backend/backend.just",

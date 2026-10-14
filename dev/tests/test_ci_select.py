@@ -191,6 +191,15 @@ class SelectionTests(unittest.TestCase):
         self.assertIn("test_android", selected(result))
         self.assertIn("test_ios", result["policy_excluded"])
 
+    def test_summary_shows_paths_as_text(self):
+        # A changed path cannot add HTML or Markdown lines to the step summary.
+        path = "proto/<img src=x>\n## CI_PATH_DATA.proto"
+        text = SELECTOR.summary(select([path]))
+        self.assertNotIn("<img", text)
+        lines = text.splitlines()
+        self.assertEqual([x for x in lines if x.startswith("## CI_PATH")], [])
+        self.assertIn("&lt;img src=x&gt;\\n## CI_PATH_DATA.proto", text)
+
 
 def with_groups():
     """Two groups: test_android waits for both, test_example_android for one."""

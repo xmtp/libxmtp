@@ -253,9 +253,6 @@ suites:
       - "sdks/browser/test/platform/object-store/with-object-store"
       - "sdks/android/android.just"
       - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
-      # test_kache_env.py reads this neutral file. A neutral file selects a
-      # suite only through a pattern that starts with `**/`.
-      - "**/.github/actions/setup-nix/README.md"
       # The release-tools tests and the release push test run its tools.
       - path_group: js_workspace
       - "nix/fmt.nix"
