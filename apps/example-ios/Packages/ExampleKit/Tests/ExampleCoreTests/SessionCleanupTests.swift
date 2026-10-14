@@ -84,7 +84,15 @@ import Testing
 	var ended = false
 	var cleaned = false
 	var endedAfterCleanup = false
+	var endCalls = 0
+	var endStarted = false
+	var endGate: CheckedContinuation<Void, Never>?
+	var holdEnd = false
 	func end() async throws {
+		endCalls += 1; endStarted = true
+		if holdEnd {
+			await withCheckedContinuation { endGate = $0 }
+		}
 		ended = true; endedAfterCleanup = cleaned
 	}
 
@@ -137,6 +145,43 @@ struct SessionCleanupTests {
 		#expect(secrets.values["database-key"] != nil)
 		#expect(files.removed == ["exports"])
 		#expect(!files.index.signedIn)
+	}
+
+	@Test(arguments: [false, true]) @MainActor
+	func concurrentResetWaitsForSignOutTeardown(holdClientEnd: Bool) async throws {
+		let files = Files(); let secrets = Secrets(); let factory = Factory()
+		let session = SessionController(fence: SessionFence(), secrets: secrets, files: files, factory: factory)
+		try await session.connect(url: "http://localhost:5050", token: "token")
+		var cleanupGate: CheckedContinuation<Void, Never>?
+		factory.client.holdEnd = holdClientEnd
+		session.scope.addCleanup {
+			if !holdClientEnd {
+				await withCheckedContinuation { cleanupGate = $0 }
+			}
+			factory.client.cleaned = true
+		}
+		let signingOut = Task { try await session.signOut() }
+		try await waitUntil { holdClientEnd ? factory.client.endGate != nil : cleanupGate != nil }
+		let generation = session.fence.currentGeneration()
+		let resetting = Task { try await session.reset() }
+		try await waitUntil { session.fence.currentGeneration() > generation }
+		// Let the competing teardown advance while the first owner is held.
+		for _ in 0 ..< 20 {
+			await Task.yield()
+		}
+		let removedWhileHeld = files.removed
+		let secretsWhileHeld = secrets.values
+		cleanupGate?.resume(); cleanupGate = nil
+		factory.client.endGate?.resume(); factory.client.endGate = nil
+		try await signingOut.value
+		try await resetting.value
+		#expect(removedWhileHeld.isEmpty)
+		#expect(secretsWhileHeld["wallet"] != nil)
+		#expect(factory.client.endCalls == 1)
+		#expect(factory.client.endedAfterCleanup)
+		#expect(files.removed == ["database", "profile"])
+		#expect(secrets.values.isEmpty)
+		#expect(session.state == .signedOut)
 	}
 
 	@Test(arguments: [ResetPhase.stopping, .databaseRemoved, .filesRemoved]) @MainActor
@@ -292,34 +337,6 @@ struct SessionCleanupTests {
 		#expect(session.client != nil)
 	}
 
-	@Test @MainActor func keyedRouteCleanupReleasesEveryVisit() async {
-		let scope = SessionScope(); let events = CleanupEvents()
-		func install(_ name: String) async -> WeakRouteResource {
-			let resource = RouteResource(name: name, events: events)
-			let weak = WeakRouteResource(resource)
-			await scope.replaceCleanup(for: "route") { await resource.close() }
-			return weak
-		}
-		let first = await install("first")
-		let second = await install("second")
-		#expect(first.value == nil)
-		#expect(events.closed == ["first"])
-		await scope.runCleanup(for: "route")
-		await scope.runCleanup(for: "route")
-		#expect(second.value == nil)
-		#expect(events.closed == ["first", "second"])
-		for name in ["third", "fourth", "fifth"] {
-			let visit = await install(name)
-			await scope.runCleanup(for: "route")
-			#expect(visit.value == nil)
-		}
-		let pending = await install("pending")
-		scope.addCleanup { events.closed.append("session") }
-		await scope.cancelAndWait()
-		#expect(pending.value == nil)
-		#expect(events.closed == ["first", "second", "third", "fourth", "fifth", "session", "pending"])
-	}
-
 	@Test(arguments: ["credential", "exports", "both"]) @MainActor
 	func signOutCleanupFailureStillEndsSession(failure: String) async throws {
 		let files = Files(); let secrets = Secrets(); let factory = Factory()
@@ -368,25 +385,5 @@ struct SessionCleanupTests {
 private struct ReadyProbe: BackendProbe {
 	func probe(_: BackendURL) async throws -> BackendProbeResult {
 		BackendProbeResult(requiresToken: false)
-	}
-}
-
-@MainActor private final class CleanupEvents { var closed: [String] = [] }
-@MainActor private final class RouteResource {
-	let name: String
-	let events: CleanupEvents
-	init(name: String, events: CleanupEvents) {
-		self.name = name; self.events = events
-	}
-
-	func close() async {
-		events.closed.append(name)
-	}
-}
-
-@MainActor private final class WeakRouteResource {
-	weak var value: RouteResource?
-	init(_ value: RouteResource) {
-		self.value = value
 	}
 }

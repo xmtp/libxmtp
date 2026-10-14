@@ -92,6 +92,7 @@ public enum SessionState: Equatable,
 	public let fence: SessionFence
 	public private(set) var client: (any SessionClient)?
 	public let scope = SessionScope()
+	private var closing: Task<Void, Never>?
 	private var restoring = false
 	private var recoveryProfile: BackendProfile?
 	private let secrets: any SecretStore
@@ -188,10 +189,18 @@ public enum SessionState: Equatable,
 	}
 
 	private func close() async {
+		if let closing {
+			await closing.value; return
+		}
 		let old = client; client = nil
-		await scope.cancelAndWait()
-		do { try await old?.disableNotifications() } catch { /* Local disable happens before the network call. */ }
-		do { try await old?.end() } catch { /* Closing is best effort; local cleanup must continue. */ }
+		let teardown = Task { @MainActor in
+			defer { closing = nil }
+			await scope.cancelAndWait()
+			do { try await old?.disableNotifications() } catch { /* Local disable happens before the network call. */ }
+			do { try await old?.end() } catch { /* Closing is best effort; local cleanup must continue. */ }
+		}
+		closing = teardown
+		await teardown.value
 	}
 
 	public func signOut() async throws {
