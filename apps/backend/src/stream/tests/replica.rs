@@ -30,6 +30,38 @@ fn replica(config: &mut Config) {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn fixture_waits_for_database_creation_before_connecting_to_replica() {
+    let _replay = REPLAY.lock().await;
+    let mut config: Config = toml::from_str(&format!(
+        "[database]\nurl = {:?}\n[server]\nidentifier = {:?}",
+        std::env::var("DATABASE_URL")?,
+        support::DEFAULT_TEST_IDENTIFIER,
+    ))?;
+    replica(&mut config);
+    let admin = sqlx::PgPool::connect(config.database.replica_url.as_ref().unwrap()).await?;
+    let mut startup = std::pin::pin!(TestServer::new(replica));
+    with_paused_replay(&admin, async {
+        wait_for_replay_pause(&admin).await?;
+        // CREATE DATABASE runs while replay is stopped. The old fixture fails
+        // with SQLSTATE 3D000 here instead of waiting for replay to resume.
+        match xmtp_common::time::timeout(PAUSED_STARTUP_OBSERVATION, &mut startup).await {
+            Err(_) => {}
+            Ok(result) => {
+                let server = result?;
+                server.stop().await?;
+                panic!("fixture connected before CREATE DATABASE reached the replica");
+            }
+        }
+        Ok(())
+    })
+    .await?;
+    let server = xmtp_common::time::timeout(STARTUP_AFTER_REPLAY_TIMEOUT, startup).await??;
+    assert!(allocation_schema_exists(&server.backend.store.read).await?);
+    server.stop().await?;
+    admin.close().await;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 // verifies: API-202, API-252, OPS-009
 async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
     let _replay = REPLAY.lock().await;
@@ -137,7 +169,8 @@ async fn startup_waits_for_fresh_schema_to_reach_the_selected_replica() {
     let primary = sqlx::PgPool::connect(database.url()).await?;
     // Let CREATE DATABASE reach the replica, but apply no backend migrations yet.
     let read_url = config.database.replica_url.as_ref().unwrap();
-    let read = xmtp_common::wait_for_ok(|| sqlx::PgPool::connect(read_url)).await?;
+    database.wait_for_replica(read_url).await?;
+    let read = sqlx::PgPool::connect(read_url).await?;
     assert!(!allocation_schema_exists(&read).await?);
     let mut initialization = std::pin::pin!(RunningServer::new(config));
     with_paused_replay(&read, async {

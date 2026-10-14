@@ -124,6 +124,9 @@ impl TestServer {
             database.url()
         ))?;
         change(&mut config);
+        if let Some(replica_url) = &config.database.replica_url {
+            database.wait_for_replica(replica_url).await?;
+        }
         let mut backend = server::initialize(config).await?;
         if let Some((verifier, chain)) = chains {
             backend.chains = chain;
