@@ -50,6 +50,7 @@
       "rustTarget": "x86_64-pc-windows-msvc",
       "library": "xmtp_sdk.dll",
       "nixSystems": [],
+      "runner": "windows-latest",
       "loadRunner": "windows-latest"
     }
   ],
