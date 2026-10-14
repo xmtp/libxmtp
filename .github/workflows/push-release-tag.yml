@@ -18,6 +18,10 @@ permissions: {}
 jobs:
   push:
     runs-on: ubuntu-latest
+    # GH_APP_ID and GH_APP_PK belong in this environment, whose deployment
+    # policy admits only protected branches; a same-repository pull request
+    # run then cannot read them.
+    environment: release
     steps:
       - name: Download release tag
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

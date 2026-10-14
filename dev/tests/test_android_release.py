@@ -347,16 +347,17 @@ class AndroidReleaseTest(unittest.TestCase):
             WORKFLOW.read_text(),
             r"uses: taiki-e/install-action@[0-9a-f]{40}(?:\s|$)",
         )
-        # Release and publish jobs run setup-nix, so every action it uses is
-        # pinned by commit SHA, not by a tag that can move.
-        action = yaml.safe_load(
-            (ROOT / ".github/actions/setup-nix/action.yml").read_text()
-        )
-        uses = [step["uses"] for step in action["runs"]["steps"] if "uses" in step]
-        self.assertTrue(uses)
-        for value in uses:
-            with self.subTest(uses=value):
-                self.assertRegex(value, r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")
+        # Release and publish jobs run setup-nix and setup-js, so every action
+        # they use is pinned by commit SHA, not by a tag that can move.
+        for name in ("setup-nix", "setup-js"):
+            action = yaml.safe_load(
+                (ROOT / f".github/actions/{name}/action.yml").read_text()
+            )
+            uses = [step["uses"] for step in action["runs"]["steps"] if "uses" in step]
+            self.assertTrue(uses)
+            for value in uses:
+                with self.subTest(action=name, uses=value):
+                    self.assertRegex(value, r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 
     def test_release_reads_no_sticky_disk(self):
         # CI jobs commit the ~/.gradle disk; a release must not read a store

@@ -662,6 +662,9 @@ class ReleasePushTest(unittest.TestCase):
     def test_app_token_is_confined_to_separate_push_job(self):
         text = WORKFLOW.read_text()
         self.assertIn("permissions: {}", text)
+        # The App secrets live in an environment that admits only protected
+        # branches, so a pull request run cannot mint the token.
+        self.assertRegex(text, r"(?m)^  push:\n(?:    .*\n)*?    environment: release$")
         self.assertNotIn("checkout@", text)
         self.assertNotIn("xmtp-release", text)
         self.assertNotIn("uses: ./", text)
