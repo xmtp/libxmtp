@@ -198,13 +198,14 @@ redacted JSON reports when the reader-evidence change is present.
 Do not use commit IDs, run IDs, branch names, or shard numbers in a scope.
 The [pinned action guidance](https://github.com/kunobi-ninja/kache-action/blob/1a33fb2ff51be23eb9e87abeae6edb65be78f71c/README.md#manifest-vs-shards)
 separates build variants to keep their prefetch lists useful.
-Scopes follow outer Cargo build families. JavaScript SDK product builds share
-`sdk-products-debug`. The browser platform proof, which also runs the bridge
-tests, uses `sdk-browser-conformance` because it builds debug panic-test and
-release pure-codec fixtures with conformance features. The older SDK facade job uses
+Scopes follow outer Cargo build families. The JavaScript test, type, SDK
+product, and docs site jobs build no SDK with cargo: they copy the Nix products
+(`XMTP_SDK_BUILD=nix`), so they leave Kache off. The release workflows that
+still render with cargo read `sdk-products-debug` and `sdk-native-debug` until
+they move to the Nix products. The older SDK facade job uses
 `sdk-products-tests-conformance` because it combines product builds, Rust unit
-tests, and those browser fixtures. Node-only SDK builds share `sdk-native-debug`. Android staging and native Node release
-builds use separate release scopes. Default SDK tests, backend tests, native
+tests, and browser fixtures. Android staging and native Node release builds use
+separate release scopes. Default SDK tests, backend tests, native
 Clippy, WASM Clippy, Cargo check, and Rust docs retain distinct scopes.
 
 A scope selects prefetch manifests and dependency shard indexes. It does not
@@ -214,9 +215,8 @@ debug build scopes as their writer jobs. An npm release still uses a debug
 Cargo build when its SDK generation command does not request `--profile release`.
 
 Jobs with no outer Cargo compilation leave Kache off. This includes the
-Unix Node platform matrix, the iOS and Android test jobs, and the lint jobs
-that build through Nix. They keep Nix/Crane and Cachix caching. Node and
-browser test shards share the build scope without adding shard numbers.
+Unix Node platform matrix, the iOS, Android, and JavaScript test jobs, and the
+lint jobs that build through Nix. They keep Nix/Crane and Cachix caching.
 
 To stop S3 use, remove both credential fields at both GitHub scopes. The jobs
 then use local-only Kache. Removing only the bucket while keeping credentials
@@ -242,20 +242,12 @@ stops running cargo.
 | `build-sdk-node-platforms.yml / assemble` | `sdk-native-release` | Reader |
 | `check-rust.yml / native` | `rust-clippy-native` | Protected push writer; otherwise reader |
 | `check-rust.yml / wasm` | `rust-clippy-wasm` | Protected push writer; otherwise reader |
-| `check-sdk-products.yml / generated` | `sdk-products-debug` | Protected push writer; otherwise reader |
 | `check-sdk-unit.yml / unit` | `sdk-tests-debug` | Protected push writer; otherwise reader |
-| `check-types.yml / check` | `sdk-products-debug` | Protected push writer; otherwise reader |
-| `deploy-docs.yml / site` | `sdk-products-debug` | Reader |
 | `deploy-web-chat.yml / deploy` | `sdk-products-debug` | Reader |
 | `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer (CI merge run); reader inside `post-merge.yml` and otherwise |
-| `manual-sdk-recovery.yml / recovery` | `sdk-native-debug` | Reader |
 | `release-agent-sdk.yml / build` | `sdk-native-debug` | Reader |
 | `release-browser-sdk.yml / build` | `sdk-products-debug` | Reader |
 | `release-cli.yml / build` | `sdk-native-debug` | Reader |
-| `test-agent-sdk.yml / test` | `sdk-native-debug` | Protected push writer; otherwise reader |
 | `test-android.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
-| `test-browser-sdk.yml / test` | `sdk-products-debug` | Protected push writer; otherwise reader |
-| `test-node-sdk.yml / test` | `sdk-native-debug` | Protected push writer; otherwise reader |
-| `test-sdk-platform.yml / proof` | `sdk-browser-conformance` | Protected push writer; otherwise reader |
 | `test-sdk.yml / sdk` | `sdk-products-tests-conformance` | Protected push writer; otherwise reader |
 | `test-sdk.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |

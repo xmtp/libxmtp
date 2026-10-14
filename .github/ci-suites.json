@@ -32,6 +32,24 @@
     "dev/nix/**"
   ],
   "products": {
+    "sdk_js": {
+      "cargo_roots": [],
+      "crates": [],
+      "paths": [
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_sdk/**",
+        "nix/ci-sets.nix",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/node-packages.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/sdk-platforms.json",
+        "{Cargo.toml,Cargo.lock}"
+      ]
+    },
     "sdk_android": {
       "cargo_roots": [],
       "crates": [],
@@ -806,15 +824,15 @@
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "kache",
+      "secrets": "none",
       "permissions": {
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-products-debug"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -851,15 +869,15 @@
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "kache",
+      "secrets": "none",
       "permissions": {
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-products-debug"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -902,10 +920,10 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-native-debug"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -954,10 +972,10 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-native-debug"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -999,10 +1017,10 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-products-debug"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1046,10 +1064,10 @@
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-browser-conformance"
+      "kache": [],
+      "products": [
+        "sdk_js"
       ],
-      "products": [],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1091,10 +1109,11 @@
       },
       "covered_by": null,
       "kache": [
-        "rust-reference",
-        "sdk-products-debug"
+        "rust-reference"
       ],
-      "products": [],
+      "products": [
+        "sdk_js"
+      ],
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [

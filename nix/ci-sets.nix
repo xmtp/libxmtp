@@ -66,6 +66,16 @@ let
             example-android-apk
             ;
         };
+        # For the JavaScript suites and the docs site: the Node and browser
+        # trees and the browser platform fixtures.
+        sdk_js = mkSet pkgs "sdk_js" {
+          inherit (p)
+            xmtp-sdk-generated-node
+            xmtp-sdk-generated-browser
+            xmtp-sdk-wasm-fixture-panic
+            xmtp-sdk-pure-fixture-codec
+            ;
+        };
         # For the Android suites: the Kotlin tree, the JNI libraries (one ABI
         # and all four), and the JNA host library.
         sdk_android = mkSet pkgs "sdk_android" {

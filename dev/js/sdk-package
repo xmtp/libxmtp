@@ -14,10 +14,30 @@ cd "$ROOT"
 if [[ -z "${XMTP_SDK_GENERATED_DIR:-}" ]]; then
   NIX_DEVSHELL=rust "$ROOT/dev/nix-shell" "just sdk generate $target"
 fi
-node crates/xmtp_sdk/dev/stage-package.mjs "$target" --public
-
 product="${XMTP_SDK_PACKAGES_DIR:-${ROOT}/target/sdk-packages}/${target}"
 destination="${ROOT}/sdks/${target}/dist"
+generated="${XMTP_SDK_GENERATED_DIR:-${ROOT}/target/sdk-generated}"
+case "$target" in
+  node) trees=(typescript-napi) ;;
+  browser) trees=(typescript-wasm typescript-pure) ;;
+esac
+# Workspace builds call this script once per package task. Stage again only
+# when the generated receipts (which name every generated file's bytes), the
+# staging environment, or the product changed since the last staging.
+inputs() {
+  {
+    for tree in "${trees[@]}"; do sha256sum "$generated/$tree/sdk-contract.json"; done
+    printf '%s\n' "${XMTP_SDK_NODE_PLATFORMS_DIR:-}" "${XMTP_SDK_RUNTIME_DIR:-}"
+    if [[ -e "$product/sdk-contract.json" ]]; then sha256sum "$product/sdk-contract.json"; fi
+  } | sha256sum
+}
+stamp="${product}.inputs"
+if [[ -e "$stamp" && "$(cat "$stamp")" == "$(inputs)" ]] \
+  && cmp -s "$product/sdk-contract.json" "$destination/sdk-contract.json"; then
+  echo "SDK local imports up to date: $destination"
+  exit 0
+fi
+node crates/xmtp_sdk/dev/stage-package.mjs "$target" --public
 temporary="$(mktemp -d "${ROOT}/sdks/${target}/.sdk-dist-XXXXXX")"
 trap 'rm -rf "$temporary"' EXIT
 cp -RL "$product/." "$temporary/"
@@ -27,4 +47,5 @@ if [[ -e "$destination" ]]; then
   rm -rf "$destination"
 fi
 mv "$temporary" "$destination"
+inputs > "$stamp"
 echo "SDK local imports staged: $destination"

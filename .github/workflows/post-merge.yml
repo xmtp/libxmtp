@@ -51,6 +51,12 @@ jobs:
           cache-mode: "trusted"
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
+      # The JavaScript jobs restore the pnpm store and never save it (mode ci).
+      # This trusted job saves it when the lockfile key misses.
+      - uses: ./.github/actions/setup-js
+        if: matrix.system == 'x86_64-linux'
+        with:
+          cache-mode: trusted
       - name: Build the warm sets
         run: nix build --keep-going --no-link ".#ciSets.$SYSTEM.dev" ".#ciSets.$SYSTEM.release"
       # The Cachix daemon pushes each path that this job builds. `cachix push`

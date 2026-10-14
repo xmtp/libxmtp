@@ -16,6 +16,7 @@ import json, os, pathlib, sys
 root = pathlib.Path.cwd()
 name = pathlib.Path(sys.argv[0]).name
 target = sys.argv[1].split()[-1] if name == "nix-shell" else sys.argv[2]
+trees = ["typescript-napi"] if target == "node" else ["typescript-wasm", "typescript-pure"]
 with (root / "calls.jsonl").open("a") as log:
     log.write(json.dumps([name, sys.argv[1:], os.getenv("NIX_DEVSHELL")]) + "\n")
 if name == "nix-shell":
@@ -23,14 +24,18 @@ if name == "nix-shell":
     assert os.environ["NIX_DEVSHELL"] == "rust"
     if os.getenv("FAIL_PRODUCER"):
         sys.exit(47)
-    (root / ("generated-" + target)).write_text("fresh")
+    for tree in trees:
+        folder = root / "target/sdk-generated" / tree
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "sdk-contract.json").write_text(os.getenv("GENERATION", "fresh"))
 else:
     assert sys.argv[1:] == ["crates/xmtp_sdk/dev/stage-package.mjs", target, "--public"]
-    generated = os.getenv("XMTP_SDK_GENERATED_DIR")
-    marker = pathlib.Path(generated) if generated else root / ("generated-" + target)
+    generated = pathlib.Path(os.getenv("XMTP_SDK_GENERATED_DIR") or root / "target/sdk-generated")
+    marker = (generated / trees[0] / "sdk-contract.json").read_text()
     product = root / "target/sdk-packages" / target
     product.mkdir(parents=True, exist_ok=True)
-    (product / "index.js").write_text(marker.read_text())
+    (product / "index.js").write_text(marker)
+    (product / "sdk-contract.json").write_text(marker)
 """
 
 
@@ -73,19 +78,26 @@ class SourcePackageTests(unittest.TestCase):
         path = self.root / "calls.jsonl"
         return [json.loads(line) for line in path.read_text().splitlines()]
 
-    def test_fresh_and_repeated_source_builds_generate_before_staging(self):
+    def test_source_builds_generate_and_stage_only_changed_trees(self):
         for target in ("node", "browser"):
-            for _ in range(2):
-                result = self.run_helper(target)
+            for generation in ("fresh", "fresh", "changed"):
+                result = self.run_helper(target, GENERATION=generation)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(
-                    (self.root / "sdks" / target / "dist/index.js").read_text(), "fresh"
+                    (self.root / "sdks" / target / "dist/index.js").read_text(),
+                    generation,
                 )
-        self.assertEqual([call[0] for call in self.calls()], ["nix-shell", "node"] * 4)
+        # Each run generates; the repeated generation reuses the staged product.
+        self.assertEqual(
+            [call[0] for call in self.calls()],
+            ["nix-shell", "node", "nix-shell", "nix-shell", "node"] * 2,
+        )
 
     def test_explicit_generated_input_reuses_without_a_producer(self):
         supplied = self.root / "supplied"
-        supplied.write_text("supplied")
+        for tree in ("typescript-napi", "typescript-wasm", "typescript-pure"):
+            (supplied / tree).mkdir(parents=True)
+            (supplied / tree / "sdk-contract.json").write_text("supplied")
         for target in ("node", "browser"):
             result = self.run_helper(target, XMTP_SDK_GENERATED_DIR=str(supplied))
             self.assertEqual(result.returncode, 0, result.stderr)
