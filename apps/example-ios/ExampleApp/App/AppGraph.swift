@@ -93,6 +93,7 @@ import SwiftUI
 	}
 
 	private func removeAbandonedAttachments(_ info: SessionInfo) throws {
+		try files.removeExports(info.key.profileID)
 		let temporary = try files.paths(info.key.profileID).root.appendingPathComponent("temp", isDirectory: true)
 		try AttachmentStagingFiles(temporaryDirectory: temporary).removeAbandoned()
 	}

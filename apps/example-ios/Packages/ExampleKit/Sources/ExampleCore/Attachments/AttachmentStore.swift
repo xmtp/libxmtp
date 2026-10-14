@@ -34,6 +34,7 @@ public enum AttachmentAction: Sendable {
 	private let changed: () async -> Void
 	private let tasks = InFlightTasks()
 	private var downloadRevision: UInt64 = 0
+	private var downloads: [UUID: Task<Void, Never>] = [:]
 	private var activeSends: Set<UUID> = []
 	private var discardedIDs: Set<UUID> = []
 	private var discardedFiles: [UUID: FileDescriptor] = [:]
@@ -68,6 +69,10 @@ public enum AttachmentAction: Sendable {
 	}
 
 	public func send(_ action: AttachmentAction) {
+		if case .download = action {
+			startDownload(action)
+			return
+		}
 		if tasks.start({ await self.run(action) }) == nil, case let .stage(url, _) = action {
 			do { try staging?.removeOwned(url) } catch {}
 		}
@@ -75,6 +80,7 @@ public enum AttachmentAction: Sendable {
 
 	public func invalidateDownloads() {
 		downloadRevision &+= 1
+		downloads.values.forEach { $0.cancel() }
 		verified.clear()
 		for id in state.cards.keys {
 			state.cards[id]?.phase = .available
@@ -242,27 +248,6 @@ public enum AttachmentAction: Sendable {
 		}
 	}
 
-	private func download(_ id: String, descriptor: FileDescriptor) async throws {
-		let revision = downloadRevision
-		guard allowed(), admit(origin), state.cards[id]?.phase != .downloading else { return }
-		if let authorizeDownload {
-			guard try await authorizeDownload() else { return }
-		}
-		try Task.checkCancellation()
-		guard revision == downloadRevision, allowed(), admit(origin), state.cards[id]?.phase != .downloading else { return }
-		apply { $0.cards[id] = FileCard(id: id, name: descriptor.filename ?? "File", length: descriptor.length,
-		                                phase: .downloading) }
-		let file = try await gateway.download(descriptor)
-		guard revision == downloadRevision, admit(origin), allowed() else { return }
-		let evicted = verified.put(id, file: file)
-		apply { state in
-			for id in evicted {
-				state.cards[id]?.phase = .available
-			}
-			state.cards[id] = FileCard(id: id, name: file.filename, length: descriptor.length, phase: .verified)
-		}
-	}
-
 	private func handleFailure(_ error: any Error, action: AttachmentAction) {
 		guard coordinator.acceptsSession else { return }
 		let failure = error as? AttachmentError
@@ -290,6 +275,37 @@ public enum AttachmentAction: Sendable {
 }
 
 private extension AttachmentStore {
+	func download(_ id: String, descriptor: FileDescriptor) async throws {
+		let revision = downloadRevision
+		guard allowed(), admit(origin), state.cards[id]?.phase != .downloading else { return }
+		if let authorizeDownload {
+			guard try await authorizeDownload() else { return }
+		}
+		try Task.checkCancellation()
+		guard revision == downloadRevision, allowed(), admit(origin), state.cards[id]?.phase != .downloading else { return }
+		apply { $0.cards[id] = FileCard(id: id, name: descriptor.filename ?? "File", length: descriptor.length,
+		                                phase: .downloading) }
+		let file = try await gateway.download(descriptor)
+		guard revision == downloadRevision, admit(origin), allowed() else { return }
+		let evicted = verified.put(id, file: file)
+		apply { state in
+			for id in evicted {
+				state.cards[id]?.phase = .available
+			}
+			state.cards[id] = FileCard(id: id, name: file.filename, length: descriptor.length, phase: .verified)
+		}
+	}
+
+	func startDownload(_ action: AttachmentAction) {
+		let id = UUID()
+		let revision = downloadRevision
+		downloads[id] = tasks.start {
+			defer { self.downloads.removeValue(forKey: id) }
+			guard !Task.isCancelled, revision == self.downloadRevision else { return }
+			await self.run(action)
+		}
+	}
+
 	func restoreRejectedQueue(_ draft: FileDraft, generation: UInt64) throws {
 		guard coordinator.acceptsSession, !discardedIDs.contains(draft.id),
 		      generations[draft.id, default: 0] == generation else { return }
