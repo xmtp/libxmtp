@@ -143,7 +143,7 @@ class CompileTests(unittest.TestCase):
         for value in ("all", "None", "", None):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(
-                    SUITES.DeclarationError, "inherit, kache, none"
+                    SUITES.DeclarationError, "inherit, kache, none, cachix-pr"
                 ):
                     self.compile(
                         lambda d: d["suites"]["lint_proto"].update(secrets=value)
@@ -164,6 +164,15 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(set(jobs["check_rust"]["secrets"]), set(SUITES.KACHE_SECRETS))
         self.assertEqual(jobs["docs_site"]["permissions"]["pages"], "write")
         self.assertEqual(jobs["test_ios"]["permissions"], {"contents": "read"})
+        for phase, name in (("lint", "lint_example_ios"), ("test", "test_example_ios")):
+            with self.subTest(suite=name):
+                phase_jobs = yaml.safe_load(SUITES.render_workflow(manifest, phase))[
+                    "jobs"
+                ]
+                self.assertEqual(
+                    phase_jobs[name].get("secrets"),
+                    {"CACHIX_PR_AUTH_TOKEN": "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"},
+                )
 
 
 class ProductRenderTests(unittest.TestCase):
@@ -222,6 +231,12 @@ class ValidateTests(unittest.TestCase):
     def test_kache_secrets_need_workflow_declarations(self):
         manifest = copy.deepcopy(self.manifest)
         manifest["suites"]["test_xdbg"]["secrets"] = "kache"
+        errors = "\n".join(SUITES.validate(manifest))
+        self.assertIn("test-xdbg.yml must declare workflow_call secrets", errors)
+
+    def test_pr_cache_secrets_need_workflow_declarations(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["test_xdbg"]["secrets"] = "cachix-pr"
         errors = "\n".join(SUITES.validate(manifest))
         self.assertIn("test-xdbg.yml must declare workflow_call secrets", errors)
 
@@ -307,6 +322,109 @@ class IosLifecycleSplitTests(unittest.TestCase):
             text=True,
         )
         self.assertNotEqual(rejected.returncode, 0)
+
+
+class ExampleIOSWorkflowTests(unittest.TestCase):
+    def workflow(self):
+        return yaml.safe_load(
+            (ROOT / ".github/workflows/test-example-ios.yml").read_text()
+        )
+
+    def steps(self):
+        jobs = self.workflow()["jobs"]
+        self.assertEqual(
+            set(jobs), {"tests"}, "one job must share the binding preparation"
+        )
+        return jobs["tests"]["steps"]
+
+    def test_one_job_shares_checkout_and_toolchain(self):
+        steps = self.steps()
+        for action in (
+            "actions/checkout@",
+            "./.github/actions/setup-nix",
+            "maxim-lobanov/setup-xcode@",
+        ):
+            with self.subTest(action=action):
+                self.assertEqual(
+                    sum(step.get("uses", "").startswith(action) for step in steps), 1
+                )
+
+    def test_every_app_gate_remains_required(self):
+        for command in (
+            "just example-ios build",
+            "CONFIGURATION=Push",
+            "just example-ios lint",
+            "just example-ios test'",
+            "just backend ci just example-ios test-ui",
+            "just backend ci nix run .#example-ios -- --headless",
+            "CODE_SIGN_ENTITLEMENTS",
+            "dev/check-apple-toolchain",
+        ):
+            with self.subTest(command=command):
+                matching = [
+                    step for step in self.steps() if command in step.get("run", "")
+                ]
+                self.assertTrue(matching, command)
+                self.assertTrue(
+                    all(
+                        "if" not in step and not step.get("continue-on-error", False)
+                        for step in matching
+                    )
+                )
+
+    def test_failures_keep_results_and_separate_service_logs(self):
+        steps = self.steps()
+        results = next(
+            (
+                step
+                for step in steps
+                if step.get("with", {}).get("name") == "example-ios-journeys-results"
+            ),
+            None,
+        )
+        self.assertIsNotNone(results, "failed journeys must retain their xcresult")
+        self.assertEqual(results["if"], "failure()")
+        self.assertEqual(
+            results["with"]["path"], "apps/example-ios/.build/DerivedData/Logs/Test"
+        )
+        self.assertTrue(results["with"]["include-hidden-files"])
+        self.assertEqual(results["with"]["retention-days"], 7)
+        phases = [step for step in steps if "just backend ci" in step.get("run", "")]
+        self.assertEqual(
+            {step["env"]["XMTP_SERVICES_LOGS"] for step in phases},
+            {
+                "${{ runner.temp }}/backend-ci-logs/journeys",
+                "${{ runner.temp }}/backend-ci-logs/launch",
+            },
+        )
+        logs = next(
+            (
+                step
+                for step in steps
+                if step.get("with", {}).get("name") == "example-ios-backend-logs"
+            ),
+            None,
+        )
+        self.assertIsNotNone(logs, "all service phases must retain logs")
+        self.assertEqual(logs["if"], "always()")
+        self.assertEqual(logs["with"]["path"], "${{ runner.temp }}/backend-ci-logs")
+
+    def test_only_pr_cache_credentials_reach_app_job(self):
+        workflow = self.workflow()
+        self.assertEqual(
+            set(workflow[True]["workflow_call"]["secrets"]), {"CACHIX_PR_AUTH_TOKEN"}
+        )
+        setup = next(
+            step
+            for step in self.steps()
+            if step.get("uses") == "./.github/actions/setup-nix"
+        )
+        self.assertEqual(setup["with"]["cache-mode"], "ci")
+        self.assertEqual(
+            setup["with"]["cachix-pr-auth-token"], "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"
+        )
+        for suite in ("test_example_ios", "lint_example_ios"):
+            self.assertEqual(declaration()["suites"][suite]["secrets"], "cachix-pr")
 
 
 if __name__ == "__main__":

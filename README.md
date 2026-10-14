@@ -68,7 +68,7 @@ Each version 8 RC SDK has source, an installation guide, and an API reference.
 
 - [Android Messenger](https://github.com/xmtp/libxmtp/tree/main/apps/example-android): Test messaging and debug the Android SDK.
 
-- [iOS examples](https://github.com/xmtp/libxmtp/tree/main/sdks/ios/example): Build a mobile client with the local Swift package.
+- [iOS examples](https://github.com/xmtp/libxmtp/tree/main/apps/example-ios): Build a mobile client with the local Swift package.
 
 - [Agent demos](https://github.com/xmtp/libxmtp/tree/main/sdks/agent/src/demo): Explore message handlers and app-specific behavior.
 

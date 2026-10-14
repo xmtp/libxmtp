@@ -9,7 +9,7 @@ Run these commands from the repository root.
 ```bash
 dev/nix-shell 'just ios build'          # Generate Swift and build the native XCFramework.
 dev/nix-shell 'just ios check'          # Build the Swift package.
-dev/nix-shell 'just ios check-examples' # Build both example apps for the simulator.
+dev/nix-shell 'just example-ios build' # Build the example app for the simulator.
 dev/nix-shell 'just ios check-consumer' # Bare-executable consumer and negative consumers.
 dev/nix-shell 'just ios lint'
 dev/nix-shell 'just ios format'
@@ -83,17 +83,17 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
   (`LiveBackend.swift`). The helper ends every client on every exit, also after
   a throw or an early `return XCTFail(...)`. A test can still end a client
   itself; a second `end()` returns without an error.
-- CI runs the test, example, and simulator recipes through `just backend ci`.
+- CI runs the SDK test and simulator recipes through `just backend ci`.
   This starts disposable native PostgreSQL, S3, and backend services.
 - `test-ios.yml` has one iOS CI job. It runs `dev/bindings` once and fails
   when the tracked Swift under `Sources/` differs from the generated Swift
   (run `dev/bindings` and commit `Sources/`). Then it runs `test` (every test,
-  the lifecycle checks too), `check-examples`, `check-consumer`, and
+  the lifecycle checks too), `check-consumer`, and
   `test-simulator`. `dev/bindings` skips the xcframework copy when
   `Artifacts/.xcframework-store-path` names the same store path.
   A selected iOS suite gates aggregate `Test` in `ci.yml`.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.
-- Example builds select `arm64` to match the shipped simulator library.
+- The example app lives in `apps/example-ios` and has its own build and CI recipes.
 - Swift builds and tests use their default worker counts.
 - `Package.swift` stays at the repository root.
 - `Sources/XmtpSdk/xmtp_sdk.swift` and `Sources/XmtpSdk/runtime` are generated.

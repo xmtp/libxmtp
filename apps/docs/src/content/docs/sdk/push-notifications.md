@@ -8,7 +8,10 @@ current. The Browser SDK and WASM binding do not expose this API.
 
 Ask the backend operator which channels are configured. See
 [Push configuration](/deploy/push-configuration/) for server setup.
-The example apps do not include push registration or a notification receiver.
+The Android example has an optional FCM build. The iOS example at `apps/example-ios`
+has an optional `Push` configuration with APNs registration and a silent-push receiver.
+Debug and Release keep push off. APNs delivery needs a signed device build and a backend
+with the APNs channel configured; the local development backend does not configure APNs.
 
 ## Enable and control notifications
 

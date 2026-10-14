@@ -1,7 +1,5 @@
 included:
   - Sources
-  - XMTPiOSExample
-  - example
 excluded:
   - Tests
   - Sources/XmtpSdk/xmtp_sdk.swift

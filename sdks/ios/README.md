@@ -56,10 +56,7 @@ or open an unencrypted database. Encryption is recommended for stored messages
 and keys. If you supply a database key, store it in the Keychain and use the same
 key to open the database again. Do not write the key to logs.
 
-The simple example stores its signer and database key in the
-Keychain before it opens the database. Later logins reuse those keys. The larger
-example stores its database key and address before it creates a client. It can
-reopen the saved account. A Keychain read or write error stops the connection.
+The [example app](../../apps/example-ios) demonstrates app-owned storage.
 Use `.directory` or `.explicit` when the app selects its own path. Use
 `.inMemory` for a temporary client. Call `end()` when the app releases a client.
 Automatic Apple lifecycle management is on by default. It suspends live streams
@@ -74,11 +71,10 @@ Run commands from the repository root:
 ```sh
 dev/nix-shell 'just ios build'
 dev/nix-shell 'just ios check'
-dev/nix-shell 'just ios check-examples'
+dev/nix-shell 'just example-ios build'
 dev/nix-shell 'just ios test'
 dev/nix-shell 'just ios test-simulator'
 ```
 
-Both [example apps](./example) and [XMTPiOSExample](./XMTPiOSExample) use the
-local package. Set `XMTP_BACKEND_URL` to the backend for the tested commit. A
+The [example app](../../apps/example-ios) uses the local package. Set `XMTP_BACKEND_URL` to the backend for the tested commit. A
 physical device needs a backend address that it can reach.

@@ -86,6 +86,12 @@
           # route reads them with `nix eval .#sdkProvenance`, so both routes
           # record the same values.
           legacyPackages.sdkProvenance = sdk.provenance;
+          apps = lib.optionalAttrs pkgs.stdenv.isDarwin {
+            example-ios = {
+              type = "app";
+              program = "${pkgs.callPackage ./nix/package/example-ios-run.nix { }}/bin/example-ios";
+            };
+          };
           devShells =
             let
               # The Rust core; `default` layers on it, and `android` on its core
