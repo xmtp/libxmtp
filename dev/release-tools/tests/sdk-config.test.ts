@@ -4,8 +4,7 @@ import path from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { getSdkConfig, SDK_CONFIGS } from "../src/lib/sdk-config";
-import { Sdk } from "../src/types";
+import { getSdkConfig } from "../src/lib/sdk-config";
 
 describe("SDK configs", () => {
   it("returns correct config for each SDK", () => {
@@ -154,21 +153,6 @@ describe("SDK configs", () => {
     expect(getSdkConfig("node-sdk").versionTrack).toBe("independent");
     expect(getSdkConfig("cli").versionTrack).toBe("independent");
     expect(getSdkConfig("libxmtp").versionTrack).toBe("follows-libxmtp");
-  });
-
-  it("declares a release workflow and channels for shippable SDKs", () => {
-    const ios = getSdkConfig("ios");
-    expect(ios.releaseWorkflow).toBe("release-ios.yml");
-    expect(ios.channels).toContain("nightly");
-  });
-
-  it("declares notes globs for every SDK", () => {
-    for (const sdk of Object.values(Sdk)) {
-      const cfg = SDK_CONFIGS[sdk];
-      expect(Array.isArray(cfg.notesIncludeGlobs)).toBe(true);
-      expect(cfg.notesIncludeGlobs.length).toBeGreaterThan(0);
-      expect(Array.isArray(cfg.notesExcludeGlobs)).toBe(true);
-    }
   });
 
   it("uses the moved SDK directories", () => {

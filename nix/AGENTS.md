@@ -173,9 +173,6 @@ scripts, and `build-sdk-node-platforms.yml` read it.
 Run `dev/nix-shell 'python3 -B nix/check-sdk-products.py'` to build selected
 Kotlin, Android fast, and Swift on Darwin. It checks generated files, complete
 receipts, source identities, and the selected Android ELF library.
-Run `dev/nix-shell 'python3 -B nix/test-sdk-windows-staging.py'` to check the
-Windows Node job with cached generated roots. This fixture checks cleanup and
-the render arguments. It does not compile a Windows SDK.
 
 `android-sdk-libs` combines generated Kotlin, runtime and Android sources,
 the contract record, and all four `libxmtp_sdk.so` ABIs. `android-sdk-libs-fast`

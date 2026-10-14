@@ -1,6 +1,7 @@
 #!/bin/bash
 # Rebuild the public SDK when source changes. Finish each build before rerunning.
-source "$(dirname "$0")/.setup"
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 target="${1:-}"
 case "$target" in

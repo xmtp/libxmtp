@@ -6,8 +6,8 @@ set shell := ["../../dev/nix-shell"]
 
 # Stage the selected local SDK products before docs package tasks.
 sdk-products:
-    ../../dev/js/sdk-stage node
-    ../../dev/js/sdk-stage browser
+    ../../dev/js/sdk-package node
+    ../../dev/js/sdk-package browser
 
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:

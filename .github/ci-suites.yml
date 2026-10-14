@@ -120,7 +120,7 @@ path_groups:
     - "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
     - "sdks/js.just"
     # lint_js alone runs the source lint script and its test.
-    - "dev/js/{.setup,sdk-*,tsconfig.*.json}"
+    - "dev/js/{sdk-*,tsconfig.*.json}"
     - "nix/{js,js-node}.nix"
     - "nix/lib/packages/pnpm.nix"
   # The SDK facade and its generated bindings. Rust core changes reach the SDK

@@ -2,11 +2,24 @@
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
-import { resolve, join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { chromium } from "../../../sdks/browser/node_modules/playwright/index.mjs";
-import { packageAsset } from "./package-smoke-path.mjs";
 const packageRoot = resolve(process.argv[2]);
+// A request path maps to a file inside the package, or to nothing. This smoke
+// runs only on POSIX hosts.
+const packageAsset = (root, requestPath) => {
+  const file = resolve(root, `.${decodeURIComponent(requestPath)}`);
+  const inside = relative(root, file);
+  if (
+    inside === "" ||
+    inside === ".." ||
+    inside.startsWith(`..${sep}`) ||
+    isAbsolute(inside)
+  )
+    return undefined;
+  return file;
+};
 const runtimeEntry = (name) => {
   const manifest = JSON.parse(
     readFileSync(join(packageRoot, "node_modules/@ubjs", name, "package.json")),

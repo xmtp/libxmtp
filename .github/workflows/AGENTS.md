@@ -168,8 +168,8 @@ publication runs only on main, self-hosted, tag pushes, or reusable calls.
 All CI commands select a targeted Nix shell. Full root Nix warming still builds
 all outputs and dependencies, including the default developer shell. Kache is
 off unless a job sets `kache: "true"`; its Darwin helper bypasses linked outputs.
-Recovery runs only through the manual workflow. Windows installed-package
-smoke remains a manual owner in `test-sdk.yml`.
+Recovery runs only through the manual workflow. The release `load` jobs of
+`build-sdk-node-platforms.yml` run the Windows installed-package smoke.
 
 ## Compiler cache
 

@@ -44,8 +44,7 @@ class SourcePackageTests(unittest.TestCase):
         subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
         (self.root / "dev/js").mkdir(parents=True)
         (self.root / "bin").mkdir()
-        for name in ("sdk-package", ".setup"):
-            shutil.copyfile(ROOT / "dev/js" / name, self.root / "dev/js" / name)
+        shutil.copyfile(ROOT / "dev/js/sdk-package", self.root / "dev/js/sdk-package")
         (self.root / "crates/xmtp_sdk/dev").mkdir(parents=True)
         for name in ("dev/nix-shell", "bin/node", "crates/xmtp_sdk/dev/generate"):
             path = self.root / name

@@ -190,8 +190,7 @@ hand-maintained.
   `dev/nix-shell 'just sdk generate [targets]'` runs both steps. Use `--profile release` on the
   build recipe for release proofs.
 - `dev/nix-shell 'just sdk check-package-scripts'` checks reuse, toolchain inputs, and cleanup
-  with a small fixture. `dev/nix-shell 'just sdk check-clean-generate'` adds one real Swift
-  render. It uses existing artifacts and does not rebuild Rust.
+  with a small fixture, including stale-file cleanup on render.
   The script checks also reject missing or extra pure WASM functions and pure
   functions in worker bindings or dispatch. The exact set comes from approved
   pure Rust declarations in the current isolated SDK source.

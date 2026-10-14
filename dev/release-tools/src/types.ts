@@ -28,14 +28,6 @@ export interface SdkConfig {
   manifest: ManifestProvider;
   /** How this SDK's version relates to the libxmtp 1.x version */
   versionTrack: VersionTrack;
-  /** Code paths whose changes count toward this SDK's filtered notes */
-  notesIncludeGlobs: string[];
-  /** Code paths excluded from this SDK's filtered notes */
-  notesExcludeGlobs: string[];
-  /** Reusable workflow file the hub fans out to for this SDK */
-  releaseWorkflow: string;
-  /** Channels this SDK ships on */
-  channels: Channel[];
 }
 
 export type ReleaseType = "dev" | "rc" | "final" | "nightly";
@@ -53,8 +45,6 @@ export const BUMP_OPTIONS = ["major", "minor", "patch", "none"] as const;
  * - independent: own base version; mirror the 1.x bump KIND onto it (iOS/Android)
  */
 export type VersionTrack = "follows-libxmtp" | "independent";
-
-export type Channel = "nightly" | "rc" | "final";
 
 /** Shape of the global CLI options (defined in cli.ts) */
 export interface GlobalArgs {

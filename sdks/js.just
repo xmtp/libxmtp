@@ -13,7 +13,7 @@ set shell := ["../dev/nix-shell"]
 
 # Stage the selected SDK products for local workspace imports.
 sdk-products target="all":
-    case "{{ target }}" in all) ../dev/js/sdk-stage node && ../dev/js/sdk-stage browser ;; node) ../dev/js/sdk-stage node ;; wasm|browser) ../dev/js/sdk-stage browser ;; *) exit 2 ;; esac
+    case "{{ target }}" in all) ../dev/js/sdk-package node && ../dev/js/sdk-package browser ;; node) ../dev/js/sdk-package node ;; wasm|browser) ../dev/js/sdk-package browser ;; *) exit 2 ;; esac
 
 build-node-sdk:
     ../dev/js/sdk-package node

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Stage a public generated SDK and copy its complete product for local imports.
-source "$(dirname "$0")/.setup"
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 target="${1:-}"
 case "$target" in

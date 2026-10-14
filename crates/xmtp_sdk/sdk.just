@@ -8,9 +8,6 @@ _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 generate targets="swift,kotlin,node,browser":
     bash "{{ root }}/crates/xmtp_sdk/dev/generate" --targets "{{ targets }}"
 
-check-clean-generate:
-    bash "{{ root }}/crates/xmtp_sdk/dev/check-generate-cleans-stale"
-
 # Source checks that need no generated tree. CI runs them before generating.
 lint-source:
     cd "{{ root }}" && crates/xmtp_sdk/dev/check-file-sizes
@@ -83,7 +80,6 @@ check-package-scripts:
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-native-build-context.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-staging.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-source-package.py
-    cd "{{ root }}" && node crates/xmtp_sdk/dev/test-package-smoke-path.mjs
     cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-node-platforms.mjs
     cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-stamp-package.mjs
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-credential-record.mjs

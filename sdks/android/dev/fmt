@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-source "$(dirname "$0")/.setup"
-ensure_nix_shell "$@"
-cd "${SDK_ROOT}"
-./gradlew spotlessApply
