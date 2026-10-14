@@ -662,9 +662,25 @@ class ReleasePushTest(unittest.TestCase):
     def test_app_token_is_confined_to_separate_push_job(self):
         text = WORKFLOW.read_text()
         self.assertIn("permissions: {}", text)
-        # The App secrets live in an environment that admits only protected
-        # branches, so a pull request run cannot mint the token.
-        self.assertRegex(text, r"(?m)^  push:\n(?:    .*\n)*?    environment: release$")
+        # The App secrets live in the `release` environment, which admits only
+        # main, self-hosted, and release/*, so a pull request run cannot mint
+        # the token. Every job that reads them runs in that environment.
+        readers = []
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            jobs = path.read_text().split("\njobs:\n", 1)[-1]
+            for body in re.split(r"(?m)^  [a-z][a-z0-9-]*:\n", jobs):
+                if "GH_APP_ID" in body or "GH_APP_PK" in body:
+                    readers.append(path.name)
+                    with self.subTest(workflow=path.name):
+                        # check-release-push.yml skips the token on a dry run.
+                        self.assertRegex(
+                            body,
+                            r"(?m)^    environment: (release|\$\{\{ inputs\.dry-run "
+                            r"!= true && 'release' \|\| '' \}\})$",
+                        )
+        self.assertEqual(
+            sorted(readers), ["check-release-push.yml", "push-release-tag.yml"]
+        )
         self.assertNotIn("checkout@", text)
         self.assertNotIn("xmtp-release", text)
         self.assertNotIn("uses: ./", text)

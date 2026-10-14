@@ -22,6 +22,10 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # Every job that reads GH_APP_ID and GH_APP_PK runs in the `release`
+    # environment, whose deployment policy admits only main, self-hosted, and
+    # release/*. A dry run reads no App secret and may build any branch.
+    environment: ${{ inputs.dry-run != true && 'release' || '' }}
     outputs:
       source-sha: ${{ steps.source.outputs.sha }}
     steps:
