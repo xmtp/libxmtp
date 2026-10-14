@@ -9,6 +9,7 @@ loopback port, so a running worktree stack does not interfere.
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
@@ -134,6 +135,33 @@ class ServicesTests(unittest.TestCase):
         self.assertIn(f"XMTP_S3_PORT={port} is in use", result.stderr)
         self.assertFalse((self.root / "ran").exists())
 
+    def test_busy_caller_port_waits_when_asked(self):
+        holder = socket.socket()
+        holder.bind(("127.0.0.1", 0))
+        holder.listen()
+        port = holder.getsockname()[1]
+        try:
+            run = subprocess.Popen(
+                [str(self.test_bin)],
+                cwd=self.root,
+                env={
+                    **self.env,
+                    "XMTP_SERVICES_TEST_COMMAND": "touch ran",
+                    "XMTP_S3_PORT": str(port),
+                    "XMTP_SERVICES_PORT_WAIT": "60",
+                },
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            time.sleep(2)
+        finally:
+            holder.close()
+        stdout, stderr = run.communicate(timeout=180)
+        self.assertEqual(run.returncode, 0, stdout + stderr)
+        self.assertIn(f"XMTP_S3_PORT={port} is in use; waiting", stderr)
+        self.assertTrue((self.root / "ran").exists())
+
     def test_duplicate_caller_ports_fail_before_any_service_starts(self):
         (port,) = free_ports(1)
         result = self.services_test(
@@ -235,6 +263,30 @@ class ServicesTests(unittest.TestCase):
         self.assertEqual(left, [], "service processes remain")
         self.assertFalse(state.exists(), "state directory remains")
         self.assertFalse(socket_path.exists(), "socket remains")
+
+
+class WasmLockTests(unittest.TestCase):
+    def test_wasm_partitions_lock_by_descriptor(self):
+        # Each build can run as another build user. Linux
+        # fs.protected_regular refuses an O_CREAT open of another user's file
+        # in /tmp, and `flock <path>` always passes O_CREAT, so every flock
+        # call must name a descriptor.
+        source = (ROOT / "nix/package/wasm-nextest.nix").read_text()
+        calls = [
+            match.group(1).split()
+            for line in source.splitlines()
+            for match in re.finditer(
+                r"(?:^|[;&|!]|\bthen\b|\bdo\b)\s*flock\s+([^;&|]*)",
+                line.split("#", 1)[0].strip(),
+            )
+        ]
+        self.assertTrue(calls, "wasm-nextest.nix no longer calls flock")
+        for args in calls:
+            operands = [arg for arg in args if not arg.startswith("-")]
+            self.assertTrue(
+                operands and all(arg.isdigit() for arg in operands),
+                f"flock {' '.join(args)}: lock a descriptor, not a path",
+            )
 
 
 if __name__ == "__main__":

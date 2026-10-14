@@ -1,7 +1,8 @@
 # The WASM tests as one nextest archive and its run partitions.
 #
 # The archive compiles the test binaries once. Each partition runs one slice
-# of the tests from that archive, so CI runs the slices in parallel jobs. The
+# of the tests from that archive, so CI runs the slices in parallel jobs, with
+# the test services (`services`, nix/services) started inside the build. The
 # backend binary is a run input only: a backend change reruns the partitions
 # and substitutes the archive. Adapted from crane `lib/cargoNextest.nix`,
 # whose `partitions` option gives the archive and the partitions one argument
@@ -17,7 +18,9 @@
   cargo-nextest,
   nodejs_24,
   removeReferencesTo,
-  xmtp-backend,
+  flock,
+  writeShellScript,
+  services,
   partitions,
   ...
 }:
@@ -88,6 +91,29 @@ let
 
   wasmPackages = lib.concatMapStringsSep " " (name: "-p ${name}") wasmCrates;
 
+  # WASM has no `std::env`, so the tests bake the backend, proxy, and chain
+  # URLs in at compile time (xmtp_configuration `api.rs`, `scw.rs`). Every
+  # partition therefore starts the services on these ports. The block
+  # 20000-20099 is below every ephemeral port range and above every worktree
+  # slot port below 55432 (the highest is 13,464), so it collides with no
+  # worktree stack. Each port keeps the residue of its worktree base port.
+  ports = {
+    XMTP_BACKEND_DB_PORT = 20032;
+    XMTP_BACKEND_REPLICA_PORT = 20033;
+    XMTP_BACKEND_PORT = 20050;
+    XMTP_BACKEND_METRICS_PORT = 20064;
+    XMTP_ANVIL_PORT = 20045;
+    XMTP_TOXIPROXY_API_PORT = 20074;
+    XMTP_TOXIPROXY_PORT = 20010;
+    XMTP_S3_PORT = 20067;
+  };
+  # The services export the same URLs for these ports.
+  urls = {
+    XMTP_BACKEND_URL = "http://127.0.0.1:${toString ports.XMTP_BACKEND_PORT}";
+    XMTP_BACKEND_TOXIC_URL = "http://127.0.0.1:${toString ports.XMTP_TOXIPROXY_PORT}";
+    ANVIL_URL = "http://127.0.0.1:${toString ports.XMTP_ANVIL_PORT}";
+  };
+
   cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
     (removeAttrs commonArgs [ "src" ])
     // {
@@ -95,19 +121,22 @@ let
     }
   );
 
-  testArgs = commonArgs // {
-    inherit src;
-    pname = "wasm";
-    version = xmtp.mkVersion rust;
-    # rstest_macros reads RSTEST_TIMEOUT, and xmtp_macro reads
-    # XMTP_TEST_LOGGING, when the test macros expand, so the archive needs them.
-    inherit (xmtp.shellCommon.wasmEnv) RSTEST_TIMEOUT;
-    XMTP_TEST_LOGGING = "false";
-    RUST_LOG = "off";
-    NEXTEST_SHOW_PROGRESS = "counter";
-    # An output must name no store path, so it substitutes on a hit.
-    allowedReferences = [ ];
-  };
+  testArgs =
+    commonArgs
+    // urls
+    // {
+      inherit src;
+      pname = "wasm";
+      version = xmtp.mkVersion rust;
+      # rstest_macros reads RSTEST_TIMEOUT, and xmtp_macro reads
+      # XMTP_TEST_LOGGING, when the test macros expand, so the archive needs them.
+      inherit (xmtp.shellCommon.wasmEnv) RSTEST_TIMEOUT;
+      XMTP_TEST_LOGGING = "false";
+      RUST_LOG = "off";
+      NEXTEST_SHOW_PROGRESS = "counter";
+      # An output must name no store path, so it substitutes on a hit.
+      allowedReferences = [ ];
+    };
 
   archive = rust.mkCargoDerivation (
     testArgs
@@ -139,8 +168,16 @@ let
   # the remapped workspace.
   mkPartition =
     n:
+    let
+      run = writeShellScript "wasm-nextest-part-${toString n}" ''
+        set -euo pipefail
+        cargo nextest run --archive-file ${archive}/archive.tar.zst --workspace-remap . \
+          --profile ci --partition slice:${toString n}/${toString partitions} --no-tests=pass
+      '';
+    in
     rust.mkCargoDerivation (
       testArgs
+      // lib.mapAttrs (_: toString) ports
       // {
         pnameSuffix = "-nextest-part-${toString n}";
         # Everything that the run needs is in the archive.
@@ -150,25 +187,39 @@ let
         CARGO_PROFILE = "";
         doCheck = true;
         buildPhaseCargoCommand = "mkdir -p $out";
+        # The partitions of one machine share the port block, so a run holds
+        # an exclusive lock on one file in /tmp while its services run; a
+        # second run waits. Each build can run as another build user, and
+        # Linux fs.protected_regular refuses an O_CREAT open of another user's
+        # file in /tmp, which `flock <path>` always does. So the file is
+        # created once (O_EXCL, world-readable), opened read-only, and locked
+        # by descriptor. macOS can refuse a bind of a block port for a while
+        # after the previous run's services stopped (back-to-back Darwin
+        # partitions waited 27 s for the PostgreSQL port, with nothing
+        # listening), so a busy port gets up to 90 s.
         checkPhaseCargoCommand = ''
-          cargo nextest run --archive-file ${archive}/archive.tar.zst --workspace-remap . \
-            --profile ci --partition slice:${toString n}/${toString partitions} --no-tests=pass
+          lock=/tmp/xmtp-wasm-nextest.lock
+          (umask 000 && set -C && : >"$lock") 2>/dev/null || true
+          exec 9<"$lock"
+          if ! flock -n 9; then
+            echo "wasm-nextest: waiting for $lock"
+            flock -x 9
+          fi
+          ${services.checkCommand run}
         '';
-        # The tests run against the backend that the Docker stack serves from
-        # the same source. Naming the binary keys each run on the backend, so
-        # a backend change reruns the tests without a recompile.
-        XMTP_BACKEND_BIN = "${xmtp-backend}/bin/xmtp-backend";
         inherit (xmtp.shellCommon.wasmEnv)
           CHROMEDRIVER
           WASM_BINDGEN_TEST_TIMEOUT
           WASM_BINDGEN_TEST_WEBDRIVER_JSON
           ;
         WASM_BINDGEN_TEST_NO_ORIGIN_ISOLATION = "1";
+        XMTP_SERVICES_PORT_WAIT = "90";
         # Chrome and Core Foundation need a writable home during browser tests.
         preBuild = ''
           export HOME=$TMPDIR
           export CFFIXED_USER_HOME=$TMPDIR
         '';
+        nativeBuildInputs = testArgs.nativeBuildInputs ++ [ flock ];
         buildInputs =
           base.commonArgs.buildInputs
           ++ [
@@ -176,7 +227,11 @@ let
           ]
           ++ lib.optionals stdenv.isDarwin [ google-chrome ]
           ++ lib.optionals stdenv.isLinux [ chromium ];
-        # most tests query docker
+      }
+      # Chrome inside the Nix sandbox is not proven, so a partition still
+      # runs outside it; the services' sandbox settings apply once it does.
+      // services.sandbox
+      // {
         __noChroot = true;
       }
     );

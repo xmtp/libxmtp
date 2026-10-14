@@ -27,7 +27,7 @@ let
     withSystem system (
       { pkgs, self', ... }:
       pkgs.callPackage ./package/wasm-nextest.nix {
-        xmtp-backend = self'.packages.xmtp-backend;
+        services = self'.legacyPackages.mkServices self'.packages.xmtp-backend;
         partitions = wasmPartitions;
       }
     );

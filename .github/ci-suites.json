@@ -662,7 +662,6 @@
         "crates/xmtp_sdk/**"
       ],
       "workflow_files": [
-        ".github/actions/setup-js/**",
         ".github/actions/setup-nix/**",
         ".github/workflows/test-wasm.yml"
       ],

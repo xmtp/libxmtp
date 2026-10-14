@@ -15,6 +15,8 @@
 #   XMTP_SERVICES_LOGS   when set, each service writes its output to
 #                        `<name>.log` there instead of to process-compose
 #   XMTP_BACKEND_LISTEN_HOST  the backend listen address (default 127.0.0.1)
+#   XMTP_SERVICES_PORT_WAIT   seconds that a busy caller port may take to
+#                        become free (default 0)
 #
 # `$XMTP_SERVICES_STATE/env` holds `export` lines for the ports and URLs.
 {
@@ -72,38 +74,65 @@ let
     "XMTP_TOXIPROXY_API_PORT"
     "XMTP_TOXIPROXY_PORT"
   ];
-  # A port that the caller sets must be free: fail at once if something
-  # accepts a connection on it (macOS lets a second socket bind a held port)
-  # or if it cannot be bound. Hold every port while the others are picked, so
-  # a kernel pick cannot equal a caller port or another pick, then release
-  # them for the services. SO_REUSEADDR lets a caller port in TIME_WAIT pass.
+  # A port that the caller sets must be free: fail if something accepts a
+  # connection on it (macOS lets a second socket bind a held port) or if it
+  # cannot be bound. XMTP_SERVICES_PORT_WAIT gives the caller ports that many
+  # seconds to become free (default 0: fail at once). Hold every port while
+  # the others are picked, so a kernel pick cannot equal a caller port or
+  # another pick, then release them for the services. SO_REUSEADDR lets a
+  # caller port in TIME_WAIT pass.
   freePorts = pkgs.writeText "free-ports.py" ''
     import os
     import socket
     import sys
+    import time
 
-    held = []
-    picked = []
+
+    class Busy(Exception):
+        pass
+
+
+    def hold_caller_ports(names):
+        held = []
+        try:
+            for name in names:
+                value = os.environ.get(name)
+                if not value:
+                    continue
+                port = int(value)
+                if any(s.getsockname()[1] == port for s in held):
+                    sys.exit(f"services: {name}={value} duplicates another service port")
+                try:
+                    socket.create_connection(("127.0.0.1", port), 0.5).close()
+                    raise Busy(f"services: {name}={value} is in use")
+                except OSError:
+                    pass
+                s = socket.socket()
+                held.append(s)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                try:
+                    s.bind(("127.0.0.1", port))
+                except OSError as error:
+                    raise Busy(f"services: {name}={value} is in use: {error}")
+            return held
+        except Busy:
+            for s in held:
+                s.close()
+            raise
+
+
     names = sys.argv[1:]
-    for name in names:
-        value = os.environ.get(name)
-        if not value:
-            continue
-        port = int(value)
-        if any(s.getsockname()[1] == port for s in held):
-            sys.exit(f"services: {name}={value} duplicates another service port")
+    deadline = time.monotonic() + float(os.environ.get("XMTP_SERVICES_PORT_WAIT") or 0)
+    while True:
         try:
-            socket.create_connection(("127.0.0.1", port), 0.5).close()
-            sys.exit(f"services: {name}={value} is in use")
-        except OSError:
-            pass
-        s = socket.socket()
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind(("127.0.0.1", port))
-        except OSError as error:
-            sys.exit(f"services: {name}={value} is in use: {error}")
-        held.append(s)
+            held = hold_caller_ports(names)
+            break
+        except Busy as busy:
+            if time.monotonic() >= deadline:
+                sys.exit(str(busy))
+            print(f"{busy}; waiting", file=sys.stderr)
+            time.sleep(1)
+    picked = []
     for name in names:
         if os.environ.get(name):
             continue

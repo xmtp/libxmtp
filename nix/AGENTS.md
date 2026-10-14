@@ -74,11 +74,14 @@ build.
 `mkServices xmtp-backend` inside the sandbox, on free ports.
 
 `wasm-nextest-archive.<system>` compiles the WASM tests into one nextest
-archive. `wasm-nextest-part-<n>.<system>` runs slice `n` of 4 from it against
-the Docker stack. Each slice names the `xmtp-backend` binary, so a backend
-change reruns the slices and substitutes the archive. Run them with
-`just wasm nix-test` (all slices, one after another) or
-`just wasm nix-test-part <n>`.
+archive. `wasm-nextest-part-<n>.<system>` runs slice `n` of 4 from it, with the
+services of `mkServices xmtp-backend` started inside the build, so it needs no
+Docker stack. WASM bakes the service URLs in at compile time, so the services
+use the fixed port block 20000-20099, and each slice holds an exclusive lock
+on `/tmp/xmtp-wasm-nextest.lock` (a second slice waits). A backend change
+reruns the slices and substitutes the archive. The slices still run outside
+the sandbox (`__noChroot`, for Chrome). Run them with `just wasm nix-test`
+(all slices, one after another) or `just wasm nix-test-part <n>`.
 
 `backend-tests.<system>` runs the backend tests and the SQLx metadata check in
 the build sandbox, through `services-test` of the storage services (a
