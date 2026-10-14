@@ -1,9 +1,11 @@
 import ExampleCore
 
 @MainActor final class ChatQueryFake: ChatQueries {
+	var historyHook: (() async throws -> ChatPage)?
 	var conversationHook: (() async throws -> Void)?
 	var beforeRequests: [Int64?] = []
 	var pendingHook: ((RecoveryPosition?) async throws -> PendingPage)?
+	var publishHook: (() throws -> Void)?
 	var deletes: [String] = []
 	var queues = 0; var publications = 0; var rows: [ChatMessage] = []; var beforeQueue: () throws
 		-> Void = {}; var historyRead: (() async -> Void)?
@@ -15,6 +17,9 @@ import ExampleCore
 	func history(id _: String, ascending: Bool, before: HistoryPosition?,
 	             after: HistoryPosition?) async throws -> ChatPage
 	{
+		if let historyHook {
+			return try await historyHook()
+		}
 		await historyRead?(); beforeRequests.append(before?.sentAt)
 		var selected = rows
 			.filter { row in (before.map { row.sentAt < $0.sentAt } ?? true) && (after.map { row.sentAt > $0.sentAt } ?? true) }
@@ -54,7 +59,7 @@ import ExampleCore
 	}
 
 	func publish(conversationID _: String, messageID _: String) async throws {
-		publications += 1
+		publications += 1; try publishHook?()
 	}
 
 	func delete(messageID: String) async throws {

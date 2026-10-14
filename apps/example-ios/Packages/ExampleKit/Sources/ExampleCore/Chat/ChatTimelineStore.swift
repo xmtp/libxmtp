@@ -15,7 +15,7 @@ public struct ChatTimelineState: Equatable, Sendable {
 	public var anchorID: String?
 	public var atNewest = true
 	public var messages: [ChatMessage] {
-		window.rows.filter { $0.content != .reaction }.reversed() + pending.filter { $0.content != .reaction }
+		window.rows.filter { $0.content != .reaction }.reversed() + pending.filter { $0.content != .reaction }.reversed()
 	}
 }
 
@@ -102,8 +102,8 @@ public enum ChatTimelineAction: Sendable {
 	}
 
 	public func refresh() async {
-		pendingRevision += 1
-		await run(.refresh, revision: pendingRevision)
+		send(.refresh)
+		await job?.value
 	}
 
 	public func wait() async {
@@ -122,6 +122,7 @@ public enum ChatTimelineAction: Sendable {
 	private func run(_ action: ChatTimelineAction, revision: UInt64) async {
 		do {
 			let conversation = try await queries.conversation(id: id)
+			try checkAdmission(revision)
 			let pages = HistoryPages(queries: queries)
 			if case .olderPending = action {
 				try await loadPending(before: state.pendingBefore, revision: revision)
@@ -133,9 +134,9 @@ public enum ChatTimelineAction: Sendable {
 				apply { $0.loading = false }
 				return
 			}
-			var window = try await historyWindow(action, pages: pages)
+			var window = try await historyWindow(action, pages: pages, revision: revision)
 			try Task.checkCancellation()
-			guard admit(origin) else { return }
+			try checkAdmission(revision)
 			if case .refresh = action {
 				window = cache.refresh(id, page: window, anchor: state.anchorID)
 			} else {
@@ -151,19 +152,30 @@ public enum ChatTimelineAction: Sendable {
 				$0.error = nil
 			}
 			try await loadPending(before: nil, revision: revision)
-		} catch is CancellationError {} catch { apply { $0.loading = false
-			$0.error = "Message updates stopped."
-		} }
+		} catch is CancellationError {} catch {
+			guard revision == pendingRevision, !Task.isCancelled else { return }
+			apply { $0.loading = false
+				$0.error = "Message updates stopped."
+			}
+		}
 	}
 
-	private func historyWindow(_ action: ChatTimelineAction, pages: HistoryPages) async throws -> HistoryWindow {
+	private func checkAdmission(_ revision: UInt64) throws {
+		try Task.checkCancellation()
+		guard revision == pendingRevision, admit(origin) else { throw CancellationError() }
+	}
+
+	private func historyWindow(_ action: ChatTimelineAction, pages: HistoryPages,
+	                           revision: UInt64) async throws -> HistoryWindow
+	{
 		if case .older = action {
 			let page = try await pages.older(id: id, before: state.window.last)
-			guard admit(origin) else { throw ChatError.stale }
+			try checkAdmission(revision)
 			return cache.append(id, page: page, anchor: state.window.rows.last?.id)
 		}
 		if case .load = action, let anchor = readAnchor() {
 			var window = try await pages.around(id: id, anchor: anchor.position)
+			try checkAdmission(revision)
 			let target = AnchorRestore.target(anchor, rows: window.rows)
 			window.changed = target.changed
 			if target.changed {

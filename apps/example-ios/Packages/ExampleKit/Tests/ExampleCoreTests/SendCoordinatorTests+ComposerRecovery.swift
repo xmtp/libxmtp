@@ -3,6 +3,20 @@ import Foundation
 import Testing
 
 extension SendCoordinatorTests {
+	@Test @MainActor func acceptedSendStillRefreshesAfterPublicationFailure() async {
+		let fixture = ComposerRecoveryFixture(); fixture.queries.publishHook = { throw ChatError.unavailable }
+		let composer = fixture.open(); composer.send(.edit("kept")); composer.send(.submit); await composer.wait()
+		#expect(fixture.saved.text.isEmpty)
+		#expect(fixture.acceptedCount == 1); #expect(composer.state.error == nil)
+		#expect(fixture.records.contains { $0.messageID == "accepted" && $0.phase == .accepted })
+	}
+
+	@Test @MainActor func failedDraftReadCannotOverwriteSavedText() async {
+		let fixture = ComposerRecoveryFixture(); fixture.saved.edit("kept"); fixture.failRead = true
+		let composer = fixture.open(); #expect(composer.state.unknown); #expect(!composer.state.enabled)
+		composer.send(.edit("replacement")); #expect(fixture.saved.text == "kept")
+	}
+
 	@Test func reloadedInFlightComposerEnablesAfterSuccess() async {
 		let fixture = ComposerRecoveryFixture(); let composer = fixture.open()
 		fixture.queries.beforeQueue = { composer.send(.reload) }
@@ -65,10 +79,19 @@ extension SendCoordinatorTests {
 }
 
 @MainActor private final class ComposerRecoveryFixture {
+	var acceptedCount = 0
+	var failRead = false
 	var saved = ComposerDraft()
 	var records: [SendDraft] = []
 	let queries = ChatQueryFake()
-	lazy var drafts = ComposerDraftStore(read: { _ in self.saved }, write: { _, value in self.saved = value })
+	lazy var drafts = ComposerDraftStore(
+		read: { _ in
+			if self.failRead {
+				throw SessionError.message("fixture read failure")
+			}; return self.saved
+		},
+		write: { _, value in self.saved = value },
+	)
 	lazy var sends = SendDraftStore(read: { self.records }, write: { self.records = $0 })
 	lazy var coordinator = SendCoordinator(drafts: sends, queries: queries, accepts: { true })
 
@@ -87,6 +110,7 @@ extension SendCoordinatorTests {
 			sends: sends,
 			coordinator: coordinator,
 			admit: { _ in true },
+			accepted: { self.acceptedCount += 1 },
 		)
 		composer.send(.allow(true))
 		return composer

@@ -58,7 +58,8 @@ import Foundation
 			known.removeValue(forKey: draft.id)
 		} catch { return id }
 		guard accepts(), admission() else { return id }
-		try await retry(conversationID: draft.conversationID, messageID: id, admission: admission)
+		// Acceptance is durable. A publication failure remains recoverable by its accepted message ID.
+		do { try await retry(conversationID: draft.conversationID, messageID: id, admission: admission) } catch { return id }
 		return id
 	}
 

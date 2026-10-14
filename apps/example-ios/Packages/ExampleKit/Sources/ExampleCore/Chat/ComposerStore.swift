@@ -114,7 +114,7 @@ public enum ComposerAction: Sendable {
 			}
 			state.draft = saved
 			state.unknown = references.contains { $0.phase == .queueing && $0.messageID == nil }
-		} catch { state.error = "Cannot load your saved draft." }
+		} catch { state.unknown = true; state.error = "Cannot load your saved draft." }
 	}
 
 	private func persist() {
