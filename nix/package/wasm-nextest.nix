@@ -19,6 +19,7 @@
   nodejs_24,
   removeReferencesTo,
   flock,
+  nukeReferences,
   writeShellScript,
   services,
   partitions,
@@ -206,6 +207,7 @@ let
             flock -x 9
           fi
           ${services.checkCommand run}
+          ${import ../lib/junit.nix "target/nextest/ci/junit.xml"}
         '';
         inherit (xmtp.shellCommon.wasmEnv)
           CHROMEDRIVER
@@ -219,7 +221,10 @@ let
           export HOME=$TMPDIR
           export CFFIXED_USER_HOME=$TMPDIR
         '';
-        nativeBuildInputs = testArgs.nativeBuildInputs ++ [ flock ];
+        nativeBuildInputs = testArgs.nativeBuildInputs ++ [
+          flock
+          nukeReferences
+        ];
         buildInputs =
           base.commonArgs.buildInputs
           ++ [

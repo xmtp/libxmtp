@@ -2,6 +2,8 @@
 #
 #   - nextest: the workspace tests with the test services (nix/services)
 #     inside the build. test-workspace.yml builds `.#nextest.<system>`.
+#   - junit-refs: proves that the JUnit step of the test derivations
+#     (nix/lib/junit.nix) leaves no store path. test-workspace.yml builds it.
 #   - wasm-nextest-archive, wasm-nextest-part-<n>: the WASM test archive and
 #     its slices. Each slice starts the test services (nix/services) inside
 #     the build on the fixed port block 20000-20099 and holds a machine-wide
@@ -42,6 +44,31 @@ in
       pkgs.callPackage ./package/nextest.nix {
         services = self'.legacyPackages.mkServices self'.packages.xmtp-backend;
       }
+    )
+  );
+
+  # The JUnit step of the test derivations on a report that names a real
+  # input of this derivation (a planted store path with its context kept). A
+  # missing `nuke-refs` leaves the path in the output, and
+  # `allowedReferences = [ ]` fails the build with a reference error. A
+  # literal `/nix/store/<hash>-x` string would not prove this: Nix registers
+  # only paths of the input closure as references.
+  flake.junit-refs = lib.genAttrs systems (
+    system:
+    withSystem system (
+      { pkgs, ... }:
+      pkgs.runCommand "junit-refs"
+        {
+          nativeBuildInputs = [ pkgs.nukeReferences ];
+          allowedReferences = [ ];
+        }
+        ''
+          mkdir -p "$out" target/nextest/ci
+          printf '<testsuites><testsuite><testcase name="t"><flakyFailure message="panicked at %s/src/lib.rs:1:1"/></testcase></testsuite></testsuites>\n' \
+            ${builtins.toFile "planted" "x"} >target/nextest/ci/junit.xml
+          ${import ./lib/junit.nix "target/nextest/ci/junit.xml"}
+          grep -q flakyFailure "$out/junit.xml"
+        ''
     )
   );
 

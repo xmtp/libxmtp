@@ -24,9 +24,22 @@ jobs:
       # The derivation starts its own test services (nix/services) on free
       # loopback ports, so the job needs no Docker stack. `nix build` keeps
       # the coverage report.
+      # junit-refs proves that the JUnit step leaves no store path. One call
+      # evaluates once; the first output links to workspace-tests.
       - name: Run workspace tests with coverage
         run: |
-          nix build .#nextest.x86_64-linux --out-link workspace-tests --option sandbox relaxed
+          nix build .#nextest.x86_64-linux .#junit-refs.x86_64-linux \
+            --out-link workspace-tests --option sandbox relaxed
+      # The JUnit report, also when the result came from the cache; a test
+      # that passed on retry shows as `flakyFailure`.
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-workspace
+          path: workspace-tests/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload coverage
         uses: codecov/codecov-action@v6
         with:

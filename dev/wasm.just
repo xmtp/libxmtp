@@ -24,5 +24,6 @@ nix-test:
     status=0; for part in 1 2 3 4; do nix build --print-build-logs --no-link ".#wasm-nextest-part-$part.{{ nix_system }}" --option sandbox relaxed || status=1; done; exit "$status"
 
 # Run one slice of the Nix WASM tests; the first slice also builds the archive.
+# `result-wasm-<part>/junit.xml` keeps the slice's JUnit report.
 nix-test-part part:
-    nix build --print-build-logs --no-link .#wasm-nextest-part-{{ part }}.{{ nix_system }} --option sandbox relaxed
+    nix build --print-build-logs --out-link result-wasm-{{ part }} .#wasm-nextest-part-{{ part }}.{{ nix_system }} --option sandbox relaxed

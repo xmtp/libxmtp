@@ -10,6 +10,7 @@
   cargo-nextest,
   python3,
   cacert,
+  nukeReferences,
   writeShellScript,
   services,
   ...
@@ -77,6 +78,7 @@ rust.mkCargoDerivation (
     nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
       cargo-nextest
       python3
+      nukeReferences
     ];
     # A reqwest client loads the system trust store when it is built (rustls
     # platform verifier); a Linux sandbox has none, so cacert sets
@@ -86,8 +88,11 @@ rust.mkCargoDerivation (
     NEXTEST_SHOW_PROGRESS = "counter";
     buildPhaseCargoCommand = "mkdir -p $out";
     doCheck = true;
-    checkPhaseCargoCommand = services.checkCommand run;
-    postInstall = "test -s $out/coverage";
+    checkPhaseCargoCommand = ''
+      ${services.checkCommand run}
+      ${import ../lib/junit.nix "target/nextest/ci/junit.xml"}
+    '';
+    postInstall = "test -s $out/coverage && test -s $out/junit.xml";
     allowedReferences = [ ];
     doInstallCargoArtifacts = false;
   }

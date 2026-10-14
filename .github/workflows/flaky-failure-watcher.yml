@@ -55,7 +55,7 @@ jobs:
           github_token: ${{ github.token }}
           claude_args: |
             --model sonnet
-            --allowedTools "Bash(gh run view *),Bash(gh issue list *),Bash(gh issue create *),Bash(gh issue comment *),Bash(gh issue view *)"
+            --allowedTools "Bash(gh run view *),Bash(gh run download *),Bash(gh issue list *),Bash(gh issue create *),Bash(gh issue comment *),Bash(gh issue view *)"
           prompt: |
             A workflow has failed on the main branch. Investigate and report it.
 
@@ -74,6 +74,14 @@ jobs:
 
             Run `gh run view ${{ github.event.workflow_run.id }} --log-failed` to get the failed job logs.
             If the output is very large, focus on the last 200 lines of each failed step.
+
+            Then run `gh run download ${{ github.event.workflow_run.id }} --pattern 'junit-*' --dir junit`.
+            The Rust workspace job (`junit-workspace`) and each WASM slice (`junit-wasm-<n>`)
+            upload nextest's JUnit report when their tests pass, also when the result came from the
+            cache; a job whose tests failed has no report (a failed Nix build keeps no output). In
+            each `junit.xml`, a `<flakyFailure>` is a failed attempt of a test that passed on retry.
+            Report such tests with their exact names and messages, also when they are not the cause
+            of this failure: they are the flaky tests of the run.
 
             Identify:
             - Which job(s) and step(s) failed

@@ -362,7 +362,7 @@ suites:
       - cargo_package: "@default-members"
       - path_group: docker_backend
       - "{.config/nextest.toml,webdriver.json}"
-      - "{nix/package/nextest.nix,nix/ci-checks.nix,dev/check-ephemeral-backend}"
+      - "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
       # The derivation starts these services.
       - "nix/services/**"
   test_keepalive:
@@ -400,7 +400,7 @@ suites:
           - xmtp_sdk
       - path_group: docker_backend
       - "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
-      - "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix}"
+      - "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix,nix/lib/junit.nix}"
       - "nix/services/**"
   test_xdbg:
     phase: test

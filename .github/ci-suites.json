@@ -565,7 +565,7 @@
         "nix/package/backend.nix",
         "nix/services/**",
         "{.config/nextest.toml,webdriver.json}",
-        "{nix/package/nextest.nix,nix/ci-checks.nix,dev/check-ephemeral-backend}"
+        "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
       ]
     },
     "test_keepalive": {
@@ -674,7 +674,7 @@
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
         "nix/services/**",
-        "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix}",
+        "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
         "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       ]
     },
