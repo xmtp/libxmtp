@@ -69,7 +69,11 @@ def provenance():
             for name in untracked:
                 state.update(b"\0" + name + b"\0" + (ROOT / name.decode()).read_bytes())
             identity += f"+dirty:{state.hexdigest()}"
-        return {"source": identity, "generator": identity}
+        return {
+            "source": identity,
+            "generator": identity,
+            "render": dict.fromkeys(("swift", "kotlin", "typescript"), identity),
+        }
     untracked = untracked_inputs()
     if untracked:
         raise ValueError(
@@ -84,7 +88,16 @@ def provenance():
 
 
 def source_hash(generator=False):
+    """The SDK source identity, or with `generator` the bindgen executable's."""
     return provenance()["generator" if generator else "source"]
+
+
+def render_hash(language):
+    """The identity a generated tree records: the bindgen plus its language's
+    runtime and configuration, so a runtime edit changes only that language."""
+    return provenance()["render"][
+        "typescript" if language.startswith("typescript-") else language
+    ]
 
 
 def compiler_host():
@@ -434,11 +447,13 @@ def render(args):
     for record in selected.values():
         verify(record)
     generator = selected["bindgen"]["generator"]
+    # Each tree records its render identity from this checkout, so the bindgen
+    # that renders it must be this checkout's.
+    if generator != source_hash(True):
+        raise ValueError("generator mismatch; run build first")
     # Node and Browser staging trusts sdk-contract.json and has no later source
     # check. Mobile preflight checks it itself.
     if {"node", "browser"} & set(args.targets):
-        if generator != source_hash(True):
-            raise ValueError("generator mismatch; run build first")
         if any(record["source"] != source_hash() for record in selected.values()):
             raise ValueError("source mismatch; run build first")
     binary = next(iter(selected["bindgen"]["files"]))
@@ -493,7 +508,7 @@ def render(args):
                     "--source",
                     record["source"],
                     "--generator",
-                    generator,
+                    render_hash(language),
                     "--profile",
                     record["profile"],
                     "--features",
@@ -513,7 +528,7 @@ def render(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    # `provenance` prints the source and generator identities, for a caller
+    # `provenance` prints the source and Node render identities, for a caller
     # that runs `xmtp-sdk-bindgen render` itself (the Windows load job).
     parser.add_argument("action", choices=("build", "render", "provenance"))
     parser.add_argument("--targets", type=targets, default=TARGETS)
@@ -535,7 +550,8 @@ def main():
     args = parser.parse_args()
     try:
         if args.action == "provenance":
-            print(source_hash(), source_hash(True))
+            # The identities of a Node render.
+            print(source_hash(), render_hash("typescript-napi"))
         else:
             (build if args.action == "build" else render)(args)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:

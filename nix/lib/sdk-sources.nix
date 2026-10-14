@@ -76,14 +76,16 @@ let
     );
   provenance = {
     source = identity [ sdkInputs ];
-    # A generated tree is the bindgen's output over its language's runtime and
-    # configuration, so a runtime edit must change the identity the tree records.
-    generator = identity (
-      [ bindgenInputs ]
-      ++ map generationInputs [
-        "swift"
-        "kotlin"
-        "typescript"
+    # The bindgen executable.
+    generator = identity [ bindgenInputs ];
+    # A generated tree is the bindgen's output over its own language's runtime
+    # and configuration. Its receipt records this identity, so a runtime edit
+    # changes only the trees of that language.
+    render = lib.genAttrs [ "swift" "kotlin" "typescript" ] (
+      language:
+      identity [
+        bindgenInputs
+        (generationInputs language)
       ]
     );
   };

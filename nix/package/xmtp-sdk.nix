@@ -143,6 +143,8 @@ let
     typescript-wasm = "browser-worker";
     typescript-pure = "browser-pure";
   };
+  # The runtime and configuration a render reads: its `sdkProvenance.render` key.
+  renderLanguage = language: if lib.hasPrefix "typescript-" language then "typescript" else language;
   # The @ubjs runtimes that each TypeScript tree imports.
   runtimeLinks = {
     typescript-napi = [
@@ -182,7 +184,8 @@ let
       buildPhase = ''
         xmtp-sdk-bindgen render --lib ${artifact} --target ${renderTargets.${language}} \
           ${lib.optionalString (lib.hasPrefix "typescript-" language) "--oxfmt ${pkgs.oxfmt}/bin/oxfmt"} \
-          --source ${sources.provenance.source} --generator ${sources.provenance.generator} \
+          --source ${sources.provenance.source} \
+          --generator ${sources.provenance.render.${renderLanguage language}} \
           ${lib.optionalString (features != "") "--features ${features}"} --out "$out"
         ${lib.concatMapStrings (name: ''
           mkdir -p "$out/node_modules/@ubjs"

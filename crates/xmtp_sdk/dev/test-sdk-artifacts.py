@@ -346,6 +346,10 @@ class ArtifactTests(unittest.TestCase):
             artifacts, "source_hash", return_value="fixture-source"
         )
         self.hash_patch.start()
+        self.render_hash_patch = patch.object(
+            artifacts, "render_hash", return_value="fixture-render"
+        )
+        self.render_hash_patch.start()
         self.context_patch = patch.object(
             artifacts, "build_context", return_value="fixture-compiler"
         )
@@ -369,6 +373,7 @@ class ArtifactTests(unittest.TestCase):
         self.runtime_patch.stop()
         self.formatter_patch.stop()
         self.run_patch.stop()
+        self.render_hash_patch.stop()
         self.hash_patch.stop()
         self.context_patch.stop()
         self.temporary.cleanup()

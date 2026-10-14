@@ -426,19 +426,13 @@ class PackagingTests(
         for path, original in original_receipts.items():
             self.assertEqual(path.read_bytes(), original)
 
-    def test_render_without_build_keeps_stale_generator_for_preflight(self):
+    def test_render_rejects_a_stale_generator(self):
         self.args.targets = ("swift", "kotlin")
         artifacts.build(self.args)
         artifacts.render(self.args)
-        for platform in ("ios", "android"):
-            self.native_receipts(platform)
-            mobile.preflight(self.args.out, self.root / "mobile", platform)
         (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("new template")
-        artifacts.render(self.args)
-        for platform in ("ios", "android"):
-            with self.subTest(platform=platform):
-                with self.assertRaisesRegex(ValueError, "binding generator mismatch"):
-                    mobile.preflight(self.args.out, self.root / "mobile", platform)
+        with self.assertRaisesRegex(ValueError, "generator mismatch"):
+            artifacts.render(self.args)
 
     def test_render_without_build_keeps_stale_source_for_preflight(self):
         self.args.targets = ("swift", "kotlin")
@@ -491,7 +485,7 @@ class PackagingTests(
             {field: binding["artifact"][field] for field in fields},
             {field: native[field] for field in fields},
         )
-        self.assertEqual(binding["generator"], artifacts.source_hash(True))
+        self.assertEqual(binding["generator"], artifacts.render_hash("swift"))
         for path, original_receipt in native_receipts.items():
             self.assertEqual(path.read_bytes(), original_receipt)
         for platform in ("ios", "android"):
@@ -565,7 +559,7 @@ class PackagingTests(
         self.config.write_text("changed configuration only")
         # The crate configuration is SDK source, not generator source.
         self.assertNotEqual(artifacts.source_hash(), before["artifact"]["source"])
-        self.assertEqual(artifacts.source_hash(True), before["generator"])
+        self.assertEqual(artifacts.render_hash("swift"), before["generator"])
         with self.assertRaisesRegex(ValueError, "mobile binding source mismatch"):
             mobile.preflight(self.args.out, self.root / "mobile", "ios")
         artifacts.build(self.args)

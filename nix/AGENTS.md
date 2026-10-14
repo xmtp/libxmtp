@@ -44,10 +44,12 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
 - The Rust shell provides sqlx-cli. Keep its version aligned with the backend SQLx dependency.
 - SDK compiler sources use a dummy workspace and restore the selected local
   dependency graph. Keep embedded SDK data and bindgen templates in the real
-  compiler source. Provenance is an evaluation-time digest of the SDK closure
-  sources and of the bindgen closure plus every render's runtime and
-  configuration (`lib/sdk-sources.nix`, `.#sdkProvenance`). Receipts
-  record it and name files by name, so a product references no source and
+  compiler source. Provenance is an evaluation-time digest
+  (`lib/sdk-sources.nix`, `.#sdkProvenance`): `source` of the SDK closure,
+  `generator` of the bindgen closure, and `render.<swift|kotlin|typescript>` of
+  the bindgen closure plus that language's runtime and configuration. A tree's
+  receipt records its language's `render` identity, so a Kotlin runtime edit
+  changes only the Kotlin trees. Receipts name files by name, so a product references no source and
   keeps its path on a commit outside the closure. The cargo route reads the
   same digest with `nix eval`; Windows builds name the commit and a digest of
   uncommitted SDK input changes.

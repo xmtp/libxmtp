@@ -86,7 +86,6 @@ def check_products(products):
     artifacts = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(artifacts)
     source = artifacts.source_hash()
-    generator = artifacts.source_hash(True)
     native_root = Path(products["native"])
     native = next(
         path
@@ -96,17 +95,21 @@ def check_products(products):
     bindgen = Path(products["bindgen"]) / "bin/xmtp-sdk-bindgen"
     kotlin = Path(products["outputs"]["xmtp-sdk-generated-kotlin"]) / "kotlin"
     require(kotlin, ("uniffi/xmtp_sdk/xmtp_sdk.kt", "runtime", "android"))
-    kotlin_record = receipt(kotlin, source, generator, native, bindgen)
+    kotlin_record = receipt(
+        kotlin, source, artifacts.render_hash("kotlin"), native, bindgen
+    )
     if "xmtp-sdk-generated-swift" in products["outputs"]:
         swift = Path(products["outputs"]["xmtp-sdk-generated-swift"]) / "swift"
         require(
             swift,
             ("xmtp_sdk.swift", "xmtp_sdkFFI.h", "xmtp_sdkFFI.modulemap", "runtime"),
         )
-        receipt(swift, source, generator, native, bindgen)
+        receipt(swift, source, artifacts.render_hash("swift"), native, bindgen)
     android = Path(products["outputs"]["android-sdk-libs-fast"])
     require(android, ("uniffi/xmtp_sdk/xmtp_sdk.kt", "runtime", "android"))
-    android_record = receipt(android, source, generator, native, bindgen, ("jniLibs",))
+    android_record = receipt(
+        android, source, artifacts.render_hash("kotlin"), native, bindgen, ("jniLibs",)
+    )
     if android_record != kotlin_record:
         raise ValueError(
             "Android fast consumer does not use the selected Kotlin receipt"

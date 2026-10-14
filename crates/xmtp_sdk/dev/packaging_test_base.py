@@ -88,6 +88,10 @@ class PackagingTestBase:
         return {
             "source": fixture_identity(self.root, generator=False),
             "generator": fixture_identity(self.root, generator=True),
+            "render": dict.fromkeys(
+                ("swift", "kotlin", "typescript"),
+                fixture_identity(self.root, generator=True),
+            ),
         }
 
     def tearDown(self):
