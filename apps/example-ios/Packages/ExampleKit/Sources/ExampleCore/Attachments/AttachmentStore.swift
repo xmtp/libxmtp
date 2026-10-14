@@ -87,6 +87,7 @@ public enum AttachmentAction: Sendable {
 	private let authorizeDownload: (() async throws -> Bool)?
 	private let changed: () async -> Void
 	private let tasks = InFlightTasks()
+	private var downloadRevision: UInt64 = 0
 	private var activeSends: Set<UUID> = []
 	private var discardedIDs: Set<UUID> = []
 	private var discardedFiles: [UUID: FileDescriptor] = [:]
@@ -126,8 +127,19 @@ public enum AttachmentAction: Sendable {
 		}
 	}
 
+	public func invalidateDownloads() {
+		downloadRevision &+= 1
+		verified.clear()
+		for id in state.cards.keys {
+			state.cards[id]?.phase = .available
+			state.cards[id]?.error = nil
+			state.cards[id]?.retryable = false
+		}
+	}
+
 	public func close() async {
-		await tasks.close(); verified.clear()
+		invalidateDownloads()
+		await tasks.close()
 	}
 
 	private func apply(_ body: (inout AttachmentState) -> Void) {
@@ -142,6 +154,7 @@ public enum AttachmentAction: Sendable {
 	}
 
 	private func run(_ action: AttachmentAction) async {
+		let revision = downloadRevision
 		do {
 			switch action {
 			case .load: try await load()
@@ -151,7 +164,12 @@ public enum AttachmentAction: Sendable {
 			case let .send(id): try await sendDraft(id)
 			case let .download(id, descriptor): try await download(id, descriptor: descriptor)
 			}
-		} catch { handleFailure(error, action: action) }
+		} catch {
+			if case .download = action, revision != downloadRevision {
+				return
+			}
+			handleFailure(error, action: action)
+		}
 	}
 
 	private func load() async throws {
@@ -278,16 +296,17 @@ public enum AttachmentAction: Sendable {
 	}
 
 	private func download(_ id: String, descriptor: FileDescriptor) async throws {
+		let revision = downloadRevision
 		guard allowed(), admit(origin), state.cards[id]?.phase != .downloading else { return }
 		if let authorizeDownload {
 			guard try await authorizeDownload() else { return }
 		}
 		try Task.checkCancellation()
-		guard allowed(), admit(origin), state.cards[id]?.phase != .downloading else { return }
+		guard revision == downloadRevision, allowed(), admit(origin), state.cards[id]?.phase != .downloading else { return }
 		apply { $0.cards[id] = FileCard(id: id, name: descriptor.filename ?? "File", length: descriptor.length,
 		                                phase: .downloading) }
 		let file = try await gateway.download(descriptor)
-		guard admit(origin), allowed() else { return }
+		guard revision == downloadRevision, admit(origin), allowed() else { return }
 		let evicted = verified.put(id, file: file)
 		apply { state in
 			for id in evicted {

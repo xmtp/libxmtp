@@ -880,6 +880,16 @@
           }
         }
       }
+    },
+    "File": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

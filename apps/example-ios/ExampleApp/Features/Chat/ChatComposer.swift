@@ -8,24 +8,13 @@ extension ChatContentView {
 		GlassEffectContainer {
 			VStack(spacing: 8) {
 				ForEach(runtime.attachments.state.drafts.filter { $0.conversationID == id }) { draft in
-					HStack {
-						Text(draft.card.name).lineLimit(1)
-						Text(draft.phase.rawValue.capitalized).font(.caption)
-						if draft.phase == .unknown {
-							Button(String(localized: "Review send", table: "Chat")) { graph.navigate(.attachmentRecovery) }
-								.buttonStyle(.glass)
-						} else if draft.phase == .uploading {
-							ProgressView().accessibilityLabel(String(localized: "Uploading", table: "Attachments"))
-						} else if draft.phase != .failed || draft.retryable {
-							Button(String(localized: String.LocalizationValue(draft.phase == .failed ? "Retry" : "Send"), table: "Chat")) {
-								runtime.attachments.send(.send(draft.id))
-							}
-							.buttonStyle(.glassProminent).disabled(!allowed)
-						}
-						Button(String(localized: "Discard", table: "Chat"), role: .destructive) {
-							runtime.attachments.send(.discard(draft.id))
-						}.buttonStyle(.glass)
-					}
+					StagedAttachmentPreview(
+						draft: draft,
+						allowed: allowed,
+						send: { runtime.attachments.send(.send(draft.id)) },
+						discard: { runtime.attachments.send(.discard(draft.id)) },
+						review: { graph.navigate(.attachmentRecovery) },
+					)
 				}
 				if let error = runtime.composer.state.error ?? runtime.attachments.state
 					.error ?? error
@@ -115,6 +104,70 @@ extension ChatContentView {
 			.tooLarge { self.error = "File exceeds the server upload limit" } catch
 		{
 			self.error = "Cannot read this file. Try again."
+		}
+	}
+}
+
+private struct StagedAttachmentPreview: View {
+	@Environment(\.dynamicTypeSize) private var dynamicType
+	let draft: FileDraft
+	let allowed: Bool
+	let send: () -> Void
+	let discard: () -> Void
+	let review: () -> Void
+
+	var body: some View {
+		Group {
+			if dynamicType.isAccessibilitySize {
+				VStack(alignment: .leading, spacing: 12) {
+					details
+					actions.frame(maxWidth: .infinity, alignment: .trailing)
+				}
+			} else {
+				HStack(spacing: 12) { details; Spacer(minLength: 0); actions }
+			}
+		}.padding(12)
+			.frame(maxWidth: .infinity, alignment: .leading)
+			.messengerGlass(in: RoundedRectangle(cornerRadius: 16))
+	}
+
+	private var details: some View {
+		HStack(spacing: 10) {
+			Image(systemName: "doc.fill").font(.title2).foregroundStyle(.tint)
+				.frame(width: 44, height: 44)
+				.background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+				.accessibilityHidden(true)
+			VStack(alignment: .leading, spacing: 3) {
+				Text(draft.card.name).font(.callout.weight(.medium)).lineLimit(2)
+				Text(metadata).font(.caption).foregroundStyle(.secondary)
+				if draft.phase == .uploading {
+					Text("Uploading", tableName: "Attachments").font(.caption).foregroundStyle(.secondary)
+				}
+			}.fixedSize(horizontal: false, vertical: true)
+		}.accessibilityElement(children: .combine)
+	}
+
+	private var metadata: String {
+		let extensionName = URL(fileURLWithPath: draft.card.name).pathExtension
+		let type = UTType(filenameExtension: extensionName)?.localizedDescription ?? String(localized: "File", table: "Chat")
+		guard let bytes = draft.descriptor.length else { return type }
+		return type + " · " + ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+	}
+
+	private var actions: some View {
+		HStack(spacing: 8) {
+			if draft.phase == .unknown {
+				Button(String(localized: "Review send", table: "Chat"), action: review).buttonStyle(.glass)
+			} else if draft.phase == .uploading {
+				ProgressView().accessibilityLabel(String(localized: "Uploading", table: "Attachments"))
+			} else if draft.phase != .failed || draft.retryable {
+				Button(String(localized: String.LocalizationValue(draft.phase == .failed ? "Retry" : "Send"), table: "Chat"),
+				       systemImage: "arrow.up", action: send)
+					.labelStyle(.iconOnly).buttonStyle(.glassProminent).disabled(!allowed)
+					.frame(minWidth: 44, minHeight: 44)
+			}
+			Button(String(localized: "Discard", table: "Chat"), systemImage: "xmark", role: .destructive, action: discard)
+				.labelStyle(.iconOnly).buttonStyle(.glass).frame(minWidth: 44, minHeight: 44)
 		}
 	}
 }

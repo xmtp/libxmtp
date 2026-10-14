@@ -22,6 +22,13 @@ import SwiftUI
 		}
 		let value = try ChatServices(graph)
 		current = value
+		graph.session.scope.addFinalCleanup { [weak value] in
+			guard let value else { return }
+			value.cache.clear()
+			if current === value {
+				current = nil
+			}
+		}
 		return value
 	}
 

@@ -70,7 +70,7 @@ struct SharedMediaFeatureView: View {
 			} catch { failure = "Cannot load media and files. Try again." }
 		}
 		.onChange(of: graph.consentRevision) { _, _ in
-			PreviewImages.shared.clear(); files?.verified.clear(); media?.send(.load)
+			PreviewImages.shared.clear(); files?.invalidateDownloads(); media?.send(.load)
 		}
 		.onDisappear {
 			PreviewImages.shared

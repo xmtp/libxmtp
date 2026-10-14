@@ -61,7 +61,7 @@ struct ChatFeatureView: View {
 			} catch { failure = "Try opening this conversation again." }
 		}
 		.onChange(of: graph.consentRevision) { _, _ in
-			PreviewImages.shared.clear(); runtime?.attachments.verified.clear(); runtime?.timeline.send(.refresh)
+			PreviewImages.shared.clear(); runtime?.attachments.invalidateDownloads(); runtime?.timeline.send(.refresh)
 		}
 		.onDisappear {
 			PreviewImages.shared.clear()
