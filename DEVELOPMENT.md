@@ -86,7 +86,8 @@ dev/nix-shell 'just backend ci ./dev/bench add_1_member_to_group'
 `./dev/bench` runs all `xmtp_mls` benchmarks. Its optional argument filters the
 benchmark names. Criterion writes results under `target/criterion/`. To collect
 tracing data, set `XMTP_FLAMEGRAPH=trace` for a target that uses the benchmark
-logger. The logger writes `tracing.folded`.
+logger. The logger writes `tracing.folded`; render it with
+`dev/nix-shell 'inferno-flamegraph < tracing.folded > flamegraph.svg'`.
 
 ### SDK host benchmarks
 
@@ -136,10 +137,13 @@ dev/nix-shell 'dev/agent-run cargo run -p xmtp-db-tools -- query-bench /path/to/
 
 ## Code coverage
 
-Run the workspace coverage script to generate LCOV and HTML reports:
+Generate LCOV and HTML reports under `coverage/`. `--diff` limits the report
+to the Rust files changed since the merge base with `origin/main` (or a given
+base):
 
 ```sh
-dev/nix-shell './dev/llvm-cov'
+dev/nix-shell 'just coverage'
+dev/nix-shell 'just coverage --diff origin/main'
 ```
 
 CI also uses `cargo llvm-cov` and reports results to

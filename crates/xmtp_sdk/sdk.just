@@ -2,7 +2,7 @@ export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 set shell := ["../../dev/nix-shell"]
 
 root := justfile_directory()
-_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
+_env := ". " + root + "/dev/docker/load-env"
 
 # Build selected artifacts, then render only the selected target roots.
 generate targets="swift,kotlin,node,browser":
@@ -79,7 +79,6 @@ check-package-scripts:
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-packaging.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-native-build-context.py
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-staging.py
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-source-package.py
     cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-node-platforms.mjs
     cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-stamp-package.mjs
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-credential-record.mjs

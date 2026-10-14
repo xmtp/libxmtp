@@ -5,7 +5,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 case "${1:-}" in
   "")
     python3 "$script_dir/check.py"
-    nix shell nixpkgs#grpc-health-probe --command grpc-health-probe \
+    grpc-health-probe \
       -tls -tls-ca-cert "$script_dir/.generated/server.crt" -addr 127.0.0.1:18443
     echo 'PASS 5: grpc-health-probe -tls'
     ;;

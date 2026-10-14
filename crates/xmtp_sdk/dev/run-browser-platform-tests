@@ -13,7 +13,6 @@ esac
 if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
   exec env NIX_DEVSHELL=js dev/nix-shell "bash crates/xmtp_sdk/dev/run-browser-platform-tests ${1:-all}"
 fi
-dev/worktree-env
 . dev/docker/load-env
 platform=sdks/browser/test/platform
 node crates/xmtp_sdk/dev/stage-package.mjs browser

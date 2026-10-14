@@ -1,7 +1,7 @@
 export NIX_DEVSHELL := "js-node"
 
 root := justfile_directory()
-_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
+_env := ". " + root + "/dev/docker/load-env"
 
 set shell := ["../../dev/nix-shell"]
 

@@ -347,10 +347,15 @@ class CommandPathTest(unittest.TestCase):
                 " esac\n"
                 "fi\n",
             )
-            for name in ("attachment-io-proxy", "unsupported-backend"):
-                executable("apps/example-android/dev/" + name, 'exec "$@"\n')
-            fixture = root / "apps/example-android/fixtures/metadata_backend.py"
-            fixture.parent.mkdir(parents=True, exist_ok=True)
+            fixtures = root / "apps/example-android/fixtures"
+            fixtures.mkdir(parents=True, exist_ok=True)
+            (fixtures / "attachment_io_proxy.py").write_text(
+                "import subprocess,sys\nsys.exit(subprocess.call(sys.argv[1:]))\n"
+            )
+            (fixtures / "unsupported_backend.py").write_text(
+                "import subprocess,sys\nassert sys.argv[1] == '--backend'\nassert '/apps/example-android/.build/metadata-backend/' in sys.argv[2]\nassert sys.argv[3] == '--'\nsys.exit(subprocess.call(sys.argv[4:]))\n"
+            )
+            fixture = fixtures / "metadata_backend.py"
             fixture.write_text(
                 "import os,subprocess,sys\nassert sys.argv[1] == '--backend'\nassert '/apps/example-android/.build/metadata-backend/' in sys.argv[2]\nassert sys.argv[3] == '--'\nsys.exit(subprocess.call(sys.argv[4:], env=dict(os.environ, FIXTURE_ADMITTED='true')))\n"
             )

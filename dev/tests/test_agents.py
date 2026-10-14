@@ -13,9 +13,9 @@ import tempfile
 import time
 import unittest
 
-from nix_hook import rewrite
-
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "dev/agents"))
+from nix_hook import rewrite  # noqa: E402
 
 
 class NixWrapperTests(unittest.TestCase):
@@ -52,6 +52,8 @@ class NixWrapperTests(unittest.TestCase):
             "XDG_CACHE_HOME": str(self.root / "cache"),
             "TEST_STORE": str(self.root / "store/environment"),
         }
+        # A loaded worktree environment exports its slot, which would make
+        # dev/docker/load-env regenerate the file.
         for name in (
             "XMTP_NIX_WRAPPER_ID",
             "NIX_DEVSHELL",
@@ -60,6 +62,8 @@ class NixWrapperTests(unittest.TestCase):
             "TMP",
             "TEMP",
             "TEMPDIR",
+            "XMTP_WORKTREE_SLOT",
+            "XMTP_WORKTREE_NAME",
         ):
             self.env.pop(name, None)
 

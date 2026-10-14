@@ -15,8 +15,8 @@ export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 set shell := ["./dev/nix-shell"]
 
 # Test agent helpers in their locked environment without starting a language server.
-agent-test: spec-test
-    UV_PROJECT_ENVIRONMENT="{{ justfile_directory() }}/.cache/agents/venv" UV_PYTHON_DOWNLOADS=never uv run --frozen --no-dev --project dev/agents --python "$(command -v python3.11)" python -m unittest discover -s dev/agents -p 'test_*.py' -v
+agent-test:
+    dev/agents/uv-run python -m unittest discover -s dev/agents -p 'test_*.py' -v
 
 # --- SPECS ---
 # See docs/specs/SPEC-spec-format.md and .agents/skills/authoring-specs.
@@ -46,7 +46,7 @@ cargo_test := env("CARGO_TEST_CMD", "dev/agent-run cargo nextest run")
 
 # Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
 # `_env` loads it so the Rust suites reach this worktree's own stack.
-_env := justfile_directory() + "/dev/worktree-env && . " + justfile_directory() + "/dev/docker/load-env"
+_env := ". " + justfile_directory() + "/dev/docker/load-env"
 
 [script("bash")]
 default:
@@ -166,6 +166,41 @@ test target="workspace" *args="":
 _test-workspace *args="":
     {{ _env }} && SQLX_OFFLINE=true RUST_MIN_STACK="${RUST_MIN_STACK:-8388608}" {{ cargo_test }} --profile ci {{ args }}
 
+# Workspace coverage in this worktree's environment: coverage/lcov and
+# coverage/html. `--diff [BASE]` keeps only the Rust files changed since the
+# merge base with BASE (default origin/main, the trunk). Other arguments go to
+# `just test workspace`, for example `just coverage --diff origin/main -p xmtp_common`.
+[script("bash")]
+coverage *args:
+    set -euo pipefail
+    set -- {{ args }}
+    base=""
+    if [[ "${1:-}" == --diff ]]; then
+      shift
+      base=origin/main
+      if [[ $# -gt 0 && "$1" != -* ]]; then base="$1"; shift; fi
+    fi
+    cargo llvm-cov clean --profraw-only --workspace
+    CARGO_TEST_CMD="cargo llvm-cov nextest --no-fail-fast --no-report" just test workspace "$@"
+    rm -rf coverage
+    mkdir -p coverage
+    ignore='(xmtp_proto/src/gen)|(test/)|(mock/)|(mock\.rs)|(test_utils\.rs)|(test_utils/)|(tests\.rs)'
+    cargo llvm-cov report --ignore-filename-regex "$ignore" --lcov --output-path coverage/lcov
+    if [[ -z "$base" ]]; then
+      cargo llvm-cov report --ignore-filename-regex "$ignore" --html --output-dir coverage
+      echo "Coverage: coverage/lcov and coverage/html/index.html"
+      exit 0
+    fi
+    changed=()
+    while IFS= read -r file; do changed+=("*/$file"); done < <(git diff --name-only --diff-filter=ACMR "$(git merge-base "$base" HEAD)" -- '*.rs')
+    if [[ ${#changed[@]} -eq 0 ]]; then
+      echo "No Rust file changed since $base"
+      exit 0
+    fi
+    lcov --ignore-errors unused --extract coverage/lcov "${changed[@]}" --output-file coverage/diff.lcov
+    genhtml --ignore-errors range coverage/diff.lcov --output-directory coverage/html
+    echo "Coverage of the files changed since $base: coverage/html/index.html"
+
 [private]
 _test-crate +crates:
     {{ _env }} && args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
@@ -173,11 +208,11 @@ _test-crate +crates:
 
 # Verify the shared validation crate without workspace feature unification.
 check-validation:
-    dev/check-validation check
+    crates/xmtp_mls_validation/dev/check-validation check
 
 # Run the shared validation crate tests on native and wasm Node.
 test-validation:
-    dev/check-validation test
+    crates/xmtp_mls_validation/dev/check-validation test
 
 validation: check-validation test-validation
 

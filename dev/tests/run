@@ -22,7 +22,6 @@ ROOT = Path(__file__).resolve().parents[2]
 START_DIRS = (
     "dev/tests",
     "dev/specs",
-    "dev/agents",
     "apps/example-android/fixtures",
     "apps/example-android/performance",
     "nix/lib",
@@ -30,7 +29,6 @@ START_DIRS = (
 
 # Files that match the pattern but are not unit tests. They are never imported.
 EXCLUDED = {
-    "dev/agents/test_outline.py": "needs the uv environment of `just agent-test`",
     "apps/example-android/fixtures/test_metadata_create.py": (
         "a PostgreSQL fixture runner that parses arguments when imported"
     ),

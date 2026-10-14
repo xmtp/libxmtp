@@ -107,10 +107,11 @@ admission. Run both host variants with
 It also forwards the backend proxy and its API. It supplies the `toxicBackendUrl`
 and `toxiproxyApi` runner arguments from the worktree environment. Attachment
 interruption tests change only their named toxic and restore the backend proxy.
-The app integration route also starts an owned disposable PostgreSQL/backend
-fixture with no attachment target. Docker assigns its published port. The route
-forwards it and supplies `unsupportedBackendUrl`. The fixture removes only its
-owned containers and network and retains its logs after success or failure.
+The app integration route also starts an owned backend with no attachment
+target (`fixtures/unsupported_backend.py`): the current Nix backend binary on its
+own database in the worktree stack, on a free loopback port. The route forwards
+it and supplies `unsupportedBackendUrl`. The fixture drops only its own database
+and role and retains its logs after success or failure.
 Run this route alone when using a shared stack; no other proxy test can run at
 the same time. Caller environment values can select an existing stack.
 The recipe also starts a catalogue backend with its own database and listeners.

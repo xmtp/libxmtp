@@ -153,7 +153,7 @@ class RecipeTests(unittest.TestCase):
             )
 
     def test_tests_use_repository_backend_helpers(self):
-        prefix = f"{ROOT}/dev/worktree-env && . {ROOT}/dev/docker/load-env && "
+        prefix = f". {ROOT}/dev/docker/load-env && "
         for recipe in (
             "test",
             "test-lifecycle",
@@ -171,10 +171,9 @@ class RecipeTests(unittest.TestCase):
                 helper_command = next(
                     line
                     for line in commands.splitlines()
-                    if "/dev/worktree-env" in line
+                    if "/dev/docker/load-env" in line
                 )
                 self.assertTrue(helper_command.startswith(prefix), helper_command)
-                self.assertTrue((ROOT / "dev/worktree-env").is_file())
                 self.assertTrue((ROOT / "dev/docker/load-env").is_file())
 
 

@@ -3,6 +3,7 @@
 
 import argparse
 from contextlib import contextmanager
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,45 @@ import uuid
 from process_group import OwnedProcess
 
 
+@dataclass(frozen=True)
+class Fixture:
+    """One owned backend: its base config, catalogue, and exported names."""
+
+    label: str
+    database_prefix: str
+    base_config: str
+    catalogue: str | None
+    url_variable: str
+    port_variable: str
+    lease_variable: str | None
+    needs_s3: bool
+
+
+# The catalogue backend that metadata tests use, with attachment storage.
+METADATA = Fixture(
+    label="Metadata",
+    database_prefix="messenger_metadata_",
+    base_config="dev/backend/local-s3.toml",
+    catalogue="metadata-catalogue.toml",
+    url_variable="XMTP_METADATA_BACKEND_URL",
+    port_variable="XMTP_METADATA_BACKEND_PORT",
+    lease_variable="XMTP_METADATA_BACKEND_LEASE",
+    needs_s3=True,
+)
+
+# A backend with no attachment storage target, for the unsupported-upload tests.
+UNSUPPORTED = Fixture(
+    label="Unsupported",
+    database_prefix="messenger_unsupported_",
+    base_config="dev/backend/local.toml",
+    catalogue=None,
+    url_variable="XMTP_ANDROID_UNSUPPORTED_BACKEND_URL",
+    port_variable="XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT",
+    lease_variable=None,
+    needs_s3=False,
+)
+
+
 def port():
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -29,9 +69,10 @@ def config_text(source, catalogue, listener, metrics):
     expected = tomllib.loads(source)
     expected["server"]["listen"] = f"127.0.0.1:{listener}"
     expected.setdefault("telemetry", {})["metrics_listen"] = f"127.0.0.1:{metrics}"
-    expected["application_components"] = tomllib.loads(catalogue)[
-        "application_components"
-    ]
+    if catalogue:
+        expected["application_components"] = tomllib.loads(catalogue)[
+            "application_components"
+        ]
     text = re.sub(r"(?m)^listen\s*=.*$", f'listen = "127.0.0.1:{listener}"', source)
     if "[telemetry]" in text:
         raise ValueError(
@@ -106,35 +147,33 @@ def owned_database_url(database, name):
     return urlunsplit(parsed._replace(path="/" + name, query=query))
 
 
-def run(backend, command, environment=None):
+def run(backend, command, environment=None, fixture=METADATA):
     env = dict(environment or os.environ)
     database = env["DATABASE_URL"]
     with psql_connection(database, env) as (psql, psql_env):
-        return _run_owned(backend, command, env, database, psql, psql_env)
+        return _run_owned(backend, command, env, database, psql, psql_env, fixture)
 
 
-def _run_owned(backend, command, env, database, psql, psql_env):
+def _run_owned(backend, command, env, database, psql, psql_env, fixture=METADATA):
     # This runner changes no shared database or service configuration.
-    for name in ("XMTP_S3_URL", "XMTP_S3_BASE_URL"):
+    for name in ("XMTP_S3_URL", "XMTP_S3_BASE_URL") if fixture.needs_s3 else ():
         if not env.get(name):
             raise ValueError(f"{name} is required from the worktree environment.")
-    name = "messenger_metadata_" + uuid.uuid4().hex
-    owner = "messenger_metadata_owner_" + uuid.uuid4().hex
+    name = fixture.database_prefix + uuid.uuid4().hex
+    owner = fixture.database_prefix + "owner_" + uuid.uuid4().hex
     generation = uuid.uuid4().hex
     owned_url = owned_database_url(database, name)
     listener, metrics = port(), port()
     env.update(
         DATABASE_URL=owned_url, XMTP_DATABASE_URL=owned_url, XMTP_REPLICA_URL=owned_url
     )
-    child_env = dict(
-        env,
-        XMTP_METADATA_BACKEND_URL=f"http://127.0.0.1:{listener}",
-        XMTP_METADATA_BACKEND_PORT=str(listener),
-    )
+    child_env = dict(env)
+    child_env[fixture.url_variable] = f"http://127.0.0.1:{listener}"
+    child_env[fixture.port_variable] = str(listener)
     env.setdefault("XMTP_CHAIN_31337_URL", env.get("ANVIL_URL", ""))
     env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
-    fixture = Path(__file__).resolve().parent
-    root = fixture.parents[2]
+    fixtures = Path(__file__).resolve().parent
+    root = fixtures.parents[2]
     create_attempted = False
     owner_oid = None
     owner_attempted = False
@@ -250,8 +289,10 @@ def _run_owned(backend, command, env, database, psql, psql_env):
             config = Path(directory) / "backend.toml"
             config.write_text(
                 config_text(
-                    (root / "dev/backend/local-s3.toml").read_text(),
-                    (fixture / "metadata-catalogue.toml").read_text(),
+                    (root / fixture.base_config).read_text(),
+                    (fixtures / fixture.catalogue).read_text()
+                    if fixture.catalogue
+                    else "",
                     listener,
                     metrics,
                 )
@@ -265,7 +306,7 @@ def _run_owned(backend, command, env, database, psql, psql_env):
                 )
             )
             logs.mkdir(parents=True, exist_ok=True)
-            print(f"Metadata fixture logs: {logs}", flush=True)
+            print(f"{fixture.label} fixture logs: {logs}", flush=True)
             with (logs / "backend.log").open("w") as log:
                 server = OwnedProcess(
                     [backend, "--config-file", str(config)],
@@ -277,7 +318,7 @@ def _run_owned(backend, command, env, database, psql, psql_env):
                 while True:
                     if server.poll() is not None:
                         raise RuntimeError(
-                            f"Metadata backend exited with {server.returncode}; see {logs}"
+                            f"{fixture.label} backend exited with {server.returncode}; see {logs}"
                         )
                     probe = subprocess.run(
                         [
@@ -297,27 +338,35 @@ def _run_owned(backend, command, env, database, psql, psql_env):
                         break
                     if time.monotonic() >= deadline:
                         raise TimeoutError(
-                            f"Metadata backend did not become ready; see {logs}"
+                            f"{fixture.label} backend did not become ready; see {logs}"
                         )
                     time.sleep(0.1)
-                lease = Path(directory) / "lease.json"
-                with open(
-                    lease, "x", opener=lambda path, flags: os.open(path, flags, 0o600)
-                ) as out:
-                    json.dump(
-                        {
-                            "formatVersion": 1,
-                            "url": child_env["XMTP_METADATA_BACKEND_URL"],
-                            "port": listener,
-                            "database": name,
-                            "serverPid": server.command_pid,
-                            "groupPid": server.pid,
-                            "ownerPid": os.getpid(),
-                            "uid": os.getuid(),
-                        },
-                        out,
-                    )
-                child_env["XMTP_METADATA_BACKEND_LEASE"] = str(lease)
+                print(
+                    f"Owned {fixture.label.lower()} backend ready: "
+                    + child_env[fixture.url_variable],
+                    flush=True,
+                )
+                if fixture.lease_variable:
+                    lease = Path(directory) / "lease.json"
+                    with open(
+                        lease,
+                        "x",
+                        opener=lambda path, flags: os.open(path, flags, 0o600),
+                    ) as out:
+                        json.dump(
+                            {
+                                "formatVersion": 1,
+                                "url": child_env[fixture.url_variable],
+                                "port": listener,
+                                "database": name,
+                                "serverPid": server.command_pid,
+                                "groupPid": server.pid,
+                                "ownerPid": os.getpid(),
+                                "uid": os.getuid(),
+                            },
+                            out,
+                        )
+                    child_env[fixture.lease_variable] = str(lease)
                 child = OwnedProcess(command, env=child_env)
                 return child.wait()
     finally:
@@ -369,8 +418,8 @@ def _run_owned(backend, command, env, database, psql, psql_env):
                 signal.signal(signum, handler)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(fixture=METADATA, description=__doc__):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--backend", required=True, help="Path to the current xmtp-backend binary"
     )
@@ -380,6 +429,10 @@ if __name__ == "__main__":
     if not command:
         parser.error("a test command is required")
     try:
-        raise SystemExit(run(args.backend, command))
+        raise SystemExit(run(args.backend, command, fixture=fixture))
     except KeyboardInterrupt as error:
         raise SystemExit(128 + (error.args[0] if error.args else signal.SIGINT))
+
+
+if __name__ == "__main__":
+    main()

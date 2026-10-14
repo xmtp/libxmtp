@@ -20,6 +20,7 @@
   kache,
   sqlx-cli,
   grpc-health-probe,
+  grpcurl,
   lcov,
   cargo-llvm-cov,
   buf,
@@ -126,6 +127,7 @@ rec {
     cargo-hakari
     sqlx-cli
     grpc-health-probe
+    grpcurl
     kache
   ];
 
@@ -202,8 +204,8 @@ rec {
       ${xmtp.iosEnv.envSetupAll}
     '';
 
-  # CI-only cargo tools (coverage — Linux only)
-  cargoCiTools = lib.optionals isLinux [
+  # Coverage tools for `just coverage` and the CI coverage run.
+  cargoCiTools = [
     lcov
     cargo-llvm-cov
   ];

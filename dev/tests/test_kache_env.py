@@ -11,6 +11,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+KACHE_CI = ROOT / ".github/actions/setup-nix/kache-ci"
 
 
 class KacheEnvTests(unittest.TestCase):
@@ -116,7 +117,7 @@ class DarwinWrapperTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             folder = Path(folder)
             wrapper = folder / "xmtp-kache"
-            shutil.copy2(ROOT / "dev/kache-darwin-wrapper", wrapper)
+            shutil.copy2(ROOT / "nix/lib/packages/kache-darwin-wrapper.sh", wrapper)
             for name, marker in (("rustc", "direct"), ("kache", "cache")):
                 executable = folder / name
                 executable.write_text(
@@ -162,7 +163,7 @@ TRUNK_PUSH = {
 
 
 class CachePolicyTests(unittest.TestCase):
-    """dev/kache-ci-policy: the cache mode, the event, and the tokens."""
+    """`kache-ci policy`: the cache mode, the event, and the tokens."""
 
     def policy(self, **values):
         with tempfile.TemporaryDirectory() as folder:
@@ -175,7 +176,7 @@ class CachePolicyTests(unittest.TestCase):
                 **values,
             }
             result = subprocess.run(
-                [shutil.which("bash"), str(ROOT / "dev/kache-ci-policy")],
+                [shutil.which("bash"), str(KACHE_CI), "policy"],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -283,7 +284,7 @@ class KacheBackendTests(unittest.TestCase):
         self.output.write_text("")
         self.summary.write_text("")
         result = subprocess.run(
-            [shutil.which("bash"), str(ROOT / "dev/kache-ci-config")],
+            [shutil.which("bash"), str(KACHE_CI), "config"],
             env=self.env,
             capture_output=True,
             text=True,
@@ -555,7 +556,7 @@ class SetupNixTests(unittest.TestCase):
         names = [step.get("name") for step in steps]
         policy = action_step("Cache mode policy")
         self.assertNotIn("if", policy)
-        self.assertIn("dev/kache-ci-policy", policy["run"])
+        self.assertIn('"$GITHUB_ACTION_PATH/kache-ci" policy', policy["run"])
         caches = [
             index
             for index, step in enumerate(steps)
@@ -1037,7 +1038,7 @@ WIRING_RULES = (
         lambda c: (c["environment"] == "kache-s3-writer") == (c["mode"] == "trusted"),
     ),
     # On a trunk push without branch protection, a job that is trusted
-    # outright (post-merge.yml) fails in dev/kache-ci-policy (CachePolicyTests).
+    # outright (post-merge.yml) fails in `kache-ci policy` (CachePolicyTests).
     (
         "mode trusted runs only on a protected trunk push",
         lambda c: (

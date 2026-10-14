@@ -10,7 +10,7 @@ root := justfile_directory()
 
 # The backend port differs per worktree. `_env` loads dev/docker/.env, written
 # by dev/worktree-env, so the suites reach this worktree's own backend.
-_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
+_env := ". " + root + "/dev/docker/load-env"
 
 # Build the generated SDK and Apple package
 

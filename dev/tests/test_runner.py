@@ -14,7 +14,6 @@ RUNNER = ROOT / "dev/tests/run"
 START_DIRS = (
     "dev/tests",
     "dev/specs",
-    "dev/agents",
     "apps/example-android/fixtures",
     "apps/example-android/performance",
     "nix/lib",
@@ -66,8 +65,7 @@ class RunnerTests(unittest.TestCase):
         )
 
     def test_discovers_every_start_directory_and_skips_exclusions(self):
-        # Importing either excluded file would fail the run.
-        self.write("dev/agents/test_outline.py", "raise SystemExit(3)\n")
+        # Importing the excluded file would fail the run.
         self.write(
             "apps/example-android/fixtures/test_metadata_create.py",
             "raise RuntimeError('imported')\n",
@@ -77,9 +75,8 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for start in START_DIRS:
             self.assert_line(result, f"ok    {start}/test_base.py (1 tests")
-        self.assertNotIn("test_outline", result.stdout)
         self.assertNotIn("test_metadata_create", result.stdout)
-        self.assertEqual(result.stdout.splitlines()[-1], "6 tests; 0 failed modules")
+        self.assertEqual(result.stdout.splitlines()[-1], "5 tests; 0 failed modules")
 
     def test_tests_run_from_the_repository_root(self):
         self.write(

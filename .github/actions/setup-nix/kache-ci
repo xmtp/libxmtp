@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# The cache steps of the setup-nix action.
+#
+#   kache-ci policy   check the job's cache mode and decide whether Kache may
+#                     upload; runs in every job, before any cache is configured
+#   kache-ci config   select Kache's remote storage before the Kache action
+#                     starts its daemon
+#
+# The rule: a job that reads the CI-only Cachix cache `xmtp-pr` writes no
+# trusted store (Cachix `xmtp`, Kache S3). `read` reads `xmtp` and writes
+# nothing; `ci` reads `xmtp` and `xmtp-pr` and writes only `xmtp-pr`;
+# `trusted` reads `xmtp` and may write `xmtp` and Kache S3, and runs only on a
+# protected push to trunk.
+set -euo pipefail
+
+policy() {
+  fail() {
+    printf '::error title=Cache mode::%s\n' "$1" >&2
+    exit 1
+  }
+
+  mode=${XMTP_CACHE_MODE:-read}
+  case "$mode" in
+    read|ci|trusted) ;;
+    *) fail "cache-mode must be read, ci, or trusted, not '$mode'" ;;
+  esac
+
+  protected_push=false
+  if [[ "${GITHUB_ACTIONS:-}" == true && "${GITHUB_EVENT_NAME:-}" == push && "${GITHUB_REF_TYPE:-}" == branch && "${GITHUB_REF_PROTECTED:-}" == true ]]; then
+    case "${GITHUB_REF:-}" in
+      refs/heads/main|refs/heads/self-hosted) protected_push=true ;;
+    esac
+  fi
+
+  if [[ "$mode" == trusted && "$protected_push" != true ]]; then
+    fail 'cache-mode trusted runs only on a protected push to main or self-hosted'
+  fi
+  if [[ "$mode" != ci && "${XMTP_CACHIX_PR_TOKEN:-false}" == true ]]; then
+    fail "cache-mode $mode must not receive the xmtp-pr token"
+  fi
+  if [[ "$mode" != trusted && "${XMTP_CACHIX_TOKEN:-false}" == true ]]; then
+    fail "cache-mode $mode must not receive the trusted Cachix token"
+  fi
+
+  # Kache uploads need S3, an explicit writer opt-in, and mode trusted. Mode ci
+  # reads xmtp-pr, so its Kache is read-only on every event.
+  write=false
+  if [[ "$mode" == trusted && "$protected_push" == true && "${KACHE_CI_BACKEND:-}" == s3 && "${KACHE_CI_READONLY:-true}" == false ]]; then
+    write=true
+  fi
+  printf 'cache-write=%s\n' "$write" >> "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    printf 'Cache mode: %s. Kache remote writes: %s.\n' "$mode" "$write" >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+
+config() {
+  fail() {
+    printf '::error::%s\n' "$1" >&2
+    exit 1
+  }
+
+  access_key=${KACHE_CI_ACCESS_KEY:-}
+  secret_key=${KACHE_CI_SECRET_KEY:-}
+  readonly=${KACHE_CI_READONLY:-true}
+  case "$readonly" in
+    true|false) ;;
+    *) fail 'kache-readonly must be true or false' ;;
+  esac
+
+  backend=local
+  region=us-east-2
+  manifest_key=
+  if [[ -n "$access_key" || -n "$secret_key" ]]; then
+    [[ -n "$access_key" && -n "$secret_key" ]] || fail 'Kache S3 needs both credential fields'
+    bucket=${KACHE_CI_BUCKET:-}
+    region=${KACHE_CI_REGION:-us-east-2}
+    endpoint=${KACHE_CI_ENDPOINT:-}
+    scope=${KACHE_CI_SCOPE:-}
+    [[ "$bucket" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || fail 'Kache S3 needs a valid bucket name'
+    [[ "$region" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || fail 'Kache S3 needs a valid region'
+    [[ -z "$endpoint" || ( "$endpoint" == https://* && ! "$endpoint" =~ [[:space:]] ) ]] || fail 'Kache S3 endpoint must use HTTPS without whitespace'
+    [[ "$scope" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || fail 'Kache S3 needs a build scope with letters, digits, dots, underscores, or hyphens'
+    case "${RUNNER_OS:-}" in Linux|macOS|Windows) ;; *) fail 'Kache S3 needs a runner OS' ;; esac
+    case "${RUNNER_ARCH:-}" in X64|ARM64|ARM) ;; *) fail 'Kache S3 needs a runner architecture' ;; esac
+    backend=s3
+    manifest_key="$scope-$RUNNER_OS-$RUNNER_ARCH"
+  fi
+
+  printf 'backend=%s\nregion=%s\nmanifest-key=%s\n' "$backend" "$region" "$manifest_key" >> "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    if [[ "$backend" == s3 ]]; then
+      printf 'Kache backend: S3 (s3://%s/libxmtp/trusted). Build scope: %s.\n' "$bucket" "$manifest_key" >> "$GITHUB_STEP_SUMMARY"
+    else
+      printf 'Kache backend: local only. S3 credentials are not available.\n' >> "$GITHUB_STEP_SUMMARY"
+    fi
+  fi
+}
+
+case "${1:-}" in
+  policy) policy ;;
+  config) config ;;
+  *)
+    echo "usage: $0 policy|config" >&2
+    exit 2
+    ;;
+esac

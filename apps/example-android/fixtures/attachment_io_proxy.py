@@ -1,15 +1,17 @@
-#!/usr/bin/env python3
 """Forward the owned emulator's S3 route and hold GET responses for a test."""
+
 import json
 import os
 import signal
 import socket
 import socketserver
-import subprocess
 import sys
 import threading
 
+from process_group import OwnedProcess
+
 PREFIX = b"/_xmtp_attachment_test/"
+
 
 class Gate(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
@@ -38,6 +40,7 @@ class Gate(socketserver.ThreadingTCPServer):
                 pass
             connection.close()
 
+
 class Forward(socketserver.BaseRequestHandler):
     def handle(self):
         client = self.request
@@ -54,25 +57,38 @@ class Forward(socketserver.BaseRequestHandler):
                 return
             method, target = words[:2]
             if target.startswith(PREFIX):
-                command = target[len(PREFIX):].split(b"?", 1)[0]
+                command = target[len(PREFIX) :].split(b"?", 1)[0]
                 if command == b"hold":
                     self.server.release.clear()
                 elif command == b"release":
                     self.server.release.set()
                 with self.server.lock:
                     held = self.server.held
-                body = json.dumps({"held_gets": held, "released": self.server.release.is_set()}).encode()
-                client.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+                body = json.dumps(
+                    {"held_gets": held, "released": self.server.release.is_set()}
+                ).encode()
+                client.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                    + str(len(body)).encode()
+                    + b"\r\n\r\n"
+                    + body
+                )
                 return
-            upstream = socket.create_connection(("127.0.0.1", self.server.upstream), timeout=10)
+            upstream = socket.create_connection(
+                ("127.0.0.1", self.server.upstream), timeout=10
+            )
             upstream.settimeout(None)
             with self.server.lock:
                 self.server.sockets.update((client, upstream))
             header, body = bytes(first).split(b"\r\n\r\n", 1)
             lines = header.split(b"\r\n")
             # Force a new connection for each response gate. Signed headers and body stay intact.
-            lines = [line for line in lines if not line.lower().startswith(b"connection:")]
-            upstream.sendall(b"\r\n".join(lines) + b"\r\nConnection: close\r\n\r\n" + body)
+            lines = [
+                line for line in lines if not line.lower().startswith(b"connection:")
+            ]
+            upstream.sendall(
+                b"\r\n".join(lines) + b"\r\nConnection: close\r\n\r\n" + body
+            )
 
             def request_body():
                 try:
@@ -115,31 +131,35 @@ def main():
     threading.Thread(target=gate.serve_forever, daemon=True).start()
     env = dict(os.environ, XMTP_ANDROID_S3_GATE_PORT=str(gate.server_address[1]))
     print("Owned attachment S3 response gate ready", flush=True)
-    child = subprocess.Popen(sys.argv[1:], env=env, start_new_session=True)
-    forwarded = False
+    child = None
 
-    def stop(signum, frame):
-        nonlocal forwarded
-        if not forwarded and child.poll() is None:
-            forwarded = True
-            os.killpg(child.pid, signum)
+    def interrupted(signum, _frame):
+        raise KeyboardInterrupt(signum)
 
-    signal.signal(signal.SIGTERM, stop)
-    signal.signal(signal.SIGINT, stop)
+    previous = {
+        signum: signal.signal(signum, interrupted)
+        for signum in (signal.SIGTERM, signal.SIGINT)
+    }
     try:
+        child = OwnedProcess(sys.argv[1:], env=env)
         return child.wait()
     finally:
-        if child.poll() is None:
-            os.killpg(child.pid, signal.SIGTERM)
-            try:
-                child.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
-                child.wait()
-        gate.close_connections()
-        gate.shutdown()
-        gate.server_close()
-        print("Owned attachment S3 response gate removed", flush=True)
+        for signum in previous:
+            signal.signal(signum, signal.SIG_IGN)
+        try:
+            if child is not None:
+                child.stop()
+            gate.close_connections()
+            gate.shutdown()
+            gate.server_close()
+            print("Owned attachment S3 response gate removed", flush=True)
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
+
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt as error:
+        sys.exit(128 + (error.args[0] if error.args else signal.SIGINT))

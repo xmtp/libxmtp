@@ -80,6 +80,7 @@ class DockerStartupTest(unittest.TestCase):
         self.docker_dir = self.repo / "dev/docker"
         self.docker_dir.mkdir(parents=True)
         shutil.copyfile(HELPER, self.docker_dir / "up")
+        shutil.copyfile(ROOT / "dev/docker/load-env", self.docker_dir / "load-env")
         (self.docker_dir / "compose.yml").touch()
         (self.docker_dir / ".env").write_text(
             f"XMTP_COMPOSE_PROJECT='{PROJECT}'\n"
@@ -107,8 +108,10 @@ class DockerStartupTest(unittest.TestCase):
         services=("backend", "replica"),
         **overrides,
     ):
+        # The fixture .env is the only source of stack values: dev/docker/up
+        # keeps a value that the caller set.
         env = dict(
-            os.environ,
+            {k: v for k, v in os.environ.items() if not k.startswith("XMTP_")},
             PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
             STARTUP_STATUS=str(status),
             DIAGNOSTIC_FAILURE=failure,
@@ -140,7 +143,7 @@ class DockerStartupTest(unittest.TestCase):
         result = self.run_up(status=0)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.diagnostics(), [])
-        self.assertEqual(len(self.docker_calls()), 2)
+        self.assertEqual(len(self.docker_calls()), 1)
         self.assertEqual(
             self.docker_calls()[-1][5:],
             ["up", "--detach", "--remove-orphans", "--wait", "backend", "replica"],
@@ -214,7 +217,8 @@ class DockerStartupTest(unittest.TestCase):
         result = self.run_up(RUNNER_TEMP=str(occupied))
         self.assertEqual(result.returncode, 37, result.stderr)
         self.assertIn("Unable to create backend startup diagnostics", result.stderr)
-        self.assertEqual(len(self.docker_calls()), 2)
+        # Only the failed `up`: no diagnostics command ran.
+        self.assertEqual(len(self.docker_calls()), 1)
 
     def test_repeated_failures_preserve_each_attempt(self):
         first = self.run_up(runner=False)

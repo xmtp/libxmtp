@@ -35,7 +35,7 @@ with the `cache-mode` input:
 | `ci` | `xmtp`, `xmtp-pr` | `xmtp-pr` | `cachix-pr-auth-token` (`CACHIX_PR_AUTH_TOKEN`) | read-only | pull request and merge-run jobs |
 | `trusted` | `xmtp` | `xmtp`, Kache S3 | `cachix-auth-token` (`CACHIX_AUTH_TOKEN` of the writer environment) | writes when `kache-readonly: "false"` | the post-merge build, and writer jobs on a protected push to trunk |
 
-`dev/kache-ci-policy` runs before any cache is configured and fails the job
+`kache-ci policy` runs before any cache is configured and fails the job
 when:
 
 - the mode is not `read`, `ci`, or `trusted`;
@@ -66,7 +66,7 @@ request jobs once the repository-level `CACHIX_AUTH_TOKEN` is deleted.
 `setup-js` takes the same `cache-mode`, and every job passes the same mode to
 both actions: `read` restores no pnpm store (pnpm then downloads each tarball
 and checks it against the lockfile), `ci` restores only, and `trusted` also
-saves `pnpm-*` entries. `dev/agents/test_kache_env.py` evaluates each
+saves `pnpm-*` entries. `dev/tests/test_kache_env.py` evaluates each
 caller's mode, environment, and tokens for pull request, trunk push,
 schedule, and dispatch events, and checks these rules.
 
@@ -227,7 +227,7 @@ start Kache or access S3.
 
 The action appends runner OS and architecture to each scope below.
 "Protected push writer" requires all event and branch checks above. Every
-other event is a reader. `dev/agents/test_kache_env.py` checks that this table
+other event is a reader. `dev/tests/test_kache_env.py` checks that this table
 and its `KACHE_CALLERS` list name exactly the callers with `kache: "true"`.
 A job that runs cargo outside Nix belongs in both; remove it only when it
 stops running cargo.

@@ -7,9 +7,7 @@
 let
   patches = import ./patches.nix;
 
-  # The NAPI builder lives in the crane scope
   craneConfig = final: prev: {
-    napiBuild = final.callPackage ./napiBuild.nix { };
     # askama_derive 0.16 canonicalizes the askama.toml path through crane's
     # symlinked vendor dir, then emits include_bytes! with a lexical relative
     # path that resolves through the symlink target's real parents and lands

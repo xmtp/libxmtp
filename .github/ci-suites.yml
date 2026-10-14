@@ -66,28 +66,26 @@ shared:
   - ".cargo/**"
   - "proto/**"
   - "nix/lib/{base,default,filesets,mkToolchain,mkVersion,patches,shell-common}.nix"
-  - "nix/lib/packages/{kache,rtk}.nix"
+  - "nix/lib/packages/{kache.nix,kache-darwin-wrapper.sh,rtk.nix}"
   - "nix/shells/{local,rust}.nix"
   - "nix/apps.nix"
   - ".github/{ci-suites.yml,ci-suites.json}"
   - ".github/workflows/{ci,lint-generated,test-generated}.yml"
   - ".github/actions/setup-nix/**"
-  - "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run,kache-env,kache-ci-config,kache-ci-policy,kache-darwin-wrapper}"
+  - "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run,kache-env}"
 
 neutral:
   - "**/{AGENTS,CLAUDE}.md"
   - ".github/**/*.md"
   - "{README,CONTRIBUTING,ONBOARDING,TEST_SCENARIOS}.md"
   - "{LICENSE,.envrc,.gitignore,.git-blame-ignore-revs,.gitattributes,.dockerignore,codecov.yml,cliff.toml}"
-  - "{.agents,.claude,.codex,.devcontainer,.macroscope,.murmur,.vscode,.zed}/**"
+  - "{.agents,.claude,.codex,.macroscope,.murmur,.vscode,.zed}/**"
   - "{img,diagrams}/**"
   - "apps/.gitkeep"
   - ".github/{CODEOWNERS,dependabot.yml}"
   - ".github/ISSUE_TEMPLATE/**"
-  - "dev/test/**"
-  - "dev/{ast-outline,bench,serena,flamegraph,llvm-cov,up,down,direnv-up,direnv-down,docs}"
-  - "dev/{nix-up,nix-down,nix-status,nix-cache-up}"
-  - "dev/nix/**"
+  - "dev/{ast-outline,bench,serena}"
+  - "dev/nix-up"
 
 path_groups:
   # Suites that start the Docker stack test against a backend built from source.
@@ -100,7 +98,7 @@ path_groups:
   docker_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
-    - "dev/docker/{compose.yml,up,down,compose,load-env,load-backend-image}"
+    - "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}"
     - "dev/docker/{postgres,s3,toxiproxy}/**"
     - "dev/backend/{local.toml,local-s3.toml}"
     - "nix/package/backend.nix"
@@ -134,7 +132,7 @@ path_groups:
     - "nix/package/libffi-zig-cross.site"
     - "nix/package/node.nix"
     - "nix/node-packages.nix"
-    - "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix"
+    - "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix"
     - "nix/sdk-platforms.json"
     - "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix"
     - "nix/lib/packages/napi-rs-cli/**"
@@ -241,6 +239,8 @@ suites:
       - "apps/backend/backend.just"
       # dev/tests/test_services.py runs it.
       - "dev/services"
+      # dev/tests/test_sdk_package.py runs it.
+      - "dev/js/sdk-package"
       - "sdks/android/android.just"
       - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
       # test_kache_env.py reads this neutral file. A neutral file selects a
@@ -355,7 +355,7 @@ suites:
     products: []
     path_filters:
       - cargo_package: [xmtp_mls_validation, xmtp_id, xmtp_proto]
-      - "{dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
+      - "{crates/xmtp_mls_validation/dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
   test_workspace:
     phase: test
     workflow: test-workspace.yml
@@ -424,7 +424,7 @@ suites:
       # its traces, metrics, and dashboard.
       - path_group: docker_backend
       - "dev/docker/{tempo,prometheus,grafana}/**"
-      - "dev/docker/observe-check.sh"
+      - "dev/docker/{observe-check.sh,observe_check.py}"
       - "nix/package/xdbg{,-check}.nix"
       - "nix/ci-checks.nix"
   docs_rust:

@@ -52,8 +52,8 @@ terminal sessions, run:
 
 ```bash
 export XMTP_SMOKE_SKILL="$PWD/.agents/skills/smoke-check"
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && node "$XMTP_SMOKE_SKILL/scripts/ping-bot.mjs" "$PWD"'
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && node "$XMTP_SMOKE_SKILL/scripts/bleep-bot.mjs" "$PWD"'
+dev/nix-shell '. dev/docker/load-env && node "$XMTP_SMOKE_SKILL/scripts/ping-bot.mjs" "$PWD"'
+dev/nix-shell '. dev/docker/load-env && node "$XMTP_SMOKE_SKILL/scripts/bleep-bot.mjs" "$PWD"'
 ```
 
 Wait for each bot's `ready` event. Record its inbox ID, backend URL, run ID,

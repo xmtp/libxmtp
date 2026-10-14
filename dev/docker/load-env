@@ -1,9 +1,12 @@
 # Load this worktree's stack settings, without overriding the caller.
 #
-# Source this; do not execute it. Run dev/worktree-env first to generate
-# dev/docker/.env.
+# Source this; do not execute it. It is the one loader of dev/docker/.env:
 #
-#   dev/worktree-env && . dev/docker/load-env
+#   . dev/docker/load-env
+#
+# It runs dev/worktree-env first when the file is missing (a fresh checkout,
+# or after `just backend release`), older than dev/worktree-env, or when the
+# caller overrides the slot or the worktree name.
 #
 # Why not `set -a && . dev/docker/.env`: a variable already set in the calling
 # environment must win. `dev/worktree-env` preserves any variable it can see,
@@ -15,15 +18,19 @@
 # So: remember what the caller already set, source the file, then put the
 # caller's values back.
 
-__load_env_file="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/.env"
+__load_env_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+__load_env_file="${__load_env_root}/dev/docker/.env"
 
-if [ ! -f "${__load_env_file}" ]; then
-  echo "load-env: ${__load_env_file} is missing. Run dev/worktree-env first." >&2
-  unset __load_env_file
-  # `return` works when sourced, which is the supported use. `exit` is the
-  # fallback if someone executes this file directly.
-  # shellcheck disable=SC2317  # reachable only when executed, not sourced
-  return 1 2>/dev/null || exit 1
+if [ ! -f "${__load_env_file}" ] ||
+  [ "${__load_env_root}/dev/worktree-env" -nt "${__load_env_file}" ] ||
+  [ -n "${XMTP_WORKTREE_SLOT:-}${XMTP_WORKTREE_NAME:-}" ]; then
+  if ! "${__load_env_root}/dev/worktree-env"; then
+    unset __load_env_root __load_env_file
+    # `return` works when sourced, which is the supported use. `exit` is the
+    # fallback if someone executes this file directly.
+    # shellcheck disable=SC2317  # reachable only when executed, not sourced
+    return 1 2>/dev/null || exit 1
+  fi
 fi
 
 # Snapshot every name the file defines that the caller has already set.
@@ -52,4 +59,4 @@ ${__load_env_saved}
 EOF
 fi
 
-unset __load_env_file __load_env_saved __load_env_name __load_env_value
+unset __load_env_root __load_env_file __load_env_saved __load_env_name __load_env_value

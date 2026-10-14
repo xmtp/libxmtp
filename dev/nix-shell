@@ -40,7 +40,7 @@ else
 fi
 
 # The repository files that the dev shells read. A shell file that reads
-# another file outside nix/ must add it here; dev/agents/test_agents.py checks
+# another file outside nix/ must add it here; dev/tests/test_agents.py checks
 # this. Rust sources, Cargo files, and nested package.json files are not shell
 # inputs, so an edit to them keeps the cached environment.
 key_paths=(
@@ -50,7 +50,6 @@ key_paths=(
   package.json
   webdriver.json
   dev/kache-env
-  dev/kache-darwin-wrapper
   dev/nix-shell
 )
 fingerprint="$(

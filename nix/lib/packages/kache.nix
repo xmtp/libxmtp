@@ -1,6 +1,6 @@
 # Official release archives. Refresh all hashes when the version changes, and
 # move the `version` input of kunobi-ninja/kache-action in
-# .github/actions/setup-nix/action.yml with it (dev/agents/test_kache_env.py).
+# .github/actions/setup-nix/action.yml with it (dev/tests/test_kache_env.py).
 {
   lib,
   stdenvNoCC,
@@ -44,7 +44,7 @@ stdenvNoCC.mkDerivation {
     runHook preInstall
     install -Dm755 kache $out/bin/kache
     ${lib.optionalString stdenvNoCC.isDarwin ''
-      install -Dm755 ${../../../dev/kache-darwin-wrapper} $out/bin/xmtp-kache
+      install -Dm755 ${./kache-darwin-wrapper.sh} $out/bin/xmtp-kache
       substituteInPlace $out/bin/xmtp-kache \
         --replace-fail '#!/usr/bin/env bash' '#!${bash}/bin/bash'
     ''}

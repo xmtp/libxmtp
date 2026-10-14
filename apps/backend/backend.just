@@ -8,7 +8,7 @@ musl_arch := if arch() == "aarch64" { "aarch64" } else { "x86_64" }
 # Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
 # `_env` loads it so a recipe inherits this worktree's values. An already-set
 # variable always wins, so CI and one-off overrides are untouched.
-_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
+_env := ". " + root + "/dev/docker/load-env"
 
 # Run one command with fresh test services (nix/services `clientServices`:
 # PostgreSQL without a replica, S3, anvil, the backend, and toxiproxy) on this
@@ -61,7 +61,7 @@ s3-up:
     {{ root }}/dev/docker/up s3 s3-init
 
 db-down:
-    {{ root }}/dev/docker/down
+    {{ root }}/dev/docker/compose down
 
 sql-prepare:
     {{ _env }} && cargo sqlx migrate run --source apps/backend/migrations
@@ -96,7 +96,7 @@ up *services: _load-image
     {{ root }}/dev/docker/up {{ services }}
 
 down:
-    {{ root }}/dev/docker/down
+    {{ root }}/dev/docker/compose down
 
 logs *services:
     {{ root }}/dev/docker/compose logs {{ services }}
@@ -129,7 +129,7 @@ logs *services:
 [script("bash")]
 release:
     set -euo pipefail
-    {{ root }}/dev/docker/down --volumes
+    {{ root }}/dev/docker/compose down --volumes
     {{ _env }}
     # Remove only the tag this worktree derived, never an override such as a
     # published image. Shared layers stay while another tag uses them. Do it

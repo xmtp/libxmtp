@@ -45,11 +45,6 @@ Use `just backend logs [services...]` for logs. Both `just backend down` and
 They preserve the disk-backed Tempo trace volume. `just backend release` also
 deletes that volume and frees the worktree's port slot.
 
-For migration from the old database project, run
-`docker compose -p xmtp-backend down` once. If Compose cannot find the old file,
-run `docker compose -f dev/docker/compose.yml -p xmtp-backend down --remove-orphans`.
-The startup script prints a hint if that project still holds port 55432.
-
 ## Several worktrees
 
 Several worktrees can run the stack at the same time. Each gets its own Compose
@@ -365,8 +360,8 @@ validation stack. Run `dev/nix-shell 'just backend tls-check'` to check native
 gRPC trailers, HTTP/1.1 gRPC-Web, CORS, incremental streaming, and TLS health.
 The stack uses port 18443, an internal PostgreSQL 18 database, and a disposable
 self-signed certificate. Do not use that certificate for deployment. The check
-needs `grpcurl`, `protoc`, Python 3, OpenSSL, Docker, and Nix; it gets
-`grpc-health-probe` from `nix shell nixpkgs#grpc-health-probe`.
+needs Docker; the Nix shell provides `grpcurl`, `grpc-health-probe`, `protoc`,
+Python 3, and OpenSSL.
 
 To test an idle-stream failure, run `dev/tls/up`,
 `dev/tls/check.sh --short-timeout`, and `dev/tls/down` through `dev/nix-shell`.

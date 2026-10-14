@@ -4,7 +4,7 @@ set -euo pipefail
 
 MODE=${1:-all}
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
+REPO_ROOT=$(cd -- "$SCRIPT_DIR/../../.." && pwd)
 VALIDATION_TMP=$(mktemp -d "${TMPDIR:-/tmp}/xmtp-validation-check.XXXXXX")
 trap 'rm -rf "$VALIDATION_TMP"' EXIT
 export CARGO_TARGET_DIR="$REPO_ROOT/target"
@@ -159,7 +159,7 @@ case "$MODE" in
     run_tests
     ;;
   *)
-    echo "Usage: dev/check-validation [check|test|all]" >&2
+    echo "Usage: crates/xmtp_mls_validation/dev/check-validation [check|test|all]" >&2
     exit 2
     ;;
 esac

@@ -9,7 +9,6 @@ import * as pendingVersion from "./commands/pending-version";
 import * as publishBackend from "./commands/publish-backend";
 import * as resolveSdkVersion from "./commands/resolve-sdk-version";
 import * as setDependencyVersion from "./commands/set-dependency-version";
-import * as setDevcontainerImage from "./commands/set-devcontainer-image";
 import * as setManifestVersion from "./commands/set-manifest-version";
 import * as tagRelease from "./commands/tag-release";
 import * as updateSpmChecksum from "./commands/update-spm-checksum";
@@ -28,7 +27,6 @@ await yargs(hideBin(process.argv))
   .command(createReleaseBranch)
   .command(classifyNotes)
   .command(tagRelease)
-  .command(setDevcontainerImage)
   .command(pendingVersion)
   .command(publishBackend)
   .command(resolveSdkVersion)

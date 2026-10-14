@@ -11,7 +11,7 @@ root := justfile_directory()
 # The backend and anvil ports differ per worktree. `_env` loads dev/docker/.env,
 # written by dev/worktree-env, so Gradle bakes this worktree's endpoints into
 # BuildConfig (see library/build.gradle).
-_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
+_env := ". " + root + "/dev/docker/load-env"
 
 # Build and test the SDK in one Gradle call: `build` (unit tests, Android Lint,
 # Spotless, both AARs) and the instrumented test APK. CI's SDK build job.

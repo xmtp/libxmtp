@@ -136,16 +136,8 @@ nix develop --show-trace  # Verbose error output
 | `nix/package/node.nix`            | Node.js per-target builds + JS/TS generation                   |
 | `nix/package/xmtp-sdk-native.nix` | Native SDK release build derivation                            |
 | `nix/package/ios.nix`             | iOS release build derivation                                   |
-| `dev/nix-up`                      | Installation script for Nix and direnv                         |
+| `dev/nix-up`                      | Installation script for Nix, the binary cache, and direnv      |
 | `.node-version`, `.nvmrc`         | Node.js version for tools outside Nix                          |
-
-## Devcontainer Image Updates
-
-The devcontainer Dockerfile uses the NodeSource major-version setup script.
-CI does not build or publish the devcontainer image. Use
-`xmtp-release set-devcontainer-image --image <image>` to update the pinned
-image in `.devcontainer/devcontainer.json` after a separately approved image
-release. Do not publish an image from a local version update.
 
 ## Further Reference
 

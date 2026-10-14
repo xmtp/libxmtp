@@ -94,8 +94,8 @@ just node test-ci
 ## Coverage
 
 ```bash
-dev/nix-shell 'dev/llvm-cov'             # full run; coverage/lcov and coverage/html
-dev/nix-shell 'dev/test/diff-coverage'   # files changed vs the parent branch
+dev/nix-shell 'just coverage'                    # full run; coverage/lcov and coverage/html
+dev/nix-shell 'just coverage --diff origin/main' # files changed since the merge base
 ```
 
 `CARGO_TEST_CMD="cargo llvm-cov nextest --no-fail-fast --no-report" just test` also works.

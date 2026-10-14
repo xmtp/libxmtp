@@ -229,7 +229,7 @@ class RecipeTest(unittest.TestCase):
         executable(
             self.root / "dev/docker/load-backend-image", 'echo "load $*" >> "$LOG"\n'
         )
-        executable(self.root / "dev/docker/down", 'echo "down $*" >> "$LOG"\n')
+        executable(self.root / "dev/docker/compose", 'echo "$*" >> "$LOG"\n')
         executable(
             base / "bin/docker",
             'case "$1 $2" in\n'
