@@ -84,14 +84,33 @@ FETCH_HEADER = re.compile(r"^(this path|these \d+ paths) will be fetched")
 BUILD_HEADER = re.compile(r"^(this derivation|these \d+ derivations) will be built")
 STORE_ITEM = re.compile(r"^\s+/nix/store/(\S+)$")
 BUILDING = re.compile(r"^building '/nix/store/([^']+)'")
-# The test outputs and their derivations. A digit after the name excludes
-# dependency layers such as `cargo-package-nextest-deps-…`.
+# The test outputs: for each, the jobs that build it and their derivations. A
+# digit after the name excludes dependency layers such as
+# `cargo-package-nextest-deps-…`. The WASM tests ran in one job until one
+# archive job and 4 partition jobs replaced it; a run has one shape or the
+# other.
+WASM_PARTITIONS = 4
 TEST_OUTPUTS = {
-    "nextest": (
-        "Test (Rust Workspace)",
-        re.compile(r"^[0-9a-z]{32}-cargo-package-nextest-\d"),
-    ),
-    "wasm": ("Test (WASM)", re.compile(r"^[0-9a-z]{32}-wasm-nextest-\d")),
+    "nextest": [
+        (
+            "Test (Rust Workspace)",
+            re.compile(r"^[0-9a-z]{32}-cargo-package-nextest-\d"),
+        )
+    ],
+    "wasm": [
+        ("Test (WASM)", re.compile(r"^[0-9a-z]{32}-wasm-nextest-\d")),
+        (
+            "Test (WASM archive)",
+            re.compile(r"^[0-9a-z]{32}-wasm-nextest-archive-\d"),
+        ),
+    ]
+    + [
+        (
+            f"Test (WASM {part})",
+            re.compile(rf"^[0-9a-z]{{32}}-wasm-nextest-part-{part}-\d"),
+        )
+        for part in range(1, WASM_PARTITIONS + 1)
+    ],
 }
 
 L_NAMES = {"Cargo.lock", "Cargo.toml"}
@@ -431,6 +450,22 @@ def test_output(jobs, job_name, pattern):
     return "fetched" if fetched else "?"
 
 
+def test_outputs(jobs, specs):
+    """Return whether the jobs of one test output fetched or built it.
+
+    A build in any job means the tests ran, so it wins; a job with no result
+    (`?`) wins over a fetch; jobs that did not run (`-`) do not count.
+    """
+    results = [test_output(jobs, *spec) for spec in specs]
+    ran = [result for result in results if result != "-"]
+    if not ran:
+        return "-"
+    for result in ("built", "?"):
+        if result in ran:
+            return result
+    return "fetched"
+
+
 def measure(run, jobs):
     # Terms: wall time runs from run creation to run end. `run_started_at` is
     # the start of the latest attempt only.
@@ -524,7 +559,7 @@ def runs(args):
         if run["event"] == "push":
             report["tree"] = tested_tree(run)
             report["outputs"] = {
-                name: test_output(jobs, *spec) for name, spec in TEST_OUTPUTS.items()
+                name: test_outputs(jobs, specs) for name, specs in TEST_OUTPUTS.items()
             }
             line += f" tree={report['tree']} " + " ".join(
                 f"{k}={v}" for k, v in report["outputs"].items()

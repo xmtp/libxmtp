@@ -549,6 +549,45 @@ class Metrics(unittest.TestCase):
             output,
         )
 
+    def split_wasm_fixture(self, built_part=None):
+        """A merge run with the WASM archive job and 4 partition jobs.
+
+        Every job fetches its output, except `built_part`, which builds it.
+        """
+        fixture = merge_run_fixture()
+        jobs = [item for item in fixture["jobs"]["1"] if item["id"] != 901]
+        del fixture["logs"]["901"]
+        jobs.append(job(910, "Test suites / test_wasm / Test (WASM archive)", 60, 300))
+        fixture["logs"]["910"] = (
+            "2026-10-13T12:01:01.0000000Z this path will be fetched (9.00 MiB download):\n"
+            f"2026-10-13T12:01:01.0000000Z   /nix/store/{'5' * 32}-wasm-nextest-archive-1.12.0-dev\n"
+        )
+        for part in range(1, 5):
+            job_id = 910 + part
+            jobs.append(
+                job(job_id, f"Test suites / test_wasm / Test (WASM {part})", 360, 300)
+            )
+            output = f"{str(part) * 32}-wasm-nextest-part-{part}-1.12.0-dev"
+            fixture["logs"][str(job_id)] = (
+                f"2026-10-13T12:07:02.0000000Z building '/nix/store/{output}.drv'...\n"
+                if part == built_part
+                else "2026-10-13T12:07:01.0000000Z this path will be fetched (0.00 MiB download):\n"
+                f"2026-10-13T12:07:01.0000000Z   /nix/store/{output}\n"
+            )
+        fixture["jobs"]["1"] = jobs
+        return fixture
+
+    def test_split_wasm_jobs_fetch_when_every_job_fetched(self):
+        output = self.run_metrics(self.split_wasm_fixture(), "runs", "1").stdout
+        self.assertIn("nextest=fetched wasm=fetched", output.splitlines()[0])
+
+    def test_split_wasm_jobs_build_when_one_partition_ran(self):
+        # A backend change: the archive substitutes and the partitions rerun.
+        output = self.run_metrics(
+            self.split_wasm_fixture(built_part=4), "runs", "1"
+        ).stdout
+        self.assertIn("nextest=fetched wasm=built", output.splitlines()[0])
+
     def test_merge_class_is_unknown_beyond_the_commit_file_cap(self):
         fixture = merge_run_fixture()
         docs = [{"filename": f"docs/p{i}.md", "status": "modified"} for i in range(100)]

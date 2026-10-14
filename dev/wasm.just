@@ -16,5 +16,12 @@ lint:
 test *args="":
     XMTP_TEST_LOGGING=false RUST_LOG=off dev/agent-run cargo nextest run --locked --profile ci --cargo-profile wasm-test --target wasm32-unknown-unknown {{ wasm_packages }} {{ args }}
 
+# Run every slice of the Nix WASM tests. The slices share this machine's
+# Docker stack, so they run one after another. nix/ci-checks.nix
+# (`wasmPartitions`) and .github/workflows/test-wasm.yml name the same slices.
 nix-test:
-    nix build --print-build-logs --no-link .#wasm-nextest.{{ nix_system }} --option sandbox relaxed
+    status=0; for part in 1 2 3 4; do nix build --print-build-logs --no-link ".#wasm-nextest-part-$part.{{ nix_system }}" --option sandbox relaxed || status=1; done; exit "$status"
+
+# Run one slice of the Nix WASM tests; the first slice also builds the archive.
+nix-test-part part:
+    nix build --print-build-logs --no-link .#wasm-nextest-part-{{ part }}.{{ nix_system }} --option sandbox relaxed

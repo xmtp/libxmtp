@@ -39,7 +39,10 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   compiler source. Provenance wrappers keep the complete source identity.
 - Checks that compile some packages use `xmtp.filesets.mkClosureSource`. It
   restores the Cargo path-dependency closure of its roots over the dummy
-  workspace. `dev = true` adds the roots' dev-dependencies and test data. In
+  workspace. `dev = true` adds the roots' dev-dependencies and test data.
+  `target = "wasm32-unknown-unknown"` leaves out the dependencies that Cargo
+  does not build for that target; a `[target.*]` key with a cfg name that
+  `targetCfgs` does not list fails evaluation. In
   `lib/filesets.nix`, add a new data file that a package compiles in to
   `compileData`, a file that `test-utils` code reads to `testUtilsData`, and a
   file that only the package's tests read to `testData`. After a source change,
@@ -53,6 +56,13 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
 `backend-ci` packages disposable PostgreSQL, VersityGW, and the native backend.
 It supports one command on an isolated macOS runner. It does not add services
 to development shells. Run `dev/nix-shell 'just backend ci COMMAND'`.
+
+`wasm-nextest-archive.<system>` compiles the WASM tests into one nextest
+archive. `wasm-nextest-part-<n>.<system>` runs slice `n` of 4 from it against
+the Docker stack. Each slice names the `xmtp-backend` binary, so a backend
+change reruns the slices and substitutes the archive. Run them with
+`just wasm nix-test` (all slices, one after another) or
+`just wasm nix-test-part <n>`.
 
 `backend-tests.<system>` runs the backend tests and the SQLx metadata check in
 the build sandbox. `package/backend-tests.sh` starts a PostgreSQL primary, a

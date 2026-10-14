@@ -47,4 +47,3 @@ inherits = "test"
 opt-level = "z"
 lto = true
 incremental = false
-wasm-opt = ['-O4', '--intrinsic-lowering', '-Os']
