@@ -200,23 +200,21 @@ The [pinned action guidance](https://github.com/kunobi-ninja/kache-action/blob/1
 separates build variants to keep their prefetch lists useful.
 Scopes follow outer Cargo build families. The JavaScript test, type, SDK
 product, and docs site jobs build no SDK with cargo: they copy the Nix products
-(`XMTP_SDK_BUILD=nix`), so they leave Kache off. The release workflows that
-still render with cargo read `sdk-products-debug` and `sdk-native-debug` until
-they move to the Nix products. The older SDK facade job uses
-`sdk-products-tests-conformance` because it combines product builds, Rust unit
-tests, and browser fixtures. Android staging and native Node release builds use
-separate release scopes. Default SDK tests, backend tests, native
-Clippy, WASM Clippy, Cargo check, and Rust docs retain distinct scopes.
+(`XMTP_SDK_BUILD=nix`), so they leave Kache off, and so do the npm release
+jobs and the xmtp.chat deploy, which ship the same products. The older SDK
+facade job uses `sdk-products-tests-conformance` because it combines product
+builds, Rust unit tests, and browser fixtures. Android staging uses a separate
+release scope. Default SDK tests, backend tests, native Clippy, WASM Clippy,
+Cargo check, and Rust docs retain distinct scopes.
 
 A scope selects prefetch manifests and dependency shard indexes. It does not
 partition compiled artifacts: all callers share matching artifacts under
-`libxmtp/trusted`. Reader-only SDK release and deployment jobs use the same
-debug build scopes as their writer jobs. An npm release still uses a debug
-Cargo build when its SDK generation command does not request `--profile release`.
+`libxmtp/trusted`.
 
 Jobs with no outer Cargo compilation leave Kache off. This includes the
-Unix Node platform matrix, the iOS, Android, and JavaScript test jobs, and the
-lint jobs that build through Nix. They keep Nix/Crane and Cachix caching.
+Unix Node platform matrix and its assembly, the iOS, Android, and JavaScript
+test jobs, the npm release builds, and the lint jobs that build through Nix.
+They keep Nix/Crane and Cachix caching.
 
 To stop S3 use, remove both credential fields at both GitHub scopes. The jobs
 then use local-only Kache. Removing only the bucket while keeping credentials
@@ -239,15 +237,10 @@ stops running cargo.
 
 | Workflow / job | Scope | Access |
 | --- | --- | --- |
-| `build-sdk-node-platforms.yml / assemble` | `sdk-native-release` | Reader |
 | `check-rust.yml / native` | `rust-clippy-native` | Protected push writer; otherwise reader |
 | `check-rust.yml / wasm` | `rust-clippy-wasm` | Protected push writer; otherwise reader |
 | `check-sdk-unit.yml / unit` | `sdk-tests-debug` | Protected push writer; otherwise reader |
-| `deploy-web-chat.yml / deploy` | `sdk-products-debug` | Reader |
 | `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer (CI merge run); reader inside `post-merge.yml` and otherwise |
-| `release-agent-sdk.yml / build` | `sdk-native-debug` | Reader |
-| `release-browser-sdk.yml / build` | `sdk-products-debug` | Reader |
-| `release-cli.yml / build` | `sdk-native-debug` | Reader |
 | `test-android.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
 | `test-sdk.yml / sdk` | `sdk-products-tests-conformance` | Protected push writer; otherwise reader |
 | `test-sdk.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |

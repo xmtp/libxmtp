@@ -53,8 +53,8 @@ let
               ;
           }
         );
-        # The arm64 Node pairs are cross outputs of this system. Release
-        # builds them on arm64 runners until it takes these outputs.
+        # The arm64 Node pairs are cross outputs of this system; release
+        # substitutes them (build-sdk-node-platforms.yml).
         release = mkSet pkgs "release" {
           inherit (p)
             xmtp-sdk-node-linux-x64-gnu

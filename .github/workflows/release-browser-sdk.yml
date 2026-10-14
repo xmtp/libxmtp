@@ -97,36 +97,24 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     env:
       NIX_DEVSHELL: js
+      # Ship the release-profile Nix products that CI tested.
+      XMTP_SDK_BUILD: nix
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
 
+      # Mode read: substitute from the trusted cache only, and build on a miss.
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          kache: "true"
-          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
-          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
-          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
-          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-          kache-scope: sdk-products-debug
-          kache-readonly: "true"
-
-      - uses: taiki-e/install-action@just
 
       - uses: ./.github/actions/setup-js
 
-      # The job shell (js) has no Rust toolchain, so the cargo steps name the
-      # rust shell. The package build then stages these release trees as they
-      # are: dev/js/sdk-package skips generation when XMTP_SDK_GENERATED_DIR
-      # is set, as the Node assemble job does.
-      - name: Build and render the release browser artifacts
+      - name: Install + build browser-sdk
         run: |
-          NIX_DEVSHELL=rust dev/nix-shell 'just sdk build browser --profile release'
-          NIX_DEVSHELL=rust dev/nix-shell 'just sdk render browser --profile release'
+          dev/nix-shell 'pnpm --filter @xmtp/browser-sdk build'
 
       - name: Require release-profile WASM
         run: |
@@ -137,12 +125,6 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Install + build browser-sdk
-        env:
-          XMTP_SDK_GENERATED_DIR: target/sdk-generated
-        run: |
-          dev/nix-shell 'pnpm --filter @xmtp/browser-sdk build'
 
       - name: Upload build output
         uses: actions/upload-artifact@v7

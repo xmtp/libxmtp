@@ -60,15 +60,26 @@ jobs:
                 test("ubuntu") and (($target | contains("arm64")) == contains("-arm"))
               elif ($target | startswith("win32-")) then startswith("windows-")
               else test("macos") end;
+            # The Nix system of a runner label.
+            def nixSystem:
+              if test("macos") then "aarch64-darwin"
+              elif test("ubuntu") then (if contains("-arm") then "aarch64-linux" else "x86_64-linux" end)
+              else null end;
             ([.glibcFloor] - [$glibcFloor] | map("glibc floor \(.)"))
             + ([.node[] | (.runner // empty), .loadRunner] - $runners | map("runner \(.)"))
             + ([.node[] | .loadImage // empty] - $images | map("image \(.)"))
             + ([.node[] | .target] - $targets | map("target \(.)"))
             + ([.node[] | .rustTarget] - $rustTargets | map("Rust target \(.)"))
             + ([.node[] | .library] - $libraries | map("library \(.)"))
-            # Each target builds and loads on its own OS and architecture, and
-            # a Linux target loads in the pinned image of its libc.
-            + [.node[] | .target as $t | select(.runner != null and (.runner | fits($t) | not))
+            # A Nix target builds on a runner whose system builds it (the
+            # arm64 Linux pairs are cross outputs of x86_64-linux); a cargo
+            # target builds on its own OS. Each target loads on its own OS
+            # and architecture, and a Linux target loads in the pinned image
+            # of its libc.
+            + [.node[] | .target as $t | .nixSystems as $systems
+              | select(.runner != null and (
+                  if $systems == [] then .runner | fits($t) | not
+                  else [.runner | nixSystem] - $systems != [] end))
               | "build platform \($t) on \(.runner)"]
             + [.node[] | .target as $t | select((.loadRunner | fits($t) | not) or
                 if ($t | startswith("linux-")) then
@@ -110,14 +121,12 @@ jobs:
     needs: plan
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
-    env:
-      NIX_DEVSHELL: rust
     strategy:
       fail-fast: false
       matrix:
-        # No warm set holds the native linux-arm64 pairs, and a release reads
-        # only, so a release builds those two cold. That stays until release
-        # takes the Node pairs from the products build.
+        # The warm release set holds every pair that x86_64-linux builds,
+        # the arm64 Linux pairs as cross outputs, so a release substitutes
+        # them; the arm64 load jobs still test them on arm64.
         include: ${{ fromJSON(needs.plan.outputs.build) }}
     steps:
       - uses: actions/checkout@v6
@@ -133,8 +142,8 @@ jobs:
           TARGET: ${{ matrix.target }}
           LIBRARY: ${{ matrix.library }}
         run: |
-          dev/nix-shell 'env -u LD_LIBRARY_PATH nix build .#xmtp-sdk-node-"$TARGET" --out-link target/sdk-node-pair -L'
-          dev/nix-shell 'python3.11 crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-pair/lib/"$LIBRARY" --addon target/sdk-node-pair/runtime/uniffi-runtime-napi."$TARGET".node --native-provenance target/sdk-node-pair/native-provenance.json --runtime-provenance target/sdk-node-pair/runtime/runtime-provenance.json'
+          nix build .#xmtp-sdk-node-"$TARGET" --out-link target/sdk-node-pair -L
+          dev/nix-shell --shell js-node 'python3.11 crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-pair/lib/"$LIBRARY" --addon target/sdk-node-pair/runtime/uniffi-runtime-napi."$TARGET".node --native-provenance target/sdk-node-pair/native-provenance.json --runtime-provenance target/sdk-node-pair/runtime/runtime-provenance.json'
       - uses: actions/upload-artifact@v7
         with:
           name: sdk_node_pair_${{ matrix.target }}
@@ -219,7 +228,9 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     env:
-      NIX_DEVSHELL: rust
+      NIX_DEVSHELL: js-node
+      # The common binding is the release-profile Nix tree that CI tested.
+      XMTP_SDK_BUILD: nix
     steps:
       - uses: actions/checkout@v6
         with:
@@ -229,15 +240,6 @@ jobs:
           cache-mode: ${{ inputs.cache-mode }}
           cachix-pr-auth-token: ${{ inputs.cache-mode == 'ci' && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
-          kache: "true"
-          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
-          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
-          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
-          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-          kache-scope: sdk-native-release
-          kache-readonly: "true"
-      - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
         with:
           cache-mode: ${{ inputs.cache-mode }}
@@ -246,18 +248,11 @@ jobs:
           pattern: sdk_node_pair_*
           merge-multiple: true
           path: target/sdk-node-platforms
-      - name: Build and render the common release binding
-        run: |
-          dev/nix-shell 'just sdk build node --profile release'
-          dev/nix-shell 'just sdk render node --profile release'
       - name: Assemble the full public product
         env:
           XMTP_SDK_NODE_PLATFORMS_DIR: target/sdk-node-platforms
-          XMTP_SDK_GENERATED_DIR: target/sdk-generated
         run: dev/nix-shell 'bash dev/js/sdk-package node'
       - name: Check installed aggregate Node ESM package
-        env:
-          NIX_DEVSHELL: js-node
         run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs node'
       - uses: actions/upload-artifact@v7
         with:
