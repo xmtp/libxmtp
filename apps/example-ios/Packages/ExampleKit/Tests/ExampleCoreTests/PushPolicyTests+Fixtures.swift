@@ -106,26 +106,39 @@ import Testing
 
 @MainActor final class PushFakePublisher: PushPublisher {
 	var posts = 0; var held = false; var removed: Set<String> = []
+	var submissions: [UUID: String] = [:]
+	var visibleIDs: Set<UUID> = []
+	var heldSubmissionID: UUID?
+	var lastSubmissionID: UUID?
 	var completion: (@MainActor (Bool) -> Void)?
-	func post(tag _: String, route _: PushRoute, completion: @escaping @MainActor (Bool) -> Void) {
+	func post(submissionID: UUID, tag: String, route _: PushRoute, completion: @escaping @MainActor (Bool) -> Void) {
+		submissions[submissionID] = tag; lastSubmissionID = submissionID
 		posts += 1; if held {
-			self.completion = completion
+			self.completion = completion; heldSubmissionID = submissionID
 		} else {
-			completion(true)
+			visibleIDs.insert(submissionID); completion(true)
 		}
 	}
 
 	func complete() {
-		let callback = completion; completion = nil; callback?(true)
+		if let heldSubmissionID {
+			visibleIDs.insert(heldSubmissionID)
+		}
+		let callback = completion; completion = nil; heldSubmissionID = nil; callback?(true)
 	}
 
-	func remove(tag: String) {
-		removed.insert(tag)
+	func remove(submissionID: UUID) {
+		if let tag = submissions[submissionID] {
+			removed.insert(tag)
+		}
+		visibleIDs.remove(submissionID)
 	}
 
 	func remove(conversationID _: String) {}
 
-	func removeAll() {}
+	func removeAll() {
+		visibleIDs.removeAll()
+	}
 }
 
 @MainActor final class PushSessionFixture {

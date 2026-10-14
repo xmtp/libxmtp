@@ -176,6 +176,7 @@ enum ScopedPushFailure: Error { case lookup, write }
 
 @MainActor private final class ScopedPushPublisher: PushPublisher {
 	var routes: [String: String?] = [:]
+	var submissions: [UUID: String] = [:]
 	var visible: Set<String> = []
 	var removed: Set<String> = []
 	var heldTags: Set<String> = []
@@ -185,7 +186,8 @@ enum ScopedPushFailure: Error { case lookup, write }
 		routes[tag] = .some(conversationID); visible.insert(tag)
 	}
 
-	func post(tag: String, route: PushRoute, completion: @escaping @MainActor (Bool) -> Void) {
+	func post(submissionID: UUID, tag: String, route: PushRoute, completion: @escaping @MainActor (Bool) -> Void) {
+		submissions[submissionID] = tag
 		routes[tag] = .some(route.conversationID)
 		if heldTags.contains(tag) {
 			callbacks[tag] = completion
@@ -198,7 +200,12 @@ enum ScopedPushFailure: Error { case lookup, write }
 		visible.insert(tag); let callback = callbacks.removeValue(forKey: tag); callback?(true)
 	}
 
-	func remove(tag: String) {
+	func remove(submissionID: UUID) {
+		guard let tag = submissions[submissionID] else { return }
+		remove(tag: tag)
+	}
+
+	private func remove(tag: String) {
 		removed.insert(tag); visible.remove(tag)
 	}
 

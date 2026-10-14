@@ -235,68 +235,132 @@ import UserNotifications
 }
 
 @MainActor final class LocalPushPublisher: PushPublisher {
+	private struct Privacy: Equatable {
+		let global: UUID
+		let conversation: UUID?
+	}
+
+	// Removal returns before the OS finishes; retain revoked IDs until a new privacy epoch.
+	private static let revocationLimit = 512
+	private static var globalEpoch = UUID()
+	private static var conversationEpochs: [String: UUID] = [:]
+	private static var revoked: Set<String> = []
+	private static var inFlight: Set<String> = []
+	private static var dedupDisabled = false
+	private static var globallyInvalidated = false
 	private let center = UNUserNotificationCenter.current()
 	private let submission = PushSubmissionFence()
-	func post(tag: String, route: PushRoute, completion: @escaping @MainActor (Bool) -> Void) {
-		let expected = submission.capture(tag: tag, conversationID: route.conversationID)
-		let content = UNMutableNotificationContent(); content.title = String(
-			localized: "XMTP Messenger",
-			table: "Push",
-		); content
-			.body = String(localized: "You got a message.", table: "Push"); content.sound = .default
-		var info = ["push-profile": route.profileID.uuidString]
+
+	private static func privacy(for id: String?) -> Privacy {
+		Privacy(global: globalEpoch, conversation: id.map { conversationEpochs[$0] ?? globalEpoch })
+	}
+
+	func post(submissionID: UUID, tag: String, route: PushRoute, completion: @escaping @MainActor (Bool) -> Void) {
+		let identifier = submissionID.uuidString
+		Self.inFlight.insert(identifier)
+		// Preserve uncertainty even when a native query returns after old cleanup settles.
+		let unsettled = Self.inFlight.union(Self.revoked)
+		let privacy = Self.privacy(for: route.conversationID)
+		let expected = submission.capture(tag: identifier, conversationID: route.conversationID)
+		let content = UNMutableNotificationContent(); content.title = String(localized: "XMTP Messenger", table: "Push")
+		content.body = String(localized: "You got a message.", table: "Push"); content.sound = .default
+		var info = ["push-profile": route.profileID.uuidString, "push-tag": tag,
+		            "push-privacy-epoch": privacy.global.uuidString]
 		if let id = route.conversationID {
 			info["push-conversation"] = id
 			info["push-conversation-revision"] = String(expected.conversationRevision)
+			info["push-conversation-epoch"] = privacy.conversation?.uuidString
 		}
 		content.userInfo = info
 		Task { @MainActor in
+			defer { Self.inFlight.remove(identifier) }
 			let pending = await center.pendingNotificationRequests()
 			let delivered = await center.deliveredNotifications()
-			guard submission.isCurrent(expected) else { completion(false); return }
-			if pending.contains(where: { $0.identifier == tag }) ||
-				delivered.contains(where: { $0.request.identifier == tag })
-			{
-				completion(true)
-				return
+			guard submission.isCurrent(expected), privacy == Self.privacy(for: route.conversationID),
+			      !Self.revoked.contains(identifier) else { completion(false); return }
+			if (pending + delivered.map(\.request)).contains(where: {
+				mayDeduplicate($0, tag: tag, route: route, excluding: unsettled)
+			}) {
+				completion(true); return
 			}
 			let posted = await submission.submit(expected: expected, add: {
-				try await center.add(UNNotificationRequest(identifier: tag, content: content, trigger: nil))
-			}, remove: {
-				center.removePendingNotificationRequests(withIdentifiers: [tag])
-				center.removeDeliveredNotifications(withIdentifiers: [tag])
-			})
-			completion(posted)
+				try await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+			}, remove: { remove(submissionID: submissionID) })
+			let keep = posted && privacy == Self.privacy(for: route.conversationID) && !Self.revoked.contains(identifier)
+			if posted, !keep {
+				remove(submissionID: submissionID)
+			}
+			completion(keep)
 		}
 	}
 
-	func remove(tag: String) {
-		submission.invalidate(tag: tag)
-		center.removePendingNotificationRequests(withIdentifiers: [tag]); center
-			.removeDeliveredNotifications(withIdentifiers: [tag])
+	private func mayDeduplicate(_ request: UNNotificationRequest, tag: String, route: PushRoute,
+	                            excluding unsettled: Set<String>) -> Bool
+	{
+		let info = request.content.userInfo
+		guard !Self.dedupDisabled, !unsettled.contains(request.identifier),
+		      !Self.inFlight.contains(request.identifier), !Self.revoked.contains(request.identifier),
+		      info["push-profile"] as? String == route.profileID.uuidString,
+		      info["push-conversation"] as? String == route.conversationID,
+		      info["push-tag"] as? String == tag || request.identifier == tag else { return false }
+		if let epoch = info["push-privacy-epoch"] as? String {
+			let privacy = Self.privacy(for: route.conversationID)
+			return epoch == privacy.global.uuidString &&
+				info["push-conversation-epoch"] as? String == privacy.conversation?.uuidString
+		}
+		guard !Self.globallyInvalidated else { return false }
+		guard let id = route.conversationID else { return true }
+		return Self.conversationEpochs[id] == nil
+	}
+
+	func remove(submissionID: UUID) {
+		let identifier = submissionID.uuidString
+		submission.invalidate(tag: identifier)
+		if Self.revoked.count < Self.revocationLimit {
+			Self.revoked.insert(identifier)
+		}
+		// At capacity, retry an alert rather than claim success for a possibly revoked request.
+		else if !Self.revoked.contains(identifier) {
+			Self.dedupDisabled = true
+		}
+		center.removePendingNotificationRequests(withIdentifiers: [identifier])
+		center.removeDeliveredNotifications(withIdentifiers: [identifier])
 	}
 
 	func remove(conversationID: String) {
 		submission.invalidate(conversationID: conversationID)
+		Self.conversationEpochs[conversationID] = UUID()
+		let privacy = Self.privacy(for: conversationID)
 		let expected = submission.capture(tag: "conversation:" + conversationID, conversationID: conversationID)
 		Task { @MainActor in
 			let pending = await center.pendingNotificationRequests()
 			let delivered = await center.deliveredNotifications()
-			let tags = (pending + delivered.map(\.request)).filter { request in
+			guard submission.isCurrent(expected), privacy == Self.privacy(for: conversationID) else { return }
+			let identifiers = (pending + delivered.map(\.request)).filter { request in
 				let info = request.content.userInfo
-				return submission.shouldRemoveNotification(
-					conversationID: info["push-conversation"] as? String,
-					revision: (info["push-conversation-revision"] as? String).flatMap(UInt64.init),
-					before: expected,
-				)
+				guard info["push-conversation"] as? String == conversationID else { return false }
+				return info["push-privacy-epoch"] as? String != privacy.global.uuidString ||
+					info["push-conversation-epoch"] as? String != privacy.conversation?.uuidString
 			}.map(\.identifier)
-			center.removePendingNotificationRequests(withIdentifiers: tags)
-			center.removeDeliveredNotifications(withIdentifiers: tags)
+			center.removePendingNotificationRequests(withIdentifiers: identifiers)
+			center.removeDeliveredNotifications(withIdentifiers: identifiers)
 		}
 	}
 
 	func removeAll() {
 		submission.invalidate()
-		center.removeAllPendingNotificationRequests(); center.removeAllDeliveredNotifications()
+		Self.globalEpoch = UUID(); Self.conversationEpochs.removeAll(); Self.revoked.removeAll()
+		Self.dedupDisabled = false; Self.globallyInvalidated = true
+		let privacy = Self.globalEpoch
+		Task { @MainActor in
+			let pending = await center.pendingNotificationRequests()
+			let delivered = await center.deliveredNotifications()
+			guard privacy == Self.globalEpoch else { return }
+			let identifiers = (pending + delivered.map(\.request)).filter {
+				$0.content.userInfo["push-privacy-epoch"] as? String != privacy.uuidString
+			}.map(\.identifier)
+			center.removePendingNotificationRequests(withIdentifiers: identifiers)
+			center.removeDeliveredNotifications(withIdentifiers: identifiers)
+		}
 	}
 }

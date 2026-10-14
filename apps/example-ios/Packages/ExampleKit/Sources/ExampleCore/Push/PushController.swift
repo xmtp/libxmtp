@@ -1,10 +1,11 @@
 import Foundation
 import Observation
 
-@MainActor public protocol PushPublisher: AnyObject {
-	/// Enqueue synchronously after admission. Completion must be delivered on the main actor.
-	func post(tag: String, route: PushRoute, completion: @escaping @MainActor (Bool) -> Void)
-	func remove(tag: String)
+@MainActor public protocol PushPublisher: AnyObject, Sendable {
+	/// Enqueue this unique submission synchronously; deliver completion on the main actor.
+	func post(submissionID: UUID, tag: String, route: PushRoute, completion: @escaping @MainActor (Bool) -> Void)
+	/// Remove only this submission, including when a newer post has the same logical tag.
+	func remove(submissionID: UUID)
 	func remove(conversationID: String)
 	func removeAll()
 }
@@ -224,11 +225,13 @@ import Observation
 			      !posting.contains(envelope.tag), !preferences.hasPosted(envelope.tag) else { return false }
 			posting.insert(envelope.tag)
 			let waiter = PushPostWaiter()
+			let submissionID = UUID()
+			let publisher = publisher
 			return await withTaskCancellationHandler {
 				await withCheckedContinuation { continuation in
 					waiter.install(continuation)
-					publisher.post(tag: envelope.tag, route: route) { [weak self] success in
-						guard let self else { waiter.finish(false); return }
+					publisher.post(submissionID: submissionID, tag: envelope.tag, route: route) { [weak self, publisher] success in
+						guard let self else { publisher.remove(submissionID: submissionID); waiter.finish(false); return }
 						posting.remove(envelope.tag)
 						var keep = success && lease.active && enabled && pendingPrivacyWrites == 0 && revision == privacyRevision &&
 							conversationPrivacy.admits(conversationID, revision: conversationRevision)
@@ -236,14 +239,14 @@ import Observation
 							do { try preferences.recordPosted(envelope.tag) } catch { keep = false }
 						}
 						if !keep {
-							publisher.remove(tag: envelope.tag)
+							publisher.remove(submissionID: submissionID)
 						}
 						waiter.finish(keep)
 					}
 				}
 			} onCancel: {
-				Task { @MainActor [weak self] in
-					lease.cancel(); self?.publisher.remove(tag: envelope.tag)
+				Task { @MainActor [publisher] in
+					lease.cancel(); publisher.remove(submissionID: submissionID)
 					waiter.finish(false)
 				}
 			}

@@ -3,6 +3,37 @@ import Foundation
 import Testing
 
 @MainActor struct PushPolicyTests {
+	@Test(arguments: [false, true])
+	func replacedControllerKeepsNewSameTagPublication(cancelOld: Bool) async throws {
+		let fixture = PushFixture(); fixture.publisher.held = true
+		let envelope = try #require(PushEnvelope(
+			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(), sequence: "1",
+		))
+		let old = Task { await fixture.controller.receive(envelope, lease: PushLease()) }
+		for _ in 0 ..< 1000 where fixture.publisher.completion == nil {
+			await Task.yield()
+		}
+		let oldID = try #require(fixture.publisher.heldSubmissionID)
+		if cancelOld {
+			old.cancel(); #expect(await old.value == false)
+		}
+		await fixture.controller.close()
+		let fresh = PushController(configured: true, owner: fixture.owner, gateway: fixture.gateway,
+		                           preferences: fixture.preferences, publisher: fixture.publisher, current: { fixture.owner },
+		                           permitted: { true }, signedIn: { true })
+		fixture.publisher.held = false
+		#expect(await fresh.receive(envelope, lease: PushLease()))
+		let freshID = try #require(fixture.publisher.lastSubmissionID)
+		#expect(oldID != freshID)
+		#expect(fixture.preferences.hasPosted(envelope.tag))
+		fixture.publisher.complete()
+		#expect(await old.value == false)
+		#expect(fixture.publisher.visibleIDs == [freshID])
+		#expect(await fresh.receive(envelope, lease: PushLease()) == false)
+		#expect(fixture.publisher.posts == 2)
+		await fresh.close()
+	}
+
 	@Test func registrationMatrix() {
 		for configured in [false, true] {
 			for signedIn in [false, true] {
