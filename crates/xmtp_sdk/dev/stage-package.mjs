@@ -64,15 +64,28 @@ function files(directory) {
     return item.isDirectory() ? files(path) : [path];
   });
 }
+// Copies of Nix store paths keep their read-only modes.
 function makeWritable(directory) {
   chmodSync(directory, 0o755);
   for (const item of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, item.name);
     if (item.isSymbolicLink())
-      throw new Error(`copied SDK runtime has a symbolic link: ${path}`);
+      throw new Error(`copied SDK input has a symbolic link: ${path}`);
     if (item.isDirectory()) makeWritable(path);
     else chmodSync(path, 0o644);
   }
+}
+// Removal needs write access to each directory. Restore it without following
+// links, so cleanup after a failed copy does not hide the first error.
+function removeTree(directory) {
+  if (!existsSync(directory)) return;
+  const open = (path) => {
+    chmodSync(path, 0o755);
+    for (const item of readdirSync(path, { withFileTypes: true }))
+      if (item.isDirectory()) open(join(path, item.name));
+  };
+  open(directory);
+  rmSync(directory, { recursive: true, force: true });
 }
 for (let i = 0; i < trees.length; i++) {
   checkGeneratedAssets(generated, trees[i], contracts[i]);
@@ -149,11 +162,14 @@ try {
   }
   const compile = mkdtempSync(join(output, ".sdk-compile-"));
   try {
-    for (const tree of trees)
+    for (const tree of trees) {
       cpSync(join(generated, tree), join(compile, tree), {
         recursive: true,
         filter: (path) => !path.split(/[\\/]/).includes("node_modules"),
       });
+      // The compile step rewrites manifests and sources in this copy.
+      makeWritable(join(compile, tree));
+    }
     if (nodePlatforms) {
       const ffi = join(compile, "typescript-napi/xmtp_sdk-ffi.ts");
       writeFileSync(
@@ -233,7 +249,7 @@ try {
       );
     }
   } finally {
-    rmSync(compile, { recursive: true, force: true });
+    removeTree(compile);
   }
   if (
     target === "node" &&
@@ -500,5 +516,5 @@ try {
   console.log(`SDK staged ${target} ${contract} at ${product}`);
 } finally {
   // Preserve the backup if a filesystem error prevents rollback.
-  if (!existsSync(previous)) rmSync(staging, { recursive: true, force: true });
+  if (!existsSync(previous)) removeTree(staging);
 }

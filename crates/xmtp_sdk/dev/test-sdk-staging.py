@@ -183,6 +183,95 @@ class StagingTests(unittest.TestCase):
                 if path.is_dir():
                     path.chmod(0o755)
 
+    def read_only_browser_inputs(self, compiler_source):
+        """Write browser inputs whose generated trees are read-only, as Nix outputs are."""
+        generated = self.root / "generated"
+        for tree in ("typescript-wasm", "typescript-pure"):
+            source = generated / tree
+            (source / "snippets").mkdir(parents=True)
+            (source / "package.json").write_text('{"type":"module"}')
+            (source / "index.ts").write_text("export const marker = 'sdk';")
+            (source / "xmtp_sdk.js").write_text("export const glue = 'sdk';")
+            (source / "snippets/helper.js").write_text("export const helper = 1;")
+            names = ("package.json", "index.ts", "xmtp_sdk.js", "snippets/helper.js")
+            (source / "sdk-contract.json").write_text(
+                json.dumps(
+                    {
+                        "contract": "fixture",
+                        "generator": "fixture",
+                        "files": {
+                            name: hashlib.sha256(
+                                (source / name).read_bytes()
+                            ).hexdigest()
+                            for name in names
+                        },
+                    }
+                )
+            )
+        for name in ("core", "wasm"):
+            self.runtime(self.root / "runtime", name)
+        compiler = self.root / "compiler.mjs"
+        compiler.write_text(compiler_source)
+        paths = sorted(generated.rglob("*"), reverse=True) + [generated]
+        for path in paths:
+            path.chmod(0o555 if path.is_dir() else 0o444)
+        output = self.root / "packages"
+        env = dict(
+            os.environ,
+            XMTP_SDK_GENERATED_DIR=str(generated),
+            XMTP_SDK_PACKAGES_DIR=str(output),
+            XMTP_SDK_RUNTIME_DIR=str(self.root / "runtime"),
+            XMTP_SDK_TSDOWN_CLI=str(compiler),
+        )
+        command = [
+            "node",
+            str(ROOT / "crates/xmtp_sdk/dev/stage-package.mjs"),
+            "browser",
+        ]
+        return (
+            paths,
+            output,
+            lambda: subprocess.run(command, env=env, capture_output=True, text=True),
+        )
+
+    def test_read_only_generated_tree_stages_without_writes(self):
+        paths, output, stage = self.read_only_browser_inputs(
+            "import {writeFileSync} from 'node:fs';\n"
+            "const {default: config} = await import(process.argv[3]);\n"
+            "writeFileSync(config.outDir + '/index.js', \"export const marker = 'sdk';\");\n"
+            "writeFileSync(config.outDir + '/index.d.ts', 'export declare const marker: string;');\n"
+        )
+        before = {path: path.read_bytes() for path in paths if path.is_file()}
+        result = stage()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        product = output / "browser"
+        for tree in ("typescript-wasm", "typescript-pure"):
+            self.assertTrue((product / tree / "index.js").is_file())
+            self.assertTrue((product / tree / "snippets/helper.js").is_file())
+        self.assertEqual([path.name for path in output.iterdir()], ["browser"])
+        self.assertEqual(
+            {path: path.read_bytes() for path in paths if path.is_file()}, before
+        )
+        for path in paths:
+            self.assertFalse(path.stat().st_mode & 0o222, path)
+
+    def test_cleanup_keeps_the_first_staging_error(self):
+        # A tool may leave a read-only directory in the compile copy before it fails.
+        _, output, stage = self.read_only_browser_inputs(
+            "import {chmodSync, mkdirSync, writeFileSync} from 'node:fs';\n"
+            "const {default: config} = await import(process.argv[3]);\n"
+            "mkdirSync(config.root + '/locked');\n"
+            "writeFileSync(config.root + '/locked/output.js', '');\n"
+            "chmodSync(config.root + '/locked', 0o555);\n"
+            "process.exit(3);\n"
+        )
+        result = stage()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Command failed", result.stderr)
+        self.assertNotIn("ENOTEMPTY", result.stderr)
+        self.assertNotIn("EACCES", result.stderr)
+        self.assertEqual(list(output.iterdir()), [])
+
     def test_failed_rebuild_preserves_prior_product_and_success_replaces_it(self):
         generated = self.root / "generated/typescript-napi"
         generated.mkdir(parents=True)
