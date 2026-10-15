@@ -152,7 +152,8 @@ The shells set four variables (`nix/lib/shell-common.nix`): `RUSTC_WRAPPER`,
 `KACHE_KEY_ENV_VARS=CI,XMTP_TEST_LOGGING`. `KACHE_HOST_CONFIG` points at
 `nix/lib/kache.toml`, which holds the preferences: the store
 `~/.cache/kache`, a 50 GiB limit, executable caching on, C link caching off,
-and the 7-day unit cleanup. It is Kache's lowest file layer, so your own Kache
+the 7-day unit cleanup, and target removal under disk pressure. It is Kache's
+lowest file layer, so your own Kache
 config file (`~/.config/kache/config.toml`) and any `KACHE_*` variable win.
 The two settings that keep builds correct are variables, which win over every
 file. Kache expands only a leading `~` in the file, so the store no longer
@@ -170,8 +171,11 @@ variable sets each key. To opt out, use
 `KACHE_DISABLED=1 dev/nix-shell 'just check'`; add
 `KACHE_PRESERVE_INCREMENTAL=1` to keep incremental compilation, which the
 disabled wrapper otherwise strips. Locally, when the cache's volume has less
-than 10 GiB free, builds also evict cache entries (Kache's default since
-1.2.0; off in CI).
+than 10 GiB free, builds evict cache entries (Kache's default since 1.2.0),
+and with `auto_recover_targets` the daemon then removes whole target
+directories that no build used for a day, largest first, on a quiet machine.
+That applies to every target the daemon tracks, including other projects'.
+Both are off in CI, where Kache's free-space floor is 0.
 
 One Kache daemon serves every checkout on the machine. It keeps the settings
 of the shell that started it and does not watch `nix/lib/kache.toml`; after a
@@ -212,14 +216,15 @@ compile outside Kache on the same target writes `incremental/` and can lose
 its state mid-build ("failed to move dependency graph"), so run editors
 inside the dev shell: Zed's settings start rust-analyzer through
 `dev/nix-shell`, and in VS Code install the recommended direnv extension,
-which loads `.envrc` before rust-analyzer starts. Kache drops an adaptive
-unit only when a cache hit replaces it, so `incremental.kache-auto/` keeps
-the units of old feature sets, profiles, and toolchains (4.2 GiB after one
-session on 2026-10-15). `dev/clean-incremental` removes Kache units and
-crate directories that no build used for 3 days. It holds Cargo's locks
-while it renames them, so it skips a profile with a running build.
-`dev/nix-shell` runs it in the background for its worktree at most once a
-day; `just clean-incremental [days]` runs it for every worktree. The Kache
+which loads `.envrc` before rust-analyzer starts. Repeated builds reuse their
+units in `incremental.kache-auto/`, but Kache drops a unit only when a cache
+hit replaces it, and a unit's key includes the compiler and its rustc
+arguments. So a toolchain bump, or a new feature set, profile, or target,
+leaves the old units behind (2 to 4 GiB per worktree on 2026-10-15). Nothing
+prunes them inside a target that is still in use: Kache removes the whole
+target when its worktree is deleted, or under disk pressure. To reclaim them
+by hand, delete `target/<profile>/incremental.kache-auto` while no build
+runs. `just disk` shows the incremental state of each worktree. The Kache
 daemon removes other build units no build used for 7 days
 (`auto_clean_unused_units_days` in `nix/lib/kache.toml`; Kache's default is
 30).

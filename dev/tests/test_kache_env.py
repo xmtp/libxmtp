@@ -26,6 +26,7 @@ KACHE_KEY_VARIABLES = {
     "cache.cache_executables": ("KACHE_CACHE_EXECUTABLES", "0"),
     "cache.cache_cc_links": ("KACHE_CACHE_CC_LINKS", "1"),
     "cache.auto_clean_unused_units_days": ("KACHE_AUTO_CLEAN_UNUSED_UNITS_DAYS", "9"),
+    "cache.auto_recover_targets": ("KACHE_AUTO_RECOVER_TARGETS", "0"),
 }
 RUST_SHELLS = ("rust", "local", "android")
 

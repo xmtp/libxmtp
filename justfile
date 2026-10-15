@@ -220,14 +220,6 @@ disk:
       { printf "%7.1fG %11.1fG  %s\n", $1 / 1048576, $2 / 1048576, $3; sum += $1 }
       END { printf "%7.1fG total target/\n", sum / 1048576 }'
 
-# Delete incremental state that no build used for `days` (or `--minutes`) in
-# every worktree: crate caches in incremental/ and Kache's adaptive units.
-# A profile with a running build is skipped. dev/nix-shell runs this for its
-# own worktree once a day. See dev/clean-incremental.
-[arg("minutes", long="minutes")]
-clean-incremental days="3" minutes="":
-    python3.11 -B dev/clean-incremental {{ if minutes == "" { "--days " + quote(days) } else { "--minutes " + quote(minutes) } }}
-
 # --- AGENT HELPERS ---
 # Compact output for agents. See .agents/skills/check-ci.
 

@@ -212,23 +212,6 @@ class NixWrapperTests(unittest.TestCase):
                 self.assertTrue(result.stdout.startswith(str(caller)), result.stdout)
                 self.assertTrue(caller.is_dir())
 
-    def test_starts_incremental_cleanup_for_its_worktree(self):
-        marker = self.root / "cleanup-args"
-        stub = self.root / "dev/clean-incremental"
-        stub.write_text(
-            f'#!/bin/sh\nprintf "%s\\n" "$@" > {shlex.quote(str(marker))}\n'
-        )
-        stub.chmod(0o755)
-        result = self.run_wrapper("true")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        # The cleanup runs in the background, so the command does not wait.
-        deadline = time.monotonic() + 10
-        while not marker.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        self.assertEqual(
-            marker.read_text().splitlines(), ["--auto", f"{self.root}/target"]
-        )
-
     def test_failed_evaluation_caches_nothing(self):
         self.env["TEST_NIX_FAIL"] = "1"
         self.assertNotEqual(self.run_wrapper("printf no").returncode, 0)

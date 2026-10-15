@@ -17,6 +17,11 @@ local_max_size = "50GiB"
 cache_executables = true
 cache_cc_links = false
 # Remove build units (.fingerprint/, build/, deps/) that no build used for
-# 7 days; Kache's default is 30. This does not cover incremental state;
-# dev/clean-incremental removes that after 3 days.
+# 7 days; Kache's default is 30. This does not cover the incremental state in
+# target/<profile>/incremental.kache-auto, which only a whole-target removal
+# reclaims.
 auto_clean_unused_units_days = 7
+# When the volume has less than 10 GiB free, also remove whole target
+# directories that no build used for a day, largest first (after evicting
+# cache entries). A removed worktree target rebuilds mostly from the cache.
+auto_recover_targets = true
