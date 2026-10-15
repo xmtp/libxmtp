@@ -3,12 +3,15 @@
 
   dev/clean-incremental [--days N | --minutes N] [--auto] [TARGET ...]
 
-rustc keeps one session per crate directory (`<crate>-<id>`) and removes the
-older ones, but it never removes a crate directory. Each feature set, profile,
-flag set, and toolchain makes new ones, so `incremental/` grows without limit.
-Kache's adaptive units in `incremental.kache-auto/v1/` grow the same way, and
-Kache's own unit cleanup does not cover either directory. This removes each
-crate directory and each Kache unit in which nothing changed for the window.
+Kache keeps incremental state for the crates you edit in
+`incremental.kache-auto/v1/`, one unit per crate and rustc arguments. It drops
+a unit only when a later cache hit replaces it, so each feature set, profile,
+flag set, and toolchain leaves units behind, and its unused-unit cleanup does
+not cover them. rustc keeps one session per crate directory (`<crate>-<id>`)
+but never removes a crate directory either. Kache clears Cargo's
+`incremental/` after each compile it wraps; only compiles outside Kache leave
+state there. This removes each Kache unit and each crate directory in which
+nothing changed for the window.
 
 A profile directory is cleaned only while this holds every Cargo lock in it, so
 no Cargo build, and no rustc or Kache process under one, can use the state.

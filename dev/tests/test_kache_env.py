@@ -1,85 +1,106 @@
-"""Check the real cache environment helper and CI write policy."""
+"""Check the Kache settings file, the CI wiring, and the CI write policy."""
 
+import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 import unittest
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 KACHE_CI = ROOT / ".github/actions/setup-nix/kache-ci"
+KACHE_TOML = ROOT / "nix/lib/kache.toml"
 
 
-class KacheEnvTests(unittest.TestCase):
+# Each key of nix/lib/kache.toml and the variable that Kache documents for it.
+# Kache reports a host key as overridden only by that key's own variable, so a
+# key it does not know (a typo) is never reported as overridden.
+KACHE_KEY_VARIABLES = {
+    "cache.local_store": ("KACHE_CACHE_DIR", "store"),
+    "cache.local_max_size": ("KACHE_MAX_SIZE", "1GiB"),
+    "cache.cache_executables": ("KACHE_CACHE_EXECUTABLES", "0"),
+    "cache.cache_cc_links": ("KACHE_CACHE_CC_LINKS", "1"),
+    "cache.auto_clean_unused_units_days": ("KACHE_AUTO_CLEAN_UNUSED_UNITS_DAYS", "9"),
+}
+RUST_SHELLS = ("rust", "local", "android")
+
+
+def toml_keys(table, prefix=""):
+    for key, value in table.items():
+        if isinstance(value, dict):
+            yield from toml_keys(value, f"{prefix}{key}.")
+        else:
+            yield f"{prefix}{key}"
+
+
+class KacheConfigTests(unittest.TestCase):
+    """The real Kache reads nix/lib/kache.toml, in an empty home."""
+
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="xmtp kache env ")
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.bash = shutil.which("bash")
-        self.binary = self.root / "kache"
-        self.binary.write_text("#!/bin/sh\nexit 99\n")
-        self.binary.chmod(0o755)
-        self.env = {
-            key: value
-            for key, value in os.environ.items()
-            if not key.startswith(("KACHE_", "XMTP_KACHE"))
-            and key not in ("CI", "CARGO_INCREMENTAL", "RUSTC_WRAPPER", "BASH_ENV")
-        }
-        self.env["PATH"] = str(self.root)
+        self.kache = shutil.which("kache")
+        self.assertIsNotNone(self.kache, "run inside dev/nix-shell")
+        temp = tempfile.TemporaryDirectory(prefix="xmtp kache config ")
+        self.addCleanup(temp.cleanup)
+        self.home = Path(temp.name)
 
-    def shell(self, script):
-        return subprocess.run(
-            [self.bash, "-euc", script, "test", str(ROOT / "dev/kache-env")],
-            env=self.env,
+    def host_config(self, **variables):
+        """Kache's `Host config` doctor check, with no other config file."""
+        result = subprocess.run(
+            [self.kache, "--json", "doctor"],
+            cwd=self.home,
+            env={
+                "PATH": os.environ["PATH"],
+                "HOME": str(self.home),
+                "XDG_CONFIG_HOME": str(self.home / "config"),
+                "XDG_CACHE_HOME": str(self.home / "cache"),
+                "KACHE_HOST_CONFIG": str(KACHE_TOML),
+                **variables,
+            },
             capture_output=True,
             text=True,
         )
+        checks = json.loads(result.stdout)["checks"]
+        check = next(check for check in checks if check["label"] == "Host config")
+        self.assertTrue(check["pass"], check["detail"])
+        prefix = f"{KACHE_TOML}: "
+        self.assertTrue(check["detail"].startswith(prefix), check["detail"])
+        return sorted(check["detail"].removeprefix(prefix).split(", "))
 
-    def values(self):
-        result = self.shell(
-            'source "$1"; printf "%s\\n" "${RUSTC_WRAPPER-unset}" '
-            '"${CARGO_INCREMENTAL-unset}" "${KACHE_MAX_SIZE-unset}" '
-            '"${KACHE_KEY_ENV_VARS-unset}" "${KACHE_BUILD_SCRIPT_CACHE-unset}" '
-            '"${KACHE_CACHE_EXECUTABLES-unset}" "${KACHE_CLEAN_INCREMENTAL-unset}" '
-            '"${KACHE_AUTO_CLEAN_UNUSED_UNITS_DAYS-unset}"'
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout.splitlines()
+    def test_kache_reads_every_key_of_the_file(self):
+        keys = sorted(toml_keys(tomllib.loads(KACHE_TOML.read_text())))
+        self.assertEqual(keys, sorted(KACHE_KEY_VARIABLES))
+        self.assertEqual(self.host_config(), keys)
 
-    def test_local_defaults_select_cache_and_keep_incremental_profile(self):
-        values = self.values()
+    def test_kache_knows_every_key_of_the_file(self):
+        variables = {
+            variable: str(self.home / value) if key == "cache.local_store" else value
+            for key, (variable, value) in KACHE_KEY_VARIABLES.items()
+        }
         self.assertEqual(
-            values,
-            [
-                str(self.binary),
-                "unset",
-                "50GiB",
-                "CI,XMTP_TEST_LOGGING",
-                "0",
-                "1",
-                # xmtp-kache sends --test compiles straight to rustc with
-                # Cargo's incremental/; Kache must not delete it under them.
-                "0",
-                "3",
-            ],
+            self.host_config(**variables),
+            sorted(
+                f"{key} (overridden by {variable})"
+                for key, (variable, _) in KACHE_KEY_VARIABLES.items()
+            ),
         )
-        for value in ("0", "1"):
-            with self.subTest(value=value):
-                self.env["CARGO_INCREMENTAL"] = value
-                self.assertEqual(self.values()[1], value)
-        self.env["KACHE_AUTO_CLEAN_UNUSED_UNITS_DAYS"] = "7"
-        self.assertEqual(self.values()[7], "7")
 
-    def test_ci_turns_incremental_off_and_keeps_kache_cleanup_defaults(self):
-        self.env["CI"] = "true"
-        self.env["XMTP_KACHE"] = "1"
-        values = self.values()
-        self.assertEqual(values[1], "0")
-        self.assertEqual(values[6:], ["unset", "unset"])
+    def test_rust_shells_pin_the_settings_that_keep_builds_correct(self):
+        # Variables win over every Kache file, so a personal config cannot
+        # turn these off. dev/tests run inside the default (local) shell.
+        shell = os.environ.get("XMTP_DEV_SHELL")
+        if shell not in RUST_SHELLS:
+            self.skipTest(f"not in a Rust dev shell ({shell})")
+        self.assertEqual(os.environ.get("KACHE_KEY_ENV_VARS"), "CI,XMTP_TEST_LOGGING")
+        self.assertEqual(os.environ.get("KACHE_BUILD_SCRIPT_CACHE"), "0")
+        self.assertEqual(
+            Path(os.environ["KACHE_HOST_CONFIG"]).read_text(), KACHE_TOML.read_text()
+        )
+        self.assertEqual(Path(os.environ["RUSTC_WRAPPER"]).name, "kache")
 
 
 TRUNK_PUSH = {
@@ -489,6 +510,61 @@ class SetupNixTests(unittest.TestCase):
                         self.assertIn("cachix-auth-token", inputs)
                     else:
                         self.assertNotIn("kache-s3-writer", environment)
+
+    def run_kache_step(self, name):
+        """Run a setup-nix step; return its $GITHUB_ENV and $GITHUB_PATH lines."""
+        with tempfile.TemporaryDirectory(prefix="xmtp setup-nix ") as temp:
+            temp = Path(temp)
+            nix = temp / "nix"
+            nix.write_text("#!/bin/sh\necho /nix/store/fake-kache\n")
+            nix.chmod(0o755)
+            for file in ("env", "path"):
+                (temp / file).write_text("")
+            result = subprocess.run(
+                [
+                    shutil.which("bash"),
+                    "-euo",
+                    "pipefail",
+                    "-c",
+                    action_step(name)["run"],
+                ],
+                env={
+                    "PATH": f"{temp}:/usr/bin:/bin",
+                    "GITHUB_ENV": str(temp / "env"),
+                    "GITHUB_PATH": str(temp / "path"),
+                    "KACHE_CACHE_DIR": str(temp / "store"),
+                    "KACHE_RUNTIME_DIR": str(temp / "runtime"),
+                },
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return (
+                (temp / "env").read_text().splitlines(),
+                (temp / "path").read_text().splitlines(),
+            )
+
+    def test_kache_jobs_compile_without_incremental_state(self):
+        step = action_step("Configure Kache compiler environment")
+        self.assertEqual(step["if"], "${{ inputs.kache == 'true' }}")
+        env, path = self.run_kache_step("Configure Kache compiler environment")
+        for line in (
+            "CARGO_INCREMENTAL=0",
+            "KACHE_ADAPTIVE_INCREMENTAL=0",
+            "KACHE_PRESERVE_INCREMENTAL=0",
+        ):
+            self.assertIn(line, env)
+        # kache-action's KACHE_CONFIG holds the S3 remote; the dev shells set
+        # KACHE_HOST_CONFIG. Neither may be replaced here.
+        written = {line.split("=", 1)[0] for line in env}
+        self.assertFalse(written & {"KACHE_CONFIG", "KACHE_HOST_CONFIG"})
+        self.assertEqual(path, ["/nix/store/fake-kache/bin"])
+
+    def test_other_jobs_turn_kache_off(self):
+        step = action_step("Disable outer compiler cache")
+        self.assertEqual(step["if"], "${{ inputs.kache != 'true' }}")
+        env, _ = self.run_kache_step("Disable outer compiler cache")
+        self.assertIn("KACHE_DISABLED=1", env)
 
     def test_kache_callers_match_the_cargo_job_list(self):
         callers = {

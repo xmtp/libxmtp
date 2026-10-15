@@ -5,7 +5,6 @@
   lib,
   stdenvNoCC,
   fetchurl,
-  bash,
 }:
 let
   version = "1.2.2";
@@ -43,11 +42,6 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
     install -Dm755 kache $out/bin/kache
-    ${lib.optionalString stdenvNoCC.isDarwin ''
-      install -Dm755 ${./kache-darwin-wrapper.sh} $out/bin/xmtp-kache
-      substituteInPlace $out/bin/xmtp-kache \
-        --replace-fail '#!/usr/bin/env bash' '#!${bash}/bin/bash'
-    ''}
     runHook postInstall
   '';
   doInstallCheck = true;

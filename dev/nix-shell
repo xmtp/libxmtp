@@ -49,7 +49,6 @@ key_paths=(
   flake.lock
   package.json
   webdriver.json
-  dev/kache-env
   dev/nix-shell
 )
 fingerprint="$(

@@ -1,6 +1,7 @@
 {
   "recommendations": [
     "rust-lang.rust-analyzer",
+    "mkhl.direnv",
     "tamasfe.even-better-toml",
     "oxc.oxc-vscode",
     "esbenp.prettier-vscode",

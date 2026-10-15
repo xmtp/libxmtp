@@ -8,13 +8,14 @@
     ".cargo/**",
     "proto/**",
     "nix/lib/{base,default,filesets,mkToolchain,mkVersion,patches,shell-common}.nix",
-    "nix/lib/packages/{kache.nix,kache-darwin-wrapper.sh,rtk.nix}",
+    "nix/lib/kache.toml",
+    "nix/lib/packages/{kache,rtk}.nix",
     "nix/shells/{local,rust}.nix",
     "nix/apps.nix",
     ".github/{ci-suites.yml,ci-suites.json}",
     ".github/workflows/{ci,lint-generated,test-generated}.yml",
     ".github/actions/setup-nix/**",
-    "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run,kache-env}"
+    "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run}"
   ],
   "neutral": [
     "**/{AGENTS,CLAUDE}.md",

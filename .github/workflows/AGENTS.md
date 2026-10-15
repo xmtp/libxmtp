@@ -183,7 +183,7 @@ publication runs only on main, tag pushes, or reusable calls.
 
 All CI commands select a targeted Nix shell. Full root Nix warming still builds
 all outputs and dependencies, including the default developer shell. Kache is
-off unless a job sets `kache: "true"`; its Darwin helper bypasses linked outputs.
+off unless a job sets `kache: "true"`; other jobs get `KACHE_DISABLED=1`.
 Recovery runs only through the manual workflow. The release `load` jobs of
 `build-sdk-node-platforms.yml` run the Windows installed-package smoke.
 

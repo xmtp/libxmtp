@@ -1,6 +1,6 @@
 # Agent tools
 
-The tests of the wrapper, the hook, the command runner, and `dev/kache-env`
+The tests of the wrapper, the hook, the command runner, and the Kache settings
 live in `dev/tests` and run in `dev/nix-shell 'just lint-config'`.
 After changes to the navigation launcher, run
 `dev/nix-shell 'just outline dev/agents/nix_hook.py'` and
