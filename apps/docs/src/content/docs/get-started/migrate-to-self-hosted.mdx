@@ -134,28 +134,22 @@ and invalidates earlier delivery cursors and acknowledgement tokens.
 
 ## Keeping history
 
-There is no server-side transfer of identities, groups, or history from the old
-network. Create active conversations on the new backend.
+You can import messages and conversations from a trusted database file created
+by a supported older SDK. Close the old SDK, keep a recoverable copy of the
+database and its encryption key, and use `prepareMigrationArchive` to create an
+encrypted archive. Import that archive through the new client's `archives`
+resource. Only import history from a database you trust.
 
-Local archives use the client's `archives` resource. All SDKs support archive
-bytes. Node, Kotlin, and Swift also support archive files. Every archive method,
-including metadata reads, requires a separate 32-byte archive key. See
-[Backups](/sdk/backups/) for the methods and key handling.
+Imported conversations are inactive. You can read their message history, but
+you cannot send or receive new messages in them. Importing history does not
+move contacts or active conversations to the new network.
 
-Imported conversations are initially inactive. Their local history is readable,
-but they have no joined MLS state for sending. On the same backend, an active
-member can add the new installation so that it can join. Restored DMs also remain
-inactive until the installation joins; a new DM can later be combined with the
-restored conversation.
+Before you can message your old contacts, they must join the same new
+self-hosted network. Once they have joined, create new conversations with them
+on that network.
 
-:::caution[Archives are not a backend migration]
-Archive tests cover installations on the same backend. They do not establish
-compatibility between a pre-transition export and this source version. An
-archive contains local rows, not MLS group keys or backend state. It cannot
-recreate the original group on a separate backend. Check import with the exact
-old and new SDK versions before promising history retention. Keep the original
-backup.
-:::
+Every archive method requires a separate 32-byte archive key. See
+[Backups](/sdk/backups/) for import methods and key handling.
 
 ## Streams, sync, and delivery
 

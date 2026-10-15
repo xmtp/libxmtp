@@ -49,6 +49,17 @@
     border-bottom: 2px solid var(--sl-color-accent);
     padding-block: 0.375rem;
   }
+  /* Nested groups should read like their neighboring links. */
+  .sidebar-content ul ul summary .large {
+    font-size: var(--sl-text-sm);
+    font-weight: 400;
+    color: var(--sl-color-gray-2);
+  }
+  @media (max-width: 49.99rem) {
+    .sidebar-content ul ul summary .large {
+      font-size: var(--sl-text-base);
+    }
+  }
   .sl-markdown-content :is(th, td) {
     border: 1px solid #7d7d7d;
     vertical-align: top;

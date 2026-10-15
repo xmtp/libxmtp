@@ -20,6 +20,11 @@ function sdkReference(
   const entryPoints = [sdkEntry(fileURLToPath(packageRoot), true)];
   const tsconfig = fileURLToPath(new URL("tsconfig.json", packageRoot));
   const typeDocOptions = {
+    plugin: [
+      fileURLToPath(
+        new URL("./scripts/typedoc-hide-brands.mjs", import.meta.url),
+      ),
+    ],
     excludeExternals: false,
     excludePrivate: true,
     excludeProtected: true,
