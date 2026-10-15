@@ -172,7 +172,7 @@ runs:
       uses: kunobi-ninja/kache-action@1a33fb2ff51be23eb9e87abeae6edb65be78f71c
       with:
         # The version of nix/lib/packages/kache.nix; one Kache per cache.
-        version: v1.1.1
+        version: v1.2.2
         cache-executables: "true"
         pr-comment: "false"
         github-cache: "false"

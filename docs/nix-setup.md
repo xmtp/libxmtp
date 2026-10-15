@@ -154,9 +154,11 @@ Run `dev/nix-shell 'kache stats --full'` to inspect hits, misses, and scheduler 
 use `XMTP_KACHE=0 dev/nix-shell 'just check'`. The default store is
 `${XDG_CACHE_HOME:-$HOME/.cache}/kache`, with a local default limit of 50 GiB.
 The CI action uses a 10 GiB limit. Existing nonempty `KACHE_CACHE_DIR` and
-`KACHE_MAX_SIZE` values are kept.
+`KACHE_MAX_SIZE` values are kept. Locally, when the cache's volume has less
+than 10 GiB free, builds also evict cache entries (Kache's default since 1.2.0;
+off in CI).
 
-Kache's scheduler is on. It does two things (Kache 1.1.1
+Kache's scheduler is on. It does two things (Kache 1.2.2
 `docs/how-it-works/limits.mdx`). After a local and remote miss, a compile joins
 a machine-wide flight for its cache key, so a second process that misses the
 same key waits and then restores the first one's entry; `kache stats --full`
