@@ -573,6 +573,7 @@ dev/nix-shell 'just example-android test-integration'
 dev/nix-shell 'python3.11 -B -m unittest discover -s apps/example-android/performance -p "test_*.py"'
 dev/nix-shell 'just example-android performance'
 dev/nix-shell 'just lint-config'
+dev/nix-shell 'just test dev'
 dev/nix-shell 'just spec-check'
 ```
 

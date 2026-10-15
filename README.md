@@ -106,7 +106,7 @@ The local setup uses Nix to provide pinned development tools. The setup script b
    dev/nix-shell 'just lint'
    ```
 
-`just test` covers the default Rust workspace members and excludes backend database tests. Run those tests with `dev/nix-shell 'just backend test'`. Use each SDK's guide for platform builds and tests. Run `dev/nix-shell 'just'` to list the available tasks.
+`just test` covers the default Rust workspace members and excludes backend database tests. Run those tests with `dev/nix-shell 'just backend test'`. Run the dev tool tests with `dev/nix-shell 'just test dev'` after a change under `dev/`, `nix/`, or `.github/`. Use each SDK's guide for platform builds and tests. Run `dev/nix-shell 'just'` to list the available tasks.
 
 To run the full backend and web example:
 

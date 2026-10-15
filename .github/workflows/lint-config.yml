@@ -18,7 +18,7 @@ jobs:
       - uses: ./.github/actions/setup-js
         with:
           cache-mode: "ci"
-      - name: Lint config files (TOML, Nix, shell)
+      - name: Lint config files and the release tools
         run: just lint-config
 
   # post-merge.yml is the first job that builds the Darwin warm sets, so a pull

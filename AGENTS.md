@@ -33,7 +33,8 @@ just check crate <name>      # check one crate
 just test                    # test default members
 just test crate <name>       # test one crate
 just test workspace -p <name> <args> # focused nextest options and filters
-just lint                    # CI lint except lint_ios/android/example_android, plus spec-check
+just test dev                # dev tool tests: dev/tests/run, Fly dashboard, release tools
+just lint                    # CI lint except lint_ios/example_ios/android/example_android, plus spec-check
 dev/nix-shell 'just lint-js-source' # source Oxlint without generated SDK products
 dev/nix-shell 'just lint-rust-source' # Rust manifests, without Clippy
 just backend up              # shared services
@@ -44,6 +45,9 @@ just ci-status <pr>          # CI failures and summary
 just format                  # format Rust, Nix, TOML, Python, shell, JS, Kotlin, Swift
 just disk                    # free space and target/ size of each worktree
 ```
+
+`just lint` runs its checks in parallel. Output interleaves; use
+`just --jobs 1 lint` for unmixed output.
 
 The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
 `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
@@ -86,16 +90,18 @@ port block, and backend image tag, so run `just backend status` for the checkout
 - After changes to the CI failure filter, run
   `dev/nix-shell 'python3.11 -B dev/tests/test_ci_failure_markers.py'`. It
   checks local log fixtures.
-- `dev/nix-shell 'just lint-config'` checks Rust and config format with treefmt.
-  It also runs the dev tool tests: `dev/tests/run` runs every `test_*.py` in
-  the directories it lists, so a new test there needs no recipe edit. They
-  check CI selection, result gates, action pins, release pushes, cache modes,
-  Android emulator startup and teardown, and Docker startup diagnostics with
-  local process fixtures.
+- `dev/nix-shell 'just lint-config'` checks Rust and config format with
+  treefmt, checks the CI suite declaration, and lints the release tools.
+- `dev/nix-shell 'just test dev'` runs the dev tool tests. `dev/tests/run` runs
+  every `test_*.py` in the directories it lists, one process per module, in
+  parallel. A new test there needs no recipe edit. The tests check CI
+  selection, result gates, action pins, release pushes, cache modes, Android
+  emulator startup and teardown, and Docker startup diagnostics with local
+  process fixtures. CI runs them in the `test_dev` suite.
 
 ## Android release workflow
 
-`just lint-config` includes the safe release wiring regression in
+`just test dev` includes the safe release wiring regression in
 `dev/tests/test_android_release.py`; it uses a stub Gradle command and never publishes.
 
 ## Test environment

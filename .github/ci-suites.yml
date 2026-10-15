@@ -255,28 +255,13 @@ suites:
       - "**/*.{nix,py,sh,toml,kt,swift}"
       - "{crates,apps}/**/*.rs"
       - "{.editorconfig,sdks/ios/.swiftformat,apps/example-ios/.swiftformat}"
-      - ".github/**"
-      # `just lint-config` runs the tests of these tools.
-      - "dev/{tests,agents,specs,release-tools,fly,ci}/**"
-      - "dev/ci-failure-markers"
-      # The dev tests and the Fly dashboard test read these files.
-      - "dev/docker/{compose.yml,load-backend-image,load-env,up}"
-      - "dev/docker/grafana/dashboards/backend.json"
-      - "dev/tls/**"
-      - "apps/backend/backend.just"
-      # dev/tests/test_services.py runs it.
-      - "dev/services"
-      # dev/tests/test_sdk_package.py runs it.
-      - "dev/js/sdk-package"
-      # dev/tests/test_script_lint.py lints every extensionless script; they
-      # live under a dev/ directory, except this one.
-      - "**/dev/**"
-      - "sdks/browser/test/platform/object-store/with-object-store"
-      - "sdks/android/android.just"
-      - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
-      # The release-tools tests and the release push test run its tools.
-      - path_group: js_workspace
+      # The treefmt configuration.
       - "nix/fmt.nix"
+      # `dev/ci-suites check` reads every workflow and action.
+      - ".github/**"
+      # `just lint-config` type-checks and lints the release tools.
+      - "dev/release-tools/**"
+      - path_group: js_workspace
   lint_proto:
     phase: lint
     workflow: lint-proto.yml
@@ -343,6 +328,53 @@ suites:
       - path_group: example_ios
       - path_group: swift
       - path_group: sdk_core
+
+  # --- Dev tools -------------------------------------------------------------
+  # `just test dev`: the dev/tests/run modules, the Fly dashboard test, and the
+  # release-tools tests. lint_config keeps the lints of these files.
+  test_dev:
+    phase: test
+    workflow: test-dev.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      # dev/tests/run finds test modules in dev/tests, dev/specs, nix/lib, and
+      # the Android example fixtures and performance tools. The tests read and
+      # run Nix, Python, shell, and TOML files across the repository.
+      - "**/*.{nix,py,sh,toml}"
+      # The tests read every workflow and action.
+      - ".github/**"
+      # `just test dev` runs the tests of these tools.
+      - "dev/{tests,agents,specs,release-tools,fly,ci}/**"
+      - "dev/ci-failure-markers"
+      # The dev tests and the Fly dashboard test read these files.
+      - "dev/docker/{compose.yml,load-backend-image,load-env,up}"
+      - "dev/docker/grafana/dashboards/backend.json"
+      - "dev/tls/**"
+      - "apps/backend/backend.just"
+      # dev/tests/test_services.py runs it.
+      - "dev/services"
+      # dev/tests/test_sdk_package.py runs it.
+      - "dev/js/sdk-package"
+      # dev/tests/test_android_release.py reads the SDK Gradle properties.
+      - "sdks/android/gradle.properties"
+      # dev/tests/test_ci_suites.py dry-runs the iOS lifecycle recipes.
+      - "sdks/ios/ios.just"
+      # dev/tests/test_script_lint.py lints every extensionless script; they
+      # live under a dev/ directory, except this one. The leading `**/` lets a
+      # neutral script such as dev/nix-up select this suite.
+      - "**/dev/**"
+      - "sdks/browser/test/platform/object-store/with-object-store"
+      - "sdks/android/android.just"
+      - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
+      # test_script_lint.py reads the shellcheck exclusions.
+      - "nix/fmt.nix"
+      # The release-tools tests and the release push test run its tools.
+      - path_group: js_workspace
 
   # --- Rust ------------------------------------------------------------------
   check_rust:

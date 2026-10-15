@@ -5,7 +5,8 @@ Run benchmarks only after an explicit request. The workflow owner is
 event or reusable-workflow entry point. The explicit Just command remains.
 Normal app tests exclude the workload class unless the runner sets
 `android.testInstrumentationRunnerArguments.messengerPerformance=true`.
-Host runner validators stay in normal config tests and execute no workload.
+Host runner validators stay in the dev tool tests (`just test dev`) and execute
+no workload.
 
 This runner measures local SDK queries and the app row projection. It does not
 measure client startup, network publication, object transfer, or frame timing.

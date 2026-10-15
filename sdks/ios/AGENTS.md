@@ -31,7 +31,7 @@ and simulator exclusions. It does not install or download a pod.
 `IosLifecycleSplitTests` reads the iOS test recipes with `just --dry-run`, so it
 does not compile the SDK. It checks that `test-lifecycle` selects the same
 tests that `test skip-lifecycle` skips. It also checks that the `test` recipe
-forwards extra Swift test arguments after its mode. `just lint-config` runs it.
+forwards extra Swift test arguments after its mode. `just test dev` runs it.
 
 `check-consumer` stages a consumer package of the root package under
 `target/sdk-ios-consumer`. It runs `Tests/Consumer/main.swift` as a bare
