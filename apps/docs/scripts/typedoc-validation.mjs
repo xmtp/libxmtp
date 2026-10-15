@@ -3,7 +3,7 @@ import { Application } from "typedoc";
 import { assertTypeDocValidation } from "./validation-lib.mjs";
 
 export async function validateTypeDoc(options, label) {
-  const app = await Application.bootstrap(options);
+  const app = await Application.bootstrapWithPlugins(options);
   const project = await app.convert();
   if (!project) throw new Error(`${label} TypeDoc conversion failed.`);
   app.validate(project);
