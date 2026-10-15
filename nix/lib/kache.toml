@@ -17,6 +17,6 @@ local_max_size = "50GiB"
 cache_executables = true
 cache_cc_links = false
 # Remove build units (.fingerprint/, build/, deps/) that no build used for
-# 3 days; Kache's default is 30. dev/clean-incremental does the same for
-# incremental state, which this does not cover.
-auto_clean_unused_units_days = 3
+# 7 days; Kache's default is 30. This does not cover incremental state;
+# dev/clean-incremental removes that after 3 days.
+auto_clean_unused_units_days = 7

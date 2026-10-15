@@ -152,7 +152,7 @@ The shells set four variables (`nix/lib/shell-common.nix`): `RUSTC_WRAPPER`,
 `KACHE_KEY_ENV_VARS=CI,XMTP_TEST_LOGGING`. `KACHE_HOST_CONFIG` points at
 `nix/lib/kache.toml`, which holds the preferences: the store
 `~/.cache/kache`, a 50 GiB limit, executable caching on, C link caching off,
-and the 3-day unit cleanup. It is Kache's lowest file layer, so your own Kache
+and the 7-day unit cleanup. It is Kache's lowest file layer, so your own Kache
 config file (`~/.config/kache/config.toml`) and any `KACHE_*` variable win.
 The two settings that keep builds correct are variables, which win over every
 file. Kache expands only a leading `~` in the file, so the store no longer
@@ -220,7 +220,7 @@ crate directories that no build used for 3 days. It holds Cargo's locks
 while it renames them, so it skips a profile with a running build.
 `dev/nix-shell` runs it in the background for its worktree at most once a
 day; `just clean-incremental [days]` runs it for every worktree. The Kache
-daemon removes other build units no build used for 3 days
+daemon removes other build units no build used for 7 days
 (`auto_clean_unused_units_days` in `nix/lib/kache.toml`; Kache's default is
 30).
 
