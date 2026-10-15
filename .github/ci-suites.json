@@ -385,7 +385,9 @@
         "nix/lib/packages/pnpm.nix",
         "nix/{js,js-node}.nix",
         "sdks/android/android.just",
+        "sdks/android/gradle.properties",
         "sdks/browser/test/platform/object-store/with-object-store",
+        "sdks/ios/ios.just",
         "sdks/js.just",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],

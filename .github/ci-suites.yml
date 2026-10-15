@@ -360,6 +360,10 @@ suites:
       - "dev/services"
       # dev/tests/test_sdk_package.py runs it.
       - "dev/js/sdk-package"
+      # dev/tests/test_android_release.py reads the SDK Gradle properties.
+      - "sdks/android/gradle.properties"
+      # dev/tests/test_ci_suites.py dry-runs the iOS lifecycle recipes.
+      - "sdks/ios/ios.just"
       # dev/tests/test_script_lint.py lints every extensionless script; they
       # live under a dev/ directory, except this one. The leading `**/` lets a
       # neutral script such as dev/nix-up select this suite.
