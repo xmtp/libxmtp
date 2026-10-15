@@ -188,6 +188,36 @@ where
         Ok(None)
     }
 
+    /// Resolve the result of a best-effort follow-up reaction on our own
+    /// just-published message.
+    ///
+    /// Retryable failures become an [`IntentResolutionError`] so the caller
+    /// rolls the sync transaction back and retries (the message was already
+    /// published, so the optimistic row is untouched on rollback). Non-retryable
+    /// failures are logged and swallowed: the publish already succeeded and
+    /// re-running won't help, so we don't wedge the intent.
+    pub(super) fn resolve_own_reaction(
+        &self,
+        result: Result<(), GroupMessageProcessingError>,
+        message_id: &[u8],
+        reaction: &str,
+    ) -> Result<(), IntentResolutionError> {
+        match result {
+            Ok(()) => Ok(()),
+            Err(err) if err.is_retryable() => Err(IntentResolutionError {
+                processing_error: err,
+            }),
+            Err(err) => {
+                tracing::warn!(
+                    group_id = %self.group_id,
+                    message_id = hex::encode(message_id),
+                    "non-retryable error processing own {reaction} reaction, skipping: {err}"
+                );
+                Ok(())
+            }
+        }
+    }
+
     /// Apply an own message with the current writer. The caller commits its intent
     /// only after all state changes succeed. Errors leave the trial state unchanged.
     #[tracing::instrument(level = "trace", skip_all)]
@@ -378,7 +408,18 @@ where
                 event_writer,
             );
         }
-        self.process_own_leave_request_message(mls_group, storage, &id, event_writer);
+        // Best-effort follow-up on our own just-published message. The message
+        // is already published and its delivery status persisted; this only
+        // updates local leave state. A retryable storage failure must still
+        // roll the sync back and retry, matching the rest of
+        // process_message_inner; a non-retryable failure is logged and swallowed
+        // because re-publishing won't help and the local reaction is genuinely
+        // best-effort here.
+        self.resolve_own_reaction(
+            self.process_own_leave_request_message(mls_group, storage, &id, event_writer),
+            &id,
+            "leave request",
+        )?;
         if !self.conversation_type.is_virtual() {
             event_writer.emit(
                 None,
