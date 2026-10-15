@@ -27,6 +27,23 @@ test("homepage agent tabs start on the group panel and load local avatars", asyn
   expect(prototypeRequests).toEqual([]);
 });
 
+test("homepage links open the install, security, and client guides", async ({
+  page,
+}) => {
+  for (const [scope, name, path] of [
+    [".home-header", "SDKs", "/get-started/install/"],
+    [".home-header", "Security", "/protocol/security/"],
+    [".home-hero", "Build with your coding assistant", "/sdk/client/"],
+  ]) {
+    await page.goto("/");
+    const link = page.locator(scope).getByRole("link", { name });
+    await expect(link).toHaveAttribute("href", path);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`${path.replace(/\/$/, "")}/?$`));
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  }
+});
+
 test("homepage layout and agent tabs work with keyboard input", async ({
   page,
 }) => {
