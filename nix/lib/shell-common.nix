@@ -132,9 +132,6 @@ rec {
     kache
   ];
 
-  # Set only the shell environment. Nix build derivations stay hermetic.
-  compilerCacheHook = "\nsource ${../../dev/kache-env}\n";
-
   # The one Rust toolchain of the rust, default, and android shells: the
   # host, wasm32, the Android ABIs, and on Darwin the Apple slices.
   rustToolchain =
@@ -187,6 +184,17 @@ rec {
   # only packages and shellHook, so each shell merges this set.
   rustShellEnv = {
     inherit (rustBase) hardeningDisable LD_LIBRARY_PATH;
+    # Kache, the compiler cache. Only the shells set it; Nix build
+    # derivations keep their own caches. Preferences live in kache.toml, the
+    # lowest Kache file layer. The settings below keep builds correct, so
+    # they are variables, which win over every Kache file. In CI, setup-nix
+    # sets KACHE_DISABLED=1 for jobs without Kache and turns incremental off.
+    RUSTC_WRAPPER = "${kache}/bin/kache";
+    KACHE_HOST_CONFIG = "${./kache.toml}";
+    # Build-script runs have no config-file key.
+    KACHE_BUILD_SCRIPT_CACHE = 0;
+    # Proc macros read these without emitting rustc env-dep records.
+    KACHE_KEY_ENV_VARS = "CI,XMTP_TEST_LOGGING";
     inherit (wasmEnv)
       CC_wasm32_unknown_unknown
       AR_wasm32_unknown_unknown
@@ -195,15 +203,13 @@ rec {
   }
   // rustBase.env;
 
-  # The shellHook of every Rust shell: Kache, and on Darwin one compiler
-  # environment, Xcode clang with the 11.0 macOS floor, for the host and
-  # the Apple slices. SDKROOT stays unset so xcrun picks the SDK per target.
-  rustShellHook =
-    "\nsource ${../../dev/kache-env}\n"
-    + lib.optionalString stdenv.isDarwin ''
-      unset SDKROOT
-      ${xmtp.iosEnv.envSetupAll}
-    '';
+  # The shellHook of every Rust shell: on Darwin one compiler environment,
+  # Xcode clang with the 11.0 macOS floor, for the host and the Apple slices.
+  # SDKROOT stays unset so xcrun picks the SDK per target.
+  rustShellHook = lib.optionalString stdenv.isDarwin ''
+    unset SDKROOT
+    ${xmtp.iosEnv.envSetupAll}
+  '';
 
   # Coverage tools for `just coverage` and the CI coverage run.
   cargoCiTools = [

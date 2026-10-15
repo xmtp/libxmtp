@@ -1,0 +1,27 @@
+# Kache settings for the Rust dev shells, local and CI. The shells point
+# KACHE_HOST_CONFIG here (nix/lib/shell-common.nix). This is Kache's lowest
+# file layer: your own Kache config file and any KACHE_* variable win. In CI,
+# kache-action's variables (store, size) win, and setup-nix turns incremental
+# compilation off. Settings that keep builds correct are shell variables in
+# shell-common.nix instead, so no file can override them.
+#
+# The Kache daemon serves every checkout on the machine and keeps the
+# settings of the shell that started it. After a change here, run
+# `dev/nix-shell 'kache daemon restart'`.
+
+[cache]
+# The default store is ~/Library/Caches/kache on macOS; keep one path on
+# every platform. Kache expands only a leading `~`, not $XDG_CACHE_HOME.
+local_store = "~/.cache/kache"
+local_max_size = "50GiB"
+cache_executables = true
+cache_cc_links = false
+# Remove build units (.fingerprint/, build/, deps/) that no build used for
+# 7 days; Kache's default is 30. This does not cover the incremental state in
+# target/<profile>/incremental.kache-auto, which only a whole-target removal
+# reclaims.
+auto_clean_unused_units_days = 7
+# When the volume has less than 10 GiB free, also remove whole target
+# directories that no build used for a day, largest first (after evicting
+# cache entries). A removed worktree target rebuilds mostly from the cache.
+auto_recover_targets = true

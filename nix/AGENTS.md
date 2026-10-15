@@ -2,10 +2,11 @@
 
 Check an affected output with `nix build --no-link .#<output>`; run `dev/nix-shell 'just lint-config'`.
 
-Rust-capable development shells select pinned Kache through `dev/kache-env`.
-Check the package with `nix build --no-link .#kache` and the effective wrapper
-with `dev/nix-shell --shell rust '"$RUSTC_WRAPPER" --version'`.
-CI selects its wrapper through `setup-nix`. Nix build derivations retain their
+Rust-capable development shells set pinned Kache as `RUSTC_WRAPPER` and point
+`KACHE_HOST_CONFIG` at `lib/kache.toml` (`rustShellEnv` in
+`lib/shell-common.nix`). Check the package with `nix build --no-link .#kache`
+and the effective settings with `dev/nix-shell 'kache doctor'`.
+CI adds its settings through `setup-nix`. Nix build derivations retain their
 Nix/Crane caches; they do not receive the outer shell's compiler cache.
 Keep compiler credentials and writable host cache paths out of derivations.
 

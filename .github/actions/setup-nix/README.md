@@ -97,8 +97,11 @@ and trusted jobs do not restore it (`CacheModeWiringTests`).
 
 ## CI compiler cache
 
-`setup-nix` uses pinned Kache 1.0.0 and its private runtime directory.
-GitHub cache archives are disabled for the compiler store. Nix/Crane, Cachix,
+`setup-nix` uses the Kache of `nix/lib/packages/kache.nix` and its private
+runtime directory. The Rust dev shells supply the wrapper and the settings in
+`nix/lib/kache.toml`; `setup-nix` adds `CARGO_INCREMENTAL=0` and turns
+Kache's incremental modes off, and a job without `kache: "true"` gets
+`KACHE_DISABLED=1`. GitHub cache archives are disabled for the compiler store. Nix/Crane, Cachix,
 pnpm, Windows rust-cache, Gradle, and Docker keep their existing caches.
 
 Without either access key field, Kache uses a private local store. A partial
