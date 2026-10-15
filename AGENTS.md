@@ -34,7 +34,7 @@ just test                    # test default members
 just test crate <name>       # test one crate
 just test workspace -p <name> <args> # focused nextest options and filters
 just test dev                # dev tool tests: dev/tests/run, Fly dashboard, release tools
-just lint                    # CI lint except lint_ios/android/example_android, plus spec-check
+just lint                    # CI lint except lint_ios/example_ios/android/example_android, plus spec-check
 dev/nix-shell 'just lint-js-source' # source Oxlint without generated SDK products
 dev/nix-shell 'just lint-rust-source' # Rust manifests, without Clippy
 just backend up              # shared services
@@ -45,6 +45,9 @@ just ci-status <pr>          # CI failures and summary
 just format                  # format Rust, Nix, TOML, Python, shell, JS, Kotlin, Swift
 just disk                    # free space and target/ size of each worktree
 ```
+
+`just lint` runs its checks in parallel. Output interleaves; use
+`just --jobs 1 lint` for unmixed output.
 
 The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
 `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.

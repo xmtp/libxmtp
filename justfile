@@ -74,10 +74,12 @@ _check-crate +crates:
 
 # The CI lint suites lint_workspace, lint_js, lint_config, lint_proto,
 # lint_deny, and docs_quality, the WASM and SDK generator Clippy of check_rust,
-# and `spec-check`. It skips lint_ios and the Android example lint (a job of
-# test_example_android), which need mobile toolchains, and the cargo-deny
-# advisories check, which does not block.
-lint: _js-deps lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto lint-deny docs::test docs::check-source spec-check
+# and `spec-check`. It skips lint_ios, lint_example_ios, and the Android example
+# lint (a job of test_example_android), which need mobile toolchains, and the
+# cargo-deny advisories check, which does not block.
+# The checks run in parallel; `just --jobs 1 lint` runs them one at a time.
+[parallel]
+lint: _js-deps && lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto lint-deny docs::test docs::check-source spec-check
 
 lint-proto:
     buf lint proto
