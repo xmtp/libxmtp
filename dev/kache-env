@@ -42,4 +42,12 @@ if [[ -n "${CI:-}" ]]; then
   export CARGO_INCREMENTAL=0
   export KACHE_ADAPTIVE_INCREMENTAL=0
   export KACHE_PRESERVE_INCREMENTAL=0
+else
+  # xmtp-kache sends test, bin, and proc-macro compiles straight to rustc with
+  # Cargo's shared <profile>/incremental. Kache would delete that directory
+  # after each library compile while they write to it. dev/clean-incremental
+  # removes old state instead.
+  export KACHE_CLEAN_INCREMENTAL=0
+  # Remove build units that no build used for 3 days (Kache's default is 30).
+  export KACHE_AUTO_CLEAN_UNUSED_UNITS_DAYS="${KACHE_AUTO_CLEAN_UNUSED_UNITS_DAYS:-3}"
 fi

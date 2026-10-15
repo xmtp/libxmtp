@@ -142,6 +142,10 @@ exec "$shell" --noprofile --norc -c "
   source \"\$1\"
   ${restore_caller_temp[*]/%/;}
   export XMTP_NIX_WRAPPER_ID=\"\$2\"
-  shift 2
+  # Old incremental state goes in the background, at most once a day.
+  if [[ -x \"\$3/dev/clean-incremental\" ]]; then
+    \"\$3/dev/clean-incremental\" --auto \"\$3/target\" </dev/null >/dev/null 2>&1 &
+  fi
+  shift 3
   exec \"\$@\"
-" nix-shell "$env_file" "$identity" "${command_args[@]}"
+" nix-shell "$env_file" "$identity" "$REPO_ROOT" "${command_args[@]}"

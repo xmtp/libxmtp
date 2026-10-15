@@ -1,0 +1,177 @@
+#!/usr/bin/env python3.11
+"""Delete incremental compilation state that no build has used recently.
+
+  dev/clean-incremental [--days N | --minutes N] [--auto] [TARGET ...]
+
+rustc keeps one session per crate directory (`<crate>-<id>`) and removes the
+older ones, but it never removes a crate directory. Each feature set, profile,
+flag set, and toolchain makes new ones, so `incremental/` grows without limit.
+Kache's adaptive units in `incremental.kache-auto/v1/` grow the same way, and
+Kache's own unit cleanup does not cover either directory. This removes each
+crate directory and each Kache unit in which nothing changed for the window.
+
+A profile directory is cleaned only while this holds every Cargo lock in it, so
+no Cargo build, and no rustc or Kache process under one, can use the state.
+A busy profile is skipped. Each removal is a rename into a trash directory
+first, so an interrupted run never leaves a half-deleted crate directory.
+
+With no TARGET, every worktree's `target/` is cleaned. `--auto` is for
+dev/nix-shell: it cleans at most once a day, never in CI, and prints nothing.
+"""
+
+import argparse
+import fcntl
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from contextlib import ExitStack
+from pathlib import Path
+
+DEFAULT_DAYS = 3
+# Cargo 1.97 takes `.cargo-lock` and `.cargo-build-lock`; later versions also
+# take `.cargo-artifact-lock`. Kache's unit cleanup locks the same three.
+CARGO_LOCKS = (".cargo-lock", ".cargo-build-lock", ".cargo-artifact-lock")
+STATE_DIRS = ("incremental", "incremental.kache-auto/v1")
+TRASH = ".incremental-trash"
+AUTO_STAMP = ".clean-incremental-stamp"
+AUTO_INTERVAL = 24 * 60 * 60
+
+
+def worktree_targets():
+    out = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return [
+        Path(line.removeprefix("worktree ")) / "target"
+        for line in out.splitlines()
+        if line.startswith("worktree ")
+    ]
+
+
+def profile_dirs(target):
+    """`target/<profile>` and `target/<triple>/<profile>` that Cargo built."""
+    for depth in ("*", "*/*"):
+        for candidate in sorted(target.glob(depth)):
+            if any((candidate / lock).is_file() for lock in CARGO_LOCKS):
+                yield candidate
+
+
+def lock_profile(profile, stack):
+    """Hold every Cargo lock in `profile`, or return False if one is busy."""
+    for name in CARGO_LOCKS:
+        path = profile / name
+        if not path.is_file():
+            continue
+        handle = stack.enter_context(path.open("rb"))
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+    return True
+
+
+def newest_change(path):
+    """The newest mtime of `path` and the entries two levels below it.
+
+    rustc adds and renames session directories inside a crate directory, and
+    Kache rewrites `state.json` in a unit, so either use moves this forward.
+    """
+    newest = path.lstat().st_mtime
+    for child in path.iterdir():
+        newest = max(newest, child.lstat().st_mtime)
+        if child.is_dir() and not child.is_symlink():
+            for grandchild in child.iterdir():
+                newest = max(newest, grandchild.lstat().st_mtime)
+    return newest
+
+
+def size_of(path):
+    total = 0
+    for root, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except FileNotFoundError:
+                pass
+    return total
+
+
+def clean_profile(profile, cutoff, report):
+    # Each run renames into its own trash, so two runs never share one.
+    trash = profile / f"{TRASH}-{os.getpid()}"
+    removed = 0
+    # Hold the locks only for the renames, so a build that starts meanwhile
+    # waits milliseconds, not for the deletion.
+    with ExitStack() as stack:
+        if not lock_profile(profile, stack):
+            report(f"skipping {profile}: a build is running")
+            return 0
+        trash.mkdir()
+        # An interrupted run left its trash behind. A run that is still
+        # deleting renamed nothing since it released these locks.
+        for leftover in profile.glob(f"{TRASH}-*"):
+            if leftover != trash:
+                leftover.rename(trash / leftover.name)
+        for index, state in enumerate(STATE_DIRS):
+            for entry in sorted((profile / state).glob("*")):
+                if not entry.is_dir() or newest_change(entry) >= cutoff:
+                    continue
+                size = size_of(entry)
+                entry.rename(trash / f"{index}-{entry.name}")
+                report(f"removing {entry} ({size // 2**20} MB)")
+                removed += size
+    shutil.rmtree(trash, ignore_errors=True)
+    return removed
+
+
+def auto_due(target):
+    """Whether `--auto` should run now, recording the run if so."""
+    if os.environ.get("CI") or not target.is_dir():
+        return False
+    stamp = target / AUTO_STAMP
+    try:
+        if time.time() - stamp.stat().st_mtime < AUTO_INTERVAL:
+            return False
+    except FileNotFoundError:
+        pass
+    stamp.touch()
+    return True
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    window = parser.add_mutually_exclusive_group()
+    window.add_argument("--days", type=int, default=DEFAULT_DAYS)
+    window.add_argument("--minutes", type=int)
+    parser.add_argument("--auto", action="store_true")
+    parser.add_argument("targets", nargs="*", type=Path)
+    args = parser.parse_args(argv)
+
+    targets = args.targets or worktree_targets()
+    if args.auto:
+        # Ctrl-C in the shell that started this must not stop a removal.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        targets = [target for target in targets if auto_due(target)]
+
+    def report(line):
+        if not args.auto:
+            print(line)
+
+    window_secs = args.minutes * 60 if args.minutes is not None else args.days * 86400
+    cutoff = time.time() - window_secs
+    total = 0
+    for target in targets:
+        for profile in profile_dirs(target):
+            total += clean_profile(profile, cutoff, report)
+    report(f"reclaimed {total // 2**20} MB")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

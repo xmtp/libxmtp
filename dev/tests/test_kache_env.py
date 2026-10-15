@@ -44,7 +44,8 @@ class KacheEnvTests(unittest.TestCase):
             'source "$1"; printf "%s\\n" "${RUSTC_WRAPPER-unset}" '
             '"${CARGO_INCREMENTAL-unset}" "${KACHE_MAX_SIZE-unset}" '
             '"${KACHE_KEY_ENV_VARS-unset}" "${KACHE_BUILD_SCRIPT_CACHE-unset}" '
-            '"${KACHE_CACHE_EXECUTABLES-unset}"'
+            '"${KACHE_CACHE_EXECUTABLES-unset}" "${KACHE_CLEAN_INCREMENTAL-unset}" '
+            '"${KACHE_AUTO_CLEAN_UNUSED_UNITS_DAYS-unset}"'
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.splitlines()
@@ -53,12 +54,32 @@ class KacheEnvTests(unittest.TestCase):
         values = self.values()
         self.assertEqual(
             values,
-            [str(self.binary), "unset", "50GiB", "CI,XMTP_TEST_LOGGING", "0", "1"],
+            [
+                str(self.binary),
+                "unset",
+                "50GiB",
+                "CI,XMTP_TEST_LOGGING",
+                "0",
+                "1",
+                # xmtp-kache sends --test compiles straight to rustc with
+                # Cargo's incremental/; Kache must not delete it under them.
+                "0",
+                "3",
+            ],
         )
         for value in ("0", "1"):
             with self.subTest(value=value):
                 self.env["CARGO_INCREMENTAL"] = value
                 self.assertEqual(self.values()[1], value)
+        self.env["KACHE_AUTO_CLEAN_UNUSED_UNITS_DAYS"] = "7"
+        self.assertEqual(self.values()[7], "7")
+
+    def test_ci_turns_incremental_off_and_keeps_kache_cleanup_defaults(self):
+        self.env["CI"] = "true"
+        self.env["XMTP_KACHE"] = "1"
+        values = self.values()
+        self.assertEqual(values[1], "0")
+        self.assertEqual(values[6:], ["unset", "unset"])
 
 
 TRUNK_PUSH = {

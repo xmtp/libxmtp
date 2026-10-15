@@ -180,7 +180,27 @@ dependency such as `crates/xmtp_mls` under an `xmtp_sdk` build. On the owner
 Mac a one-line `xmtp_mls` edit rebuilt the SDK host library in about 6 s from
 the second edit on (19 s for the first), against 31 s per edit with
 `KACHE_ADAPTIVE_INCREMENTAL=0`, so neither `-p` lists nor
-`KACHE_PRESERVE_INCREMENTAL=1` are needed.
+`KACHE_PRESERVE_INCREMENTAL=1` are needed. On 2026-10-15 the same edit
+rebuilt `cargo check -p xmtp_mls --all-targets` in 8 s and
+`cargo nextest run -p xmtp_mls --no-run` in 20 s, against 25 s and 55 s with
+`CARGO_INCREMENTAL=0`.
+
+On Darwin, `xmtp-kache` sends test, binary, and proc-macro compiles straight
+to rustc, and they keep Cargo's shared `<profile>/incremental`. By default
+Kache deletes that directory after each library compile it wraps, which breaks
+those compiles mid-build ("failed to move dependency graph"). Locally,
+`dev/kache-env` sets `KACHE_CLEAN_INCREMENTAL=0` to stop that. Nothing else
+deletes old state there or in `incremental.kache-auto/`: rustc keeps only the
+newest session of a crate directory but never removes the directory, and each
+feature set, profile, and toolchain makes new ones. `dev/clean-incremental`
+removes crate directories and Kache units that no build used for 3 days. It
+holds Cargo's locks while it renames them, so it skips a profile with a
+running build. `dev/nix-shell` runs it in the background for its worktree at
+most once a day; `just clean-incremental [days]` runs it for every worktree.
+`dev/kache-env` also sets `KACHE_AUTO_CLEAN_UNUSED_UNITS_DAYS=3` (Kache's
+default is 30), so the Kache daemon removes other build units no build used
+for 3 days. A daemon that is already running keeps its value until
+`dev/nix-shell 'kache daemon restart'`.
 
 `KACHE_MAX_SIZE` limits the store's private blob bytes on each machine; blobs
 that a target directory still holds (hardlinked or cloned) are not freed until
