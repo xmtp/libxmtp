@@ -15,6 +15,10 @@ export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 
 set shell := ["./dev/nix-shell"]
 
+[script("bash")]
+default:
+    just --list --list-submodules
+
 # --- SPECS ---
 # See docs/specs/SPEC-spec-format.md and .agents/skills/authoring-specs.
 
@@ -39,10 +43,6 @@ cargo_test := env("CARGO_TEST_CMD", "dev/agent-run cargo nextest run")
 # Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
 # `_env` loads it so the Rust suites reach this worktree's own stack.
 _env := ". " + justfile_directory() + "/dev/docker/load-env"
-
-[script("bash")]
-default:
-    just --list --list-submodules
 
 # Install all JavaScript workspace dependencies from the root lockfile.
 install-js:

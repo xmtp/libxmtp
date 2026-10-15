@@ -1,30 +1,123 @@
 ---
 title: Build a quickstart chat app
-description: Build a small XMTP chat app and send messages.
+description: Send and receive your first XMTP message in 2 minutes.
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-Follow this tutorial to build a quickstart chat app with XMTP.
+Follow this tutorial to run a local XMTP backend and send a message from one
+client to another.
 
-When you build your quickstart app, you will use a key pair to create an identity and register it with XMTP. This gives you an inbox ID, which is a stable identifier that serves as the destination for your messages.
+Each client uses a key pair to create an identity and register it with the
+backend. This gives the client an inbox ID, which is a stable identifier that
+other clients send messages to.
 
-## 1. Install the SDK
+You need [Docker](https://docs.docker.com/get-docker/) with Docker Compose. For
+Browser and Node, you also need Node.js 22.18.0 or later.
 
-Follow [Install the XMTP SDK](/get-started/install/) to install SDK
-8.0.0-rc2. From your app directory, install the package for your platform:
+## 1. Start a local backend
+
+Run these commands in a terminal. They create a project directory, download the
+Compose file, and start PostgreSQL and the XMTP backend:
+
+```sh
+mkdir xmtp-quickstart && cd xmtp-quickstart
+curl -fsSL https://xmtp.org/quickstart/compose.yaml -o compose.yaml
+docker compose up -d --wait
+```
+
+The last command returns when the backend is healthy. The backend URL is
+`http://127.0.0.1:5050`. Use `127.0.0.1`, not `localhost`: some systems resolve
+`localhost` to an IPv6 address that Docker does not forward.
+
+<details>
+<summary>The Compose file</summary>
+
+```yaml title="compose.yaml"
+# Local XMTP backend for the quickstart. Do not use it in production:
+# it has no authentication and a fixed database password.
+#
+#   docker compose up -d --wait   start, and wait until the backend is healthy
+#   docker compose logs backend   show the backend logs
+#   docker compose down           stop, and keep the data
+#   docker compose down -v        stop, and delete the data
+#
+# Clients connect to http://127.0.0.1:5050.
+name: xmtp-quickstart
+
+services:
+  db:
+    image: postgres:18.6
+    environment:
+      POSTGRES_USER: xmtp
+      POSTGRES_PASSWORD: xmtp
+      POSTGRES_DB: xmtp
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U xmtp -d xmtp"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    image: ghcr.io/xmtp/backend:8.0.0-rc2
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp
+      XMTP_CONFIG: |
+        [server]
+        identifier = "local.xmtp.quickstart"
+
+        [database]
+        url = "env:XMTP_DATABASE_URL"
+    ports:
+      # Loopback only. Change to "5050:5050" to reach it from another device.
+      - "127.0.0.1:5050:5050"
+    healthcheck:
+      test: ["CMD", "/bin/grpc-health-probe", "-addr=127.0.0.1:5050"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  db-data:
+```
+
+</details>
+
+This backend has no authentication. Do not expose it outside your computer.
+See [Run the backend](/get-started/run-the-backend/) for a production
+configuration.
+
+## 2. Install the SDK
+
+Use SDK **8.0.0-rc2**, which matches the backend image. See
+[Install the XMTP SDK](/get-started/install/) for other package managers.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
+Create a Vite app in the `xmtp-quickstart` directory and install the SDK:
+
 ```sh
+npm create vite@latest web -- --template vanilla-ts --no-interactive
+cd web
+npm install
 npm install --save-exact @xmtp/browser-sdk@8.0.0-rc2
 ```
 
 </TabItem>
 <TabItem label="Node">
 
+In the `xmtp-quickstart` directory, create an ES module project and install the
+SDK:
+
 ```sh
+npm init -y
+npm pkg set type=module
 npm install --save-exact @xmtp/node-sdk@8.0.0-rc2
 ```
 
@@ -41,39 +134,46 @@ Follow the [Swift installation instructions](/get-started/install/).
 </TabItem>
 </Tabs>
 
-## 2. Create a signer and client
+## 3. Write the app
 
-The signer provides `identity()`, `kind()`, and `sign(request)`. Its `sign`
-method returns a `Signature` with the raw signature bytes. The SDK's
-`Client.generateKeys()` (`SDKClient.generateKeys()` in Kotlin and Swift) returns
-a local signing key that implements these methods. For a persistent account,
-[save and restore the private key](/sdk/signer/#save-and-restore-a-local-key)
-before opening the client. The examples below create temporary accounts.
-The backend URL is required. Use the URL of your running backend. These examples
-create temporary identities for testing. Do not use their key lifecycle in a
-production app: store the signer key and database encryption key securely and
-reuse them with the same database on later launches.
-
-The Browser and Node blocks come from complete source files. They are checked
-against the SDK types during the docs build. The mobile examples create a second
-client so that the message recipient is registered on the same backend.
+The Browser and Node examples come from complete source files. They are checked
+against the SDK types during the docs build.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
-```ts source="quickstart-browser.ts" region="client"
+Replace the contents of `src/main.ts` with this code. Each page load creates a
+new client. A page opened with `?to=<inbox-id>` sends one message to that inbox.
+
+```ts source="quickstart-browser.ts" region="app" title="src/main.ts"
 
 ```
 
 </TabItem>
 <TabItem label="Node">
 
-```ts source="quickstart-node.ts" region="client"
+Create `listen.ts`. It creates a client, prints its inbox ID, and prints each
+text message it receives:
+
+```ts source="quickstart-node-listen.ts" region="listen" title="listen.ts"
+
+```
+
+Create `send.ts`. It creates a second client and sends one message to the inbox
+ID you pass to it:
+
+```ts source="quickstart-node-send.ts" region="send" title="send.ts"
 
 ```
 
 </TabItem>
 <TabItem label="Kotlin">
+
+The signer provides `identity()`, `kind()`, and `sign(request)`.
+`SDKClient.generateKeys()` returns a local signing key that implements these
+methods. This example creates two temporary clients on the same backend, sends a
+message from one to the other, and streams messages. Replace the backend URL
+with a URL that your device can reach.
 
 ```kotlin
 import android.content.Context
@@ -121,8 +221,16 @@ withDemoClients(applicationContext, "https://xmtp.example.com") { client, recipi
 }
 ```
 
+The `withDemoClients` helper ends both clients when its block exits.
+
 </TabItem>
 <TabItem label="Swift">
+
+The signer provides `identity()`, `kind()`, and `sign(request)`.
+`SDKClient.generateKeys()` returns a local signing key that implements these
+methods. This example creates two temporary clients on the same backend, sends a
+message from one to the other, and streams messages. Replace the backend URL
+with a URL that your device can reach.
 
 Load each client's stored 32-byte database key before the calls below. Generate a
 new key securely for a new database, store it securely, and reuse it on reopen.
@@ -147,100 +255,89 @@ func createDemoClient(backendUrl: String, databaseKey: Data) async throws -> SDK
 let backendUrl = "https://xmtp.example.com"
 let client = try await createDemoClient(backendUrl: backendUrl, databaseKey: clientDatabaseKey)
 let recipient = try await createDemoClient(backendUrl: backendUrl, databaseKey: recipientDatabaseKey)
-```
 
-</TabItem>
-</Tabs>
-
-## 3. Send a message
-
-Create a conversation and send a text message. For Browser and Node, use the
-inbox ID printed by a second running client on the same backend. Put the Kotlin
-send and stream operations in the `withDemoClients` block. For Swift, use the
-recipient client from the preceding step.
-
-<Tabs syncKey="sdk">
-<TabItem label="Browser">
-
-```ts source="quickstart-browser.ts" region="send"
-
-```
-
-</TabItem>
-<TabItem label="Node">
-
-```ts source="quickstart-node.ts" region="send"
-
-```
-
-</TabItem>
-<TabItem label="Kotlin">
-
-```kotlin
-val group = client.conversations.createGroup(listOf(recipient.inboxId()))
-group.sendText("Hello everyone")
-```
-
-</TabItem>
-<TabItem label="Swift">
-
-```swift
 let group = try await client.conversations.createGroup(members: [recipient.inboxId()])
 try await group.sendText(text: "Hello everyone", options: nil)
-```
 
-</TabItem>
-</Tabs>
-
-Sending a message stores it locally and publishes it to the backend. Update
-your UI from the message stream or query the conversation's messages. See
-[optimistic sending](/sdk/send-messages/#optimistically-send-messages) to show a
-message before publication completes.
-
-## 4. Stream messages
-
-Use `client.conversations.streamAllMessages()` in each SDK to receive messages. Use `syncAll` to fetch welcomes and messages in
-the selected conversations. The JavaScript examples select allowed
-conversations; allow an incoming conversation before you expect its messages
-in that stream. See [Consent](/sdk/consent/).
-
-<Tabs syncKey="sdk">
-<TabItem label="Browser">
-
-```ts source="quickstart-browser.ts" region="stream"
-
-```
-
-</TabItem>
-<TabItem label="Node">
-
-```ts source="quickstart-node.ts" region="stream"
-
-```
-
-</TabItem>
-<TabItem label="Kotlin">
-
-```kotlin
-client.conversations.syncAll(null)
-client.conversations.streamAllMessages().collect { message ->
-    println("New message: $message")
-}
-```
-
-</TabItem>
-<TabItem label="Swift">
-
-```swift
 for try await message in try await client.conversations.streamAllMessages() {
   print("New message: \(message)")
 }
 ```
 
+When you stop the stream, call `try await recipient.end()` and
+`try await client.end()`.
+
 </TabItem>
 </Tabs>
 
-When you stop the JavaScript example, call `await stream.return()`, await
-`receive`, then call `await client.end()`. On mobile, stop the message stream
-and end both clients. The Kotlin helper does this when its block exits; use
-`try await recipient.end()` and `try await client.end()` in Swift.
+## 4. Run it
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+Start the development server:
+
+```sh
+npm run dev
+```
+
+1. Open the URL that Vite prints, such as `http://localhost:5173/`. The page
+   shows its inbox ID.
+2. Open the `?to=` link from the first page in a second tab. The second tab
+   sends `Hello from the browser`.
+3. The first tab shows `Them: Hello from the browser`.
+
+</TabItem>
+<TabItem label="Node">
+
+In the first terminal, start the listener:
+
+```sh
+node listen.ts
+```
+
+It prints a command with its inbox ID. Run that command in a second terminal
+from the same directory:
+
+```sh
+node send.ts <inbox-id> "Hello from XMTP"
+```
+
+The first terminal prints `New message: Hello from XMTP`. Run `send.ts` again to
+send more messages. Press Ctrl+C to stop the listener.
+
+</TabItem>
+<TabItem label="Kotlin">
+
+Run the app. The stream prints the message that the first client sent.
+
+</TabItem>
+<TabItem label="Swift">
+
+Run the app. The stream prints the message that the first client sent.
+
+</TabItem>
+</Tabs>
+
+## How it works
+
+- `streamAllMessages()` delivers messages from every conversation, including
+  conversations that start after the stream opens. By default, it includes
+  `allowed` and `unknown` conversations. A conversation that another inbox
+  starts is `unknown` until you allow it. See [Consent](/sdk/consent/).
+- When the stream opens, it first delivers the messages that arrived while the
+  client was offline.
+- These examples use randomly generated keys that get thrown away as soon as the
+  process ends, and in-memory databases. Each run is a new inbox. A real app must
+  [save and restore its signing key](/sdk/signer/#save-and-restore-a-local-key)
+  and keep the same database between launches. In Node, pass a 32-byte
+  `storage.encryptionKey` to encrypt the database.
+
+## Stop the backend
+
+Run these commands in the `xmtp-quickstart` directory:
+
+```sh
+docker compose down     # stop, and keep the data
+docker compose down -v  # stop, and delete the data
+```

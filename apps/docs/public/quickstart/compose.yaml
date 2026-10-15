@@ -1,0 +1,50 @@
+# Local XMTP backend for the quickstart. Do not use it in production:
+# it has no authentication and a fixed database password.
+#
+#   docker compose up -d --wait   start, and wait until the backend is healthy
+#   docker compose logs backend   show the backend logs
+#   docker compose down           stop, and keep the data
+#   docker compose down -v        stop, and delete the data
+#
+# Clients connect to http://127.0.0.1:5050.
+name: xmtp-quickstart
+
+services:
+  db:
+    image: postgres:18.6
+    environment:
+      POSTGRES_USER: xmtp
+      POSTGRES_PASSWORD: xmtp
+      POSTGRES_DB: xmtp
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U xmtp -d xmtp"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    image: ghcr.io/xmtp/backend:8.0.0-rc2
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp
+      XMTP_CONFIG: |
+        [server]
+        identifier = "local.xmtp.quickstart"
+
+        [database]
+        url = "env:XMTP_DATABASE_URL"
+    ports:
+      # Loopback only. Change to "5050:5050" to reach it from another device.
+      - "127.0.0.1:5050:5050"
+    healthcheck:
+      test: ["CMD", "/bin/grpc-health-probe", "-addr=127.0.0.1:5050"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  db-data:
