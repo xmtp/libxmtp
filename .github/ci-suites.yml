@@ -157,6 +157,28 @@ path_groups:
     - "apps/example-ios/**"
     - "nix/package/example-ios-run.nix"
     - "!**/*.md"
+  # Nix inputs of both example suites, without selecting SDK/backend source
+  # changes. The common shell toolchain reads both mobile platform definitions.
+  example_common_nix:
+    - "nix/package/xmtp-sdk{,-native}.nix"
+    - "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix"
+    - "nix/sdk-platforms.json"
+    - "nix/package/backend.nix"
+    - "nix/musl-docker.nix"
+  example_android_nix:
+    - path_group: example_common_nix
+    - "nix/package/example-android-apk*"
+    - "nix/package/libffi-zig-cross.site"
+    - "nix/android-packages.nix"
+    - "nix/lib/android-*"
+    - "nix/shells/android{,-ci}.nix"
+    - "nix/ci-sets.nix"
+  example_ios_nix:
+    - path_group: example_common_nix
+    - "nix/package/{example-ios-run,ios}.nix"
+    # The iOS/default shell inherits pnpm and WASM tools from the Rust shell.
+    - "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix"
+    - "nix/services/**"
   js_packages:
     - "sdks/{node,browser,agent}/**"
     - "apps/{cli,web-chat,docs}/**"
@@ -254,8 +276,6 @@ suites:
       # The release-tools tests and the release push test run its tools.
       - path_group: js_workspace
       - "nix/fmt.nix"
-      # This example app dependency lockfile is not a PR test-suite input.
-      - "nix/package/example-android-apk-deps.json"
   lint_proto:
     phase: lint
     workflow: lint-proto.yml
@@ -608,6 +628,7 @@ suites:
     products: [sdk_android]
     pr_filters:
       - "apps/example-android/**"
+      - path_group: example_android_nix
       - pr_label: "android"
 
   test_example_ios:
@@ -621,4 +642,5 @@ suites:
     products: []
     pr_filters:
       - "apps/example-ios/**"
+      - path_group: example_ios_nix
       - pr_label: "iOS"

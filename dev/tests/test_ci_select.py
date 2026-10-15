@@ -94,12 +94,13 @@ class SelectionTests(unittest.TestCase):
         self.assertIn("test_validation", proto)
 
     def test_backend_change_runs_backend_and_client_suites_only(self):
-        # A backend change runs the client suites that talk to the backend.
-        # The platform suites add wrapper code; the merge run covers them.
+        # Backend source/config changes select client suites without platform
+        # wrappers. Its Nix package also selects the example suites that use it.
         clients = {"test_workspace", "test_wasm", "test_node", "check_sdk_unit"}
         platforms = {
             "test_android",
             "test_example_android",
+            "test_example_ios",
             "test_ios",
             "test_browser",
             "test_agent",
@@ -115,7 +116,10 @@ class SelectionTests(unittest.TestCase):
             with self.subTest(path=path):
                 suites = selected(select([path]))
                 self.assertTrue(clients | {"test_backend", "test_xdbg"} <= suites)
-                self.assertTrue(suites.isdisjoint(platforms))
+                excluded = platforms
+                if path == "nix/package/backend.nix":
+                    excluded = excluded - {"test_example_android", "test_example_ios"}
+                self.assertTrue(suites.isdisjoint(excluded))
 
     def test_android_paths_select_the_app_and_sdk_suites(self):
         # path: (suites it must select, suites it must not select)
@@ -130,8 +134,8 @@ class SelectionTests(unittest.TestCase):
                 app_only,
             ),
             "nix/package/example-android-apk.nix": (
-                set(),
-                app_only | {"test_example_android"},
+                {"test_example_android"},
+                app_only,
             ),
             "sdks/android/library/src/main/java/Client.kt": (
                 {"test_android"},
@@ -188,6 +192,51 @@ class SelectionTests(unittest.TestCase):
                 self.assertEqual(
                     result["matched_labels"], sorted(set(labels) & {"iOS", "android"})
                 )
+
+    def test_example_nix_inputs_select_affected_apps(self):
+        ios, android = "test_example_ios", "test_example_android"
+        examples = {ios, android}
+        for path, expected in [
+            ("nix/package/xmtp-sdk.nix", examples),
+            ("nix/package/xmtp-sdk-native.nix", examples),
+            ("nix/lib/sdk-sources.nix", examples),
+            ("nix/lib/sdk-provenance.nix", examples),
+            ("nix/sdk-platforms.json", examples),
+            ("nix/lib/android-env.nix", examples),
+            ("nix/lib/ios-env.nix", examples),
+            ("nix/package/backend.nix", examples),
+            ("nix/musl-docker.nix", examples),
+            ("nix/package/example-android-apk.nix", {android}),
+            ("nix/package/example-android-apk-deps.json", {android}),
+            ("nix/package/libffi-zig-cross.site", {android}),
+            ("nix/android-packages.nix", {android}),
+            ("nix/lib/android-emulator-platform.sh", {android}),
+            ("nix/lib/android-emulator-start.py", {android}),
+            ("nix/lib/android-sync-clock.sh", {android}),
+            ("nix/shells/android.nix", {android}),
+            ("nix/shells/android-ci.nix", {android}),
+            ("nix/ci-sets.nix", {android}),
+            ("nix/package/example-ios-run.nix", {ios}),
+            ("nix/package/ios.nix", {ios}),
+            ("nix/lib/packages/swiftformat.nix", {ios}),
+            ("nix/lib/packages/swiftlint.nix", {ios}),
+            ("nix/lib/packages/pnpm.nix", {ios}),
+            ("nix/lib/packages/wasm-bindgen-cli.nix", {ios}),
+            ("nix/services/default.nix", {ios}),
+            ("nix/services/stack.nix", {ios}),
+            ("nix/services/health-check.sh", {ios}),
+            ("nix/docs.nix", set()),
+            ("nix/js.nix", set()),
+            ("nix/package/node.nix", set()),
+            ("nix/package/xmtp-sdk-node-runtime.nix", set()),
+            ("nix/lib/packages/ubrn.nix", set()),
+            ("nix/package/backend-tests.nix", set()),
+            ("nix/fmt.nix", set()),
+        ]:
+            with self.subTest(path=path):
+                result = select([path])
+                self.assertEqual(result["reasons"], [])
+                self.assertEqual(selected(result) & examples, expected)
 
     def test_label_matches_respect_drafts_and_forks(self):
         with mock.patch.dict(SELECTOR.SUITES["test_ios"], labels=["iOS"]):

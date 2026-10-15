@@ -176,7 +176,6 @@
         "dev/{tests,agents,specs,release-tools,fly,ci}/**",
         "nix/fmt.nix",
         "nix/lib/packages/pnpm.nix",
-        "nix/package/example-android-apk-deps.json",
         "nix/{js,js-node}.nix",
         "sdks/android/android.just",
         "sdks/browser/test/platform/object-store/with-object-store",
@@ -1325,7 +1324,18 @@
         ".github/workflows/test-example-android.yml"
       ],
       "paths": [
-        "apps/example-android/**"
+        "apps/example-android/**",
+        "nix/android-packages.nix",
+        "nix/ci-sets.nix",
+        "nix/lib/android-*",
+        "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
+        "nix/musl-docker.nix",
+        "nix/package/backend.nix",
+        "nix/package/example-android-apk*",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/xmtp-sdk{,-native}.nix",
+        "nix/sdk-platforms.json",
+        "nix/shells/android{,-ci}.nix"
       ],
       "labels": [
         "android"
@@ -1353,7 +1363,15 @@
         ".github/workflows/test-example-ios.yml"
       ],
       "paths": [
-        "apps/example-ios/**"
+        "apps/example-ios/**",
+        "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
+        "nix/musl-docker.nix",
+        "nix/package/backend.nix",
+        "nix/package/xmtp-sdk{,-native}.nix",
+        "nix/package/{example-ios-run,ios}.nix",
+        "nix/sdk-platforms.json",
+        "nix/services/**"
       ],
       "labels": [
         "iOS"

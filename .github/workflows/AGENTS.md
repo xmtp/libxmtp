@@ -153,9 +153,12 @@ cancelled.
 PR label additions and removals also recalculate selection. `pr_label` matches
 the exact name in the event's `pull_request.labels`; it can select a suite
 without any matching path. Path exclusions and neutral files do not block
-label matches. Example app test suites declare only their app directories and
+label matches. Example app test suites declare their app directories, relevant
+Nix inputs (`example_ios_nix` and `example_android_nix` path groups), and
 platform labels (`iOS` and `android`); the automatic workflow and full-run
-rules above still apply. Product groups keep path-only `path_filters`.
+rules above still apply. Keep those Nix groups current when app packaging,
+SDK products, platform shells, or test service inputs change. Product groups
+keep path-only `path_filters`.
 
 The job summary lists the full-run reasons, matched suites and labels, shared and unknown
 paths, policy exclusions, and the selected suites. Lists show up to 200
