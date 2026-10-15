@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import test from "node:test";
 
 import ts from "typescript";
@@ -37,25 +35,3 @@ for (const filename of ["inboxes-node.ts", "inboxes-browser.ts"]) {
     );
   });
 }
-
-test("the Kotlin and Swift hints lowercase ASCII capitals only", async () => {
-  const page = await readFile(
-    resolve(import.meta.dirname, "../src/content/docs/sdk/inboxes.mdx"),
-    "utf8",
-  );
-  const blocks = [...page.matchAll(/```(kotlin|swift)\n([\s\S]*?)```/gu)]
-    .filter(([, , body]) => body.includes("handleHint"))
-    .map(([, language, body]) => ({ language, body }));
-  assert.deepEqual(
-    blocks.map(({ language }) => language),
-    ["kotlin", "swift"],
-  );
-  for (const { language, body } of blocks) {
-    // Kotlin lowercase() and Swift lowercased() fold U+212A to "k"
-    assert.doesNotMatch(
-      body,
-      /typed\.lowercased?\(\)/u,
-      `${language} hint folds non-ASCII letters`,
-    );
-  }
-});

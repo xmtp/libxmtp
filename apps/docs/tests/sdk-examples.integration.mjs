@@ -10,18 +10,24 @@ test("Twoslash resolves both local SDKs and renders all quickstart regions", asy
     plugins: examplePlugins(),
     logger: { error: () => {} },
   });
-  for (const sdk of ["node", "browser"]) {
-    for (const region of ["client", "send", "stream"]) {
+  const quickstarts = {
+    node: [
+      ["quickstart-node-listen.ts", "listen"],
+      ["quickstart-node-send.ts", "send"],
+    ],
+    browser: [["quickstart-browser.ts", "app"]],
+  };
+  for (const [sdk, sources] of Object.entries(quickstarts)) {
+    for (const [source, region] of sources) {
       const result = await engine.render({
         code: "",
         language: "ts",
-        meta: `source="quickstart-${sdk}.ts" region="${region}"`,
+        meta: `source="${source}" region="${region}"`,
       });
       const shown = result.renderedGroupContents[0].codeBlock.code;
       assert.ok(shown.length > 50);
       assert.doesNotMatch(shown, /#(?:end)?region|---cut-/u);
-      if (region === "client")
-        assert.match(shown, new RegExp(`@xmtp/${sdk}-sdk`));
+      assert.match(shown, new RegExp(`@xmtp/${sdk}-sdk`));
     }
     await assert.rejects(
       engine.render({
