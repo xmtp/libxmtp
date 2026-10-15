@@ -109,8 +109,8 @@ Gradle User Home, and no backend.
 
 ## CI selection
 
-`.github/ci-suites.yml` declares every CI suite: its workflow, `path_filters` (globs, Cargo
-packages, and path groups), Kache scopes, and policy (`run_on`, `disable_on_forks`,
+`.github/ci-suites.yml` declares every CI suite: its workflow, `pr_filters` (globs, Cargo
+packages, path groups, and `pr_label` names joined with OR), Kache scopes, and policy (`run_on`, `disable_on_forks`,
 `secrets`, `permissions`, `covered_by`). Every suite key except `covered_by` is
 required; nothing has a default. `secrets` is `inherit`, `kache` (only the
 Kache keys), `cachix-pr` (only `CACHIX_PR_AUTH_TOKEN`), or `none`; use `none`
@@ -150,7 +150,14 @@ suites, because `dev/ci-suites check` can then find a pattern that names no
 file. A new pull request push cancels the older run; merge runs are not
 cancelled.
 
-The job summary lists the full-run reasons, matched suites, shared and unknown
+PR label additions and removals also recalculate selection. `pr_label` matches
+the exact name in the event's `pull_request.labels`; it can select a suite
+without any matching path. Path exclusions and neutral files do not block
+label matches. Example app test suites declare only their app directories and
+platform labels (`iOS` and `android`); the automatic workflow and full-run
+rules above still apply. Product groups keep path-only `path_filters`.
+
+The job summary lists the full-run reasons, matched suites and labels, shared and unknown
 paths, policy exclusions, and the selected suites. Lists show up to 200
 entries. JSON path data goes through standard input to preserve quotes and
 line breaks and avoid environment size limits.

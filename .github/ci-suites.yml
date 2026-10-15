@@ -10,9 +10,10 @@
 # Each generated workflow calls the selected suites' workflows, which run all
 # of their jobs.
 #
-# A pull request runs a suite when a changed file matches the suite's workflow
-# or one of its path_filters. The workflow file and every local workflow and
-# action it uses select the suite. Each path filter is one of:
+# A pull request runs a suite when a changed file or PR label matches one of
+# its pr_filters. The filters are joined with OR. The suite's workflow file
+# and every local workflow and action it uses also select the suite.
+# Each PR filter is one of:
 #   "glob"                A path glob. `**` crosses directories, `*` does not.
 #   "!glob"               Excludes matching paths from the suite.
 #   cargo_package: name   A Cargo package, or a list of them. The package's
@@ -20,7 +21,8 @@
 #                         build and target-specific dependencies, plus the
 #                         package's own dev-dependencies. `@default-members` is
 #                         the workspace default members.
-#   path_group: name      The path_filters of a group in `path_groups`.
+#   path_group: name      The path filters of a group in `path_groups`.
+#   pr_label: name        An exact PR label name. Valid only in suite filters.
 #
 # Every suite sets every key below, in this order, except covered_by. Nothing
 # has a default.
@@ -40,17 +42,18 @@
 #                     checks them.
 #   products          The product groups the suite waits for, or []. Only test
 #                     suites can wait: the products jobs run in the test phase.
-#   path_filters      The filters described above, or [].
+#   pr_filters        The filters described above, or [].
 #
 # A changed file that matches `shared` runs every suite. A file that matches no
 # rule also runs every suite. A `neutral` file selects a suite only through a
 # repository-wide glob, which starts with `**/` (for example `**/*.md`).
 # A pull request that deletes or renames a file also runs the suites in
 # `on_deleted_path`, which check that every rule still names real files.
-# A `!` exclusion in a path group applies to the whole suite that uses it.
+# A `!` exclusion in a path group applies to all path matches for the suite
+# that uses it. Exclusions and neutral files do not block label matches.
 #
-# `products` maps a product group name to its `path_filters` (the suite
-# syntax). nix/ci-sets.nix lists the group's flake outputs as
+# `products` maps a product group name to its `path_filters` (the path-only
+# filter syntax). nix/ci-sets.nix lists the group's flake outputs as
 # `ciSets.x86_64-linux.<group>`. test-generated.yml gets one job,
 # `products_<group>`, that builds the group once (mode ci, so it pushes to
 # xmtp-pr), and each suite that waits for the group needs that job. A run
@@ -150,10 +153,6 @@ path_groups:
     - "nix/shells/android{,-ci}.nix"
     - "nix/android-packages.nix"
     - "!docs/**"
-  example_android:
-    - "apps/example-android/**"
-    - "nix/package/example-android-apk*"
-    - "!**/*.md"
   example_ios:
     - "apps/example-ios/**"
     - "nix/package/example-ios-run.nix"
@@ -191,7 +190,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       # `just lint-rust-source` checks the workspace manifests; treefmt in
       # lint_config checks Rust format.
       - "**/Cargo.toml"
@@ -209,7 +208,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - path_group: js_workspace
       - path_group: js_packages
       - "dev/js/{lint-source.mjs,test-lint-source.mjs}"
@@ -225,7 +224,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       # treefmt formats and checks these file types across the repository.
       # Every tracked Rust file is under crates/ or apps/ today. This rule
       # does not select a Rust file elsewhere: a known path (for example under
@@ -255,6 +254,8 @@ suites:
       # The release-tools tests and the release push test run its tools.
       - path_group: js_workspace
       - "nix/fmt.nix"
+      # This example app dependency lockfile is not a PR test-suite input.
+      - "nix/package/example-android-apk-deps.json"
   lint_proto:
     phase: lint
     workflow: lint-proto.yml
@@ -264,7 +265,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - "proto/**"
   docs_quality:
     phase: lint
@@ -275,7 +276,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - path_group: js_workspace
       # markdownlint reads every Markdown file.
       - "**/*.md"
@@ -293,7 +294,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - path_group: swift
   lint_deny:
     phase: lint
@@ -304,7 +305,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - "{Cargo.lock,deny.toml}"
       - "**/Cargo.toml"
 
@@ -317,7 +318,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - path_group: example_ios
       - path_group: swift
       - path_group: sdk_core
@@ -332,7 +333,7 @@ suites:
     permissions: {contents: read}
     kache: [rust-clippy-native, rust-clippy-wasm]
     products: []
-    path_filters:
+    pr_filters:
       - cargo_package: ["@default-members", xmtp-sdk-bindgen]
       - "{.clippy.toml,dev/wasm.just}"
   check_sdk_unit:
@@ -344,7 +345,7 @@ suites:
     permissions: {contents: read}
     kache: [sdk-tests-debug]
     products: []
-    path_filters:
+    pr_filters:
       - cargo_package: xmtp_sdk
       - path_group: docker_backend
       - ".config/nextest.toml"
@@ -357,7 +358,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - cargo_package: xmtp_backend
       - path_group: docker_backend
       # apps/backend tests embed these files.
@@ -373,7 +374,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - cargo_package: [xmtp_mls_validation, xmtp_id, xmtp_proto]
       - "{crates/xmtp_mls_validation/dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
   test_workspace:
@@ -385,7 +386,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - cargo_package: "@default-members"
       - path_group: docker_backend
       - "{.config/nextest.toml,webdriver.json}"
@@ -401,7 +402,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - cargo_package: keepalive-probe
       - "{nix/package/keepalive-probe-check.nix,nix/ci-checks.nix}"
   test_wasm:
@@ -413,7 +414,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - cargo_package:
           - xmtp_mls
           - xmtp_cryptography
@@ -438,7 +439,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - cargo_package: xdbg
       # The observability job runs xdbg against the Docker stack and checks
       # its traces, metrics, and dashboard.
@@ -457,7 +458,7 @@ suites:
     covered_by: docs_site
     kache: [rust-reference]
     products: []
-    path_filters:
+    pr_filters:
       - cargo_package: ["@default-members", error_glossary]
       - "{docs/error_glossary.md,dev/gen-error-glossary}"
 
@@ -471,7 +472,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js]
-    path_filters:
+    pr_filters:
       - path_group: js_workspace
       - path_group: js_packages
       - path_group: sdk_core
@@ -484,7 +485,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js, sdk_android]
-    path_filters:
+    pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
       - "sdks/{node,browser}/package.json"
@@ -499,7 +500,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js]
-    path_filters:
+    pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
       - path_group: docker_backend
@@ -514,7 +515,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js]
-    path_filters:
+    pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
       - "sdks/{node,agent}/**"
@@ -528,7 +529,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js]
-    path_filters:
+    pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
       - "sdks/browser/**"
@@ -546,7 +547,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js]
-    path_filters:
+    pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
       - "sdks/browser/**"
@@ -559,7 +560,7 @@ suites:
     permissions: {contents: read}
     kache: [rust-reference]
     products: [sdk_js]
-    path_filters:
+    pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
       - "apps/docs/**"
@@ -579,7 +580,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
+    pr_filters:
       - path_group: sdk_core
       - path_group: swift
   test_android:
@@ -591,7 +592,7 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_android]
-    path_filters:
+    pr_filters:
       # sdk-build runs `gradlew build`, which includes Android Lint and
       # Spotless, so no separate Android lint suite exists.
       - path_group: sdk_core
@@ -605,10 +606,9 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_android]
-    path_filters:
-      - path_group: example_android
-      - path_group: android
-      - path_group: sdk_core
+    pr_filters:
+      - "apps/example-android/**"
+      - pr_label: "android"
 
   test_example_ios:
     phase: test
@@ -619,8 +619,6 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    path_filters:
-      - path_group: example_ios
-      - path_group: swift
-      - path_group: sdk_core
-      - path_group: native_backend
+    pr_filters:
+      - "apps/example-ios/**"
+      - pr_label: "iOS"

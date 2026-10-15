@@ -41,7 +41,7 @@ SUITE_KEYS = {
     "covered_by",
     "kache",
     "products",
-    "path_filters",
+    "pr_filters",
 }
 FILTER_KEYS = {"cargo_package", "path_group"}
 EVENT_KINDS = ("draft_pr_push", "ready_pr_push", "merge")
@@ -289,6 +289,31 @@ def compile_filters(filters, groups, graph, where):
     }
 
 
+def compile_pr_filters(filters, groups, graph, where):
+    """Separate label matches from the suite's existing path filters."""
+    if not isinstance(filters, list):
+        raise DeclarationError(f"{where} must be a list")
+    paths, labels = [], []
+    for item in filters:
+        if isinstance(item, dict) and "pr_label" in item:
+            label = item["pr_label"]
+            if (
+                set(item) != {"pr_label"}
+                or not isinstance(label, str)
+                or not label.strip()
+            ):
+                raise DeclarationError(
+                    f"{where} pr_label must be one nonempty label name"
+                )
+            labels.append(label)
+        else:
+            paths.append(item)
+    return {
+        **compile_filters(paths, groups, graph, where),
+        "labels": sorted(set(labels)),
+    }
+
+
 def compile_products(products, groups, graph):
     if not isinstance(products, dict):
         raise DeclarationError(
@@ -368,8 +393,8 @@ def compile_declaration(root: Path = ROOT, declaration=None):
             )
         if "covered_by" in suite and not isinstance(suite["covered_by"], str):
             raise DeclarationError(f"Suite {name} covered_by must be a suite name")
-        filters = compile_filters(
-            suite["path_filters"], groups, graph, f"{name}.path_filters"
+        filters = compile_pr_filters(
+            suite["pr_filters"], groups, graph, f"{name}.pr_filters"
         )
         waits = as_list(suite["products"], f"{name}.products")
         unknown = sorted(set(waits) - set(products))
@@ -406,6 +431,7 @@ def compile_declaration(root: Path = ROOT, declaration=None):
             "crates": filters["crates"],
             "workflow_files": workflow_files,
             "paths": filters["paths"],
+            "labels": filters["labels"],
         }
     for name, suite in suites.items():
         if suite["covered_by"] and suite["covered_by"] not in suites:

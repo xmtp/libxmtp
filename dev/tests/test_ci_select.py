@@ -23,13 +23,14 @@ SELECTOR = importlib.util.module_from_spec(SPEC)
 LOADER.exec_module(SELECTOR)
 
 
-def event(draft=False, fork=False):
+def event(draft=False, fork=False, labels=()):
     return {
         "repository": {"full_name": "xmtp/libxmtp"},
         "pull_request": {
             "number": 123,
             "draft": draft,
             "changed_files": 1,
+            "labels": [{"name": label} for label in labels],
             "head": {
                 "sha": "event-head",
                 "repo": {
@@ -129,20 +130,26 @@ class SelectionTests(unittest.TestCase):
                 app_only,
             ),
             "nix/package/example-android-apk.nix": (
-                {"test_example_android"},
-                app_only,
+                set(),
+                app_only | {"test_example_android"},
             ),
             "sdks/android/library/src/main/java/Client.kt": (
-                {"test_example_android", "test_android"},
-                set(),
+                {"test_android"},
+                {"test_example_android"},
             ),
             "sdks/android/gradle/verification-metadata.xml": (
-                {"test_example_android", "test_android"},
-                {"check_rust", "test_workspace", "test_node", "test_ios"},
+                {"test_android"},
+                {
+                    "check_rust",
+                    "test_workspace",
+                    "test_node",
+                    "test_ios",
+                    "test_example_android",
+                },
             ),
             "crates/xmtp_sdk/src/client.rs": (
-                {"test_example_android", "test_android"},
-                set(),
+                {"test_android"},
+                {"test_example_android"},
             ),
         }
         for path, (included, excluded) in table.items():
@@ -151,6 +158,75 @@ class SelectionTests(unittest.TestCase):
                 self.assertEqual(result["unknown_paths"], [])
                 self.assertLessEqual(included, selected(result))
                 self.assertTrue(excluded.isdisjoint(selected(result)))
+
+    def test_examples_match_app_paths_or_platform_labels(self):
+        ios, android = "test_example_ios", "test_example_android"
+        examples = {ios, android}
+        for paths, labels, expected in [
+            (["apps/example-ios/ExampleApp/View.swift"], [], {ios}),
+            (["apps/example-android/app/src/main/java/Screen.kt"], [], {android}),
+            (["apps/example-ios/README.md"], [], {ios}),
+            (["apps/example-android/README.md"], [], {android}),
+            (["apps/example-ios/AGENTS.md"], [], set()),
+            (["sdks/ios/Sources/Client.swift"], [], set()),
+            (["crates/xmtp_sdk/src/client.rs"], [], set()),
+            (["apps/backend/src/main.rs"], [], set()),
+            (["dev/backend/local.toml"], [], set()),
+            (["docs/guide.md"], ["iOS"], {ios}),
+            (["docs/guide.md"], ["android"], {android}),
+            (["docs/guide.md"], ["iOS", "android"], examples),
+            ([], ["iOS"], {ios}),
+            (["sdks/ios/AGENTS.md"], ["iOS"], {ios}),
+            (["docs/guide.md"], ["ios", "Android", "unrelated"], set()),
+            (["apps/example-ios/ExampleApp/View.swift"], ["android"], examples),
+            (["apps/example-android/app/src/main/java/Screen.kt"], ["iOS"], examples),
+        ]:
+            with self.subTest(paths=paths, labels=labels):
+                result = select(paths, payload=event(labels=labels), total=len(paths))
+                self.assertEqual(result["reasons"], [])
+                self.assertEqual(selected(result) & examples, expected)
+                self.assertEqual(
+                    result["matched_labels"], sorted(set(labels) & {"iOS", "android"})
+                )
+
+    def test_label_matches_respect_drafts_and_forks(self):
+        with mock.patch.dict(SELECTOR.SUITES["test_ios"], labels=["iOS"]):
+            for draft, fork, expected in [
+                (
+                    False,
+                    False,
+                    {"test_ios", "test_example_ios", "test_example_android"},
+                ),
+                (False, True, {"test_example_ios", "test_example_android"}),
+                (True, False, set()),
+                (True, True, set()),
+            ]:
+                with self.subTest(draft=draft, fork=fork):
+                    result = select(
+                        payload=event(draft=draft, fork=fork, labels=["iOS", "android"])
+                    )
+                    self.assertEqual(
+                        selected(result)
+                        & {"test_ios", "test_example_ios", "test_example_android"},
+                        expected,
+                    )
+
+    def test_full_runs_keep_example_suites(self):
+        examples = {"test_example_ios", "test_example_android"}
+        for kwargs in [
+            {"files": ["flake.nix"]},
+            {"files": ["new-language/source.xyz"]},
+            {"total": 3001},
+            {"total": None},
+            {"outcome": "failure"},
+            {"files": None},
+            {"name": "push"},
+            {"name": "workflow_dispatch"},
+        ]:
+            with self.subTest(kwargs=kwargs):
+                result = select(**kwargs)
+                self.assertTrue(result["reasons"])
+                self.assertLessEqual(examples, selected(result))
 
     def test_shared_input_selects_every_suite_and_records_paths(self):
         result = select(["proto/mls/a.proto", "crates/xmtp_mls/src/client.rs"])
@@ -200,6 +276,17 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual([x for x in lines if x.startswith("## CI_PATH")], [])
         self.assertIn("&lt;img src=x&gt;\\n## CI_PATH_DATA.proto", text)
 
+    def test_summary_shows_matching_labels_as_text(self):
+        label = "<img src=x>\n## Label | match"
+        with mock.patch.dict(SELECTOR.SUITES["test_example_ios"], labels=[label]):
+            result = select(payload=event(labels=[label]))
+        text = SELECTOR.summary(result)
+        self.assertIn("test_example_ios", result["matched_suites"])
+        self.assertIn("### Matching PR labels", text)
+        self.assertIn("&lt;img src=x&gt;\\n## Label &#124; match", text)
+        self.assertNotIn("<img", text)
+        self.assertFalse(any(line.startswith("## Label") for line in text.splitlines()))
+
 
 def with_groups():
     """Two groups: test_android waits for both, test_example_android for one."""
@@ -239,6 +326,18 @@ class ProductSelectionTests(unittest.TestCase):
             ]:
                 with self.subTest(files=files):
                     result = select(files)
+                    self.assertEqual(result["products"], expected)
+
+    def test_label_selected_suite_needs_matching_product_inputs(self):
+        with with_groups():
+            SELECTOR.MANIFEST["products"]["beta"]["paths"] = ["docs/product-input.md"]
+            for paths, labels, expected in [
+                (["docs/product-input.md"], [], []),
+                (["docs/guide.md"], ["android"], []),
+                (["docs/product-input.md"], ["android"], ["beta"]),
+            ]:
+                with self.subTest(paths=paths, labels=labels):
+                    result = select(paths, payload=event(labels=labels))
                     self.assertEqual(result["products"], expected)
 
 
@@ -317,7 +416,7 @@ class WorkflowTests(unittest.TestCase):
         for phase in ("lint", "test")
     }
 
-    def run_select(self, data):
+    def run_select(self, data, payload=None):
         step = next(
             s
             for s in self.workflow["jobs"]["detect-changes"]["steps"]
@@ -334,7 +433,9 @@ class WorkflowTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
-            (temp / "event.json").write_text(json.dumps(event()))
+            (temp / "event.json").write_text(
+                json.dumps(event() if payload is None else payload)
+            )
             env = os.environ | {
                 "GITHUB_EVENT_PATH": str(temp / "event.json"),
                 "GITHUB_EVENT_NAME": "pull_request",
@@ -372,6 +473,27 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("docs_site", text)
         outputs = self.workflow["jobs"]["detect-changes"]["outputs"]
         self.assertEqual(set(outputs), {"lint_suites", "test_suites", "products"})
+
+    def test_label_events_recalculate_example_selection(self):
+        triggers = self.workflow["on"]["pull_request"]["types"]
+        examples = {"test_example_ios", "test_example_android"}
+        data = {"changes": '["all_files"]', "all_files_files": '["docs/guide.md"]'}
+        for action in ("labeled", "unlabeled"):
+            self.assertIn(action, triggers)
+            for label, suite in (
+                ("iOS", "test_example_ios"),
+                ("android", "test_example_android"),
+            ):
+                with self.subTest(action=action, label=label):
+                    payload = event(labels=[label] if action == "labeled" else [])
+                    payload.update(action=action, label={"name": label})
+                    values, summary = self.run_select(data, payload)
+                    self.assertEqual(
+                        set(json.loads(values["test_suites"])) & examples,
+                        {suite} if action == "labeled" else set(),
+                    )
+                    if action == "labeled":
+                        self.assertIn(f"<code>{label}</code>", summary)
 
     def gate(self, script, env):
         return subprocess.run(
