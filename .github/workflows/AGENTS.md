@@ -1,10 +1,11 @@
 # GitHub workflows
 
-Validate workflow edits with `dev/nix-shell 'just lint-config'`.
+Validate workflow edits with `dev/nix-shell 'just lint-config'` and
+`dev/nix-shell 'just test dev'`.
 Messenger benchmarks run only through `benchmark-example-android.yml` with
 `workflow_dispatch`, or the explicit Android Just command. Do not add benchmark
 jobs or dependencies to normal test workflows. Keep host runner validators in
-normal config tests.
+the dev tool tests.
 
 SDK release tags use `GH_APP_ID` and `GH_APP_PK` for the release App.
 The App installation must grant Contents write and Workflows write.
@@ -19,7 +20,7 @@ release commit
 that changes only the iOS release files. The push job checks this before it
 creates its token.
 Npm dry runs resolve the source but do not create an App token or push a tag.
-`just lint-config` checks the tag transfer with a local Git HTTP remote.
+`just test dev` checks the tag transfer with a local Git HTTP remote.
 The nightly libxmtp hub tag (`v<version>`, `release.yml`) uses the same tag
 push job, so a `v*` tag ruleset can list the App as its bypass actor.
 `check-release-push.yml` refuses a source commit that is not on `main`
@@ -222,6 +223,6 @@ Kache off; Nix derivations do not use this remote. Identical test shards share
 a scope. The action adds runner OS and architecture.
 Keep credentials out of global `AWS_*` settings and Nix derivations.
 
-`just lint-config` tests CI selection, result gates, summaries, the backend
+`just test dev` tests CI selection, result gates, summaries, the backend
 selector, and write policy without keys, a compiler daemon, or cloud access.
 See the setup action's README for settings.

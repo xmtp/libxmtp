@@ -59,6 +59,7 @@ Either way: let it run. Do not interrupt it and do not conclude it has hung.
 
     Build:  just check
     Test:   just test
+    Dev:    just test dev  # dev tool tests; after dev/, nix/, or .github/ changes
     Lint:   just lint      # run before any commit
 
 `just check` runs `cargo check --locked` over the default members:

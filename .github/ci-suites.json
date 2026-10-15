@@ -163,23 +163,12 @@
       ],
       "paths": [
         "**/*.{nix,py,sh,toml,kt,swift}",
-        "**/dev/**",
         ".github/**",
-        "apps/backend/backend.just",
-        "apps/example-android/{dev/apk,example-android.just,app/build.gradle}",
-        "dev/ci-failure-markers",
-        "dev/docker/grafana/dashboards/backend.json",
-        "dev/docker/{compose.yml,load-backend-image,load-env,up}",
-        "dev/js/sdk-package",
         "dev/js/{sdk-*,tsconfig.*.json}",
-        "dev/services",
-        "dev/tls/**",
-        "dev/{tests,agents,specs,release-tools,fly,ci}/**",
+        "dev/release-tools/**",
         "nix/fmt.nix",
         "nix/lib/packages/pnpm.nix",
         "nix/{js,js-node}.nix",
-        "sdks/android/android.just",
-        "sdks/browser/test/platform/object-store/with-object-store",
         "sdks/js.just",
         "{.editorconfig,sdks/ios/.swiftformat,apps/example-ios/.swiftformat}",
         "{crates,apps}/**/*.rs",
@@ -353,6 +342,52 @@
         "{Cargo.toml,Cargo.lock}",
         "{Package.swift,Package.resolved,.spi.yml}",
         "!**/*.md"
+      ],
+      "labels": []
+    },
+    "test_dev": {
+      "phase": "test",
+      "workflow": "test-dev.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "none",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "products": [],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-dev.yml"
+      ],
+      "paths": [
+        "**/*.{nix,py,sh,toml}",
+        "**/dev/**",
+        ".github/**",
+        "apps/backend/backend.just",
+        "apps/example-android/{dev/apk,example-android.just,app/build.gradle}",
+        "dev/ci-failure-markers",
+        "dev/docker/grafana/dashboards/backend.json",
+        "dev/docker/{compose.yml,load-backend-image,load-env,up}",
+        "dev/js/sdk-package",
+        "dev/js/{sdk-*,tsconfig.*.json}",
+        "dev/services",
+        "dev/tls/**",
+        "dev/{tests,agents,specs,release-tools,fly,ci}/**",
+        "nix/fmt.nix",
+        "nix/lib/packages/pnpm.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/android/android.just",
+        "sdks/browser/test/platform/object-store/with-object-store",
+        "sdks/js.just",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
       "labels": []
     },

@@ -42,6 +42,11 @@ jobs:
         github-token: ${{ github.token }}
     - name: Build the sdk_android products
       run: nix build --keep-going --no-link .#ciSets.x86_64-linux.sdk_android
+  test_dev:
+    if: contains(fromJSON(inputs.suites), 'test_dev')
+    uses: ./.github/workflows/test-dev.yml
+    permissions:
+      contents: read
   check_rust:
     if: contains(fromJSON(inputs.suites), 'check_rust')
     uses: ./.github/workflows/check-rust.yml
@@ -196,6 +201,7 @@ jobs:
     needs:
     - products_sdk_js
     - products_sdk_android
+    - test_dev
     - check_rust
     - check_sdk_unit
     - test_backend

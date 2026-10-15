@@ -84,7 +84,7 @@ Test screenshots use app-private `files/xmtp-messenger-proof`. The integration
 recipe retains the APK until it exports only the named fixture PNG files to
 `app/build/screenshots`, then removes only the owned private proof directory.
 Export errors fail the route. An earlier instrumentation failure keeps its status.
-The export and cleanup process fixtures run under `lint-config` without a device.
+The export and cleanup process fixtures run under `just test dev` without a device.
 Listing, absence and cleanup commands use `adb shell -T` for remote exit status.
 Binary PNG reads use `exec-out`. A missing directory is empty only when the
 installed app can prove its absence. An inaccessible app fails the export.
@@ -118,7 +118,7 @@ that owned loopback target. Keep both admission checks after a source move.
 It keeps shared backend URLs for the other tests. It removes only its database
 and process groups on success, failure or cancellation. Set
 `XMTP_METADATA_LOG_DIR` to retain backend logs at a selected path. The local
-`metadata-fixture-test` recipe checks cleanup with process stubs; `lint-config`
+`metadata-fixture-test` recipe checks cleanup with process stubs; `just test dev`
 also runs it. `metadata-fixture-smoke` checks real backend startup and cleanup
 without an emulator. Start the backend before app instrumentation. Keep SDK package
 and consumer tests.
@@ -141,7 +141,7 @@ and 30 measured samples, checks heap and cache bounds, then removes cache
 eviction and requires its named assertion to fail. It restores the same source
 and measures the same dataset again. Seed progress and `seedMs` stay in the
 proof logs. The fixed job timeout is provisional until measured seed progress
-sets the final limit. Host validator tests also run under `lint-config`.
+sets the final limit. Host validator tests also run under `just test dev`.
 The `unittest discover` command above runs only those validator tests. It
 starts no backend, device, or SDK build.
 Seed checkpoints use one `workload-seed-progress.jsonl` artifact. Each pass records
@@ -159,6 +159,6 @@ CI uses `test-example-android.yml`, which also runs app lint. Benchmark
 workloads are not part of this suite. SDK package, public consumer,
 API 23, and all-ABI proofs stay in their SDK workflows.
 
-`just lint-config` runs fixture, performance-tool, CI-routing, and command-path
+`just test dev` runs fixture, performance-tool, CI-routing, and command-path
 regressions. Preserve their failure controls and the runtime proof ledger in
 `verification.md`. A source move does not establish a new runtime proof.

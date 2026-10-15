@@ -1,6 +1,7 @@
 # Nix
 
-Check an affected output with `nix build --no-link .#<output>`; run `dev/nix-shell 'just lint-config'`.
+Check an affected output with `nix build --no-link .#<output>`; run `dev/nix-shell 'just lint-config'`
+and `dev/nix-shell 'just test dev'`.
 
 Rust-capable development shells set pinned Kache as `RUSTC_WRAPPER` and point
 `KACHE_HOST_CONFIG` at `lib/kache.toml` (`rustShellEnv` in
