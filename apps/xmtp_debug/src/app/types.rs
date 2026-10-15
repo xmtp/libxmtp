@@ -1,5 +1,4 @@
 use std::mem::size_of;
-use std::sync::atomic::AtomicBool;
 
 use alloy_signer_local::PrivateKeySigner;
 use color_eyre::eyre::{self, Result};
@@ -129,18 +128,14 @@ impl Identity {
         value: &xmtp_mls::identity::Identity,
         wallet: EthereumWallet,
     ) -> eyre::Result<Self> {
-        let identity = unsafe {
-            std::mem::transmute::<&xmtp_mls::identity::Identity, &ForeignIdentity>(value)
-        };
-
         let mut inbox_id = [0u8; 32];
         let mut eth_key = [0u8; 32];
-        hex::decode_to_slice(identity.inbox_id.clone(), &mut inbox_id)?;
+        hex::decode_to_slice(value.inbox_id(), &mut inbox_id)?;
         #[allow(deprecated)]
         eth_key.copy_from_slice(wallet.0.to_bytes().as_slice());
         Ok(Identity {
             inbox_id,
-            installation_key: identity.installation_keys.private_bytes(),
+            installation_key: value.installation_keys().private_bytes(),
             eth_key,
             version_hash: crate::app::App::current_version_hash(),
             version_string: pack_version_string(&crate::get_version())?,
@@ -196,8 +191,6 @@ impl Identity {
     }
 }
 
-//TODO: Remove this unsafe transmutation by adding helpers to xmtp_mls
-// its OK for now
 impl From<Identity> for xmtp_mls::identity::Identity {
     fn from(value: Identity) -> Self {
         let inbox_id = hex::encode(value.inbox_id);
@@ -210,24 +203,16 @@ impl From<Identity> for xmtp_mls::identity::Identity {
             .encode_to_vec(),
         )
         .into();
-        let identity = ForeignIdentity {
+        
+        // Uses the safe public constructor instead of unsafe transmute
+        xmtp_mls::identity::Identity::from_parts(
             inbox_id,
             installation_keys,
             credential,
-            signature_request: None,
-            is_ready: Default::default(),
-        };
-        unsafe { std::mem::transmute::<ForeignIdentity, xmtp_mls::identity::Identity>(identity) }
+            None,
+            Default::default(),
+        )
     }
-}
-
-#[allow(unused)]
-struct ForeignIdentity {
-    inbox_id: String,
-    installation_keys: XmtpInstallationCredential,
-    credential: Credential,
-    signature_request: Option<SignatureRequest>,
-    is_ready: AtomicBool,
 }
 
 impl redb::Value for Identity {
