@@ -9,6 +9,7 @@ import re
 import shlex
 import subprocess
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -84,19 +85,32 @@ class CompileTests(unittest.TestCase):
     def test_invalid_declarations_are_rejected(self):
         for change in [
             lambda d: d["suites"]["test_xdbg"].update(paths=["x"]),
-            lambda d: d["suites"]["test_xdbg"].update(path_filters="x"),
+            lambda d: d["suites"]["test_xdbg"].update(pr_filters="x"),
+            lambda d: d["suites"]["test_xdbg"].pop("pr_filters"),
+            lambda d: d["suites"]["test_xdbg"].update(path_filters=[]),
+            *[
+                lambda d, value=value: d["suites"]["test_xdbg"].update(
+                    pr_filters=[{"pr_label": value}]
+                )
+                for value in (None, True, 1, [], ["iOS"], "", " ")
+            ],
             lambda d: d["suites"]["test_xdbg"].update(
-                path_filters=[{"path_group": "missing"}]
+                pr_filters=[{"pr_label": "iOS", "path_group": "swift"}]
             ),
-            lambda d: d["suites"]["test_xdbg"].update(path_filters=[{"crate": "xdbg"}]),
+            lambda d: d["path_groups"].update(swift=[{"pr_label": "iOS"}]),
+            lambda d: d["products"]["sdk_js"].update(
+                path_filters=[{"pr_label": "iOS"}]
+            ),
             lambda d: d["suites"]["test_xdbg"].update(
-                path_filters=[{"cargo_package": "xdbg", "path_group": "swift"}]
+                pr_filters=[{"path_group": "missing"}]
+            ),
+            lambda d: d["suites"]["test_xdbg"].update(pr_filters=[{"crate": "xdbg"}]),
+            lambda d: d["suites"]["test_xdbg"].update(
+                pr_filters=[{"cargo_package": "xdbg", "path_group": "swift"}]
             ),
             lambda d: (
                 d["path_groups"].update(loop=[{"path_group": "loop"}])
-                or d["suites"]["test_xdbg"].update(
-                    path_filters=[{"path_group": "loop"}]
-                )
+                or d["suites"]["test_xdbg"].update(pr_filters=[{"path_group": "loop"}])
             ),
             lambda d: d["suites"]["test_xdbg"].update(run_on=["nightly"]),
             lambda d: d["suites"]["test_xdbg"].update(run_on=[]),
@@ -137,6 +151,38 @@ class CompileTests(unittest.TestCase):
         packages, globs = SUITES.expand_filters(filters, groups, "test")
         self.assertEqual(packages, ["xmtp_id", "x", "y"])
         self.assertEqual(globs, ["a/**", "!a/skip/**", "b.md"])
+        self.compile(lambda d: d["suites"]["test_xdbg"].update(pr_filters=[]))
+
+    def test_compiled_labels_and_paths_select_independently(self):
+        manifest = self.compile(
+            lambda d: d["suites"]["test_xdbg"].update(
+                pr_filters=["docs/**", "!docs/private/**", {"pr_label": "observe"}]
+            )
+        )
+        selector = SUITES.load_selector()
+        for path, labels, expected in [
+            ("docs/guide.md", [], True),
+            ("docs/private/guide.md", [], False),
+            ("docs/private/guide.md", ["observe"], True),
+            ("README.md", ["observe"], True),
+            ("README.md", [], False),
+            ("README.md", ["Observe"], False),
+        ]:
+            with self.subTest(path=path, labels=labels):
+                payload = {
+                    "repository": {"full_name": "r"},
+                    "pull_request": {
+                        "head": {"repo": {"full_name": "r"}},
+                        "labels": [{"name": label} for label in labels],
+                    },
+                }
+                with mock.patch.multiple(
+                    selector, MANIFEST=manifest, SUITES=manifest["suites"]
+                ):
+                    result = selector.select_suites(
+                        [path], "pull_request", payload, "success", 1
+                    )
+                self.assertEqual("test_xdbg" in result["suites"]["test"], expected)
 
     def test_secret_modes_are_validated(self):
         self.compile(lambda d: d["suites"]["lint_proto"].update(secrets="none"))
