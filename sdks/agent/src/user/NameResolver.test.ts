@@ -3,14 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNameResolver } from "@/user/NameResolver";
 
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+const originalFetch = global.fetch;
 
 describe("NameResolver", () => {
   beforeEach(() => {
+    global.fetch = mockFetch;
     vi.clearAllMocks();
   });
 
   afterEach(() => {
+    global.fetch = originalFetch;
     vi.restoreAllMocks();
   });
 
