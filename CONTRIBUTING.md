@@ -16,25 +16,17 @@ Request a feature using [GitHub Issues](https://github.com/xmtp/libxmtp/issues).
 
 ## 🔀 Pull Requests
 
-PRs are encouraged, but consider starting with a feature request to temperature-check first. If the PR involves a major change to the protocol, the work should be fleshed out as an [XMTP Improvement Proposal](https://community.xmtp.org/t/xip-0-xip-purpose-process-guidelines/475) before work begins.
+PRs are welcome. For new features, we encourage you to open an issue first to discuss the problem and proposed approach. If the PR involves a major change to the protocol, the work should be fleshed out as an [XMTP Improvement Proposal](https://community.xmtp.org/t/xip-0-xip-purpose-process-guidelines/475) before work begins.
 
 After a pull request is submitted, a single approval is required to merge it.
 
-### AI-Generated Contributions Policy
+### AI-assisted contributions
 
-We do not accept pull requests that are generated entirely or primarily by AI/LLM tools (e.g., GitHub Copilot, ChatGPT, Claude). This includes:
+AI tools are welcome, but you are responsible for every line you submit.
 
-- Automated typo fixes or formatting changes
-- Generic code improvements without context
-- Mass automated updates or refactoring
+- Review and test your changes. Keep them focused and follow the project's standards.
+- Be able to explain and defend your code and design decisions without AI assistance. If you cannot, do not submit the PR.
+- If AI generated or substantially shaped your contribution, state which tool you used and what it did in the PR description.
+- Describe your changes and answer review questions in your own words.
 
-Pull requests that appear to be AI-generated without meaningful human oversight will be closed without review. We value human-driven, thoughtful contributions that demonstrate an understanding of the codebase and project goals.
-
-> [!CAUTION]
-> To protect project quality and maintain contributor trust, we will restrict access for users who continue to submit AI-generated pull requests.
-
-If you use AI tools to assist your development process, please:
-
-1. Thoroughly review and understand all generated code
-2. Provide detailed PR descriptions explaining your changes and reasoning
-3. Be prepared to discuss your implementation decisions and how they align with the project goals
+Unreviewed or low-quality contributions may be closed without review. Repeated submissions may lead to restricted participation.
