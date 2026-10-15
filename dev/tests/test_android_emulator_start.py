@@ -20,6 +20,10 @@ HELPER = Path(
         "ANDROID_EMULATOR_START_HELPER", ROOT / "nix/lib/android-emulator-start.py"
     )
 )
+# The tests that assert the startup deadline use a short one. The others get a
+# budget that the processes of concurrent test modules cannot use up.
+DEADLINE_SECONDS = 2
+STARTUP_SECONDS = 10
 # The fixture emulator "crashes" with SIGUSR1. Its default action ends the
 # process without a core dump, so macOS writes no crash report and shows no
 # crash dialog for each test run.
@@ -144,19 +148,11 @@ class EmulatorStartupTests(unittest.TestCase):
         self.avd = self.android_home / "avd/libxmtp-test.avd"
         self.avd.mkdir(parents=True)
         (self.avd / "config.ini").write_text("hw.ramSize=4096\n")
-        # Shorten only production budgets; run the same CLI and subprocess logic.
-        helper = self.home / "supervisor.py"
-        helper.write_text(
-            HELPER.read_text()
-            .replace("STARTUP_TIMEOUT = 300", "STARTUP_TIMEOUT = 2")
-            .replace("COMMAND_TIMEOUT = 15", "COMMAND_TIMEOUT = 1")
-            .replace("POLL_INTERVAL = 0.25", "POLL_INTERVAL = 0.02")
-            .replace("CLEANUP_TIMEOUT = 2", "CLEANUP_TIMEOUT = 0.2")
-            .replace("DIAGNOSTIC_TIMEOUT = 15", "DIAGNOSTIC_TIMEOUT = 1")
-        )
+        self.helper = self.home / "supervisor.py"
+        self.write_helper(STARTUP_SECONDS)
         self.command = [
             sys.executable,
-            str(helper),
+            str(self.helper),
             str(self.bin / "adb"),
             str(self.bin / "emulator"),
             "libxmtp-test",
@@ -173,6 +169,17 @@ class EmulatorStartupTests(unittest.TestCase):
             NIX_ANDROID_EMULATOR_LOG_DIR=str(self.logs),
         )
         self.addCleanup(self.clean_processes)
+
+    def write_helper(self, startup_timeout):
+        """Shorten only production budgets; run the same CLI and subprocess logic."""
+        self.helper.write_text(
+            HELPER.read_text()
+            .replace("STARTUP_TIMEOUT = 300", f"STARTUP_TIMEOUT = {startup_timeout}")
+            .replace("COMMAND_TIMEOUT = 15", "COMMAND_TIMEOUT = 1")
+            .replace("POLL_INTERVAL = 0.25", "POLL_INTERVAL = 0.02")
+            .replace("CLEANUP_TIMEOUT = 2", "CLEANUP_TIMEOUT = 0.2")
+            .replace("DIAGNOSTIC_TIMEOUT = 15", "DIAGNOSTIC_TIMEOUT = 1")
+        )
 
     def processes(self):
         return [
@@ -216,7 +223,7 @@ class EmulatorStartupTests(unittest.TestCase):
                         self.fail(f"Fixture did not reach {marker}")
                     time.sleep(0.02)
                 process.send_signal(signum)
-            stdout, stderr = process.communicate(timeout=8)
+            stdout, stderr = process.communicate(timeout=STARTUP_SECONDS + 5)
         except BaseException:
             process.kill()
             process.communicate()
@@ -271,6 +278,7 @@ class EmulatorStartupTests(unittest.TestCase):
         self.assertEqual(self.record["command"][-1], "-no-window")
 
     def test_offline_device_has_a_deadline(self):
+        self.write_helper(DEADLINE_SECONDS)
         self.assert_failed("offline", "startup deadline exceeded", "ADB connection")
 
     def test_hung_adb_is_bounded_and_its_descendant_is_killed(self):
@@ -278,6 +286,7 @@ class EmulatorStartupTests(unittest.TestCase):
         self.assertTrue((self.home / "child.started").exists())
 
     def test_hung_clock_uses_the_shared_startup_deadline(self):
+        self.write_helper(DEADLINE_SECONDS)
         self.assert_failed(
             "hung-clock", "startup deadline exceeded", "clock synchronization"
         )

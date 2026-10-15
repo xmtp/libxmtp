@@ -89,12 +89,15 @@ class RunnerTests(unittest.TestCase):
     def test_every_failure_mode_fails_the_run(self):
         """The runner fails open on nothing: each broken module or directory fails it."""
         probes = {
+            # It finishes last, after the other modules report.
             "test_a_fails.py": """
+                import time
                 import unittest
 
 
                 class Probe(unittest.TestCase):
                     def test_fails(self):
+                        time.sleep(1)
                         self.fail("probe failure")
                 """,
             "test_b_import.py": "import missing_probe_module\n",
@@ -124,7 +127,7 @@ class RunnerTests(unittest.TestCase):
         }
         for name, text in probes.items():
             self.write(f"dev/specs/{name}", text)
-        # A directory process that dies before, or exits non-zero after, its
+        # A module process that dies before, or exits non-zero after, its
         # summary, and a start directory with no tests.
         self.write("nix/lib/test_probe.py", "import os\nos._exit(0)\n")
         self.write(
@@ -145,7 +148,7 @@ class RunnerTests(unittest.TestCase):
         (self.root / "apps/example-android/fixtures/test_base.py").unlink()
         result = self.run_runner()
         self.assertEqual(result.returncode, 1)
-        # Five modules, two directory processes, and one empty start directory.
+        # Seven failed modules and one empty start directory.
         self.assertRegex(result.stdout.splitlines()[-1], r"; 8 failed modules$")
         for line in (
             "FAIL  dev/specs/test_a_fails.py (1 tests",
@@ -154,9 +157,12 @@ class RunnerTests(unittest.TestCase):
             "FAIL  dev/specs/test_d_no_tests.py (0 tests",
             "FAIL  dev/specs/test_e_skipped.py (1 tests, 1 skipped",
             "ok    dev/specs/test_base.py (1 tests",
-            "ERROR nix/lib: the test process exited 0",
+            "ERROR nix/lib/test_probe.py: the test process exited 0 without a summary",
+            # Each module has its own process, so a dead sibling stops no other.
+            "ok    nix/lib/test_base.py (1 tests",
             "ok    apps/example-android/performance/test_probe.py (1 tests",
-            "ERROR apps/example-android/performance: the test process exited 3",
+            "ERROR apps/example-android/performance/test_probe.py: "
+            "the test process exited 3",
         ):
             self.assert_line(result, line)
         for detail in (
@@ -168,6 +174,49 @@ class RunnerTests(unittest.TestCase):
             "===== apps/example-android/fixtures\nNo test_*.py files",
         ):
             self.assertIn(detail, result.stderr)
+        # test_a_fails finishes last, but the details keep module order.
+        headers = [
+            line.removeprefix("===== ")
+            for line in result.stderr.splitlines()
+            if line.startswith("===== ")
+        ]
+        self.assertEqual(
+            headers,
+            [
+                *(f"dev/specs/{name}" for name in probes),
+                "apps/example-android/fixtures",
+                "apps/example-android/performance/test_probe.py",
+                "nix/lib/test_probe.py",
+            ],
+        )
+
+    @unittest.skipIf((os.cpu_count() or 1) < 2, "The runner uses one worker")
+    def test_modules_run_at_the_same_time(self):
+        """Two modules that wait for each other pass only when both run at once."""
+        for name, other in [("a", "b"), ("b", "a")]:
+            self.write(
+                f"dev/specs/test_meet_{name}.py",
+                f"""
+                import time
+                import unittest
+                from pathlib import Path
+
+                HERE = Path(__file__).resolve().parent
+
+
+                class Meet(unittest.TestCase):
+                    def test_meets_the_other_module(self):
+                        (HERE / "{name}.started").touch()
+                        deadline = time.monotonic() + 20
+                        while not (HERE / "{other}.started").exists():
+                            self.assertLess(time.monotonic(), deadline, "{other} never ran")
+                            time.sleep(0.05)
+                """,
+            )
+        result = self.run_runner()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assert_line(result, "ok    dev/specs/test_meet_a.py (1 tests")
+        self.assert_line(result, "ok    dev/specs/test_meet_b.py (1 tests")
 
     def test_sibling_imports_work_and_other_directories_do_not(self):
         self.write("dev/specs/specs_helper.py", "VALUE = 1\n")
