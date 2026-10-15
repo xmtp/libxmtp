@@ -1,6 +1,6 @@
 ---
 title: Build a quickstart chat app
-description: Run a local XMTP backend, then send and receive your first message.
+description: Send and receive your first XMTP message in 2 minutes.
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
@@ -322,23 +322,16 @@ Run the app. The stream prints the message that the first client sent.
 ## How it works
 
 - `streamAllMessages()` delivers messages from every conversation, including
-  conversations that start after the stream opens. The default consent filter
-  includes `allowed` and `unknown` conversations. A conversation that another
-  inbox starts is `unknown` until you allow it. If you pass
-  `consentStates: ["allowed"]`, the stream skips those messages. See
-  [Consent](/sdk/consent/).
-- When the stream opens, it also delivers messages that arrived while the client
-  was offline. You do not need to call `syncAll` before you stream. Use
-  [sync](/sdk/sync/) to refresh conversation and message lists that you read
-  without a stream.
-- These examples use new keys and in-memory databases, so each run is a new
-  inbox. A real app must
+  conversations that start after the stream opens. By default, it includes
+  `allowed` and `unknown` conversations. A conversation that another inbox
+  starts is `unknown` until you allow it. See [Consent](/sdk/consent/).
+- When the stream opens, it first delivers the messages that arrived while the
+  client was offline.
+- These examples use randomly generated keys that get thrown away as soon as the
+  process ends, and in-memory databases. Each run is a new inbox. A real app must
   [save and restore its signing key](/sdk/signer/#save-and-restore-a-local-key)
   and keep the same database between launches. In Node, pass a 32-byte
   `storage.encryptionKey` to encrypt the database.
-- Sending a message stores it locally and publishes it to the backend. See
-  [optimistic sending](/sdk/send-messages/#optimistically-send-messages) to show
-  a message before publication completes.
 
 ## Stop the backend
 
