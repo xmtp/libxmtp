@@ -46,8 +46,6 @@ let
     # The backend metric catalogue test reads these to keep the docs in step.
     (lib.fileset.maybeMissing (src + /docs/backend-observability.md))
     (lib.fileset.maybeMissing (src + /docs/specs/OPS-backend-operations.md))
-    # The backend configuration tests read the field table and example file.
-    (lib.fileset.maybeMissing (src + /docs/specs/CONF-backend-configuration.md))
     (src + /dev/backend/local.toml)
     (src + /dev/backend/local-s3.toml)
     (src + /.config/nextest.toml)
