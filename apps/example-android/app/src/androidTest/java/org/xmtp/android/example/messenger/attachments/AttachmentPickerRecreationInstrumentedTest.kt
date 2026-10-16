@@ -180,6 +180,7 @@ class AttachmentPickerRecreationInstrumentedTest {
             val sender = AttachmentTestFixture()
             var destination: Uri? = null
             var outstanding = false
+            var monitorRegistered = false
             val selectedMimeTypes = AtomicReference<List<String>?>(null)
             val monitor =
                 object : Instrumentation.ActivityMonitor() {
@@ -228,8 +229,9 @@ class AttachmentPickerRecreationInstrumentedTest {
                 awaitCurrentPickerTarget(owner, chat.id())
                 val token = model.chat.screenToken()
                 instrumentation.addMonitor(monitor)
+                monitorRegistered = true
                 if (stage == "select") {
-                    compose.onNodeWithContentDescription("Add attachment").performClick()
+                    compose.openAttachmentChoices()
                     compose.waitUntil(30_000) {
                         compose.onAllNodesWithTag("attachment-choice-sheet").fetchSemanticsNodes().isNotEmpty()
                     }
@@ -243,7 +245,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                         compose.onAllNodesWithTag("attachment-choice-sheet").fetchSemanticsNodes().isEmpty()
                     }
                     awaitCurrentPickerTarget(owner, chat.id())
-                    compose.onNodeWithContentDescription("Add attachment").performClick()
+                    compose.openAttachmentChoices()
                     compose.waitUntil(30_000) {
                         graphRule.graph.attachments.choice.value
                             ?.instanceId
@@ -261,8 +263,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                     outstanding = false
                     until { model.attachments.requests.launchedSelect() == null }
                     awaitCurrentPickerTarget(owner, chat.id())
-                    compose.waitForIdle()
-                    compose.onNodeWithContentDescription("Add attachment").performClick()
+                    compose.openAttachmentChoices()
                     compose.waitUntil(30_000) {
                         compose.onAllNodesWithTag("attachment-choice-photo-video").fetchSemanticsNodes().isNotEmpty()
                     }
@@ -423,7 +424,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                 println("$proof request-kept=true sdk-readback=true")
             } finally {
                 if (outstanding) complete(Uri.EMPTY)
-                instrumentation.removeMonitor(monitor)
+                if (monitorRegistered) instrumentation.removeMonitor(monitor)
                 model.chat.onOpenFinished = {}
                 graphRule.observers.beforeInvalidate = invalidated
                 graphRule.observers.beforeHandle = message
