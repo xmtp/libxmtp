@@ -17,9 +17,18 @@ internal class SessionCredentials(
             override suspend fun credential(): Credential {
                 if (!fence.accepts(key)) throw CredentialException.Failed()
                 val bytes = read(profile) ?: throw CredentialException.Failed()
+                val token = bytes.toString(Charsets.UTF_8).trim()
+                val value =
+                    if (token.isEmpty() ||
+                        token.startsWith("Bearer ", ignoreCase = true)
+                    ) {
+                        token
+                    } else {
+                        "Bearer $token"
+                    }
                 return Credential(
                     name = null,
-                    value = bytes.toString(Charsets.UTF_8),
+                    value = value,
                     expiresAtSeconds = Long.MAX_VALUE,
                 )
             }

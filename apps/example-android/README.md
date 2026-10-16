@@ -134,6 +134,9 @@ local backend, run `adb reverse tcp:5050 tcp:5050` and enter
 Forward the object-store port too when testing attachments. The default
 `10.0.2.2` address reaches the host only from an Android emulator.
 
+Server checks stay quiet until you press Join. The Access token field accepts
+either a raw token or a complete `Bearer <token>` value.
+
 Run these commands from the repository root:
 
 ```sh
