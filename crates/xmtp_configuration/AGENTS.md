@@ -24,4 +24,4 @@ just test workspace -p xmtp_configuration common::   # one module
   (spec 006), not compile-time constants, but every field falls back to a
   `BACKEND_DEFAULT_*` constant in this crate.
 - `SCREAMING_SNAKE_CASE` for a free constant. A value that differs per worktree is a function, not a constant: `backend_test_url()`, `backend_test_toxic_url()`, and `DockerUrls::anvil()` read the environment and fall back to a `*_DEFAULT` constant. Native reads at run time; wasm uses `option_env!`, so the value is baked in at build time.
-- Crate features are `test-utils` and `dev` only. Keep it dependency-light.
+- Crate features are `test-utils` and `dev` only. The crate is a leaf: its normal dependencies are `semver` and `thiserror` only, so a value that needs a type from another crate (an MLS ciphersuite or protocol version) lives in that crate. Use the private units in `src/ns.rs` for nanosecond intervals.
