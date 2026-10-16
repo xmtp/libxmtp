@@ -598,9 +598,7 @@ impl ServerConfiguration {
 ///
 /// A provider never touches the database. The snapshot is resolved once at
 /// build and handed to the client whole.
-pub trait ConfigProvider:
-    std::fmt::Debug + xmtp_common::MaybeSend + xmtp_common::MaybeSync
-{
+pub trait ConfigProvider: std::fmt::Debug + Send + Sync {
     fn server_configuration(&self) -> &ServerConfiguration;
 }
 

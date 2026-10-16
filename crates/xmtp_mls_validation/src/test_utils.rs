@@ -104,7 +104,7 @@ pub fn group_message_envelope(
         credential: create_credential("group-message-fixture"),
         signature_key: signer.public_slice().into(),
     };
-    let config = MlsGroupCreateConfig::test_default(xmtp_configuration::CIPHERSUITE);
+    let config = MlsGroupCreateConfig::test_default(xmtp_cryptography::configuration::CIPHERSUITE);
     let mut group = MlsGroup::new_with_group_id(
         &provider,
         &signer,
@@ -295,7 +295,7 @@ pub fn mismatched_key_package_envelope() -> KeyPackageFixture {
     let claimed_signer = XmtpInstallationCredential::new();
     let bundle = OpenMlsKeyPackage::builder()
         .build(
-            xmtp_configuration::CIPHERSUITE,
+            xmtp_cryptography::configuration::CIPHERSUITE,
             &provider,
             &signer,
             CredentialWithKey {

@@ -1,4 +1,5 @@
 mod common;
+mod ns;
 pub use common::*;
 
 #[cfg(any(test, feature = "test-utils"))]

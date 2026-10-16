@@ -12339,6 +12339,7 @@ dependencies = [
  "clap",
  "clap_builder",
  "const-hex",
+ "const-oid 0.10.2",
  "crossbeam-utils",
  "crypto-common 0.1.7",
  "crypto-common 0.2.2",
@@ -12412,6 +12413,7 @@ dependencies = [
  "rustls-pki-types",
  "rustls-webpki",
  "sec1",
+ "security-framework-sys",
  "serde",
  "serde_core",
  "serde_json",
@@ -12769,11 +12771,9 @@ dependencies = [
 name = "xmtp_configuration"
 version = "1.12.0-dev"
 dependencies = [
- "openmls",
  "semver 1.0.28",
  "thiserror 2.0.19",
  "xmtp_common",
- "xmtp_cryptography",
 ]
 
 [[package]]

@@ -8,11 +8,8 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-openmls.workspace = true
 semver.workspace = true
 thiserror.workspace = true
-xmtp_common.workspace = true
-xmtp_cryptography.workspace = true
 
 [dev-dependencies]
 xmtp_common = { workspace = true, features = ["test-utils"] }

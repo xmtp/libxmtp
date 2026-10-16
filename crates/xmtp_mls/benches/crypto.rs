@@ -2,7 +2,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, 
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::{crypto::OpenMlsCrypto, random::OpenMlsRand};
 use rand::{TryRng, rngs::SysRng};
-use xmtp_configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
+use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 use xmtp_mls::utils::bench::re_export::{WELCOME_HPKE_LABEL, WrapperAlgorithm, wrap_payload_hpke};
 
 const BENCH_SIZES: [usize; 24] = [
