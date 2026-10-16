@@ -6,49 +6,16 @@ spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
 
-## DM people picker, 2026-10-16
+## Direct message creation, 2026-10-16
 
-People from your chats remains available below the DM recipient field. It
-selects one person at a time and fills that person's inbox ID. Choosing another
-person or editing the field replaces the choice, with no selected-recipient
-list or review step.
+Six recipient journeys and the 320 dp / 200% text-size test pass on API 34.
+They cover recipient lookup, the DM people picker, inline errors, separate
+DM/group drafts, and group options. Unit tests, Spotless, lint, Debug/Release
+and instrumentation builds, and JNI checks pass.
 
-`RecipientHandlesInstrumentedTest.directMessagesCanChoosePeopleFromChatsAndReplaceTheSelection`
-seeds real DMs and loads their participants through the production graph. It
-checks selection replacement, selection across a mode switch, clearing a lookup
-error by choosing a person, typed input overriding a choice, and the native DM's
-actual peer inbox. Before restoration, it fails at the missing People from your
-chats heading after the real saved participants have loaded.
-
-All six recipient journeys and the 320 dp / 200% text-size journey pass on an
-owned API 34 emulator, with zero failures or skips. Unit tests, Spotless, Android
-lint, Debug/Release and instrumentation builds, and JNI package checks pass.
-Evidence is in `.cache/designs/dm-people-*`.
-
-## Simple direct message creation, 2026-10-16
-
-The Simple form has one recipient field and opens a DM from Continue or the
-keyboard's Go action. Errors stay below the field and clear on edit. The
-Direct message / Group switch keeps separate drafts; groups retain member
-selection, name, description, and permissions under Advanced options.
-
-All five `RecipientHandlesInstrumentedTest` journeys pass on an owned API 34
-emulator with the real graph and SDK. They cover bare and coded handles,
-Ethereum addresses, inbox IDs, invalid and unknown recipients, keyboard retry,
-mixed group recipients, and switching drafts before creating the correct DM
-and an admin-only group. `ScreenScaleInstrumentedTest` also passes at 320 dp
-and 200% text size, including the new DM field and Continue button.
-
-Three weaker implementations fail at their intended assertions: Continue
-opening review, edits retaining the previous error, and mode changes dropping
-the group draft. The production source was restored before the passing runs.
-Unit tests, Spotless, Android lint, Debug/Release and instrumentation builds,
-and JNI package checks pass.
-
-Evidence is in `.cache/designs/android-simple-form-*`. The first fixed device
-run passed four journeys; two DM journeys stopped at an unsupported optional
-test screenshot name. Both pass on the focused rerun after that capture was
-removed. The 11 scale screenshots are retained separately from the rerun.
+Regression controls catch an extra DM review step, stale errors, lost drafts,
+and a missing people picker. Evidence: `.cache/designs/android-simple-form-*`
+and `.cache/designs/dm-people-*`.
 
 ## Handle selection, 2026-10-13
 
