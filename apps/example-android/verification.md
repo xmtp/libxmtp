@@ -140,7 +140,7 @@ The local run archive is `xmtp-android-redesign-20261010`.
 Commit `ec52581121` then reused the route owner's conversation mapping and fixed
 connect retry ownership. An older Connect or Retry completion cannot clear the
 newer attempt's backend and credential. The existing
-`MessengerRecoveryUxInstrumentedTest.startRetryUsesCurrentBackendAndCredentialInRealConnect`
+`MessengerRecoveryUxInstrumentedTest.newServerJoinClearsFailureAndUsesCurrentBackendAndCredential`
 checks both overlapping operations after its actual native connection proof.
 Both separate guard-removal controls failed at their named assertions. The
 restored method passed with no skips. Evidence: `architecture-retry-restored/`,
