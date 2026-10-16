@@ -566,7 +566,7 @@
         "dev/docker/s3/**",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
         "dev/docker/{postgres,s3,toxiproxy}/**",
-        "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}",
+        "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md,specs/CONF-backend-configuration.md}",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
         "nix/services/**",

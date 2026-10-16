@@ -15,7 +15,7 @@ A requirement without a proving test needs a waiver under SPEC-055, SPEC-094, an
 | `SPEC` | [Specification format](SPEC-spec-format.md) | The format, admission, identifiers, backlinks, waivers, plans' spec-change section | approved |
 | `TOPIC` | [Topic format](TOPIC-topic-format.md) | The kind byte and identifier layout of every topic | draft |
 | `API` | [Backend API contract](API-backend-api.md) | The gRPC contract: ordering, publish, query, subscribe, identity RPCs, connection statistics, error codes, admission validation | draft |
-| `CONF` | [Backend configuration](CONF-backend-configuration.md) | Configuration validation, what is published, how the client applies it | draft |
+| `CONF` | [Backend configuration](CONF-backend-configuration.md) | The configuration file, configuration validation, what is published, how the client applies it | draft |
 | `AUTH` | [Backend auth](AUTH-backend-auth.md) | Request authentication and authorization, client credentials, terminal auth failures | draft |
 | `OPS` | [Backend operations](OPS-backend-operations.md) | Retention and pruning, readiness and health, shutdown as observed, the metric catalogue | draft |
 | `PUSH` | [Push subscriptions and webhooks](PUSH-push-subscriptions.md) | Recipient registration, channels, subscription sync, dispatch, HMAC suppression, webhook signing | draft |

@@ -435,3 +435,36 @@ kind = "gap"
 owner = "protocol"
 issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
 reason = "Restored conversations report an unknown creator until validated activation, including when the archive supplied a creator. Legacy getters use empty text; the new SDK uses its optional unknown value. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+
+[[waiver]]
+id = "CONF-065"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4587"
+reason = "Some refusals do not name the key: every typed-decoding failure outside attachments.target.S3.credentials, such as an unknown key, a missing required key, or a value of the wrong type, is reported as invalid TOML with no key; a failed environment reference names the variable but not the key, and an empty reference name names neither; and the publishing and retention range checks, a value of the wrong type in attachments.target.S3.credentials or an unlisted key under a credential kind with fields, and some auth, telemetry, chain, and application component checks name only the table or the list entry."
+
+[[waiver]]
+id = "CONF-083"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4588"
+reason = "A storage credential kind that takes no keys (default_chain, environment, web_identity, container, instance) accepts and ignores extra keys such as access_key_id. Every other table refuses an unlisted key (unknown_keys_are_refused_in_every_table)."
+
+[[waiver]]
+id = "CONF-085"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4589"
+reason = "The backend's own errors and Debug output omit secret values, and a store connection failure with a password in the URL omits it (configuration_source_errors_and_help_omit_secrets). Errors from third-party crates, such as the database driver, the HTTP and gRPC clients, and the AWS SDK, are not audited on every path."
+
+[[waiver]]
+id = "CONF-086"
+kind = "analysis"
+reason = "A test can load only the files of releases that exist, so no test proves what a later release will accept. every_release_example_still_loads loads the committed example file of each release, with each commented alternative, under today's code; a reviewer applies this row to every change of section 1 or of a check it cites."
+
+[[waiver]]
+id = "CONF-087"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4590"
+reason = "The 13 published count limits accept values above 4294967295, and server.max_drain_duration_ms, streams.poll_interval_ms, streams.max_pong_wait_ms, and auth.jwks_max_stale_seconds are checked against the host clock instead of a maximum of 4294967295. The code still refuses a streams.max_pong_wait_ms that does not exceed streams.keepalive_interval_ms. Every other standard check refuses a failing value (every_standard_check_in_the_field_table_refuses_a_failing_value)."
