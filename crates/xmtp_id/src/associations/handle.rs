@@ -9,8 +9,7 @@ use regex::Regex;
 use std::{fmt, sync::LazyLock};
 use xmtp_common::ErrorCode;
 
-/// The most characters a handle's name part can hold.
-pub const MAX_HANDLE_NAME_LEN: usize = 27;
+pub use xmtp_configuration::MAX_HANDLE_NAME_LEN;
 
 /// The most `ClaimHandle` actions one association log can hold.
 pub const MAX_HANDLE_CLAIMS: u32 = 64;
@@ -23,7 +22,9 @@ const CODE_LIMIT: u16 = 10_000;
 /// exactly four ASCII digits. `$` matches only at the end of the text, so a
 /// trailing newline does not match.
 static GRAMMAR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[a-z][a-z0-9_-]{0,26}(#[0-9]{4})?$").expect("static regex should always compile")
+    let rest = MAX_HANDLE_NAME_LEN - 1;
+    Regex::new(&format!(r"^[a-z][a-z0-9_-]{{0,{rest}}}(#[0-9]{{4}})?$"))
+        .expect("static regex should always compile")
 });
 
 /// Invalid handle.

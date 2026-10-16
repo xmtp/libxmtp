@@ -20,7 +20,8 @@ use xmtp_configuration::{
     BACKEND_DEFAULT_MAX_STATIC_TOPICS, BACKEND_DEFAULT_MAX_STREAM_TOPICS,
     BACKEND_DEFAULT_MAX_UPDATE_ADDS, BACKEND_DEFAULT_MAX_UPDATE_BURST,
     BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND, BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
-    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS,
+    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS, parse_eip155_chain_id,
+    validate_server_identifier,
 };
 
 pub mod application_components;
@@ -47,9 +48,9 @@ pub(crate) const ENVELOPE_METADATA_AND_FRAMING_BYTES: usize =
 const MAX_RETENTION_SECONDS: u64 = i64::MAX as u64 / NS_IN_SEC as u64;
 const MAX_DATABASE_TIMEOUT_MS: u64 = i32::MAX as u64;
 /// Longest operator identifier, in bytes.
-pub const MAX_IDENTIFIER_BYTES: usize = 256;
+pub use xmtp_configuration::MAX_SERVER_IDENTIFIER_BYTES as MAX_IDENTIFIER_BYTES;
 /// Fixed transport ceiling. Neither request nor response budget may exceed it.
-pub const MAX_TRANSPORT_BYTES: usize = 25 * 1024 * 1024;
+pub use xmtp_configuration::MAX_TRANSPORT_BYTES;
 /// Advisory MLS group shapes are published as `uint32` and bounded here.
 pub const MAX_MLS_LIMIT: u32 = u16::MAX as u32;
 /// The published configuration must stay small enough for one cheap response.
@@ -270,10 +271,7 @@ impl Config {
     /// Require chain keys that the SCW verifier can route and HTTP(S) RPC URLs.
     fn validate_chains(&self) -> Result<(), ConfigError> {
         for (chain, url) in &self.chains {
-            if xmtp_id::associations::AccountId::new(chain.clone(), "0x0".to_owned())
-                .get_chain_id_u64()
-                .is_err()
-            {
+            if parse_eip155_chain_id(chain).is_err() {
                 return Err(invalid("chains", "keys must be EIP-155 CAIP-2 chain ids"));
             }
             non_empty_url(url, "chains", UrlKind::Http)?;
@@ -528,12 +526,7 @@ impl ServerConfig {
                 "must be set to a stable name for this deployment",
             ));
         };
-        if identifier.is_empty()
-            || identifier.len() > MAX_IDENTIFIER_BYTES
-            || identifier
-                .chars()
-                .any(|character| character.is_whitespace() || character.is_control())
-        {
+        if validate_server_identifier(identifier).is_err() {
             return Err(invalid(
                 "server.identifier",
                 "must be 1 to 256 bytes with no whitespace or control characters",
@@ -1077,6 +1070,8 @@ impl Default for LimitsConfig {
     }
 }
 
+#[cfg(test)]
+mod identifier_tests;
 #[cfg(test)]
 mod tests;
 
