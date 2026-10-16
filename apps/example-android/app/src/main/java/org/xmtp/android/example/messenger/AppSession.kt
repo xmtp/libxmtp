@@ -67,6 +67,8 @@ class AppSession(
     private val connectionState = MutableStateFlow("")
     val connection: StateFlow<String> = connectionState
     private var stopping: ActiveSession? = null
+
+    @Volatile private var readersWanted = true
     private var opening: ActiveSession? = null
     internal var beforeSessionStopLock: suspend () -> Unit = {}
     internal var beforeClientBuild: (String) -> Unit = {}
@@ -82,7 +84,7 @@ class AppSession(
             scope = scope,
             projection = projection,
             accepts = ::accepts,
-            connection = { key, value -> withCurrent(key) { connectionState.value = value } },
+            connection = { key, value -> withCurrent(key) { if (readersWanted) connectionState.value = value } },
             readerFailure = { key, failure ->
                 diagnostics.report("session.reader", failure.javaClass.simpleName)
                 withCurrent(key) { readerState.value = "Message updates stopped. Retry to continue." }
@@ -157,7 +159,7 @@ class AppSession(
             operation.withLock {
                 recoverExportCleanup()
                 activeState.value?.let { owner ->
-                    withCurrent(owner.key) { if (!readers.started) readers.start(owner) }
+                    withCurrent(owner.key) { if (!readers.started) readers.start(owner, readersWanted) }
                     return
                 }
                 preferences.reset()?.let {
@@ -172,7 +174,7 @@ class AppSession(
         currentCoroutineContext().ensureActive()
         operation.withLock {
             activeState.value?.let { owner ->
-                withCurrent(owner.key) { if (!readers.started) readers.start(owner) }
+                withCurrent(owner.key) { if (!readers.started) readers.start(owner, readersWanted) }
                 return
             }
             preferences.reset()?.let {
@@ -502,7 +504,7 @@ class AppSession(
                     committed && withCurrent(key) {
                         activeState.value = owner
                         errorState.value = null
-                        readers.start(owner)
+                        readers.start(owner, readersWanted)
                         true
                     } == true
                 if (published) opening = null
@@ -573,6 +575,34 @@ class AppSession(
             }
     }
 
+    /**
+     * Readers run only while the activity is resumed. Stopping the default reader releases its consumer lease.
+     * A process that Android freezes or kills in the background would otherwise keep the lease, and the next
+     * reader fails with ConsumerOwned until the lease expires.
+     */
+    fun foreground(value: Boolean) {
+        readersWanted = value
+        scope.launch { applyForeground() }
+    }
+
+    // Apply the latest request: launches on the IO dispatcher can run out of order.
+    private suspend fun applyForeground() {
+        operation.withLock {
+            if (!readersWanted) {
+                readers.stopMessages()
+                connectionState.value = ""
+                return
+            }
+            val owner = activeState.value ?: return
+            withCurrent(owner.key) {
+                if (readers.started && !readers.messagesStarted) {
+                    readerState.value = null
+                    readers.startMessages(owner)
+                }
+            }
+        }
+    }
+
     override suspend fun retryReader() =
         operation.withLock {
             val owner =
@@ -583,7 +613,7 @@ class AppSession(
                 )
             ) {
                 readerState.value = null
-                readers.start(owner)
+                readers.start(owner, readersWanted)
             }
         }
 

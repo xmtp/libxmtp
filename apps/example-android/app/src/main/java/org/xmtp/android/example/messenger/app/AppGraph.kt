@@ -337,6 +337,7 @@ internal class AppGraph(
 
     fun foreground(value: Boolean) {
         foreground = value
+        session.foreground(value)
         chat.foreground(value && destinations.state.value.route is AppRoute.Chat)
     }
 
