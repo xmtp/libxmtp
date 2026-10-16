@@ -76,7 +76,7 @@ class SessionRaceInstrumentedTest {
             var holder: Job? = null
             try {
                 session.signOut()
-                session.foreground(false)
+                session.visible(false)
                 session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
                 val owner = checkNotNull(session.active.value)
                 delay(2_000)
@@ -95,38 +95,29 @@ class SessionRaceInstrumentedTest {
                         }
                     }
                 withTimeout(30_000) { while (!defaultReaderOwned(owner.client)) delay(100) }
-                session.foreground(true)
+                session.visible(true)
                 withTimeout(30_000) { session.connection.first { it == "RECONNECTING" } }
                 assertNull("A held lease does not stop the reader", session.readerError.value)
                 holder.cancelAndJoin()
                 withTimeout(30_000) { session.connection.first { it == "CONNECTED" } }
                 assertTrue("The reader takes the released lease", defaultReaderOwned(owner.client))
-                session.foreground(false)
+                session.visible(false)
                 // A process that Android freezes or kills now leaves no lease for the next reader.
                 withTimeout(30_000) { session.connection.first { it.isEmpty() } }
                 assertFalse("A background session keeps no default reader", defaultReaderOwned(owner.client))
-                session.foreground(true)
+                session.visible(true)
                 withTimeout(30_000) { session.connection.first { it == "CONNECTED" } }
                 assertTrue("The foreground session owns delivery again", defaultReaderOwned(owner.client))
                 assertNull(session.readerError.value)
             } finally {
                 withContext(NonCancellable) {
                     holder?.cancelAndJoin()
-                    session.foreground(true)
+                    session.visible(true)
                     if (session.active.value != null) session.deleteAccount()
                     session.signOut()
                 }
                 AndroidStreamLifecycle.enabled = true
             }
-        }
-
-    // A second default reader fails at open while another reader owns delivery.
-    private suspend fun defaultReaderOwned(client: SDKClient): Boolean =
-        try {
-            withTimeoutOrNull(1_000) { client.conversations.streamAllMessages().first() }
-            false
-        } catch (error: XmtpException.ConsumerOwned) {
-            true
         }
 
     @Test fun invalidatedFinalPersistenceCannotCommitOrStartReaders() =
@@ -389,3 +380,12 @@ class SessionRaceInstrumentedTest {
             }
         }
 }
+
+// A second default reader fails at open while another reader owns delivery.
+internal suspend fun defaultReaderOwned(client: SDKClient): Boolean =
+    try {
+        withTimeoutOrNull(1_000) { client.conversations.streamAllMessages().first() }
+        false
+    } catch (error: XmtpException.ConsumerOwned) {
+        true
+    }

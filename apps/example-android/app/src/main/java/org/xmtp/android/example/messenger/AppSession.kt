@@ -576,11 +576,11 @@ class AppSession(
     }
 
     /**
-     * Readers run only while the activity is resumed. Stopping the default reader releases its consumer lease.
+     * The default message reader runs only while the activity is started. Stopping it releases its consumer lease.
      * A process that Android freezes or kills in the background would otherwise keep the lease, and the next
      * reader fails with ConsumerOwned until the lease expires.
      */
-    fun foreground(value: Boolean) {
+    fun visible(value: Boolean) {
         readersWanted = value
         scope.launch { applyForeground() }
     }
