@@ -1,8 +1,10 @@
 //! Backend connection values.
 
 pub const LOCALHOST: &str = "http://localhost";
-/// Maximum bytes in one gRPC payload.
-pub const GRPC_PAYLOAD_LIMIT: usize = 1024 * 1024 * 25;
+/// Maximum bytes in one gRPC message, in either direction. The client's
+/// transport refuses a larger message, and the backend refuses a request or
+/// response budget above it.
+pub const MAX_TRANSPORT_BYTES: usize = 25 * 1024 * 1024;
 
 /// Local backend URL when no worktree environment is loaded.
 pub const BACKEND_TEST_URL_DEFAULT: &str = "http://localhost:5050";

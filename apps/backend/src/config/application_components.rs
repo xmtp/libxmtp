@@ -10,9 +10,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use xmtp_configuration::{
     ApplicationComponentDefinition, ComponentPermissions, MAX_APPLICATION_COMPONENT_NAME_BYTES,
-    MetadataPolicy, validate_application_components,
+    MetadataPolicy, WELL_KNOWN_COMPONENT_NAMES, validate_application_components,
 };
-use xmtp_mls_common::app_data::component_id::ComponentId;
 use xmtp_proto::xmtp::mls::message_contents::{ComponentType, metadata_policy::MetadataBasePolicy};
 
 use super::ConfigError;
@@ -119,10 +118,11 @@ pub(super) fn validate(components: &[ApplicationComponentConfig]) -> Result<(), 
         components.iter().map(Into::into).collect();
     validate_application_components(&definitions)
         .map_err(|(index, reason)| ConfigError::ApplicationComponent { index, reason })?;
-    match components
-        .iter()
-        .position(|component| ComponentId::from_well_known_name(&component.name).is_some())
-    {
+    match components.iter().position(|component| {
+        WELL_KNOWN_COMPONENT_NAMES
+            .iter()
+            .any(|&(_, name)| name == component.name)
+    }) {
         Some(index) => Err(ConfigError::WellKnownComponentName { index }),
         None => Ok(()),
     }
