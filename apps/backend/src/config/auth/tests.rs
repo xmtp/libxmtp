@@ -214,22 +214,15 @@ fn api_key_environment_values_resolve_and_missing_variables_fail() {
     const VARIABLE: &str = "XMTP_API_KEY_CONFIG_VALUE";
     const MISSING: &str = "XMTP_API_KEY_CONFIG_MISSING";
     if std::env::var_os(CHILD).is_none() {
-        let output = std::process::Command::new(std::env::current_exe()?)
-            .args([
-                "--exact",
-                "config::auth::tests::api_key_environment_values_resolve_and_missing_variables_fail",
-                "--nocapture",
-            ])
-            .env(CHILD, "1")
-            .env(VARIABLE, api_key_value())
-            .env_remove(MISSING)
-            .output()?;
-        assert!(
-            output.status.success(),
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+        let output = crate::config::tests::child_test(
+            module_path!(),
+            "api_key_environment_values_resolve_and_missing_variables_fail",
+        )
+        .env(CHILD, "1")
+        .env(VARIABLE, api_key_value())
+        .env_remove(MISSING)
+        .output()?;
+        crate::config::tests::assert_one_test_passed(&output);
         return;
     }
     let value = std::env::var(VARIABLE)?;
@@ -346,21 +339,15 @@ fn environment_values_resolve_in_both_auth_key_sources() {
     const CHILD: &str = "XMTP_AUTH_CONFIG_CHILD";
     if std::env::var_os(CHILD).is_none() {
         let key = TestKey::es256();
-        let output = std::process::Command::new(std::env::current_exe()?)
-            .args([
-                "--exact",
-                "config::auth::tests::environment_values_resolve_in_both_auth_key_sources",
-                "--nocapture",
-            ])
-            .env(CHILD, "1")
-            .env("XMTP_AUTH_TEST_KEY", key.public_key)
-            .env("XMTP_AUTH_TEST_URL", "https://issuer.example/keys")
-            .output()?;
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
-        );
+        let output = crate::config::tests::child_test(
+            module_path!(),
+            "environment_values_resolve_in_both_auth_key_sources",
+        )
+        .env(CHILD, "1")
+        .env("XMTP_AUTH_TEST_KEY", key.public_key)
+        .env("XMTP_AUTH_TEST_URL", "https://issuer.example/keys")
+        .output()?;
+        crate::config::tests::assert_one_test_passed(&output);
         return;
     }
     let config = loaded(
@@ -413,26 +400,20 @@ fn schema_describes_all_auth_fields_and_environment_references() {
     );
 }
 
+// verifies: CONF-085
 #[xmtp_common::test(unwrap_try = true)]
 fn resolved_key_values_are_absent_from_validation_errors() {
     const CHILD: &str = "XMTP_AUTH_REDACTION_CHILD";
     const SENTINEL: &str = "SENTINEL-SECRET-abc123";
     if std::env::var_os(CHILD).is_none() {
-        let output = std::process::Command::new(std::env::current_exe()?)
-            .args([
-                "--exact",
-                "config::auth::tests::resolved_key_values_are_absent_from_validation_errors",
-                "--nocapture",
-            ])
-            .env(CHILD, "1")
-            .env("XMTP_KID_SECRET", SENTINEL)
-            .output()?;
-        assert!(
-            output.status.success(),
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        );
+        let output = crate::config::tests::child_test(
+            module_path!(),
+            "resolved_key_values_are_absent_from_validation_errors",
+        )
+        .env(CHILD, "1")
+        .env("XMTP_KID_SECRET", SENTINEL)
+        .output()?;
+        crate::config::tests::assert_one_test_passed(&output);
         return;
     }
     for (alg, reason) in [
@@ -448,4 +429,57 @@ fn resolved_key_values_are_absent_from_validation_errors() {
             assert!(message.contains(reason), "{message}");
         }
     }
+
+    // Every secret key, from an environment reference, in a refused file.
+    const REQUIRED: &str =
+        "[server]\nidentifier = 'org.xmtp.test'\n[database]\nurl = 'postgres://localhost/xmtp'\n";
+    let reference = "'env:XMTP_KID_SECRET'";
+    let refused = [
+        (
+            "database.url",
+            format!("[server]\nidentifier = 'org.xmtp.test'\n[database]\nurl = {reference}\n"),
+        ),
+        (
+            "database.replica_url",
+            format!("{REQUIRED}replica_url = {reference}\n"),
+        ),
+        (
+            "telemetry.otlp_endpoint",
+            format!("{REQUIRED}[telemetry]\notlp_endpoint = {reference}\n"),
+        ),
+        (
+            "chains",
+            format!("{REQUIRED}[chains]\n\"eip155:1\" = {reference}\n"),
+        ),
+        (
+            "attachments.target.S3.endpoint",
+            format!(
+                "{REQUIRED}[attachments]\nbase_url = 'https://files.example.org'\n[attachments.target.S3]\nendpoint = {reference}\nregion = 'us-east-1'\nbucket = 'attachments'\n[attachments.target.S3.credentials]\nkind = 'web_identity'\n"
+            ),
+        ),
+    ];
+    for (field, document) in &refused {
+        let error = Config::load_str(document).unwrap_err();
+        assert!(
+            matches!(&error, ConfigError::Invalid { field: named, .. } if named == field),
+            "{field}: {error}"
+        );
+        for message in [error.to_string(), format!("{error:?}")] {
+            assert!(!message.contains(SENTINEL), "{message}");
+        }
+    }
+    // Every secret key, written in the file, in a configuration that loads.
+    let config = Config::load_str(&format!(
+        "[server]\nidentifier = 'org.xmtp.test'\n\
+         [telemetry]\notlp_endpoint = 'https://otel.example.org/{SENTINEL}'\n\
+         [database]\nurl = 'postgres://xmtp:{SENTINEL}@localhost/xmtp'\nreplica_url = 'postgres://xmtp:{SENTINEL}@localhost/xmtp'\n\
+         [chains]\n\"eip155:1\" = 'https://rpc.example.org/{SENTINEL}'\n\
+         [push.apns]\nkey = '{SENTINEL}'\nkey_id = 'ABC123DEFG'\nteam_id = 'DEF123GHIJ'\nbundle_id = 'org.example.app'\nenvironment = 'production'\n\
+         [push.fcm]\nservice_account = '{SENTINEL}'\n\
+         [attachments]\nbase_url = 'https://files.example.org'\n\
+         [attachments.target.S3]\nendpoint = 'https://s3.example.org/{SENTINEL}'\nregion = 'us-east-1'\nbucket = 'attachments'\n\
+         [attachments.target.S3.credentials]\nkind = 'static'\naccess_key_id = '{SENTINEL}'\nsecret_access_key = '{SENTINEL}'\nsession_token = '{SENTINEL}'\n"
+    ))?;
+    let debug = format!("{config:?}");
+    assert!(!debug.contains(SENTINEL), "{debug}");
 }

@@ -85,6 +85,34 @@ fn verify_token(value: &str) -> TestResult {
     Ok(())
 }
 
+/// A signing key on another curve, or of another type, is refused at startup
+/// under its key, and the refusal omits the key.
+// verifies: CONF-092
+#[xmtp_common::test(unwrap_try = true)]
+async fn startup_refuses_signing_keys_that_are_not_p256() {
+    use crate::test_support::auth::TestKey;
+    for key in [TestKey::es384().private_key, TestKey::rsa().private_key] {
+        let error = ApnsSender::new(&ApnsConfig {
+            key: Some(key.clone()),
+            ..config()
+        })
+        .err()
+        .expect("a key that is not P-256 must be refused");
+        assert!(
+            matches!(
+                error,
+                ConfigError::Invalid {
+                    field: "push.apns.key",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+        assert!(!format!("{error} {error:?}").contains(&key));
+    }
+    ApnsSender::new(&config())?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn jwt_verifies_as_base64url_with_fixed_width_signature() {
     let sender = ApnsSender::new(&config())?;

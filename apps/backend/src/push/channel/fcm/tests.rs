@@ -550,6 +550,7 @@ async fn credentials_and_echoed_provider_errors_do_not_expose_private_fields() {
     }
 }
 
+// verifies: CONF-092
 #[xmtp_common::test(unwrap_try = true)]
 fn startup_rejects_invalid_credentials_and_endpoint_overrides_without_values() {
     for changes in [
