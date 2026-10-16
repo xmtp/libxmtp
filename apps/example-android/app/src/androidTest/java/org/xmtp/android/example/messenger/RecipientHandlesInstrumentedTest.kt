@@ -1,5 +1,6 @@
 package org.xmtp.android.example.messenger
 
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -112,35 +113,271 @@ class RecipientHandlesInstrumentedTest {
         model.dispatch(MessengerAction.Navigate(Screen.CREATE))
         until("Create screen did not open") { model.state.value.screen == Screen.CREATE }
         model.createConversation.dispatch(CreateConversationAction.ChangeMode(group))
-        compose.onNodeWithText(recipientLabel).performTextReplacement(input)
+        val field = if (group) compose.onNodeWithText(recipientLabel) else compose.onNodeWithTag("dm-recipient")
+        field.performTextReplacement(input)
         androidx.test.espresso.Espresso
             .closeSoftKeyboard()
-        button("Check and add").performScrollTo().performClick()
-        until("Input did not resolve to its claimed inbox") {
-            !model.createConversation.state.value.busy &&
-                model.createConversation.state.value.selectedRecipients
-                    .map { it.inboxId }
-                    .toSet() == expected &&
-                model.createConversation.state.value.failure == null
+        if (group) {
+            button("Check and add").performScrollTo().performClick()
+            until("Input did not resolve to its claimed inbox") {
+                !model.createConversation.state.value.busy &&
+                    model.createConversation.state.value.selectedRecipients
+                        .map { it.inboxId }
+                        .toSet() == expected &&
+                    model.createConversation.state.value.failure == null
+            }
+            handles.forEach { (inbox, handle) ->
+                assertEquals(
+                    handle,
+                    model.createConversation.state.value.selectedRecipients
+                        .single { it.inboxId == inbox }
+                        .title,
+                )
+                compose.onNodeWithText(handle).assertExists()
+            }
+            button("Continue").performScrollTo().performClick()
+            until("Review did not open") { model.createConversation.state.value.step == CreateStep.REVIEW }
+            button("Create group").performScrollTo().performClick()
+        } else {
+            compose.onNodeWithText("Check and add").assertDoesNotExist()
+            compose.onNodeWithText("Selected ·", substring = true).assertDoesNotExist()
+            button("Continue").assertIsEnabled().performClick()
+            until("DM Continue did not finish") {
+                model.state.value.screen == Screen.TIMELINE ||
+                    model.createConversation.state.value.step == CreateStep.REVIEW ||
+                    model.createConversation.state.value.failure != null
+            }
+            assertEquals("DM Continue skips review", CreateStep.RECIPIENTS, model.createConversation.state.value.step)
+            assertNull(model.createConversation.state.value.failure)
         }
-        handles.forEach { (inbox, handle) ->
-            assertEquals(
-                handle,
-                model.createConversation.state.value.selectedRecipients
-                    .single { it.inboxId == inbox }
-                    .title,
-            )
-            compose.onNodeWithText(handle).assertExists()
-        }
-        button("Continue").performScrollTo().performClick()
-        until("Review did not open") { model.createConversation.state.value.step == CreateStep.REVIEW }
-        button(if (group) "Create group" else "Start conversation").performScrollTo().performClick()
         until("Created conversation did not open") {
             model.state.value.screen == Screen.TIMELINE && model.state.value.conversationId != null
         }
         val owner = checkNotNull(model.session.active.value)
         return checkNotNull(owner.client.conversations.getById(checkNotNull(model.state.value.conversationId)))
     }
+
+    @Test fun directMessagesAcceptAddressAndInboxIdWithOneContinue() =
+        runBlocking {
+            val target = peer()
+            for (input in listOf(target.identity().identifier, target.inboxId())) {
+                val conversation = create(input, setOf(target.inboxId()))
+                assertEquals(target.inboxId(), (conversation as Conversation.Dm).dm.peerInboxId())
+                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+                until("Chats did not reopen") { model.state.value.screen == Screen.CONVERSATIONS }
+            }
+        }
+
+    @Test fun directMessagesCanChoosePeopleFromChatsAndReplaceTheSelection() =
+        runBlocking {
+            val first = peer()
+            val firstHandle = claim(first)
+            val second = peer()
+            val secondHandle = claim(second, coded = true)
+            val typed = peer()
+            for (target in listOf(first, second)) {
+                val chat = create(target.inboxId(), setOf(target.inboxId())) as Conversation.Dm
+                assertEquals(target.inboxId(), chat.dm.peerInboxId())
+                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+                until("Chats did not reopen") { model.state.value.screen == Screen.CONVERSATIONS }
+            }
+
+            suspend fun openPicker() {
+                model.createConversation.clear()
+                compose.onNodeWithContentDescription("New message").performClick()
+                until("Saved chat participants did not load") {
+                    model.createConversation.state.value.knownRecipients
+                        .map { it.inboxId }
+                        .containsAll(listOf(first.inboxId(), second.inboxId()))
+                }
+                compose.onNodeWithText("People from your chats").performScrollTo().assertIsDisplayed()
+            }
+
+            fun person(handle: String) = compose.onNode(hasText(handle) and hasClickAction())
+
+            suspend fun openedPeer(): String {
+                button("Continue").assertIsEnabled().performClick()
+                until("Picked recipient did not open directly") {
+                    model.state.value.screen == Screen.TIMELINE ||
+                        model.createConversation.state.value.step == CreateStep.REVIEW ||
+                        model.createConversation.state.value.failure != null
+                }
+                assertEquals("Picked DM skips review", CreateStep.RECIPIENTS, model.createConversation.state.value.step)
+                assertNull(model.createConversation.state.value.failure)
+                until("Picked DM timeline did not open") { model.state.value.screen == Screen.TIMELINE }
+                val owner = checkNotNull(model.session.active.value)
+                val chat =
+                    checkNotNull(
+                        owner.client.conversations.getById(checkNotNull(model.state.value.conversationId)),
+                    ) as Conversation.Dm
+                return checkNotNull(chat.dm.peerInboxId())
+            }
+
+            openPicker()
+            button("Continue").assertIsNotEnabled()
+            person(firstHandle).assertIsNotSelected().performScrollTo().performClick()
+            compose.onNodeWithTag("dm-recipient").assertTextContains(first.inboxId())
+            person(firstHandle).assertIsSelected()
+            person(secondHandle).assertIsNotSelected().performScrollTo().performClick()
+            compose.onNodeWithTag("dm-recipient").assertTextContains(second.inboxId())
+            person(firstHandle).assertIsNotSelected()
+            person(secondHandle).assertIsSelected()
+            button("Group").performScrollTo().performClick()
+            button("Direct message").performScrollTo().performClick()
+            person(secondHandle).assertIsSelected()
+            compose.onNodeWithText("Check and add").assertDoesNotExist()
+            compose.onNodeWithText("Selected ·", substring = true).assertDoesNotExist()
+            assertEquals("The most recently picked person receives the DM", second.inboxId(), openedPeer())
+
+            model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+            until("Chats did not reopen") { model.state.value.screen == Screen.CONVERSATIONS }
+            openPicker()
+            compose.onNodeWithTag("dm-recipient").performScrollTo().performTextReplacement("not a handle")
+            androidx.test.espresso.Espresso
+                .closeSoftKeyboard()
+            button("Continue").performClick()
+            until("Invalid recipient did not show an error") {
+                !model.createConversation.state.value.busy && model.createConversation.state.value.failure != null
+            }
+            person(firstHandle).performScrollTo().performClick()
+            assertNull(model.createConversation.state.value.failure)
+            compose.onNodeWithTag("dm-recipient").assertTextContains(first.inboxId())
+            compose.onNodeWithTag("dm-recipient").performScrollTo().performTextReplacement(typed.inboxId())
+            androidx.test.espresso.Espresso
+                .closeSoftKeyboard()
+            person(firstHandle).assertIsNotSelected()
+            person(secondHandle).assertIsNotSelected()
+            assertEquals("Typed input replaces the picked recipient", typed.inboxId(), openedPeer())
+        }
+
+    @Test fun directMessageErrorsStayInlineAndEditingAllowsKeyboardRetry() =
+        runBlocking {
+            val target = peer()
+            model.createConversation.clear()
+            model.dispatch(MessengerAction.Navigate(Screen.CREATE))
+            until("Create screen did not open") { model.state.value.screen == Screen.CREATE }
+            button("Continue").assertIsNotEnabled()
+            val missing =
+                "missing" +
+                    UUID
+                        .randomUUID()
+                        .toString()
+                        .replace("-", "")
+                        .take(20)
+            for (input in listOf("not a handle", target.inboxId() + ", " + target.inboxId(), missing)) {
+                compose.onNodeWithTag("dm-recipient").performTextReplacement(input)
+                androidx.test.espresso.Espresso
+                    .closeSoftKeyboard()
+                assertNull(model.createConversation.state.value.failure)
+                button("Continue").assertIsEnabled().performClick()
+                until("Invalid recipient did not show an error") {
+                    !model.createConversation.state.value.busy && model.createConversation.state.value.failure != null
+                }
+                assertEquals(Screen.CREATE, model.state.value.screen)
+                assertEquals(CreateStep.RECIPIENTS, model.createConversation.state.value.step)
+                compose
+                    .onNodeWithText(
+                        checkNotNull(model.createConversation.state.value.failure).message,
+                    ).assertExists()
+                compose.onNodeWithText("Check and add").assertDoesNotExist()
+                compose.onNodeWithText("Start conversation").assertDoesNotExist()
+                compose.onNodeWithText("Selected ·", substring = true).assertDoesNotExist()
+            }
+            compose.onNodeWithTag("dm-recipient").performTextReplacement("")
+            assertNull(model.createConversation.state.value.failure)
+            button("Continue").assertIsNotEnabled()
+            compose.onNodeWithTag("dm-recipient").performTextReplacement(target.inboxId())
+            compose.onNodeWithTag("dm-recipient").performImeAction()
+            until("Keyboard retry did not open the DM") {
+                model.state.value.screen == Screen.TIMELINE || model.createConversation.state.value.failure != null
+            }
+            assertNull(model.createConversation.state.value.failure)
+            val owner = checkNotNull(model.session.active.value)
+            val conversation =
+                checkNotNull(owner.client.conversations.getById(checkNotNull(model.state.value.conversationId)))
+            assertEquals(target.inboxId(), (conversation as Conversation.Dm).dm.peerInboxId())
+        }
+
+    @Test fun switchingModesKeepsSeparateDraftsAndGroupOptions() =
+        runBlocking {
+            val first = peer()
+            val second = peer()
+            model.createConversation.clear()
+            model.dispatch(MessengerAction.Navigate(Screen.CREATE))
+            until("Create screen did not open") { model.state.value.screen == Screen.CREATE }
+            button("Group").performClick()
+            compose.onNodeWithText(recipientLabel).performTextReplacement(first.inboxId() + ", " + second.inboxId())
+            androidx.test.espresso.Espresso
+                .closeSoftKeyboard()
+            button("Check and add").performScrollTo().performClick()
+            until("Group recipients did not resolve") {
+                !model.createConversation.state.value.busy &&
+                    model.createConversation.state.value.selectedRecipients.size == 2
+            }
+            button("Continue").performScrollTo().performClick()
+            until("Group options did not open") { model.createConversation.state.value.step == CreateStep.REVIEW }
+            compose.onNodeWithText("Group name").performScrollTo().performTextReplacement("Friends")
+            compose.onNodeWithText("Description (optional)").performScrollTo().performTextReplacement("Weekend plans")
+            androidx.test.espresso.Espresso
+                .closeSoftKeyboard()
+            button("Advanced options").performScrollTo().performClick()
+            button("Admins only").performScrollTo().performClick()
+            button("Direct message").performScrollTo().performClick()
+            assertEquals(
+                "",
+                compose
+                    .onNodeWithTag("dm-recipient")
+                    .fetchSemanticsNode()
+                    .config[SemanticsProperties.EditableText]
+                    .text,
+            )
+            compose.onNodeWithText("Group name").assertDoesNotExist()
+            compose.onNodeWithTag("dm-recipient").performTextReplacement(first.inboxId())
+            androidx.test.espresso.Espresso
+                .closeSoftKeyboard()
+            button("Group").performClick()
+            val groupDraft = model.createConversation.state.value
+            assertEquals(CreateStep.REVIEW, groupDraft.step)
+            assertEquals("Friends", groupDraft.name)
+            assertEquals("Weekend plans", groupDraft.description)
+            assertTrue(groupDraft.adminOnly)
+            assertEquals(
+                setOf(first.inboxId(), second.inboxId()),
+                groupDraft.selectedRecipients.map { it.inboxId }.toSet(),
+            )
+            button("Direct message").performScrollTo().performClick()
+            assertEquals(
+                first.inboxId(),
+                compose
+                    .onNodeWithTag("dm-recipient")
+                    .fetchSemanticsNode()
+                    .config[SemanticsProperties.EditableText]
+                    .text,
+            )
+            button("Continue").performClick()
+            until("The separate DM draft did not open") { model.state.value.screen == Screen.TIMELINE }
+            val owner = checkNotNull(model.session.active.value)
+            val dm =
+                checkNotNull(
+                    owner.client.conversations.getById(checkNotNull(model.state.value.conversationId)),
+                ) as Conversation.Dm
+            assertEquals(first.inboxId(), dm.dm.peerInboxId())
+            model.dispatch(MessengerAction.Navigate(Screen.CREATE))
+            until("Create screen did not reopen") { model.state.value.screen == Screen.CREATE }
+            button("Group").performClick()
+            button("Create group").performScrollTo().performClick()
+            until("The saved group draft did not open") { model.state.value.screen == Screen.TIMELINE }
+            val group =
+                (
+                    checkNotNull(
+                        owner.client.conversations.getById(checkNotNull(model.state.value.conversationId)),
+                    ) as Conversation.Group
+                ).group
+            assertEquals("Friends", group.state().name)
+            assertEquals("Weekend plans", group.state().description)
+            assertEquals(GroupPolicyType.ADMIN_ONLY, group.state().permissions.policyType)
+            assertTrue(group.members().map { it.inboxId }.containsAll(listOf(first.inboxId(), second.inboxId())))
+        }
 
     @Test fun directMessagesResolveBareAndCodedHandles() =
         runBlocking {
