@@ -36,6 +36,9 @@
           };
         };
         settings.formatter = {
+          # A release's copy of the CONF example file stays byte for byte as
+          # that release published it.
+          taplo.excludes = [ "apps/backend/src/config/tests/releases/*.toml" ];
           shellcheck.options = [
             "-e"
             "SC1091"

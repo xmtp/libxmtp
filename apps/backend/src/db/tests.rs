@@ -143,6 +143,30 @@ async fn startup_rejects_retention_that_overflows_the_database_clock() {
     ));
 }
 
+/// A push expiry that passes the load check but overflows at the store's
+/// clock stops startup under its key.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-091
+async fn startup_rejects_push_expiry_that_overflows_the_database_clock() {
+    let database = TestDatabase::new()?;
+    let config = Config::load_str(&format!(
+        "[database]\nurl = {:?}\n[server]\nidentifier = {:?}\n[push]\nrecipient_ttl_seconds = 9223372036\n",
+        database.url(),
+        crate::test_support::DEFAULT_TEST_IDENTIFIER
+    ))?;
+    let error = crate::server::initialize(config)
+        .await
+        .err()
+        .expect("startup push expiry must fit");
+    assert!(matches!(
+        error.downcast_ref::<crate::config::ConfigError>(),
+        Some(crate::config::ConfigError::Invalid {
+            field: "push.recipient_ttl_seconds",
+            ..
+        })
+    ));
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: OPS-005
 async fn concurrent_initializers_apply_one_migration_on_an_empty_database() {

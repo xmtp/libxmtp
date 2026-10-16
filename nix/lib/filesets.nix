@@ -336,6 +336,7 @@ let
       (src + /docs/schemas/backend-v1.json)
       (src + /docs/backend-observability.md)
       (src + /docs/specs/OPS-backend-operations.md)
+      (src + /docs/specs/CONF-backend-configuration.md)
       (src + /dev/backend/local.toml)
       (src + /dev/backend/local-s3.toml)
     ];

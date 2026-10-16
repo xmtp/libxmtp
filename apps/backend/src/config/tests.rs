@@ -1,4 +1,30 @@
 use super::*;
+use std::collections::BTreeSet;
+
+mod example;
+
+/// A command that runs one test of this test binary in a child process. The
+/// test is named by `module_path!()` where it is defined and its function name.
+pub(crate) fn child_test(module: &str, function: &str) -> std::process::Command {
+    let (_, module) = module
+        .split_once("::")
+        .expect("a test module below the crate root");
+    let mut command =
+        std::process::Command::new(std::env::current_exe().expect("the test executable"));
+    command.args(["--exact", &format!("{module}::{function}"), "--nocapture"]);
+    command
+}
+
+/// Require that a child ran exactly one test and that the test passed. libtest
+/// exits successfully when its filter matches no test.
+pub(crate) fn assert_one_test_passed(output: &std::process::Output) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("test result: ok. 1 passed;"),
+        "{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 fn logging_defaults_and_overrides_are_typed() {
@@ -189,25 +215,155 @@ fn push_expiry_is_checked_at_both_duration_and_clock_boundaries() {
     ));
 }
 
+/// A key that the field table does not list is refused in every table with
+/// fixed keys, including an `[auth]` table whose `enabled` is `false`.
+// verifies: CONF-083
 #[xmtp_common::test(unwrap_try = true)]
-fn minimal_configuration_uses_defaults() {
-    let config: Config = toml::from_str(MINIMAL)?;
-    config.validate()?;
-
-    assert_eq!(config.server.listen, DEFAULT_LISTEN);
-    assert_eq!(
-        config.limits.max_request_bytes,
-        BACKEND_DEFAULT_MAX_REQUEST_BYTES
-    );
-    assert!(config.chains.is_empty());
+fn unknown_keys_are_refused_in_every_table() {
+    let rows = example::field_table();
+    let base = full_document(AuthSource::InlineKeys);
+    Config::load_str(&toml::to_string(&base)?)?;
+    let mut tables = vec![String::new()];
+    for row in &rows {
+        let element = match row.kind.as_str() {
+            "table" => false,
+            "array of tables" => true,
+            _ => continue,
+        };
+        // A table whose keys the operator chooses lists every key name.
+        if rows
+            .iter()
+            .any(|other| other.key.starts_with(&format!("{}.<", row.key)))
+        {
+            continue;
+        }
+        tables.push(if element {
+            format!("{}[]", row.key)
+        } else {
+            row.key.clone()
+        });
+    }
+    for (table, enabled) in tables
+        .iter()
+        .map(|table| (table.as_str(), true))
+        .chain([("auth", false)])
+    {
+        let mut document = base.clone();
+        table_at(&mut document, "auth").insert("enabled".into(), enabled.into());
+        table_at(&mut document, table).insert("unlisted_key".into(), true.into());
+        assert!(
+            Config::load_str(&toml::to_string(&document)?).is_err(),
+            "an unlisted key in [{table}] with auth enabled = {enabled} must be refused"
+        );
+    }
 }
 
-#[xmtp_common::test(unwrap_try = true)]
-fn unknown_keys_are_rejected() {
-    let error =
-        toml::from_str::<Config>("[database]\nurl = 'postgres://localhost/xmtp'\nextra = true\n")
-            .expect_err("unknown keys must fail");
-    assert!(error.to_string().contains("unknown field"));
+/// Where `full_document` takes its JWT keys from.
+#[derive(Clone, Copy)]
+enum AuthSource {
+    JwksUrl,
+    InlineKeys,
+}
+
+/// A configuration that loads and holds every table of the field table, with
+/// an enabled `[auth]` table.
+fn full_document(auth: AuthSource) -> toml::Table {
+    let mut document: toml::Table = toml::from_str(
+        r#"
+[server]
+identifier = "org.xmtp.test"
+[telemetry.resource_attributes]
+"deployment.environment" = "test"
+[database]
+url = "postgres://localhost/xmtp"
+[publishing]
+[streams]
+[retention]
+[validation]
+[limits]
+[mls]
+[handles]
+[chains]
+"eip155:1" = "https://rpc.example.org"
+[auth]
+enabled = true
+jwks_url = "https://auth.example.org/keys"
+audiences = ["xmtp.example.org"]
+issuers = ["https://auth.example.org/"]
+[auth.api_keys]
+bot = "0123456789abcdef0123456789abcdef"
+[push.apns]
+key = "apns-key"
+key_id = "ABC123DEFG"
+team_id = "DEF123GHIJ"
+bundle_id = "org.example.app"
+environment = "production"
+[push.fcm]
+service_account = "{}"
+[push.http]
+allowed_domains = ["push.example.org"]
+[attachments]
+base_url = "https://files.example.org/attachments"
+[attachments.target.S3]
+endpoint = "https://s3.example.org"
+region = "us-east-1"
+bucket = "attachments"
+[attachments.target.S3.credentials]
+kind = "static"
+access_key_id = "AKIAIOSFODNN7EXAMPLE"
+secret_access_key = "secret"
+[[application_components]]
+component_id = 0xC000
+name = "USER_STATUS"
+component_type = "string"
+insert_policy = "allow"
+update_policy = "allow"
+delete_policy = "allow"
+in_groups = true
+in_dms = false
+"#,
+    )
+    .expect("the full document is TOML");
+    if let AuthSource::InlineKeys = auth {
+        let auth = table_at(&mut document, "auth");
+        auth.remove("jwks_url");
+        let mut key = toml::Table::new();
+        key.insert("kid".into(), "test".into());
+        key.insert("alg".into(), "ES256".into());
+        key.insert(
+            "public_key".into(),
+            crate::test_support::auth::TestKey::es256()
+                .public_key
+                .into(),
+        );
+        auth.insert("keys".into(), vec![toml::Value::Table(key)].into());
+    }
+    document
+}
+
+/// The table at a dotted path. `name[]` is the first element of an array of
+/// tables, and the empty path is the document.
+fn table_at<'a>(document: &'a mut toml::Table, path: &str) -> &'a mut toml::Table {
+    let mut table = document;
+    for segment in path.split('.').filter(|segment| !segment.is_empty()) {
+        let (name, element) = match segment.strip_suffix("[]") {
+            Some(name) => (name, true),
+            None => (segment, false),
+        };
+        let value = table
+            .get_mut(name)
+            .unwrap_or_else(|| panic!("the document has no {name} on {path}"));
+        table = if element {
+            value
+                .as_array_mut()
+                .and_then(|items| items.first_mut())
+                .and_then(toml::Value::as_table_mut)
+        } else {
+            value.as_table_mut()
+        }
+        .unwrap_or_else(|| panic!("{name} on {path} is not a table"));
+    }
+    table
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -264,7 +420,7 @@ fn framing_bound_covers_maximum_metadata_and_nested_messages() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: OPS-021
+// verifies: OPS-021, CONF-089
 fn every_cross_field_relationship_is_rejected() {
     let mut config: Config = toml::from_str(MINIMAL)?;
 
@@ -276,6 +432,12 @@ fn every_cross_field_relationship_is_rejected() {
             ..
         })
     ));
+    // Each relation holds at its boundary.
+    config.publishing.max_publish_duration_ms = config.database.max_statement_timeout_ms + 1;
+    config.validate()?;
+    config.limits.max_query_limit = config.limits.default_query_limit;
+    config.limits.max_update_adds = config.limits.max_stream_topics;
+    config.validate()?;
     config = toml::from_str(MINIMAL)?;
     config.streams.max_pong_wait_ms = config.streams.keepalive_interval_ms;
     assert!(matches!(
@@ -338,6 +500,7 @@ fn every_cross_field_relationship_is_rejected() {
     ));
 }
 
+// verifies: CONF-084
 #[xmtp_common::test(unwrap_try = true)]
 fn missing_and_empty_environment_references_fail_without_values() {
     let missing = write_config(
@@ -553,6 +716,7 @@ fn telemetry_rejects_unknown_reserved_and_invalid_values_without_endpoint_conten
     assert!(!error.contains(&std::env::var("PATH")?));
 }
 
+// verifies: CONF-084
 #[xmtp_common::test(unwrap_try = true)]
 fn telemetry_string_values_resolve_environment_references_once() {
     let file = write_config(
@@ -566,6 +730,50 @@ fn telemetry_string_values_resolve_environment_references_once() {
     assert_eq!(
         config.telemetry.resource_attributes["custom"],
         std::env::var("PATH")?
+    );
+}
+
+/// A resolved value that itself begins with `env:` is kept as written, a
+/// reference in an array resolves, and a variable that is not Unicode is
+/// refused by name.
+// verifies: CONF-084
+#[xmtp_common::test(unwrap_try = true)]
+fn environment_references_resolve_once_in_every_string_position() {
+    const CHILD: &str = "XMTP_CONFIG_REFERENCE_CHILD";
+    const NESTED: &str = "XMTP_CONFIG_REFERENCE_NESTED";
+    const TARGET: &str = "XMTP_CONFIG_REFERENCE_TARGET";
+    const ELEMENT: &str = "XMTP_CONFIG_REFERENCE_ELEMENT";
+    const NOT_UNICODE: &str = "XMTP_CONFIG_REFERENCE_NOT_UNICODE";
+    if std::env::var_os(CHILD).is_none() {
+        use std::os::unix::ffi::OsStrExt;
+        let output = child_test(
+            module_path!(),
+            "environment_references_resolve_once_in_every_string_position",
+        )
+        .env(CHILD, "1")
+        .env(NESTED, format!("env:{TARGET}"))
+        .env(TARGET, "must-not-be-read")
+        .env(ELEMENT, "xmtp.example.org")
+        .env(NOT_UNICODE, std::ffi::OsStr::from_bytes(b"\xff"))
+        .output()?;
+        assert_one_test_passed(&output);
+        return;
+    }
+    let config = Config::load_str(&format!(
+        "{MINIMAL}[telemetry]\nservice_name = 'env:{NESTED}'\n[auth]\nenabled = true\njwks_url = 'https://issuer.example/keys'\naudiences = ['env:{ELEMENT}', 'literal']\n"
+    ))?;
+    assert_eq!(config.telemetry.service_name, format!("env:{TARGET}"));
+    assert_eq!(
+        config.auth?.audiences?,
+        vec!["xmtp.example.org".to_owned(), "literal".to_owned()]
+    );
+    let error = Config::load_str(&format!(
+        "{MINIMAL}[telemetry]\nservice_name = 'env:{NOT_UNICODE}'\n"
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(&error, ConfigError::Environment { name } if name == NOT_UNICODE),
+        "{error}"
     );
 }
 
@@ -635,7 +843,7 @@ fn the_identifier_is_required_and_shaped() {
 /// intent, so auth can never switch off by accident. A section that says it is
 /// off is not checked any further and loads no key material.
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: CONF-005
+// verifies: CONF-005, CONF-066
 fn an_auth_section_must_state_whether_it_is_enabled() {
     let config: Config = toml::from_str(&format!(
         "{MINIMAL}\n[auth]\njwks_url = 'https://issuer.example/keys'\n"
@@ -785,5 +993,459 @@ fn handles_min_name_length_defaults_and_range() {
             ),
             "{length}: {error}"
         );
+    }
+}
+
+/// One TOML value, written as it would be in a file.
+fn literal(text: &str) -> toml::Value {
+    toml::from_str::<toml::Table>(&format!("value = {text}"))
+        .unwrap_or_else(|error| panic!("{text} is not a TOML value: {error}"))
+        .remove("value")
+        .expect("the value was just written")
+}
+
+/// The standard checks a Checks cell names before its first semicolon, each
+/// as the text of its code span, with `key ` before a check on the key.
+fn standard_checks(cell: &str) -> Vec<String> {
+    let standard = cell.split(';').next().unwrap_or_default();
+    let mut checks = Vec::new();
+    let mut parts = standard.split('`');
+    while let (Some(before), Some(check)) = (parts.next(), parts.next()) {
+        checks.push(if before.trim_end().ends_with("key") {
+            format!("key {check}")
+        } else {
+            check.to_owned()
+        });
+    }
+    checks
+}
+
+/// One value that fails one standard check of one row of the field table.
+struct FailingValue {
+    key: &'static str,
+    check: &'static str,
+    auth: AuthSource,
+    table: &'static str,
+    name: String,
+    value: toml::Value,
+}
+
+fn failing(key: &'static str, check: &'static str, text: &str) -> FailingValue {
+    let (table, name) = key.rsplit_once('.').expect("a key below the root");
+    FailingValue {
+        key,
+        check,
+        auth: AuthSource::JwksUrl,
+        table,
+        name: name.to_owned(),
+        value: literal(text),
+    }
+}
+
+/// A value for a key the operator chooses, set in `table`.
+fn failing_name(
+    key: &'static str,
+    check: &'static str,
+    table: &'static str,
+    name: &str,
+    text: &str,
+) -> FailingValue {
+    FailingValue {
+        table,
+        name: name.to_owned(),
+        ..failing(key, check, text)
+    }
+}
+
+fn with_inline_keys(case: FailingValue) -> FailingValue {
+    FailingValue {
+        auth: AuthSource::InlineKeys,
+        ..case
+    }
+}
+
+const COUNT: &str = "range 1..4294967295";
+const MAX_INT: &str = "range 1..2147483647";
+
+/// Rows whose standard check has no failing value that today's code refuses.
+/// The only value outside `range 0..4294967295` is above it, and the backend
+/// checks this key against the host clock instead until
+/// https://github.com/xmtp/libxmtp/issues/4590 is fixed.
+const REFUSED_LATER: &[(&str, &str)] = &[("auth.jwks_max_stale_seconds", "range 0..4294967295")];
+
+fn failing_values() -> Vec<FailingValue> {
+    let mut cases = vec![
+        failing("server.listen", "socket address", "'localhost:5050'"),
+        failing(
+            "server.log_level",
+            "one of: off, error, warn, info, debug, trace",
+            "'verbose'",
+        ),
+        failing("server.log_format", "one of: text, json", "'xml'"),
+        failing(
+            "telemetry.metrics_listen",
+            "socket address or empty",
+            "'localhost:9464'",
+        ),
+        failing("telemetry.service_name", "non-blank", "\" \\t \""),
+        failing("telemetry.sample_ratio", "range 0.0..1.0", "-0.1"),
+        failing("telemetry.sample_ratio", "range 0.0..1.0", "1.1"),
+        failing("telemetry.sample_ratio", "range 0.0..1.0", "nan"),
+        failing(
+            "database.url",
+            "url postgres, postgresql",
+            "'mysql://localhost/xmtp'",
+        ),
+        failing(
+            "database.replica_url",
+            "url postgres, postgresql",
+            "'mysql://localhost/xmtp'",
+        ),
+        failing("database.max_connections", COUNT, "4294967296"),
+        failing("database.max_statement_timeout_ms", MAX_INT, "0"),
+        failing("database.max_statement_timeout_ms", MAX_INT, "2147483648"),
+        failing("publishing.max_publish_duration_ms", MAX_INT, "0"),
+        failing("publishing.max_publish_duration_ms", MAX_INT, "2147483648"),
+        failing("publishing.max_barrier_wait_ms", MAX_INT, "0"),
+        failing("publishing.max_barrier_wait_ms", MAX_INT, "2147483648"),
+        failing("streams.max_gap_ranges", "range 1..", "0"),
+        failing("streams.keepalive_interval_ms", COUNT, "4294967296"),
+        failing("validation.max_scw_cache_entries", "range 1..", "0"),
+        failing("limits.max_push_topics", MAX_INT, "0"),
+        failing("limits.max_push_topics", MAX_INT, "2147483648"),
+        failing("mls.max_group_members", "range 1..65535", "0"),
+        failing("mls.max_group_members", "range 1..65535", "65536"),
+        failing("mls.max_installations_per_inbox", "range 1..65535", "0"),
+        failing("mls.max_installations_per_inbox", "range 1..65535", "65536"),
+        failing_name(
+            "chains.<chain id>",
+            "url http, https",
+            "chains",
+            "eip155:1",
+            "'ftp://rpc.example.org'",
+        ),
+        failing(
+            "auth.jwks_url",
+            "secure url",
+            "'http://auth.example.org/keys'",
+        ),
+        with_inline_keys(failing("auth.keys", "non-empty", "[]")),
+        with_inline_keys(failing_name(
+            "auth.keys[].kid",
+            "bytes 1..256",
+            "auth.keys[]",
+            "kid",
+            "''",
+        )),
+        with_inline_keys(failing_name(
+            "auth.keys[].kid",
+            "bytes 1..256",
+            "auth.keys[]",
+            "kid",
+            &format!("'{}'", "k".repeat(257)),
+        )),
+        with_inline_keys(failing_name(
+            "auth.keys[].alg",
+            "one of",
+            "auth.keys[]",
+            "alg",
+            "'HS256'",
+        )),
+        failing_name(
+            "auth.api_keys.<name>",
+            "key pattern ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "auth.api_keys",
+            "-bot",
+            "'fedcba9876543210fedcba9876543210'",
+        ),
+        failing("auth.audiences", "non-empty", "[]"),
+        failing("auth.issuers", "non-empty", "[]"),
+        failing("push.recipient_ttl_seconds", "range 86400..", "86399"),
+        failing("push.max_attempts", "range 1..10", "0"),
+        failing("push.max_attempts", "range 1..10", "11"),
+        failing("push.apns.key", "non-empty", "''"),
+        failing("push.apns.key_id", "non-empty", "''"),
+        failing("push.apns.team_id", "non-empty", "''"),
+        failing("push.apns.bundle_id", "non-empty", "''"),
+        failing(
+            "push.apns.environment",
+            "one of: production, sandbox",
+            "'development'",
+        ),
+        failing("push.fcm.service_account", "non-empty", "''"),
+        failing(
+            "push.http.allowed_domains",
+            "host name",
+            "['-bad.example.org']",
+        ),
+        failing(
+            "attachments.target.S3.endpoint",
+            "plain url",
+            "'https://user:password@s3.example.org'",
+        ),
+    ];
+    let api_keys: toml::Table = (0..=crate::config::auth::MAX_API_KEYS)
+        .map(|index| (format!("bot-{index}"), format!("{index:0>32}").into()))
+        .collect();
+    cases.push(FailingValue {
+        value: toml::Value::Table(api_keys),
+        ..failing("auth.api_keys", "entries ..256", "{}")
+    });
+    for name in ["service.name", "service.version", "xmtp.backend.identifier"] {
+        cases.push(failing_name(
+            "telemetry.resource_attributes.<name>",
+            "key not: service.name, service.version, xmtp.backend.identifier",
+            "telemetry.resource_attributes",
+            name,
+            "'reserved'",
+        ));
+    }
+    // The upper bound of these keys is refused only after
+    // https://github.com/xmtp/libxmtp/issues/4590; their lower bound is here.
+    for key in [
+        "server.max_drain_duration_ms",
+        "streams.poll_interval_ms",
+        "streams.max_pong_wait_ms",
+        "limits.max_query_topics",
+        "limits.default_query_limit",
+        "limits.max_query_limit",
+        "limits.max_newest_metadata_topics",
+        "limits.max_newest_full_topics",
+        "limits.max_publish_topics",
+        "limits.max_update_adds",
+        "limits.max_update_removes",
+        "limits.max_stream_topics",
+        "limits.max_static_topics",
+        "limits.max_lookup_identifiers",
+        "limits.max_scw_signatures",
+        "limits.max_identity_entries",
+    ] {
+        cases.push(failing(key, COUNT, "0"));
+    }
+    for key in [
+        "database.max_connections",
+        "streams.keepalive_interval_ms",
+        "limits.max_http2_streams",
+        "limits.max_update_frames_per_second",
+        "limits.max_update_burst",
+        "limits.max_ping_frames_per_second",
+        "limits.max_ping_burst",
+    ] {
+        cases.push(failing(key, COUNT, "0"));
+    }
+    for key in [
+        "limits.max_http2_streams",
+        "limits.max_update_frames_per_second",
+        "limits.max_update_burst",
+        "limits.max_ping_frames_per_second",
+        "limits.max_ping_burst",
+    ] {
+        cases.push(failing(key, COUNT, "4294967296"));
+    }
+    for key in [
+        "retention.group_message_seconds",
+        "retention.welcome_seconds",
+        "retention.key_package_seconds",
+        "limits.max_envelope_bytes",
+        "limits.max_request_bytes",
+        "limits.max_response_bytes",
+    ] {
+        cases.push(failing(key, "range 1..", "0"));
+    }
+    for key in [
+        "application_components[].insert_policy",
+        "application_components[].update_policy",
+        "application_components[].delete_policy",
+    ] {
+        cases.push(failing_name(
+            key,
+            "one of: allow, deny, allow_if_admin, allow_if_super_admin, allow_if_self_or_non_member",
+            "application_components[]",
+            key.rsplit_once('.').expect("a key below the root").1,
+            "'maybe'",
+        ));
+    }
+    cases
+}
+
+/// Every standard check the field table names refuses a value that fails it.
+/// Inside a disabled `[auth]` table, the same values start.
+// verifies: CONF-087, CONF-066
+#[xmtp_common::test(unwrap_try = true)]
+fn every_standard_check_in_the_field_table_refuses_a_failing_value() {
+    let cases = failing_values();
+    let named: BTreeSet<(String, String)> = example::field_table()
+        .iter()
+        .flat_map(|row| {
+            standard_checks(&row.checks)
+                .into_iter()
+                .map(|check| (row.key.clone(), check))
+        })
+        .collect();
+    let covered: BTreeSet<(String, String)> = cases
+        .iter()
+        .map(|case| (case.key.to_owned(), case.check.to_owned()))
+        .chain(
+            REFUSED_LATER
+                .iter()
+                .map(|(key, check)| ((*key).to_owned(), (*check).to_owned())),
+        )
+        .collect();
+    assert_eq!(
+        named, covered,
+        "the field table and the cases name different checks"
+    );
+
+    for auth in [AuthSource::JwksUrl, AuthSource::InlineKeys] {
+        Config::load_str(&toml::to_string(&full_document(auth))?)?;
+    }
+    for case in &cases {
+        let mut document = full_document(case.auth);
+        table_at(&mut document, case.table).insert(case.name.clone(), case.value.clone());
+        let text = toml::to_string(&document)?;
+        assert!(
+            Config::load_str(&text).is_err(),
+            "{} = {} must fail {}",
+            case.key,
+            case.value,
+            case.check
+        );
+        if case.key.starts_with("auth.") {
+            table_at(&mut document, "auth").insert("enabled".into(), false.into());
+            if let Err(error) = Config::load_str(&toml::to_string(&document)?) {
+                panic!(
+                    "{} = {} must start while auth is disabled: {error}",
+                    case.key, case.value
+                );
+            }
+        }
+    }
+}
+
+/// An absent key takes the value its Default cell states, read from the spec:
+/// a literal, or the compiled default of section 3. Keys of an optional table
+/// are read from a file that adds only that table's required keys.
+// verifies: CONF-088
+#[xmtp_common::test(unwrap_try = true)]
+fn minimal_configuration_uses_defaults() {
+    const REQUIRED: &str =
+        "[server]\nidentifier = 'org.xmtp.test'\n[database]\nurl = 'postgres://localhost/xmtp'\n";
+    let minimal = Config::load_str(REQUIRED)?;
+    let tables = Config::load_str(&format!(
+        "{REQUIRED}[auth]\nenabled = false\n[push.http]\n[attachments]\nbase_url = 'https://files.example.org'\n[attachments.target.S3]\nendpoint = 'https://s3.example.org'\nregion = 'us-east-1'\nbucket = 'attachments'\n[attachments.target.S3.credentials]\nkind = 'web_identity'\n"
+    ))?;
+    let mut tables_loaded = serde_json::to_value(&tables)?;
+    // The target applies its presign lifetime default when it signs.
+    let Some(xmtp_attachments_server::TargetConfig::S3(s3)) = tables
+        .attachments
+        .as_ref()
+        .map(|attachments| &attachments.target)
+    else {
+        panic!("the attachments table loaded without its target");
+    };
+    tables_loaded["attachments"]["target"]["S3"]["presign_ttl_seconds"] =
+        s3.presign_ttl_seconds().into();
+    let loaded = [serde_json::to_value(&minimal)?, tables_loaded];
+
+    let compiled = example::compiled_defaults();
+    let rows = example::field_table();
+    for row in &rows {
+        let text = match row.default.as_str() {
+            // The key has no default, or the requirement that reads it gives
+            // the effect of its absence.
+            "none" | "absent" => continue,
+            "section 3" => example::code(
+                compiled
+                    .get(&row.key)
+                    .unwrap_or_else(|| panic!("section 3 has no default for {}", row.key)),
+            ),
+            default if default.len() > 2 && default.starts_with('`') && default.ends_with('`') => {
+                example::code(default)
+            }
+            // Another requirement or term states the default and governs it.
+            default if is_requirement_id(default) || is_terms_reference(default) => continue,
+            default => panic!(
+                "{}: the Default cell {default:?} is not a value, section 3, none, absent, or a reference",
+                row.key
+            ),
+        };
+        // A table's own keys have rows of their own, which carry their defaults.
+        if text == "{}"
+            && rows.iter().any(|other| {
+                other
+                    .key
+                    .strip_prefix(&format!("{}.", row.key))
+                    .is_some_and(|rest| !rest.starts_with('<'))
+            })
+        {
+            continue;
+        }
+        let expected = serde_json::to_value(literal(text))?;
+        let actual = loaded
+            .iter()
+            .find_map(|config| {
+                row.key
+                    .split('.')
+                    .try_fold(config, |value, name| value.get(name))
+                    .filter(|value| !value.is_null())
+            })
+            .unwrap_or_else(|| panic!("{} is not in either loaded file", row.key));
+        assert_eq!(actual, &expected, "{}", row.key);
+    }
+}
+
+/// Whether `text` has the form of a requirement identifier, such as
+/// `PUSH-226`: three to five capital letters, `-`, and three digits.
+fn is_requirement_id(text: &str) -> bool {
+    text.split_once('-').is_some_and(|(prefix, number)| {
+        is_spec_prefix(prefix)
+            && number.len() == 3
+            && number.bytes().all(|byte| byte.is_ascii_digit())
+    })
+}
+
+/// Whether `text` names a term of another spec, such as
+/// `OPS Terms (Drain deadline)`.
+fn is_terms_reference(text: &str) -> bool {
+    text.split_once(" Terms (").is_some_and(|(prefix, term)| {
+        is_spec_prefix(prefix) && term.len() > 1 && term.ends_with(')')
+    })
+}
+
+fn is_spec_prefix(prefix: &str) -> bool {
+    (3..=5).contains(&prefix.len()) && prefix.bytes().all(|byte| byte.is_ascii_uppercase())
+}
+
+/// A chain key is `eip155:` and a chain id in canonical decimal form that fits
+/// in 64 bits.
+// verifies: CONF-090
+#[xmtp_common::test(unwrap_try = true)]
+fn chain_keys_must_be_eip155_chain_ids() {
+    let load = |chain: &str| {
+        Config::load_str(&format!(
+            "{MINIMAL}[chains]\n\"{chain}\" = 'https://rpc.example.org'\n"
+        ))
+    };
+    for chain in [
+        "eip155:01",
+        "eip155:+1",
+        "eip155:18446744073709551616",
+        "cosmos:cosmoshub-4",
+    ] {
+        let error = load(chain).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ConfigError::Invalid {
+                    field: "chains",
+                    ..
+                }
+            ),
+            "{chain}: {error}"
+        );
+    }
+    for chain in ["eip155:0", "eip155:1", "eip155:18446744073709551615"] {
+        let config = load(chain)?;
+        assert!(config.chains.contains_key(chain), "{chain}");
     }
 }
