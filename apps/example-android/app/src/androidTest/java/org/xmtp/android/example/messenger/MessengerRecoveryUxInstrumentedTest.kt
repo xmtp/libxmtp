@@ -207,7 +207,7 @@ class MessengerRecoveryUxInstrumentedTest {
             }
         }
 
-    @Test fun startRetryUsesCurrentBackendAndCredentialInRealConnect() =
+    @Test fun newServerJoinClearsFailureAndUsesCurrentBackendAndCredential() =
         runBlocking {
             try {
                 model.session.signOut()
@@ -243,6 +243,9 @@ class MessengerRecoveryUxInstrumentedTest {
                     .assertIsEnabled()
                     .performTextReplacement(url)
                 until("new credential origin") { model.state.value.credentialsRequiredFor == url }
+                assertNull(model.connect.state.value.failure)
+                assertFalse(model.connect.state.value.hasAttemptedJoin)
+                compose.onNodeWithText("Retry").assertDoesNotExist()
                 compose
                     .onNodeWithText("Access token")
                     .performScrollTo()
@@ -251,12 +254,12 @@ class MessengerRecoveryUxInstrumentedTest {
                     .performTextReplacement("new secret")
                 model.session.beforeClientBuild = {}
                 compose
-                    .onNodeWithText("Retry")
+                    .onNodeWithText("Join a server")
                     .performScrollTo()
                     .assertIsDisplayed()
                     .assertIsEnabled()
                     .performClick()
-                until("retried native owner") {
+                until("new server native owner") {
                     model.session.active.value
                         ?.profile
                         ?.backend == url
@@ -265,7 +268,7 @@ class MessengerRecoveryUxInstrumentedTest {
                 val credential = model.session.secrets.read(owner.key.profileId, "credential")
                 assertEquals("new secret", credential?.toString(Charsets.UTF_8))
                 assertTrue(owner.client.inboxId().isNotBlank())
-                println("START_RETRY_PROOF stage=current-url-and-credential-created-native-owner")
+                println("NEW_SERVER_JOIN_PROOF stage=cleared-failure-current-url-and-credential-created-native-owner")
                 model.session.signOut()
                 obsoleteConnectCannotClearNewRetryTarget(false)
                 obsoleteConnectCannotClearNewRetryTarget(true)

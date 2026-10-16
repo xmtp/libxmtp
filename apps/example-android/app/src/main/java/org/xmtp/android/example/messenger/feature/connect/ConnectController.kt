@@ -123,7 +123,7 @@ internal class ConnectController(
             is ConnectAction.Connect -> {
                 session.withStateLock {
                     lastAttempt = action.backend to action.credential
-                    ui.update { it.copy(backend = action.backend) }
+                    ui.update { it.copy(backend = action.backend, hasAttemptedJoin = true) }
                     transition { attempt ->
                         commands.connect(
                             action.backend,
@@ -263,14 +263,20 @@ internal class ConnectController(
             val address = backend.trim().trimEnd('/')
             val attempt = inspections.incrementAndGet()
             val token = destinations.state.value.token
+            val newDestination = inspectedDestinationToken != token
             inspectedDestinationToken = token
             ui.update {
+                val changed = address != it.normalizedBackend || newDestination
                 it.copy(
                     backend = backend,
                     normalizedBackend = address,
                     probe = ProbeState.CHECKING,
                     credentialsRequiredFor = null,
-                    failure = it.failure.takeUnless { failure -> failure?.code == "server-probe" },
+                    hasAttemptedJoin = it.hasAttemptedJoin && !changed,
+                    failure =
+                        it.failure.takeUnless { failure ->
+                            failure?.code == "server-probe" || (changed && failure?.code == "connect")
+                        },
                 )
             }
             probeJob?.cancel()

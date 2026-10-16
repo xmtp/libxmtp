@@ -93,11 +93,13 @@ fun ConnectScreen(
                     }
 
                     ProbeState.FAILED -> {
-                        Text(
-                            "Server check failed. Check the address and try again.",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        if (state.hasAttemptedJoin) {
+                            Text(
+                                "Server check failed. Check the address and try again.",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
 
                     ProbeState.IDLE -> {
@@ -134,20 +136,23 @@ fun ConnectScreen(
                 }
             }
         }
-        state.failure?.takeIf { !state.pendingReset }?.let { failure ->
-            Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(16.dp)) {
-                Column(Modifier.fillMaxWidth().padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
-                    Text(failure.message, color = MaterialTheme.colorScheme.onErrorContainer)
-                    TextButton(
-                        onClick = {
-                            if (failure.code == "restore") action(ConnectAction.Retry) else join()
-                        },
-                        enabled = !state.busy,
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) { Text("Retry") }
+        state.failure
+            ?.takeIf {
+                !state.pendingReset && (it.code != "server-probe" || state.hasAttemptedJoin)
+            }?.let { failure ->
+                Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
+                        Text(failure.message, color = MaterialTheme.colorScheme.onErrorContainer)
+                        TextButton(
+                            onClick = {
+                                if (failure.code == "restore") action(ConnectAction.Retry) else join()
+                            },
+                            enabled = !state.busy,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text("Retry") }
+                    }
                 }
             }
-        }
         if (state.pendingReset) {
             Text(
                 "Local data removal is not complete. Continue removal to connect again.",

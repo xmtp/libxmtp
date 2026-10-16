@@ -10,6 +10,7 @@ data class ConnectState(
     val normalizedBackend: String? = null,
     val probe: ProbeState = ProbeState.IDLE,
     val credentialsRequiredFor: String? = null,
+    val hasAttemptedJoin: Boolean = false,
     val busy: Boolean = false,
     val failure: AppFailure? = null,
     val advanced: Boolean = false,

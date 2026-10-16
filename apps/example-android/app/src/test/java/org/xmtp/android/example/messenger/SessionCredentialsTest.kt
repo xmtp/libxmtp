@@ -32,11 +32,26 @@ class SessionCredentialsTest {
             values["profile"] = "updated ütf8".toByteArray(Charsets.UTF_8)
             val value = source.credential()
             assertNull(value.name)
-            assertEquals("updated ütf8", value.value)
+            assertEquals("Bearer updated ütf8", value.value)
             assertEquals(Long.MAX_VALUE, value.expiresAtSeconds)
             assertEquals(listOf("profile", "profile"), profiles)
             values["profile"] = byteArrayOf()
             assertEquals("", source.credential().value)
+        }
+
+    @Test fun callbackAcceptsRawAndPrefixedPastedTokens() =
+        runBlocking {
+            val fence = SessionFence()
+            val key = checkNotNull(fence.replace("profile"))
+            for (token in listOf(
+                "fixture-token",
+                " \nfixture-token\t ",
+                "Bearer fixture-token",
+                " \nbEaReR fixture-token\t ",
+            )) {
+                val source = checkNotNull(SessionCredentials(fence) { token.toByteArray() }.forProfile("profile", key))
+                assertEquals("bearer fixture-token", source.credential().value.lowercase())
+            }
         }
 
     @Test fun actualCallbackRejectsAStaleOwnerBeforeReadingTheSecret() =

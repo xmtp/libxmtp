@@ -22,6 +22,9 @@ Captured from the running iPhone simulator with local test accounts.
 
 ## Connect
 
+Server checks stay quiet until you press Join. The Access token field accepts
+either a raw token or a complete `Bearer <token>` value.
+
 Select Xcode 26 or later. Run from the repository root:
 
 ```sh
