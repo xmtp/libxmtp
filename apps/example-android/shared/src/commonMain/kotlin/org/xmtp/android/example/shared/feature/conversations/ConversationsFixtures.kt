@@ -64,6 +64,8 @@ object CreateConversationFixtures {
                 ),
             maxMembers = 100,
         )
+    val directMessageWithPeople =
+        empty.copy(recipients = "sample-alex", knownRecipients = populated.selectedRecipients)
     val loading = populated.copy(busy = true)
     val review = populated.copy(step = CreateStep.REVIEW)
     val failure =

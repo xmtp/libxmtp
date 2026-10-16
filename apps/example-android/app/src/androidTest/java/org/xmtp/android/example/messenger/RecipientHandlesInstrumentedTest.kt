@@ -168,6 +168,88 @@ class RecipientHandlesInstrumentedTest {
             }
         }
 
+    @Test fun directMessagesCanChoosePeopleFromChatsAndReplaceTheSelection() =
+        runBlocking {
+            val first = peer()
+            val firstHandle = claim(first)
+            val second = peer()
+            val secondHandle = claim(second, coded = true)
+            val typed = peer()
+            for (target in listOf(first, second)) {
+                val chat = create(target.inboxId(), setOf(target.inboxId())) as Conversation.Dm
+                assertEquals(target.inboxId(), chat.dm.peerInboxId())
+                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+                until("Chats did not reopen") { model.state.value.screen == Screen.CONVERSATIONS }
+            }
+
+            suspend fun openPicker() {
+                model.createConversation.clear()
+                compose.onNodeWithContentDescription("New message").performClick()
+                until("Saved chat participants did not load") {
+                    model.createConversation.state.value.knownRecipients
+                        .map { it.inboxId }
+                        .containsAll(listOf(first.inboxId(), second.inboxId()))
+                }
+                compose.onNodeWithText("People from your chats").performScrollTo().assertIsDisplayed()
+            }
+
+            fun person(handle: String) = compose.onNode(hasText(handle) and hasClickAction())
+
+            suspend fun openedPeer(): String {
+                button("Continue").assertIsEnabled().performClick()
+                until("Picked recipient did not open directly") {
+                    model.state.value.screen == Screen.TIMELINE ||
+                        model.createConversation.state.value.step == CreateStep.REVIEW ||
+                        model.createConversation.state.value.failure != null
+                }
+                assertEquals("Picked DM skips review", CreateStep.RECIPIENTS, model.createConversation.state.value.step)
+                assertNull(model.createConversation.state.value.failure)
+                until("Picked DM timeline did not open") { model.state.value.screen == Screen.TIMELINE }
+                val owner = checkNotNull(model.session.active.value)
+                val chat =
+                    checkNotNull(
+                        owner.client.conversations.getById(checkNotNull(model.state.value.conversationId)),
+                    ) as Conversation.Dm
+                return checkNotNull(chat.dm.peerInboxId())
+            }
+
+            openPicker()
+            button("Continue").assertIsNotEnabled()
+            person(firstHandle).assertIsNotSelected().performScrollTo().performClick()
+            compose.onNodeWithTag("dm-recipient").assertTextContains(first.inboxId())
+            person(firstHandle).assertIsSelected()
+            person(secondHandle).assertIsNotSelected().performScrollTo().performClick()
+            compose.onNodeWithTag("dm-recipient").assertTextContains(second.inboxId())
+            person(firstHandle).assertIsNotSelected()
+            person(secondHandle).assertIsSelected()
+            button("Group").performScrollTo().performClick()
+            button("Direct message").performScrollTo().performClick()
+            person(secondHandle).assertIsSelected()
+            compose.onNodeWithText("Check and add").assertDoesNotExist()
+            compose.onNodeWithText("Selected ·", substring = true).assertDoesNotExist()
+            assertEquals("The most recently picked person receives the DM", second.inboxId(), openedPeer())
+
+            model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+            until("Chats did not reopen") { model.state.value.screen == Screen.CONVERSATIONS }
+            openPicker()
+            compose.onNodeWithTag("dm-recipient").performScrollTo().performTextReplacement("not a handle")
+            androidx.test.espresso.Espresso
+                .closeSoftKeyboard()
+            button("Continue").performClick()
+            until("Invalid recipient did not show an error") {
+                !model.createConversation.state.value.busy && model.createConversation.state.value.failure != null
+            }
+            person(firstHandle).performScrollTo().performClick()
+            assertNull(model.createConversation.state.value.failure)
+            compose.onNodeWithTag("dm-recipient").assertTextContains(first.inboxId())
+            compose.onNodeWithTag("dm-recipient").performScrollTo().performTextReplacement(typed.inboxId())
+            androidx.test.espresso.Espresso
+                .closeSoftKeyboard()
+            person(firstHandle).assertIsNotSelected()
+            person(secondHandle).assertIsNotSelected()
+            assertEquals("Typed input replaces the picked recipient", typed.inboxId(), openedPeer())
+        }
+
     @Test fun directMessageErrorsStayInlineAndEditingAllowsKeyboardRetry() =
         runBlocking {
             val target = peer()

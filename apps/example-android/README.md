@@ -12,9 +12,11 @@ This app is for testing and debugging purposes only.
 ## Create a conversation
 
 Choose **Direct message** or **Group** below New message. For a direct message,
-enter one handle, Ethereum address, or inbox ID and press **Continue** (or Go on
-the keyboard). A valid recipient opens the chat. An invalid or unknown recipient
-shows an error below the field; editing clears that error.
+choose someone from **People from your chats**, or enter one handle, Ethereum
+address, or inbox ID. Choosing a person fills their inbox ID and replaces the
+previous choice. Press **Continue** (or Go on the keyboard) to open the chat.
+An invalid or unknown recipient shows an error below the field; editing or
+choosing a person clears that error.
 
 Groups keep member selection and a second step for the name and description.
 Expand **Advanced options** to choose who can update group details and add

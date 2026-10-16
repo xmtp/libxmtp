@@ -6,6 +6,25 @@ spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
 
+## DM people picker, 2026-10-16
+
+People from your chats remains available below the DM recipient field. It
+selects one person at a time and fills that person's inbox ID. Choosing another
+person or editing the field replaces the choice, with no selected-recipient
+list or review step.
+
+`RecipientHandlesInstrumentedTest.directMessagesCanChoosePeopleFromChatsAndReplaceTheSelection`
+seeds real DMs and loads their participants through the production graph. It
+checks selection replacement, selection across a mode switch, clearing a lookup
+error by choosing a person, typed input overriding a choice, and the native DM's
+actual peer inbox. Before restoration, it fails at the missing People from your
+chats heading after the real saved participants have loaded.
+
+All six recipient journeys and the 320 dp / 200% text-size journey pass on an
+owned API 34 emulator, with zero failures or skips. Unit tests, Spotless, Android
+lint, Debug/Release and instrumentation builds, and JNI package checks pass.
+Evidence is in `.cache/designs/dm-people-*`.
+
 ## Simple direct message creation, 2026-10-16
 
 The Simple form has one recipient field and opens a DM from Continue or the

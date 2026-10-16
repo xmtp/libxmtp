@@ -301,6 +301,29 @@ private fun DirectMessageForm(
                 modifier = Modifier.fillMaxWidth().testTag("dm-recipient"),
                 shape = RoundedCornerShape(16.dp),
             )
+            if (state.knownRecipients.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "People from your chats",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Saved on this device",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    state.knownRecipients.forEach { person ->
+                        RecipientItem(
+                            person,
+                            selected = state.recipients.trim().equals(person.inboxId, ignoreCase = true),
+                            enabled = !state.busy,
+                            singleSelect = true,
+                            onClick = { action(CreateConversationAction.ChangeRecipients(person.inboxId)) },
+                        )
+                    }
+                }
+            }
         }
         Button(
             onClick = { action(CreateConversationAction.Create) },
@@ -381,8 +404,20 @@ private fun RecipientItem(
     person: RecipientUi,
     selected: Boolean,
     enabled: Boolean,
+    singleSelect: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val selection =
+        if (singleSelect) {
+            Modifier.selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+        } else {
+            Modifier.toggleable(
+                value = selected,
+                enabled = enabled,
+                role = Role.Checkbox,
+                onValueChange = { onClick() },
+            )
+        }
     Surface(
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(16.dp),
@@ -390,9 +425,7 @@ private fun RecipientItem(
         Row(
             Modifier
                 .fillMaxWidth()
-                .toggleable(value = selected, enabled = enabled, role = Role.Checkbox, onValueChange = {
-                    onClick()
-                })
+                .then(selection)
                 .padding(
                     12.dp,
                 ),
@@ -410,7 +443,11 @@ private fun RecipientItem(
                     )
                 }
             }
-            Checkbox(checked = selected, onCheckedChange = null, enabled = enabled)
+            if (singleSelect) {
+                RadioButton(selected = selected, onClick = null, enabled = enabled)
+            } else {
+                Checkbox(checked = selected, onCheckedChange = null, enabled = enabled)
+            }
         }
     }
 }
