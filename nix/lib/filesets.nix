@@ -333,9 +333,11 @@ let
     "crates/xmtp_legacy_migration" = [ (src + /crates/xmtp_legacy_migration/fixtures) ];
     "crates/xmtp_mls" = [ (src + /crates/xmtp_legacy_migration/fixtures) ];
     "apps/backend" = [
-      (src + /docs/schemas/backend-v1.json)
       (src + /docs/backend-observability.md)
       (src + /docs/specs/OPS-backend-operations.md)
+    ];
+    "crates/xmtp_backend_config" = [
+      (src + /docs/schemas/backend-v1.json)
       (src + /docs/specs/CONF-backend-configuration.md)
       (src + /dev/backend/local.toml)
       (src + /dev/backend/local-s3.toml)

@@ -8,8 +8,9 @@ use crate::{
         publish_service_server::PublishServiceServer, query_service_server::QueryServiceServer,
         subscription_service_server::SubscriptionServiceServer,
     },
-    config::{Config, MAX_CONFIGURATION_RESPONSE_BYTES},
+    config::Config,
     db::Store,
+    published::{self, MAX_CONFIGURATION_RESPONSE_BYTES},
 };
 use std::{
     collections::HashMap,
@@ -38,8 +39,11 @@ mod tests;
 ///
 /// The primary database is migrated before the backend is returned. A verifier
 /// cache is created with the configured non-zero capacity, and cryptography is
-/// installed before any chain-RPC client is built. Auth keys load before storage;
-/// an exhausted JWKS startup fetch returns a host-only error before binding.
+/// installed before any chain-RPC client is built. Auth keys load before storage:
+/// an inline key that does not parse returns `ConfigError::Auth` naming its
+/// entry, and an exhausted JWKS startup fetch returns a host-only error. The
+/// published configuration is then built and its size checked, also before
+/// storage, so every refusal comes before the caller binds a listener.
 pub async fn initialize(
     config: Config,
 ) -> Result<Backend, Box<dyn std::error::Error + Send + Sync>> {
@@ -54,6 +58,14 @@ pub async fn initialize(
         )),
         None => None,
     };
+    // The key set is known only now. The published settings are completed
+    // here, for every configuration, and then never change.
+    let published_keys = auth
+        .as_ref()
+        .map(|auth| auth.published_keys())
+        .unwrap_or_default();
+    let configuration = published::response(&config, &published_keys);
+    published::check_size(&configuration)?;
     let routes = config
         .chains
         .iter()
@@ -68,13 +80,13 @@ pub async fn initialize(
     config
         .push
         .expires_at(store.clock_ns().await?)
-        .map_err(|_| crate::config::ConfigError::Invalid {
+        .ok_or(crate::config::ConfigError::Invalid {
             field: "push.recipient_ttl_seconds",
             reason: "expiry cannot be represented at the database clock",
         })?;
     let streams =
         crate::stream::StreamHub::start(store.primary.clone(), store.read.clone(), &config).await?;
-    let mut backend = Backend::new(store, config, verifier, chains);
+    let mut backend = Backend::new(store, config, verifier, chains, configuration);
     if let Some(attachments) = &backend.config.attachments {
         backend.attachments = Some(xmtp_attachments_server::build_target(attachments).await?);
     }
@@ -91,16 +103,6 @@ pub async fn initialize(
     }
     backend.streams = Some(streams);
     backend.auth = auth;
-    // The key set is known only now, so the published settings are completed
-    // here and then never change. The size bound is re-checked because a JWKS
-    // key set is not visible to configuration validation.
-    if let Some(auth) = &backend.auth {
-        let response = backend
-            .config
-            .configuration_response(&auth.published_keys());
-        crate::config::validate_configuration_size(&response)?;
-        backend.configuration = Arc::new(response);
-    }
     Ok(backend)
 }
 
@@ -153,7 +155,7 @@ pub async fn serve(
         .max_decoding_message_size(receive)
         .max_encoding_message_size(send);
     // The one response this service sends is bounded by the startup check in
-    // `validate_configuration_size`, not by the deployment's response budget.
+    // `published::check_size`, not by the deployment's response budget.
     // A deployment free to publish a small `max_response_bytes` would otherwise
     // be unable to deliver a configuration its own validation accepted.
     let configuration = ConfigurationServiceServer::new(backend.clone())

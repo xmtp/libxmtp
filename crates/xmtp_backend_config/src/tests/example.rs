@@ -3,10 +3,9 @@
 //! module keep the spec and the configuration code equal.
 
 use super::*;
-use crate::test_support::auth::{TestKey, api_key_value};
 use std::collections::BTreeSet;
 
-const SPEC: &str = include_str!("../../../../../docs/specs/CONF-backend-configuration.md");
+const SPEC: &str = include_str!("../../../../docs/specs/CONF-backend-configuration.md");
 const FIELD_TABLE_HEADER: &str = "| Key | Type | Presence | Default | Checks | Notes |";
 const DEFAULTS_TABLE_HEADER: &str = "| Field | Default value |";
 const CHILD: &str = "XMTP_CONFIG_EXAMPLE_CHILD";
@@ -301,10 +300,10 @@ fn variable(name: &str) -> String {
         "XMTP_REPLICA_URL" => "postgres://xmtp:password@replica.example.org:5432/xmtp".into(),
         "XMTP_CHAIN_1_RPC_URL" => "https://rpc.example.org/1".into(),
         "XMTP_CHAIN_8453_RPC_URL" => "https://rpc.example.org/8453".into(),
-        // The backend parses inline public keys when it loads the file.
-        "XMTP_JWT_PUBLIC_KEY" => TestKey::es256().public_key,
+        // A real key, so the documents also start a backend unchanged.
+        "XMTP_JWT_PUBLIC_KEY" => ES256_PUBLIC_KEY.into(),
         "XMTP_API_KEY_NOTIFICATION_BOT" | "XMTP_API_KEY_SUPPORT_BRIDGE" => api_key_value(),
-        "XMTP_APNS_KEY" => TestKey::es256().private_key,
+        "XMTP_APNS_KEY" => ES256_PRIVATE_KEY.into(),
         "XMTP_FCM_SERVICE_ACCOUNT" => serde_json::json!({
             "type": "service_account",
             "project_id": "example-project",

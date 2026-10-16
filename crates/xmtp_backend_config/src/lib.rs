@@ -2,12 +2,9 @@
 
 use std::{collections::BTreeMap, fs, net::SocketAddr, path::Path};
 
-use crate::api;
-
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use xmtp_common::NS_IN_SEC;
 use xmtp_configuration::{
     BACKEND_DEFAULT_GROUP_MESSAGE_SECONDS, BACKEND_DEFAULT_KEY_PACKAGE_SECONDS,
     BACKEND_DEFAULT_MAX_ENVELOPE_BYTES, BACKEND_DEFAULT_MAX_HTTP2_STREAMS,
@@ -20,8 +17,8 @@ use xmtp_configuration::{
     BACKEND_DEFAULT_MAX_STATIC_TOPICS, BACKEND_DEFAULT_MAX_STREAM_TOPICS,
     BACKEND_DEFAULT_MAX_UPDATE_ADDS, BACKEND_DEFAULT_MAX_UPDATE_BURST,
     BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND, BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
-    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS, parse_eip155_chain_id,
-    validate_server_identifier,
+    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS, MAX_SERVER_IDENTIFIER_BYTES,
+    MAX_TRANSPORT_BYTES, parse_eip155_chain_id, validate_server_identifier,
 };
 
 pub mod application_components;
@@ -30,31 +27,27 @@ pub mod handles;
 pub mod push;
 mod schema;
 mod telemetry;
-pub use telemetry::TelemetryConfig;
+pub use telemetry::{IDENTIFIER_ATTRIBUTE, TelemetryConfig};
 
 const SCHEMA_ID: &str =
     "https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json";
 
 // These values are server implementation details. They are not configuration keys.
-pub(crate) const DELIVERY_FRAME_BYTES: usize = 2 * 1024 * 1024;
-pub(crate) const FETCH_BUFFER_BYTES: usize = 64 * 1024 * 1024;
-pub(crate) const OUTBOUND_QUEUE_BYTES: usize = 16 * 1024 * 1024;
-// Maximum metadata with a 128-byte stored topic and ten-byte scalar varints.
-const MAX_METADATA_BYTES: usize = 207;
+/// The largest frame one stream delivery writes.
+pub const DELIVERY_FRAME_BYTES: usize = 2 * 1024 * 1024;
+/// Maximum metadata with a 128-byte stored topic and ten-byte scalar varints.
+pub const MAX_METADATA_BYTES: usize = 207;
 const MAX_NESTED_FIELD_OVERHEAD: usize = 11;
-const GRPC_HEADER_BYTES: usize = 5;
-pub(crate) const ENVELOPE_METADATA_AND_FRAMING_BYTES: usize =
+/// The gRPC message header: a compression flag and a four-byte length.
+pub const GRPC_HEADER_BYTES: usize = 5;
+/// The bytes one delivered envelope may need beyond its own encoding.
+pub const ENVELOPE_METADATA_AND_FRAMING_BYTES: usize =
     MAX_METADATA_BYTES + 4 * MAX_NESTED_FIELD_OVERHEAD + GRPC_HEADER_BYTES;
+const NS_IN_SEC: i64 = 1_000_000_000;
 const MAX_RETENTION_SECONDS: u64 = i64::MAX as u64 / NS_IN_SEC as u64;
 const MAX_DATABASE_TIMEOUT_MS: u64 = i32::MAX as u64;
-/// Longest operator identifier, in bytes.
-pub use xmtp_configuration::MAX_SERVER_IDENTIFIER_BYTES as MAX_IDENTIFIER_BYTES;
-/// Fixed transport ceiling. Neither request nor response budget may exceed it.
-pub use xmtp_configuration::MAX_TRANSPORT_BYTES;
 /// Advisory MLS group shapes are published as `uint32` and bounded here.
 pub const MAX_MLS_LIMIT: u32 = u16::MAX as u32;
-/// The published configuration must stay small enough for one cheap response.
-pub const MAX_CONFIGURATION_RESPONSE_BYTES: usize = 64 * 1024;
 
 const DEFAULT_LISTEN: &str = "0.0.0.0:5050";
 const DEFAULT_DRAIN_DURATION_MS: u64 = 10_000;
@@ -261,10 +254,6 @@ impl Config {
         self.mls.validate()?;
         self.handles.validate()?;
         application_components::validate(&self.application_components)?;
-        // Inline signing keys are the only key source known before startup. A
-        // JWKS deployment re-checks the assembled response once its key set
-        // has been fetched.
-        validate_configuration_size(&self.configuration_response(&[]))?;
         Ok(())
     }
 
@@ -277,108 +266,6 @@ impl Config {
             non_empty_url(url, "chains", UrlKind::Http)?;
         }
         Ok(())
-    }
-
-    /// Build the configuration published to clients. It is assembled once at
-    /// startup and never changes while the process runs.
-    ///
-    /// `jwks_keys` carries the `(kid, alg)` pairs of the key set fetched at
-    /// startup; it is empty for an inline-key or credential-free deployment,
-    /// where the keys come from the configuration itself. Nothing secret
-    /// belongs here: no JWKS URL, no key material, no chain RPC URL, and no
-    /// database, telemetry, or listener setting.
-    // implements: CONF-011, CONF-070
-    pub fn configuration_response(
-        &self,
-        jwks_keys: &[(String, String)],
-    ) -> api::GetConfigurationResponse {
-        let limits = &self.limits;
-        // Published limits are narrower wire types than the configured ones.
-        // Saturating keeps an out-of-range configured value bounded rather
-        // than wrapping it into a smaller, wrong promise.
-        let count = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
-        api::GetConfigurationResponse {
-            identifier: self.server.identifier().to_owned(),
-            server_version: env!("CARGO_PKG_VERSION").to_owned(),
-            min_libxmtp_version: self.server.min_libxmtp_version.clone().unwrap_or_default(),
-            auth: Some(self.auth_configuration(jwks_keys)),
-            retention: Some(api::RetentionConfiguration {
-                group_message_seconds: self.retention.group_message_seconds,
-                welcome_seconds: self.retention.welcome_seconds,
-                key_package_seconds: self.retention.key_package_seconds,
-            }),
-            limits: Some(api::LimitsConfiguration {
-                max_envelope_bytes: limits.max_envelope_bytes as u64,
-                max_request_bytes: limits.max_request_bytes as u64,
-                max_response_bytes: limits.max_response_bytes as u64,
-                max_publish_topics: count(limits.max_publish_topics),
-                max_query_topics: count(limits.max_query_topics),
-                max_query_limit: count(limits.max_query_limit),
-                default_query_limit: count(limits.default_query_limit),
-                max_newest_metadata_topics: count(limits.max_newest_metadata_topics),
-                max_newest_full_topics: count(limits.max_newest_full_topics),
-                max_update_adds: count(limits.max_update_adds),
-                max_update_removes: count(limits.max_update_removes),
-                max_stream_topics: count(limits.max_stream_topics),
-                max_static_topics: count(limits.max_static_topics),
-                max_lookup_identifiers: count(limits.max_lookup_identifiers),
-                max_scw_signatures: count(limits.max_scw_signatures),
-                max_identity_entries: count(limits.max_identity_entries),
-                max_update_frames_per_second: limits.max_update_frames_per_second,
-                max_update_burst: limits.max_update_burst,
-                max_ping_frames_per_second: limits.max_ping_frames_per_second,
-                max_ping_burst: limits.max_ping_burst,
-            }),
-            mls: Some(api::MlsConfiguration {
-                max_group_members: self.mls.max_group_members,
-                max_installations_per_inbox: self.mls.max_installations_per_inbox,
-                commit_log_enabled: Some(self.mls.commit_log_enabled),
-            }),
-            handles: Some(api::HandlesConfiguration {
-                min_name_length: self.handles.min_name_length,
-            }),
-            smart_contract_wallet_chains: self.chains.keys().cloned().collect(),
-            attachments: self.attachments.as_ref().map(|attachments| {
-                api::AttachmentsConfiguration {
-                    base_url: attachments.base_url.clone(),
-                    max_upload_bytes: attachments.upload_ceiling(),
-                    retention_seconds: attachments.retention_seconds.unwrap_or_default(),
-                }
-            }),
-            application_components: application_components::published(&self.application_components),
-        }
-    }
-
-    /// Publish what a client needs to hold a credential, and nothing else.
-    /// A credential-free deployment publishes an otherwise empty section.
-    // implements: CONF-068
-    fn auth_configuration(&self, jwks_keys: &[(String, String)]) -> api::AuthConfiguration {
-        let Some(auth) = self.auth.as_ref().filter(|auth| auth.is_enabled()) else {
-            return api::AuthConfiguration::default();
-        };
-        let keys = match &auth.keys {
-            Some(keys) => keys
-                .iter()
-                .map(|key| api::auth_configuration::SigningKey {
-                    kid: key.kid.clone(),
-                    alg: key.alg.clone(),
-                })
-                .collect(),
-            None => jwks_keys
-                .iter()
-                .map(|(kid, alg)| api::auth_configuration::SigningKey {
-                    kid: kid.clone(),
-                    alg: alg.clone(),
-                })
-                .collect(),
-        };
-        api::AuthConfiguration {
-            enabled: true,
-            keys,
-            audiences: auth.audiences.clone().unwrap_or_default(),
-            issuers: auth.issuers.clone().unwrap_or_default(),
-            required_scopes: auth.required_scopes.clone(),
-        }
     }
 
     /// Return the JSON schema published for Taplo configuration files.
@@ -448,7 +335,7 @@ fn resolve_environment(value: &mut toml::Value) -> Result<(), ConfigError> {
 
 /// Timer ranges depend on the host's monotonic clock, not an arbitrary duration cap.
 fn validate_deadline(milliseconds: u64, field: &'static str) -> Result<(), ConfigError> {
-    if xmtp_common::time::Instant::now()
+    if std::time::Instant::now()
         .checked_add(std::time::Duration::from_millis(milliseconds))
         .is_none()
     {
@@ -462,22 +349,6 @@ fn validate_deadline(milliseconds: u64, field: &'static str) -> Result<(), Confi
 
 fn invalid(field: &'static str, reason: &'static str) -> ConfigError {
     ConfigError::Invalid { field, reason }
-}
-
-/// Keep the published configuration inside one small response. An oversized
-/// one is a configuration mistake, not a runtime condition, so it stops
-/// startup rather than failing every client that asks for it.
-// implements: CONF-009
-pub(crate) fn validate_configuration_size(
-    response: &api::GetConfigurationResponse,
-) -> Result<(), ConfigError> {
-    if prost::Message::encoded_len(response) > MAX_CONFIGURATION_RESPONSE_BYTES {
-        return Err(invalid(
-            "configuration response",
-            "must not exceed 64 KiB once encoded",
-        ));
-    }
-    Ok(())
 }
 
 fn positive<T>(value: T, field: &'static str) -> Result<(), ConfigError>
@@ -616,7 +487,7 @@ impl StreamsConfig {
 impl RetentionConfig {
     /// Check finite expiry against the primary database's startup clock. The
     /// insert still checks arithmetic after later clock changes or time advances.
-    pub(crate) fn validate_at(&self, database_ns: i64) -> Result<(), ConfigError> {
+    pub fn validate_at(&self, database_ns: i64) -> Result<(), ConfigError> {
         for (field, seconds) in [
             (
                 "retention.group_message_seconds",
@@ -751,7 +622,8 @@ impl Default for ServerConfig {
 }
 
 /// Configuration and CLI representation of the shared logging levels.
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, JsonSchema, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
     Off,
@@ -761,19 +633,6 @@ pub enum LogLevel {
     Info,
     Debug,
     Trace,
-}
-
-impl From<LogLevel> for xmtp_logging::Level {
-    fn from(level: LogLevel) -> Self {
-        match level {
-            LogLevel::Off => Self::Off,
-            LogLevel::Error => Self::Error,
-            LogLevel::Warn => Self::Warn,
-            LogLevel::Info => Self::Info,
-            LogLevel::Debug => Self::Debug,
-            LogLevel::Trace => Self::Trace,
-        }
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
@@ -1029,8 +888,6 @@ impl LimitsConfig {
         if request_bytes > self.max_request_bytes
             || bounded_payload > DELIVERY_FRAME_BYTES
             || bounded_payload > self.max_response_bytes
-            || bounded_payload > FETCH_BUFFER_BYTES
-            || bounded_payload > OUTBOUND_QUEUE_BYTES
         {
             return Err(invalid(
                 "limits.max_envelope_bytes",
