@@ -279,6 +279,7 @@ xmtp_api_grpc = { path = "crates/xmtp_api_grpc" }
 xmtp_archive = { path = "crates/xmtp_archive" }
 xmtp_attachments = { path = "crates/xmtp_attachments" }
 xmtp_attachments_server = { path = "crates/xmtp_attachments_server" }
+xmtp_backend_config = { path = "crates/xmtp_backend_config" }
 xmtp_common = { path = "crates/xmtp_common" }
 xmtp_configuration = { path = "crates/xmtp_configuration" }
 xmtp_content_types = { path = "crates/xmtp_content_types" }

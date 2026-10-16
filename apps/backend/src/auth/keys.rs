@@ -1,5 +1,8 @@
 //! Immutable key snapshots. Each key owns validation for one algorithm.
-use crate::config::auth::{AuthConfig, MAX_KID_BYTES, algorithm};
+use crate::config::{
+    ConfigError,
+    auth::{AuthConfig, MAX_KID_BYTES, SigningAlgorithm},
+};
 use arc_swap::ArcSwap;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, jwk::Jwk};
 use p256::pkcs8::DecodePublicKey;
@@ -22,6 +25,37 @@ impl KeySet {
         crate::telemetry::auth_keys(keys.len());
         self.0.store(Arc::new(keys));
     }
+}
+
+/// The `jsonwebtoken` algorithm of a configured one.
+pub(crate) fn jwt_algorithm(algorithm: SigningAlgorithm) -> Algorithm {
+    match algorithm {
+        SigningAlgorithm::RS256 => Algorithm::RS256,
+        SigningAlgorithm::RS384 => Algorithm::RS384,
+        SigningAlgorithm::RS512 => Algorithm::RS512,
+        SigningAlgorithm::ES256 => Algorithm::ES256,
+        SigningAlgorithm::ES384 => Algorithm::ES384,
+        SigningAlgorithm::EdDSA => Algorithm::EdDSA,
+    }
+}
+
+/// The configured algorithm of a loaded key. Every other algorithm is
+/// rejected before a key is built.
+pub(crate) fn signing_algorithm(algorithm: Algorithm) -> Option<SigningAlgorithm> {
+    match algorithm {
+        Algorithm::RS256 => Some(SigningAlgorithm::RS256),
+        Algorithm::RS384 => Some(SigningAlgorithm::RS384),
+        Algorithm::RS512 => Some(SigningAlgorithm::RS512),
+        Algorithm::ES256 => Some(SigningAlgorithm::ES256),
+        Algorithm::ES384 => Some(SigningAlgorithm::ES384),
+        Algorithm::EdDSA => Some(SigningAlgorithm::EdDSA),
+        _ => None,
+    }
+}
+
+/// The supported algorithm with this `alg` name.
+pub(crate) fn algorithm(name: &str) -> Option<Algorithm> {
+    SigningAlgorithm::from_name(name).map(jwt_algorithm)
 }
 
 /// Parse SPKI and check the exact curve or key family before accepting the key.
@@ -74,17 +108,26 @@ fn validation(alg: Algorithm, config: &AuthConfig) -> Validation {
     value
 }
 
-pub(crate) fn inline(config: &AuthConfig) -> Result<Vec<VerifyingKey>, &'static str> {
+/// Parse every inline key for its algorithm. The first key that does not parse
+/// is refused by its position in `auth.keys`; the error never holds the key.
+pub(crate) fn inline(config: &AuthConfig) -> Result<Vec<VerifyingKey>, ConfigError> {
     config
         .keys
         .iter()
         .flatten()
-        .map(|entry| {
-            let alg = algorithm(&entry.alg).ok_or("invalid algorithm")?;
+        .enumerate()
+        .map(|(index, entry)| {
+            let error = |reason| ConfigError::Auth {
+                field: format!("auth.keys[{index}]"),
+                reason,
+            };
+            let alg = algorithm(&entry.alg)
+                .ok_or_else(|| error("alg must be a supported asymmetric algorithm"))?;
             Ok(VerifyingKey {
                 kid: Some(entry.kid.clone()),
                 alg,
-                key: parse_public_key(&entry.public_key, alg)?,
+                key: parse_public_key(&entry.public_key, alg)
+                    .map_err(|_| error("public_key must be SubjectPublicKeyInfo for alg"))?,
                 validation: validation(alg, config),
             })
         })

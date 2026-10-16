@@ -3,7 +3,7 @@
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
-use super::{ConfigError, MAX_RETENTION_SECONDS, invalid};
+use super::{ConfigError, MAX_RETENTION_SECONDS, NS_IN_SEC, invalid};
 
 const DEFAULT_RECIPIENT_TTL_SECONDS: i64 = 2_592_000;
 const MIN_RECIPIENT_TTL_SECONDS: i64 = 86_400;
@@ -149,12 +149,13 @@ impl PushConfig {
     }
 
     /// Compute expiry without wrapping, including after database clock changes.
-    pub(crate) fn expires_at(&self, renewed_ns: i64) -> Result<i64, crate::error::Error> {
+    /// `None` when the expiry of a recipient renewed at `renewed_ns` cannot be
+    /// represented, or when `renewed_ns` is before the epoch.
+    pub fn expires_at(&self, renewed_ns: i64) -> Option<i64> {
         self.recipient_ttl_seconds
-            .checked_mul(xmtp_common::NS_IN_SEC)
+            .checked_mul(NS_IN_SEC)
             .and_then(|duration| renewed_ns.checked_add(duration))
             .filter(|_| renewed_ns >= 0)
-            .ok_or(crate::error::Error::PushExpiryOverflow)
     }
 }
 

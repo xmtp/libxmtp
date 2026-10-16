@@ -1,5 +1,5 @@
-use super::OUTBOUND_FRAMES;
-use crate::{api, config::OUTBOUND_QUEUE_BYTES};
+use super::{OUTBOUND_FRAMES, OUTBOUND_QUEUE_BYTES};
+use crate::api;
 use futures::{Stream, task::AtomicWaker};
 use parking_lot::Mutex;
 use prost::Message;

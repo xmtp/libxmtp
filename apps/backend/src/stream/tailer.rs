@@ -1,8 +1,8 @@
 use super::StreamEnd;
-use super::{ENVELOPE_OVERHEAD, Registry};
+use super::{ENVELOPE_OVERHEAD, FETCH_BUFFER_BYTES, Registry};
 use crate::telemetry;
 use crate::{
-    config::{Config, FETCH_BUFFER_BYTES},
+    config::Config,
     db::{self, stream::Candidate},
     error::Error,
 };

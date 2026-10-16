@@ -120,7 +120,7 @@ pub(super) fn identifier(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"anyOf": [with_environment(json_schema!({
         "type": "string",
         "minLength": 1,
-        "maxLength": super::MAX_IDENTIFIER_BYTES,
+        "maxLength": super::MAX_SERVER_IDENTIFIER_BYTES,
         "pattern": "^[^\\s\\x00-\\x1f\\x7f-\\x9f]+$(?![\\s\\S])"
     })), {"type": "null"}]})
 }

@@ -32,16 +32,16 @@ impl Backend {
     /// Build the service state shared by all RPC implementations.
     ///
     /// The configuration, verifier, and chains are shared immutably. The store is cheap
-    /// to clone because its pools are reference counted by SQLx.
+    /// to clone because its pools are reference counted by SQLx. `configuration` is
+    /// the published response that `server::initialize` built and size-checked.
     pub fn new(
         store: Store,
         config: Config,
         verifier: CachedSmartContractSignatureVerifier,
         chains: Arc<dyn ChainBlocks>,
+        configuration: crate::api::GetConfigurationResponse,
     ) -> Self {
-        // A JWKS deployment replaces this in `server::initialize` once its key
-        // set has been fetched. Every other deployment publishes it as built.
-        let configuration = Arc::new(config.configuration_response(&[]));
+        let configuration = Arc::new(configuration);
         Self {
             store: Arc::new(store),
             config: Arc::new(config),
