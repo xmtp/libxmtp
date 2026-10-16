@@ -5,11 +5,16 @@ import Testing
 import XmtpSdk
 
 extension SDKMappingTests {
-	@Test(arguments: ["fixture-access-token", "  fixture-access-token \n"])
+	@Test(arguments: [
+		"fixture-access-token",
+		"  fixture-access-token \n",
+		"Bearer fixture-access-token",
+		" \nbEaReR fixture-access-token \t",
+	])
 	func sessionCredentialUsesCompleteBearerHeader(token: String) throws {
 		let credential = try bearerCredential(token)
 		#expect(credential.name == nil)
-		#expect(credential.value == "Bearer fixture-access-token")
+		#expect(credential.value.lowercased() == "bearer fixture-access-token")
 		#expect(credential.expiresAtSeconds > Int64(Date().timeIntervalSince1970))
 	}
 

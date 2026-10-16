@@ -15,7 +15,7 @@ public struct ConnectState: Equatable, Sendable {
 	public var requiresToken = false
 	public var error: String?
 	public var canJoin: Bool {
-		ready && !checking && !joining && !address.trimmingCharacters(in: .whitespacesAndNewlines)
+		!checking && !joining && !address.trimmingCharacters(in: .whitespacesAndNewlines)
 			.isEmpty && (!requiresToken || !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) && BackendURL
 			.parse(address) != nil
 	}
@@ -32,6 +32,7 @@ public enum ConnectAction: Sendable { case appear, addressChanged(String), token
 	private let owner: RouteOwner
 	private var task: Task<Void, Never>?
 	private var attempt: UInt64 = 0
+	private var hasAttemptedJoin = false
 	public init(
 		probe: any BackendProbe,
 		session: SessionController,
@@ -44,9 +45,10 @@ public enum ConnectAction: Sendable { case appear, addressChanged(String), token
 
 	public func send(_ action: ConnectAction) {
 		switch action {
-		case .appear: state.joining = false; state.token = ""; scheduleProbe()
+		case .appear: hasAttemptedJoin = false; state.joining = false; state.token = ""; scheduleProbe()
 		case let .addressChanged(value):
 			guard value != state.address else { return }
+			hasAttemptedJoin = false
 			state.address = value; state.token = ""; state.requiresToken = false; scheduleProbe()
 		case let .tokenChanged(value): state.token = value
 		case let .nameChanged(value): state.serverName = value
@@ -71,6 +73,8 @@ public enum ConnectAction: Sendable { case appear, addressChanged(String), token
 
 	private func join() {
 		guard state.canJoin, let url = BackendURL.parse(state.address) else { return }
+		hasAttemptedJoin = true
+		guard state.ready else { scheduleProbe(joinWhenReady: true); return }
 		let token = state.token; let name = state.serverName; state.joining = true; state.error = nil; task?
 			.cancel(); attempt += 1
 		let expected = attempt; let route = owner.token; let initialGeneration = session.fence.currentGeneration()
@@ -96,19 +100,24 @@ public enum ConnectAction: Sendable { case appear, addressChanged(String), token
 		}
 	}
 
-	private func scheduleProbe() {
+	private func scheduleProbe(joinWhenReady: Bool = false) {
 		task?.cancel(); attempt += 1; state.error = nil; state.ready = false; state.joining = false
 		guard let url = BackendURL.parse(state.address) else { state.checking = false; return }
 		state.checking = true; let expected = attempt; let route = owner.token; let generation = session.fence
 			.currentGeneration()
 		task = Task {
 			do { try await Task.sleep(for: .milliseconds(300)); let result = try await probe.probe(url)
+				var shouldJoin = false
 				apply(expected, route: route, generation: generation, url: url) {
 					$0.checking = false; $0.requiresToken = result.requiresToken; $0.ready = true
+					shouldJoin = joinWhenReady && $0.canJoin
+				}
+				if shouldJoin {
+					join()
 				}
 			} catch is CancellationError {} catch {
 				apply(expected, route: route, generation: generation, url: url) {
-					$0.checking = false; $0.error = "Cannot reach this server. Try again."
+					$0.checking = false; $0.error = hasAttemptedJoin ? "Cannot reach this server. Try again." : nil
 				}
 			}
 		}

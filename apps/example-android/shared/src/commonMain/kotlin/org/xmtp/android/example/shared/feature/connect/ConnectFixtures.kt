@@ -17,6 +17,7 @@ object ConnectFixtures {
     val failure =
         populated.copy(
             probe = ProbeState.FAILED,
+            hasAttemptedJoin = true,
             failure =
                 AppFailure(
                     "Cannot connect to this server. Try again.",
