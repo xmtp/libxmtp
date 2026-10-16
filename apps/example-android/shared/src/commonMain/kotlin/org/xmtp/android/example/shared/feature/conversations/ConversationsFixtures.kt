@@ -47,6 +47,11 @@ object ConversationsFixtures {
 
 object CreateConversationFixtures {
     val empty = CreateConversationState()
+    val directMessage = empty.copy(recipients = "alex")
+    val directMessageFailure =
+        directMessage.copy(
+            failure = AppFailure("No XMTP account matches this recipient.", "recipient", FailureRecovery.NONE),
+        )
     val populated =
         CreateConversationState(
             group = true,

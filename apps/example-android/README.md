@@ -9,6 +9,17 @@ dependency verification inventory.
 
 This app is for testing and debugging purposes only.
 
+## Create a conversation
+
+Choose **Direct message** or **Group** below New message. For a direct message,
+enter one handle, Ethereum address, or inbox ID and press **Continue** (or Go on
+the keyboard). A valid recipient opens the chat. An invalid or unknown recipient
+shows an error below the field; editing clears that error.
+
+Groups keep member selection and a second step for the name and description.
+Expand **Advanced options** to choose who can update group details and add
+members. Switching between Direct message and Group keeps each draft separate.
+
 ## Code structure
 
 The app keeps two Gradle modules. `app` owns Android and SDK integration.

@@ -6,6 +6,31 @@ spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
 
+## Simple direct message creation, 2026-10-16
+
+The Simple form has one recipient field and opens a DM from Continue or the
+keyboard's Go action. Errors stay below the field and clear on edit. The
+Direct message / Group switch keeps separate drafts; groups retain member
+selection, name, description, and permissions under Advanced options.
+
+All five `RecipientHandlesInstrumentedTest` journeys pass on an owned API 34
+emulator with the real graph and SDK. They cover bare and coded handles,
+Ethereum addresses, inbox IDs, invalid and unknown recipients, keyboard retry,
+mixed group recipients, and switching drafts before creating the correct DM
+and an admin-only group. `ScreenScaleInstrumentedTest` also passes at 320 dp
+and 200% text size, including the new DM field and Continue button.
+
+Three weaker implementations fail at their intended assertions: Continue
+opening review, edits retaining the previous error, and mode changes dropping
+the group draft. The production source was restored before the passing runs.
+Unit tests, Spotless, Android lint, Debug/Release and instrumentation builds,
+and JNI package checks pass.
+
+Evidence is in `.cache/designs/android-simple-form-*`. The first fixed device
+run passed four journeys; two DM journeys stopped at an unsupported optional
+test screenshot name. Both pass on the focused rerun after that capture was
+removed. The 11 scale screenshots are retained separately from the rerun.
+
 ## Handle selection, 2026-10-13
 
 Choose your handle (onboarding) and Change handle (Settings) follow the

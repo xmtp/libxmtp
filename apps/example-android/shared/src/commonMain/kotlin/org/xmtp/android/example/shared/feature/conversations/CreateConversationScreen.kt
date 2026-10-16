@@ -5,13 +5,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import org.xmtp.android.example.shared.MessengerAvatar
 
@@ -20,7 +28,12 @@ fun CreateConversationScreen(
     state: CreateConversationState,
     action: (CreateConversationAction) -> Unit,
 ) {
+    if (!state.group) {
+        DirectMessageForm(state, action)
+        return
+    }
     val review = state.step == CreateStep.REVIEW
+    var advanced by rememberSaveable { mutableStateOf(false) }
     val availableRecipients =
         state.knownRecipients.filter { person ->
             state.selectedRecipients.none {
@@ -32,6 +45,7 @@ fun CreateConversationScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
+        ConversationModeSwitcher(state, action)
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 if (review) "2 of 2 · Review" else "1 of 2 · Choose people",
@@ -54,14 +68,6 @@ fun CreateConversationScreen(
             }
         }
         if (!review) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ModeChoice("Direct message", "A conversation with one person", !state.group, !state.busy) {
-                    action(CreateConversationAction.ChangeMode(false))
-                }
-                ModeChoice("Group", "Bring people together", state.group, !state.busy) {
-                    action(CreateConversationAction.ChangeMode(true))
-                }
-            }
             Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Add a person", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -198,26 +204,33 @@ fun CreateConversationScreen(
                 }
             }
             if (state.group) {
-                Text(
-                    "Group permissions",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                ModeChoice(
-                    "All members",
-                    "Members can update group details and add people.",
-                    !state.adminOnly,
-                    !state.busy,
-                ) {
-                    action(CreateConversationAction.ChangePreset(false))
-                }
-                ModeChoice(
-                    "Admins only",
-                    "Only admins can update group details and add people.",
-                    state.adminOnly,
-                    !state.busy,
-                ) {
-                    action(CreateConversationAction.ChangePreset(true))
+                TextButton(
+                    onClick = { advanced = !advanced },
+                    enabled = !state.busy,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text(if (advanced) "Hide advanced options" else "Advanced options") }
+                if (advanced) {
+                    Text(
+                        "Group permissions",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    ModeChoice(
+                        "All members",
+                        "Members can update group details and add people.",
+                        !state.adminOnly,
+                        !state.busy,
+                    ) {
+                        action(CreateConversationAction.ChangePreset(false))
+                    }
+                    ModeChoice(
+                        "Admins only",
+                        "Only admins can update group details and add people.",
+                        state.adminOnly,
+                        !state.busy,
+                    ) {
+                        action(CreateConversationAction.ChangePreset(true))
+                    }
                 }
             }
             Button(
@@ -248,6 +261,80 @@ fun CreateConversationScreen(
             TextButton(onClick = {
                 action(CreateConversationAction.Back)
             }, enabled = !state.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Back") }
+        }
+    }
+}
+
+@Composable
+private fun DirectMessageForm(
+    state: CreateConversationState,
+    action: (CreateConversationAction) -> Unit,
+) {
+    val canContinue = !state.busy && state.recipients.isNotBlank()
+    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(28.dp),
+        ) {
+            ConversationModeSwitcher(state, action)
+            Text(
+                "Who would you like to message?",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = state.recipients,
+                onValueChange = { action(CreateConversationAction.ChangeRecipients(it)) },
+                label = { Text("To") },
+                placeholder = { Text("Handle, address, or inbox ID") },
+                supportingText = {
+                    Text(
+                        state.failure?.message ?: "Handle, Ethereum address, or inbox ID.",
+                        Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                },
+                isError = state.failure != null,
+                singleLine = true,
+                enabled = !state.busy,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go, autoCorrectEnabled = false),
+                keyboardActions = KeyboardActions(onGo = { if (canContinue) action(CreateConversationAction.Create) }),
+                modifier = Modifier.fillMaxWidth().testTag("dm-recipient"),
+                shape = RoundedCornerShape(16.dp),
+            )
+        }
+        Button(
+            onClick = { action(CreateConversationAction.Create) },
+            enabled = canContinue,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+            shape = RoundedCornerShape(28.dp),
+        ) {
+            if (state.busy) {
+                CircularProgressIndicator(
+                    Modifier.size(20.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(12.dp))
+            }
+            Text(if (state.busy) "Starting conversation…" else "Continue")
+        }
+    }
+}
+
+@Composable
+private fun ConversationModeSwitcher(
+    state: CreateConversationState,
+    action: (CreateConversationAction) -> Unit,
+) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        listOf("Direct message", "Group").forEachIndexed { index, label ->
+            SegmentedButton(
+                selected = state.group == (index == 1),
+                onClick = { action(CreateConversationAction.ChangeMode(index == 1)) },
+                enabled = !state.busy,
+                shape = SegmentedButtonDefaults.itemShape(index, 2),
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) { Text(label) }
         }
     }
 }

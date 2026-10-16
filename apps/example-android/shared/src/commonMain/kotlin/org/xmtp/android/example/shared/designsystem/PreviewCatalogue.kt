@@ -86,6 +86,8 @@ val messengerPreviewCases: List<MessengerPreviewCase> =
             ),
         )
         listOf(
+            "New direct message" to CreateConversationFixtures.directMessage,
+            "Direct message error" to CreateConversationFixtures.directMessageFailure,
             "Select recipients" to CreateConversationFixtures.populated,
             "Review group" to CreateConversationFixtures.review,
             "Create failure" to CreateConversationFixtures.failure,
