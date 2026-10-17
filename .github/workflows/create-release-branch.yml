@@ -67,6 +67,17 @@ on:
           - "minor"
           - "major"
         default: "none"
+      react-native-sdk-bump:
+        description: "CLI version bump"
+        required: false
+        type: choice
+        options:
+          - "none"
+          - "keep"
+          - "patch"
+          - "minor"
+          - "major"
+        default: "none"
       cli-bump:
         description: "CLI version bump"
         required: false
@@ -109,6 +120,7 @@ jobs:
           NODE_SDK_BUMP: ${{ inputs.node-sdk-bump }}
           BROWSER_SDK_BUMP: ${{ inputs.browser-sdk-bump }}
           AGENT_SDK_BUMP: ${{ inputs.agent-sdk-bump }}
+          REACT_NATIVE_SDK_BUMP: ${{ inputs.react-native-sdk-bump }}
           CLI_BUMP: ${{ inputs.cli-bump }}
           LIBXMTP_VERSION: ${{ inputs.libxmtp-version }}
         run: |
@@ -124,6 +136,7 @@ jobs:
             --node-sdk "$NODE_SDK_BUMP" \
             --browser-sdk "$BROWSER_SDK_BUMP" \
             --agent-sdk "$AGENT_SDK_BUMP" \
+            --react-native-sdk "$REACT_NATIVE_SDK_BUMP" \
             --cli "$CLI_BUMP" \
             "${EXTRA_ARGS[@]}"
 
