@@ -16,11 +16,11 @@ export async function configureNotifications(
     token,
   };
   await client.enableNotifications({ channel });
-  await conversation.setNotifications("disabled");
   const state = client.notificationState();
   if (state.kind === "failed") {
     throw new Error(`Notification registration failed: ${state.error}`);
   }
+  await conversation.setNotifications("disabled");
   await conversation.setNotifications("default");
   // #endregion configure
 }
@@ -44,8 +44,10 @@ export async function receivePushHint(
   const isWelcome = topic[0] === 1 && topic.length === 33;
   if (!isGroup && !isWelcome) throw new Error("Invalid push topic");
 
-  await client.conversations.sync();
-  if (isWelcome) return;
+  if (isWelcome) {
+    await client.conversations.sync();
+    return;
+  }
   const groupId = Array.from(topic.subarray(1), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
