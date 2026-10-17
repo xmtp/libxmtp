@@ -17,6 +17,7 @@
     "apps/docs/src/content/docs/reference/agent-sdk/**",
     "apps/docs/src/content/docs/reference/browser-sdk/**",
     "apps/docs/src/content/docs/reference/node-sdk/**",
+    "apps/docs/src/content/docs/reference/react-native-sdk/**",
     "apps/docs/test-results/**",
     "apps/web-chat/dist/**",
     "sdks/*/dist/**",

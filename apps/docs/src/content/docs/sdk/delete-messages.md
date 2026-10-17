@@ -37,11 +37,11 @@ The deletion mechanism does NOT remove the original message from:
 
 ## Delete a message
 
-| Platform      | Method                                      |
-| ------------- | ------------------------------------------- |
-| Browser, Node | `conversation.deleteMessage(messageId)`     |
-| Kotlin        | `conversation.deleteMessage(messageId)`     |
-| Swift         | `conversation.deleteMessage(id: messageId)` |
+| Platform                    | Method                                      |
+| --------------------------- | ------------------------------------------- |
+| Browser, Node, React Native | `conversation.deleteMessage(messageId)`     |
+| Kotlin                      | `conversation.deleteMessage(messageId)`     |
+| Swift                       | `conversation.deleteMessage(id: messageId)` |
 
 You can also call `delete()` on a loaded message. Each form returns the ID of the deletion message.
 

@@ -11,6 +11,7 @@ test("specs and generated API references use reference search weights", () => {
     "specs/join-joining-groups",
     "reference/node-sdk/classes/Client",
     "reference/browser-sdk/classes/Client",
+    "reference/react-native-sdk/classes/Client",
     "reference/agent-sdk/classes/Agent",
   ]) {
     assert.equal(isSearchReference(id), true, id);

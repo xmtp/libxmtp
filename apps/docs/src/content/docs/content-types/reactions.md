@@ -4,7 +4,7 @@ title: Reactions
 
 A reaction is a short response to an earlier message.
 
-Type ID: `xmtp.org/reaction:2.0`. The payload is a `ReactionV2` protobuf. The fallback describes the reaction and the earlier message. `shouldPush` defaults to `false` on Browser, Node, Kotlin, and Swift.
+Type ID: `xmtp.org/reaction:2.0`. The payload is a `ReactionV2` protobuf. The fallback describes the reaction and the earlier message. `shouldPush` defaults to `false` on Browser, Node, React Native, Kotlin, and Swift.
 
 | Field              | Meaning                                            |
 | ------------------ | -------------------------------------------------- |

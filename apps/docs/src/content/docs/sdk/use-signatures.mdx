@@ -29,6 +29,13 @@ The client signs the supplied text with its Ed25519 installation key and the XMT
 ```
 
 </TabItem>
+<TabItem label="React Native">
+
+```ts source="use-signatures-react-native.ts" region="sign"
+
+```
+
+</TabItem>
 <TabItem label="Kotlin">
 
 ```kotlin
@@ -47,7 +54,7 @@ let signature = try await client.signWithInstallationKey(text: signatureText)
 
 ## Verify with the installation that signed
 
-All four SDKs use `verifySignedWithInstallationKey`. It verifies the text against the current installation key and returns a Boolean.
+All five platform SDKs use `verifySignedWithInstallationKey`. It verifies the text against the current installation key and returns a Boolean.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -60,6 +67,13 @@ All four SDKs use `verifySignedWithInstallationKey`. It verifies the text agains
 <TabItem label="Node">
 
 ```ts source="use-signatures-node.ts" region="verify"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="use-signatures-react-native.ts" region="verify"
 
 ```
 
@@ -82,7 +96,7 @@ let valid = try await client.verifySignedWithInstallationKey(text: signatureText
 
 ## Verify with another installation
 
-Browser and Node use static `Client.verifySignedWithPublicKey`. Kotlin and Swift use static `SDKClient.verifySignedWithPublicKey`. Pass the installation's 32-byte public key, not its hex ID string. Browser and Node expose the current installation key as `client.installationIdBytes`.
+Browser, Node, and React Native use static `Client.verifySignedWithPublicKey`. Kotlin and Swift use static `SDKClient.verifySignedWithPublicKey`. Pass the installation's 32-byte public key, not its hex ID string. Browser, Node, and React Native expose the current installation key as `client.installationIdBytes`.
 
 Verification proves that the matching installation key signed the text. It does not check inbox membership. Check membership separately when the caller must belong to a specific inbox. A wrong text or signature returns `false`. A signature with a length other than 64 bytes or a public key with a length other than 32 bytes fails with `InvalidInput`.
 
@@ -97,6 +111,13 @@ Verification proves that the matching installation key signed the text. It does 
 <TabItem label="Node">
 
 ```ts source="use-signatures-node.ts" region="verify-other"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="use-signatures-react-native.ts" region="verify-other"
 
 ```
 

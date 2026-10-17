@@ -8,6 +8,7 @@ set shell := ["../../dev/nix-shell"]
 sdk-products:
     ../../dev/js/sdk-package node
     ../../dev/js/sdk-package browser
+    XMTP_SDK_BUILD=nix ../../dev/js/sdk-package react-native
 
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:
@@ -17,10 +18,10 @@ dev:
     pnpm --filter @xmtp/docs run dev
 
 build: sdk-products
-    cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run build
+    cd {{ root }} && XMTP_SDK_BUILD=nix pnpm -r --filter '@xmtp/docs...' run build
 
 check-examples: sdk-products
-    cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run check:examples
+    cd {{ root }} && XMTP_SDK_BUILD=nix pnpm -r --filter '@xmtp/docs...' run check:examples
 
 check-agent-docs:
     pnpm --filter @xmtp/docs run check:agent-docs
@@ -36,7 +37,7 @@ test-browser:
     pnpm --filter @xmtp/docs run test:browser
 
 typecheck: sdk-products
-    cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run typecheck
+    cd {{ root }} && XMTP_SDK_BUILD=nix pnpm -r --filter '@xmtp/docs...' run typecheck
 
 compose:
     node scripts/compose.mjs
@@ -78,6 +79,7 @@ check-external:
         '_site/tools/**/*.html' \
         '_site/reference/browser-sdk/**/*.html' \
         '_site/reference/node-sdk/**/*.html' \
+        '_site/reference/react-native-sdk/**/*.html' \
         '_site/reference/agent-sdk/**/*.html' \
         '_site/reference/error-glossary/**/*.html' \
         '_site/reference/limits/**/*.html'

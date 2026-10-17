@@ -10,7 +10,7 @@ Once you have the verified identities, you can create a new conversation, whethe
 
 ## Check if an identity is reachable
 
-`Client.canMessage(identities, backend)` works without a client on Browser and Node. Kotlin and Swift use `SDKClient.canMessage` with an explicit backend. An existing client also has `canMessage`. Browser and Node return a `Map`; Kotlin and Swift return a dictionary keyed by the identity identifier.
+`Client.canMessage(identities, backend)` works without a client on Browser, Node, and React Native. Kotlin and Swift use `SDKClient.canMessage` with an explicit backend. An existing client also has `canMessage`. Browser, Node, and React Native return a `Map`; Kotlin and Swift return a dictionary keyed by the identity identifier.
 
 A `PublicIdentity` can also name a [handle](/sdk/inboxes/#handles), such as `nick#2341`, with the kind `handle`. `canMessage` reports it under the key `handle:<handle>`, in lowercase. `true` means only that the backend names an inbox for the handle: the SDK does not check this answer against the inbox's identity log. `createDm` and `createGroup` check their own lookup answer before they use the inbox. See [Use a handle](#use-a-handle).
 
@@ -18,7 +18,7 @@ A `PublicIdentity` can also name a [handle](/sdk/inboxes/#handles), such as `nic
 
 The backend sets the group member limit. The default limit is 250 inboxes.
 
-All four SDKs use `conversations.createGroup(members, options)`. Pass a list of inbox IDs or a list of `PublicIdentity` values. Do not mix the two in one list. Swift uses the labels `members:` and `options:`. Kotlin and Swift get the collection with `client.conversations`.
+All five platform SDKs use `conversations.createGroup(members, options)`. Pass a list of inbox IDs or a list of `PublicIdentity` values. Do not mix the two in one list. Swift uses the labels `members:` and `options:`. Kotlin and Swift get the collection with `client.conversations`.
 
 Set the group name, description, image URL, app data, permissions, and disappearing-message settings at creation. See [Groups](/sdk/groups/).
 
@@ -26,7 +26,7 @@ Set the group name, description, image URL, app data, permissions, and disappear
 
 Optimistic group creation enables you to prepare a group and messages before you know its members. The group stays only in the local database until you add a member. It is not visible to anyone else before that step.
 
-All four SDKs use `createGroupOptimistic(options)`. The call is asynchronous. Add members, then call `publishMessages()` to publish prepared messages.
+All five platform SDKs use `createGroupOptimistic(options)`. The call is asynchronous. Add members, then call `publishMessages()` to publish prepared messages.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -39,6 +39,13 @@ All four SDKs use `createGroupOptimistic(options)`. The call is asynchronous. Ad
 <TabItem label="Node">
 
 ```ts source="conversations-node.ts" region="create"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="conversations-react-native.ts" region="create"
 
 ```
 
@@ -65,7 +72,7 @@ try await group.addMembers(members: [memberInboxId])
 
 Creating a DM returns the existing conversation if you already have one with that peer. You cannot create a DM with yourself.
 
-All four SDKs use `conversations.createDm(peer, options)`. Pass an inbox ID or a `PublicIdentity` value. Swift uses the labels `peer:` and `options:`.
+All five platform SDKs use `conversations.createDm(peer, options)`. Pass an inbox ID or a `PublicIdentity` value. Swift uses the labels `peer:` and `options:`.
 
 Different installations can create separate DMs for the same pair. XMTP stitches these records into one visible DM. A lookup can therefore return a different conversation ID. Do not key app state on a DM conversation ID. See [DM stitching](/sdk/push-notifications/#dm-stitching).
 
