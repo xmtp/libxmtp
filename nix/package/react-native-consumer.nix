@@ -17,6 +17,7 @@
   rnShell,
   package,
   dependencies,
+  template,
   nativeDependencies,
   consumer,
   platform,
@@ -35,6 +36,7 @@ let
         rn + "/test/consumers/${consumer}"
       ))
       (rn + /test/consumers/build.py)
+      (rn + /test/consumers/prepare-template.py)
       (rn + /test/consumers/native-toolchain.json)
       (rn + /test/consumers/App.tsx)
       (rn + /test/consumers/native-hooks)
@@ -93,6 +95,7 @@ stdenvNoCC.mkDerivation (
       platform == "android"
     ) rnShell.XMTP_RN_ANDROID_TOOLCHAIN;
     XMTP_NIX_ENV = "yes";
+    XMTP_RN_TEMPLATE = template;
     XMTP_RN_TSC = "${jsTools}/bin/tsc";
     XMTP_RN_IOS_DOWNLOADS = lib.optionalString (platform == "ios") nativeDependencies;
     # Keep access to exactly the pinned host Xcode while retaining the network

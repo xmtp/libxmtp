@@ -1,16 +1,19 @@
 # Shared iOS cross-compilation environment configuration.
 # Used by both nix/ios.nix (dev shell) and nix/package/ios.nix (build derivation).
 #
-# All Xcode paths are resolved dynamically at shell time via /usr/bin/xcode-select.
-# This ensures CI runners using setup-xcode (which installs to versioned paths like
-# /Applications/Xcode_26.1.1.app) get the correct toolchain automatically.
+# Canonical builds select their keyed Xcode path per process. Local outputs and
+# development shells resolve the selected host Xcode through xcode-select.
 #
 # Key insight: /usr/bin/clang is an xcode-select shim that reads DEVELOPER_DIR.
 # Nix's stdenv overrides DEVELOPER_DIR to its own apple-sdk, causing the shim
 # to dispatch to Nix's cc-wrapper (which injects -mmacos-version-min, breaking
 # iOS builds). We bypass this by using the full Xcode toolchain clang path,
 # resolved dynamically from the active Xcode installation.
-{ lib }:
+{
+  lib,
+  # lib.xcode imports only the declarative identity, without a package set.
+  writeShellScript ? (name: _: throw "${name}: compiler wrappers need a package set"),
+}:
 let
   platforms = lib.importJSON ../sdk-platforms.json;
   # Cross-compilation targets for the iOS release, from the one platform list:
@@ -22,12 +25,10 @@ let
     )
     ++ platforms.apple;
 
-  # The Xcode that builds the CI and release iOS outputs. Every CI job that
-  # builds or pushes them selects it with maxim-lobanov/setup-xcode, which runs
-  # `xcode-select -s` on the versioned app. The key holds the developer
-  # directory too: Cargo records the Xcode clang path in build-script and linker
-  # fingerprints, so a build under another path recompiles every crate.
-  # A new Xcode changes these values and every setup-xcode pin in one change.
+  # Canonical builds select this exact installation without changing the host
+  # preference. The path is part of the key: Cargo records the compiler and
+  # linker paths in build-script fingerprints. Keep CI's installed Xcode pin
+  # matched when changing this identity.
   xcode = rec {
     version = "26.3";
     build = "17C529";
@@ -78,9 +79,29 @@ let
     fi
   '';
 
+  # Inject path remapping after Cargo computes its fingerprints. Putting a
+  # transient NIX_BUILD_TOP in RUSTFLAGS would rebuild every dependency in the
+  # final phase. The wrapper path and the caller's Rust flags remain identical.
+  nativeTools = lib.genAttrs [ "rustc" "cc" "cxx" ] (
+    mode:
+    writeShellScript "xmtp-apple-${mode}" ''
+      set -- ${mode} "$@"
+      ${builtins.readFile ./apple-native-tool.sh}
+    ''
+  );
+  nativeBuildEnv =
+    { cc, cxx }:
+    ''
+      export XMTP_NATIVE_CC=${cc}
+      export XMTP_NATIVE_CXX=${cxx}
+      export CC=${nativeTools.cc}
+      export CXX=${nativeTools.cxx}
+      export RUSTC_WRAPPER=${nativeTools.rustc}
+    '';
+
   # Shell snippet that sets all Xcode-derived environment variables for a specific
   # cross-compilation target. Must run as shell code because:
-  #   1. Xcode path is resolved dynamically (CI vs local may differ)
+  #   1. Local outputs resolve their Xcode dynamically
   #   2. Nix's apple-sdk setup hook sets DEVELOPER_DIR/SDKROOT AFTER derivation
   #      env var assignment, so we must override them at shell time
   #
@@ -101,7 +122,13 @@ let
         else
           sdkSuffixForTarget target;
     in
-    resolveXcode
+    ''
+      if [[ "''${XMTP_XCODE:?an iOS derivation must set XMTP_XCODE}" == local ]]; then
+        ${resolveXcode}
+      else
+        _XCODE_DEV=${lib.escapeShellArg xcode.developerDir}
+      fi
+    ''
     + ''
       export DEVELOPER_DIR="$_XCODE_DEV"
       export SDKROOT="$_XCODE_DEV/${effectiveSdkSuffix}"
@@ -116,23 +143,25 @@ let
       # host-target linker at Xcode's clang ensures build scripts link correctly.
       _XCODE_CLANG="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
       _XCODE_CLANGXX="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"
-      export CC="$_XCODE_CLANG"
-      export CXX="$_XCODE_CLANGXX"
       export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$_XCODE_CLANG"
     ''
+    + nativeBuildEnv {
+      cc = ''"$_XCODE_CLANG"'';
+      cxx = ''"$_XCODE_CLANGXX"'';
+    }
     + lib.optionalString (isIosTarget target) ''
       _IOS_SDKROOT="$_XCODE_DEV/${sdkSuffixForTarget target}"
     ''
     + lib.optionalString (target == "aarch64-apple-ios") ''
-      export CC_aarch64_apple_ios="$_XCODE_CLANG"
-      export CXX_aarch64_apple_ios="$_XCODE_CLANGXX"
+      export CC_aarch64_apple_ios="$CC"
+      export CXX_aarch64_apple_ios="$CXX"
       export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$_XCODE_CLANG"
       export CFLAGS_aarch64_apple_ios="--sysroot=$_IOS_SDKROOT"
       export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios --sysroot=$_IOS_SDKROOT"
     ''
     + lib.optionalString (target == "aarch64-apple-ios-sim") ''
-      export CC_aarch64_apple_ios_sim="$_XCODE_CLANG"
-      export CXX_aarch64_apple_ios_sim="$_XCODE_CLANGXX"
+      export CC_aarch64_apple_ios_sim="$CC"
+      export CXX_aarch64_apple_ios_sim="$CXX"
       export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$_XCODE_CLANG"
       export CFLAGS_aarch64_apple_ios_sim="--sysroot=$_IOS_SDKROOT"
       export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=$_IOS_SDKROOT"
@@ -150,7 +179,7 @@ let
       _XCODE_FOUND="''${_XCODE_VERSION%%$'\n'*} (''${_XCODE_VERSION##*Build version }) at $_XCODE_DEV"
       if [[ "$_XCODE_FOUND" != "$XMTP_XCODE" ]]; then
         echo "error: this iOS output is keyed to $XMTP_XCODE, but the selected Xcode is $_XCODE_FOUND." >&2
-        echo "Select that Xcode (maxim-lobanov/setup-xcode in CI), or build the -local output." >&2
+        echo "Install that exact Xcode, or build the -local output." >&2
         exit 1
       fi
     fi
@@ -203,5 +232,6 @@ in
     isIosTarget
     envSetup
     envSetupAll
+    nativeBuildEnv
     ;
 }

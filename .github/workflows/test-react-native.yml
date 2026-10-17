@@ -22,42 +22,23 @@ jobs:
             runner: warp-macos-26-arm64-12x
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
-    env:
-      SYSTEM: ${{ matrix.system }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        if: runner.os == 'macOS'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          xcode-version: "26.3"
+          ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-nix
         with:
           cache-mode: ci
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - name: Build the reused Rust base before selecting RN Xcode
-        run: nix build --no-link ".#ciStages.$SYSTEM.native-base"
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        if: runner.os == 'macOS'
+      - uses: ./.github/actions/react-native-product
         with:
-          xcode-version: "27.0"
-      - name: Verify the RN Xcode pin
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          test "$(xcode-select -p)" = "$(nix eval --raw .#lib.reactNativeXcode.developerDir)"
-          test "$(xcodebuild -version)" = $'Xcode 27.0\nBuild version 27A266a'
-      - name: Build and export completed components
-        run: |
-          nix build --no-link ".#ciStages.$SYSTEM.components"
-          dev/nix-shell --shell js 'python3.11 nix/react-native-exchange.py export --system "$SYSTEM" --stage components --directory target/rn-exchange/components'
-      # This same-run export also works for forks without a cache writer.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: rn-components-${{ matrix.system }}
-          path: target/rn-exchange/components
-          if-no-files-found: error
-          retention-days: 2
+          stage: components
+          system: ${{ matrix.system }}
+          source-sha: ${{ github.sha }}
+          package-version: ""
+          artifact-prefix: rn
+          cache-mode: ci
       - name: Finish component cache uploads
         if: ${{ env.RN_CACHE_WRITER == 'true' }}
         env:
@@ -73,33 +54,27 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-nix
         with:
           cache-mode: ci
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      - uses: ./.github/actions/react-native-product
         with:
-          pattern: rn-components-*
-          path: target/rn-exchange
-      - name: Import both completed producers and assemble once
-        run: |
-          dev/nix-shell --shell js 'python3.11 nix/react-native-exchange.py import --system x86_64-linux --stage components --directory target/rn-exchange/rn-components-x86_64-linux'
-          dev/nix-shell --shell js 'python3.11 nix/react-native-exchange.py import --system aarch64-darwin --stage components --directory target/rn-exchange/rn-components-aarch64-darwin'
-          nix build --no-link .#xmtp-sdk-react-native-package
-          dev/nix-shell --shell js 'python3.11 nix/react-native-exchange.py export --system x86_64-linux --stage package --directory target/rn-exchange/package'
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: rn-package
-          path: target/rn-exchange/package
-          if-no-files-found: error
-          retention-days: 2
+          stage: package
+          system: x86_64-linux
+          source-sha: ${{ github.sha }}
+          package-version: ""
+          artifact-prefix: rn
+          cache-mode: ci
       - name: Finish package cache upload
         if: ${{ env.RN_CACHE_WRITER == 'true' }}
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-        run: cachix push xmtp-pr "$(jq -r '.roots["xmtp-sdk-react-native-package"]' target/rn-exchange/package/manifest.json)"
+        run: cachix push xmtp-pr "$XMTP_RN_PACKAGE_DIR"
 
   consumers:
     name: RN installed consumers (${{ matrix.platform }})
@@ -117,17 +92,12 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     env:
-      PLATFORM: ${{ matrix.platform }}
-      SYSTEM: ${{ matrix.system }}
       XMTP_SDK_BUILD: nix
-      XMTP_NODE_SDK_DIR: ${{ github.workspace }}/sdks/node
-      NIX_DEVSHELL: ${{ matrix.platform == 'android' && 'android' || 'default' }}
+      NIX_DEVSHELL: ${{ matrix.platform == 'android' && 'android' || 'ios' }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        if: runner.os == 'macOS'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          xcode-version: "26.3"
+          ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-nix
         with:
           cache-mode: ci
@@ -136,55 +106,16 @@ jobs:
       - uses: ./.github/actions/setup-js
         with:
           cache-mode: ci
-      - name: Stage the sibling Node SDK under the base toolchain
-        run: dev/nix-shell --shell js 'dev/js/sdk-package node'
-      - name: Check portable RN package, React, and native contracts
-        if: runner.os == 'Linux'
-        run: |
-          dev/nix-shell --shell js 'just react-native check-package'
-          dev/nix-shell --shell js 'just react-native test-control'
-          dev/nix-shell --shell js 'just react-native test-react'
-          dev/nix-shell --shell js 'just react-native test-native'
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        if: runner.os == 'macOS'
+      - uses: ./.github/actions/react-native-product
         with:
-          xcode-version: "27.0"
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+          stage: consumers
+          system: ${{ matrix.system }}
+          source-sha: ${{ github.sha }}
+          package-version: ""
+          artifact-prefix: rn
+          cache-mode: ci
+      - uses: ./.github/actions/react-native-conformance
         with:
-          name: rn-package
-          path: target/rn-exchange/package
-      - name: Import the same canonical tarball and build offline consumers
-        run: |
-          dev/nix-shell --shell js 'python3.11 nix/react-native-exchange.py import --system x86_64-linux --stage package --directory target/rn-exchange/package'
-          # CocoaPods hook exceptions precede long Ruby traces; retain bounded failure context.
-          consumer_build=(nix build --option log-lines 100 --no-link ".#ciStages.$SYSTEM.consumers")
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            consumer_build+=(--option sandbox relaxed)
-          fi
-          "${consumer_build[@]}"
-          echo "XMTP_RN_EXPECTED_SOURCE=$(nix eval --raw .#sdkProvenance.source)" >> "$GITHUB_ENV"
-          echo "XMTP_RN_PACKAGE_DIR=$(jq -r '.roots["xmtp-sdk-react-native-package"]' target/rn-exchange/package/manifest.json)" >> "$GITHUB_ENV"
-          echo "XMTP_RN_CONSUMER_BUNDLES=$(nix eval --raw ".#react-native-consumer-$PLATFORM.outPath")" >> "$GITHUB_ENV"
-      - name: Boot an iPhone simulator
-        if: runner.os == 'macOS'
-        run: |
-          device=$(xcrun simctl list devices available -j | jq -er '[.devices[][] | select(.state == "Shutdown" and (.name | startswith("iPhone")))][0].udid')
-          xcrun simctl boot "$device" --arch=arm64
-          xcrun simctl bootstatus "$device" -b
-          echo "XMTP_RN_DEVICE=$device" >> "$GITHUB_ENV"
-      - name: Execute Android Hermes and backend proofs
-        if: runner.os == 'Linux'
-        env:
-          NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096
-        run: dev/nix-shell 'run-test-emulator -- just backend ci just react-native test-conformance android'
-      - name: Execute iOS Hermes and backend proofs
-        if: runner.os == 'macOS'
-        run: dev/nix-shell 'just backend ci just react-native test-conformance ios'
-      - name: Retain native assertion reports
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: react-native-proof-${{ matrix.platform }}
-          path: target/react-native-results/*.json
-          if-no-files-found: ignore
-          retention-days: 7
+          platform: ${{ matrix.platform }}
+          artifact-prefix: react-native
+          portable-contracts: "true"

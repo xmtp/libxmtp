@@ -4,22 +4,27 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
-  renameSync,
-  rmSync,
   symlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { checkGeneratedAssets } from "../../../crates/xmtp_sdk/dev/check-generated-assets.mjs";
+import {
+  files as packageFiles,
+  hash,
+  makeWritable,
+  readJson,
+  rewriteImports,
+  stagePackage,
+  writeEntry,
+  writeJson,
+} from "../../../crates/xmtp_sdk/dev/package-staging.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const options = {};
@@ -54,7 +59,7 @@ const runtime =
     { cwd: root, encoding: "utf8" },
   ).trim();
 const tree = join(generated, "typescript-react-native");
-const receipt = JSON.parse(readFileSync(join(tree, "sdk-contract.json")));
+const receipt = readJson(join(tree, "sdk-contract.json"));
 checkGeneratedAssets(generated, "typescript-react-native", receipt);
 const declaredSource = process.env.XMTP_SDK_EXPECTED_SOURCE;
 const declaredRender = process.env.XMTP_SDK_EXPECTED_RENDER;
@@ -86,30 +91,11 @@ if (
   receipt.artifact?.profile !== "release"
 )
   throw new Error("RN JS requires default-feature release bindings");
-const hash = (path) =>
-  createHash("sha256").update(readFileSync(path)).digest("hex");
-const files = (folder, base = folder) =>
-  readdirSync(folder, { withFileTypes: true }).flatMap((entry) => {
-    if (entry.isSymbolicLink())
-      throw new Error(
-        `component contains a symbolic link: ${join(folder, entry.name)}`,
-      );
-    const path = join(folder, entry.name);
-    return entry.isDirectory()
-      ? files(path, base)
-      : [relative(base, path).replaceAll("\\", "/")];
-  });
-const writable = (directory) => {
-  chmodSync(directory, 0o755);
-  for (const item of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, item.name);
-    if (item.isDirectory()) writable(path);
-    else if (!item.isSymbolicLink()) chmodSync(path, 0o644);
-  }
-};
-const runtimeReceipt = JSON.parse(
-  readFileSync(join(runtime, "runtime-provenance.json")),
-);
+const files = (directory) =>
+  packageFiles(directory, true).map((path) =>
+    relative(directory, path).replaceAll("\\", "/"),
+  );
+const runtimeReceipt = readJson(join(runtime, "runtime-provenance.json"));
 const forkRevision = readFileSync(join(root, "Cargo.toml"), "utf8").match(
   /\[workspace\.metadata\.xmtp-sdk-fork\][\s\S]*?rev\s*=\s*"([a-f0-9]+)"/,
 )?.[1];
@@ -131,14 +117,9 @@ if (
 for (const name of runtimeFiles)
   if (hash(join(runtime, name)) !== runtimeReceipt.assets[name])
     throw new Error(`RN runtime asset mismatch: ${name}`);
-mkdirSync(dirname(output), { recursive: true });
-const temporary = mkdtempSync(join(dirname(output), ".react-native-js-"));
-const destination = join(temporary, "product");
-const compile = join(temporary, "compile");
-const manifest = JSON.parse(
-  readFileSync(join(root, "sdks/react-native/package.json")),
-);
-try {
+const manifest = readJson(join(root, "sdks/react-native/package.json"));
+stagePackage(output, (destination, temporary) => {
+  const compile = join(temporary, "compile");
   mkdirSync(join(destination, "dist/runtime"), { recursive: true });
   cpSync(join(root, "LICENSE"), join(destination, "LICENSE"));
   mkdirSync(join(destination, "THIRD_PARTY_LICENSES"), { recursive: true });
@@ -163,8 +144,8 @@ try {
     filter: (path) =>
       !relative(tree, path).split(/[\\/]/).includes("node_modules"),
   });
-  writable(destination);
-  writable(compile);
+  makeWritable(destination);
+  makeWritable(compile);
   const compiler =
     process.env.XMTP_SDK_TSC ?? join(root, "node_modules/.bin/tsc");
   const compilerVersion = execFileSync(compiler, ["--version"], {
@@ -178,54 +159,48 @@ try {
   mkdirSync(join(temporary, "node_modules/@ubjs"), { recursive: true });
   symlinkSync(core, join(temporary, "node_modules/@ubjs/core"));
   const tsconfig = join(temporary, "tsconfig.json");
-  writeFileSync(
-    tsconfig,
-    JSON.stringify({
-      compilerOptions: {
-        // Stock Metro lowers class fields but does not transform static blocks.
-        target: "ES2020",
-        useDefineForClassFields: true,
-        module: "ESNext",
-        moduleResolution: "Bundler",
-        jsx: "react-jsx",
-        strict: true,
-        skipLibCheck: true,
-        allowImportingTsExtensions: true,
-        types: [],
-        paths: {
-          "react-native": [
-            join(
-              process.env.XMTP_SDK_REACT_NATIVE_TYPES ??
-                join(root, "sdks/react-native/node_modules/react-native"),
-              "types_generated/index.d.ts",
-            ),
-          ],
-        },
-        lib: ["ES2022", "DOM", "DOM.Iterable"],
+  writeJson(tsconfig, {
+    compilerOptions: {
+      // Stock Metro lowers class fields but does not transform static blocks.
+      target: "ES2020",
+      useDefineForClassFields: true,
+      module: "ESNext",
+      moduleResolution: "Bundler",
+      jsx: "react-jsx",
+      strict: true,
+      skipLibCheck: true,
+      allowImportingTsExtensions: true,
+      types: [],
+      paths: {
+        "react-native": [
+          join(
+            process.env.XMTP_SDK_REACT_NATIVE_TYPES ??
+              join(root, "sdks/react-native/node_modules/react-native"),
+            "types_generated/index.d.ts",
+          ),
+        ],
       },
-    }),
-  );
+      lib: ["ES2022", "DOM", "DOM.Iterable"],
+    },
+  });
   const compileTree = (source, outDir, entries, react = false) => {
     const config = join(
       temporary,
       react ? "react.tsconfig.json" : "sdk.tsconfig.json",
     );
-    const base = JSON.parse(readFileSync(tsconfig));
-    writeFileSync(
-      config,
-      JSON.stringify({
-        ...base,
-        compilerOptions: {
-          ...base.compilerOptions,
-          declaration: true,
-          outDir,
-          rootDir: source,
-          rewriteRelativeImportExtensions: true,
-          allowImportingTsExtensions: true,
-        },
-        files: entries,
-      }),
-    );
+    const base = readJson(tsconfig);
+    writeJson(config, {
+      ...base,
+      compilerOptions: {
+        ...base.compilerOptions,
+        declaration: true,
+        outDir,
+        rootDir: source,
+        rewriteRelativeImportExtensions: true,
+        allowImportingTsExtensions: true,
+      },
+      files: entries,
+    });
     execFileSync(compiler, ["--project", config], {
       cwd: root,
       stdio: "inherit",
@@ -246,15 +221,8 @@ try {
   cpSync(join(tree, "jsi"), join(destination, "cpp/generated"), {
     recursive: true,
   });
-  writeFileSync(
-    join(destination, "dist/entry.js"),
-    "export * from './index.js';\n",
-  );
-  writeFileSync(
-    join(destination, "dist/entry.d.ts"),
-    "export * from './index.js';\n",
-  );
-  const coreManifest = JSON.parse(readFileSync(join(core, "package.json")));
+  writeEntry(join(destination, "dist"), "entry", "./index.js");
+  const coreManifest = readJson(join(core, "package.json"));
   const coreEntry =
     coreManifest.module ??
     coreManifest.exports?.["."]?.import ??
@@ -273,18 +241,10 @@ try {
   for (const name of files(join(destination, "dist"))) {
     if (!/\.(?:js|ts)$/.test(name)) continue;
     const path = join(destination, "dist", name);
-    let source = readFileSync(path, "utf8");
-    for (const [specifier, entry] of [
-      ["@ubjs/core", resolve(destination, "dist/runtime/core", coreEntry)],
-      ["#xmtp/binding", join(destination, "dist/xmtp_sdk.js")],
-    ]) {
-      let replacement = relative(dirname(path), entry).replaceAll("\\", "/");
-      if (!replacement.startsWith(".")) replacement = `./${replacement}`;
-      source = source
-        .replaceAll(JSON.stringify(specifier), JSON.stringify(replacement))
-        .replaceAll(`'${specifier}'`, JSON.stringify(replacement));
-    }
-    writeFileSync(path, source);
+    rewriteImports(path, {
+      "@ubjs/core": resolve(destination, "dist/runtime/core", coreEntry),
+      "#xmtp/binding": join(destination, "dist/xmtp_sdk.js"),
+    });
   }
   for (const name of ["android", "ios", "cpp", "src/specs"]) {
     const path = join(root, "sdks/react-native", name);
@@ -314,12 +274,12 @@ try {
   const react = join(root, "sdks/react-native/src/react");
   if (existsSync(join(react, "index.ts"))) {
     // Resolve the generated root while emitting the optional source entry.
-    const reactConfig = JSON.parse(readFileSync(tsconfig));
+    const reactConfig = readJson(tsconfig);
     reactConfig.compilerOptions.paths = {
       ...reactConfig.compilerOptions.paths,
       "@xmtp/react-native-sdk": [join(destination, "dist/entry.d.ts")],
     };
-    writeFileSync(tsconfig, JSON.stringify(reactConfig));
+    writeJson(tsconfig, reactConfig);
     if (process.env.XMTP_SDK_REACT_TYPES) {
       reactConfig.compilerOptions.paths.react = [
         join(process.env.XMTP_SDK_REACT_TYPES, "index.d.ts"),
@@ -327,7 +287,7 @@ try {
       reactConfig.compilerOptions.paths["react/*"] = [
         join(process.env.XMTP_SDK_REACT_TYPES, "*"),
       ];
-      writeFileSync(tsconfig, JSON.stringify(reactConfig));
+      writeJson(tsconfig, reactConfig);
     } else {
       symlinkSync(join(root, "node_modules"), join(compile, "node_modules"));
     }
@@ -346,10 +306,7 @@ try {
       default: "./dist/react/index.js",
     };
   }
-  writeFileSync(
-    join(destination, "package.json"),
-    JSON.stringify(manifest, null, 2) + "\n",
-  );
+  writeJson(join(destination, "package.json"), manifest, true);
   const stagedAssets = Object.fromEntries(
     files(destination)
       .sort()
@@ -378,31 +335,17 @@ try {
       .digest("hex"),
     runtimeContract: hash(join(runtime, "runtime-provenance.json")),
   };
-  writeFileSync(
+  writeJson(
     join(destination, "sdk-contract.json"),
-    JSON.stringify(
-      {
-        schema: 1,
-        kind: "react-native-js",
-        identity,
-        generated: receipt,
-        runtime: runtimeReceipt,
-        assets: stagedAssets,
-      },
-      null,
-      2,
-    ) + "\n",
+    {
+      schema: 1,
+      kind: "react-native-js",
+      identity,
+      generated: receipt,
+      runtime: runtimeReceipt,
+      assets: stagedAssets,
+    },
+    true,
   );
-  const previous = join(temporary, "previous");
-  if (existsSync(output)) renameSync(output, previous);
-  try {
-    renameSync(destination, output);
-  } catch (error) {
-    if (existsSync(previous)) renameSync(previous, output);
-    throw error;
-  }
-} finally {
-  writable(temporary);
-  rmSync(temporary, { recursive: true, force: true });
-}
+});
 console.log(`React Native JS/types staged: ${output}`);

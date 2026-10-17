@@ -17,9 +17,10 @@ Do not use Nix's linker with the system SDK. The shells accept any Xcode. The
 iOS build outputs are keyed to one Xcode (`xcode` in `ios-env.nix`, also
 `lib.xcode`): a CI or release output fails to build with another, and the
 `-local` outputs (`ios-xcframeworks-local`, `ios-xcframeworks-fast-local`)
-build with any Xcode. A sibling Xcode update changes `xcode` and its
-`maxim-lobanov/setup-xcode` pins in `.github/workflows` together. RN has the
-separate pin described below.
+build with any Xcode. Canonical outputs select the keyed absolute developer
+directory per process and check its exact version, build, and path. They do
+not depend on the host's global selection. Keep the CI installation pins
+matched when changing `xcode`. RN has the separate pin described below.
 The focused Rust shell and Android host builds use the Nix toolchain.
 They must replace native compiler and linker overrides from an outer local or
 iOS shell. Otherwise, Xcode's linker uses Nix's SDK without its library search paths.
@@ -225,9 +226,17 @@ use it directly.
 `dev/nix-shell --shell react-native 'COMMAND'` selects the locked RN/Expo
 Android tools, Gradle, JDK, and CocoaPods. It does not change sibling pins.
 `lib.reactNativeXcode` and `lib/react-native-env.nix` own RN's separate exact
-Apple pin. Keep the sibling Xcode in `ios-env.nix`. On a cold Darwin store,
-build `ciStages.aarch64-darwin.native-base` under the sibling pin before the
-RN components and consumers under the RN pin.
+Apple pin. Keep the sibling Xcode in `ios-env.nix`. Each canonical derivation
+selects its own pin, so a cold component build needs both installations but
+needs no global Xcode switch or separate native-base build.
+
+Apple SDK compiles remap transient build roots through the stable compiler
+wrappers in `lib/apple-native-tool.sh`. Dependency and final phases use the
+same wrapper paths and caller flags, so remapping does not invalidate Cargo's
+dependency fingerprints. The C wrapper also stabilizes OpenSSL's configured
+engine/module directory macros before compilation. It does not rewrite
+sources or completed artifacts. Exact NAR and signature checks still admit
+only the tested bytes; remapping alone is not proof of byte determinism.
 
 The shared CI installer admits exact read-only host inputs through
 `extra-allowed-impure-host-deps`: the pinned Xcode Contents directory,

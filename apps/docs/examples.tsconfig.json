@@ -3,17 +3,7 @@
   "compilerOptions": {
     "isolatedModules": false,
     "noEmit": true,
-    "types": ["node"],
-    "paths": {
-      "@xmtp/node-sdk": ["../../sdks/node/dist/index.d.ts"],
-      "@xmtp/browser-sdk": ["../../sdks/browser/dist/index.d.ts"],
-      "@xmtp/agent-sdk": ["../../sdks/agent/dist/index.d.ts"],
-      "@xmtp/agent-sdk/*": ["../../sdks/agent/dist/index.d.ts"],
-      "@xmtp/react-native-sdk": ["../../sdks/react-native/dist/entry.d.ts"],
-      "@xmtp/react-native-sdk/react": [
-        "../../sdks/react-native/dist/react/index.d.ts"
-      ]
-    }
+    "types": ["node"]
   },
   "include": ["examples/**/*.ts"]
 }

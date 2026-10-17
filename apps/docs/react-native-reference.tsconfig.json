@@ -1,10 +1,7 @@
 {
   "extends": "../../dev/js/tsconfig.web.json",
   "compilerOptions": {
-    "types": ["node", "react"],
-    "paths": {
-      "@xmtp/react-native-sdk": ["../../sdks/react-native/dist/entry.d.ts"]
-    }
+    "types": ["node", "react"]
   },
   "include": ["../../sdks/react-native/dist/**/*.d.ts"]
 }

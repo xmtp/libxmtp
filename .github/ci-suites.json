@@ -1435,11 +1435,14 @@
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
+        ".github/actions/react-native-conformance/**",
+        ".github/actions/react-native-product/**",
         ".github/actions/setup-js/**",
         ".github/actions/setup-nix/**",
         ".github/workflows/test-react-native.yml"
       ],
       "paths": [
+        ".github/actions/react-native-{product,conformance}/**",
         "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_attachments_server/**",

@@ -33,6 +33,7 @@ let
     # Keep this subtree out of the sibling TypeScript render identity.
     react-native = runtimeInputs.typescript ++ [
       (lib.fileset.maybeMissing (root + /apps/xmtp_sdk_bindgen/runtime/react-native))
+      (lib.fileset.maybeMissing (root + /apps/xmtp_sdk_bindgen/react-native.toml))
     ];
     typescript = [
       (root + /apps/xmtp_sdk_bindgen/runtime/ts)

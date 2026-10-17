@@ -21,6 +21,7 @@
             ../Cargo.toml
             ../LICENSE
             ../crates/xmtp_sdk/dev/check-generated-assets.mjs
+            ../crates/xmtp_sdk/dev/package-staging.mjs
           ]
           ++ (map (name: lib.fileset.maybeMissing (sdk + "/${name}")) [
             "scripts/stage-package.mjs"
@@ -53,6 +54,9 @@
       };
       consumerDeps = lib.genAttrs [ "bare" "expo" ] (
         consumer: pkgs.callPackage ./package/react-native-consumer-deps.nix { inherit consumer; }
+      );
+      consumerTemplates = lib.genAttrs [ "bare" "expo" ] (
+        consumer: pkgs.callPackage ./package/react-native-consumer-template.nix { inherit consumer; }
       );
       jsTools = pkgs.callPackage ./package/react-native-js-tools.nix { };
       js = pkgs.stdenvNoCC.mkDerivation {
@@ -142,6 +146,7 @@
                 packageVersion
                 expectedSource
                 ;
+              template = consumerTemplates.${consumer};
               dependencies = consumerDeps.${consumer};
               nativeDependencies = if platform == "ios" then iosDependencies else null;
               rnShell = self.devShells.${system}.react-native;
@@ -194,6 +199,8 @@
         react-native-js-tools-deps = jsTools.dependencies;
         react-native-consumer-deps-bare = consumerDeps.bare;
         react-native-consumer-deps-expo = consumerDeps.expo;
+        react-native-consumer-template-bare = consumerTemplates.bare;
+        react-native-consumer-template-expo = consumerTemplates.expo;
       }
       // lib.optionalAttrs (system == "x86_64-linux") {
         xmtp-sdk-react-native-android = component "android" androidEntries false;

@@ -229,17 +229,17 @@
     "ubrn-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1792197241,
-        "narHash": "sha256-1Bxy5jI/9/4nkS3sJ4UID9whvPXfgV35/eBiQj3wf48=",
+        "lastModified": 1792270409,
+        "narHash": "sha256-GqllvDfiSuF9XSUTQNJKhSVLMT/aLoi5KZEHtOMapKE=",
         "owner": "neekolas",
         "repo": "uniffi-bindgen-react-native",
-        "rev": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+        "rev": "c4ae748b187807e6da4f9c841ad83838be7f12f2",
         "type": "github"
       },
       "original": {
         "owner": "neekolas",
         "repo": "uniffi-bindgen-react-native",
-        "rev": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+        "rev": "c4ae748b187807e6da4f9c841ad83838be7f12f2",
         "type": "github"
       }
     }

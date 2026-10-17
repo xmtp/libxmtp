@@ -29,9 +29,10 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `dev/nix-shell 'just docs check-external'`: check external URLs with Lychee.
 - `dev/nix-shell 'just docs check-cutover'`: check the composed site origin, exports, and signature route. Pass the expected origin and staged site path to check a cutover candidate. This does not verify live DNS, certificates, or HTTP redirects.
 
-`just docs build` and `just docs check-examples` select each SDK product from its
-source manifest, then run its package tasks with the pnpm dependency graph. Do not
-add a separate SDK build before either command.
+`just docs build`, `just docs check-examples`, and `just docs typecheck` use the
+pnpm dependency graph to build each local SDK once through Nix. Do not add a
+separate SDK build before these commands. The typecheck recipe builds the
+SDK dependencies first, then checks the docs package and examples.
 
 ## Build and check scripts
 
@@ -66,7 +67,7 @@ API. The other workspace packages use TypeScript 7.
 SDK declarations. `just docs typecheck` checks Astro and executable examples.
 
 The site tsconfig excludes `examples/`. Check executable examples separately
-against each selected public SDK declaration entry.
+against the public SDK package exports.
 `examples.tsconfig.json` checks every executable example against the real SDK
 declarations through `just docs check-examples` and the docs build. Keep both
 checks; do not add examples to the Astro program or disable their type checks.

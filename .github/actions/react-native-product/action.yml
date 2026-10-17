@@ -26,11 +26,27 @@ runs:
       if: runner.os == 'macOS'
       id: xcode
       shell: bash
-      run: echo "version=$(nix eval --raw .#lib.reactNativeXcode.version)" >> "$GITHUB_OUTPUT"
+      run: |
+        pin=$(nix eval --json .#lib.reactNativeXcode)
+        {
+          echo "version=$(jq -er .version <<< "$pin")"
+          echo "build=$(jq -er .build <<< "$pin")"
+          echo "directory=$(jq -er .developerDir <<< "$pin")"
+        } >> "$GITHUB_OUTPUT"
     - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
       if: runner.os == 'macOS'
       with:
         xcode-version: ${{ steps.xcode.outputs.version }}
+    - name: Verify the exact RN Apple toolchain
+      if: runner.os == 'macOS'
+      shell: bash
+      env:
+        PIN_DIRECTORY: ${{ steps.xcode.outputs.directory }}
+        PIN_VERSION: ${{ steps.xcode.outputs.version }}
+        PIN_BUILD: ${{ steps.xcode.outputs.build }}
+      run: |
+        test "$(xcode-select -p)" = "$PIN_DIRECTORY"
+        test "$(xcodebuild -version)" = "$(printf 'Xcode %s\nBuild version %s' "$PIN_VERSION" "$PIN_BUILD")"
     - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
       if: inputs.stage != 'components'
       with:

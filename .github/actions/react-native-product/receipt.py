@@ -1,4 +1,7 @@
-"""Record local RN root identities and bounded realization markers without building."""
+"""Record initial local RN roots and bounded build markers without realizing paths.
+
+The signed component/package exports and consumer build receipts own output NARs.
+"""
 
 import json
 import os
@@ -9,6 +12,13 @@ import sys
 
 def output(*command):
     return subprocess.check_output(command, text=True).strip()
+
+
+def eval_json(expression):
+    args = ["nix", "eval", "--json", "--impure", "--expr", expression]
+    return json.loads(
+        output(*args, "--option", "allow-import-from-derivation", "false")
+    )
 
 
 stage, system, version, mode, phase = sys.argv[1:]
@@ -28,21 +38,9 @@ if phase == "before":
                   else if version == "" then members
                   else consumers.passthru.members // { bundles = consumers; }
                     // builtins.intersectAttrs { react-native-consumer-template-bare = null; react-native-consumer-template-expo = null; } members;
-      in builtins.mapAttrs (_: drv: { inherit (drv) drvPath outPath; }) roots
+      in builtins.mapAttrs (_: drv: { derivationPath = drv.drvPath; outputPath = drv.outPath; }) roots
     """
-    roots = json.loads(
-        output(
-            "nix",
-            "eval",
-            "--option",
-            "allow-import-from-derivation",
-            "false",
-            "--json",
-            "--impure",
-            "--expr",
-            expression,
-        )
-    )
+    roots = eval_json(expression)
     receipt = {
         "sourceSha": output("git", "rev-parse", "HEAD"),
         "system": system,
@@ -53,44 +51,29 @@ if phase == "before":
         "roots": roots,
     }
     if system == "aarch64-darwin":
-        receipt["xcode"] = {
-            "globalDeveloperDir": output("xcode-select", "-p"),
-            "version": output("xcodebuild", "-version"),
-            "declaredNative": json.loads(
-                output("nix", "eval", "--json", ".#lib.xcode")
-            ),
-            "declaredRN": json.loads(
-                output("nix", "eval", "--json", ".#lib.reactNativeXcode")
-            ),
-        }
+        receipt["xcode"] = eval_json("""
+          let f = builtins.getFlake ("git+file://" + toString ./.);
+          in { native = f.lib.xcode; rn = f.lib.reactNativeXcode; }
+        """)
+        receipt["xcode"]["globalDeveloperDir"] = output("xcode-select", "-p")
+        receipt["xcode"]["version"] = output("xcodebuild", "-version")
+    paths = [root["outputPath"] for root in roots.values()]
+    command = ["nix-store", "--check-validity", "--print-invalid"]
+    invalid = set(output(*command, *paths).splitlines())
+    for root in roots.values():
+        root["validBefore"] = root["outputPath"] not in invalid
+
 else:
     receipt = json.loads(path.with_name(f"{stage}-before.json").read_text())
-    receipt["buildSeconds"] = (
-        int(os.environ["RN_BUILD_SECONDS"])
-        if os.environ.get("RN_BUILD_SECONDS")
-        else None
-    )
+    elapsed = os.environ.get("RN_BUILD_SECONDS")
+    receipt["buildSeconds"] = int(elapsed) if elapsed else None
     log = Path(os.environ["RUNNER_TEMP"], "rn-build.log")
-    receipt["realizationMarkers"] = (
-        [
-            line
-            for line in log.read_text().splitlines()
-            if "building '" in line or "copying path '" in line
-        ][-200:]
-        if log.exists()
-        else []
-    )
-for root in receipt["roots"].values():
-    valid = subprocess.run(
-        ["nix-store", "--check-validity", root["outPath"]], capture_output=True
-    ).returncode
-    root["validityExitCode"] = valid
-    if not valid:
-        info = json.loads(output("nix", "path-info", "--json", root["outPath"]))
-        root["narHash"] = (
-            info[0] if isinstance(info, list) else info[root["outPath"]]
-        )["narHash"]
-    else:
-        root.pop("narHash", None)
+    markers = []
+    if log.exists():
+        for line in log.read_text().splitlines():
+            if "building '" in line or "copying path '" in line:
+                markers.append(line)
+    receipt["realizationMarkers"] = markers[-200:]
+
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(receipt | {"phase": phase}, indent=2, sort_keys=True) + "\n")

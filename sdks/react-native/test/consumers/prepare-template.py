@@ -59,7 +59,15 @@ def prepare(consumer, archive, patch, output):
             target.write_bytes(data)
             target.chmod(0o755 if member.mode & 0o111 else 0o644)
     subprocess.run(
-        ["patch", "--batch", "--fuzz=0", "--forward", "-p1", "-i", str(patch.resolve())],
+        [
+            "patch",
+            "--batch",
+            "--fuzz=0",
+            "--forward",
+            "-p1",
+            "-i",
+            str(patch.resolve()),
+        ],
         cwd=output,
         check=True,
     )

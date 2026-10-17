@@ -14,7 +14,10 @@ These jobs do not run SDK or release tools. The tag push job imports a Git
 bundle into a new bare repository.
 Resolve the requested ref before SDK code runs. All SDK jobs use that fixed
 source SHA for checkout, build, and tag checks. Keep the requested ref for
-version classification. The version CLI gets its hash from the pinned HEAD.
+version classification. `release.yml` freezes the source in `validate`, then
+passes it to the nightly oracle, every SDK, the backend, and the hub. Direct
+SDK callers may omit `source-sha`; their permission job resolves `ref` once.
+The version CLI gets its hash from the pinned HEAD.
 Android and npm tags must point to that SHA. iOS can use one direct
 release commit
 that changes only the iOS release files. The push job checks this before it
@@ -241,9 +244,14 @@ in `react-native-proof-PLATFORM`; release jobs use
 The test and release consumer builds retain 100 Nix failure lines so CocoaPods
 hook exceptions remain visible before their Ruby stack traces.
 
-Post-merge produces the sibling base under Xcode 26.3, switches only RN work
-to the exact `lib.reactNativeXcode` pin, exports completed host components,
-assembles once on Linux, and builds both consumer bundles. Its final `build`
-jobs wait for these phases before building, pushing, and pinning dev/release.
-Docs wait for the completed empty-store closure check. Keep every RN stage
-member in the dev/release product declarations in `nix/ci-sets.nix`.
+The shared `react-native-product` action owns RN component exchange, canonical
+package assembly, and consumer builds. Callers pass the fixed source SHA,
+package version (empty for the default), artifact prefix, and cache mode.
+Cache setup, credentials, explicit uploads, and trusted writer environments
+stay in the calling workflows. Native derivations select their declared Xcode;
+the consumer action sets `DEVELOPER_DIR` for simulator commands outside Nix.
+`react-native-conformance` executes fresh installed bare/Expo proofs in test
+and release jobs. Post-merge builds consumers without repeating those journeys.
+Its final `build` jobs wait for RN stages before building, pushing, and pinning
+dev/release. Docs wait for the completed empty-store closure check. Keep every
+RN stage member in the dev/release declarations in `nix/ci-sets.nix`.
