@@ -1,0 +1,12 @@
+{
+  "version": "8.0.0",
+  "sourceCommit": "73636909ddabfae64e370375ef8227c58f2abc5a",
+  "libxmtpVersion": "1.12.0-dev",
+  "sdks": {
+    "ios": "8.0.0",
+    "android": "8.0.0",
+    "node-sdk": "8.0.0",
+    "browser-sdk": "8.0.0",
+    "agent-sdk": "8.0.0"
+  }
+}
