@@ -25,16 +25,17 @@ app developers do not need Rust or Nix.
 Intel iOS simulators, React Native Web, desktop React Native, and Expo Go cannot
 load this package. Package peer dependency ranges are not a tested support matrix.
 
-### Consumer validation targets
+### Verified consumer configurations
 
-The pinned release targets are React Native 0.88.0 with React 19.3.0 and Expo
-SDK 58.0.14 with React Native 0.88.0 and React 19.3.0. Their installed-package
-build and Hermes runtime checks must pass on both iOS and Android before release.
+Bare React Native 0.88.0 with React 19.3.0 and Expo SDK 58.0.14 with React Native
+0.88.0 and React 19.3.0 have passed installed-package builds and Hermes runtime
+checks on both arm64 iOS simulators and Android emulators. These checks do not
+cover physical devices, APNs delivery, or system-triggered cold process wake.
+
 Older candidate versions require separate platform checks before being listed
 as supported. React Native 0.79.7, 0.80.3, 0.81.6, 0.82.1, 0.83.10, 0.84.1,
 0.85.3, 0.86.3, and 0.87.1 currently have skipped validation on both platforms
-and are not advertised as supported. Native validation results for the required
-release targets are not yet published here.
+and are not advertised as supported.
 
 ## Bare React Native
 
