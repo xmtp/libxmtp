@@ -1,5 +1,7 @@
 #![allow(unused)]
+pub use xmtp_id::utils::passkey::{PKClient, PKCredential, PasskeyUser, PkUserValidationMethod};
 
+use super::DefaultTestClientCreator;
 use super::FullXmtpClient;
 use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection, worker::SyncMetric};
 use crate::{
@@ -7,7 +9,6 @@ use crate::{
     builder::{ClientBuilder, DeviceSyncMode, ForkRecoveryOpts, ForkRecoveryPolicy},
     client::ClientError,
     context::XmtpSharedContext,
-    cursor_store::SqliteCursorStore,
     groups::{GroupError, intents::UpdateGroupMembershipResult},
     identity::{Identity, IdentityStrategy, pq_key_package_references_key},
     identity_updates::load_identity_updates,
@@ -26,12 +27,6 @@ use futures::{
 };
 use futures_executor::block_on;
 use parking_lot::Mutex;
-use passkey::{
-    authenticator::{Authenticator, UiHint, UserCheck, UserValidationMethod},
-    client::{Client as PasskeyClient, DefaultClientData},
-    types::{Bytes, Passkey, ctap2::*, rand::random_vec, webauthn::*},
-};
-use public_suffix::PublicSuffixList;
 use std::{
     ops::Deref,
     path::{Path, PathBuf},
@@ -41,14 +36,12 @@ use std::{
     },
 };
 use tokio::{runtime::Handle, sync::OnceCell};
-use toxiproxy_rust::proxy::{Proxy, ProxyPack};
-use url::Url;
+xmtp_common::if_native! {
+    use xmtp_common::toxiproxy::Proxy;
+    use xmtp_proto::api_client::{ToxicProxies, ToxicTestClient};
+}
 use xmtp_api::{ApiError, XmtpApi};
-use xmtp_api_d14n::{
-    DevOnlyTestClientCreator, LocalOnlyTestClientCreator, XmtpTestClientExt,
-    protocol::InMemoryCursorStore,
-};
-use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
+use xmtp_api_backend::{AuthCallback, AuthMiddleware, BackendClient, TrackedStatsClient};
 use xmtp_common::StreamHandle;
 use xmtp_configuration::DockerUrls;
 use xmtp_configuration::{KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCALHOST};
@@ -77,9 +70,10 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_proto::api::ToBoxedClient;
 use xmtp_proto::{
     api::ApiClientError,
-    api_client::{ApiBuilder, ToxicProxies, ToxicTestClient, XmtpIdentityClient},
+    api_client::ApiBuilder,
     identity_v1::PublishIdentityUpdateRequest,
     prelude::XmtpTestClient,
     xmtp::{
@@ -105,6 +99,7 @@ where
     #[cfg(not(target_arch = "wasm32"))]
     pub stream_handle:
         Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>> + Send>>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub proxy: Option<ToxicProxies>,
 }
 
@@ -200,24 +195,29 @@ where
             client = client.temp_store().await;
         }
 
+        let api_client;
+        #[cfg(not(target_arch = "wasm32"))]
         let mut proxy = None;
-        let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
-        let local_client = match (&self.api_endpoint, self.proxy) {
-            (ApiEndpoint::Local, false) => {
-                LocalOnlyTestClientCreator::with_cursor_store(store.clone())
+        xmtp_common::wasm_or_native! {
+            native => {
+                api_client = if self.proxy {
+                    proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
+                    ToxicOnlyTestClientCreator::create().build().unwrap()
+                } else {
+                    self.api_endpoint.client()
+                };
+            },
+            wasm => {
+                api_client = self.api_endpoint.client();
             }
-            (ApiEndpoint::Dev, false) => DevOnlyTestClientCreator::with_cursor_store(store.clone()),
-            (ApiEndpoint::Local, true) => {
-                proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
-                ToxicOnlyTestClientCreator::with_cursor_store(store.clone())
-            }
-            (ApiEndpoint::Dev, true) => (unimplemented!("toxiproxy not supported on dev")),
-        };
-
-        let api_client = local_client.build().unwrap();
+        }
+        let api_client = self
+            .api_client
+            .clone()
+            .unwrap_or_else(|| Arc::new(api_client));
 
         let mut client = client
-            .api_client(api_client)
+            .api_client_with_streams(api_client)
             .with_disable_workers(self.disable_workers)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .with_device_sync_worker_mode(Some(self.sync_mode))
@@ -227,8 +227,12 @@ where
             .worker_config(self.worker_config.clone().unwrap_or_default())
             .unstable_change_callbacks(self.change_callbacks.clone());
 
-        if self.in_memory_cursors {
-            client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
+        if let Some(path) = &self.attachments_dir {
+            client = client.attachments_dir(path.clone());
+        }
+
+        if let Some(provider) = self.config_provider.clone() {
+            client = client.config_provider(provider);
         }
 
         if self.triggers {
@@ -255,6 +259,7 @@ where
             client,
             worker,
             stream_handle: None,
+            #[cfg(not(target_arch = "wasm32"))]
             proxy,
         };
 
@@ -275,7 +280,7 @@ where
 
         tester.sync_welcomes().await;
         if self.stream {
-            tester.stream();
+            tester.stream().await;
         }
 
         if let Some(name) = &self.name {
@@ -297,15 +302,13 @@ where
             .unwrap();
         for update in updates {
             let update: UnverifiedIdentityUpdate = update.payload.try_into().unwrap();
-            let update: IdentityUpdate = update.into();
-            let result = self
-                .context
-                .api_client
-                .api_client
-                .publish_identity_update(PublishIdentityUpdateRequest {
-                    identity_update: Some(update),
-                })
-                .await;
+            let result = crate::identity_updates::publish_with_conflict_retry(
+                self.context.api(),
+                &self.db(),
+                update,
+                &self.context.scw_verifier(),
+            )
+            .await;
 
             if let Err(err) = result {
                 tracing::warn!("{err:?}");
@@ -325,9 +328,20 @@ where
                 xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table)
                     .execute(c)
                     .unwrap();
-                xmtp_db::diesel::delete(xmtp_db::schema::refresh_state::table)
+                xmtp_db::diesel::delete(xmtp_db::schema::incoming_envelopes::table)
                     .execute(c)
                     .unwrap();
+                // Keep the delivery-sequence allocator. It shares this table but
+                // is not network progress, and deleting it leaves the client
+                // unable to store or deliver any message at all.
+                xmtp_db::diesel::delete(
+                    xmtp_db::schema::refresh_state::table.filter(
+                        xmtp_db::schema::refresh_state::entity_kind
+                            .ne(xmtp_db::refresh_state::EntityKind::DeliveryAllocator),
+                    ),
+                )
+                .execute(c)
+                .unwrap();
 
                 Ok(())
             })
@@ -338,16 +352,20 @@ where
         TesterBuilder::new().owner(owner).build().await
     }
 
-    fn stream(&mut self) {
-        let handle = FullXmtpClient::stream_all_messages_with_callback(
-            self.client.context.clone(),
-            None,
-            None,
-            |_| {},
-            || {},
-        );
-        let handle = Box::new(handle) as Box<_>;
-        self.stream_handle = Some(handle);
+    async fn stream(&mut self) {
+        let stream = self
+            .client
+            .stream_all_messages_owned(None, None)
+            .await
+            .unwrap();
+        let handle = xmtp_common::spawn(None, async move {
+            futures::pin_mut!(stream);
+            while let Some(message) = stream.next().await {
+                message?;
+            }
+            Ok(())
+        });
+        self.stream_handle = Some(Box::new(handle));
     }
 
     fn provider(&self) -> impl MlsProviderExt + use<'_, Owner> {
@@ -375,19 +393,21 @@ where
         self.worker.as_ref().unwrap()
     }
 
-    pub fn proxies(&self) -> &ToxicProxies {
-        self.proxy.as_ref().unwrap()
-    }
+    xmtp_common::if_native! {
+        pub fn proxies(&self) -> &ToxicProxies {
+            self.proxy.as_ref().unwrap()
+        }
 
-    pub fn proxy(&self, n: usize) -> &Proxy {
-        self.proxy.as_ref().unwrap().proxy(n)
-    }
+        pub fn proxy(&self, n: usize) -> &Proxy {
+            self.proxy.as_ref().unwrap().proxy(n)
+        }
 
-    pub async fn for_each_proxy<F>(&self, f: F)
-    where
-        F: AsyncFn(&Proxy),
-    {
-        self.proxy.as_ref().unwrap().for_each(f).await
+        pub async fn for_each_proxy<F>(&self, f: F)
+        where
+            F: AsyncFn(&Proxy),
+        {
+            self.proxy.as_ref().unwrap().for_each(f).await
+        }
     }
 }
 
@@ -407,6 +427,7 @@ pub struct TesterBuilder<Owner>
 where
     Owner: InboxOwner,
 {
+    pub attachments_dir: Option<PathBuf>,
     pub owner: Owner,
     pub sync_mode: DeviceSyncMode,
     pub fork_recovery_opts: Option<ForkRecoveryOpts>,
@@ -414,9 +435,12 @@ where
     pub stream: bool,
     pub name: Option<String>,
     pub version: Option<VersionInfo>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub proxy: bool,
+    pub api_client: Option<crate::utils::TestClient>,
+    /// Kept separately so `auth` and `backend` may be given in any order.
+    pub auth_callback: Option<Arc<dyn AuthCallback>>,
     pub commit_log_worker: bool,
-    pub in_memory_cursors: bool,
     pub ephemeral_db: bool,
     pub api_endpoint: ApiEndpoint,
     pub triggers: bool,
@@ -428,12 +452,38 @@ where
     pub disable_workers: bool,
     pub worker_config: Option<crate::worker::WorkerConfig>,
     pub change_callbacks: crate::groups::change_callbacks::UnstableChangeCallbacks,
+    /// A caller-supplied snapshot. With one in place the client never
+    /// fetches, stores, refreshes, or checks the identifier, so a test can name
+    /// any applied value without starting a backend for it.
+    pub config_provider: Option<Arc<dyn xmtp_configuration::ConfigProvider>>,
 }
 
 #[derive(Clone)]
 pub enum ApiEndpoint {
     Local,
     Dev,
+    Url {
+        url: String,
+        auth: Option<Arc<dyn AuthCallback>>,
+    },
+}
+
+impl ApiEndpoint {
+    fn client(&self) -> xmtp_api_backend::TestClient {
+        match self {
+            Self::Local | Self::Dev => DefaultTestClientCreator::create().build().unwrap(),
+            Self::Url { url, auth } => {
+                let transport = xmtp_api_grpc::GrpcClient::create(url.parse().unwrap()).unwrap();
+                let transport = match auth {
+                    Some(callback) => {
+                        AuthMiddleware::new(transport, Some(callback.clone()), None).arced()
+                    }
+                    None => transport.arced(),
+                };
+                TrackedStatsClient::new(BackendClient::new(transport))
+            }
+        }
+    }
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -452,10 +502,12 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             stream: false,
             name: None,
             version: None,
+            #[cfg(not(target_arch = "wasm32"))]
             proxy: false,
+            api_client: None,
+            auth_callback: None,
             commit_log_worker: true, // Default to enabled to match production
             installation: false,
-            in_memory_cursors: false,
             ephemeral_db: true,
             triggers: false,
             api_endpoint: ApiEndpoint::Local,
@@ -465,6 +517,8 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             disable_workers: false,
             worker_config: None,
             change_callbacks: Default::default(),
+            config_provider: None,
+            attachments_dir: None,
         }
     }
 }
@@ -485,10 +539,12 @@ where
             stream: self.stream,
             name: self.name,
             version: self.version,
+            #[cfg(not(target_arch = "wasm32"))]
             proxy: self.proxy,
+            api_client: self.api_client,
+            auth_callback: self.auth_callback,
             commit_log_worker: self.commit_log_worker,
             installation: self.installation,
-            in_memory_cursors: self.in_memory_cursors,
             ephemeral_db: self.ephemeral_db,
             api_endpoint: self.api_endpoint,
             triggers: self.triggers,
@@ -498,7 +554,33 @@ where
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             change_callbacks: self.change_callbacks,
+            config_provider: self.config_provider,
+            attachments_dir: self.attachments_dir,
         }
+    }
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub fn backend(mut self, backend: &super::backend::EphemeralBackend) -> Self {
+        self.api_endpoint = ApiEndpoint::Url {
+            url: backend.url().to_owned(),
+            auth: self.auth_callback.clone(),
+        };
+        self
+    }
+
+    /// Set the callback for a URL endpoint. The order of `backend` and `auth`
+    /// does not matter: a callback set first is kept when `backend` follows.
+    pub fn auth(mut self, callback: Arc<dyn AuthCallback>) -> Self {
+        self.auth_callback = Some(callback.clone());
+        if let ApiEndpoint::Url { auth, .. } = &mut self.api_endpoint {
+            *auth = Some(callback);
+        }
+        self
+    }
+
+    pub fn api_client(mut self, api_client: crate::utils::TestClient) -> Self {
+        self.api_client = Some(api_client);
+        self
     }
 
     /// Assign a name to this tester
@@ -567,6 +649,31 @@ where
     pub fn worker_config(mut self, cfg: crate::worker::WorkerConfig) -> Self {
         self.worker_config = Some(cfg);
         self
+    }
+
+    /// Build against a fixed snapshot.
+    pub fn config_provider(
+        mut self,
+        provider: Arc<dyn xmtp_configuration::ConfigProvider>,
+    ) -> Self {
+        self.config_provider = Some(provider);
+        self
+    }
+
+    pub fn attachments_dir(mut self, path: impl Into<PathBuf>) -> Self {
+        self.attachments_dir = Some(path.into());
+        self
+    }
+
+    /// Build against a snapshot that differs from the compiled defaults only in
+    /// the fields `edit` touches.
+    pub fn configured(
+        self,
+        edit: impl FnOnce(&mut xmtp_configuration::ServerConfiguration),
+    ) -> Self {
+        self.config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+            edit,
+        )))
     }
 
     pub fn change_callbacks(
@@ -646,11 +753,7 @@ where
         self
     }
 
-    pub fn in_memory_cursors(mut self) -> Self {
-        self.in_memory_cursors = true;
-        self
-    }
-
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn proxy(mut self) -> Self {
         self.proxy = true;
         self
@@ -669,152 +772,6 @@ where
     pub fn do_not_wait_for_init(mut self) -> Self {
         self.wait_for_init = false;
         self
-    }
-}
-
-pub type PKCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
-pub type PKClient = PasskeyClient<Option<Passkey>, PkUserValidationMethod, PublicSuffixList, ()>;
-
-#[derive(Clone)]
-pub struct PasskeyUser {
-    origin: Url,
-    pk_cred: Arc<PKCredential>,
-    pk_client: Arc<Mutex<PKClient>>,
-}
-
-impl InboxOwner for PasskeyUser {
-    fn sign(&self, text: &str) -> Result<UnverifiedSignature, SignatureError> {
-        let text = text.as_bytes().to_vec();
-        let sign_request = CredentialRequestOptions {
-            public_key: PublicKeyCredentialRequestOptions {
-                challenge: Bytes::from(text),
-                timeout: None,
-                rp_id: Some(String::from(self.origin.domain().unwrap())),
-                allow_credentials: None,
-                user_verification: UserVerificationRequirement::default(),
-                hints: None,
-                attestation: AttestationConveyancePreference::None,
-                attestation_formats: None,
-                extensions: None,
-            },
-        };
-
-        let mut pk_client = self.pk_client.lock();
-
-        let cred = pk_client.authenticate(self.origin.clone(), sign_request, DefaultClientData);
-        let cred = futures_executor::block_on(cred).unwrap();
-        let resp = cred.response;
-
-        let signature = resp.signature.to_vec();
-
-        Ok(UnverifiedSignature::Passkey(UnverifiedPasskeySignature {
-            public_key: self.public_key(),
-            signature,
-            authenticator_data: resp.authenticator_data.to_vec(),
-            client_data_json: resp.client_data_json.to_vec(),
-        }))
-    }
-
-    fn get_identifier(
-        &self,
-    ) -> Result<
-        xmtp_id::associations::Identifier,
-        xmtp_cryptography::signature::IdentifierValidationError,
-    > {
-        Ok(Identifier::Passkey(ident::Passkey {
-            key: self.public_key(),
-            relying_party: None,
-        }))
-    }
-}
-
-impl PasskeyUser {
-    pub async fn new() -> Self {
-        let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
-        let parameters_from_rp = PublicKeyCredentialParameters {
-            ty: PublicKeyCredentialType::PublicKey,
-            alg: coset::iana::Algorithm::ES256,
-        };
-        let pk_user_entity = PublicKeyCredentialUserEntity {
-            id: random_vec(32).into(),
-            display_name: "Alex Passkey".into(),
-            name: "apk@example.org".into(),
-        };
-        let pk_auth_store: Option<Passkey> = None;
-        let pk_aaguid = Aaguid::new_empty();
-        let pk_user_validation_method = PkUserValidationMethod {};
-        let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
-        let mut pk_client = PasskeyClient::new(pk_auth);
-
-        let request = CredentialCreationOptions {
-            public_key: PublicKeyCredentialCreationOptions {
-                rp: PublicKeyCredentialRpEntity {
-                    id: None, // Leaving the ID as None means use the effective domain
-                    name: origin.domain().unwrap().into(),
-                },
-                user: pk_user_entity,
-                // We're not passing a challenge here because we don't care about the credential and the user_entity behind it (for now).
-                // It's guaranteed to be unique, and that's good enough for us.
-                // All we care about is if that unique credential signs below.
-                challenge: Bytes::from(vec![]),
-                pub_key_cred_params: vec![parameters_from_rp],
-                timeout: None,
-                exclude_credentials: None,
-                authenticator_selection: None,
-                hints: None,
-                attestation: AttestationConveyancePreference::None,
-                attestation_formats: None,
-                extensions: None,
-            },
-        };
-
-        // Now create the credential.
-        let pk_cred = pk_client
-            .register(origin.clone(), request, DefaultClientData)
-            .await
-            .unwrap();
-
-        Self {
-            pk_client: Arc::new(Mutex::new(pk_client)),
-            pk_cred: Arc::new(pk_cred),
-            origin,
-        }
-    }
-
-    fn public_key(&self) -> Vec<u8> {
-        self.pk_cred.response.public_key.as_ref().unwrap()[26..].to_vec()
-    }
-
-    pub fn identifier(&self) -> Identifier {
-        Identifier::Passkey(ident::Passkey {
-            key: self.public_key(),
-            relying_party: self.origin.domain().map(str::to_string),
-        })
-    }
-}
-
-pub struct PkUserValidationMethod {}
-#[async_trait::async_trait]
-impl UserValidationMethod for PkUserValidationMethod {
-    type PasskeyItem = Passkey;
-    async fn check_user<'a>(
-        &self,
-        _hint: UiHint<'a, Passkey>,
-        presence: bool,
-        verification: bool,
-    ) -> Result<UserCheck, Ctap2Error> {
-        Ok(UserCheck {
-            presence,
-            verification,
-        })
-    }
-
-    fn is_verification_enabled(&self) -> Option<bool> {
-        Some(true)
-    }
-
-    fn is_presence_enabled(&self) -> bool {
-        true
     }
 }
 

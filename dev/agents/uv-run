@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Run a command in the locked agent tool environment (dev/agents/uv.lock), with
+# the Nix Python 3.11 of the rust shell (pyproject.toml needs a Python below
+# 3.12). dev/ast-outline and dev/serena call it.
+set -euo pipefail
+repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+# shellcheck disable=SC2016
+exec "$repo_root/dev/nix-shell" --shell rust --command bash -euc '
+  export UV_PROJECT_ENVIRONMENT="$1/.cache/agents/venv"
+  export UV_PYTHON_DOWNLOADS=never
+  exec uv run --frozen --no-dev --project "$1/dev/agents" \
+    --python "$(command -v python3.11)" "${@:2}"
+' uv-run "$repo_root" "$@"

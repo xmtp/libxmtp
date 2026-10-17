@@ -1,0 +1,468 @@
+use crate::endpoints::backend::GET_CONFIGURATION_PATH;
+use arc_swap::ArcSwap;
+use prost::bytes::Bytes;
+use std::sync::{
+    Arc, Weak,
+    atomic::{AtomicBool, Ordering},
+};
+use tokio::sync::OnceCell;
+use xmtp_common::{BoxDynError, MaybeSend, MaybeSync, time::Instant};
+#[cfg(not(test))]
+use xmtp_configuration::AUTH_LOCKOUT_COOLDOWN;
+use xmtp_configuration::MAX_CONSECUTIVE_AUTH_FAILURES;
+use xmtp_events::{ClientEvent, EventWriter, LockoutChange, LockoutChanged};
+use xmtp_proto::api::{
+    ApiClientError, AuthError, BytesStream, Client, IsConnectedCheck, grpc_status,
+};
+
+#[cfg(test)]
+/// Longer than the transport's first reconnect delay (100 ms), so a reopen
+/// during a lockout reliably meets it instead of racing it.
+const AUTH_LOCKOUT_COOLDOWN: std::time::Duration = std::time::Duration::from_millis(500);
+
+#[cfg(not(test))]
+use xmtp_common::time::now_secs;
+// Use a fixed clock to keep expiry tests stable.
+#[cfg(test)]
+fn now_secs() -> i64 {
+    1_000_000
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Credential {
+    name: http::header::HeaderName,
+    value: http::header::HeaderValue,
+    expires_at_seconds: i64,
+}
+
+impl Credential {
+    pub fn new(
+        name: Option<http::header::HeaderName>,
+        value: http::header::HeaderValue,
+        expires_at_seconds: i64,
+    ) -> Self {
+        Self {
+            name: name.unwrap_or(http::header::AUTHORIZATION),
+            value,
+            expires_at_seconds,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct AuthState {
+    generation: u64,
+    stale: bool,
+    failures: u32,
+    locked_until: Option<Instant>,
+}
+
+impl AuthState {
+    // implements: AUTH-023
+    fn fail(&mut self) -> bool {
+        self.failures = (self.failures + 1).min(MAX_CONSECUTIVE_AUTH_FAILURES);
+        if self.failures == MAX_CONSECUTIVE_AUTH_FAILURES && self.locked_until.is_none() {
+            self.locked_until = Some(Instant::now() + AUTH_LOCKOUT_COOLDOWN);
+            return true;
+        }
+        false
+    }
+}
+
+#[derive(Default)]
+struct AuthInner {
+    current: OnceCell<ArcSwap<Credential>>,
+    source_supplied: AtomicBool,
+    state: tokio::sync::Mutex<AuthState>,
+    /// Held across the callback so only one runs at a time. It is separate from
+    /// `state` because `AuthHandle::set` takes `state`, and a callback that
+    /// pushes its credential through the handle would deadlock on a lock this
+    /// function held across the await. Tokio's mutex is not reentrant.
+    refresh: tokio::sync::Mutex<()>,
+    event_writers: parking_lot::Mutex<Vec<Weak<dyn EventWriter<()>>>>,
+}
+
+impl AuthInner {
+    fn emit_lockout(&self, change: LockoutChange) {
+        let mut writers = self.event_writers.lock();
+        let live: Vec<_> = writers.iter().filter_map(Weak::upgrade).collect();
+        writers.retain(|writer| writer.strong_count() > 0);
+        drop(writers);
+        for writer in live {
+            writer.emit(
+                Some(ClientEvent::ClientLockoutChanged(LockoutChanged { change })),
+                None,
+            );
+        }
+    }
+    /// Store only while the state lock is held. This operation cannot be cancelled.
+    fn store(&self, credential: Credential) {
+        if let Some(current) = self.current.get() {
+            current.store(Arc::new(credential));
+        } else {
+            self.current
+                .set(ArcSwap::from_pointee(credential))
+                .unwrap_or_else(|_| unreachable!("state lock protects initialization"));
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AuthHandle {
+    inner: Arc<AuthInner>,
+}
+
+impl Default for AuthHandle {
+    fn default() -> Self {
+        let inner = Arc::new(AuthInner::default());
+        inner.source_supplied.store(true, Ordering::Release);
+        Self { inner }
+    }
+}
+
+impl std::fmt::Debug for AuthHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthHandle").finish_non_exhaustive()
+    }
+}
+
+impl AuthHandle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reserve a handle for an SDK credential set after client creation.
+    /// This empty handle does not satisfy CONF-051 by itself.
+    pub fn sdk_placeholder() -> Self {
+        Self {
+            inner: Arc::new(AuthInner::default()),
+        }
+    }
+
+    // implements: AUTH-024
+    pub async fn set(&self, credential: Credential) {
+        let mut state = self.inner.state.lock().await;
+        let was_locked = state.locked_until.is_some();
+        self.inner.store(credential);
+        self.inner.source_supplied.store(true, Ordering::Release);
+        *state = AuthState {
+            generation: state.generation + 1,
+            ..AuthState::default()
+        };
+        if was_locked {
+            self.inner.emit_lockout(LockoutChange::Left);
+        }
+    }
+
+    pub fn register_event_writer(&self, writer: &Arc<dyn EventWriter<()>>) {
+        let mut writers = self.inner.event_writers.lock();
+        writers.retain(|writer| writer.strong_count() > 0);
+        writers.push(Arc::downgrade(writer));
+    }
+
+    pub fn unregister_event_writer(&self, writer: &Arc<dyn EventWriter<()>>) {
+        self.inner.event_writers.lock().retain(|held| {
+            held.upgrade()
+                .is_some_and(|held| !Arc::ptr_eq(&held, writer))
+        });
+    }
+
+    pub fn id(&self) -> usize {
+        Arc::as_ptr(&self.inner) as usize
+    }
+}
+
+#[xmtp_common::async_trait]
+pub trait AuthCallback: MaybeSend + MaybeSync {
+    async fn on_auth_required(&self) -> Result<Credential, BoxDynError>;
+}
+
+/// Add credentials and refetch after expiry or rejection.
+/// Shared handles share credentials, callback serialization, and lockout state.
+/// Without a callback, expired or rejected credentials remain in use until `set`.
+#[derive(Clone)]
+pub struct AuthMiddleware<C> {
+    inner: C,
+    handle: AuthHandle,
+    callback: Option<Arc<dyn AuthCallback>>,
+}
+
+impl<C> AuthMiddleware<C> {
+    fn bypass_empty_sdk_placeholder(&self) -> bool {
+        !self.handle.inner.source_supplied.load(Ordering::Acquire)
+            && self.callback.is_none()
+            && self.handle.inner.current.get().is_none()
+    }
+
+    #[track_caller]
+    pub fn new(
+        inner: C,
+        callback: Option<Arc<dyn AuthCallback>>,
+        handle: Option<AuthHandle>,
+    ) -> Self {
+        assert!(
+            callback.is_some() || handle.is_some(),
+            "Either a callback or a handle must be provided"
+        );
+        Self {
+            inner,
+            handle: handle.unwrap_or_default(),
+            callback,
+        }
+    }
+
+    /// Keep the credential and its generation together across each network call.
+    /// Commit callback state only after the callback completes, including a probe.
+    // implements: AUTH-021
+    async fn get_credential(&self) -> Result<(Arc<Credential>, u64), AuthError> {
+        let inner = &self.handle.inner;
+        // Take the refresh lock first so only one callback runs at a time. The
+        // state lock is taken and released around it, never held across the
+        // await, because `AuthHandle::set` needs it while a callback runs.
+        let _refresh = inner.refresh.lock().await;
+        let mut state = *inner.state.lock().await;
+        let now = Instant::now();
+        let lockout_left = state.locked_until.is_some_and(|until| until <= now);
+        if let Some(until) = state.locked_until {
+            if until > now {
+                return Err(AuthError::Exhausted);
+            }
+            state.locked_until = None;
+            state.failures = MAX_CONSECUTIVE_AUTH_FAILURES - 1;
+            state.stale = true;
+        }
+        let mut credential = inner.current.get().map(|current| current.load_full());
+        let needs_refresh = state.stale
+            || credential
+                .as_ref()
+                .is_none_or(|credential| credential.expires_at_seconds <= now_secs());
+        if needs_refresh && let Some(callback) = &self.callback {
+            let generation_before = state.generation;
+            let result = callback.on_auth_required().await;
+            let mut guard = inner.state.lock().await;
+            // `AuthHandle::set` may have run during the callback. Its credential
+            // is newer, so keep it and leave its state alone.
+            if guard.generation != generation_before {
+                return Ok((
+                    inner
+                        .current
+                        .get()
+                        .map(|current| current.load_full())
+                        .ok_or(AuthError::MissingCredential)?,
+                    guard.generation,
+                ));
+            }
+            match result {
+                Ok(new) => {
+                    inner.store(new);
+                    credential = inner.current.get().map(|current| current.load_full());
+                    state.generation += 1;
+                    state.stale = false;
+                }
+                Err(_) => {
+                    let entered = state.fail();
+                    *guard = state;
+                    if lockout_left {
+                        inner.emit_lockout(LockoutChange::Left);
+                    }
+                    if entered {
+                        inner.emit_lockout(LockoutChange::Entered);
+                    }
+                    // Distinguish this failed refresh from later refusals.
+                    // Both keep the same public error code and cool-down.
+                    return Err(if state.locked_until.is_some() {
+                        AuthError::ExhaustedAfterAttempt
+                    } else {
+                        AuthError::CallbackFailed { retryable: true }
+                    });
+                }
+            }
+            *guard = state;
+            if lockout_left {
+                inner.emit_lockout(LockoutChange::Left);
+            }
+        } else {
+            *inner.state.lock().await = state;
+            if lockout_left {
+                inner.emit_lockout(LockoutChange::Left);
+            }
+        }
+        let credential = credential.ok_or(AuthError::MissingCredential)?;
+        Ok((credential, state.generation))
+    }
+
+    /// Return whether a current rejection permits one immediate replay.
+    async fn finish<T>(
+        &self,
+        generation: u64,
+        result: Result<T, ApiClientError>,
+    ) -> (Result<T, ApiClientError>, bool) {
+        let rejected = result
+            .as_ref()
+            .err()
+            .and_then(|error| grpc_status(error))
+            .is_some_and(|status| status.code() == tonic::Code::Unauthenticated);
+        let mut state = self.handle.inner.state.lock().await;
+        let current = generation == state.generation;
+        if current {
+            if result.is_ok() {
+                state.failures = 0;
+            } else if rejected {
+                state.stale = true;
+                if self.callback.is_some() && state.fail() {
+                    self.handle.inner.emit_lockout(LockoutChange::Entered);
+                }
+            }
+        }
+        if rejected {
+            // The failed request that starts lockout spends one recovery cycle.
+            // Later refusals spend none. Both keep the same public error code.
+            if self.callback.is_some()
+                && state
+                    .locked_until
+                    .is_some_and(|until| until > Instant::now())
+            {
+                return (Err(AuthError::ExhaustedAfterAttempt.into()), false);
+            }
+            let retryable = self.callback.is_some();
+            (
+                Err(AuthError::CredentialRejected { retryable }.into()),
+                current && retryable,
+            )
+        } else {
+            (result, false)
+        }
+    }
+
+    /// Rebuild all request parts. Replace the credential header instead of appending it.
+    // implements: AUTH-020
+    fn request_builder(
+        parts: &http::request::Parts,
+        credential: &Credential,
+    ) -> http::request::Builder {
+        let mut request = http::Request::builder()
+            .method(parts.method.clone())
+            .uri(parts.uri.clone())
+            .version(parts.version);
+        let headers = request.headers_mut().expect("validated request parts");
+        *headers = parts.headers.clone();
+        headers.insert(credential.name.clone(), credential.value.clone());
+        *request.extensions_mut().expect("validated request parts") = parts.extensions.clone();
+        request
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<C: Client> Client for AuthMiddleware<C> {
+    /// An app-supplied handle is a source even before it holds a credential.
+    /// Only an empty handle reserved by the SDK is excluded from CONF-051.
+    fn has_credential_source(&self) -> bool {
+        self.callback.is_some() || self.handle.inner.source_supplied.load(Ordering::Acquire)
+    }
+
+    fn host(&self) -> &str {
+        self.inner.host()
+    }
+
+    // implements: AUTH-022
+    async fn request(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError> {
+        // The configuration read carries no credential and never
+        // invokes the app's callback. A client asks what the deployment
+        // requires before it can know whether it needs one.
+        // implements: CONF-029
+        if path.path() == GET_CONFIGURATION_PATH {
+            return self.inner.request(request, path, body).await;
+        }
+        if self.bypass_empty_sdk_placeholder() {
+            return self.inner.request(request, path, body).await;
+        }
+        let (parts, ()) = request.body(())?.into_parts();
+        let (credential, generation) = self.get_credential().await?;
+        let result = self
+            .inner
+            .request(
+                Self::request_builder(&parts, &credential),
+                path.clone(),
+                body.clone(),
+            )
+            .await;
+        let (result, replay) = self.finish(generation, result).await;
+        if !replay {
+            return result;
+        }
+        let (credential, generation) = self.get_credential().await?;
+        let result = self
+            .inner
+            .request(Self::request_builder(&parts, &credential), path, body)
+            .await;
+        self.finish(generation, result).await.0
+    }
+
+    // implements: AUTH-022
+    async fn stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        if self.bypass_empty_sdk_placeholder() {
+            return self.inner.stream(request, path, body).await;
+        }
+        let (parts, ()) = request.body(())?.into_parts();
+        let (credential, generation) = self.get_credential().await?;
+        let result = self
+            .inner
+            .stream(
+                Self::request_builder(&parts, &credential),
+                path.clone(),
+                body.clone(),
+            )
+            .await;
+        let (result, replay) = self.finish(generation, result).await;
+        if !replay {
+            return result;
+        }
+        let (credential, generation) = self.get_credential().await?;
+        let result = self
+            .inner
+            .stream(Self::request_builder(&parts, &credential), path, body)
+            .await;
+        self.finish(generation, result).await.0
+    }
+
+    async fn bidi_stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        if self.bypass_empty_sdk_placeholder() {
+            return self.inner.bidi_stream(request, path, body).await;
+        }
+        let (parts, ()) = request.body(())?.into_parts();
+        let (credential, generation) = self.get_credential().await?;
+        let result = self
+            .inner
+            .bidi_stream(Self::request_builder(&parts, &credential), path, body)
+            .await;
+        self.finish(generation, result).await.0
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<C: IsConnectedCheck> IsConnectedCheck for AuthMiddleware<C> {
+    async fn is_connected(&self) -> bool {
+        self.inner.is_connected().await
+    }
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod refetch_tests;

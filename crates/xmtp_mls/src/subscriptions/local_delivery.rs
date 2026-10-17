@@ -1,0 +1,582 @@
+//! Local message delivery. Network receipt and MLS processing run independently.
+
+mod acknowledgement;
+mod types;
+
+pub use acknowledgement::DeliveryAcknowledgement;
+pub(crate) use types::LocalDeliveryConfig;
+pub use types::{LocalDeliveryError, LocalDeliveryFilter};
+pub use xmtp_db::delivery::{DeliveryCursor, DeliveryScope, DeliverySnapshot};
+
+use acknowledgement::{AcknowledgementState, DeliverySession, PendingAcknowledgement};
+use futures::{Stream, StreamExt};
+use parking_lot::Mutex;
+use std::{borrow::Cow, collections::VecDeque, sync::Arc};
+use tokio::sync::Notify;
+use xmtp_common::{
+    StreamHandle,
+    time::{now_ns, sleep},
+};
+use xmtp_db::{
+    Fetch, StorageError,
+    consent_record::{ConsentState, ConsentType},
+    delivery::{DeliveryMessage, QueryDelivery},
+    group::StoredGroup,
+    group_message::StoredGroupMessage,
+    prelude::*,
+};
+use xmtp_proto::types::GroupId;
+
+use super::{DEFAULT_STREAM_CONSENT_STATES, SubscribeError, internal::InternalEvent};
+use crate::context::XmtpSharedContext;
+use xmtp_events::{EventFilter, Subscription};
+
+type Result<T> = std::result::Result<T, LocalDeliveryError>;
+
+/// One stored message and its unacknowledged application handoff.
+pub struct LocalDeliveryItem<Context: XmtpSharedContext> {
+    /// Retained, published content selected from the local database.
+    pub message: StoredGroupMessage,
+    /// Resume strictly after this item. Reading the cursor does not acknowledge it.
+    pub cursor: DeliveryCursor,
+    /// Host-side token; acknowledge only after callback return or the next-item request.
+    pub acknowledgement: DeliveryAcknowledgement<Context>,
+}
+
+#[derive(Clone)]
+struct Selection {
+    scope: DeliveryScope,
+    filter: LocalDeliveryFilter,
+    revision: u64,
+}
+
+/// Change future selection while a callback or iterator holds its current item.
+#[derive(Clone)]
+pub struct LocalDeliveryControl {
+    selection: Arc<Mutex<Selection>>,
+    changed: Arc<Notify>,
+    closer: Arc<dyn CloseDelivery>,
+}
+
+trait CloseDelivery: xmtp_common::MaybeSend + xmtp_common::MaybeSync {
+    fn close_delivery(&self);
+}
+
+impl<C: XmtpSharedContext> CloseDelivery for DeliverySession<C> {
+    fn close_delivery(&self) {
+        self.close();
+    }
+}
+
+impl LocalDeliveryControl {
+    pub fn close(&self) {
+        self.closer.close_delivery();
+    }
+
+    /// Change selected groups without consuming excluded groups' backlog.
+    pub fn update_scope(&self, scope: DeliveryScope) {
+        let mut selection = self.selection.lock();
+        selection.scope = scope;
+        selection.revision = selection.revision.wrapping_add(1);
+        self.changed.notify_one();
+    }
+
+    /// Change future selection; previously scanned rows stay consumed.
+    pub fn update_filter(&self, filter: LocalDeliveryFilter) {
+        let mut selection = self.selection.lock();
+        selection.filter = filter;
+        selection.revision = selection.revision.wrapping_add(1);
+        self.changed.notify_one();
+    }
+
+    pub fn scope(&self) -> DeliveryScope {
+        self.selection.lock().scope.clone()
+    }
+}
+
+/// One local reader with at most one item awaiting application acknowledgement.
+pub struct LocalDelivery<Context: XmtpSharedContext> {
+    session: Arc<DeliverySession<Context>>,
+    config: LocalDeliveryConfig,
+    control: LocalDeliveryControl,
+    events: Subscription<InternalEvent>,
+    candidates: VecDeque<DeliveryMessage>,
+    candidate_revision: u64,
+    /// At most one handoff can wait for acknowledgement.
+    pending: Option<Arc<PendingAcknowledgement>>,
+    /// `Some` selects independent replay; it never reads or changes default D.
+    replay_position: Option<DeliveryCursor>,
+    renewal: Option<Box<dyn StreamHandle<StreamOutput = ()>>>,
+}
+
+impl<Context> LocalDelivery<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    /// Open a default owner, or independent replay when `from` is supplied.
+    pub(crate) fn new(
+        context: Context,
+        scope: DeliveryScope,
+        filter: LocalDeliveryFilter,
+        from: Option<DeliveryCursor>,
+        config: LocalDeliveryConfig,
+    ) -> Result<Self> {
+        config.validate()?;
+        if context.is_closed() {
+            return Err(LocalDeliveryError::Closed);
+        }
+        // Subscribe before the first database read. Polling also covers missed and cross-process writes.
+        let events = context.events().subscribe(
+            EventFilter::default().with_internal(|event| {
+                matches!(event, InternalEvent::MessageStored { is_sync: false, .. })
+            }),
+            Some(10),
+        );
+        let now = now_ns();
+        let database_id = context.db().stream_database_id()?;
+        let owner = if let Some(cursor) = from {
+            context
+                .db()
+                .replay_delivery_messages(cursor, &scope, now, 0)?;
+            None
+        } else {
+            let mut registered = context.delivery_owner().lock();
+            if context.is_closed() {
+                return Err(LocalDeliveryError::Closed);
+            }
+            let mut retired = context.incoming_runtime().retired_delivery_owner.lock();
+            if let Some(owner) = *retired {
+                // Release only the closed reader's token. SQL fences a different owner.
+                context.db().release_delivery_owner(owner)?;
+                if *registered == Some(owner) {
+                    *registered = None;
+                }
+                *retired = None;
+            }
+            let owner = context
+                .db()
+                .acquire_delivery_owner_with_clock(config.lease_duration_ns()?, now_ns)?;
+            *registered = Some(owner);
+            Some(owner)
+        };
+        let session = Arc::new(DeliverySession::new(context, owner, database_id));
+        let renewal = if owner.is_some() {
+            let session = Arc::clone(&session);
+            Some(Box::new(xmtp_common::spawn(None, async move {
+                loop {
+                    tokio::select! {
+                        _ = session.cancel.cancelled() => { session.close(); break; },
+                        _ = sleep(config.renew_interval) => {}
+                    }
+                    let result = config
+                        .lease_duration_ns()
+                        .and_then(|lease_ns| session.renew(lease_ns).map_err(Into::into));
+                    if let Err(error) = result {
+                        session.fail(error);
+                        break;
+                    }
+                }
+            })) as Box<dyn StreamHandle<StreamOutput = ()>>)
+        } else {
+            None
+        };
+        Ok(Self {
+            session: Arc::clone(&session),
+            config,
+            control: LocalDeliveryControl {
+                selection: Arc::new(Mutex::new(Selection {
+                    scope,
+                    filter,
+                    revision: 0,
+                })),
+                changed: Arc::new(Notify::new()),
+                closer: session,
+            },
+            events,
+            candidates: VecDeque::new(),
+            candidate_revision: 0,
+            pending: None,
+            replay_position: from,
+            renewal,
+        })
+    }
+
+    pub fn control(&self) -> LocalDeliveryControl {
+        self.control.clone()
+    }
+
+    /// Close without acknowledging the last item. Its content remains eligible after restart.
+    pub fn close(&mut self) {
+        self.session.close();
+    }
+
+    /// Return one item with an explicit acknowledgement token for callback and host-queue adapters.
+    /// The next call waits for that token. It never acknowledges the previous item itself.
+    // implements: PROC-040
+    pub async fn next_delivery(&mut self) -> Result<Option<LocalDeliveryItem<Context>>> {
+        let result = self.next_inner().await;
+        if result.is_err() {
+            self.session.close();
+        }
+        result
+    }
+
+    // implements: PROC-026, PROC-052, PROC-034
+    async fn next_inner(&mut self) -> Result<Option<LocalDeliveryItem<Context>>> {
+        if let Some(pending) = self.pending.clone() {
+            loop {
+                let notified = pending.changed.notified();
+                {
+                    let mut state = pending.state.lock();
+                    // Read the cause under the same lock as acknowledgement and rejection.
+                    if let Some(error) = self.session.background_error() {
+                        return Err(error);
+                    }
+                    if matches!(*state, AcknowledgementState::Waiting)
+                        && self.control.selection.lock().revision != pending.revision
+                    {
+                        *state = AcknowledgementState::Reselect;
+                    }
+                    match *state {
+                        AcknowledgementState::Acknowledged => {
+                            if self.replay_position.is_some() {
+                                self.replay_position = Some(pending.cursor);
+                            }
+                            self.pending = None;
+                            break;
+                        }
+                        AcknowledgementState::Reselect => {
+                            self.pending = None;
+                            self.candidates.clear();
+                            break;
+                        }
+                        AcknowledgementState::Rejected => {
+                            return Err(LocalDeliveryError::AcknowledgementRejected);
+                        }
+                        AcknowledgementState::Failed => {
+                            return Err(LocalDeliveryError::AcknowledgementFailed);
+                        }
+                        AcknowledgementState::Waiting | AcknowledgementState::Dispatched => {}
+                    }
+                }
+                tokio::select! {
+                    _ = notified => {},
+                    _ = self.control.changed.notified() => {},
+                    _ = self.session.cancel.cancelled() => return self.session.end_result(),
+                }
+            }
+        }
+        loop {
+            if self.session.is_closed() {
+                return self.session.end_result();
+            }
+            let selection = self.control.selection.lock().clone();
+            if selection.revision != self.candidate_revision {
+                self.candidates.clear();
+                self.candidate_revision = selection.revision;
+            }
+            if self.candidates.is_empty() {
+                let now = now_ns();
+                self.candidates = {
+                    let db = self.session.context.db();
+                    if let Some(position) = self.replay_position {
+                        db.replay_delivery_messages_bounded(
+                            position,
+                            &selection.scope,
+                            now,
+                            self.config.batch_size,
+                            self.config.max_bytes,
+                        )?
+                    } else {
+                        db.default_delivery_messages_bounded(
+                            self.session.owner().ok_or(LocalDeliveryError::Closed)?,
+                            &selection.scope,
+                            now,
+                            self.config.batch_size,
+                            self.config.max_bytes,
+                        )?
+                    }
+                    .into()
+                };
+                if self.candidates.is_empty() {
+                    tokio::select! {
+                        _ = self.session.cancel.cancelled() => return self.session.end_result(),
+                        _ = self.control.changed.notified() => {},
+                        _ = self.events.next() => {},
+                        _ = sleep(self.config.poll_interval) => {},
+                    }
+                    continue;
+                }
+            }
+            let mut scanned = 0;
+            while let Some(candidate) = self.candidates.pop_front() {
+                // Re-read selection for each item. A scope change never consumes excluded groups.
+                let selection = self.control.selection.lock().clone();
+                if selection.revision != self.candidate_revision {
+                    self.candidates.clear();
+                    self.candidate_revision = selection.revision;
+                    break;
+                }
+                self.session.check_owner()?;
+                let retained = self.session.context.db().delivery_message_is_retained(
+                    &candidate.message.id,
+                    candidate.cursor,
+                    now_ns(),
+                )?;
+                if !retained
+                    || !matches_filter(
+                        &self.session.context,
+                        candidate.message.group_id,
+                        &selection.scope,
+                        &selection.filter,
+                    )?
+                {
+                    if !self.skip_candidate(&candidate, selection.revision)? {
+                        self.candidates.clear();
+                        break;
+                    }
+                    scanned += 1;
+                    if scanned >= self.config.batch_size {
+                        break;
+                    }
+                    continue;
+                }
+                // A read transaction or filter check can outlive a lease. Check again at handoff.
+                self.session.check_owner()?;
+                let pending = Arc::new(PendingAcknowledgement::new(
+                    candidate.cursor,
+                    selection.revision,
+                ));
+                let acknowledgement = DeliveryAcknowledgement::new(
+                    Arc::clone(&self.session),
+                    Arc::clone(&pending),
+                    candidate.message.group_id,
+                    self.control.clone(),
+                    candidate.message.id.clone(),
+                );
+                self.pending = Some(pending);
+                return Ok(Some(LocalDeliveryItem {
+                    message: candidate.message,
+                    cursor: candidate.cursor,
+                    acknowledgement,
+                }));
+            }
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// Order filtered progress with scope changes. Excluded scopes never advance D.
+    // implements: PROC-047
+    fn skip_candidate(&mut self, candidate: &DeliveryMessage, revision: u64) -> Result<bool> {
+        let selection = self.control.selection.lock();
+        if selection.revision != revision {
+            return Ok(false);
+        }
+        self.session.check_owner()?;
+        if let Some(owner) = self.session.owner() {
+            self.session.context.db().acknowledge_delivery_with_clock(
+                owner,
+                candidate.message.group_id,
+                candidate.cursor,
+                now_ns,
+            )?;
+        } else {
+            self.replay_position = Some(candidate.cursor);
+        }
+        Ok(true)
+    }
+
+    /// Rust iterator adapter. A new poll acknowledges the previously returned item.
+    /// Dropping this stream while it is suspended at `yield` leaves that item unacknowledged.
+    pub fn into_stream(self) -> impl Stream<Item = super::Result<StoredGroupMessage>> {
+        self.into_cursor_stream()
+            .map(|item| item.map(|item| item.message).map_err(SubscribeError::from))
+    }
+
+    /// Cursor-bearing Rust replay/default iterator with the same acknowledgement boundary.
+    // implements: PROC-052
+    pub fn into_cursor_stream(self) -> impl Stream<Item = Result<DeliveryMessage>> {
+        futures::stream::unfold(
+            Some((self, None::<DeliveryAcknowledgement<Context>>)),
+            |state| async move {
+                let (mut reader, previous) = state?;
+                if let Some(previous) = previous
+                    && let Err(error) = previous.acknowledge()
+                {
+                    return Some((Err(error), None));
+                }
+                loop {
+                    match reader.next_delivery().await {
+                        Ok(Some(LocalDeliveryItem {
+                            message,
+                            cursor,
+                            acknowledgement,
+                        })) => match acknowledgement.check_owner() {
+                            Ok(()) => {
+                                return Some((
+                                    Ok(DeliveryMessage { message, cursor }),
+                                    Some((reader, Some(acknowledgement))),
+                                ));
+                            }
+                            Err(LocalDeliveryError::SelectionChanged) => continue,
+                            Err(error) => return Some((Err(error), None)),
+                        },
+                        Ok(None) => return None,
+                        Err(error) => return Some((Err(error), None)),
+                    }
+                }
+            },
+        )
+    }
+
+    /// Read history, relations, deletions, and its boundary in one database snapshot.
+    pub fn enriched_history_snapshot(
+        context: &Context,
+        scope: &DeliveryScope,
+        filter: &LocalDeliveryFilter,
+        limit: u32,
+    ) -> Result<EnrichedDeliverySnapshot> {
+        let settings = context.incoming_runtime().policy();
+        let filter = effective_filter(scope, filter);
+        Ok(context
+            .db()
+            .delivery_history_snapshot_projected_with_clock(
+                scope,
+                &filter,
+                now_ns,
+                limit.min(settings.max_local_read_rows),
+                settings.max_local_read_bytes,
+                |conn, snapshot| {
+                    let storage = conn.key_store();
+                    enrich_delivery_snapshot(storage.db(), snapshot)
+                },
+            )?)
+    }
+
+    /// Read history and its resume boundary in one database snapshot.
+    pub fn history_snapshot(
+        context: &Context,
+        scope: &DeliveryScope,
+        filter: &LocalDeliveryFilter,
+        limit: u32,
+    ) -> Result<DeliverySnapshot> {
+        let settings = context.incoming_runtime().policy();
+        let filter = effective_filter(scope, filter);
+        Ok(context
+            .db()
+            .delivery_history_snapshot_projected_with_clock(
+                scope,
+                &filter,
+                now_ns,
+                limit.min(settings.max_local_read_rows),
+                settings.max_local_read_bytes,
+                |_, snapshot| Ok(snapshot),
+            )?)
+    }
+}
+
+impl<Context: XmtpSharedContext> Drop for LocalDelivery<Context> {
+    fn drop(&mut self) {
+        self.session.close();
+        if let Some(task) = &self.renewal {
+            task.end();
+        }
+    }
+}
+
+// implements: CONS-042, CONS-043
+fn effective_consent_states<'a>(
+    scope: &DeliveryScope,
+    filter: &'a LocalDeliveryFilter,
+) -> Option<&'a [ConsentState]> {
+    match (&filter.consent_states, scope) {
+        (Some(states), _) => Some(states),
+        (None, DeliveryScope::All) => Some(&DEFAULT_STREAM_CONSENT_STATES),
+        (None, _) => None,
+    }
+}
+
+fn effective_filter<'a>(
+    scope: &DeliveryScope,
+    filter: &'a LocalDeliveryFilter,
+) -> Cow<'a, LocalDeliveryFilter> {
+    match effective_consent_states(scope, filter) {
+        Some(states) if filter.consent_states.is_none() => Cow::Owned(LocalDeliveryFilter {
+            conversation_type: filter.conversation_type,
+            consent_states: Some(states.to_vec()),
+        }),
+        _ => Cow::Borrowed(filter),
+    }
+}
+
+fn matches_filter<Context: XmtpSharedContext>(
+    context: &Context,
+    group_id: GroupId,
+    scope: &DeliveryScope,
+    filter: &LocalDeliveryFilter,
+) -> Result<bool> {
+    let db = context.db();
+    if let Some(kind) = filter.conversation_type {
+        let group: Option<StoredGroup> = db.fetch(&group_id)?;
+        if group.is_none_or(|group| group.conversation_type != kind) {
+            return Ok(false);
+        }
+    }
+    // Borrow the effective states; this runs once per candidate.
+    if let Some(states) = effective_consent_states(scope, filter) {
+        let consent = db
+            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
+            .map_err(StorageError::from)?
+            .map_or(ConsentState::Unknown, |record| record.state);
+        if !states.contains(&consent) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(test)]
+mod tests;
+
+/// Selected rows with canonical relations and deletion placeholders.
+pub struct EnrichedDeliverySnapshot {
+    pub messages: Vec<crate::messages::enrichment::EnrichedStoredMessage>,
+    pub cursor: DeliveryCursor,
+}
+
+fn enrich_delivery_snapshot(
+    db: impl xmtp_db::DbQuery,
+    snapshot: DeliverySnapshot,
+) -> std::result::Result<EnrichedDeliverySnapshot, StorageError> {
+    use crate::messages::enrichment::{EnrichMessageError, enrich_messages_with_stored};
+    let mut groups = std::collections::HashMap::new();
+    let mut projected: Vec<_> = (0..snapshot.messages.len()).map(|_| None).collect();
+    for (index, item) in snapshot.messages.into_iter().enumerate() {
+        groups
+            .entry(item.message.group_id)
+            .or_insert_with(Vec::new)
+            .push(((index, item.cursor), item.message));
+    }
+    for (group_id, items) in groups {
+        let (positions, rows): (Vec<_>, Vec<_>) = items.into_iter().unzip();
+        let enriched =
+            enrich_messages_with_stored(&db, &group_id, rows).map_err(|error| match error {
+                EnrichMessageError::Storage(error) => error,
+                EnrichMessageError::DbConnection(error) => StorageError::from(error),
+            })?;
+        if enriched.len() != positions.len() {
+            return Err(StorageError::DbDeserialize);
+        }
+        for ((index, cursor), mut row) in positions.into_iter().zip(enriched) {
+            row.delivery_cursor = Some(cursor);
+            projected[index] = Some(row);
+        }
+    }
+    Ok(EnrichedDeliverySnapshot {
+        messages: projected
+            .into_iter()
+            .map(|row| row.ok_or(StorageError::DbDeserialize))
+            .collect::<std::result::Result<_, _>>()?,
+        cursor: snapshot.cursor,
+    })
+}

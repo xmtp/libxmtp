@@ -1,153 +1,79 @@
-//! Configuration values for API Related actions
-//! gRPC for XMTPD and GATEWAY are the same on native/wasm
-//! but differ for v3 node-go. this is because v3 node-go uses an envoy proxy for grpc-web.
+//! Backend connection values.
 
-use xmtp_common::{if_dev, if_local, if_native, if_wasm};
-
-/// Localhost const
 pub const LOCALHOST: &str = "http://localhost";
-
-/// the max amount of data that can be sent in one gRPC call
-/// should match GRPC_PAYLOAD_LIMIT in xmtp_api_grpc crate
+/// Maximum bytes in one gRPC payload.
 pub const GRPC_PAYLOAD_LIMIT: usize = 1024 * 1024 * 25;
 
-/// The timeout used by the multi-node client for:
-/// - connect to the gateway and retrieve the list of nodes
-/// - connect to nodes and perform a health check
-pub const MULTI_NODE_TIMEOUT_MS: u64 = 30_000;
+/// Local backend URL when no worktree environment is loaded.
+pub const BACKEND_TEST_URL_DEFAULT: &str = "http://localhost:5050";
+/// Local backend proxy URL when no worktree environment is loaded.
+pub const BACKEND_TEST_TOXIC_URL_DEFAULT: &str = "http://localhost:6010";
 
-pub struct DeviceSyncUrls;
-impl DeviceSyncUrls {
-    pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
-    pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network";
-    pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network";
+/// Local backend URL for client tests.
+///
+/// Each worktree publishes the stack on its own ports, so the address comes
+/// from the environment. `dev/worktree-env` writes it and the `just` recipes
+/// export it. The constant above is the fallback for a bare `cargo test`.
+///
+/// Native reads the variable at run time. Wasm has no `std::env`, so the value
+/// is baked in at build time instead; build through `just wasm test` so the
+/// worktree's environment is loaded.
+pub fn backend_test_url() -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::env::var("XMTP_BACKEND_URL").unwrap_or_else(|_| BACKEND_TEST_URL_DEFAULT.to_string())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        option_env!("XMTP_BACKEND_URL")
+            .unwrap_or(BACKEND_TEST_URL_DEFAULT)
+            .to_string()
+    }
 }
 
-/// Docker URLS accessible from the Host
-pub struct DockerUrls;
-impl DockerUrls {
-    /// Address to the locally running Anvil <https://getfoundry.sh/anvil/overview/>
-    pub const ANVIL: &'static str = "http://localhost:8545";
+/// Local backend proxy URL for fault tests. See [`backend_test_url`].
+pub fn backend_test_toxic_url() -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::env::var("XMTP_BACKEND_TOXIC_URL")
+            .unwrap_or_else(|_| BACKEND_TEST_TOXIC_URL_DEFAULT.to_string())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        option_env!("XMTP_BACKEND_TOXIC_URL")
+            .unwrap_or(BACKEND_TEST_TOXIC_URL_DEFAULT)
+            .to_string()
+    }
 }
 
-/// Urls to the Grpc Backends
-/// These URLS are rust-feature-flag aware, and will choose local or dev:
-/// * if no feature is passed, uses local environment
-/// * if `dev` feature is passed, uses dev environment
-/// * if compiling for webassembly, uses the envoy/grpc-web variants of the local/dev urls
+/// Temporary test URL names. Remove with the Task 9 binding update.
 pub struct GrpcUrls;
-
-// URLS for different networks (dev/local) are for switching all tests to that network
-// on a specific feature flag.
-if_dev! {
-    impl GrpcUrls {
-        pub const NODE: &'static str = GrpcUrlsDev::NODE;
-        pub const XMTPD: &'static str = GrpcUrlsStaging::XMTPD;
-        pub const GATEWAY: &'static str = GrpcUrlsStaging::GATEWAY;
+impl GrpcUrls {
+    pub fn node() -> String {
+        backend_test_url()
+    }
+    pub fn gateway() -> String {
+        backend_test_url()
     }
 }
 
-if_local! {
-     impl GrpcUrls {
-        pub const NODE: &'static str = GrpcUrlsLocal::NODE;
-        pub const XMTPD: &'static str = GrpcUrlsLocal::XMTPD;
-        pub const GATEWAY: &'static str = GrpcUrlsLocal::GATEWAY;
-    }
-}
-
-/// GRPC URLS corresponding to local environments
-pub struct GrpcUrlsLocal;
-impl GrpcUrlsLocal {
-    pub const XMTPD: &'static str = "http://localhost:5050";
-    pub const GATEWAY: &'static str = "http://localhost:5052";
-    pub const PERF_GATEWAY: &'static str = "http://localhost:5052";
-}
-
-if_wasm! {
-    impl GrpcUrlsLocal {
-        pub const NODE: &'static str = "http://localhost:5557";
-    }
-}
-
-if_native! {
-    impl GrpcUrlsLocal {
-        pub const NODE: &'static str = "http://localhost:5556";
-    }
-}
-
-/// GRPC URLS corresponding to dev environments
-pub struct GrpcUrlsDev;
-impl GrpcUrlsDev {
-    pub const XMTPD: &'static str = "https://grpc.testnet-dev.xmtp.network:443";
-    pub const GATEWAY: &'static str = "https://payer.testnet-dev.xmtp.network:443";
-    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet-dev.xmtp.network:443";
-}
-
-if_wasm! {
-    impl GrpcUrlsDev {
-        pub const NODE: &'static str = "https://api.dev.xmtp.network:5558";
-    }
-}
-
-if_native! {
-     impl GrpcUrlsDev {
-        pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
-    }
-}
-
-/// GRPC URLS corresponding to staging environments
-pub struct GrpcUrlsStaging;
-impl GrpcUrlsStaging {
-    pub const XMTPD: &'static str = "https://grpc.testnet-staging.xmtp.network:443";
-    pub const GATEWAY: &'static str = "https://payer.testnet-staging.xmtp.network:443";
-    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet-staging.xmtp.network:443";
-}
-
-if_wasm! {
-    impl GrpcUrlsStaging {
-        pub const NODE: &'static str = "https://api.dev.xmtp.network:5558";
-    }
-}
-
-if_native! {
-    impl GrpcUrlsStaging {
-        pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
-    }
-}
-
-/// GRPC URLS corresponding to production environments
-pub struct GrpcUrlsProduction;
-impl GrpcUrlsProduction {
-    pub const XMTPD: &'static str = "https://grpc.testnet.xmtp.network:443";
-    pub const GATEWAY: &'static str = "https://payer.testnet.xmtp.network:443";
-    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet.xmtp.network:443";
-}
-
-if_wasm! {
-    impl GrpcUrlsProduction {
-        pub const NODE: &'static str = "https://api.production.xmtp.network:5558";
-    }
-}
-
-if_native! {
-    impl GrpcUrlsProduction {
-        pub const NODE: &'static str = "https://grpc.production.xmtp.network:443";
-    }
-}
-
-// URLs connected to toxiproxy
+/// Temporary fault-test URL name. Remove with the Task 9 binding update.
 pub struct GrpcUrlsToxic;
 impl GrpcUrlsToxic {
-    /// URL to ToxiProxy version of NODE-GO
-    pub const NODE: &'static str = "http://localhost:6010";
-    /// URL to ToxiProxy version of NODE-GO Grpc Web
-    pub const NODE_WEB: &'static str = "http://localhost:6020";
-    /// URL to ToxiProxy version of XMTPD
-    pub const XMTPD: &'static str = "http://localhost:6030";
-    /// URL to ToxiProxy version of Payer Gateway
-    pub const GATEWAY: &'static str = "http://localhost:6040";
-    /// Url to ToxiProxy version of History Server
-    pub const HISTORY_SERVER: &'static str = "http://localhost:6050";
-    /// Url to ToxiProxy version of Anvil
-    pub const ANVIL: &'static str = "http://localhost:6060";
+    pub fn node() -> String {
+        backend_test_toxic_url()
+    }
 }
+
+/// Maximum consecutive credential rejections and callback failures.
+///
+/// This value must stay above the failures one caller request can produce, or
+/// a single API call locks the client out. `Retry::default()` makes 6 attempts
+/// (5 retries), and the auth middleware replays each attempt once with a fresh
+/// credential, so one call can count up to 12 failures. The limit is above
+/// that, so only repeated calls reach the lockout. Raise it together with the
+/// retry budget; `retry_budget_cannot_reach_the_auth_lockout` checks the
+/// relation.
+pub const MAX_CONSECUTIVE_AUTH_FAILURES: u32 = 13;
+/// Time before one authentication probe is allowed after lockout.
+pub const AUTH_LOCKOUT_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);

@@ -30,22 +30,38 @@ on:
         description: "The published version string"
         value: ${{ jobs.publish.outputs.version }}
 
+permissions:
+  contents: read
+
 jobs:
+  check-push-permissions:
+    uses: ./.github/workflows/check-release-push.yml
+    with:
+      ref: ${{ inputs.ref }}
+    secrets: inherit
+
   publish:
+    needs: [check-push-permissions]
     runs-on: blacksmith-16vcpu-ubuntu-2404
+    env:
+      # The slim Android shell: the release builds no Rust.
+      NIX_DEVSHELL: android-ci
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+          fetch-depth: 0
+          # Full history for the release tag, without blobs; git-cliff, which
+          # fails on a blobless clone, does not run here.
+          filter: blob:none
       - uses: ./.github/actions/setup-release-tools
+      # No ~/.gradle disk: CI jobs commit it, and a release reads no store that
+      # CI jobs write. Gradle downloads its distribution and dependencies.
       - uses: ./.github/actions/setup-nix
         with:
-          nix-disk: "false"
-          gradle-disk: "true"
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Compute version
         id: version
@@ -83,19 +99,85 @@ jobs:
         run: xmtp-release set-manifest-version --sdk android --version "$VERSION"
 
       - name: Build Android bindings
-        run: ./sdks/android/dev/bindings --release
+        run: dev/nix-shell './sdks/android/dev/bindings --release'
 
-      - name: Build and publish
-        working-directory: sdks/android
+      # Publish only: CI tests the release commit (the Android suites), and a
+      # live-backend test here once failed a release.
+      - uses: taiki-e/install-action@844d13d3ed6991e61a4ebc2c067073e3ed4f5ee1 # just
+      - name: Build example APK
+        env:
+          XMTP_EXAMPLE_VERSION: ${{ steps.version.outputs.version }}
+        run: dev/nix-shell 'just example-android apk'
+
+      - name: Retain example APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-example-apk
+          path: apps/example-android/build/apk/xmtp-messenger-${{ steps.version.outputs.version }}.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish
         env:
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
           SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
           MAVEN_PROFILE_ID: ${{ secrets.MAVEN_PROFILE_ID }}
-        run: nix develop .#android --command ./gradlew :library:build publishToSonatype closeAndReleaseSonatypeStagingRepository
+        run: dev/nix-shell 'cd sdks/android && ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository'
 
-      - name: Tag release
+      - name: Prepare release tag
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: xmtp-release tag-release --sdk android --version "$VERSION"
+        run: |
+          xmtp-release tag-release --sdk android --version "$VERSION" --no-push
+          git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/android-$VERSION"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-tag-android
+          path: ${{ runner.temp }}/release.bundle
+          if-no-files-found: error
+          retention-days: 1
+
+  push-tag:
+    needs: [publish, check-push-permissions]
+    uses: ./.github/workflows/push-release-tag.yml
+    with:
+      sdk: android
+      version: ${{ needs.publish.outputs.version }}
+      source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
+    secrets: inherit
+
+  publish-apk:
+    needs: [publish, push-tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: android-example-apk
+          path: apk
+      - name: Attach example APK to Android release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.publish.outputs.version }}
+          RELEASE_TYPE: ${{ inputs.release-type }}
+        run: |
+          set -euo pipefail
+          TAG="android-$VERSION"
+          APK="apk/xmtp-messenger-$VERSION.apk"
+          test -s "$APK"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            FLAGS=()
+            if [ "$RELEASE_TYPE" != final ]; then
+              FLAGS+=(--prerelease)
+            fi
+            gh release create "$TAG" "$APK" --verify-tag \
+              --title "Android SDK $VERSION" \
+              --notes "Android SDK $VERSION. The XMTP Messenger APK is a universal release build for testing on Android 8.1 or newer, signed with the public AOSP testing key. It installs separately as XMTP Messenger (Testing). Select a reachable HTTPS server in the app. Its profiles and local data are separate from normal example-app installs. Firebase notifications are off in this build." \
+              "${FLAGS[@]}"
+          fi

@@ -1,0 +1,241 @@
+---
+title: Stream messages
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Streams deliver conversations and messages as the SDK receives and processes them. A stream stays open until the app closes it, the client ends, or a terminal error occurs.
+
+## Stream methods
+
+All four SDKs expose these stream methods:
+
+| Stream                                     | Value                                           |
+| ------------------------------------------ | ----------------------------------------------- |
+| `client.conversations.stream()`            | Conversations the client creates or joins       |
+| `client.conversations.streamAllMessages()` | Messages across conversations                   |
+| `group.streamMessages()`                   | Messages in one group                           |
+| `dm.streamMessages()`                      | Messages in a DM, including its stitched groups |
+
+Conversation streams select every consent state unless the app supplies a filter. Use `conversationKind` to select groups or DMs. Pass one options record: `ConversationStreamOptions`, `MessageStreamOptions`, or `ConversationMessageStreamOptions`. Scoped message options accept a replay cursor and lifecycle callbacks. They do not accept kind or consent filters.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="stream-browser.ts" region="stream"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="stream-node.ts" region="stream"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+client.conversations.stream().collect(::handleConversation)
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+for try await conversation in try await client.conversations.stream() {
+  handleConversation(conversation)
+}
+```
+
+</TabItem>
+</Tabs>
+
+## Stream messages from one group
+
+Use `group.streamMessages()` in each SDK. This reader selects one group. It does not apply a consent filter. Check the group's consent state before opening it if the app requires allowed-only delivery.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="stream-browser.ts" region="group-messages"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="stream-node.ts" region="group-messages"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import uniffi.xmtp_sdk.Group
+import uniffi.xmtp_sdk.Message
+import uniffi.xmtp_sdk.SDKClient
+import uniffi.xmtp_sdk.streamMessages
+
+fun streamGroupMessages(
+    scope: CoroutineScope,
+    group: Group,
+    handleMessage: suspend (Message) -> Unit,
+): Job = scope.launch {
+    group.streamMessages().collect { message ->
+        handleMessage(message)
+    }
+}
+
+suspend fun stopGroupMessages(job: Job) {
+    job.cancelAndJoin()
+}
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+import XmtpSdk
+
+func streamGroupMessages(
+  group: Group,
+  handleMessage: @escaping @Sendable (Message) async throws -> Void
+) -> Task<Void, Error> {
+  Task {
+    for try await message in try await group.streamMessages() {
+      try await handleMessage(message)
+    }
+  }
+}
+
+func stopGroupMessages(_ task: Task<Void, Error>) async throws {
+  task.cancel()
+  do {
+    try await task.value
+  } catch is CancellationError {
+    // Task cancellation is a normal stop.
+  }
+}
+```
+
+</TabItem>
+</Tabs>
+
+Pass an `AbortController`'s `signal` to the Browser or Node helper. Call `controller.abort()` when the app stops listening, then await the helper's promise. The `finally` block closes the stream after completion or failure. On Kotlin, keep the returned `Job` and call `stopGroupMessages(job)` from a coroutine to cancel and wait for cleanup. On Swift, keep the returned task and call `try await stopGroupMessages(task)` to cancel and wait for cleanup. These helpers close the reader and keep the client open.
+
+## Stream all messages
+
+Use `client.conversations.streamAllMessages()` in each SDK.
+
+With no consent filter, an all-conversation message reader selects allowed and unknown conversations. An empty consent filter selects none. The examples below select allowed conversations only. The filter does not remove messages already stored by another sync call or background task.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="stream-browser.ts" region="all-messages"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="stream-node.ts" region="all-messages"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import uniffi.xmtp_sdk.ConsentState
+import uniffi.xmtp_sdk.MessageStreamOptions
+import uniffi.xmtp_sdk.Message
+import uniffi.xmtp_sdk.SDKClient
+import uniffi.xmtp_sdk.streamAllMessages
+
+fun streamAllMessages(
+    scope: CoroutineScope,
+    client: SDKClient,
+    handleMessage: suspend (Message) -> Unit,
+): Job = scope.launch {
+    client.conversations.streamAllMessages(
+        options = MessageStreamOptions(consentStates = listOf(ConsentState.ALLOWED)),
+    ).collect { message ->
+        handleMessage(message)
+    }
+}
+
+suspend fun stopAllMessages(job: Job) {
+    job.cancelAndJoin()
+}
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+import XmtpSdk
+
+func streamAllMessages(
+  client: SDKClient,
+  handleMessage: @escaping @Sendable (Message) async throws -> Void
+) -> Task<Void, Error> {
+  Task {
+    for try await message in try await client.conversations.streamAllMessages(
+      options: MessageStreamOptions(consentStates: [.allowed])
+    ) {
+      try await handleMessage(message)
+    }
+  }
+}
+
+func stopAllMessages(_ task: Task<Void, Error>) async throws {
+  task.cancel()
+  do {
+    try await task.value
+  } catch is CancellationError {
+    // Task cancellation is a normal stop.
+  }
+}
+```
+
+</TabItem>
+</Tabs>
+
+Pass an `AbortController`'s `signal` to the Browser or Node helper. Call `controller.abort()` when the app stops listening, then await the helper's promise. The `finally` block closes the stream after completion or failure. On Kotlin, keep the returned `Job` and call `stopAllMessages(job)` from a coroutine to cancel and wait for cleanup. On Swift, keep the returned task and call `try await stopAllMessages(task)` to cancel and wait for cleanup. These helpers close the reader and keep the client open.
+
+## Delivery and replay
+
+A message reader acknowledges the previous message when the app requests the next message. Await all processing before that request. Browser and Node also support `stream.onValue(callback)`, which awaits the callback before reading again. Use one consumption mode per stream.
+
+Only one default message reader can own delivery progress in a client database. A second default reader fails with `ConsumerOwned`, even if it selects a different group or DM. Closing a reader does not acknowledge its pending message. Once an acknowledgement is committed, cancellation cannot undo it.
+
+Kotlin's direct sequential Flow collector completes before the next native read. A buffer or another asynchronous Flow operator can let the reader acknowledge before downstream work ends. An app queue or an unawaited task has the same risk in any SDK.
+
+For independent replay, pass an explicit `from` cursor. Replay does not change default delivery progress. Use `beginningDeliveryCursor()` for the start of retained delivery history. Use `messageHistorySnapshot(limit)` and its `cursor` to read a bounded recent tail, then start a stream after that snapshot. The SDK also applies row and byte limits. This omits older messages outside the snapshot; it does not provide complete history. Save a processed message's `deliveryCursor` if the app must resume an independent replay reader. A cursor belongs to its client database; do not construct it from a backend sequence ID.
+
+## Catch-up and closure
+
+When a stream registers a topic, Core captures a fixed catch-up target. It fetches and processes retained envelopes through that target, then continues with new envelopes. New publications do not move the target. Catch-up does not wait for the app to acknowledge delivery.
+
+A [sync call](/sdk/sync/) can make the local database current before a stream opens. It does not acknowledge pending message delivery. Use a history snapshot cursor when the app needs a boundary between local history and subsequent delivery.
+
+Browser and Node can await `stream.ready()` to wait for the reader to open. This does not mean the network is connected or catch-up has finished. Break an iterator loop, call `await stream.end()`, or abort its signal to close it. Cancel the collector task on Kotlin or Swift. Release the client with `await client.end()` when it is no longer needed.
+
+## Recovery
+
+Core owns network recovery on all four SDKs. Retryable network faults keep streams open and resume ordered processing. A stream has a bounded recovery budget. A terminal failure ends that stream. Browser and Node reject iterator reads or the `onValue` promise and call `onClose` with a failed reason. Kotlin and Swift report the error through their stream and `onClose`.
+
+Repair the cause, then open a new stream on the same client. A replacement default message reader resumes saved delivery progress. Callback failures stop delivery; the SDK does not repeat the callback in the same stream. A replacement can repeat a message if its acknowledgement failed.
+
+The public stream options are `signal` on Browser and Node, `onClose`, and `onConnectionStateChange`. Retry counts, retry delays, `retryOnFail`, and `disableSync` are not message or conversation stream options.
+
+Consent and HMAC changes use live client events, such as `consent.changed` and `hmac_keys.updated`. Events do not provide durable message delivery. See [Listen for client events](/sdk/events/).
+
+## Agent SDK events
+
+The Agent SDK wraps Node streams and emits events named for the content type. It also emits `message`, `unknownMessage`, `conversation`, `group`, `dm`, `start`, `stop`, and `unhandledError`. A terminal stream error ends the current generation. Call `start()` explicitly to open a replacement generation. Error middleware alone does not restart streams.

@@ -1,0 +1,1090 @@
+//! Backend configuration loaded from a TOML file.
+
+use std::{collections::BTreeMap, fs, net::SocketAddr, path::Path};
+
+use crate::api;
+
+use schemars::{JsonSchema, Schema};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use xmtp_common::NS_IN_SEC;
+use xmtp_configuration::{
+    BACKEND_DEFAULT_GROUP_MESSAGE_SECONDS, BACKEND_DEFAULT_KEY_PACKAGE_SECONDS,
+    BACKEND_DEFAULT_MAX_ENVELOPE_BYTES, BACKEND_DEFAULT_MAX_HTTP2_STREAMS,
+    BACKEND_DEFAULT_MAX_IDENTITY_ENTRIES, BACKEND_DEFAULT_MAX_LOOKUP_IDENTIFIERS,
+    BACKEND_DEFAULT_MAX_NEWEST_FULL_TOPICS, BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS,
+    BACKEND_DEFAULT_MAX_PING_BURST, BACKEND_DEFAULT_MAX_PING_FRAMES_PER_SECOND,
+    BACKEND_DEFAULT_MAX_PUBLISH_TOPICS, BACKEND_DEFAULT_MAX_QUERY_LIMIT,
+    BACKEND_DEFAULT_MAX_QUERY_TOPICS, BACKEND_DEFAULT_MAX_REQUEST_BYTES,
+    BACKEND_DEFAULT_MAX_RESPONSE_BYTES, BACKEND_DEFAULT_MAX_SCW_SIGNATURES,
+    BACKEND_DEFAULT_MAX_STATIC_TOPICS, BACKEND_DEFAULT_MAX_STREAM_TOPICS,
+    BACKEND_DEFAULT_MAX_UPDATE_ADDS, BACKEND_DEFAULT_MAX_UPDATE_BURST,
+    BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND, BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
+    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS,
+};
+
+pub mod application_components;
+pub mod auth;
+pub mod handles;
+pub mod push;
+mod schema;
+mod telemetry;
+pub use telemetry::TelemetryConfig;
+
+const SCHEMA_ID: &str =
+    "https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json";
+
+// These values are server implementation details. They are not configuration keys.
+pub(crate) const DELIVERY_FRAME_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const FETCH_BUFFER_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const OUTBOUND_QUEUE_BYTES: usize = 16 * 1024 * 1024;
+// Maximum metadata with a 128-byte stored topic and ten-byte scalar varints.
+const MAX_METADATA_BYTES: usize = 207;
+const MAX_NESTED_FIELD_OVERHEAD: usize = 11;
+const GRPC_HEADER_BYTES: usize = 5;
+pub(crate) const ENVELOPE_METADATA_AND_FRAMING_BYTES: usize =
+    MAX_METADATA_BYTES + 4 * MAX_NESTED_FIELD_OVERHEAD + GRPC_HEADER_BYTES;
+const MAX_RETENTION_SECONDS: u64 = i64::MAX as u64 / NS_IN_SEC as u64;
+const MAX_DATABASE_TIMEOUT_MS: u64 = i32::MAX as u64;
+/// Longest operator identifier, in bytes.
+pub const MAX_IDENTIFIER_BYTES: usize = 256;
+/// Fixed transport ceiling. Neither request nor response budget may exceed it.
+pub const MAX_TRANSPORT_BYTES: usize = 25 * 1024 * 1024;
+/// Advisory MLS group shapes are published as `uint32` and bounded here.
+pub const MAX_MLS_LIMIT: u32 = u16::MAX as u32;
+/// The published configuration must stay small enough for one cheap response.
+pub const MAX_CONFIGURATION_RESPONSE_BYTES: usize = 64 * 1024;
+
+const DEFAULT_LISTEN: &str = "0.0.0.0:5050";
+const DEFAULT_DRAIN_DURATION_MS: u64 = 10_000;
+const DEFAULT_MAX_CONNECTIONS: u32 = 20;
+const DEFAULT_PUBLISH_DURATION_MS: u64 = 10_000;
+const DEFAULT_BARRIER_WAIT_MS: u64 = 1_000;
+const DEFAULT_POLL_INTERVAL_MS: u64 = 100;
+const DEFAULT_MAX_GAP_RANGES: usize = 10_000;
+const DEFAULT_KEEPALIVE_INTERVAL_MS: u64 =
+    xmtp_configuration::BACKEND_DEFAULT_KEEPALIVE_INTERVAL_MS;
+const DEFAULT_MAX_PONG_WAIT_MS: u64 = 90_000;
+const DEFAULT_MAX_SCW_CACHE_ENTRIES: usize = 10_000;
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("configuration is invalid: {field} ({reason})")]
+    Auth { field: String, reason: &'static str },
+    #[error("could not read configuration file")]
+    Read(#[source] std::io::Error),
+    #[error("configuration is not valid TOML")]
+    Parse,
+    #[error("configuration is invalid: {field} ({reason})")]
+    Invalid {
+        field: &'static str,
+        reason: &'static str,
+    },
+    #[error("environment variable {name} is not available")]
+    Environment { name: String },
+    #[error("configuration is invalid: application_components[{index}] ({reason})")]
+    ApplicationComponent {
+        index: usize,
+        reason: xmtp_configuration::ApplicationComponentError,
+    },
+    #[error(
+        "configuration is invalid: application_components[{index}] (name must not equal a well-known component name)"
+    )]
+    WellKnownComponentName { index: usize },
+}
+
+#[derive(Debug, Error)]
+enum EnvironmentError {
+    #[error("environment variable {name} is not available")]
+    Missing { name: String },
+    #[error("environment variable name is empty")]
+    EmptyName,
+}
+
+/// Name credential shape errors without showing values from the config file.
+fn credential_deserialize_key(
+    error: &serde_path_to_error::Error<toml::de::Error>,
+) -> Option<&'static str> {
+    const CREDENTIALS: &str = "attachments.target.S3.credentials";
+    if !error.path().to_string().starts_with(CREDENTIALS) {
+        return None;
+    }
+    let field = match error.inner().message() {
+        message if message.starts_with("unknown variant") => {
+            "attachments.target.S3.credentials.kind"
+        }
+        "missing field `kind`" => "attachments.target.S3.credentials.kind",
+        "missing field `access_key_id`" => "attachments.target.S3.credentials.access_key_id",
+        "missing field `secret_access_key`" => {
+            "attachments.target.S3.credentials.secret_access_key"
+        }
+        "missing field `name`" => "attachments.target.S3.credentials.name",
+        "missing field `account_id`" => "attachments.target.S3.credentials.account_id",
+        "missing field `region`" => "attachments.target.S3.credentials.region",
+        "missing field `role_name`" => "attachments.target.S3.credentials.role_name",
+        "missing field `start_url`" => "attachments.target.S3.credentials.start_url",
+        "missing field `command`" => "attachments.target.S3.credentials.command",
+        "missing field `role_arn`" => "attachments.target.S3.credentials.role_arn",
+        _ => CREDENTIALS,
+    };
+    Some(field)
+}
+
+/// Resolve one environment reference. Do not expand references in the resolved value.
+fn resolve_env(value: &str) -> Result<String, EnvironmentError> {
+    let Some(name) = value.strip_prefix("env:") else {
+        return Ok(value.to_owned());
+    };
+    if name.is_empty() {
+        return Err(EnvironmentError::EmptyName);
+    }
+    std::env::var(name).map_err(|_| EnvironmentError::Missing {
+        name: name.to_owned(),
+    })
+}
+
+/// Complete backend configuration.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<xmtp_attachments_server::AttachmentsConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<auth::AuthConfig>,
+    #[serde(default)]
+    pub server: ServerConfig,
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
+    pub database: DatabaseConfig,
+    #[serde(default)]
+    pub publishing: PublishingConfig,
+    #[serde(default)]
+    pub streams: StreamsConfig,
+    #[serde(default)]
+    pub retention: RetentionConfig,
+    #[serde(default)]
+    pub push: push::PushConfig,
+    #[serde(default)]
+    #[schemars(schema_with = "schema::chains")]
+    pub chains: BTreeMap<String, String>,
+    #[serde(default)]
+    pub validation: ValidationConfig,
+    #[serde(default)]
+    pub limits: LimitsConfig,
+    #[serde(default)]
+    pub mls: MlsConfig,
+    #[serde(default)]
+    pub handles: handles::HandlesConfig,
+    /// Group metadata fields clients register in the conversations they
+    /// create. Published sorted by `component_id`.
+    #[serde(default)]
+    pub application_components: Vec<application_components::ApplicationComponentConfig>,
+}
+
+impl Config {
+    /// Load, resolve environment references, and validate one TOML file.
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
+        let contents = fs::read_to_string(path).map_err(ConfigError::Read)?;
+        Self::load_str(&contents)
+    }
+
+    /// Parse, resolve environment references, and validate one TOML document.
+    /// Errors omit document contents. This method cannot return `ConfigError::Read`.
+    pub fn load_str(contents: &str) -> Result<Self, ConfigError> {
+        let mut value: toml::Value = toml::from_str(contents).map_err(|_| ConfigError::Parse)?;
+        resolve_environment(&mut value)?;
+        let config: Self = serde_path_to_error::deserialize(value).map_err(|error| {
+            if let Some(field) = credential_deserialize_key(&error) {
+                ConfigError::Invalid {
+                    field,
+                    reason: "invalid credential source",
+                }
+            } else {
+                ConfigError::Parse
+            }
+        })?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Validate scalar values and relationships between values.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if let Some(attachments) = &self.attachments {
+            attachments
+                .validate()
+                .map_err(|error| ConfigError::Invalid {
+                    field: error.field,
+                    reason: error.reason,
+                })?;
+        }
+        if let Some(auth) = &self.auth {
+            auth.validate()?;
+        }
+        for (field, milliseconds) in [
+            (
+                "server.max_drain_duration_ms",
+                self.server.max_drain_duration_ms,
+            ),
+            (
+                "database.max_statement_timeout_ms",
+                self.database.max_statement_timeout_ms,
+            ),
+            (
+                "publishing.max_publish_duration_ms",
+                self.publishing.max_publish_duration_ms,
+            ),
+            (
+                "publishing.max_barrier_wait_ms",
+                self.publishing.max_barrier_wait_ms,
+            ),
+            ("streams.poll_interval_ms", self.streams.poll_interval_ms),
+            (
+                "streams.keepalive_interval_ms",
+                self.streams.keepalive_interval_ms,
+            ),
+            ("streams.max_pong_wait_ms", self.streams.max_pong_wait_ms),
+        ] {
+            validate_deadline(milliseconds, field)?;
+        }
+        self.server.validate()?;
+        self.telemetry.validate()?;
+        self.database.validate()?;
+        self.publishing
+            .validate(self.database.max_statement_timeout_ms)?;
+        self.streams.validate()?;
+        self.retention.validate()?;
+        self.push.validate()?;
+        self.validation.validate()?;
+        self.validate_chains()?;
+        self.limits.validate()?;
+        self.mls.validate()?;
+        self.handles.validate()?;
+        application_components::validate(&self.application_components)?;
+        // Inline signing keys are the only key source known before startup. A
+        // JWKS deployment re-checks the assembled response once its key set
+        // has been fetched.
+        validate_configuration_size(&self.configuration_response(&[]))?;
+        Ok(())
+    }
+
+    /// Require chain keys that the SCW verifier can route and HTTP(S) RPC URLs.
+    fn validate_chains(&self) -> Result<(), ConfigError> {
+        for (chain, url) in &self.chains {
+            if xmtp_id::associations::AccountId::new(chain.clone(), "0x0".to_owned())
+                .get_chain_id_u64()
+                .is_err()
+            {
+                return Err(invalid("chains", "keys must be EIP-155 CAIP-2 chain ids"));
+            }
+            non_empty_url(url, "chains", UrlKind::Http)?;
+        }
+        Ok(())
+    }
+
+    /// Build the configuration published to clients. It is assembled once at
+    /// startup and never changes while the process runs.
+    ///
+    /// `jwks_keys` carries the `(kid, alg)` pairs of the key set fetched at
+    /// startup; it is empty for an inline-key or credential-free deployment,
+    /// where the keys come from the configuration itself. Nothing secret
+    /// belongs here: no JWKS URL, no key material, no chain RPC URL, and no
+    /// database, telemetry, or listener setting.
+    // implements: CONF-011, CONF-070
+    pub fn configuration_response(
+        &self,
+        jwks_keys: &[(String, String)],
+    ) -> api::GetConfigurationResponse {
+        let limits = &self.limits;
+        // Published limits are narrower wire types than the configured ones.
+        // Saturating keeps an out-of-range configured value bounded rather
+        // than wrapping it into a smaller, wrong promise.
+        let count = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
+        api::GetConfigurationResponse {
+            identifier: self.server.identifier().to_owned(),
+            server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            min_libxmtp_version: self.server.min_libxmtp_version.clone().unwrap_or_default(),
+            auth: Some(self.auth_configuration(jwks_keys)),
+            retention: Some(api::RetentionConfiguration {
+                group_message_seconds: self.retention.group_message_seconds,
+                welcome_seconds: self.retention.welcome_seconds,
+                key_package_seconds: self.retention.key_package_seconds,
+            }),
+            limits: Some(api::LimitsConfiguration {
+                max_envelope_bytes: limits.max_envelope_bytes as u64,
+                max_request_bytes: limits.max_request_bytes as u64,
+                max_response_bytes: limits.max_response_bytes as u64,
+                max_publish_topics: count(limits.max_publish_topics),
+                max_query_topics: count(limits.max_query_topics),
+                max_query_limit: count(limits.max_query_limit),
+                default_query_limit: count(limits.default_query_limit),
+                max_newest_metadata_topics: count(limits.max_newest_metadata_topics),
+                max_newest_full_topics: count(limits.max_newest_full_topics),
+                max_update_adds: count(limits.max_update_adds),
+                max_update_removes: count(limits.max_update_removes),
+                max_stream_topics: count(limits.max_stream_topics),
+                max_static_topics: count(limits.max_static_topics),
+                max_lookup_identifiers: count(limits.max_lookup_identifiers),
+                max_scw_signatures: count(limits.max_scw_signatures),
+                max_identity_entries: count(limits.max_identity_entries),
+                max_update_frames_per_second: limits.max_update_frames_per_second,
+                max_update_burst: limits.max_update_burst,
+                max_ping_frames_per_second: limits.max_ping_frames_per_second,
+                max_ping_burst: limits.max_ping_burst,
+            }),
+            mls: Some(api::MlsConfiguration {
+                max_group_members: self.mls.max_group_members,
+                max_installations_per_inbox: self.mls.max_installations_per_inbox,
+                commit_log_enabled: Some(self.mls.commit_log_enabled),
+            }),
+            handles: Some(api::HandlesConfiguration {
+                min_name_length: self.handles.min_name_length,
+            }),
+            smart_contract_wallet_chains: self.chains.keys().cloned().collect(),
+            attachments: self.attachments.as_ref().map(|attachments| {
+                api::AttachmentsConfiguration {
+                    base_url: attachments.base_url.clone(),
+                    max_upload_bytes: attachments.upload_ceiling(),
+                    retention_seconds: attachments.retention_seconds.unwrap_or_default(),
+                }
+            }),
+            application_components: application_components::published(&self.application_components),
+        }
+    }
+
+    /// Publish what a client needs to hold a credential, and nothing else.
+    /// A credential-free deployment publishes an otherwise empty section.
+    // implements: CONF-068
+    fn auth_configuration(&self, jwks_keys: &[(String, String)]) -> api::AuthConfiguration {
+        let Some(auth) = self.auth.as_ref().filter(|auth| auth.is_enabled()) else {
+            return api::AuthConfiguration::default();
+        };
+        let keys = match &auth.keys {
+            Some(keys) => keys
+                .iter()
+                .map(|key| api::auth_configuration::SigningKey {
+                    kid: key.kid.clone(),
+                    alg: key.alg.clone(),
+                })
+                .collect(),
+            None => jwks_keys
+                .iter()
+                .map(|(kid, alg)| api::auth_configuration::SigningKey {
+                    kid: kid.clone(),
+                    alg: alg.clone(),
+                })
+                .collect(),
+        };
+        api::AuthConfiguration {
+            enabled: true,
+            keys,
+            audiences: auth.audiences.clone().unwrap_or_default(),
+            issuers: auth.issuers.clone().unwrap_or_default(),
+            required_scopes: auth.required_scopes.clone(),
+        }
+    }
+
+    /// Return the JSON schema published for Taplo configuration files.
+    pub fn schema() -> Schema {
+        let mut schema = schemars::schema_for!(Self);
+        schema.ensure_object().insert(
+            "$id".to_owned(),
+            serde_json::Value::String(SCHEMA_ID.to_owned()),
+        );
+        schema
+    }
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Config")
+            .field("auth", &self.auth)
+            .field("attachments", &self.attachments)
+            .field("server", &self.server)
+            .field("database", &self.database)
+            .field("publishing", &self.publishing)
+            .field("streams", &self.streams)
+            .field("retention", &self.retention)
+            .field("push", &self.push)
+            .field(
+                "chains",
+                &format_args!("{} configured chain(s)", self.chains.len()),
+            )
+            .field("validation", &self.validation)
+            .field("limits", &self.limits)
+            .field("mls", &self.mls)
+            .field("handles", &self.handles)
+            .field("application_components", &self.application_components)
+            .finish()
+    }
+}
+
+/// Attach the configuration field to an environment error without including its value.
+/// Resolve string references once, before typed decoding, including string enums.
+/// Resolved values are never included in errors and are not recursively expanded.
+fn resolve_environment(value: &mut toml::Value) -> Result<(), ConfigError> {
+    match value {
+        toml::Value::String(text) => {
+            *text = resolve_env(text).map_err(|error| match error {
+                EnvironmentError::Missing { name } => ConfigError::Environment { name },
+                EnvironmentError::EmptyName => invalid(
+                    "environment reference",
+                    "environment variable name is empty",
+                ),
+            })?;
+        }
+        toml::Value::Array(values) => {
+            for value in values {
+                resolve_environment(value)?;
+            }
+        }
+        toml::Value::Table(values) => {
+            for (_, value) in values.iter_mut() {
+                resolve_environment(value)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Timer ranges depend on the host's monotonic clock, not an arbitrary duration cap.
+fn validate_deadline(milliseconds: u64, field: &'static str) -> Result<(), ConfigError> {
+    if xmtp_common::time::Instant::now()
+        .checked_add(std::time::Duration::from_millis(milliseconds))
+        .is_none()
+    {
+        return Err(invalid(
+            field,
+            "deadline cannot be represented on this host",
+        ));
+    }
+    Ok(())
+}
+
+fn invalid(field: &'static str, reason: &'static str) -> ConfigError {
+    ConfigError::Invalid { field, reason }
+}
+
+/// Keep the published configuration inside one small response. An oversized
+/// one is a configuration mistake, not a runtime condition, so it stops
+/// startup rather than failing every client that asks for it.
+// implements: CONF-009
+pub(crate) fn validate_configuration_size(
+    response: &api::GetConfigurationResponse,
+) -> Result<(), ConfigError> {
+    if prost::Message::encoded_len(response) > MAX_CONFIGURATION_RESPONSE_BYTES {
+        return Err(invalid(
+            "configuration response",
+            "must not exceed 64 KiB once encoded",
+        ));
+    }
+    Ok(())
+}
+
+fn positive<T>(value: T, field: &'static str) -> Result<(), ConfigError>
+where
+    T: PartialEq + PartialOrd + Default,
+{
+    if value <= T::default() {
+        Err(invalid(field, "must be greater than zero"))
+    } else {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+enum UrlKind {
+    Postgres,
+    Http,
+}
+
+/// Check a resolved URL and its allowed scheme without including the URL in errors.
+fn non_empty_url(value: &str, field: &'static str, kind: UrlKind) -> Result<(), ConfigError> {
+    let valid_scheme = match kind {
+        UrlKind::Postgres => value.starts_with("postgres://") || value.starts_with("postgresql://"),
+        UrlKind::Http => value.starts_with("http://") || value.starts_with("https://"),
+    };
+    if value.trim().is_empty() || !valid_scheme || url::Url::parse(value).is_err() {
+        Err(invalid(field, "must be a non-empty URL"))
+    } else {
+        Ok(())
+    }
+}
+
+impl ServerConfig {
+    /// The identifier every client binds to. Only valid after validation.
+    pub fn identifier(&self) -> &str {
+        self.identifier.as_deref().unwrap_or_default()
+    }
+
+    /// Require a numeric bind address and a positive shutdown budget, plus the
+    /// deployment identity clients bind to.
+    // implements: CONF-002, CONF-067
+    fn validate(&self) -> Result<(), ConfigError> {
+        let Some(identifier) = self.identifier.as_deref() else {
+            return Err(invalid(
+                "server.identifier",
+                "must be set to a stable name for this deployment",
+            ));
+        };
+        if identifier.is_empty()
+            || identifier.len() > MAX_IDENTIFIER_BYTES
+            || identifier
+                .chars()
+                .any(|character| character.is_whitespace() || character.is_control())
+        {
+            return Err(invalid(
+                "server.identifier",
+                "must be 1 to 256 bytes with no whitespace or control characters",
+            ));
+        }
+        if let Some(version) = self.min_libxmtp_version.as_deref()
+            && semver::Version::parse(version).is_err()
+        {
+            return Err(invalid(
+                "server.min_libxmtp_version",
+                "must be a semantic version",
+            ));
+        }
+        if self.listen.parse::<SocketAddr>().is_err() {
+            return Err(invalid("server.listen", "must be a socket address"));
+        }
+        positive(self.max_drain_duration_ms, "server.max_drain_duration_ms")
+    }
+}
+
+impl DatabaseConfig {
+    /// Check both pool URLs and the range accepted by Postgres statement timeouts.
+    fn validate(&self) -> Result<(), ConfigError> {
+        non_empty_url(&self.url, "database.url", UrlKind::Postgres)?;
+        if self.max_statement_timeout_ms > MAX_DATABASE_TIMEOUT_MS {
+            return Err(invalid(
+                "database.max_statement_timeout_ms",
+                "exceeds the Postgres timeout range",
+            ));
+        }
+        if let Some(url) = &self.replica_url {
+            non_empty_url(url, "database.replica_url", UrlKind::Postgres)?;
+        }
+        positive(self.max_connections, "database.max_connections")?;
+        positive(
+            self.max_statement_timeout_ms,
+            "database.max_statement_timeout_ms",
+        )
+    }
+}
+
+impl PublishingConfig {
+    /// Keep transaction and barrier timeouts in the Postgres range.
+    /// The transaction budget must exceed a single statement budget.
+    fn validate(&self, statement_timeout_ms: u64) -> Result<(), ConfigError> {
+        if self.max_publish_duration_ms > MAX_DATABASE_TIMEOUT_MS
+            || self.max_barrier_wait_ms > MAX_DATABASE_TIMEOUT_MS
+        {
+            return Err(invalid("publishing", "exceeds the Postgres timeout range"));
+        }
+        if self.max_publish_duration_ms <= statement_timeout_ms {
+            return Err(invalid(
+                "publishing.max_publish_duration_ms",
+                "must be greater than database.max_statement_timeout_ms",
+            ));
+        }
+        positive(
+            self.max_publish_duration_ms,
+            "publishing.max_publish_duration_ms",
+        )?;
+        positive(self.max_barrier_wait_ms, "publishing.max_barrier_wait_ms")
+    }
+}
+
+impl StreamsConfig {
+    /// Check stream capacities and timing, including the advertised wire interval.
+    fn validate(&self) -> Result<(), ConfigError> {
+        positive(self.poll_interval_ms, "streams.poll_interval_ms")?;
+        positive(self.max_gap_ranges, "streams.max_gap_ranges")?;
+        positive(self.keepalive_interval_ms, "streams.keepalive_interval_ms")?;
+        if self.keepalive_interval_ms > u32::MAX as u64 {
+            return Err(invalid(
+                "streams.keepalive_interval_ms",
+                "must fit the Started keepalive interval type",
+            ));
+        }
+        if self.max_pong_wait_ms <= self.keepalive_interval_ms {
+            return Err(invalid(
+                "streams.max_pong_wait_ms",
+                "must be greater than streams.keepalive_interval_ms",
+            ));
+        }
+        positive(self.max_pong_wait_ms, "streams.max_pong_wait_ms")
+    }
+}
+
+impl RetentionConfig {
+    /// Check finite expiry against the primary database's startup clock. The
+    /// insert still checks arithmetic after later clock changes or time advances.
+    pub(crate) fn validate_at(&self, database_ns: i64) -> Result<(), ConfigError> {
+        for (field, seconds) in [
+            (
+                "retention.group_message_seconds",
+                self.group_message_seconds,
+            ),
+            ("retention.welcome_seconds", self.welcome_seconds),
+            ("retention.key_package_seconds", self.key_package_seconds),
+        ] {
+            let expiry = i64::try_from(seconds)
+                .ok()
+                .and_then(|seconds| seconds.checked_mul(NS_IN_SEC))
+                .and_then(|duration| database_ns.checked_add(duration));
+            if database_ns < 0 || expiry.is_none() {
+                return Err(invalid(
+                    field,
+                    "expiry cannot be represented at the database clock",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Keep positive retention periods representable in nanosecond expiry arithmetic.
+    fn validate(&self) -> Result<(), ConfigError> {
+        positive(
+            self.group_message_seconds,
+            "retention.group_message_seconds",
+        )?;
+        positive(self.welcome_seconds, "retention.welcome_seconds")?;
+        positive(self.key_package_seconds, "retention.key_package_seconds")?;
+        if self.group_message_seconds > MAX_RETENTION_SECONDS
+            || self.welcome_seconds > MAX_RETENTION_SECONDS
+            || self.key_package_seconds > MAX_RETENTION_SECONDS
+        {
+            return Err(invalid(
+                "retention",
+                "duration is too large for nanosecond expiry arithmetic",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl ValidationConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        positive(
+            self.max_scw_cache_entries,
+            "validation.max_scw_cache_entries",
+        )
+    }
+}
+
+/// Advisory group shapes published to clients. The backend enforces none of
+/// them; a client applies them before it builds a commit.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct MlsConfig {
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_MLS_LIMIT as u64 }>")]
+    pub max_group_members: u32,
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_MLS_LIMIT as u64 }>")]
+    pub max_installations_per_inbox: u32,
+    /// Publish and read the remote commit log. False switches both off for
+    /// every client of this deployment.
+    pub commit_log_enabled: bool,
+}
+
+impl Default for MlsConfig {
+    fn default() -> Self {
+        Self {
+            max_group_members: xmtp_configuration::MAX_GROUP_SIZE as u32,
+            max_installations_per_inbox: xmtp_configuration::MAX_INSTALLATIONS_PER_INBOX as u32,
+            commit_log_enabled: xmtp_configuration::ENABLE_COMMIT_LOG,
+        }
+    }
+}
+
+impl MlsConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        for (field, value) in [
+            ("mls.max_group_members", self.max_group_members),
+            (
+                "mls.max_installations_per_inbox",
+                self.max_installations_per_inbox,
+            ),
+        ] {
+            positive(value, field)?;
+            if value > MAX_MLS_LIMIT {
+                return Err(invalid(field, "must not exceed 65535"));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct ServerConfig {
+    /// Stable operator-chosen name for this deployment, by convention reverse
+    /// DNS such as `org.xmtp.dev`. Clients bind to it on first connect, so it
+    /// must never change once clients have connected. Required.
+    #[schemars(schema_with = "schema::identifier")]
+    pub identifier: Option<String>,
+    /// Oldest libxmtp version this deployment accepts. Absent publishes no
+    /// minimum. Prerelease tags are ignored when clients compare.
+    #[schemars(schema_with = "schema::optional_semver")]
+    pub min_libxmtp_version: Option<String>,
+    #[schemars(schema_with = "schema::socket_address")]
+    pub listen: String,
+    /// Global backend log level. Request summaries and mutations use INFO.
+    #[schemars(schema_with = "schema::log_level")]
+    pub log_level: LogLevel,
+    #[schemars(schema_with = "schema::log_format")]
+    pub log_format: LogFormat,
+    /// Emit one summary when each gRPC response finishes or is cancelled.
+    pub request_logger: bool,
+    #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
+    pub max_drain_duration_ms: u64,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            identifier: None,
+            min_libxmtp_version: None,
+            listen: DEFAULT_LISTEN.to_owned(),
+            log_level: LogLevel::Info,
+            log_format: LogFormat::Text,
+            request_logger: true,
+            max_drain_duration_ms: DEFAULT_DRAIN_DURATION_MS,
+        }
+    }
+}
+
+/// Configuration and CLI representation of the shared logging levels.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, JsonSchema, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Off,
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+    Trace,
+}
+
+impl From<LogLevel> for xmtp_logging::Level {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Off => Self::Off,
+            LogLevel::Error => Self::Error,
+            LogLevel::Warn => Self::Warn,
+            LogLevel::Info => Self::Info,
+            LogLevel::Debug => Self::Debug,
+            LogLevel::Trace => Self::Trace,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DatabaseConfig {
+    #[schemars(schema_with = "schema::postgres_url")]
+    pub url: String,
+    #[serde(default)]
+    #[schemars(schema_with = "schema::optional_postgres_url")]
+    pub replica_url: Option<String>,
+    #[serde(default = "default_max_connections")]
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
+    pub max_connections: u32,
+    #[serde(default = "default_statement_timeout_ms")]
+    #[schemars(range(min = 1, max = MAX_DATABASE_TIMEOUT_MS))]
+    pub max_statement_timeout_ms: u64,
+}
+
+fn default_max_connections() -> u32 {
+    DEFAULT_MAX_CONNECTIONS
+}
+fn default_statement_timeout_ms() -> u64 {
+    xmtp_configuration::BACKEND_DEFAULT_STATEMENT_TIMEOUT_MS
+}
+
+impl std::fmt::Debug for DatabaseConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DatabaseConfig")
+            .field("url", &"<redacted>")
+            .field(
+                "replica_url",
+                &self.replica_url.as_ref().map(|_| "<redacted>"),
+            )
+            .field("max_connections", &self.max_connections)
+            .field("max_statement_timeout_ms", &self.max_statement_timeout_ms)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct PublishingConfig {
+    #[schemars(range(min = 1, max = MAX_DATABASE_TIMEOUT_MS))]
+    pub max_publish_duration_ms: u64,
+    #[schemars(range(min = 1, max = MAX_DATABASE_TIMEOUT_MS))]
+    pub max_barrier_wait_ms: u64,
+}
+
+impl Default for PublishingConfig {
+    fn default() -> Self {
+        Self {
+            max_publish_duration_ms: DEFAULT_PUBLISH_DURATION_MS,
+            max_barrier_wait_ms: DEFAULT_BARRIER_WAIT_MS,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct StreamsConfig {
+    #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
+    pub poll_interval_ms: u64,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_gap_ranges: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
+    pub keepalive_interval_ms: u64,
+    #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
+    pub max_pong_wait_ms: u64,
+}
+
+impl Default for StreamsConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval_ms: DEFAULT_POLL_INTERVAL_MS,
+            max_gap_ranges: DEFAULT_MAX_GAP_RANGES,
+            keepalive_interval_ms: DEFAULT_KEEPALIVE_INTERVAL_MS,
+            max_pong_wait_ms: DEFAULT_MAX_PONG_WAIT_MS,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct RetentionConfig {
+    #[schemars(range(min = 1, max = MAX_RETENTION_SECONDS))]
+    pub group_message_seconds: u64,
+    #[schemars(range(min = 1, max = MAX_RETENTION_SECONDS))]
+    pub welcome_seconds: u64,
+    #[schemars(range(min = 1, max = MAX_RETENTION_SECONDS))]
+    pub key_package_seconds: u64,
+}
+
+impl Default for RetentionConfig {
+    fn default() -> Self {
+        Self {
+            group_message_seconds: BACKEND_DEFAULT_GROUP_MESSAGE_SECONDS,
+            welcome_seconds: BACKEND_DEFAULT_WELCOME_SECONDS,
+            key_package_seconds: BACKEND_DEFAULT_KEY_PACKAGE_SECONDS,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct ValidationConfig {
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_scw_cache_entries: usize,
+}
+
+impl Default for ValidationConfig {
+    fn default() -> Self {
+        Self {
+            max_scw_cache_entries: DEFAULT_MAX_SCW_CACHE_ENTRIES,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct LimitsConfig {
+    /// Maximum stored topics for one push recipient.
+    #[schemars(schema_with = "schema::positive_integer::<{ i32::MAX as u64 }>")]
+    pub max_push_topics: i32,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_query_topics: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ i64::MAX as u64 - 1 }>")]
+    pub default_query_limit: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ i64::MAX as u64 - 1 }>")]
+    pub max_query_limit: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_newest_metadata_topics: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_newest_full_topics: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_publish_topics: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_envelope_bytes: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_request_bytes: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_response_bytes: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_update_adds: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_update_removes: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_stream_topics: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_static_topics: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_lookup_identifiers: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_scw_signatures: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    pub max_identity_entries: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
+    pub max_http2_streams: usize,
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
+    pub max_update_frames_per_second: u32,
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
+    pub max_update_burst: u32,
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
+    pub max_ping_frames_per_second: u32,
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
+    pub max_ping_burst: u32,
+}
+
+impl LimitsConfig {
+    /// Check positive limits, downstream integer ranges, and related capacities.
+    // implements: CONF-008
+    fn validate(&self) -> Result<(), ConfigError> {
+        positive(self.max_push_topics, "limits.max_push_topics")?;
+        positive(self.max_query_topics, "limits.max_query_topics")?;
+        positive(self.default_query_limit, "limits.default_query_limit")?;
+        positive(self.max_query_limit, "limits.max_query_limit")?;
+        if self.max_query_limit < self.default_query_limit {
+            return Err(invalid(
+                "limits.max_query_limit",
+                "must be at least limits.default_query_limit",
+            ));
+        }
+        if self.max_query_limit >= i64::MAX as usize {
+            return Err(invalid(
+                "limits.max_query_limit",
+                "must fit the database limit type",
+            ));
+        }
+        positive(
+            self.max_newest_metadata_topics,
+            "limits.max_newest_metadata_topics",
+        )?;
+        positive(self.max_newest_full_topics, "limits.max_newest_full_topics")?;
+        positive(self.max_publish_topics, "limits.max_publish_topics")?;
+        positive(self.max_envelope_bytes, "limits.max_envelope_bytes")?;
+        positive(self.max_request_bytes, "limits.max_request_bytes")?;
+        positive(self.max_response_bytes, "limits.max_response_bytes")?;
+        // The transport ceiling is fixed. A larger configured budget would
+        // promise clients a request the transport refuses to carry.
+        for (field, value) in [
+            ("limits.max_request_bytes", self.max_request_bytes),
+            ("limits.max_response_bytes", self.max_response_bytes),
+        ] {
+            if value > MAX_TRANSPORT_BYTES {
+                return Err(invalid(field, "must not exceed the 25 MiB transport limit"));
+            }
+        }
+        self.validate_envelope_fit()?;
+        positive(self.max_update_adds, "limits.max_update_adds")?;
+        positive(self.max_update_removes, "limits.max_update_removes")?;
+        positive(self.max_stream_topics, "limits.max_stream_topics")?;
+        if self.max_update_adds > self.max_stream_topics {
+            return Err(invalid(
+                "limits.max_update_adds",
+                "must not exceed limits.max_stream_topics",
+            ));
+        }
+        positive(self.max_static_topics, "limits.max_static_topics")?;
+        positive(self.max_lookup_identifiers, "limits.max_lookup_identifiers")?;
+        positive(self.max_scw_signatures, "limits.max_scw_signatures")?;
+        positive(self.max_identity_entries, "limits.max_identity_entries")?;
+        positive(self.max_http2_streams, "limits.max_http2_streams")?;
+        if self.max_http2_streams > u32::MAX as usize {
+            return Err(invalid(
+                "limits.max_http2_streams",
+                "must fit the HTTP/2 stream limit type",
+            ));
+        }
+        positive(
+            self.max_update_frames_per_second,
+            "limits.max_update_frames_per_second",
+        )?;
+        positive(self.max_update_burst, "limits.max_update_burst")?;
+        positive(
+            self.max_ping_frames_per_second,
+            "limits.max_ping_frames_per_second",
+        )?;
+        positive(self.max_ping_burst, "limits.max_ping_burst")
+    }
+
+    /// Reserve worst-case metadata and framing in each request and delivery budget.
+    /// Saturating arithmetic ensures oversized configured values cannot wrap to fit.
+    // implements: OPS-021
+    fn validate_envelope_fit(&self) -> Result<(), ConfigError> {
+        let request_bytes = self.max_envelope_bytes.saturating_add(
+            1 + prost::encoding::encoded_len_varint(self.max_envelope_bytes as u64),
+        );
+        // This covers the largest legal topic, hash, cursor, metadata, protobuf length prefixes,
+        // nested server-envelope tags, stream message tags, and the gRPC five-byte frame header.
+        let bounded_payload = self
+            .max_envelope_bytes
+            .saturating_add(ENVELOPE_METADATA_AND_FRAMING_BYTES);
+        if request_bytes > self.max_request_bytes
+            || bounded_payload > DELIVERY_FRAME_BYTES
+            || bounded_payload > self.max_response_bytes
+            || bounded_payload > FETCH_BUFFER_BYTES
+            || bounded_payload > OUTBOUND_QUEUE_BYTES
+        {
+            return Err(invalid(
+                "limits.max_envelope_bytes",
+                "envelope plus framing must fit all transport budgets",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Default for LimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_push_topics: push::DEFAULT_MAX_PUSH_TOPICS,
+            max_query_topics: BACKEND_DEFAULT_MAX_QUERY_TOPICS,
+            default_query_limit: BACKEND_DEFAULT_QUERY_LIMIT,
+            max_query_limit: BACKEND_DEFAULT_MAX_QUERY_LIMIT,
+            max_newest_metadata_topics: BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS,
+            max_newest_full_topics: BACKEND_DEFAULT_MAX_NEWEST_FULL_TOPICS,
+            max_publish_topics: BACKEND_DEFAULT_MAX_PUBLISH_TOPICS,
+            max_envelope_bytes: BACKEND_DEFAULT_MAX_ENVELOPE_BYTES,
+            max_request_bytes: BACKEND_DEFAULT_MAX_REQUEST_BYTES,
+            max_response_bytes: BACKEND_DEFAULT_MAX_RESPONSE_BYTES,
+            max_update_adds: BACKEND_DEFAULT_MAX_UPDATE_ADDS,
+            max_update_removes: BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
+            max_stream_topics: BACKEND_DEFAULT_MAX_STREAM_TOPICS,
+            max_static_topics: BACKEND_DEFAULT_MAX_STATIC_TOPICS,
+            max_lookup_identifiers: BACKEND_DEFAULT_MAX_LOOKUP_IDENTIFIERS,
+            max_scw_signatures: BACKEND_DEFAULT_MAX_SCW_SIGNATURES,
+            max_identity_entries: BACKEND_DEFAULT_MAX_IDENTITY_ENTRIES,
+            max_http2_streams: BACKEND_DEFAULT_MAX_HTTP2_STREAMS,
+            max_update_frames_per_second: BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND,
+            max_update_burst: BACKEND_DEFAULT_MAX_UPDATE_BURST,
+            max_ping_frames_per_second: BACKEND_DEFAULT_MAX_PING_FRAMES_PER_SECOND,
+            max_ping_burst: BACKEND_DEFAULT_MAX_PING_BURST,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
+
+/// Stdout encoding. Each JSON event occupies one line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LogFormat {
+    #[default]
+    Text,
+    Json,
+}

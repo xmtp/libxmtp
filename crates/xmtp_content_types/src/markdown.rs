@@ -38,6 +38,7 @@ impl ContentCodec<String> for MarkdownCodec {
         })
     }
 
+    // implements: CTYPE-019
     fn decode(content: EncodedContent) -> Result<String, CodecError> {
         let encoding = content
             .parameters
@@ -64,6 +65,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-007, CTYPE-021
     fn can_encode_and_decode_markdown() {
         let markdown = "# Hello, world!";
         let encoded_content =

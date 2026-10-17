@@ -1,6 +1,7 @@
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
 
+use crate::subscriptions::local_delivery::LocalDelivery;
 use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 use crate::tester;
 use crate::{assert_msg, builder::ClientBuilder};
@@ -12,8 +13,41 @@ use std::time::Duration;
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_id::associations::test_utils::WalletTestExt;
+use xmtp_proto::types::GroupId;
 
-#[xmtp_common::timeout(Duration::from_secs(15))]
+async fn assert_retained_history<C, S>(context: &C, stream: &mut S, filter: LocalDeliveryFilter)
+where
+    C: XmtpSharedContext + 'static,
+    S: futures::Stream<Item = Result<StoredGroupMessage>> + Unpin,
+{
+    let snapshot =
+        LocalDelivery::history_snapshot(context, &DeliveryScope::All, &filter, 100).unwrap();
+    assert!(!snapshot.messages.is_empty());
+    for retained in snapshot.messages {
+        assert_eq!(stream.next().await.unwrap().unwrap(), retained.message);
+    }
+}
+
+async fn assert_retained_join<C, S>(context: &C, stream: &mut S, group_id: GroupId)
+where
+    C: XmtpSharedContext + 'static,
+    S: futures::Stream<Item = Result<StoredGroupMessage>> + Unpin,
+{
+    let message = stream.next().await.unwrap().unwrap();
+    assert_eq!(message.group_id, group_id);
+    assert_eq!(message.kind, GroupMessageKind::MembershipChange);
+    let snapshot = LocalDelivery::history_snapshot(
+        context,
+        &DeliveryScope::Groups(vec![group_id]),
+        &LocalDeliveryFilter::default(),
+        100,
+    )
+    .unwrap();
+    assert_eq!(snapshot.messages.len(), 1);
+    assert_eq!(snapshot.messages[0].message, message);
+}
+
+#[xmtp_common::timeout(Duration::from_secs(25))]
 #[rstest::rstest]
 #[xmtp_common::test]
 #[cfg_attr(target_arch = "wasm32", ignore)]
@@ -27,86 +61,101 @@ async fn test_stream_all_messages_changing_group_list() {
     tracing::info!("Created alix group {}", hex::encode(alix_group.group_id));
     alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
-    let stream = caro.stream_all_messages(None, None).await.unwrap();
-    futures::pin_mut!(stream);
+    {
+        let stream = caro.stream_all_messages(None, None).await.unwrap();
+        futures::pin_mut!(stream);
+        assert_retained_join(&caro.context, &mut stream, alix_group.group_id).await;
 
+        alix_group
+            .send_message(b"first", SendMessageOpts::default())
+            .await
+            .unwrap();
+        assert_msg!(stream, "first");
+        let bo_group = bo
+            .find_or_create_dm_by_identity(caro_wallet.identifier(), None)
+            .await
+            .unwrap();
+        assert_retained_join(&caro.context, &mut stream, bo_group.group_id).await;
+
+        bo_group
+            .send_message(b"second", SendMessageOpts::default())
+            .await
+            .unwrap();
+        assert_msg!(stream, "second");
+
+        alix_group
+            .send_message(b"third", SendMessageOpts::default())
+            .await
+            .unwrap();
+        assert_msg!(stream, "third");
+
+        let alix_group_2 = alix.create_group(None, None).unwrap();
+        alix_group_2.add_members(&[caro.inbox_id()]).await.unwrap();
+        assert_retained_join(&caro.context, &mut stream, alix_group_2.group_id).await;
+
+        alix_group
+            .send_message(b"fourth", SendMessageOpts::default())
+            .await
+            .unwrap();
+        assert_msg!(stream, "fourth");
+
+        alix_group_2
+            .send_message(b"fifth", SendMessageOpts::default())
+            .await
+            .unwrap();
+        assert_msg!(stream, "fifth");
+        assert!(
+            xmtp_common::time::timeout(Duration::from_millis(200), stream.next())
+                .await
+                .is_err()
+        );
+    }
+
+    let caro_known_group = caro.group(&alix_group.group_id).unwrap();
+    caro_known_group
+        .update_consent_state(ConsentState::Allowed)
+        .unwrap();
+    let filtered = caro
+        .stream_all_messages(None, Some(vec![ConsentState::Allowed]))
+        .await
+        .unwrap();
+    futures::pin_mut!(filtered);
     alix_group
-        .send_message(b"first", SendMessageOpts::default())
+        .send_message(b"known allowed", SendMessageOpts::default())
         .await
         .unwrap();
-    assert_msg!(stream, "first");
-    let bo_group = bo
-        .find_or_create_dm_by_identity(caro_wallet.identifier(), None)
+    assert_msg!(filtered, "known allowed");
+
+    let new_group = alix.create_group(None, None).unwrap();
+    new_group.add_members(&[caro.inbox_id()]).await.unwrap();
+    caro.sync_welcomes().await.unwrap();
+    let caro_new_group = caro.group(&new_group.group_id).unwrap();
+    assert_eq!(
+        caro_new_group.consent_state().unwrap(),
+        ConsentState::Unknown
+    );
+    let unknown_message_id = new_group
+        .send_message(b"new unknown", SendMessageOpts::default())
         .await
         .unwrap();
-
-    bo_group
-        .send_message(b"second", SendMessageOpts::default())
-        .await
+    caro_new_group.sync().await.unwrap();
+    let stored = caro_new_group
+        .find_messages(&MsgQueryArgs::default())
         .unwrap();
-    assert_msg!(stream, "second");
-
-    alix_group
-        .send_message(b"third", SendMessageOpts::default())
-        .await
-        .unwrap();
-    assert_msg!(stream, "third");
-
-    let alix_group_2 = alix.create_group(None, None).unwrap();
-    alix_group_2.add_members(&[caro.inbox_id()]).await.unwrap();
-
-    alix_group
-        .send_message(b"fourth", SendMessageOpts::default())
-        .await
-        .unwrap();
-    assert_msg!(stream, "fourth");
-
-    alix_group_2
-        .send_message(b"fifth", SendMessageOpts::default())
-        .await
-        .unwrap();
-    assert_msg!(stream, "fifth");
-}
-
-#[xmtp_common::timeout(Duration::from_secs(15))]
-#[rstest::rstest]
-#[xmtp_common::test]
-async fn test_stream_all_messages_unchanging_group_list() {
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
-    let alix_group = alix.create_group(None, None).unwrap();
-    alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
-
-    let bo_group = bo.create_group(None, None).unwrap();
-    bo_group.add_members(&[caro.inbox_id()]).await.unwrap();
-
-    let stream = caro.stream_all_messages(None, None).await.unwrap();
-    futures::pin_mut!(stream);
-    bo_group
-        .send_message(b"first", SendMessageOpts::default())
-        .await
-        .unwrap();
-    assert_msg!(stream, "first");
-
-    bo_group
-        .send_message(b"second", SendMessageOpts::default())
-        .await
-        .unwrap();
-    assert_msg!(stream, "second");
-
-    alix_group
-        .send_message(b"third", SendMessageOpts::default())
-        .await
-        .unwrap();
-    assert_msg!(stream, "third");
-
-    bo_group
-        .send_message(b"fourth", SendMessageOpts::default())
-        .await
-        .unwrap();
-    assert_msg!(stream, "fourth");
+    assert!(
+        stored.iter().any(|message| {
+            message.id == unknown_message_id
+                && message.kind == GroupMessageKind::Application
+                && message.decrypted_message_bytes == b"new unknown"
+        }),
+        "new Unknown group message did not reach Caro's local history"
+    );
+    assert!(
+        xmtp_common::time::timeout(Duration::from_secs(2), filtered.next())
+            .await
+            .is_err(),
+        "unknown post-init group entered Allowed stream"
+    );
 }
 
 #[xmtp_common::timeout(Duration::from_secs(30))]
@@ -118,8 +167,14 @@ async fn test_dm_stream_all_messages() {
 
     let alix_group = alix.create_group(None, None).unwrap();
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
+    let second_known_group = alix.create_group(None, None).unwrap();
+    second_known_group
+        .add_members(&[bo.inbox_id()])
+        .await
+        .unwrap();
 
     let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await.unwrap();
+    bo.sync_welcomes().await.unwrap();
     {
         // start a stream with only group messages
         let stream = bo
@@ -127,15 +182,64 @@ async fn test_dm_stream_all_messages() {
             .await
             .unwrap();
         futures::pin_mut!(stream);
+        assert_retained_history(
+            &bo.context,
+            &mut stream,
+            LocalDeliveryFilter {
+                conversation_type: Some(ConversationType::Group),
+                consent_states: None,
+            },
+        )
+        .await;
         alix_dm
             .send_message("first DM msg".as_bytes(), SendMessageOpts::default())
             .await
             .unwrap();
-        alix_group
+        let first_group_message_id = alix_group
             .send_message("first GROUP msg".as_bytes(), SendMessageOpts::default())
             .await
             .unwrap();
-        assert_msg!(stream, "first GROUP msg");
+        let second_group_message_id = second_known_group
+            .send_message(
+                "second known GROUP msg".as_bytes(),
+                SendMessageOpts::default(),
+            )
+            .await
+            .unwrap();
+        // The two groups can deliver in either order.
+        let expected = HashSet::from([
+            (
+                alix_group.group_id,
+                first_group_message_id,
+                b"first GROUP msg".to_vec(),
+            ),
+            (
+                second_known_group.group_id,
+                second_group_message_id,
+                b"second known GROUP msg".to_vec(),
+            ),
+        ]);
+        let received = [
+            stream.next().await.unwrap().unwrap(),
+            stream.next().await.unwrap().unwrap(),
+        ]
+        .into_iter()
+        .map(|message| {
+            assert_eq!(message.kind, GroupMessageKind::Application);
+            (
+                message.group_id,
+                message.id,
+                message.decrypted_message_bytes,
+            )
+        })
+        .collect::<HashSet<_>>();
+        assert_eq!(received, expected);
+        bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        assert!(
+            xmtp_common::time::timeout(Duration::from_secs(1), stream.next())
+                .await
+                .is_err()
+        );
     }
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
     {
@@ -154,10 +258,21 @@ async fn test_dm_stream_all_messages() {
             .await
             .unwrap();
         assert_msg!(stream, "second DM msg");
+        let new_group = alix.create_group(None, None).unwrap();
+        new_group.add_members(&[bo.inbox_id()]).await.unwrap();
+        new_group
+            .send_message("new GROUP msg".as_bytes(), SendMessageOpts::default())
+            .await
+            .unwrap();
+        bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        assert!(
+            xmtp_common::time::timeout(Duration::from_secs(1), stream.next())
+                .await
+                .is_err()
+        );
     }
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
-    // Start a stream with all conversations
-    // Wait for 2 seconds for the group creation to be streamed
+    // Both filtered streams acknowledged their messages and scanned excluded rows.
     let stream = bo.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
     alix_group
@@ -173,25 +288,10 @@ async fn test_dm_stream_all_messages() {
     assert_msg!(stream, "second");
 }
 
-use std::collections::HashMap;
-fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
-    let mut counts = HashMap::new();
-
-    // Count occurrences
-    for string in strings {
-        *counts.entry(string).or_insert(0) += 1;
-    }
-
-    // Filter to keep only strings that appear more than once
-    counts.retain(|_, count| *count > 1);
-
-    counts
-}
-
 #[xmtp_common::timeout(Duration::from_secs(60))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[cfg_attr(any(feature = "d14n", target_arch = "wasm32"), ignore)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_messages_does_not_lose_messages() {
     let caro = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let alix = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
@@ -262,7 +362,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
                 match msg {
                     Ok(m) => messages.push(m),
                     Err(e) => {
-                        tracing::error!("error in stream test {e}");
+                        panic!("stream failed: {e}");
                     }
                 }
             },
@@ -270,16 +370,54 @@ async fn test_stream_all_messages_does_not_lose_messages() {
         }
     }
 
-    let msgs = &messages
+    let ids: HashSet<_> = messages.iter().map(|message| &message.id).collect();
+    assert_eq!(ids.len(), messages.len(), "duplicate message IDs");
+    let application_messages: Vec<_> = messages
         .iter()
-        .map(|m| String::from_utf8_lossy(m.decrypted_message_bytes.as_slice()).to_string())
-        .collect::<Vec<String>>();
-    let duplicates = find_duplicates_with_count(msgs);
-    assert!(duplicates.is_empty());
+        .filter(|message| message.kind == GroupMessageKind::Application)
+        .map(|message| String::from_utf8(message.decrypted_message_bytes.clone()).unwrap())
+        .collect();
+    let expected: HashSet<_> = (0..15)
+        .flat_map(|i| {
+            [
+                format!("main spam {i}"),
+                format!("EVE spam {i} from new group"),
+                format!("bo msg {i}"),
+            ]
+        })
+        .collect();
+    assert_eq!(application_messages.len(), 45);
     assert_eq!(
-        messages.len(),
-        45,
-        "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient."
+        application_messages.into_iter().collect::<HashSet<_>>(),
+        expected
+    );
+    let memberships: Vec<_> = messages
+        .iter()
+        .filter(|message| message.kind == GroupMessageKind::MembershipChange)
+        .collect();
+    assert_eq!(memberships.len(), 16);
+    assert_eq!(
+        memberships
+            .iter()
+            .map(|message| message.group_id)
+            .collect::<HashSet<_>>()
+            .len(),
+        16,
+    );
+    let history = LocalDelivery::history_snapshot(
+        &caro.context,
+        &DeliveryScope::All,
+        &LocalDeliveryFilter::default(),
+        100,
+    )
+    .unwrap();
+    assert_eq!(
+        messages,
+        history
+            .messages
+            .into_iter()
+            .map(|entry| entry.message)
+            .collect::<Vec<_>>()
     );
 }
 
@@ -335,74 +473,124 @@ async fn test_stream_all_messages_detached_group_changes() {
     assert_eq!(messages.len(), 5);
 }
 
-#[xmtp_common::timeout(Duration::from_secs(20))]
-#[rstest::rstest]
-#[case(ConsentState::Allowed, "msg in allowed")]
-#[case(ConsentState::Denied, "msg in denied")]
-#[case(ConsentState::Unknown, "msg in unknown")]
+// verifies: CONS-030
+#[xmtp_common::timeout(Duration::from_secs(30))]
 #[xmtp_common::test]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn test_stream_all_messages_filters_by_consent_state(
-    #[case] filter: ConsentState,
-    #[case] expected_message: &str,
-) {
+async fn test_stream_all_messages_filters_by_consent_state() {
     tester!(sender, with_name: "sender");
     tester!(receiver, with_name: "receiver");
 
-    // Create group with Allowed consent
-    let allowed_group = sender.create_group(None, None).unwrap();
-    allowed_group
-        .add_members(&[receiver.inbox_id()])
-        .await
-        .unwrap();
+    for (filter, expected_message) in [
+        (ConsentState::Allowed, "msg in allowed"),
+        (ConsentState::Denied, "msg in denied"),
+        (ConsentState::Unknown, "msg in unknown"),
+    ] {
+        // A new cohort keeps earlier cursor advances out of this case.
+        let allowed_group = sender.create_group(None, None).unwrap();
+        let denied_group = sender.create_group(None, None).unwrap();
+        let unknown_group = sender.create_group(None, None).unwrap();
+        for group in [&allowed_group, &denied_group, &unknown_group] {
+            group.add_members(&[receiver.inbox_id()]).await.unwrap();
+        }
+        for (group, text) in [
+            (&allowed_group, "msg in allowed"),
+            (&denied_group, "msg in denied"),
+            (&unknown_group, "msg in unknown"),
+        ] {
+            group
+                .send_message(text.as_bytes(), SendMessageOpts::default())
+                .await
+                .unwrap();
+        }
+        // Sending sets Allowed. Set the final state after all sends.
+        denied_group
+            .update_consent_state(ConsentState::Denied)
+            .unwrap();
+        unknown_group
+            .update_consent_state(ConsentState::Unknown)
+            .unwrap();
+        let expected_group = match filter {
+            ConsentState::Allowed => allowed_group.group_id,
+            ConsentState::Denied => denied_group.group_id,
+            ConsentState::Unknown => unknown_group.group_id,
+        };
+        {
+            let stream = sender
+                .stream_all_messages(None, Some(vec![filter]))
+                .await
+                .unwrap();
+            futures::pin_mut!(stream);
+            loop {
+                let item = xmtp_common::time::timeout(Duration::from_secs(5), stream.next())
+                    .await
+                    .expect("selected item timed out")
+                    .expect("stream ended")
+                    .expect("stream failed");
+                assert_eq!(item.group_id, expected_group, "wrong group for {filter:?}");
+                if item.kind == GroupMessageKind::Application {
+                    assert_eq!(item.decrypted_message_bytes, expected_message.as_bytes());
+                    break;
+                }
+            }
+            // This poll acknowledges the selected item and scans excluded rows.
+            assert!(
+                xmtp_common::time::timeout(Duration::from_secs(1), stream.next())
+                    .await
+                    .is_err(),
+                "unexpected extra item for {filter:?}"
+            );
+        }
+    }
+}
 
-    // Create group with Denied consent
-    let denied_group = sender.create_group(None, None).unwrap();
-    denied_group
-        .add_members(&[receiver.inbox_id()])
-        .await
-        .unwrap();
-    denied_group
-        .update_consent_state(ConsentState::Denied)
-        .unwrap();
+// verifies: CONS-042
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn stream_all_messages_default_excludes_denied() {
+    use xmtp_common::time::timeout;
 
-    // Create group with Unknown consent
-    let unknown_group = sender.create_group(None, None).unwrap();
-    unknown_group
-        .add_members(&[receiver.inbox_id()])
-        .await
-        .unwrap();
-    unknown_group
-        .update_consent_state(ConsentState::Unknown)
-        .unwrap();
+    tester!(alix, disable_workers);
+    let allowed = alix.create_group(None, None)?;
+    let denied = alix.create_group(None, None)?;
+    let unknown = alix.create_group(None, None)?;
+    allowed
+        .send_message(b"allowed", SendMessageOpts::default())
+        .await?;
+    denied
+        .send_message(b"denied", SendMessageOpts::default())
+        .await?;
+    unknown
+        .send_message(b"unknown", SendMessageOpts::default())
+        .await?;
+    // Sending changes consent to Allowed. Set the selection after all sends finish.
+    denied.update_consent_state(ConsentState::Denied)?;
+    unknown.update_consent_state(ConsentState::Unknown)?;
 
-    sender.sync_welcomes().await.unwrap();
-    xmtp_common::time::sleep(Duration::from_millis(100)).await;
-
-    let stream = sender
-        .stream_all_messages(None, Some(vec![filter]))
-        .await
-        .unwrap();
+    let selected = LocalDeliveryFilter {
+        consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
+        ..Default::default()
+    };
+    let snapshot =
+        LocalDelivery::history_snapshot(&alix.context, &DeliveryScope::All, &selected, 100)?;
+    assert!(
+        snapshot
+            .messages
+            .iter()
+            .any(|item| item.message.group_id == unknown.group_id)
+    );
+    let stream = alix.stream_all_messages(None, None).await?;
     futures::pin_mut!(stream);
-    //  if cfg!(feature = "d14n") {
-    //      // group updated codec b/c group hasn't written to db so lcc is 0
-    //      use futures_test::assert_stream_next;
-    //      let _ = stream.next().await.unwrap();
-    //  }
-    allowed_group
-        .send_message("msg in allowed".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-    denied_group
-        .send_message("msg in denied".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-    unknown_group
-        .send_message("msg in unknown".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-
-    assert_msg!(stream, expected_message);
+    timeout(
+        Duration::from_secs(5),
+        assert_retained_history(&alix.context, &mut stream, selected),
+    )
+    .await?;
+    assert!(
+        timeout(Duration::from_millis(100), stream.next())
+            .await
+            .is_err()
+    );
 }
 
 #[xmtp_common::timeout(Duration::from_secs(30))]
@@ -456,14 +644,10 @@ async fn stream_messages_keeps_track_of_cursor() {
     let mut s = StreamAllMessages::new(&alice_2.context, None, None)
         .await
         .unwrap();
-    // elapse enough time to update installations
-    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
     alice_group.update_installations().await.unwrap();
-    // if the stream behaved as expected, it should have set the cursor to the latest
-    // in the group before any messages that could actually be decrypted by alices
-    // second installation were sent.
+    assert_retained_join(&alice_2.context, &mut s, alice_group.group_id).await;
 
-    // we should timeout because we have not gotten a decryptable message yet.
+    // The new installation gets its join record, but cannot read the older messages.
     let result = xmtp_common::time::timeout(std::time::Duration::from_secs(1), s.next()).await;
     assert!(matches!(result.unwrap_err(), xmtp_common::time::Expired));
 
@@ -477,84 +661,6 @@ async fn stream_messages_keeps_track_of_cursor() {
 #[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test]
-async fn test_stream_all_messages_filters_conversations_created_after_init() {
-    let sender = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
-    let receiver = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
-
-    // Start stream filtering for only "allowed" conversations
-    let stream = receiver
-        .stream_all_messages(None, Some(vec![ConsentState::Allowed]))
-        .await
-        .unwrap();
-    futures::pin_mut!(stream);
-
-    // Create new group that will arrive via conversation stream
-    let new_group = sender.create_group(None, None).unwrap();
-    new_group.add_members(&[receiver.inbox_id()]).await.unwrap();
-
-    new_group
-        .send_message(b"new message", SendMessageOpts::default())
-        .await
-        .unwrap();
-    // Verify that no unknown message was received
-    let result = xmtp_common::time::timeout(Duration::from_secs(2), stream.next()).await;
-    assert!(
-        result.is_err(),
-        "Should not receive messages from unknown consent group"
-    );
-}
-
-#[xmtp_common::timeout(Duration::from_secs(20))]
-#[rstest::rstest]
-#[xmtp_common::test]
-async fn test_stream_all_messages_filters_new_group_when_dm_only() {
-    let sender = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let receiver_wallet = generate_local_wallet();
-    let receiver = ClientBuilder::new_test_client(&receiver_wallet).await;
-
-    // Create initial DM
-    let dm = sender
-        .find_or_create_dm_by_identity(receiver_wallet.identifier(), None)
-        .await
-        .unwrap();
-
-    receiver.sync_welcomes().await.unwrap();
-    xmtp_common::time::sleep(Duration::from_millis(100)).await;
-
-    // Start stream filtering for only DM conversations
-    let stream = receiver
-        .stream_all_messages(Some(ConversationType::Dm), None)
-        .await
-        .unwrap();
-    futures::pin_mut!(stream);
-
-    // Send message in DM - should appear in stream
-    dm.send_message("msg in dm".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-    assert_msg!(stream, "msg in dm");
-
-    // Create new group that will arrive via conversation stream
-    let new_group = sender.create_group(None, None).unwrap();
-    new_group.add_members(&[receiver.inbox_id()]).await.unwrap();
-
-    // Send message in group - should NOT appear in stream
-    new_group
-        .send_message("msg in group".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-
-    // Verify that no group message was received
-    let result = xmtp_common::time::timeout(Duration::from_secs(1), stream.next()).await;
-    assert!(
-        result.is_err(),
-        "Should not receive messages from group conversations when filtering for DMs"
-    );
-}
-
-#[xmtp_common::timeout(Duration::from_secs(20))]
-#[rstest::rstest]
-#[xmtp_common::test]
 async fn test_stream_all_messages_respects_cursor_between_streams() {
     tester!(sender, with_name: "sender");
     tester!(receiver, with_name: "receiver");
@@ -563,10 +669,12 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
     let group = sender.create_group(None, None).unwrap();
     group.add_members(&[receiver.inbox_id()]).await.unwrap();
 
+    let first_message;
     {
         // Step 2: Create initial stream with no filters
         let stream = receiver.stream_all_messages(None, None).await.unwrap();
         futures::pin_mut!(stream);
+        assert_retained_join(&receiver.context, &mut stream, group.group_id).await;
 
         // Step 3: Sender sends message 1
         group
@@ -575,7 +683,8 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
             .unwrap();
 
         // Step 4: Receiver gets message 1 from the stream
-        assert_msg!(stream, "message 1");
+        first_message = stream.next().await.unwrap().unwrap();
+        assert_eq!(first_message.decrypted_message_bytes, b"message 1");
 
         // Step 5: Close the stream by dropping it
     }
@@ -597,15 +706,16 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
             .await
             .unwrap();
 
-        // Verify: The new stream should receive messages 2 and 3
+        // The last item was not acknowledged by a next-item request before close.
+        assert_eq!(new_stream.next().await.unwrap().unwrap(), first_message);
         assert_msg!(new_stream, "message 2");
         assert_msg!(new_stream, "message 3");
 
-        // Verify that message 1 is not received a second time
+        // This request acknowledges message 3. No retained item remains after it.
         let result = xmtp_common::time::timeout(Duration::from_secs(2), new_stream.next()).await;
         assert!(
             result.is_err(),
-            "Should not receive message 1 which was previously processed"
+            "All three application messages must be acknowledged"
         );
     }
 }
@@ -966,133 +1076,4 @@ async fn watchdog_trips_on_idle_real_stream() {
         watchdog.next().await.is_none(),
         "watchdog stream must terminate after tripping"
     );
-}
-
-/// End-to-end check of the reconnect-on-stale wiring in `stream_all_messages_with_callback`.
-/// With a short idle timeout, the watchdog trips while the stream is idle; the consume loop
-/// must re-subscribe (resuming from the cursor) rather than ending. We prove this by sending
-/// a message *after* a trip and asserting it still arrives, and confirm via the logs that a
-/// stale-trip actually occurred.
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg(not(target_arch = "wasm32"))]
-fn watchdog_reconnect_keeps_stream_alive() {
-    use crate::subscriptions::watchdog;
-    use std::sync::Mutex;
-    use xmtp_common::StreamHandle;
-
-    /// Restores the thread-local watchdog override on drop, so a panicking assertion can't
-    /// leave a short idle timeout installed for later tests run on this thread.
-    struct ResetIdleTimeout;
-    impl ResetIdleTimeout {
-        fn install(timeout: Duration) -> Self {
-            watchdog::set_test_idle_timeout(Some(timeout));
-            Self
-        }
-    }
-    impl Drop for ResetIdleTimeout {
-        fn drop(&mut self) {
-            watchdog::set_test_idle_timeout(None);
-        }
-    }
-
-    xmtp_common::traced_test!(async {
-        // Shrink the idle timeout so the watchdog trips in seconds. The override is
-        // thread-local and only reaches the spawned stream task because `traced_test!`
-        // runs everything on a single current-thread runtime. The guard restores it on
-        // scope exit even if an assertion panics.
-        let _reset = ResetIdleTimeout::install(Duration::from_secs(2));
-
-        tester!(alix);
-        tester!(bo);
-
-        let group = alix
-            .create_group_with_members(&[bo.inbox_id()], None, None)
-            .await
-            .unwrap();
-        bo.sync_welcomes().await.unwrap();
-
-        let received = Arc::new(Mutex::new(Vec::<String>::new()));
-        let received_cb = received.clone();
-        let mut handle = crate::Client::stream_all_messages_with_callback(
-            bo.context.clone(),
-            None,
-            None,
-            move |msg| {
-                if let Ok(msg) = msg {
-                    received_cb.lock().unwrap().push(
-                        String::from_utf8_lossy(msg.decrypted_message_bytes.as_slice()).to_string(),
-                    );
-                }
-            },
-            || {},
-        );
-        xmtp_common::time::timeout(Duration::from_secs(15), handle.wait_for_ready())
-            .await
-            .expect("stream did not become ready");
-
-        // The first message arrives on the initial subscription.
-        group
-            .send_message(b"first", SendMessageOpts::default())
-            .await
-            .unwrap();
-        let got_first = {
-            let received = received.clone();
-            xmtp_common::wait_for_some(move || {
-                let received = received.clone();
-                async move {
-                    received
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .any(|m| m == "first")
-                        .then_some(())
-                }
-            })
-            .await
-        };
-        assert!(got_first.is_some(), "did not receive the first message");
-
-        // Stay idle long enough for the watchdog to trip (idle 2s) and the consume loop to
-        // re-subscribe (plus its jittered backoff).
-        xmtp_common::time::sleep(Duration::from_secs(6)).await;
-
-        // A message sent after the trip must still arrive — proving the consume loop
-        // reconnected instead of ending the stream.
-        group
-            .send_message(b"second", SendMessageOpts::default())
-            .await
-            .unwrap();
-        let got_second = {
-            let received = received.clone();
-            xmtp_common::wait_for_some(move || {
-                let received = received.clone();
-                async move {
-                    received
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .any(|m| m == "second")
-                        .then_some(())
-                }
-            })
-            .await
-        };
-        assert!(
-            got_second.is_some(),
-            "did not receive a message sent after the watchdog tripped; the stream did not reconnect"
-        );
-
-        // Confirm a stale-trip actually happened (otherwise the assertions above could pass
-        // simply because the stream never went idle).
-        xmtp_common::traced_test::LOG_BUFFER.with(|buf| {
-            buf.flush();
-            let logs = buf.as_string();
-            assert!(
-                logs.contains("went stale"),
-                "watchdog never logged a stale-trip; the reconnect path was not exercised"
-            );
-        });
-
-        handle.end();
-    });
 }

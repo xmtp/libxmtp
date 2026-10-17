@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# ast-outline from the locked agent tool environment.
+set -euo pipefail
+exec "$(dirname "$0")/agents/uv-run" ast-outline "$@"

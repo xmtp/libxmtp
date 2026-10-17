@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE allocation_boundary SET closed_sequence_id = $1 WHERE singleton AND closed_sequence_id <= $1 RETURNING closed_sequence_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "closed_sequence_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "allocation_boundary",
+            "name": "closed_sequence_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f9c34b4c689681417d61bac98c6d0479931a1808dde28e65f7707dd92b80e770"
+}

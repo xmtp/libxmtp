@@ -1,0 +1,64 @@
+{
+  "name": "@xmtp/xmtp.chat",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
+    "clean:dist": "rm -rf dist",
+    "dev": "vite",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint .",
+    "test": "vitest run",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@mantine/core": "^8.3.13",
+    "@mantine/form": "^8.3.13",
+    "@mantine/hooks": "^8.3.13",
+    "@mantine/modals": "^8.3.13",
+    "@mantine/notifications": "^8.3.13",
+    "@tanstack/react-query": "^5.90.20",
+    "@tanstack/react-virtual": "^3.13.18",
+    "@tanstack/virtual-core": "^3.13.18",
+    "@xmtp/browser-sdk": "workspace:*",
+    "date-fns": "^4.1.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-markdown": "^10.1.0",
+    "react-router": "^7.12.0",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1",
+    "uint8array-extras": "catalog:",
+    "viem": "catalog:",
+    "wagmi": "^2.19.5",
+    "zod": "^4.3.6",
+    "zustand": "^5.0.10"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "catalog:",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "catalog:node26",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "@vitest/browser": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
+    "playwright": "catalog:",
+    "postcss": "^8.5.6",
+    "postcss-preset-mantine": "^1.18.0",
+    "postcss-simple-vars": "^7.0.1",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": "24.x"
+  }
+}

@@ -1,7 +1,10 @@
 pub mod actions;
 pub mod attachment;
+pub mod compression;
 pub mod delete_message;
 pub mod encryption;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod file_encryption;
 pub mod group_updated;
 pub mod intent;
 pub mod leave_request;
@@ -17,10 +20,14 @@ pub mod transaction_reference;
 mod utils;
 pub mod wallet_send_calls;
 
+pub use xmtp_common::types::ContentTypeId;
+
 use prost::Message;
 use thiserror::Error;
 use xmtp_common::ErrorCode;
-use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
+use xmtp_proto::xmtp::mls::message_contents::{
+    ContentTypeId as ProtoContentTypeId, EncodedContent,
+};
 
 #[cfg(test)]
 mod compatibility_test;
@@ -44,7 +51,7 @@ pub enum CodecError {
     ///
     /// No codec registered for content type. Not retryable.
     #[error("codec not found for {0:?}")]
-    CodecNotFound(ContentTypeId),
+    CodecNotFound(ProtoContentTypeId),
     /// Invalid content type.
     ///
     /// Content type identifier is invalid. Not retryable.
@@ -105,7 +112,7 @@ impl TryFrom<&str> for ContentType {
 }
 
 pub trait ContentCodec<T> {
-    fn content_type() -> ContentTypeId;
+    fn content_type() -> ProtoContentTypeId;
     fn encode(content: T) -> Result<EncodedContent, CodecError>;
     fn decode(content: EncodedContent) -> Result<T, CodecError>;
     fn should_push() -> bool;
@@ -131,7 +138,7 @@ mod tests {
     fn test_encoded_content_conversion() {
         // Create a sample EncodedContent
         let original = EncodedContent {
-            r#type: Some(ContentTypeId {
+            r#type: Some(ProtoContentTypeId {
                 authority_id: "".to_string(),
                 type_id: "test".to_string(),
                 version_major: 0,

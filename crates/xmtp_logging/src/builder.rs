@@ -41,12 +41,18 @@ impl XmtpLogging {
 #[derive(Default)]
 pub struct XmtpLoggingBuilder {
     pub(crate) cfg: LoggingConfig,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) stderr: bool,
 }
 
 impl XmtpLoggingBuilder {
     /// Build from a fully-specified [`LoggingConfig`].
     pub fn from_config(cfg: LoggingConfig) -> Self {
-        Self { cfg }
+        Self {
+            cfg,
+            #[cfg(not(target_arch = "wasm32"))]
+            stderr: false,
+        }
     }
 
     /// Set the initial log level.
@@ -100,7 +106,27 @@ mod tests {
     use crate::config::Level;
 
     #[test]
-    fn builder_from_config_sets_fields() {
+    fn builder_methods_mutate_config() {
+        let b = XmtpLogging::builder();
+        assert_eq!(b.cfg.level, Level::Info);
+        assert!(!b.cfg.json);
+        assert!(!b.cfg.native);
+        assert_eq!(b.cfg.native_level, None);
+        assert_eq!(b.cfg.stdout_level, None);
+        let b = b
+            .level(Level::Trace)
+            .json(true)
+            .with_native(true)
+            .with_performance(true)
+            .native_level(Level::Warn)
+            .stdout_level(Level::Warn);
+        assert_eq!(b.cfg.level, Level::Trace);
+        assert!(b.cfg.json);
+        assert!(b.cfg.native);
+        assert!(b.cfg.performance);
+        assert_eq!(b.cfg.native_level, Some(Level::Warn));
+        assert_eq!(b.cfg.stdout_level, Some(Level::Warn));
+
         let b = XmtpLoggingBuilder::from_config(LoggingConfig {
             level: Level::Debug,
             json: true,
@@ -110,43 +136,6 @@ mod tests {
         assert!(b.cfg.json);
     }
 
-    #[test]
-    fn builder_methods_mutate_config() {
-        let b = XmtpLogging::builder()
-            .level(Level::Trace)
-            .json(true)
-            .with_native(true)
-            .with_performance(true);
-        assert_eq!(b.cfg.level, Level::Trace);
-        assert!(b.cfg.json);
-        assert!(b.cfg.native);
-        assert!(b.cfg.performance);
-    }
-
-    #[test]
-    fn builder_default_is_info_compact() {
-        let b = XmtpLogging::builder();
-        assert_eq!(b.cfg.level, Level::Info);
-        assert!(!b.cfg.json);
-        assert!(!b.cfg.native);
-    }
-
-    #[test]
-    fn native_level_defaults_none_and_is_settable() {
-        let b = XmtpLogging::builder();
-        assert_eq!(b.cfg.native_level, None);
-        let b = b.native_level(Level::Warn);
-        assert_eq!(b.cfg.native_level, Some(Level::Warn));
-    }
-
-    #[test]
-    fn stdout_level_defaults_none_and_is_settable() {
-        let b = XmtpLogging::builder();
-        assert_eq!(b.cfg.stdout_level, None);
-        let b = b.stdout_level(Level::Warn);
-        assert_eq!(b.cfg.stdout_level, Some(Level::Warn));
-    }
-
     // A single global-init test: `install()` can only succeed once per process,
     // so all install/runtime-control coverage lives in this one test. It is the
     // only test in this binary that touches the global subscriber.
@@ -154,7 +143,16 @@ mod tests {
     #[test]
     fn install_then_set_level() {
         use crate::error::Error;
+        use crate::{LogRecord, LogSinkTarget, SinkError};
+        use std::sync::{Arc, Mutex};
 
+        struct Capture(Arc<Mutex<Vec<LogRecord>>>);
+        impl LogSinkTarget for Capture {
+            fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+                self.0.lock().unwrap().push(record);
+                Ok(())
+            }
+        }
         let handle = XmtpLogging::builder()
             .level(Level::Info)
             .native_level(Level::Warn)
@@ -165,6 +163,13 @@ mod tests {
         // Runtime level changes go through the reloadable filter slot.
         handle.set_level(Level::Debug).expect("set_level");
         handle.set_level(Level::Trace).expect("set_level");
+
+        let records = Arc::new(Mutex::new(Vec::new()));
+        handle.set_sink(Some(Arc::new(Capture(records.clone()))));
+        tracing::info!(target: "xmtp_common", "sink active");
+        handle.set_sink(None);
+        tracing::info!(target: "xmtp_common", "sink cleared");
+        assert_eq!(records.lock().unwrap().len(), 1);
 
         // With `with_native(true)`, the server native layer now carries a
         // reloadable filter handle, so this drives a live filter (not a no-op).

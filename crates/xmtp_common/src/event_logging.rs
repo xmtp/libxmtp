@@ -5,13 +5,7 @@ pub use utils::*;
 pub enum Event {
     // ===================== General Client =====================
     /// Client created.
-    #[context(
-        device_sync_enabled,
-        disabled_workers,
-        inbox_id,
-        full_installation_id,
-        icon = "⬆️"
-    )]
+    #[context(device_sync_enabled, disabled_workers, inbox_id, icon = "⬆️")]
     ClientCreated,
     /// Client dropped.
     #[context(icon = "⬇️")]
@@ -59,7 +53,6 @@ pub enum Event {
         left_inboxes,
         metadata_changes,
         cursor,
-        originator_id,
         icon = "😮‍💨"
     )]
     MLSProcessedStagedCommit,
@@ -109,7 +102,7 @@ pub enum Event {
     #[context(group_id, hash, icon = "🛑")]
     GroupSyncStagedCommitPresent,
     /// Updating group cursor.
-    #[context(group_id, cursor, originator_id, icon = "📍")]
+    #[context(group_id, cursor, icon = "📍")]
     GroupCursorUpdate,
 
     // ===================== Group Membership =====================
@@ -127,65 +120,10 @@ pub enum Event {
     /// Created primary sync group.
     #[context(group_id)]
     DeviceSyncCreatedPrimarySyncGroup,
-    /// Sent a sync request.
-    #[context(group_id)]
-    DeviceSyncSentSyncRequest,
     /// Processing new sync message.
     #[context(msg_type, external, message_id, group_id)]
     DeviceSyncProcessingMessages,
     /// Failed to process device sync message.
     #[context(message_id, error)]
     DeviceSyncMessageProcessingError,
-    /// Processing sync archive.
-    #[context(message_id, group_id)]
-    DeviceSyncArchiveProcessingStart,
-    /// Received a V1 sync payload. V1 is no longer supported. Ignoring.
-    DeviceSyncV1Archive,
-    /// Received a sync archive message, but it was not requested by this instalaltion. Skipping.
-    DeviceSyncArchiveNotRequested,
-    /// Downloading sync archive.
-    DeviceSyncArchiveDownloading,
-    /// Sync archive download failure.
-    #[context(status, error)]
-    DeviceSyncPayloadDownloadFailure,
-    /// Beginning archive import.
-    DeviceSyncArchiveImportStart,
-    /// Finished sync archive import.
-    DeviceSyncArchiveImportSuccess,
-    /// Archive import failed.
-    #[context(error)]
-    DeviceSyncArchiveImportFailure,
-    /// Attempted to acknowledge a sync request, but it was already acknowledged
-    /// by another installation.
-    #[context(pin, acknowledged_by)]
-    DeviceSyncRequestAlreadyAcknowledged,
-    /// Acknowledged sync request.
-    #[context(pin)]
-    DeviceSyncRequestAcknowledged,
-    /// Scheduled task to respond to sync request.
-    #[context(pin)]
-    DeviceSyncResponseTaskScheduled,
-    /// Sending sync archive.
-    #[context(group_id, server_url)]
-    DeviceSyncArchiveUploadStart,
-    /// Failed to send sync archive.
-    #[context(group_id, pin, error)]
-    DeviceSyncArchiveUploadFailure,
-    /// Archive upload complete.
-    #[context(group_id)]
-    DeviceSyncArchiveUploadComplete,
-    /// Cannot send sync archive. No server_url present.
-    #[context(pin)]
-    DeviceSyncNoServerUrl,
-
-    // ===================== AppData Migration =====================
-    /// `enable_proposals` started — pre-flight passed, about to publish
-    /// the legacy-GMM bump (step A) and/or bootstrap commit (step B).
-    #[context(group_id, min_version, force, icon = "🌱")]
-    EnableProposalsStart,
-    /// `enable_proposals` completed. `already_migrated = true` means
-    /// the call was a no-op fast-path; `false` means a bootstrap
-    /// commit was actually published.
-    #[context(group_id, already_migrated, min_version, icon = "🌳")]
-    EnableProposalsCompleted,
 }

@@ -1,5 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub mod backend;
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester_utils;
 
@@ -10,22 +13,20 @@ mod tester_utils_trait_ext;
 pub use tester_utils_trait_ext::*;
 
 use crate::XmtpApi;
-use crate::cursor_store::SqliteCursorStore;
 use crate::{
     Client, InboxOwner,
     builder::{ClientBuilder, DeviceSyncMode},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
+    groups::{GroupError, MlsGroup},
     identity::IdentityStrategy,
 };
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
-use xmtp_api_d14n::XmtpTestClientExt;
-use xmtp_api_d14n::protocol::{CursorStore, XmtpQuery};
 use xmtp_common::time::Expired;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{ConnectionExt, DbConnection, XmtpTestDb};
 use xmtp_id::associations::{Identifier, test_utils::MockSmartContractSignatureVerifier};
-use xmtp_proto::api_client::ApiBuilder;
+use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 use xmtp_proto::types::ApiIdentifier;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -41,37 +42,19 @@ impl<A, S> ClientBuilder<A, S> {
     }
 
     pub fn dev(self) -> ClientBuilder<TestClient, S> {
-        let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        let a = DevOnlyTestClientCreator::with_cursor_store(s);
-        let api_client = a.build().unwrap();
-        self.api_client(api_client)
+        self.local()
     }
 
     pub fn local(self) -> ClientBuilder<TestClient, S> {
-        let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        let a = LocalOnlyTestClientCreator::with_cursor_store(s);
-        let api_client = a.build().unwrap();
-        self.api_client(api_client)
-    }
-
-    /// Wire a `MigrationClient` (the v3↔d14n cutover client production ships)
-    /// onto this builder, pre-set to the migrated (d14n) side so a live test can
-    /// exercise real messaging through it against xmtpd. The pre-cutover (v3)
-    /// selection is covered by the migration unit tests; it can't be driven
-    /// locally because the test node-go does not serve `FetchD14nCutover`, so
-    /// `choose_client`'s first-call refresh would error before it could pick v3.
-    pub fn local_migration(self) -> ClientBuilder<MigrationTestClient, S> {
-        let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        s.set_has_migrated(true).unwrap();
-        let a = LocalOnlyMigrationClientCreator::with_cursor_store(s);
-        let api_client = a.build().unwrap();
-        self.api_client(api_client)
+        self.api_client_with_streams(Arc::new(
+            DefaultTestClientCreator::create().build().unwrap(),
+        ))
     }
 }
 
 impl<Api, Storage, Db> ClientBuilder<Api, Storage, Db>
 where
-    Api: XmtpApi + XmtpQuery + 'static,
+    Api: XmtpApi + 'static,
     Storage: XmtpMlsStorageProvider + 'static,
     Db: xmtp_db::XmtpDb + 'static,
 {
@@ -135,7 +118,7 @@ pub fn identity_setup(owner: impl InboxOwner) -> IdentityStrategy {
     let nonce = 1;
     let ident = owner.get_identifier().unwrap();
     let inbox_id = ident.inbox_id(nonce).unwrap();
-    IdentityStrategy::new(inbox_id, ident, nonce, None)
+    IdentityStrategy::new(inbox_id, ident, nonce)
 }
 
 /// wrapper over a `Notify` with a 60-second timeout for waiting
@@ -175,7 +158,30 @@ where
             .get_inbox_ids(vec![identifier.clone()])
             .await
             .unwrap();
-        ids.contains_key(&identifier)
+        ids.first().is_some_and(Option::is_some)
+    }
+
+    /// Sync welcomes until at least one new group arrives, and return the new groups.
+    ///
+    /// One `sync_welcomes` call can miss a welcome that was sent just before it. The call
+    /// targets the newest welcome position that the backend reads from a replica, and the
+    /// replica can lag the primary (`docs/specs/PROC-message-processing.md`, known
+    /// limitations). Use this helper when a test needs a welcome that it just sent.
+    ///
+    /// A `sync_welcomes` error returns at once. Panics if no welcome arrives in 20 s.
+    pub async fn wait_for_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
+        let poll = async {
+            loop {
+                let groups = self.sync_welcomes().await?;
+                if !groups.is_empty() {
+                    return Ok(groups);
+                }
+                xmtp_common::task::yield_now().await;
+            }
+        };
+        xmtp_common::time::timeout(Duration::from_secs(20), poll)
+            .await
+            .expect("no welcome arrived within 20 s")
     }
 }
 
@@ -183,16 +189,7 @@ pub async fn register_client<Context: XmtpSharedContext>(
     client: &Client<Context>,
     owner: impl InboxOwner,
 ) {
-    let mut signature_request = client.context.signature_request().unwrap();
-    let signature_text = signature_request.signature_text();
-    let unverified_signature = owner.sign(&signature_text).unwrap();
-
-    signature_request
-        .add_signature(unverified_signature, client.scw_verifier())
-        .await
-        .unwrap();
-
-    client.register_identity(signature_request).await.unwrap();
+    client.register_with_owner(&owner).await.unwrap();
 }
 
 /// wait for a minimum amount of intents to be published
@@ -209,4 +206,16 @@ pub async fn wait_for_min_intents<C: ConnectionExt>(
         }
     })
     .await
+}
+
+/// Set a pending receipt to test registration recovery after reopen.
+pub fn set_registration_cursor_for_test<C: ConnectionExt>(db: &DbConnection<C>, sequence: i64) {
+    use xmtp_db::diesel::{self, ExpressionMethods, RunQueryDsl};
+    use xmtp_db::schema::identity::dsl;
+    db.raw_query(|conn| {
+        diesel::update(dsl::identity)
+            .set(dsl::registration_cursor_sequence_id.eq(Some(sequence)))
+            .execute(conn)
+    })
+    .unwrap();
 }

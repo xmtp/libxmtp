@@ -1,0 +1,168 @@
+import { CloseButton, Group, Paper, Stack, Text } from "@mantine/core";
+import { type ConsentState, Dm, type GroupPolicyType } from "@xmtp/browser-sdk";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useOutletContext } from "react-router";
+
+import { BadgeWithCopy } from "@/components/BadgeWithCopy";
+import { IdentityBadge } from "@/components/IdentityBadge";
+import { Modal } from "@/components/Modal";
+import { getMemberAddress } from "@/helpers/xmtp";
+import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
+import { useConversation } from "@/hooks/useConversation";
+import { ContentLayout } from "@/layouts/ContentLayout";
+
+import type { ConversationOutletContext } from "./ConversationOutletContext";
+
+const consentStateLabel = (state: ConsentState) => {
+  switch (state) {
+    case "unknown":
+      return "Unknown";
+    case "allowed":
+      return "Allowed";
+    case "denied":
+      return "Denied";
+    default:
+      return "N/A";
+  }
+};
+
+const permissionTypeLabel = (type: GroupPolicyType) => {
+  switch (type) {
+    case "allMembers":
+      return "Default";
+    case "adminOnly":
+      return "Admin Only";
+    case "custom":
+      return "Custom Policy";
+    default:
+      return "N/A";
+  }
+};
+
+export const ManageDetailsModal: React.FC = () => {
+  const { conversationId } = useOutletContext<ConversationOutletContext>();
+  const { conversation, members, messages, permissions } =
+    useConversation(conversationId);
+  const navigate = useNavigate();
+  const fullScreen = useCollapsedMediaQuery();
+  const contentHeight = fullScreen ? "auto" : 500;
+  const [consentState, setConsentState] = useState<ConsentState | null>(null);
+
+  useEffect(() => {
+    const loadConsentState = async () => {
+      const state = await conversation
+        .state()
+        .then((state) =>
+          "common" in state ? state.common.consentState : state.consentState,
+        );
+      setConsentState(state);
+    };
+    void loadConsentState();
+  }, [conversation]);
+
+  const addedBy = conversation.addedByInboxId
+    ? members.get(conversation.addedByInboxId)
+    : undefined;
+
+  const conversationType =
+    conversation instanceof Dm ? "Direct Message" : "Group";
+
+  const handleClose = useCallback(() => {
+    void navigate(`/conversations/${conversationId}`);
+  }, [navigate, conversationId]);
+
+  return (
+    <Modal
+      closeOnClickOutside={false}
+      closeOnEscape={true}
+      withCloseButton={false}
+      opened
+      centered
+      fullScreen={fullScreen}
+      onClose={handleClose}
+      size="600"
+      padding={0}>
+      <ContentLayout
+        maxHeight={contentHeight}
+        withScrollAreaPadding={false}
+        title={
+          <Group justify="space-between" align="center" flex={1}>
+            <Text size="lg" fw={700} c="text.primary">
+              Conversation Details
+            </Text>
+            <CloseButton size="md" onClick={handleClose} />
+          </Group>
+        }>
+        <Stack gap="md" p="md">
+          <Paper p="md" radius="md" withBorder>
+            <Stack gap="md">
+              <Group gap="md" wrap="nowrap">
+                <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
+                  Conversation ID
+                </Text>
+                <BadgeWithCopy value={conversationId} />
+              </Group>
+              <Group gap="md" wrap="nowrap">
+                <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
+                  Added by
+                </Text>
+                <Stack gap="xs">
+                  {addedBy?.handle && (
+                    <IdentityBadge
+                      address={getMemberAddress(addedBy)}
+                      displayName={null}
+                      handle={addedBy.handle}
+                    />
+                  )}
+                  <BadgeWithCopy
+                    value={conversation.addedByInboxId ?? "Unknown"}
+                  />
+                </Stack>
+              </Group>
+              <Group gap="md" wrap="nowrap">
+                <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
+                  Conversation Type
+                </Text>
+                <BadgeWithCopy value={conversationType} />
+              </Group>
+              <Group gap="md" wrap="nowrap">
+                <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
+                  Consent State
+                </Text>
+                <BadgeWithCopy
+                  value={
+                    consentState === null
+                      ? "Loading..."
+                      : consentStateLabel(consentState)
+                  }
+                />
+              </Group>
+              <Group gap="md" wrap="nowrap">
+                <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
+                  Permission Policy
+                </Text>
+                <BadgeWithCopy
+                  value={permissionTypeLabel(
+                    permissions?.policyType ?? "allMembers",
+                  )}
+                />
+              </Group>
+              <Group gap="md" wrap="nowrap">
+                <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
+                  Member Count
+                </Text>
+                <BadgeWithCopy value={members.size.toString()} />
+              </Group>
+              <Group gap="md" wrap="nowrap">
+                <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
+                  Message Count
+                </Text>
+                <BadgeWithCopy value={messages.length.toString()} />
+              </Group>
+            </Stack>
+          </Paper>
+        </Stack>
+      </ContentLayout>
+    </Modal>
+  );
+};

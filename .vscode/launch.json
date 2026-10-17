@@ -176,43 +176,6 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'mls-validation-service'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=mls-validation-service",
-                    "--package=mls_validation_service"
-                ],
-                "filter": {
-                    "name": "mls-validation-service",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'mls-validation-service'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=mls-validation-service",
-                    "--package=mls_validation_service"
-                ],
-                "filter": {
-                    "name": "mls-validation-service",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
             "name": "Debug unit tests in library 'xmtp_user_preferences'",
             "cargo": {
                 "args": [

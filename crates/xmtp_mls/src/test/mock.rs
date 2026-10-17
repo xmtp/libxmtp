@@ -7,10 +7,6 @@ use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 use crate::groups::summary::SyncSummary;
 use crate::identity::create_credential;
-use crate::subscriptions::SubscribeError;
-use crate::subscriptions::process_message::{
-    ProcessFutureFactory, ProcessMessageFuture, ProcessedMessage,
-};
 use crate::worker::device_sync::worker::SyncMetric;
 use crate::worker::tasks::TaskWorkerChannels;
 use crate::worker::{MetricsCasting, WorkerKind};
@@ -18,16 +14,13 @@ use crate::{
     context::XmtpMlsLocalContext, identity::Identity, mutex_registry::MutexRegistry,
     utils::VersionInfo,
 };
-use alloy::signers::local::PrivateKeySigner;
 use mockall::mock;
-use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api_d14n::MockApiClient;
-use xmtp_cryptography::XmtpInstallationCredential;
+use xmtp_api_backend::MockBackendClient;
 use xmtp_db::XmtpDb;
 use xmtp_db::sql_key_store::mock::MockSqlKeyStore;
-use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
+use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 mod generate;
@@ -35,16 +28,22 @@ pub use generate::*;
 mod openmls_mock;
 pub use openmls_mock::*;
 
-pub type MockApiWrapper = Arc<ApiClientWrapper<MockApiClient>>;
+pub type MockApiWrapper = Arc<ApiClientWrapper<Arc<MockBackendClient>>>;
 pub type MockStoreAndContext =
-    XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, MockSqlKeyStore>;
+    XmtpMlsLocalContext<Arc<MockBackendClient>, xmtp_db::MockXmtpDb, MockSqlKeyStore>;
 pub type MockContext = Arc<
-    XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, xmtp_db::test_utils::MlsMemoryStorage>,
+    XmtpMlsLocalContext<
+        Arc<MockBackendClient>,
+        xmtp_db::MockXmtpDb,
+        xmtp_db::test_utils::MlsMemoryStorage,
+    >,
 >;
 /// A mock context type that hasn't yet been added into an Arc type.
-pub type NewMockContext =
-    XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, xmtp_db::test_utils::MlsMemoryStorage>;
-pub type MockProcessMessageFuture = ProcessMessageFuture<MockContext>;
+pub type NewMockContext = XmtpMlsLocalContext<
+    Arc<MockBackendClient>,
+    xmtp_db::MockXmtpDb,
+    xmtp_db::test_utils::MlsMemoryStorage,
+>;
 pub type MockMlsGroup = MlsGroup<MockContext>;
 
 impl Identity {
@@ -61,14 +60,6 @@ impl Identity {
 }
 
 mock! {
-    pub ProcessFutureFactory {}
-    impl ProcessFutureFactory<'_> for ProcessFutureFactory {
-        fn create(&self, msg: xmtp_proto::types::GroupMessage) -> xmtp_common::BoxDynFuture<'_, Result<ProcessedMessage, SubscribeError>>;
-        fn retrieve(&self, msg: &xmtp_proto::types::GroupMessage) -> Result<Option<xmtp_db::group_message::StoredGroupMessage>, SubscribeError>;
-    }
-}
-
-mock! {
     pub MockMlsGroup {
         fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary>;
     }
@@ -77,26 +68,34 @@ mock! {
 impl Clone for NewMockContext {
     fn clone(&self) -> Self {
         Self {
+            attachments: self.attachments.clone(),
             identity: self.identity.clone(),
             api_client: self.api_client.clone(),
             store: self.store.clone(),
             mls_storage: self.mls_storage.clone(),
             mutexes: self.mutexes.clone(),
+            #[cfg(test)]
             mls_commit_lock: self.mls_commit_lock.clone(),
             version_info: self.version_info.clone(),
-            local_events: self.local_events.clone(),
-            worker_events: self.worker_events.clone(),
+            server_configuration: self.server_configuration.clone(),
+            events: self.events.clone(),
+            registration_event_pending: self.registration_event_pending.clone(),
+            public_event_writer: self.public_event_writer.clone(),
             scw_verifier: self.scw_verifier.clone(),
             device_sync: self.device_sync.clone(),
             fork_recovery_opts: self.fork_recovery_opts.clone(),
             change_callbacks: self.change_callbacks.clone(),
             worker_config: self.worker_config.clone(),
             task_channels: self.task_channels.clone(),
-            disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(
-            ),
             worker_metrics: self.worker_metrics.clone(),
             cancellation_token: self.cancellation_token.clone(),
             shutdown_complete: self.shutdown_complete.clone(),
+            foreground_calls: self.foreground_calls.clone(),
+            #[cfg(any(test, target_arch = "wasm32"))]
+            message_clock: self.message_clock.clone(),
+            delivery_owner: self.delivery_owner.clone(),
+            incoming_runtime: self.incoming_runtime.clone(),
+            identity_resolutions: self.identity_resolutions.clone(),
         }
     }
 }
@@ -104,7 +103,7 @@ impl Clone for NewMockContext {
 impl XmtpSharedContext for NewMockContext {
     type Db = xmtp_db::MockXmtpDb;
 
-    type ApiClient = MockApiClient;
+    type ApiClient = Arc<MockBackendClient>;
 
     type MlsStorage = xmtp_db::test_utils::MlsMemoryStorage;
     type ContextReference = Self;
@@ -115,6 +114,10 @@ impl XmtpSharedContext for NewMockContext {
 
     fn db(&self) -> <Self::Db as xmtp_db::XmtpDb>::DbQuery {
         self.store.db()
+    }
+
+    fn attachment_runtime(&self) -> &Arc<crate::attachments::AttachmentRuntime> {
+        &self.attachments
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
@@ -149,14 +152,23 @@ impl XmtpSharedContext for NewMockContext {
         &self.version_info
     }
 
-    fn worker_events(&self) -> &broadcast::Sender<crate::subscriptions::SyncWorkerEvent> {
-        &self.worker_events
+    fn server_configuration(&self) -> &crate::server_configuration::ServerConfigurationHandle {
+        &self.server_configuration
     }
 
-    fn local_events(&self) -> &broadcast::Sender<crate::subscriptions::LocalEvents> {
-        &self.local_events
+    fn events(&self) -> &xmtp_events::EventBus<crate::subscriptions::internal::InternalEvent> {
+        &self.events
     }
 
+    fn registration_event_pending(&self) -> &AtomicBool {
+        &self.registration_event_pending
+    }
+
+    fn public_event_writer(&self) -> &Arc<dyn xmtp_events::EventWriter<()>> {
+        &self.public_event_writer
+    }
+
+    #[cfg(test)]
     fn mls_commit_lock(&self) -> &Arc<crate::GroupCommitLock> {
         &self.mls_commit_lock
     }
@@ -167,10 +179,6 @@ impl XmtpSharedContext for NewMockContext {
 
     fn task_channels(&self) -> &TaskWorkerChannels {
         &self.task_channels
-    }
-
-    fn disappearing_channels(&self) -> &crate::worker::disappearing_messages::DisappearingChannels {
-        &self.disappearing_channels
     }
 
     fn change_callbacks(&self) -> &crate::groups::change_callbacks::UnstableChangeCallbacks {
@@ -188,6 +196,18 @@ impl XmtpSharedContext for NewMockContext {
         &self.cancellation_token
     }
 
+    fn delivery_owner(&self) -> &parking_lot::Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
+        &self.delivery_owner
+    }
+
+    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime {
+        &self.incoming_runtime
+    }
+
+    fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {
+        &self.identity_resolutions
+    }
+
     fn shutdown_complete(&self) -> bool {
         self.shutdown_complete
             .load(std::sync::atomic::Ordering::Acquire)
@@ -196,5 +216,13 @@ impl XmtpSharedContext for NewMockContext {
     fn mark_shutdown_complete(&self) {
         self.shutdown_complete
             .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    fn message_timestamp_ns(&self) -> i64 {
+        xmtp_common::time::now_ns()
+    }
+
+    fn foreground_calls(&self) -> &Arc<crate::context::ForegroundCalls> {
+        &self.foreground_calls
     }
 }

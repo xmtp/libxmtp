@@ -8,48 +8,37 @@
       ...
     }:
     let
-      # Targets are split by host-platform availability.
-      # - gnu targets require glibc cross-compilation, which is broken on macOS
-      #   (darwin-cross-build.patch fails to apply). Build these only on Linux.
-      # - musl targets use self-contained musl toolchains that work everywhere.
-      # - Darwin targets require Apple SDKs, so macOS only.
-      # - Windows is excluded (built separately in CI).
-      # linux gnu targets may be enabled once https://docs.determinate.systems/determinate-nix/#linux-builder
-      # rolls out to the public
-      linuxGnuTargets = [
-        "x86_64-unknown-linux-gnu"
-        "aarch64-unknown-linux-gnu"
-      ];
-
-      linuxMuslTargets = [
-        "x86_64-unknown-linux-musl"
-        "aarch64-unknown-linux-musl"
-      ];
-
-      darwinTargets = [
-        "aarch64-apple-darwin"
-      ];
-
-      nodeTargets =
-        linuxMuslTargets
-        ++ lib.optionals pkgs.stdenv.isLinux linuxGnuTargets
-        ++ lib.optionals pkgs.stdenv.isDarwin darwinTargets;
-
-      crossPkgs = self.lib.mkCrossPkgs system nodeTargets;
-      mkNodeBindings = p: p.callPackage ./package/node.nix;
+      # `nix/sdk-platforms.json` names the systems that build each Node
+      # platform. glibc cross builds fail on macOS, Apple SDKs exist only on
+      # macOS, and the Windows pair builds outside Nix.
+      hostTarget = pkgs.stdenv.hostPlatform.rust.rustcTarget;
+      platforms = builtins.filter (
+        platform: builtins.elem system platform.nixSystems
+      ) pkgs.xmtp.sdkPlatforms.node;
+      # The host target uses the host package set, so its library is the one
+      # host library of `xmtp-sdk.nix`. Other targets get a cross set.
+      crossPkgs = self.lib.mkCrossPkgs system (
+        lib.remove hostTarget (map (platform: platform.rustTarget) platforms)
+      );
+      packageSet = rustTarget: if rustTarget == hostTarget then pkgs else crossPkgs.${rustTarget};
+      runtime = pkgs.xmtp.ubrn;
+      mkSdkNode =
+        p:
+        p.callPackage ./package/node.nix {
+          xmtpNative = p.callPackage ./package/xmtp-sdk-native.nix { };
+          ubrnNative = p.callPackage ./package/xmtp-sdk-node-runtime.nix {
+            ubrnSrc = runtime.src;
+            runtimeRevision = runtime.rev;
+          };
+          runtimeRevision = runtime.rev;
+        };
     in
     {
-      packages = {
-        node-bindings-js = mkNodeBindings pkgs { withJs = true; };
-        node-bindings-fast = mkNodeBindings pkgs { };
-        node-bindings-test = mkNodeBindings pkgs {
-          withJs = true;
-          test = true;
-        };
-      }
-      // lib.mapAttrs' (target: crossPkgs: {
-        name = "node-bindings-${pkgs.xmtp.toNapiTarget target}";
-        value = mkNodeBindings crossPkgs { };
-      }) crossPkgs;
+      packages = lib.listToAttrs (
+        map (platform: {
+          name = "xmtp-sdk-node-${platform.target}";
+          value = mkSdkNode (packageSet platform.rustTarget);
+        }) platforms
+      );
     };
 }

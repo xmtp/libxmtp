@@ -1,5 +1,6 @@
 import semver from "semver";
-import type { ReleaseType } from "../types";
+
+import type { ReleaseType } from "@/types";
 
 /**
  * Normalize a version string by stripping prerelease and build metadata.
@@ -31,7 +32,7 @@ export function filterAndSortTags(
     const versionStr = tag.slice(prefix.length);
 
     // Exclude artifact tags (e.g. ios-4.9.0-libxmtp)
-    if (versionStr.endsWith(artifactSuffix)) continue;
+    if (artifactSuffix && versionStr.endsWith(artifactSuffix)) continue;
 
     const parsed = semver.parse(versionStr);
     if (!parsed) continue;
@@ -148,7 +149,7 @@ function isRealUtcStamp(stamp: string): boolean {
 /**
  * Validate a caller-supplied `--timestamp`. Every version computed within one
  * Release run must carry the SAME stamp (the consumer bump PRs assert
- * whole-suffix equality across `@xmtp/node-sdk` and `@xmtp/node-bindings`), so
+ * whole-suffix equality across `@xmtp/agent-sdk` and `@xmtp/node-sdk`), so
  * the run mints one stamp and threads it into every job.
  *
  * Absent/empty means "no run stamp was threaded" — the caller falls back to

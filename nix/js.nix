@@ -5,10 +5,14 @@
   buf,
   curl,
   geckodriver,
-  corepack,
+  xmtp-pnpm,
+  nodejs_26,
+  python311,
+  watchexec,
   pkg-config,
   playwright-driver,
   playwright,
+  protobuf,
   lib,
   mkShell,
 }:
@@ -28,7 +32,12 @@ mkShell {
     # playwright version here must match that in package.json EXACTLY for integration tests to work
     playwright
     playwright-driver.browsers
-    corepack
+    # protoc: the browser object-store relay rewrites upload grants.
+    protobuf
+    xmtp-pnpm
+    nodejs_26
+    python311
+    watchexec
   ]
   ++ lib.optionals stdenv.isDarwin [
     darwin.cctools

@@ -35,6 +35,10 @@ impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
     }
 
     fn encode(data: MultiRemoteAttachment) -> Result<EncodedContent, CodecError> {
+        for attachment in &data.attachments {
+            crate::remote_attachment::validate_remote_attachment(attachment)
+                .map_err(|reason| CodecError::Encode(reason.into()))?;
+        }
         let mut buf = Vec::new();
         data.encode(&mut buf)
             .map_err(|e| CodecError::Encode(e.to_string()))?;
@@ -49,9 +53,14 @@ impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
     }
 
     fn decode(content: EncodedContent) -> Result<MultiRemoteAttachment, CodecError> {
-        let decoded = MultiRemoteAttachment::decode(content.content.as_slice())
+        let mut decoded = MultiRemoteAttachment::decode(content.content.as_slice())
             .map_err(|e| CodecError::Decode(e.to_string()))?;
 
+        for attachment in &mut decoded.attachments {
+            crate::remote_attachment::normalize_decoded_scheme(attachment);
+            crate::remote_attachment::validate_remote_attachment(attachment)
+                .map_err(|reason| CodecError::Decode(reason.into()))?;
+        }
         Ok(decoded)
     }
 
@@ -68,23 +77,24 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-007
     fn test_encode_decode() {
         let attachment_info_1 = RemoteAttachmentInfo {
-            content_digest: "0123456789abcdef".to_string(),
+            content_digest: "ab".repeat(32),
             secret: vec![0; 32],
-            nonce: vec![0; 16],
-            salt: vec![0; 16],
-            scheme: "https".to_string(),
+            nonce: vec![0; 12],
+            salt: vec![0; 32],
+            scheme: "https://".to_string(),
             url: "https://example.com/attachment".to_string(),
             content_length: Some(1000),
             filename: Some("attachment_1.jpg".to_string()),
         };
         let attachment_info_2 = RemoteAttachmentInfo {
-            content_digest: "0123456789abcdef".to_string(),
+            content_digest: "ab".repeat(32),
             secret: vec![0; 32],
-            nonce: vec![0; 16],
-            salt: vec![0; 16],
-            scheme: "https".to_string(),
+            nonce: vec![0; 12],
+            salt: vec![0; 32],
+            scheme: "https://".to_string(),
             url: "https://example.com/attachment".to_string(),
             content_length: Some(1000),
             filename: Some("attachment_2.jpg".to_string()),

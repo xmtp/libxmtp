@@ -153,15 +153,16 @@ impl ComponentRegistry {
     /// existing entry — there is no audit log here because the audit trail
     /// lives in the MLS commit history that produced the change.
     ///
-    /// A valid write to an id that currently holds an unrecognized entry
-    /// repairs it — the raw bytes are overwritten, so `to_bytes` serializes
-    /// the repaired value rather than resurrecting the broken bytes.
+    /// A valid write to a mutable id that currently holds an unrecognized
+    /// entry repairs it — the raw bytes are overwritten, so `to_bytes`
+    /// serializes the repaired value rather than resurrecting the broken
+    /// bytes.
     ///
     /// Rejects invalid IDs, IDs in the reserved range, hardcoded components
     /// (whose permissions are enforced in code, not metadata), immutable
-    /// components that already hold a recognized entry (write-once
-    /// semantics), metadata missing required fields, and constrained
-    /// components with invalid policy values.
+    /// components that already hold any raw entry (write-once semantics),
+    /// metadata missing required fields, and constrained components with
+    /// invalid policy values.
     pub fn set(
         &mut self,
         id: ComponentId,
@@ -196,6 +197,15 @@ impl ComponentRegistry {
         self.inner
             .get(id)
             .is_some_and(|raw| Self::decode_recognized(*id, raw.as_slice()).is_ok())
+    }
+
+    /// Returns true if the registry holds any bytes for `id`, recognized
+    /// or not. Reconciliation keys off this rather than
+    /// [`contains`](Self::contains): an entry this build cannot read is
+    /// still the group's entry and must not be replaced from a local copy.
+    // implements: META-067
+    pub fn contains_raw(&self, id: &ComponentId) -> bool {
+        self.inner.contains_key(id)
     }
 
     /// Returns the number of *recognized* entries. Unrecognized entries
@@ -241,6 +251,7 @@ impl ComponentRegistry {
     /// touches, and the bootstrap encoder builds its `TlsMapDelta`-from-empty
     /// inline at the synthesis site (see
     /// `xmtp_mls::groups::app_data::migration::synthesize_initial_component_values`).
+    // implements: META-016
     pub fn to_bytes(&self) -> Result<Vec<u8>, ComponentRegistryError> {
         Ok(self.inner.tls_serialize_detached()?)
     }
@@ -301,6 +312,7 @@ impl ComponentRegistry {
     /// (their permissions are enforced in code), values that don't decode as
     /// `ComponentMetadata`, and metadata that is structurally incomplete or
     /// violates a constrained component's policy allowlist.
+    // implements: META-014
     fn decode_recognized(
         id: ComponentId,
         raw: &[u8],
@@ -334,9 +346,10 @@ impl ComponentRegistry {
     ///   metadata entries here would create a silent disagreement between
     ///   what the registry says and what `validate_component_write` actually
     ///   enforces)
-    /// - Immutable IDs that already hold a *recognized* entry (write-once).
-    ///   An immutable id holding only an unrecognized entry is repairable,
-    ///   since write-once protects an established value, not broken bytes.
+    /// - Immutable IDs that already hold any raw entry (write-once). An
+    ///   entry this build cannot read may be a newer client's valid one, so
+    ///   write-once covers it too.
+    // implements: META-015
     fn validate_modifiable(&self, id: &ComponentId) -> Result<(), ComponentRegistryError> {
         if !id.is_in_component_space() {
             return Err(ComponentRegistryError::InvalidComponentId(*id));
@@ -347,7 +360,7 @@ impl ComponentRegistry {
         if id.is_hardcoded() {
             return Err(ComponentRegistryError::HardcodedComponent(*id));
         }
-        if id.is_immutable() && self.contains(id) {
+        if id.is_immutable() && self.contains_raw(id) {
             return Err(ComponentRegistryError::ImmutableComponent(*id));
         }
         Ok(())
@@ -362,8 +375,8 @@ impl ComponentRegistry {
     ///   `delete_policy`) set to `Some`
     ///
     /// Constrained components (e.g. `ADMIN_LIST`) additionally require each
-    /// policy to be the base policy `AllowIfAdmin` (admin or super admin) or
-    /// `AllowIfSuperAdmin` (super admin only). Combinator policies
+    /// policy to be the base policy `Deny`, `AllowIfAdmin` (admin or super
+    /// admin), or `AllowIfSuperAdmin` (super admin only). Combinator policies
     /// (`AndCondition` / `AnyCondition`) are rejected for constrained
     /// components.
     fn validate_metadata(
@@ -384,24 +397,31 @@ impl ComponentRegistry {
                 .as_ref()
                 .ok_or(ComponentRegistryError::MissingPolicyField(*id, op))?;
 
-            if id.is_constrained() && !Self::is_admin_or_super_admin_policy(p) {
+            if id.is_constrained() && !Self::is_admin_or_super_admin_or_deny_policy(p) {
                 return Err(ComponentRegistryError::ConstrainedPolicyViolation(*id));
             }
         }
         Ok(())
     }
 
-    /// Returns true if the policy is the base policy `AllowIfAdmin`
-    /// (admin or super admin) or `AllowIfSuperAdmin` (super admin only).
+    /// Returns true if the policy is the base policy `Deny`,
+    /// `AllowIfAdmin` (admin or super admin), or `AllowIfSuperAdmin`
+    /// (super admin only).
     ///
     /// All variants are matched explicitly with no catch-all so that adding a
     /// new `MetadataPolicyKind` variant in the proto forces a compile error
     /// here, requiring an explicit decision about how it interacts with
     /// constrained components.
-    fn is_admin_or_super_admin_policy(policy: &MetadataPolicyProto) -> bool {
+    fn is_admin_or_super_admin_or_deny_policy(policy: &MetadataPolicyProto) -> bool {
         match &policy.kind {
             Some(MetadataPolicyKind::Base(base)) => {
-                *base == MetadataBasePolicy::AllowIfAdmin as i32
+                // XIP-81 §2.2.1 lists only AllowIfAdmin and
+                // AllowIfSuperAdmin for ADMIN_LIST. The shipped constraint
+                // also accepts Deny because PolicySet::new_dm() uses Deny
+                // for its admin slots; without it, the DM preset cannot be
+                // synthesized into the dictionary.
+                *base == MetadataBasePolicy::Deny as i32
+                    || *base == MetadataBasePolicy::AllowIfAdmin as i32
                     || *base == MetadataBasePolicy::AllowIfSuperAdmin as i32
             }
             // Combinator policies are explicitly rejected for constrained
@@ -488,12 +508,6 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_get_missing_returns_none() {
-        let reg = ComponentRegistry::new();
-        assert!(reg.get(&ComponentId::GROUP_NAME).unwrap().is_none());
-    }
-
-    #[xmtp_common::test]
     fn test_set_overwrites() {
         let mut reg = ComponentRegistry::new();
         let id = ComponentId::GROUP_NAME;
@@ -530,7 +544,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_reject_hardcoded_set() {
         // Hardcoded components must NEVER have a registry entry. Their
         // permissions are enforced in code by `validate_component_write`,
@@ -548,7 +562,7 @@ mod tests {
         assert!(reg.is_empty());
     }
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_reject_hardcoded_remove() {
         // Even though hardcoded entries should never be in the registry, the
         // remove path still rejects them for defense in depth.
@@ -613,8 +627,8 @@ mod tests {
         ));
     }
 
-    #[xmtp_common::test]
-    fn test_admin_list_rejects_deny_policy() {
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_admin_list_accepts_deny_policy() {
         let mut reg = ComponentRegistry::new();
         let meta = new_component_metadata(
             component_permissions()
@@ -624,10 +638,7 @@ mod tests {
                 .call(),
             ComponentType::Bytes,
         );
-        assert!(matches!(
-            reg.set(ComponentId::ADMIN_LIST, meta),
-            Err(ComponentRegistryError::ConstrainedPolicyViolation(_))
-        ));
+        assert!(reg.set(ComponentId::ADMIN_LIST, meta).is_ok());
     }
 
     #[xmtp_common::test]
@@ -652,7 +663,8 @@ mod tests {
         // Combinator policies must be rejected for constrained components
         // even when every leaf is admin-only — it's the wrapper itself that's
         // disallowed, not the contents. Locks in the explicit rejection in
-        // `is_admin_or_super_admin_policy` so a future refactor of that match
+        // `is_admin_or_super_admin_or_deny_policy` so a future refactor of
+        // that match
         // can't silently let combinators through.
         let mut reg = ComponentRegistry::new();
         let meta = new_component_metadata(
@@ -691,6 +703,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-014
     fn test_rejects_missing_permissions() {
         let mut reg = ComponentRegistry::new();
         // Construct ComponentMetadata directly (bypassing new_component_metadata)
@@ -713,6 +726,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-014
     fn test_rejects_missing_policy_field() {
         let mut reg = ComponentRegistry::new();
         let meta = new_component_metadata(
@@ -981,6 +995,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-016
     fn test_from_bytes_tolerates_malformed_protobuf_value() {
         // The key is valid but the value bytes are not a parseable
         // ComponentMetadata (e.g. a future breaking re-encoding).
@@ -1003,6 +1018,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-016
     fn test_from_bytes_mixed_valid_and_invalid_entries() {
         // One valid entry, one reserved-range entry: the valid one is
         // fully readable, the invalid one is preserved-but-invisible,
@@ -1046,6 +1062,7 @@ mod tests {
     // — belongs in xmtp_mls's group tests, where the commit pipeline
     // exists.
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-012
     fn test_poisoned_registry_still_validates_unrelated_writes() {
         use crate::app_data::validation::{
             ActorAuthority, ComponentChange, ComponentPermissionError, validate_component_write,
@@ -1130,6 +1147,35 @@ mod tests {
             round_tripped.get(&ComponentId::GROUP_NAME).unwrap(),
             Some(sample_meta())
         );
+    }
+
+    /// An immutable-range entry this build cannot read may be a newer
+    /// client's valid write. Write-once must hold for it, or a local write
+    /// would replace the group's entry because `contains` hides it.
+    #[xmtp_common::test]
+    // verifies: META-015
+    fn test_set_refuses_unrecognized_immutable_entry() {
+        let id = ComponentId::new(0xFD00);
+        let bytes = raw_bytes_with_entry(id, vec![0xFF, 0xFF]);
+        let mut reg = ComponentRegistry::from_bytes(&bytes).unwrap();
+        assert!(!reg.contains(&id));
+        assert!(matches!(
+            reg.set(id, sample_meta()),
+            Err(ComponentRegistryError::ImmutableComponent(_))
+        ));
+        assert_eq!(reg.to_bytes().unwrap(), bytes);
+    }
+
+    /// Reconciliation asks whether the group holds any entry for an ID, so
+    /// `contains_raw` must see an unreadable entry that `contains` hides.
+    #[xmtp_common::test]
+    // verifies: META-067
+    fn test_contains_raw_sees_unrecognized_entry() {
+        let id = ComponentId::new(0xC001);
+        let reg = ComponentRegistry::from_bytes(&raw_bytes_with_entry(id, vec![0xFF])).unwrap();
+        assert!(!reg.contains(&id));
+        assert!(reg.contains_raw(&id));
+        assert!(!reg.contains_raw(&ComponentId::new(0xC002)));
     }
 
     #[xmtp_common::test]

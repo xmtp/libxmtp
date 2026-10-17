@@ -1,0 +1,24 @@
+#:schema https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json
+[server]
+# Names this deployment on every published configuration response, log, and
+# metric. A real deployment uses its own reverse-DNS name.
+identifier = "org.xmtp.local"
+listen = "0.0.0.0:5050"
+log_level = "info"
+
+[database]
+url = "env:XMTP_DATABASE_URL"
+replica_url = "env:XMTP_REPLICA_URL"
+
+[chains]
+"eip155:31337" = "env:XMTP_CHAIN_31337_URL"
+
+# Test stack only. A low row cap makes every multi-topic read page through
+# `has_more` in the SDK suites (API-071 clamps a larger client `limit`).
+# `default_query_limit` must not exceed `max_query_limit`, so it is lowered with it.
+[limits]
+default_query_limit = 50
+max_query_limit = 50
+
+# SDK registration tests use public HTTPS recipients.
+[push.http]

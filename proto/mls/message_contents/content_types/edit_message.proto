@@ -1,0 +1,27 @@
+// edit_message.proto
+// This file defines the EditMessage message type and is associated with the following ContentTypeId:
+//
+// ContentTypeId {
+//     authority_id: "xmtp.org",
+//     type_id:      "editMessage",
+//     version_major: 1,
+//     version_minor: 0,
+// }
+//
+syntax = "proto3";
+
+package xmtp.mls.message_contents.content_types;
+
+import "mls/message_contents/content.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents/content_types";
+option java_package = "org.xmtp.proto.mls.message_contents.content_types";
+
+// EditMessage message type
+message EditMessage {
+  // ID of the message to edit
+  string message_id = 1;
+
+  // The new content for the message
+  xmtp.mls.message_contents.EncodedContent edited_content = 2;
+}

@@ -1,0 +1,33 @@
+error: `Conditional` has a #[sdk(redact)] field, so sdk_export implements its Debug through `fn redacted_debug`; remove this derive
+  --> tests/ui/sdk_export_redacted_debug.rs:18:26
+   |
+18 | #[cfg_attr(all(), derive(Debug))]
+   |                          ^^^^^
+
+error[E0119]: conflicting implementations of trait `Debug` for type `Above`
+ --> tests/ui/sdk_export_redacted_debug.rs:9:1
+  |
+8 | #[derive(Debug)]
+  |          ----- first implementation here
+9 | #[xmtp_macro::sdk_export]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `Above`
+  |
+  = note: this error originates in the attribute macro `xmtp_macro::sdk_export` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0119]: conflicting implementations of trait `Debug` for type `Renamed`
+  --> tests/ui/sdk_export_redacted_debug.rs:25:17
+   |
+24 | #[xmtp_macro::sdk_export]
+   | ------------------------- first implementation here
+25 | #[derive(Clone, Printable, uniffi::Record)]
+   |                 ^^^^^^^^^ conflicting implementation for `Renamed`
+
+error[E0119]: conflicting implementations of trait `Debug` for type `Channel`
+  --> tests/ui/sdk_export_redacted_debug.rs:32:1
+   |
+31 | #[derive(Debug)]
+   |          ----- first implementation here
+32 | #[xmtp_macro::sdk_export]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `Channel`
+   |
+   = note: this error originates in the attribute macro `xmtp_macro::sdk_export` (in Nightly builds, run with -Z macro-backtrace for more info)

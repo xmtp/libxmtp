@@ -1,0 +1,360 @@
+import { env } from "node:process";
+import { createInterface } from "node:readline";
+
+import { Command, Errors, Flags } from "@oclif/core";
+import type { BackendOptions, Client } from "@xmtp/node-sdk";
+
+import { parseBackendUrl, parseEnvironmentLabel } from "./utils/backend.js";
+import { createClient } from "./utils/client.js";
+import { loadConfig, mergeConfig, type XmtpConfig } from "./utils/config.js";
+import { formatOtherHandles, handleFields } from "./utils/handles.js";
+import {
+  escapeControlCharacters,
+  formatHuman,
+  isTTY,
+  jsonStringify,
+} from "./utils/output.js";
+
+export class BaseCommand extends Command {
+  /** Flags shared by all commands (including those that don't need a client). */
+  static commonFlags = {
+    "env-file": Flags.string({
+      description: "Path to .env file",
+      helpValue: "<path>",
+    }),
+    "backend-url": Flags.string({
+      description: "XMTP backend URL",
+      helpValue: "<url>",
+    }),
+    env: Flags.string({
+      description: "Database label",
+      helpValue: "<label>",
+    }),
+    json: Flags.boolean({
+      description: "Format output as JSON",
+    }),
+    verbose: Flags.boolean({
+      description: "Show additional diagnostic information",
+      default: false,
+    }),
+  };
+
+  /** Full flag set for commands that create a client. */
+  static baseFlags = {
+    ...BaseCommand.commonFlags,
+    "wallet-key": Flags.string({
+      description: "Wallet private key (overrides env)",
+      helpValue: "<key>",
+    }),
+    "db-encryption-key": Flags.string({
+      description: "Database encryption key (overrides env)",
+      helpValue: "<key>",
+    }),
+    "db-path": Flags.string({
+      description: "Database file path (default: derived from backend URL)",
+      helpValue: "<path>",
+    }),
+    "log-level": Flags.option({
+      options: ["off", "error", "warn", "info", "debug", "trace"] as const,
+      description: "Logging level",
+    })(),
+    "structured-logging": Flags.boolean({
+      description: "Enable structured JSON logging",
+    }),
+    "disable-device-sync": Flags.boolean({
+      description: "Disable device sync",
+    }),
+    "app-version": Flags.string({
+      description: "App version string",
+      helpValue: "<version>",
+    }),
+  };
+
+  #config: XmtpConfig = {};
+  #client?: Client;
+  jsonOutput = false;
+  verbose = false;
+
+  async init(): Promise<void> {
+    await super.init();
+
+    const { flags } = await this.parse(this.constructor as typeof BaseCommand);
+
+    // Load config from .env file
+    const fileConfig = loadConfig(flags["env-file"]);
+
+    // Merge with CLI flags (CLI flags take precedence)
+    this.#config = mergeConfig(
+      fileConfig,
+      {
+        walletKey: flags["wallet-key"],
+        dbEncryptionKey: flags["db-encryption-key"],
+        dbPath: flags["db-path"],
+        backendUrl: flags["backend-url"],
+        env: flags.env,
+        logLevel: flags["log-level"],
+        structuredLogging: flags["structured-logging"],
+        disableDeviceSync: flags["disable-device-sync"],
+        appVersion: flags["app-version"],
+      },
+      // defaults
+      {
+        appVersion: `xmtp-cli/${this.config.version}`,
+        env: "local",
+      },
+    );
+
+    this.jsonOutput = flags.json || env.XMTP_JSON_OUTPUT === "true";
+    this.verbose = flags.verbose || env.XMTP_VERBOSE === "true";
+  }
+
+  output(data: unknown): void {
+    if (this.jsonOutput) {
+      this.log(jsonStringify(data, true));
+    } else {
+      this.log(formatHuman(data));
+    }
+  }
+
+  /**
+   * The handle fields of an inbox for output. JSON output has the other
+   * handles as a list; human output has them as one line of text.
+   */
+  handleOutput(record: Parameters<typeof handleFields>[0]): {
+    handle: string | null;
+    otherHandles: string[] | string;
+  } {
+    const { handle, otherHandles } = handleFields(record);
+    return {
+      handle,
+      otherHandles: this.jsonOutput
+        ? otherHandles
+        : formatOtherHandles(otherHandles),
+    };
+  }
+
+  /**
+   * Output for streaming commands - uses compact JSONL format (one JSON object per line)
+   * for easier parsing when multiple items are streamed.
+   */
+  streamOutput(data: unknown): void {
+    if (this.jsonOutput) {
+      this.log(jsonStringify(data));
+    } else {
+      this.log(formatHuman(data));
+    }
+  }
+
+  parseBigInt(value: string | undefined, flagName: string): bigint | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    try {
+      return BigInt(value);
+    } catch {
+      this.error(`Invalid value for --${flagName}: must be a numeric string`);
+    }
+  }
+
+  async confirmAction(message: string, force: boolean): Promise<void> {
+    if (force) {
+      return;
+    }
+
+    if (!isTTY()) {
+      this.error(
+        "Cannot confirm in non-interactive terminal. Use --force to skip confirmation.",
+      );
+    }
+
+    const rl = createInterface({
+      input: process.stdin,
+      output: process.stderr,
+    });
+
+    const answer = await new Promise<string>((resolve) => {
+      rl.question(`WARNING: ${message}\nAre you sure? (y/N) `, resolve);
+    });
+
+    rl.close();
+
+    if (answer.toLowerCase() !== "y") {
+      this.error("Operation cancelled");
+    }
+  }
+
+  getConfig(): XmtpConfig {
+    return this.#config;
+  }
+
+  networkOptions(): BackendOptions {
+    const config = this.getConfig();
+    if (!config.backendUrl) {
+      this.error(
+        "Backend URL is required. Set XMTP_BACKEND_URL, use --backend-url, or run 'xmtp init --backend-url <url>'.",
+      );
+    }
+    parseBackendUrl(config.backendUrl);
+
+    parseEnvironmentLabel(config.env ?? "local");
+    return {
+      url: config.backendUrl,
+      appVersion: config.appVersion,
+      ...(config.apiKey
+        ? {
+            credentials: {
+              value: `Bearer ${config.apiKey}`,
+              expiresAtSeconds: 9223372036854775807n,
+            },
+          }
+        : {}),
+    };
+  }
+
+  async initClient(): Promise<Client> {
+    const config = this.getConfig();
+    const client = await createClient(config, this.networkOptions());
+    this.#client = client;
+
+    if (this.verbose) {
+      const lines: [string, string][] = [
+        ["command", this.id ?? "unknown"],
+        ["environment", config.env ?? "local"],
+        ["backendUrl", config.backendUrl ?? "unknown"],
+        ["dbPath", config.dbPath ?? "in-memory"],
+      ];
+
+      lines.push(["address", client.identity.identifier]);
+
+      lines.push(
+        ["inboxId", client.inboxId],
+        ["installationId", client.installationId],
+      );
+
+      if (client.libxmtpVersion) {
+        lines.push(["libxmtpVersion", client.libxmtpVersion]);
+      }
+
+      const maxKeyLen = Math.max(...lines.map(([k]) => k.length));
+      const log = this.jsonOutput
+        ? (msg: string) => {
+            this.logToStderr(msg);
+          }
+        : (msg: string) => {
+            this.log(msg);
+          };
+      for (const [key, value] of lines) {
+        log(`${key.padEnd(maxKeyLen)}  ${value}`);
+      }
+    }
+
+    return client;
+  }
+
+  async run(): Promise<void> {
+    // Override in subclasses
+  }
+
+  async finally(_error: Error | undefined): Promise<void> {
+    if (!this.#client) {
+      return;
+    }
+    try {
+      await this.#client.end();
+    } catch (error) {
+      if (this.verbose) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logToStderr(`Failed to close client: ${message}`);
+      }
+    }
+  }
+
+  catch(error: Error): never {
+    if (error instanceof Errors.CLIError) {
+      this.logToStderr(terminalSafeErrorMessage(error, this.argv));
+      this.exit(error.oclif.exit ?? 1);
+    }
+
+    // Wrap non-CLI errors (e.g., SDK errors) with showHelp for
+    // helpful command usage display alongside the error message
+    const message = formatStorageErrorMessage(error, this.#config.dbPath);
+    const cliError = new Errors.CLIError(message);
+    const errorWithHelp = cliError as Error & {
+      showHelp?: boolean;
+      parse?: { input: { argv: string[] } };
+    };
+    errorWithHelp.showHelp = true;
+    errorWithHelp.parse = { input: { argv: this.argv } };
+    throw errorWithHelp;
+  }
+}
+
+// oclif styles its own messages, such as parse errors, with SGR sequences.
+// oxlint-disable-next-line no-control-regex
+const SGR_SEQUENCE = /\u001b\[[0-9;]*m/g;
+
+/** The line that oclif adds to the end of every parse error. */
+const PARSE_ERROR_SUFFIX = "\nSee more help with --help";
+
+/**
+ * Untrusted text for one terminal line. SGR styling (ESC [ ... m) is removed,
+ * so oclif's styled messages stay readable. Every other control character,
+ * LF and CR too, is shown as a visible escape, so the text cannot start a
+ * line of its own.
+ */
+export function terminalSafeText(text: string): string {
+  return escapeControlCharacters(text.replace(SGR_SEQUENCE, ""));
+}
+
+/**
+ * The text of a CLI error for the terminal. No byte of user input can start
+ * a line:
+ * - This CLI's own messages are one line.
+ * - An oclif parse error gets its user text only from the arguments. It keeps
+ *   its template's line breaks when no argument holds LF or CR; otherwise its
+ *   body is one line. The "See more help" line stays.
+ */
+export function terminalSafeErrorMessage(
+  error: Errors.CLIError,
+  argv: readonly string[],
+): string {
+  if (!("parse" in error)) {
+    return terminalSafeText(error.message);
+  }
+  const suffix = error.message.endsWith(PARSE_ERROR_SUFFIX)
+    ? PARSE_ERROR_SUFFIX
+    : "";
+  const body = error.message.slice(0, error.message.length - suffix.length);
+  const userLineBreak = argv.some((arg) => /[\n\r]/.test(arg));
+  const safe = userLineBreak
+    ? terminalSafeText(body)
+    : body.split("\n").map(terminalSafeText).join("\n");
+  return `${safe}${suffix}`;
+}
+
+const UNSUPPORTED_DATABASE_CODES = [
+  "StorageError::PreTransitionDatabase",
+  "StorageError::OldStreamDatabase",
+] as const;
+
+/**
+ * The terminal text of an error that is not a CLI error: its message on one
+ * line, then the database path for an unsupported database.
+ */
+export function formatStorageErrorMessage(
+  error: Error & { code?: string },
+  dbPath?: string,
+): string {
+  const message = terminalSafeText(error.message);
+  if (!dbPath) {
+    return message;
+  }
+
+  const isUnsupportedDatabase = UNSUPPORTED_DATABASE_CODES.some(
+    (code) => error.message.startsWith(`[${code}]`) || error.code === code,
+  );
+
+  return isUnsupportedDatabase
+    ? `${message}\nDatabase path: ${terminalSafeText(dbPath)}`
+    : message;
+}

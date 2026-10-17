@@ -38,6 +38,7 @@ where
 
 impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     /// Same behavior as fetched, but will stitch DM groups
+    // implements: DMS-007, DMS-013
     fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
         let group = self.raw_query(|conn| {
             groups::table
@@ -55,11 +56,27 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
             return Ok(group);
         };
 
-        // Otherwise, return the stitched DM
+        // Otherwise, return the stitched DM: the same winner `find_groups`
+        // and `conversation_list` pick.
+        //
+        // A `Restored` row is an archive placeholder with no joined MLS state,
+        // so a DM the client can act in outranks it even when the placeholder
+        // holds the newer message. This is an ordering, not a filter: a DM
+        // whose only rows are `Restored` still resolves to one of them.
+        // Duplicate DMs that hold no message share a null `last_message_ns`,
+        // so `id` breaks the final tie; otherwise the database is free to
+        // return either one and the stitched group can disagree with the
+        // conversation list.
         self.raw_query(|conn| {
             groups::table
                 .filter(groups::dm_id.eq(dm_id))
-                .order_by(groups::last_message_ns.desc())
+                .order_by((
+                    groups::membership_state
+                        .eq(GroupMembershipState::Restored)
+                        .asc(),
+                    groups::last_message_ns.desc(),
+                    groups::id.desc(),
+                ))
                 .first::<StoredGroup>(conn)
                 .optional()
         })
@@ -69,10 +86,12 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     where
         M: std::fmt::Display,
     {
+        // Ordered like `fetch_stitched` among the rows it keeps, so looking a
+        // DM up by its members and stitching it by id select the same group.
         let query = dsl::groups
             .filter(dsl::dm_id.eq(Some(members.to_string())))
             .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
-            .order_by(dsl::last_message_ns.desc());
+            .order_by((dsl::last_message_ns.desc(), dsl::id.desc()));
 
         self.raw_query(|conn| query.first(conn).optional())
     }
@@ -156,6 +175,70 @@ pub(super) mod tests {
         })
     }
 
+    /// A `Restored` archive placeholder must not win a DM's stitched lookup
+    /// or the group list over a row the client can act in, even when the
+    /// placeholder holds the newer message and the higher id. With only
+    /// `Restored` rows, the lookup still resolves.
+    // verifies: DMS-007, DMS-013
+    #[xmtp_common::test]
+    fn test_dm_winner_prefers_joined_over_restored() {
+        with_connection(|conn| {
+            let dm_id = "dm:alice:bob";
+            let (low_id, high_id) = {
+                let a = GroupId::generate();
+                let b = GroupId::generate();
+                if a.as_ref() < b.as_ref() {
+                    (a, b)
+                } else {
+                    (b, a)
+                }
+            };
+            let now = now_ns();
+
+            let restored = StoredGroup::builder()
+                .id(high_id)
+                .created_at_ns(now)
+                .last_message_ns(now)
+                .membership_state(GroupMembershipState::Restored)
+                .added_by_inbox_id("alice")
+                .dm_id(Some(dm_id.to_string()))
+                .build()
+                .unwrap();
+            restored.store(conn).unwrap();
+
+            // Only the placeholder exists, so it is the winner.
+            let winner = conn.fetch_stitched(&restored.id).unwrap().unwrap();
+            assert_eq!(winner.id, restored.id);
+
+            let active = StoredGroup::builder()
+                .id(low_id)
+                .created_at_ns(now)
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("alice")
+                .dm_id(Some(dm_id.to_string()))
+                .build()
+                .unwrap();
+            active.store(conn).unwrap();
+
+            for id in [&restored.id, &active.id] {
+                let winner = conn.fetch_stitched(id).unwrap().unwrap();
+                assert_eq!(winner.id, active.id);
+            }
+            let by_members = conn.find_active_dm_group(dm_id).unwrap().unwrap();
+            assert_eq!(by_members.id, active.id);
+
+            let listed: Vec<_> = conn
+                .find_groups(GroupQueryArgs::default())
+                .unwrap()
+                .into_iter()
+                .filter(|group| group.dm_id.as_deref() == Some(dm_id))
+                .collect();
+            assert_eq!(listed.len(), 1);
+            assert_eq!(listed[0].id, active.id);
+        })
+    }
+
+    // verifies: DMS-007, DMS-013
     #[xmtp_common::test]
     fn test_dm_deduplication() {
         with_connection(|conn| {

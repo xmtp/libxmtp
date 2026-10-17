@@ -1,19 +1,18 @@
 use super::{
-    MemberIdentifier, SignatureError, ident,
+    Handle, InvalidHandle, MemberIdentifier, ident,
     member::{Identifier, Member},
-    signature::{AccountId, ValidatedLegacySignedPublicKey},
+    signature::AccountId,
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
-        UnsignedAddAssociation, UnsignedChangeRecoveryAddress, UnsignedCreateInbox,
-        UnsignedRevokeAssociation,
+        UnsignedAddAssociation, UnsignedChangeRecoveryAddress, UnsignedClaimHandle,
+        UnsignedCreateInbox, UnsignedRevokeAssociation,
     },
     unverified::{
         UnverifiedAction, UnverifiedAddAssociation, UnverifiedChangeRecoveryAddress,
-        UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature,
-        UnverifiedLegacyDelegatedSignature, UnverifiedRecoverableEcdsaSignature,
+        UnverifiedClaimHandle, UnverifiedCreateInbox, UnverifiedIdentityUpdate,
+        UnverifiedInstallationKeySignature, UnverifiedRecoverableEcdsaSignature,
         UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
     },
-    verified_signature::VerifiedSignature,
 };
 use crate::scw_verifier::ValidationResponse;
 use prost::{DecodeError, Message};
@@ -21,34 +20,25 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::ErrorCode;
-use xmtp_cryptography::signature::{IdentifierValidationError, sanitize_evm_addresses};
+use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_proto::ConversionError;
-use xmtp_proto::xmtp::{
-    identity::{
-        api::v1::verify_smart_contract_wallet_signatures_response::ValidationResponse as SmartContractWalletValidationResponseProto,
-        associations::{
-            AddAssociation as AddAssociationProto, AssociationState as AssociationStateProto,
-            AssociationStateDiff as AssociationStateDiffProto,
-            ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
-            IdentifierKind, IdentityAction as IdentityActionProto,
-            IdentityUpdate as IdentityUpdateProto,
-            LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
-            MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
-            Passkey as PasskeyProto, RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
-            RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
-            RecoverablePasskeySignature as RecoverablePasskeySignatureProto,
-            RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
-            SmartContractWalletSignature as SmartContractWalletSignatureProto,
-            identity_action::Kind as IdentityActionKindProto,
-            member_identifier::Kind as MemberIdentifierKindProto,
-            signature::Signature as SignatureKindProto,
-        },
-    },
-    message_contents::{
-        Signature as SignedPublicKeySignatureProto, SignedPublicKey as LegacySignedPublicKeyProto,
-        SignedPublicKey as SignedPublicKeyProto, UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
-        signature::{Union, WalletEcdsaCompact},
-        unsigned_public_key,
+use xmtp_proto::xmtp::identity::{
+    api::v1::verify_smart_contract_wallet_signatures_response::ValidationResponse as SmartContractWalletValidationResponseProto,
+    associations::{
+        AddAssociation as AddAssociationProto, AssociationState as AssociationStateProto,
+        AssociationStateDiff as AssociationStateDiffProto,
+        ChangeRecoveryAddress as ChangeRecoveryAddressProto, ClaimHandle as ClaimHandleProto,
+        CreateInbox as CreateInboxProto, IdentifierKind, IdentityAction as IdentityActionProto,
+        IdentityUpdate as IdentityUpdateProto, Member as MemberProto,
+        MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
+        Passkey as PasskeyProto, RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
+        RecoverablePasskeySignature as RecoverablePasskeySignatureProto,
+        RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
+        SmartContractWalletSignature as SmartContractWalletSignatureProto,
+        identity_action::Kind as IdentityActionKindProto,
+        member_identifier::Kind as MemberIdentifierKindProto,
+        signature::Signature as SignatureKindProto,
     },
 };
 
@@ -112,6 +102,12 @@ pub enum DeserializationError {
     /// A deprecated field was used. Not retryable.
     #[error("Field is deprecated: {0}")]
     Deprecated(&'static str),
+    /// Handle is not an identifier.
+    ///
+    /// A handle names an inbox in a lookup, but it is not an account
+    /// identifier. Not retryable.
+    #[error("a handle is not an account identifier")]
+    HandleNotIdentifier,
     /// Ed25519 key error.
     ///
     /// Failed to create public key from bytes. Not retryable.
@@ -170,26 +166,25 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                     new_member_signature: add_action.new_member_signature.try_into()?,
                     existing_member_signature: add_action.existing_member_signature.try_into()?,
                     unsigned_action: UnsignedAddAssociation {
-                        new_member_identifier: add_action
-                            .new_member_identifier
-                            .ok_or(ConversionError::Missing {
-                                item: "member_identifier",
-                                r#type: std::any::type_name::<MemberIdentifierProto>(),
-                            })?
-                            .try_into()?,
+                        new_member_identifier: canonical(
+                            add_action
+                                .new_member_identifier
+                                .ok_or(ConversionError::Missing {
+                                    item: "member_identifier",
+                                    r#type: std::any::type_name::<MemberIdentifierProto>(),
+                                })?
+                                .try_into()?,
+                        )?,
                     },
                 })
             }
             IdentityActionKindProto::CreateInbox(action_proto) => {
-                let kind = match action_proto.initial_identifier_kind() {
-                    IdentifierKind::Unspecified => IdentifierKind::Ethereum,
-                    kind => kind,
-                };
-                let account_identifier = Identifier::from_proto(
+                let kind = signing_kind(action_proto.initial_identifier_kind)?;
+                let account_identifier = canonical(Identifier::from_proto(
                     &action_proto.initial_identifier,
                     kind,
                     action_proto.relying_party,
-                )?;
+                )?)?;
 
                 UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
                     initial_identifier_signature: action_proto
@@ -202,15 +197,12 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                 })
             }
             IdentityActionKindProto::ChangeRecoveryAddress(action_proto) => {
-                let kind = match action_proto.new_recovery_identifier_kind() {
-                    IdentifierKind::Unspecified => IdentifierKind::Ethereum,
-                    kind => kind,
-                };
-                let new_recovery_identifier = Identifier::from_proto(
+                let kind = signing_kind(action_proto.new_recovery_identifier_kind)?;
+                let new_recovery_identifier = canonical(Identifier::from_proto(
                     &action_proto.new_recovery_identifier,
                     kind,
                     action_proto.relying_party,
-                )?;
+                )?)?;
                 UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
                     recovery_identifier_signature: action_proto
                         .existing_recovery_identifier_signature
@@ -226,17 +218,59 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                         .recovery_identifier_signature
                         .try_into()?,
                     unsigned_action: UnsignedRevokeAssociation {
-                        revoked_member: action_proto
-                            .member_to_revoke
-                            .ok_or(ConversionError::Missing {
-                                item: "member_to_revoke",
-                                r#type: std::any::type_name::<MemberIdentifierProto>(),
-                            })?
-                            .try_into()?,
+                        revoked_member: canonical(
+                            action_proto
+                                .member_to_revoke
+                                .ok_or(ConversionError::Missing {
+                                    item: "member_to_revoke",
+                                    r#type: std::any::type_name::<MemberIdentifierProto>(),
+                                })?
+                                .try_into()?,
+                        )?,
+                    },
+                })
+            }
+            IdentityActionKindProto::ClaimHandle(action_proto) => {
+                UnverifiedAction::ClaimHandle(UnverifiedClaimHandle {
+                    signature: action_proto.signature.try_into()?,
+                    // Kept as carried: the grammar check runs when the claim
+                    // is applied, never here, and never rewrites the text.
+                    unsigned_action: UnsignedClaimHandle {
+                        handle: action_proto.handle,
                     },
                 })
             }
         })
+    }
+}
+
+/// The kind of an identifier that signs, which an inbox's initial and recovery
+/// identifiers are. An unset kind reads as Ethereum. A handle signs nothing,
+/// so it and every value `IdentifierKind` does not list are rejected, never
+/// read as Ethereum.
+// implements: IDENT-077
+fn signing_kind(kind: i32) -> Result<IdentifierKind, ConversionError> {
+    match IdentifierKind::try_from(kind) {
+        Ok(IdentifierKind::Unspecified | IdentifierKind::Ethereum) => Ok(IdentifierKind::Ethereum),
+        Ok(IdentifierKind::Passkey) => Ok(IdentifierKind::Passkey),
+        Ok(IdentifierKind::Handle) | Err(_) => Err(ConversionError::NonSigningIdentifierKind(kind)),
+    }
+}
+
+/// Passes `identifier` through unless it is an Ethereum identifier outside the
+/// one form a signer is derived in. The identifier is signed, so it is never
+/// rewritten.
+// implements: IDENT-013
+fn canonical<I: Clone + Into<MemberIdentifier>>(identifier: I) -> Result<I, ConversionError> {
+    match identifier.clone().into() {
+        MemberIdentifier::Ethereum(address) if !address.is_canonical() => {
+            Err(ConversionError::InvalidValue {
+                item: "ethereum identifier",
+                expected: "0x followed by 40 lowercase hexadecimal characters",
+                got: address.0,
+            })
+        }
+        _ => Ok(identifier),
     }
 }
 
@@ -249,22 +283,6 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
             SignatureKindProto::Erc191(sig) => UnverifiedSignature::RecoverableEcdsa(
                 UnverifiedRecoverableEcdsaSignature::new(sig.bytes),
             ),
-            SignatureKindProto::DelegatedErc191(sig) => {
-                UnverifiedSignature::LegacyDelegated(UnverifiedLegacyDelegatedSignature::new(
-                    UnverifiedRecoverableEcdsaSignature::new(
-                        sig.signature
-                            .ok_or(ConversionError::Missing {
-                                item: "signature",
-                                r#type: std::any::type_name::<RecoverableEcdsaSignatureProto>(),
-                            })?
-                            .bytes,
-                    ),
-                    sig.delegated_key.ok_or(ConversionError::Missing {
-                        item: "delegated_key",
-                        r#type: std::any::type_name::<SignedPublicKeyProto>(),
-                    })?,
-                ))
-            }
             SignatureKindProto::InstallationKey(sig) => {
                 UnverifiedSignature::InstallationKey(UnverifiedInstallationKeySignature::new(
                     sig.bytes,
@@ -383,6 +401,12 @@ impl From<UnverifiedAction> for IdentityActionProto {
                     member_to_revoke: Some(action.unsigned_action.revoked_member.into()),
                 })
             }
+            UnverifiedAction::ClaimHandle(action) => {
+                IdentityActionKindProto::ClaimHandle(ClaimHandleProto {
+                    handle: action.unsigned_action.handle,
+                    signature: Some(action.signature.into()),
+                })
+            }
         };
 
         IdentityActionProto { kind: Some(kind) }
@@ -420,14 +444,6 @@ impl From<UnverifiedSignature> for SignatureWrapperProto {
                 bytes: signature_bytes,
                 public_key: verifying_key.as_bytes().to_vec(),
             }),
-            UnverifiedSignature::LegacyDelegated(sig) => {
-                SignatureKindProto::DelegatedErc191(LegacyDelegatedSignatureProto {
-                    delegated_key: Some(sig.signed_public_key_proto),
-                    signature: Some(RecoverableEcdsaSignatureProto {
-                        bytes: sig.legacy_key_signature.signature_bytes,
-                    }),
-                })
-            }
             UnverifiedSignature::RecoverableEcdsa(sig) => {
                 SignatureKindProto::Erc191(RecoverableEcdsaSignatureProto {
                     bytes: sig.signature_bytes,
@@ -593,6 +609,8 @@ impl From<AssociationState> for AssociationStateProto {
             recovery_identifier_kind: kind as i32,
             seen_signatures: state.seen_signatures.into_iter().collect(),
             relying_party,
+            handles: state.handles.into_iter().map(String::from).collect(),
+            handle_claims: state.handle_claims,
         }
     }
 }
@@ -630,11 +648,24 @@ impl TryFrom<AssociationStateProto> for AssociationState {
             })
             .collect::<Result<HashMap<MemberIdentifier, Member>, ConversionError>>()?;
 
+        let handles = proto
+            .handles
+            .iter()
+            .map(|handle| Handle::parse(handle))
+            .collect::<Result<Vec<_>, InvalidHandle>>()
+            .map_err(|_| ConversionError::InvalidValue {
+                item: "association state handle",
+                expected: "a handle under the handle grammar",
+                got: "a string outside the grammar".to_string(),
+            })?;
+
         Ok(AssociationState {
             inbox_id: proto.inbox_id,
             members,
             recovery_identifier,
             seen_signatures: HashSet::from_iter(proto.seen_signatures),
+            handles,
+            handle_claims: proto.handle_claims,
         })
     }
 }
@@ -657,81 +688,6 @@ pub fn map_vec<A, B: From<A>>(other: Vec<A>) -> Vec<B> {
 /// Useful to convert vectors of structs into protos, like `Vec<IdentityUpdate>` to `Vec<IdentityUpdateProto>` or vice-versa.
 pub fn try_map_vec<A, B: TryFrom<A>>(other: Vec<A>) -> Result<Vec<B>, <B as TryFrom<A>>::Error> {
     other.into_iter().map(B::try_from).collect()
-}
-
-// TODO:nm This doesn't really feel like serialization, maybe should move
-impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
-    type Error = SignatureError;
-
-    fn try_from(proto: LegacySignedPublicKeyProto) -> Result<Self, Self::Error> {
-        let serialized_key_data = proto.key_bytes;
-        let union = proto
-            .signature
-            .ok_or(SignatureError::Invalid)?
-            .union
-            .ok_or(SignatureError::Invalid)?;
-        let wallet_signature = match union {
-            Union::WalletEcdsaCompact(wallet_ecdsa_compact) => {
-                let mut wallet_signature = wallet_ecdsa_compact.bytes.clone();
-                wallet_signature.push(wallet_ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
-                if wallet_signature.len() != 65 {
-                    return Err(SignatureError::Invalid);
-                }
-                wallet_signature
-            }
-            Union::EcdsaCompact(ecdsa_compact) => {
-                let mut signature = ecdsa_compact.bytes.clone();
-                signature.push(ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
-                if signature.len() != 65 {
-                    return Err(SignatureError::Invalid);
-                }
-                signature
-            }
-        };
-        let verified_wallet_signature = VerifiedSignature::from_recoverable_ecdsa(
-            Self::text(&serialized_key_data),
-            &wallet_signature,
-        )?;
-
-        let account_address = verified_wallet_signature.signer.to_string();
-        let account_address = sanitize_evm_addresses(&[account_address])?[0].clone();
-
-        let legacy_unsigned_public_key_proto =
-            LegacyUnsignedPublicKeyProto::decode(serialized_key_data.as_slice())
-                .or(Err(SignatureError::Invalid))?;
-        let public_key_bytes = match legacy_unsigned_public_key_proto
-            .union
-            .ok_or(SignatureError::Invalid)?
-        {
-            unsigned_public_key::Union::Secp256k1Uncompressed(secp256k1_uncompressed) => {
-                secp256k1_uncompressed.bytes
-            }
-        };
-        let created_ns = legacy_unsigned_public_key_proto.created_ns;
-
-        Ok(Self {
-            account_address,
-            wallet_signature: verified_wallet_signature,
-            serialized_key_data,
-            public_key_bytes,
-            created_ns,
-        })
-    }
-}
-
-impl From<ValidatedLegacySignedPublicKey> for LegacySignedPublicKeyProto {
-    fn from(validated: ValidatedLegacySignedPublicKey) -> Self {
-        let signature = validated.wallet_signature.raw_bytes;
-        Self {
-            key_bytes: validated.serialized_key_data,
-            signature: Some(SignedPublicKeySignatureProto {
-                union: Some(Union::WalletEcdsaCompact(WalletEcdsaCompact {
-                    bytes: signature[0..64].to_vec(),
-                    recovery: signature[64] as u32,
-                })),
-            }),
-        }
-    }
 }
 
 impl TryFrom<String> for AccountId {
@@ -855,6 +811,46 @@ pub(crate) mod tests {
         let reserialized = IdentityUpdateProto::from(deserialized_update);
 
         assert_eq!(serialized_update, reserialized);
+    }
+
+    /// A claim keeps its handle as carried and its signature through the wire
+    /// form, and a state keeps its handles in order and its claim count.
+    // verifies: IDENT-001
+    #[xmtp_common::test(unwrap_try = true)]
+    fn claim_and_state_round_trip() {
+        let account_identifier = Identifier::rand_ethereum();
+        let claim = UnverifiedIdentityUpdate::new(
+            account_identifier.inbox_id(0)?,
+            rand_u64(),
+            vec![UnverifiedAction::ClaimHandle(UnverifiedClaimHandle {
+                unsigned_action: UnsignedClaimHandle {
+                    handle: "nick#2341".into(),
+                },
+                signature: UnverifiedSignature::new_recoverable_ecdsa(rand_vec::<65>()),
+            })],
+        );
+        let proto = IdentityUpdateProto::from(claim.clone());
+        let Some(IdentityActionKindProto::ClaimHandle(wire)) = &proto.actions[0].kind else {
+            panic!("a claim encodes as field 5 of the action: {proto:?}");
+        };
+        assert_eq!(wire.handle, "nick#2341");
+        let decoded = UnverifiedIdentityUpdate::try_from(IdentityUpdateProto::decode(
+            proto.encode_to_vec().as_slice(),
+        )?)?;
+        assert_eq!(decoded, claim);
+
+        let state = AssociationState::new(account_identifier, 0, None)?
+            .claim_handle(Handle::parse("a")?)
+            .claim_handle(Handle::parse("b#0001")?)
+            .claim_handle(Handle::parse("a")?);
+        let proto = AssociationStateProto::from(state.clone());
+        assert_eq!(proto.handles, ["b#0001", "a"]);
+        assert_eq!(proto.handle_claims, 3);
+        let decoded = AssociationState::try_from(AssociationStateProto::decode(
+            proto.encode_to_vec().as_slice(),
+        )?)?;
+        assert_eq!(decoded.handles(), state.handles());
+        assert_eq!(decoded.handle_claims(), 3);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

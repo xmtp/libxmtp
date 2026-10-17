@@ -1,6 +1,6 @@
 # XMTP Debug
 
-### Debug your app on local & dev XMTP environments
+### Debug your app on a self-hosted backend
 
 Supported Features:
 
@@ -34,94 +34,96 @@ monitoring daemon via Docker.
 
 ### Examples
 
+`--url` is required. Run `just backend up` before the local examples.
+
 ---
 
 #### Generate
 
 ##### Generate 1000 random identities
 
-```
-cargo xdbg generate --entity identity --amount 1000
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 generate --entity identity --amount 1000'
 ```
 
 ##### Generate 100 random groups, inviting 50 random identities to each
 
-```
-cargo xdbg generate --entity group --amount 100 --invite 50
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 generate --entity group --amount 100 --invite 50'
 ```
 
 ##### Generate 20 messages
 
-```
-cargo xdbg generate --entity message --amount 20
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 generate --entity message --amount 20'
 ```
 
 ##### Generate 20 messages in a loop every 500 milliseconds
 
-```
-cargo xdbg generate --entity message --amount 20 --interval 500 --loop
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 generate --entity message --amount 20 --interval 500 --loop'
 ```
 
 ##### Generate 20 messages in a loop every 500 milliseconds, raising maximum size of each message
 
-```
-cargo xdbg generate --entity message --amount 20 --interval 500 --loop --max-message-size 1000
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 generate --entity message --amount 20 --interval 500 --loop --max-message-size 1000'
 ```
 
 #### Inspect
 
 ##### Inspect an InboxId
 
-```
-cargo xdbg inspect 1d8ec149b5670b1df0bbea0b9f2f0ba513eef805a02eafb37df3587fc23d89fe groups
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 inspect 1d8ec149b5670b1df0bbea0b9f2f0ba513eef805a02eafb37df3587fc23d89fe groups'
 ```
 
 #### Info
 
 ##### Show information about local generated state
 
-```
-cargo xdbg info
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 info'
 ```
 
 #### Export Identities to JSON
 
-```
-cargo xdbg export --entity identity | jq > identities.json
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 export --entity identity | jq > identities.json'
 ```
 
 #### Query
 
 ##### Get information about identity updates for an inbox id
 
-```
-cargo xdbg query identity 01a43cdd27b196472687262ed5783006eabc7c26db9e09630bc5004b8fc689dc
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 query identity 01a43cdd27b196472687262ed5783006eabc7c26db9e09630bc5004b8fc689dc'
 ```
 
 ##### Get information about key packages for multiple inboxes
 
-```
-cargo xdbg query fetch-key-packages d43e83f66ad7dbbe87add243806999d608bb0b6f7b88ba5efcaabdb532728309 01a43cdd27b196472687262ed5783006eabc7c26db9e09630bc5004b8fc689dc
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 query fetch-key-packages d43e83f66ad7dbbe87add243806999d608bb0b6f7b88ba5efcaabdb532728309 01a43cdd27b196472687262ed5783006eabc7c26db9e09630bc5004b8fc689dc'
 ```
 
 ##### Get information about the query log for multiple groups (optionally skipping unspecified commits)
 
-```
-cargo xdbg --backend dev query batch-query-commit-log e261da64fd225fc90034631945259cdf 0bc5493237d3399dddd3735a049ea237 --skip-unspecified
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 query batch-query-commit-log e261da64fd225fc90034631945259cdf 0bc5493237d3399dddd3735a049ea237 --skip-unspecified'
 ```
 
 #### Test
 
 ##### Measure message delivery latency (sender → receiver)
 
-```
-cargo xdbg -d -b dev test message-visibility --iterations 5
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 test message-visibility --iterations 5'
 ```
 
 ##### Measure group sync latency after 20 messages
 
-```
-cargo xdbg -d -b dev test group-sync --iterations 3 --message-count 20
+```text
+dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 test group-sync --iterations 3 --message-count 20'
 ```
 
 ---
@@ -141,7 +143,7 @@ docker build -t xdbg:local -f apps/xmtp_debug/docker/Dockerfile .
 ### Running as a one-off CLI
 
 ```bash
-docker run --rm xdbg:local xdbg -d -b dev generate --entity identity --amount 5
+docker run --rm xdbg:local xdbg --url http://backend:5050 generate --entity identity --amount 5
 ```
 
 ### Running as a monitoring daemon
@@ -152,7 +154,7 @@ is designed for ECS/Fargate deployment as a continuous health probe.
 
 ```bash
 docker run -d \
-  -e WORKSPACE=testnet-dev \
+  -e XMTP_BACKEND_URL=http://backend:5050 \
   -e XDBG_LOOP_PAUSE=300 \
   -e PUSHGATEWAY_URL=http://pushgateway:9091 \
   ghcr.io/xmtp/xdbg
@@ -160,7 +162,7 @@ docker run -d \
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `WORKSPACE` | _(empty → local)_ | Target environment: `testnet`, `testnet-dev`, `testnet-staging` |
+| `XMTP_BACKEND_URL` | Required | Self-hosted backend URL for the monitor |
 | `XDBG_LOOP_PAUSE` | `300` | Seconds to sleep between monitoring loop iterations |
 | `PUSHGATEWAY_URL` | _(unset)_ | Prometheus PushGateway URL. If unset, metrics are silently disabled |
 | `XDBG_DB_ROOT` | _(unset)_ | Override the default data directory for xdbg state |
@@ -187,7 +189,7 @@ Metrics are pushed to the PushGateway after each timed operation under job names
 
 In addition to Prometheus, every timed operation prints a CSV line to stdout:
 
-```
+```text
 kind,name,value,timestamp_ms,label1=v1;label2=v2
 ```
 

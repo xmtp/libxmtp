@@ -30,6 +30,7 @@ impl ContentCodec<Intent> for IntentCodec {
         }
     }
 
+    // implements: CTYPE-019
     fn encode(intent: Intent) -> Result<EncodedContent, CodecError> {
         if let Some(metadata) = &intent.metadata {
             let intent_json = serde_json::to_vec(metadata).map_err(|e| {
@@ -82,6 +83,7 @@ mod tests {
     use serde_json::Value;
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: CTYPE-007
     fn encode_decode_intent() {
         let intent = Intent {
             id: "thanksgiving_selection".to_string(),

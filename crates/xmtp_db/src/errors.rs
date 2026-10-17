@@ -4,10 +4,7 @@ use xmtp_common::ErrorCode;
 
 use crate::group_intent::GroupIntentError;
 
-use super::{
-    refresh_state::EntityKind,
-    sql_key_store::{self, SqlKeyStoreError},
-};
+use super::sql_key_store::{self, SqlKeyStoreError};
 use xmtp_common::{BoxDynError, RetryableError, retryable};
 use xmtp_proto::types::{Cursor, GroupId, InstallationId};
 
@@ -15,6 +12,20 @@ pub struct Mls;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum StorageError {
+    /// The database was created before the backend transition. Not retryable.
+    #[error(
+        "This database predates the backend transition. Delete the database file and create a new client."
+    )]
+    PreTransitionDatabase,
+    /// The database uses the previous self-hosted stream format.
+    #[error(
+        "This database uses an older self-hosted format. Keep a backup and create a new client database."
+    )]
+    OldStreamDatabase,
+    /// Durable stream storage rejected an operation or reached a capacity limit.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Stream(#[from] crate::stream_storage::StreamStorageError),
     /// Diesel connection error.
     ///
     /// Failed to connect to SQLite. Retryable.
@@ -100,10 +111,14 @@ impl From<std::convert::Infallible> for StorageError {
 }
 
 impl StorageError {
-    // release conn is a noop in wasm
     #[cfg(target_arch = "wasm32")]
     pub fn db_needs_connection(&self) -> bool {
-        false
+        use crate::PlatformStorageError::Disconnected;
+        matches!(
+            self,
+            Self::Platform(Disconnected)
+                | Self::Connection(crate::ConnectionError::Platform(Disconnected))
+        )
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -125,6 +140,9 @@ impl StorageError {
 #[derive(Error, Debug, ErrorCode)]
 // Monolithic enum for all things lost
 pub enum NotFound {
+    /// The local key package history row no longer exists.
+    #[error("Key package history row {0} not found")]
+    KeyPackageHistory(i32),
     /// Group with welcome ID not found.
     ///
     /// No group matches the welcome ID. Retryable.
@@ -175,11 +193,6 @@ pub enum NotFound {
     /// Intent does not exist. Retryable.
     #[error("Intent with id {0} not found")]
     IntentById(i32),
-    /// Refresh state not found.
-    ///
-    /// No refresh state matching criteria. Retryable.
-    #[error("refresh state with id {id} of kind {1} originating from node {2} not found", id = hex::encode(_0))]
-    RefreshStateByIdKindAndOriginator(Vec<u8>, EntityKind, i32),
     /// Cipher salt not found.
     ///
     /// Database encryption salt missing. Retryable.
@@ -265,7 +278,10 @@ impl RetryableError for StorageError {
             Self::Platform(p) => retryable!(p),
             Self::Connection(e) => retryable!(e),
             Self::GroupIntent(e) => retryable!(e),
-            Self::MigrationError(_)
+            Self::Stream(e) => retryable!(e),
+            Self::PreTransitionDatabase
+            | Self::OldStreamDatabase
+            | Self::MigrationError(_)
             | Self::Conversion(_)
             | Self::NotFound(_)
             | Self::DbDeserialize

@@ -1,0 +1,11 @@
+.outer {
+  flex-grow: 1;
+}
+
+.inner > * {
+  padding-top: var(--mantine-spacing-sm);
+}
+
+.inner > *:last-child {
+  padding-bottom: var(--mantine-spacing-sm);
+}

@@ -1,0 +1,52 @@
+import { readFileSync } from "node:fs";
+
+import { uniffiInitAsync } from "../../../target/sdk-generated/typescript-wasm/binding.ts";
+import * as PurePublic from "../../../target/sdk-generated/typescript-pure/index.ts";
+import * as BrowserRoot from "../../../target/sdk-generated/typescript-wasm/index.ts";
+
+const wasm = new URL(
+  "../../../target/sdk-generated/typescript-wasm/xmtp_sdk.wasm",
+  import.meta.url,
+);
+await uniffiInitAsync(wasm);
+await PurePublic.initPureWasm();
+// The library reports its crate version, the workspace version.
+const version = /\[workspace\.package\][^[]*?\nversion = "([^"]+)"/.exec(
+  readFileSync(new URL("../../../Cargo.toml", import.meta.url), "utf8"),
+)?.[1];
+if (!version) throw new Error("Cargo.toml has no workspace version");
+if (PurePublic.sdkVersion() !== version)
+  throw new Error(`pure WASM reported ${PurePublic.sdkVersion()}, not ${version}`);
+// The pure public entry works over public values and throws public errors.
+const encoded = PurePublic.encodeText("pure public");
+if (!(encoded.content instanceof Uint8Array))
+  throw new Error("pure public bytes are not a Uint8Array");
+const decoded = PurePublic.decodeStandard(encoded);
+if (decoded.kind !== "text" || decoded.value !== "pure public")
+  throw new Error("pure public decode did not return the text union");
+if (new PurePublic.TextCodec().decode(encoded) !== "pure public")
+  throw new Error("pure public TextCodec did not decode");
+let invalid: unknown;
+try {
+  PurePublic.decodeStandard({ ...encoded, content: new Uint8Array([0xff]) });
+} catch (error) {
+  invalid = error;
+}
+if (!(invalid instanceof PurePublic.XmtpError) || "tag" in invalid)
+  throw new Error("pure public decode did not throw the public XmtpError");
+// The browser root and its pure module share one module instance of each
+// class, so a pure codec error is the root's XmtpError under a TypeScript
+// loader too.
+if (BrowserRoot.XmtpError !== PurePublic.XmtpError)
+  throw new Error("the browser root and the pure module load two XmtpError classes");
+if (BrowserRoot.Timestamp !== PurePublic.Timestamp)
+  throw new Error("the browser root and the pure module load two Timestamp classes");
+let codecError: unknown;
+try {
+  new PurePublic.MarkdownCodec().decode(new PurePublic.TextCodec().encode("text"));
+} catch (error) {
+  codecError = error;
+}
+if (!(codecError instanceof BrowserRoot.XmtpError))
+  throw new Error("a pure codec error is not the browser root XmtpError");
+console.log("XMTP SDK worker and pure WASM initialized");

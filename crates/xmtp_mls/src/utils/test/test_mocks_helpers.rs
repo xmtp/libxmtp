@@ -6,7 +6,11 @@ use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use openmls::group::ProcessMessageError;
 use openmls::group::ValidationError::WrongEpoch;
 use openmls::prelude::Lifetime;
-use std::{env, fmt};
+use parking_lot::Mutex;
+use std::{
+    env, fmt,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Copy, Clone)]
 struct EnvFlag(&'static str);
@@ -35,10 +39,9 @@ impl fmt::Debug for EnvFlag {
     }
 }
 
-const UPLOAD_MALFORMED_KP: EnvFlag = EnvFlag("TEST_MODE_UPLOAD_MALFORMED_KP");
-const MALFORMED_INSTALLATIONS_KEY: &str = "TEST_MODE_MALFORMED_INSTALLATIONS";
+static MALFORMED_INSTALLATIONS: Mutex<Option<Vec<Vec<u8>>>> = Mutex::new(None);
 
-const FUTURE_WRONG_EPOCH: EnvFlag = EnvFlag("TEST_MODE_FUTURE_WRONG_EPOCH");
+static FUTURE_WRONG_EPOCH: AtomicBool = AtomicBool::new(false);
 
 const LIMIT_KP_LIFETIME: EnvFlag = EnvFlag("TEST_MODE_LIMIT_KP_LIFETIME");
 const LIMIT_KP_LIFETIME_VALUE: &str = "TEST_MODE_LIMIT_KP_LIFETIME_VALUE";
@@ -50,37 +53,16 @@ pub fn set_test_mode_upload_malformed_keypackage(
     enable: bool,
     installations: Option<Vec<Vec<u8>>>,
 ) {
-    if enable {
-        UPLOAD_MALFORMED_KP.set(true);
-        // always reset the value key first to avoid leaking previous data
-        unsafe { env::remove_var(MALFORMED_INSTALLATIONS_KEY) };
-
-        if let Some(list) = installations {
-            let joined = list.iter().map(hex::encode).collect::<Vec<_>>().join(",");
-            unsafe { env::set_var(MALFORMED_INSTALLATIONS_KEY, joined) };
-        }
-    } else {
-        UPLOAD_MALFORMED_KP.set(false);
-        unsafe { env::remove_var(MALFORMED_INSTALLATIONS_KEY) };
-    }
+    *MALFORMED_INSTALLATIONS.lock() = enable.then(|| installations.unwrap_or_default());
 }
 
 #[inline]
 pub fn is_test_mode_upload_malformed_keypackage() -> bool {
-    UPLOAD_MALFORMED_KP.get()
+    MALFORMED_INSTALLATIONS.lock().is_some()
 }
 
 pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
-    if !is_test_mode_upload_malformed_keypackage() {
-        return Vec::new();
-    }
-
-    env::var(MALFORMED_INSTALLATIONS_KEY)
-        .unwrap_or_default()
-        .split(',')
-        .filter(|s| !s.is_empty())
-        .filter_map(|hex| hex::decode(hex).ok())
-        .collect()
+    MALFORMED_INSTALLATIONS.lock().clone().unwrap_or_default()
 }
 
 /* ---------- wrong / future epoch helpers ---------- */
@@ -88,12 +70,12 @@ pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
 /// Toggle wrong‑epoch test‑mode.
 #[inline]
 pub fn set_test_mode_future_wrong_epoch(enable: bool) {
-    FUTURE_WRONG_EPOCH.set(enable);
+    FUTURE_WRONG_EPOCH.store(enable, Ordering::Relaxed);
 }
 
 #[inline]
 pub fn is_test_mode_future_wrong_epoch() -> bool {
-    FUTURE_WRONG_EPOCH.get()
+    FUTURE_WRONG_EPOCH.load(Ordering::Relaxed)
 }
 
 /// If the flag is set, fail with a *wrong epoch* validation error.

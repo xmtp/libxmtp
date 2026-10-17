@@ -1,22 +1,92 @@
-//! Live integration tests for the bidi callback adapters over a real v3
-//! backend (docker node). Native-only, v3-only — see the module gate.
+//! Callback tests for retained history and live backend messages.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use xmtp_common::StreamHandle;
+use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
 
 use crate::Client;
+use crate::context::XmtpSharedContext;
 use crate::subscriptions::router_callbacks::{
-    StreamOrigin, bidi_streams_active, bidi_unsupported_latched, is_bidi_dead_end,
-    is_bidi_unsupported, latch_bidi_unsupported, pump_stream, resume_bidi_streams,
-    shared_transport, shared_transport_count, stream_conversation_messages_with_callback_bidi,
-    suspend_bidi_streams,
+    resume_bidi_streams, shared_transport, shared_transport_count,
+    stream_conversation_messages_with_callback_dispatch, suspend_bidi_streams,
 };
 use crate::tester;
 use crate::utils::MlsGroupExt;
 
 const WAIT: Duration = Duration::from_secs(20);
+
+// verifies: PROC-040
+#[xmtp_common::test(unwrap_try = true)]
+async fn conversation_startup_storage_error_reaches_callback_once_before_close() {
+    use crate::subscriptions::{SubscribeError, incoming::IncomingCoordinator};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use xmtp_db::{
+        ConnectionExt,
+        group::{GroupQueryArgs, QueryGroup},
+    };
+
+    tester!(alix, persistent_db, disable_workers);
+    let coordinator = IncomingCoordinator::for_context(&alix.context);
+    let baseline_owners = Arc::strong_count(&coordinator);
+    alix.context.db().disconnect()?;
+    let expected = alix
+        .context
+        .db()
+        .find_groups(GroupQueryArgs::default())
+        .unwrap_err();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let closed = Arc::new(AtomicUsize::new(0));
+    let closed_callback = Arc::clone(&closed);
+    let handle = Client::stream_conversations_with_callback_dispatch(
+        Arc::new(alix.client.clone()),
+        None,
+        false,
+        move |conversation| {
+            let _ = tx.send(conversation);
+        },
+        move || {
+            closed_callback.fetch_add(1, Ordering::SeqCst);
+        },
+    );
+    let error = tokio::time::timeout(WAIT, rx.recv())
+        .await?
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.to_string(), expected.to_string());
+    assert!(
+        matches!(
+            error,
+            SubscribeError::Db(xmtp_db::ConnectionError::Platform(
+                xmtp_db::PlatformStorageError::PoolNeedsConnection
+            ))
+        ),
+        "{error:?}"
+    );
+    tokio::time::timeout(WAIT, handle.join()).await???;
+    assert!(rx.recv().await.is_none());
+    assert_eq!(closed.load(Ordering::SeqCst), 1);
+    assert_eq!(Arc::strong_count(&coordinator), baseline_owners);
+    assert!(!alix.context.is_closed());
+    alix.context.db().reconnect()?;
+}
+
+async fn assert_retained_messages(
+    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<
+        crate::subscriptions::Result<StoredGroupMessage>,
+    >,
+    expected: &[StoredGroupMessage],
+) {
+    for expected in expected {
+        let delivered = tokio::time::timeout(WAIT, receiver.recv())
+            .await
+            .expect("timed out waiting for retained history")
+            .expect("callback channel closed during retained history")
+            .expect("retained message delivery failed");
+        assert_eq!(&delivered, expected);
+    }
+}
 
 /// The reflex headline: a conversation joined AFTER subscribing reaches the
 /// live stream without a re-subscribe — its welcome arrives over the leased
@@ -30,7 +100,7 @@ async fn welcomed_group_joins_the_live_stream() {
     tester!(bo);
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handle = Client::stream_all_messages_with_callback_bidi(
+    let mut handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(bo.client.clone()),
         None,
         None,
@@ -45,22 +115,36 @@ async fn welcomed_group_joins_the_live_stream() {
     group.invite(&bo).await?;
     group.send_msg(b"through the reflex").await;
 
+    let membership = tokio::time::timeout(WAIT, rx.recv())
+        .await
+        .expect("timed out waiting for retained membership")
+        .expect("callback channel closed")?;
+    assert_eq!(membership.group_id, group.group_id);
+    assert_eq!(membership.kind, GroupMessageKind::MembershipChange);
+    let stored = bo
+        .group(&group.group_id)?
+        .find_messages(&Default::default())?
+        .into_iter()
+        .find(|message| message.id == membership.id)?;
+    assert_eq!(membership, stored);
+
     let delivered = tokio::time::timeout(WAIT, rx.recv())
         .await
         .expect("timed out waiting for the reflex-subscribed delivery")
         .expect("callback channel closed")?;
     assert_eq!(delivered.decrypted_message_bytes, b"through the reflex");
+    assert!(membership.sequence_id < delivered.sequence_id);
 }
 
 /// A group this client creates itself streams its messages — no welcome
-/// ever arrives for it, so delivery proves the `LocalEvents::NewGroup`
+/// ever arrives for it, so delivery proves the local group-joined event
 /// fan-in leased its topic.
 #[xmtp_common::test(unwrap_try = true)]
 async fn self_created_group_streams_its_messages() {
     tester!(bo);
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handle = Client::stream_all_messages_with_callback_bidi(
+    let mut handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(bo.client.clone()),
         None,
         None,
@@ -82,14 +166,14 @@ async fn self_created_group_streams_its_messages() {
 }
 
 /// A conversation this client creates itself surfaces on its own
-/// conversations stream (legacy multiplexes `LocalEvents::NewGroup`; the
+/// conversations stream (the local bus carries group-joined events; the
 /// bidi stream must too — the creator never receives a welcome).
 #[xmtp_common::test(unwrap_try = true)]
 async fn self_created_conversation_surfaces_on_the_stream() {
     tester!(bo);
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handle = Client::stream_conversations_with_callback_bidi(
+    let mut handle = Client::stream_conversations_with_callback_dispatch(
         Arc::new(bo.client.clone()),
         None,
         false,
@@ -120,9 +204,10 @@ async fn callback_stream_delivers_live_messages() {
     bo.sync_welcomes().await?;
     let bo_group = bo.group(&group.group_id)?;
     bo_group.sync().await?;
+    let retained = bo_group.find_messages(&Default::default())?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handle = Client::stream_all_messages_with_callback_bidi(
+    let mut handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(bo.client.clone()),
         None,
         None,
@@ -132,6 +217,7 @@ async fn callback_stream_delivers_live_messages() {
         || {},
     );
     handle.wait_for_ready().await;
+    assert_retained_messages(&mut rx, &retained).await;
 
     group.send_msg(b"over the bidi pump").await;
     let delivered = tokio::time::timeout(WAIT, rx.recv())
@@ -148,7 +234,7 @@ async fn callback_stream_surfaces_new_conversations() {
     tester!(bo);
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handle = Client::stream_conversations_with_callback_bidi(
+    let mut handle = Client::stream_conversations_with_callback_dispatch(
         Arc::new(bo.client.clone()),
         None,
         false,
@@ -173,21 +259,28 @@ async fn callback_stream_surfaces_new_conversations() {
 /// stream still receives exactly its own client's traffic.
 #[xmtp_common::test(unwrap_try = true)]
 async fn sibling_clients_share_the_process_transport() {
+    let before = shared_transport_count();
     tester!(alix);
     tester!(bo);
-    tester!(caro);
+    tester!(caro, api_client: bo.context.api().api_client.raw_for_test().clone());
 
     let bo_group = alix.create_group(None, None)?;
     bo_group.invite(&bo).await?;
     bo.sync_welcomes().await?;
     bo.group(&bo_group.group_id)?.sync().await?;
+    let bo_retained = bo
+        .group(&bo_group.group_id)?
+        .find_messages(&Default::default())?;
     let caro_group = alix.create_group(None, None)?;
     caro_group.invite(&caro).await?;
     caro.sync_welcomes().await?;
     caro.group(&caro_group.group_id)?.sync().await?;
+    let caro_retained = caro
+        .group(&caro_group.group_id)?
+        .find_messages(&Default::default())?;
 
     let (bo_tx, mut bo_rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut bo_handle = Client::stream_all_messages_with_callback_bidi(
+    let mut bo_handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(bo.client.clone()),
         None,
         None,
@@ -197,7 +290,7 @@ async fn sibling_clients_share_the_process_transport() {
         || {},
     );
     let (caro_tx, mut caro_rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut caro_handle = Client::stream_all_messages_with_callback_bidi(
+    let mut caro_handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(caro.client.clone()),
         None,
         None,
@@ -208,6 +301,11 @@ async fn sibling_clients_share_the_process_transport() {
     );
     bo_handle.wait_for_ready().await;
     caro_handle.wait_for_ready().await;
+    // Registration and callbacks use the same selected transport. Alix has
+    // one API client; Bo and Caro share the other API client.
+    assert_eq!(shared_transport_count(), before + 2);
+    assert_retained_messages(&mut bo_rx, &bo_retained).await;
+    assert_retained_messages(&mut caro_rx, &caro_retained).await;
 
     bo_group.send_msg(b"for bo").await;
     caro_group.send_msg(b"for caro").await;
@@ -238,9 +336,12 @@ async fn single_conversation_callback_is_scoped_to_its_group() {
     bo.sync_welcomes().await?;
     bo.group(&streamed.group_id)?.sync().await?;
     bo.group(&other.group_id)?.sync().await?;
+    let retained = bo
+        .group(&streamed.group_id)?
+        .find_messages(&Default::default())?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handle = stream_conversation_messages_with_callback_bidi(
+    let mut handle = stream_conversation_messages_with_callback_dispatch(
         bo.client.context.clone(),
         bo.group(&streamed.group_id)?.group_id,
         move |message| {
@@ -249,6 +350,7 @@ async fn single_conversation_callback_is_scoped_to_its_group() {
         || {},
     );
     handle.wait_for_ready().await;
+    assert_retained_messages(&mut rx, &retained).await;
 
     // The sibling group's message must not leak into this stream; sent first
     // so a leak would arrive ahead of the expected message.
@@ -275,9 +377,12 @@ async fn suspend_resume_replays_what_was_missed() {
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
     bo.group(&group.group_id)?.sync().await?;
+    let retained = bo
+        .group(&group.group_id)?
+        .find_messages(&Default::default())?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handle = Client::stream_all_messages_with_callback_bidi(
+    let mut handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(bo.client.clone()),
         None,
         None,
@@ -287,6 +392,7 @@ async fn suspend_resume_replays_what_was_missed() {
         || {},
     );
     handle.wait_for_ready().await;
+    assert_retained_messages(&mut rx, &retained).await;
 
     suspend_bidi_streams().await?;
     group.send_msg(b"sent while backgrounded").await;
@@ -329,9 +435,12 @@ async fn suspend_before_the_first_stream_parks_the_wire() {
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
     bo.group(&group.group_id)?.sync().await?;
+    let retained = bo
+        .group(&group.group_id)?
+        .find_messages(&Default::default())?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handle = Client::stream_all_messages_with_callback_bidi(
+    let mut handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(bo.client.clone()),
         None,
         None,
@@ -341,8 +450,9 @@ async fn suspend_before_the_first_stream_parks_the_wire() {
         || {},
     );
     handle.wait_for_ready().await;
+    assert_retained_messages(&mut rx, &retained).await;
 
-    // The wire is parked: nothing may deliver, no matter how long we wait.
+    // The wire is parked. No new network message may arrive before resume.
     group.send_msg(b"sent before resume").await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(
@@ -382,20 +492,26 @@ async fn lifecycle_helpers_are_noops_without_a_transport() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn sync_group_messages_are_intercepted_not_delivered() {
     use crate::context::XmtpSharedContext;
-    use crate::subscriptions::SyncWorkerEvent;
-    use xmtp_db::prelude::*;
+    use crate::subscriptions::internal::InternalEvent;
+    use xmtp_events::EventFilter;
     tester!(alix, sync_worker);
 
     // The device-sync worker creates the sync group in the background.
-    let sync_group = xmtp_common::wait_for_some(|| async {
-        alix.client.context.db().primary_sync_group().ok().flatten()
+    xmtp_common::wait_for_some(|| async {
+        alix.device_sync_client()
+            .primary_sync_group()
+            .ok()
+            .flatten()
     })
     .await
     .expect("the sync worker creates a sync group");
+    tester!(other, from: alix);
+    alix.test_has_same_sync_group_as(&other).await?;
+    let sync_group = other.device_sync_client().get_sync_group().await?;
     let group = alix.create_group(None, None)?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handle = Client::stream_all_messages_with_callback_bidi(
+    let mut handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(alix.client.clone()),
         None,
         None,
@@ -405,11 +521,17 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
         || {},
     );
     handle.wait_for_ready().await;
-    let mut worker_events = alix.client.context.worker_events().subscribe();
+    let sync_events = alix.client.context.events().subscribe(
+        EventFilter::default().with_internal(|event| {
+            matches!(event, InternalEvent::MessageStored { is_sync: true, .. })
+        }),
+        Some(10),
+    );
 
-    // Into the sync group first — a leak would arrive ahead of the normal
-    // message below.
-    alix.group(&sync_group.id)?
+    // A message from another installation enters the external-message path.
+    // A leak would reach the app ahead of the normal message below.
+    other
+        .group(&sync_group.group_id)?
         .send_msg(b"internal sync payload")
         .await;
     group.send_msg(b"a normal message").await;
@@ -423,312 +545,22 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
     // The intercepted message became a worker nudge instead.
     let nudged = tokio::time::timeout(WAIT, async {
         loop {
-            match worker_events.recv().await {
-                Ok(SyncWorkerEvent::NewSyncGroupMsg) => break,
-                Ok(_) => continue,
-                // Lagged is recoverable — keep draining for the nudge.
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(e) => panic!("worker events channel closed: {e}"),
+            match sync_events.next().await {
+                Some(event)
+                    if matches!(
+                        event.internal,
+                        Some(InternalEvent::MessageStored { is_sync: true, .. })
+                    ) =>
+                {
+                    break;
+                }
+                Some(_) => continue,
+                None => panic!("worker subscription closed"),
             }
         }
     })
     .await;
     assert!(nudged.is_ok(), "the sync worker must be nudged");
-}
-
-/// A decode failure as the wire really produces one (0xff is an invalid
-/// wire type) — `prost::DecodeError` has no public constructor.
-fn garbled_frame() -> prost::DecodeError {
-    <xmtp_proto::mls_v1::GroupMessage as prost::Message>::decode(&[0xff][..])
-        .expect_err("an invalid wire type must not decode")
-}
-
-/// The latch classifier. Latch-worthy is the backend's own refusal of the
-/// surface, in each shape it really arrives in: a gRPC `UNIMPLEMENTED`
-/// buried under the v3 client's blanket-retryable wrapping, the in-process
-/// d14n/migration stub refusal (`OtherUnretryable`), and the tombstoned
-/// shared transport (`Closed`). Not latch-worthy: a transient dial failure,
-/// an unretryable-but-ambiguous open (still a dead end for the one stream
-/// that hit it), and a closed router.
-///
-/// The live end of this scenario — a shared-transport opener actually
-/// refusing and the pump latching mid-task — has no seam to inject through:
-/// a destination's shared transport is built from the first streamer's real
-/// api client by design, and a test-only override would weaken that
-/// invariant for one test's sake. This classification test plus the `pump_*`
-/// fallback tests below cover both halves instead, and the transport's own
-/// tests cover the opener refusing with `Open`.
-#[xmtp_common::test]
-fn only_a_backend_refusal_latches() {
-    use crate::subscriptions::stream_router::RouterError;
-    use xmtp_api_d14n::{OpenError, TransportError};
-    use xmtp_api_grpc::error::GrpcError;
-    use xmtp_common::RetryableError;
-    use xmtp_proto::api::ApiClientError;
-
-    // The real v3 layering of a node without the surface: tonic status →
-    // GrpcError (blanket-retryable) → NetworkError → ApiClientError — what
-    // `subscribe_bidi` hands the opener.
-    let unimplemented = OpenError::new(
-        ApiClientError::client(GrpcError::from(tonic::Status::unimplemented(
-            "unknown service xmtp.mls.api.v1.MlsApi",
-        )))
-        .endpoint("/xmtp.mls.api.v1.MlsApi/Subscribe"),
-    );
-    assert!(
-        unimplemented.is_retryable(),
-        "the grpc wrapping reports UNIMPLEMENTED as retryable — the trap \
-         the classifier must not fall into"
-    );
-    assert!(
-        is_bidi_unsupported(&RouterError::Transport(TransportError::Open(unimplemented))),
-        "UNIMPLEMENTED is the backend's own verdict and must latch, \
-         regardless of the wrapper's retryability"
-    );
-
-    // The in-process d14n/migration stub refusal.
-    let stub = RouterError::Transport(TransportError::Open(OpenError::new(
-        ApiClientError::OtherUnretryable(
-            "the v3 bidi subscription is not available on this client".into(),
-        ),
-    )));
-    assert!(is_bidi_unsupported(&stub), "the stub refusal must latch");
-    assert!(
-        is_bidi_dead_end(&stub),
-        "an unretryable open is also a dead end for the stream that hit it"
-    );
-
-    // A transient dial failure: worth redialing, neither latch nor fallback.
-    #[derive(Debug, thiserror::Error)]
-    #[error("dial failed")]
-    struct Transient;
-    impl RetryableError for Transient {
-        fn is_retryable(&self) -> bool {
-            true
-        }
-    }
-    let transient = RouterError::Transport(TransportError::Open(OpenError::new(Transient)));
-    assert!(
-        !is_bidi_unsupported(&transient),
-        "a retryable open failure is worth redialing, not latching"
-    );
-    assert!(!is_bidi_dead_end(&transient));
-
-    // Unretryable but not a capability verdict (a garbled handshake, say):
-    // the stream falls back, the process does not latch.
-    let garbled = RouterError::Transport(TransportError::Open(OpenError::new(
-        ApiClientError::DecodeError(garbled_frame()),
-    )));
-    assert!(
-        !is_bidi_unsupported(&garbled),
-        "an unretryable decode failure is not the backend refusing the surface"
-    );
-    assert!(
-        is_bidi_dead_end(&garbled),
-        "but it is a dead end, so the stream falls back"
-    );
-
-    // The tombstoned shared transport: a destination's handle is immortal,
-    // so its ledger only dies by shutting down after a refusal — `Closed` is
-    // the refusal as every later stream to that destination sees it.
-    assert!(
-        is_bidi_unsupported(&RouterError::Transport(TransportError::Closed)),
-        "a closed shared transport is the post-refusal tombstone and must latch"
-    );
-
-    // A closed router is client teardown, not backend capability.
-    assert!(
-        !is_bidi_unsupported(&RouterError::Closed),
-        "a closed router is client teardown"
-    );
-    assert!(!is_bidi_dead_end(&RouterError::Closed));
-}
-
-/// With the latch pre-set — the process already saw this destination
-/// refuse — a dispatcher-entered stream serves via the legacy path and
-/// delivery still works. No env mutation: with the latch set, the
-/// dispatcher's legacy arm is the same code path a gate-off process takes,
-/// so the default test environment exercises exactly the arm a latched
-/// gate-on process uses.
-#[xmtp_common::test(unwrap_try = true)]
-async fn latched_dispatch_delivers_via_legacy() {
-    use crate::context::XmtpSharedContext;
-    use xmtp_proto::api_client::XmtpMlsBidiStreams;
-
-    tester!(alix);
-    tester!(bo);
-
-    // The destination the dispatcher will look up is the tester's real
-    // backend; nextest runs one test per process, so latching it leaks
-    // nowhere.
-    let host = bo.client.context.api().api_client.host().to_owned();
-    latch_bidi_unsupported(&host);
-    assert!(
-        !bidi_streams_active(&host),
-        "the latch must keep bidi inactive for this destination"
-    );
-
-    let group = alix.create_group(None, None)?;
-    group.invite(&bo).await?;
-    bo.sync_welcomes().await?;
-    bo.group(&group.group_id)?.sync().await?;
-
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handle = Client::stream_all_messages_with_callback_dispatch(
-        Arc::new(bo.client.clone()),
-        None,
-        None,
-        move |message| {
-            let _ = tx.send(message);
-        },
-        || {},
-    );
-    handle.wait_for_ready().await;
-
-    group.send_msg(b"latched onto legacy").await;
-    let delivered = tokio::time::timeout(WAIT, rx.recv())
-        .await
-        .expect("timed out waiting for the legacy-path delivery")
-        .expect("callback channel closed")?;
-    assert_eq!(delivered.decrypted_message_bytes, b"latched onto legacy");
-}
-
-/// Drive [`pump_stream`] with a subscribe future failing as `error` and a
-/// small in-memory legacy fallback; returns the items the callback saw and
-/// how many times `on_close` fired. Ready must fire off the fallback —
-/// `wait_for_ready` would hang otherwise, so the timeout doubles as that
-/// assertion.
-async fn pump_through_fallback(
-    host: &str,
-    error: crate::subscriptions::stream_router::RouterError,
-) -> (Vec<u8>, usize) {
-    use crate::subscriptions::StreamKind;
-    use crate::subscriptions::stream_router::RouterStream;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio_util::sync::CancellationToken;
-    use xmtp_proto::types::InstallationId;
-
-    let subscribe = async move { Err::<RouterStream<u8>, _>(error) };
-    // A fresh two-item stream per subscribe call, like the real factories.
-    let fallback = || async { Ok(futures::stream::iter(vec![Ok(1u8), Ok(2u8)])) };
-
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let closes = Arc::new(AtomicUsize::new(0));
-    let on_close = {
-        let closes = closes.clone();
-        move || {
-            closes.fetch_add(1, Ordering::SeqCst);
-        }
-    };
-    let origin = StreamOrigin {
-        kind: StreamKind::All,
-        installation: InstallationId::from([0u8; 32]),
-        host: host.to_owned(),
-        cancel: CancellationToken::new(),
-    };
-    let mut handle = pump_stream(
-        origin,
-        subscribe,
-        fallback,
-        move |item| {
-            let _ = tx.send(item);
-        },
-        on_close,
-    );
-    tokio::time::timeout(WAIT, handle.wait_for_ready())
-        .await
-        .expect("ready must fire off the fallback");
-    let result = tokio::time::timeout(WAIT, handle.join())
-        .await
-        .expect("the fallback stream ends, so the pump task must too");
-    assert!(
-        matches!(result, Ok(Ok(()))),
-        "the fallback must end cleanly: {result:?}"
-    );
-
-    let mut items = Vec::new();
-    while let Ok(item) = rx.try_recv() {
-        items.push(item.expect("fallback items are Ok"));
-    }
-    (items, closes.load(Ordering::SeqCst))
-}
-
-/// The pump's fallback branch on the real remote refusal shape: the
-/// subscribe fails with a wrapped gRPC `UNIMPLEMENTED`, and the pump must
-/// latch the process, signal ready off the fallback, deliver the fallback's
-/// items through the watchdog runner, and fire `on_close` exactly once at
-/// its natural end.
-#[xmtp_common::test(unwrap_try = true)]
-async fn pump_latches_and_serves_the_fallback_on_a_grpc_refusal() {
-    use crate::subscriptions::stream_router::RouterError;
-    use xmtp_api_d14n::{OpenError, TransportError};
-    use xmtp_api_grpc::error::GrpcError;
-    use xmtp_proto::api::ApiClientError;
-
-    let refusal = OpenError::new(
-        ApiClientError::client(GrpcError::from(tonic::Status::unimplemented(
-            "unknown service xmtp.mls.api.v1.MlsApi",
-        )))
-        .endpoint("/xmtp.mls.api.v1.MlsApi/Subscribe"),
-    );
-    let (items, closes) = pump_through_fallback(
-        "test://grpc-refusal",
-        RouterError::Transport(TransportError::Open(refusal)),
-    )
-    .await;
-    assert!(
-        bidi_unsupported_latched("test://grpc-refusal"),
-        "the refusal must latch its destination"
-    );
-    assert_eq!(items, vec![1, 2], "the fallback's items reach the callback");
-    assert_eq!(closes, 1, "on_close fires exactly once, at the natural end");
-}
-
-/// Same branch on the in-process d14n/migration stub refusal
-/// (`OtherUnretryable`).
-#[xmtp_common::test(unwrap_try = true)]
-async fn pump_latches_and_serves_the_fallback_on_the_stub_refusal() {
-    use crate::subscriptions::stream_router::RouterError;
-    use xmtp_api_d14n::{OpenError, TransportError};
-    use xmtp_proto::api::ApiClientError;
-
-    let refusal = OpenError::new(ApiClientError::OtherUnretryable(
-        "the v3 bidi subscription is not available on this client".into(),
-    ));
-    let (items, closes) = pump_through_fallback(
-        "test://stub-refusal",
-        RouterError::Transport(TransportError::Open(refusal)),
-    )
-    .await;
-    assert!(
-        bidi_unsupported_latched("test://stub-refusal"),
-        "the stub refusal must latch its destination"
-    );
-    assert_eq!(items, vec![1, 2], "the fallback's items reach the callback");
-    assert_eq!(closes, 1, "on_close fires exactly once, at the natural end");
-}
-
-/// A dead-end open that is NOT a capability refusal serves this one stream
-/// on the fallback but leaves the process unlatched — later dispatches may
-/// still take the bidi path.
-#[xmtp_common::test(unwrap_try = true)]
-async fn pump_serves_the_fallback_without_latching_on_a_dead_end() {
-    use crate::subscriptions::stream_router::RouterError;
-    use xmtp_api_d14n::{OpenError, TransportError};
-    use xmtp_proto::api::ApiClientError;
-
-    let dead_end = OpenError::new(ApiClientError::DecodeError(garbled_frame()));
-    let (items, closes) = pump_through_fallback(
-        "test://dead-end",
-        RouterError::Transport(TransportError::Open(dead_end)),
-    )
-    .await;
-    assert!(
-        !bidi_unsupported_latched("test://dead-end"),
-        "a dead end is not a capability verdict and must not latch"
-    );
-    assert_eq!(items, vec![1, 2], "the fallback's items reach the callback");
-    assert_eq!(closes, 1, "on_close fires exactly once, at the natural end");
 }
 
 /// `stream_all_messages` on an account with no matching conversations stays
@@ -745,7 +577,7 @@ async fn stream_all_with_no_conversations_stays_open() {
         let closed = closed.clone();
         move || closed.store(true, Ordering::SeqCst)
     };
-    let mut handle = Client::stream_all_messages_with_callback_bidi(
+    let mut handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(bo.client.clone()),
         None,
         None,
@@ -772,7 +604,10 @@ struct FixedHostApi(&'static str);
 impl xmtp_proto::api_client::XmtpMlsBidiStreams for FixedHostApi {
     type SubscribeStream = futures::stream::BoxStream<
         'static,
-        std::result::Result<xmtp_proto::mls_v1::SubscribeResponse, xmtp_proto::api::ApiClientError>,
+        std::result::Result<
+            xmtp_proto::backend_v1::SubscribeResponse,
+            xmtp_proto::api::ApiClientError,
+        >,
     >;
     type Error = xmtp_proto::api::ApiClientError;
 
@@ -782,7 +617,7 @@ impl xmtp_proto::api_client::XmtpMlsBidiStreams for FixedHostApi {
 
     async fn subscribe_bidi(
         &self,
-        _requests: futures::stream::BoxStream<'static, xmtp_proto::mls_v1::SubscribeRequest>,
+        _requests: futures::stream::BoxStream<'static, xmtp_proto::backend_v1::SubscribeRequest>,
     ) -> std::result::Result<Self::SubscribeStream, Self::Error> {
         Err(xmtp_proto::api::ApiClientError::OtherUnretryable(
             "this test api never opens".into(),
@@ -790,72 +625,232 @@ impl xmtp_proto::api_client::XmtpMlsBidiStreams for FixedHostApi {
     }
 }
 
-/// Transports key by dialed URL: a second client to the same host shares
-/// the wire, a different host — the same backend behind a proxy, say — gets
-/// its own. (nextest's process-per-test model keeps the count clean.)
-#[xmtp_common::test]
-async fn transports_key_by_destination() {
+/// Repeated use of one API client shares its transport. Another API client does not.
+#[xmtp_common::test(unwrap_try = true)]
+async fn transport_registry_reuses_only_the_same_api_client() {
     let before = shared_transport_count();
-    let _a = shared_transport(FixedHostApi("test://backend-a"));
-    let _a_again = shared_transport(FixedHostApi("test://backend-a"));
+    let api = Arc::new(FixedHostApi("test://backend-a"));
+    let _a = shared_transport(api.clone());
+    let _a_again = shared_transport(api);
     assert_eq!(
         shared_transport_count(),
         before + 1,
-        "the same host shares one transport"
+        "the same API client shares one transport"
     );
-    let _b = shared_transport(FixedHostApi("test://backend-b"));
+    let _b = shared_transport(Arc::new(FixedHostApi("test://backend-b")));
     assert_eq!(
         shared_transport_count(),
         before + 2,
-        "a different host gets its own"
+        "another API client gets its own transport"
     );
 }
 
-/// Latches are per destination: one backend refusing the surface leaves
-/// every other destination's dispatch untouched.
-#[xmtp_common::test]
-fn destinations_latch_independently() {
-    latch_bidi_unsupported("test://refusing-backend");
-    assert!(bidi_unsupported_latched("test://refusing-backend"));
-    assert!(
-        !bidi_unsupported_latched("test://healthy-backend"),
-        "a sibling destination must not inherit the latch"
-    );
-}
-
-/// A born-suspended wire defers its backend's capability discovery to the
-/// resume re-open — past the point where any stream could see the refusal
-/// and latch. Resume is fire-and-forget (its acks are dropped, so it cannot
-/// latch), which defers the latch one step further: the refusal tombstones
-/// the transport in the background, and the next observation point — a
-/// stream re-subscribing via the open path, or the next lifecycle fold —
-/// latches the destination so later subscribes ride legacy.
+/// The registry must not keep credentials through a captured API after its owners drop.
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_resume_time_refusal_latches_at_the_next_lifecycle_fold() {
-    use xmtp_proto::types::Topic;
+async fn transport_registry_releases_api_after_last_owner() {
+    let before = shared_transport_count();
+    let api = Arc::new(FixedHostApi("test://released-backend"));
+    let observed = Arc::downgrade(&api);
+    let first = shared_transport(api.clone());
+    let second = shared_transport(api);
+    assert!(Arc::ptr_eq(&first, &second));
+    drop(first);
+    assert!(observed.upgrade().is_some());
+    assert_eq!(shared_transport_count(), before + 1);
+    drop(second);
+    tokio::time::timeout(WAIT, async {
+        while observed.upgrade().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the transport registry retained the API after the last owner dropped");
+    assert_eq!(shared_transport_count(), before);
+}
 
-    suspend_bidi_streams().await?;
-    let transport = shared_transport(FixedHostApi("test://born-refused"));
-    // Registers and parks — born suspended, the refusing opener never runs.
-    let mut lease = transport
-        .lease(vec![(Topic::new_group_message(b"g"), 0)], 8)
-        .await?;
+/// Returned subscriptions keep one shared wire alive after their factories drop.
+#[xmtp_common::test(unwrap_try = true)]
+async fn subscription_keeps_transport_shared_after_factory_drop() {
+    use crate::subscriptions::incoming::{BidiSubscriptionFactory, SubscriptionFactory};
+    use futures::{StreamExt, stream::BoxStream};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use xmtp_proto::{
+        api::ApiClientError,
+        backend_v1::{SubscribeRequest, SubscribeResponse},
+        types::{Cursor, IncomingBatchLimits, Topic, TopicCursor},
+    };
 
-    // Fire-and-forget: the call settles Ok before the re-open can refuse.
-    resume_bidi_streams().await?;
+    struct ScriptedApi {
+        calls: AtomicUsize,
+    }
 
-    // The re-open runs the refusing opener in the ledger task; the tombstone
-    // is observable as the parked lease ending. (In production a stream's
-    // lease ending is what triggers its re-subscribe, which latches via the
-    // open path.)
-    while lease.next().await.is_some() {}
+    #[xmtp_common::async_trait]
+    impl xmtp_proto::api_client::XmtpMlsBidiStreams for ScriptedApi {
+        type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
+        type Error = ApiClientError;
 
-    // A bare lease has no re-subscribe machinery, so the next lifecycle fold
-    // is the observation point here: suspend's settle sees `Closed` for the
-    // tombstoned transport and latches the destination.
-    suspend_bidi_streams().await?;
-    assert!(
-        bidi_unsupported_latched("test://born-refused"),
-        "a refusal first seen at resume must latch by the next lifecycle fold"
+        fn host(&self) -> &str {
+            "test://subscription-owned-transport"
+        }
+
+        async fn subscribe_bidi(
+            &self,
+            requests: BoxStream<'static, SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            // Keep the request side open until this scripted wire drops.
+            Ok(Box::pin(futures::stream::pending().map(move |event| {
+                let _requests = &requests;
+                event
+            })))
+        }
+    }
+
+    let api = Arc::new(ScriptedApi {
+        calls: AtomicUsize::new(0),
+    });
+    let observed = Arc::downgrade(&api);
+    let cursors: TopicCursor = [(Topic::new_group_message([8; 16]), Cursor(0))].into();
+    let limits = IncomingBatchLimits {
+        max_rows: 8,
+        max_bytes: 1024,
+    };
+    let first_factory = BidiSubscriptionFactory::new(api.clone());
+    let first = first_factory.open(cursors.clone(), limits).await?;
+    xmtp_common::wait_for_eq(|| async { api.calls.load(Ordering::SeqCst) }, 1).await?;
+    drop(first_factory);
+
+    let second_factory = BidiSubscriptionFactory::new(api.clone());
+    let second = second_factory.open(cursors, limits).await?;
+    assert_eq!(
+        api.calls.load(Ordering::SeqCst),
+        1,
+        "a returned subscription must keep the same API client's shared transport"
     );
+    drop(second_factory);
+
+    // Only the subscriptions own the shared transport during the lifecycle round trip.
+    suspend_bidi_streams().await?;
+    assert_eq!(api.calls.load(Ordering::SeqCst), 1);
+    resume_bidi_streams().await?;
+    xmtp_common::wait_for_eq(|| async { api.calls.load(Ordering::SeqCst) }, 2).await?;
+
+    drop(first);
+    drop(second);
+    drop(api);
+    xmtp_common::wait_for_eq(|| async { observed.strong_count() }, 0).await?;
+    assert!(observed.upgrade().is_none());
+}
+
+// verifies: PROC-021, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn cached_factory_opens_a_new_stream_after_a_nonretryable_reconnect() {
+    use crate::subscriptions::incoming::{BidiSubscriptionFactory, SubscriptionFactory};
+    use futures::{StreamExt, stream::BoxStream};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use xmtp_proto::{
+        api::ApiClientError,
+        backend_v1::SubscribeResponse,
+        types::{Cursor, IncomingBatchLimits, Topic, TopicCursor},
+    };
+
+    type SubscribeReceiver =
+        tokio::sync::mpsc::UnboundedReceiver<Result<SubscribeResponse, ApiClientError>>;
+
+    #[derive(Clone)]
+    struct ScriptedApi {
+        calls: Arc<AtomicUsize>,
+        first: Arc<parking_lot::Mutex<Option<SubscribeReceiver>>>,
+    }
+
+    #[xmtp_common::async_trait]
+    impl xmtp_proto::api_client::XmtpMlsBidiStreams for ScriptedApi {
+        type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
+        type Error = ApiClientError;
+
+        fn host(&self) -> &str {
+            "test://cached-factory-replacement"
+        }
+
+        async fn subscribe_bidi(
+            &self,
+            _requests: BoxStream<'static, xmtp_proto::backend_v1::SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error> {
+            match self.calls.fetch_add(1, Ordering::SeqCst) {
+                0 => {
+                    let receiver = self.first.lock().take().expect("first wire receiver");
+                    Ok(Box::pin(futures::stream::unfold(
+                        receiver,
+                        |mut receiver| async move {
+                            receiver.recv().await.map(|event| (event, receiver))
+                        },
+                    )))
+                }
+                1 => Err(ApiClientError::OtherUnretryable(
+                    "temporary invalid response".into(),
+                )),
+                _ => Ok(Box::pin(futures::stream::pending())),
+            }
+        }
+    }
+
+    let (wire, receiver) = tokio::sync::mpsc::unbounded_channel();
+    let api = Arc::new(ScriptedApi {
+        calls: Arc::new(AtomicUsize::new(0)),
+        first: Arc::new(parking_lot::Mutex::new(Some(receiver))),
+    });
+    let factory = BidiSubscriptionFactory::new(api.clone());
+    let cursors: TopicCursor = [(Topic::new_group_message([7; 16]), Cursor(0))].into();
+    let limits = IncomingBatchLimits {
+        max_rows: 8,
+        max_bytes: 1024,
+    };
+    let mut old = factory.open(cursors.clone(), limits).await?;
+    assert_eq!(api.calls.load(Ordering::SeqCst), 1);
+    drop(wire);
+    xmtp_common::wait_for_ge(|| async { api.calls.load(Ordering::SeqCst) }, 2).await?;
+    let ended = xmtp_common::time::timeout(WAIT, async {
+        loop {
+            match old.events.next().await {
+                Some(Err(error)) => break error,
+                Some(Ok(_)) => {}
+                None => panic!("old consumer lost its terminal cause"),
+            }
+        }
+    })
+    .await?;
+    assert!(!xmtp_common::RetryableError::is_retryable(&ended));
+
+    let _replacement = factory.open(cursors, limits).await?;
+    xmtp_common::wait_for_ge(|| async { api.calls.load(Ordering::SeqCst) }, 3).await?;
+    assert!(
+        xmtp_common::time::timeout(WAIT, old.events.next())
+            .await?
+            .is_none()
+    );
+}
+
+/// Separate API clients at one host keep separate authentication and transport state.
+#[xmtp_common::test(unwrap_try = true)]
+async fn separate_api_clients_at_one_host_use_separate_wires() {
+    let before = shared_transport_count();
+    tester!(alix);
+    tester!(bo);
+    let mut alix_handle = Client::stream_all_messages_with_callback_dispatch(
+        Arc::new(alix.client.clone()),
+        None,
+        None,
+        |_| {},
+        || {},
+    );
+    let mut bo_handle = Client::stream_all_messages_with_callback_dispatch(
+        Arc::new(bo.client.clone()),
+        None,
+        None,
+        |_| {},
+        || {},
+    );
+    alix_handle.wait_for_ready().await;
+    bo_handle.wait_for_ready().await;
+    assert_eq!(shared_transport_count(), before + 2);
 }

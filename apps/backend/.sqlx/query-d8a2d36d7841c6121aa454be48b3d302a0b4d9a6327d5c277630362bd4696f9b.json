@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT nextval('envelope_sequence') AS \"id!\" FROM generate_series(1, $1::bigint) ordinal ORDER BY ordinal",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d8a2d36d7841c6121aa454be48b3d302a0b4d9a6327d5c277630362bd4696f9b"
+}

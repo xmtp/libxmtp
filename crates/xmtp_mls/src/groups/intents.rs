@@ -3,6 +3,7 @@ use super::{
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
 };
 use crate::groups::mls_ext::WelcomePointersExtension;
+use openmls::key_packages::KeyPackage;
 use openmls::prelude::{
     MlsMessageOut,
     tls_codec::{Error as TlsCodecError, Serialize},
@@ -17,7 +18,13 @@ use xmtp_configuration::{
 use xmtp_id::key_package::{
     KeyPackageVerificationError, VerifiedKeyPackageV2, WrapperAlgorithm, WrapperEncryptionExtension,
 };
-use xmtp_mls_common::group_mutable_metadata::MetadataField;
+use xmtp_mls_common::{
+    app_data::{
+        component_id::ComponentId,
+        fields::{FieldWrite, WriteOperation},
+    },
+    group_mutable_metadata::MetadataField,
+};
 use xmtp_proto::{
     ConversionError,
     xmtp::mls::database::{
@@ -46,6 +53,7 @@ use xmtp_proto::{
             self, V1 as UpdatePermissionV1, Version as UpdatePermissionVersion,
         },
     },
+    xmtp::mls::message_contents::ComponentType,
 };
 
 mod queue;
@@ -894,6 +902,30 @@ pub enum PostCommitAction {
     SendWelcomes(SendWelcomesAction),
 }
 
+#[derive(Debug)]
+pub struct MembershipDiffWithKeyPackages {
+    pub new_installations: Vec<Installation>,
+    pub new_key_packages: Vec<KeyPackage>,
+    pub removed_installations: HashSet<Vec<u8>>,
+    pub failed_installations: Vec<Vec<u8>>,
+}
+
+impl MembershipDiffWithKeyPackages {
+    pub fn new(
+        new_installations: Vec<Installation>,
+        new_key_packages: Vec<KeyPackage>,
+        removed_installations: HashSet<Vec<u8>>,
+        failed_installations: Vec<Vec<u8>>,
+    ) -> MembershipDiffWithKeyPackages {
+        MembershipDiffWithKeyPackages {
+            new_installations,
+            new_key_packages,
+            removed_installations,
+            failed_installations,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Installation {
     pub(crate) installation_key: Vec<u8>,
@@ -906,14 +938,7 @@ impl Installation {
     pub fn from_verified_key_package(
         key_package: &VerifiedKeyPackageV2,
     ) -> Result<Self, IntentError> {
-        let wrapper_encryption = key_package.wrapper_encryption()?.unwrap_or_else(|| {
-            // Default to using the hpke init key as the pub key and Curve25519 as the algorithm
-            // if no extension is present. This means you are on an older key package
-            WrapperEncryptionExtension::new(
-                WrapperAlgorithm::Curve25519,
-                key_package.hpke_init_key(),
-            )
-        });
+        let wrapper_encryption = WrapperEncryptionExtension::advertised_by(&key_package.inner)?;
 
         let welcome_pointee_encryption_aead_types = key_package
             .inner
@@ -1038,65 +1063,67 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 
 /// Payload of [`crate::groups::intents::queue::QueueIntent::app_data_update`].
 ///
-/// Generic AppData write intent — one shape replaces the per-component
-/// IntentKind proliferation. Carries the target `component_id` and the
-/// raw `payload` bytes that will be emitted verbatim as the on-wire
-/// `AppDataUpdate` proposal payload. Interpretation of `payload` is
-/// determined by the target component's registered `ComponentType`:
-///
-/// * `Bytes` / `String` typed components — payload is the new value
-///   (last-writer-wins on receive).
-/// * `TlsMap` typed components — payload is a TLS-encoded
-///   `TlsMapDelta<K, V>`. Apply on the receive side is total: `Insert`
-///   is no-op-if-present, `Update` is upsert, `Delete` is idempotent.
-///   No "conflict" failure path.
-/// * `TlsSet` typed components — payload is a TLS-encoded
-///   `TlsSetDelta<E>` (`Add` no-op-if-present, `Remove` idempotent).
+/// Serialized as the local-only `xmtp.mls.database.AppDataUpdateData`
+/// proto (`proto/mls/database/intents.proto`); it never crosses the MLS
+/// wire. Component IDs are `u32` in the proto and narrowed back here;
+/// a value above `u16::MAX` or an unknown version variant fails closed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppDataUpdateIntentData {
-    /// Target well-known or app-range component ID.
-    pub component_id: u16,
-    /// Verbatim AppDataUpdate proposal payload. See the type-level
-    /// docs for the per-`ComponentType` interpretation.
-    pub payload: Vec<u8>,
+pub enum AppDataUpdateIntentData {
+    /// One verbatim `AppDataUpdate` payload (V1). Its meaning follows the
+    /// target component's registered `ComponentType`: a scalar's new
+    /// value, or a TLS-encoded map or set delta.
+    Payload { component_id: u16, payload: Vec<u8> },
+    /// Typed metadata field writes, committed together (V2). The
+    /// publisher resolves them with
+    /// [`xmtp_mls_common::app_data::fields::FieldSnapshot::resolve_writes`]
+    /// against the committed registry.
+    Fields(Vec<FieldWrite>),
 }
 
 impl AppDataUpdateIntentData {
-    /// Build an intent targeting `component_id` with the supplied
-    /// proposal payload bytes.
+    /// Write `payload` to `component_id`.
     pub fn new(component_id: u16, payload: Vec<u8>) -> Self {
-        Self {
+        Self::Payload {
             component_id,
             payload,
         }
     }
 }
 
-// Wire format: prost-encoded `xmtp.mls.database.AppDataUpdateData` proto
-// wrapping `AppDataUpdateData.V1` (see
-// `proto/mls/database/intents.proto`). Same lifecycle as every other
-// intent in this file — local-only SQLite serialization, never crosses
-// the MLS wire, but uses the proto/prost pipeline for tooling
-// consistency, forward-compat under field addition, and serde
-// derivation.
-//
-// The `component_id` field is `u32` on the wire (proto has no u16) and
-// narrowed back to `u16` here. Encoders MUST cap values at `u16::MAX`;
-// decoders reject anything larger as malformed. Unknown version
-// variants fail closed at decode time.
-
 impl From<AppDataUpdateIntentData> for Vec<u8> {
     fn from(intent: AppDataUpdateIntentData) -> Self {
-        use prost::Message;
         use xmtp_proto::xmtp::mls::database::{
-            AppDataUpdateData, app_data_update_data::V1 as AppDataUpdateDataV1,
-            app_data_update_data::Version as AppDataUpdateVersion,
+            AppDataUpdateData,
+            app_data_update_data::{
+                FieldWrite as FieldWriteProto, V1, V2, Version, field_write::Operation,
+            },
+        };
+        let version = match intent {
+            AppDataUpdateIntentData::Payload {
+                component_id,
+                payload,
+            } => Version::V1(V1 {
+                component_id: component_id.into(),
+                payload,
+            }),
+            AppDataUpdateIntentData::Fields(writes) => Version::V2(V2 {
+                writes: writes
+                    .into_iter()
+                    .map(|write| FieldWriteProto {
+                        component_id: write.component_id.as_u16().into(),
+                        component_type: write.component_type.into(),
+                        operation: Some(match write.operation {
+                            WriteOperation::Update(payload) => Operation::Update(payload),
+                            WriteOperation::Remove => Operation::Remove(true),
+                            WriteOperation::SetOwn(value) => Operation::SetOwn(value),
+                            WriteOperation::ClearOwn => Operation::ClearOwn(true),
+                        }),
+                    })
+                    .collect(),
+            }),
         };
         AppDataUpdateData {
-            version: Some(AppDataUpdateVersion::V1(AppDataUpdateDataV1 {
-                component_id: intent.component_id as u32,
-                payload: intent.payload,
-            })),
+            version: Some(version),
         }
         .encode_to_vec()
     }
@@ -1114,29 +1141,47 @@ impl TryFrom<&[u8]> for AppDataUpdateIntentData {
     type Error = IntentError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        use prost::Message;
         use xmtp_proto::xmtp::mls::database::{
-            AppDataUpdateData, app_data_update_data::Version as AppDataUpdateVersion,
+            AppDataUpdateData,
+            app_data_update_data::{Version, field_write::Operation},
         };
-        let proto = AppDataUpdateData::decode(data)?;
-        let v1 = match proto.version {
-            Some(AppDataUpdateVersion::V1(v1)) => v1,
-            None => {
-                return Err(IntentError::Generic(
-                    "AppDataUpdateIntentData missing version oneof variant".into(),
-                ));
-            }
+        let invalid =
+            |reason: String| IntentError::Generic(format!("AppDataUpdateIntentData {reason}"));
+        let component_id = |id: u32| {
+            u16::try_from(id).map_err(|_| invalid(format!("component_id {id} exceeds u16 range")))
         };
-        let component_id = u16::try_from(v1.component_id).map_err(|_| {
-            IntentError::Generic(format!(
-                "AppDataUpdateIntentData component_id {} exceeds u16 range",
-                v1.component_id
-            ))
-        })?;
-        Ok(Self {
-            component_id,
-            payload: v1.payload,
-        })
+        match AppDataUpdateData::decode(data)?.version {
+            Some(Version::V1(v1)) => Ok(Self::Payload {
+                component_id: component_id(v1.component_id)?,
+                payload: v1.payload,
+            }),
+            Some(Version::V2(v2)) => v2
+                .writes
+                .into_iter()
+                .map(|write| {
+                    Ok(FieldWrite {
+                        component_id: ComponentId::new(component_id(write.component_id)?),
+                        component_type: ComponentType::try_from(write.component_type).map_err(
+                            |_| {
+                                invalid(format!(
+                                    "component_type {} is unknown",
+                                    write.component_type
+                                ))
+                            },
+                        )?,
+                        operation: match write.operation {
+                            Some(Operation::Update(payload)) => WriteOperation::Update(payload),
+                            Some(Operation::Remove(_)) => WriteOperation::Remove,
+                            Some(Operation::SetOwn(value)) => WriteOperation::SetOwn(value),
+                            Some(Operation::ClearOwn(_)) => WriteOperation::ClearOwn,
+                            None => return Err(invalid("field write has no operation".into())),
+                        },
+                    })
+                })
+                .collect::<Result<_, _>>()
+                .map(Self::Fields),
+            None => Err(invalid("missing version oneof variant".into())),
+        }
     }
 }
 
@@ -1206,6 +1251,67 @@ mod app_data_update_intent_tests {
         }
     }
 
+    /// A queued field write must reach the publisher exactly as encoded:
+    /// its ID, the type it was encoded under (the publisher's stale-type
+    /// check compares against it), and each operation kind.
+    #[xmtp_common::test]
+    fn field_writes_round_trip() {
+        let write = |id, component_type, operation| FieldWrite {
+            component_id: ComponentId::new(id),
+            component_type,
+            operation,
+        };
+        let intent = AppDataUpdateIntentData::Fields(vec![
+            write(
+                0x8001,
+                ComponentType::String,
+                WriteOperation::Update(b"a".to_vec()),
+            ),
+            write(0x8002, ComponentType::Bytes, WriteOperation::Remove),
+            write(
+                0x8003,
+                ComponentType::TlsMapInboxIdString,
+                WriteOperation::SetOwn(b"b".to_vec()),
+            ),
+            write(
+                0x8004,
+                ComponentType::TlsMapInboxIdBytes,
+                WriteOperation::ClearOwn,
+            ),
+        ]);
+        let bytes: Vec<u8> = intent.clone().into();
+        assert_eq!(AppDataUpdateIntentData::try_from(bytes).unwrap(), intent);
+    }
+
+    /// A field write whose encoding type or operation this build cannot
+    /// read fails closed rather than publishing a guess.
+    #[xmtp_common::test]
+    fn unreadable_field_writes_fail_closed() {
+        use xmtp_proto::xmtp::mls::database::{
+            AppDataUpdateData,
+            app_data_update_data::{
+                FieldWrite as FieldWriteProto, V2, Version, field_write::Operation,
+            },
+        };
+        let decode = |component_type, operation| {
+            AppDataUpdateIntentData::try_from(
+                AppDataUpdateData {
+                    version: Some(Version::V2(V2 {
+                        writes: vec![FieldWriteProto {
+                            component_id: 0x8001,
+                            component_type,
+                            operation,
+                        }],
+                    })),
+                }
+                .encode_to_vec(),
+            )
+        };
+        assert!(decode(ComponentType::Bytes.into(), Some(Operation::Remove(true))).is_ok());
+        assert!(decode(99, Some(Operation::Remove(true))).is_err());
+        assert!(decode(ComponentType::Bytes.into(), None).is_err());
+    }
+
     #[test]
     fn malformed_proto_bytes_surface_decode_error() {
         // Random bytes that aren't a valid proto must surface a
@@ -1220,10 +1326,8 @@ pub(crate) mod tests {
     use crate::context::XmtpSharedContext;
     use crate::groups::send_message_opts::SendMessageOpts;
     use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
-    use xmtp_api_d14n::protocol::XmtpQuery;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpOpenMlsProviderRef;
-    use xmtp_proto::types::TopicKind;
 
     use crate::{builder::ClientBuilder, utils::TestMlsGroup};
 
@@ -1304,9 +1408,9 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // No key rotation needed, because A's commit to add B already performs a rotation.
-        // Group should have a commit to add client B, followed by A's message.
-        verify_num_payloads_in_group(&group_a, 2).await;
+        // No key rotation is needed because A's commit to add B rotates the key.
+        // The Add proposal, membership AppDataUpdate proposal, commit, and message are published.
+        verify_num_payloads_in_group(&group_a, 4).await;
 
         // Client B sends a message to Client A
         let groups_b = client_b.sync_welcomes().await.unwrap();
@@ -1318,15 +1422,15 @@ pub(crate) mod tests {
             .expect("send message");
 
         // B must perform a key rotation before sending their first message.
-        // Group should have a commit to add B, A's message, B's key rotation and then B's message.
-        let payloads_a = verify_num_payloads_in_group(&group_a, 4).await;
-        let payloads_b = verify_num_payloads_in_group(&group_b, 4).await;
+        // The initial four envelopes are followed by B's key rotation and message.
+        let payloads_a = verify_num_payloads_in_group(&group_a, 6).await;
+        let payloads_b = verify_num_payloads_in_group(&group_b, 6).await;
 
         // Verify key rotation payload
         for i in 0..payloads_a.len() {
             assert_eq!(payloads_a[i].payload_hash, payloads_b[i].payload_hash);
         }
-        verify_commit_updates_leaf_node(&group_a, &payloads_a[2]);
+        verify_commit_updates_leaf_node(&group_a, &payloads_a[4]);
 
         // Client B sends another message to Client A, and Client A sends another message to Client B.
         group_b
@@ -1338,9 +1442,9 @@ pub(crate) mod tests {
             .await
             .expect("send message");
 
-        // Group should only have 2 additional messages - no more key rotations needed.
-        verify_num_payloads_in_group(&group_a, 6).await;
-        verify_num_payloads_in_group(&group_b, 6).await;
+        // Group should only have two additional messages. No more key rotations are needed.
+        verify_num_payloads_in_group(&group_a, 8).await;
+        verify_num_payloads_in_group(&group_b, 8).await;
     }
 
     async fn verify_num_payloads_in_group(
@@ -1350,11 +1454,11 @@ pub(crate) mod tests {
         let messages = group
             .context
             .api()
-            .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
+            .query_group_messages(group.group_id)
             .await
             .unwrap();
         assert_eq!(messages.len(), num_messages);
-        messages.group_messages().unwrap()
+        messages
     }
 
     fn verify_commit_updates_leaf_node(

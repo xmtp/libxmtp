@@ -1,0 +1,118 @@
+---
+interface Props {
+  quickstart: string;
+}
+const { quickstart } = Astro.props;
+---
+
+<section class="home home-hero">
+  <span class="home-label"
+    >OPEN SOURCE · END-TO-END ENCRYPTED · QUANTUM-RESISTANT</span
+  >
+  <h1 id="_top" data-page-title>
+    Build secure messaging<br /> for people and agents<span class="period"
+      >.</span
+    >
+  </h1>
+  <p>
+    Quantum-resistant, end-to-end encrypted DMs and groups.<br />Native SDKs for
+    mobile, web, servers, and agents.
+  </p>
+  <div class="actions">
+    <a class="home-button" href={quickstart}
+      >Start building <span aria-hidden="true">↗</span></a
+    >
+    <a class="home-link" href="/sdk/client/"
+      >Build with your coding assistant <span aria-hidden="true">→</span></a
+    >
+  </div>
+  <p class="social-proof">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"></path>
+      <path d="m9 12 2 2 4-4"></path>
+    </svg>
+    <span>Billions of messages sent since 2022</span>
+  </p>
+</section>
+<style>
+  .home-hero {
+    padding: 65px 0 60px;
+    text-align: center;
+  }
+  h1 {
+    font-weight: 500;
+    font-size: clamp(42px, 5vw, 65px);
+    letter-spacing: -3px;
+    line-height: 1.06;
+    margin: 25px 0 24px;
+    color: var(--home-ink);
+  }
+  .period {
+    color: var(--home-blue);
+  }
+  p {
+    font-size: 20px;
+    line-height: 1.6;
+    color: #5a6069;
+    max-width: 660px;
+    margin: 0 auto 33px;
+  }
+  .actions {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 26px;
+  }
+  .social-proof {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 9px;
+    margin: 25px auto 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--home-muted);
+  }
+  .social-proof svg {
+    flex-shrink: 0;
+    color: var(--home-blue);
+  }
+  @media (max-width: 900px) {
+    h1 {
+      font-size: 53px;
+    }
+  }
+  @media (max-width: 680px) {
+    .home-hero {
+      padding: 35px 0 40px;
+    }
+    h1 {
+      font-size: 41px;
+      letter-spacing: -1.8px;
+    }
+    h1 br {
+      display: none;
+    }
+    p {
+      font-size: 17px;
+    }
+    .actions {
+      flex-direction: column;
+      gap: 22px;
+    }
+    .social-proof {
+      font-size: 13px;
+    }
+  }
+</style>

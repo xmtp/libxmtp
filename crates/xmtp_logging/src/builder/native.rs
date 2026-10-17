@@ -7,6 +7,12 @@ use crate::error::Error;
 use crate::handle::LoggingHandle;
 
 impl XmtpLoggingBuilder {
+    /// Send plain or JSON output to stderr. Keep stdout available for protocols.
+    pub fn with_stderr(mut self) -> Self {
+        self.stderr = true;
+        self
+    }
+
     /// Configure (or clear) OTLP telemetry export.
     pub fn with_telemetry(mut self, t: Option<TelemetryConfig>) -> Self {
         self.cfg.telemetry = t;
@@ -36,13 +42,14 @@ impl XmtpLoggingBuilder {
         // so a bad endpoint errors here and leaves `install` retryable. Only built
         // when an endpoint is set, to avoid an exporter spamming localhost.
         let mut guards = Guards::default();
+        let tracer = crate::telemetry::switch::SwitchTracer::default();
         let otel_initial: Option<BoxLayer> = match cfg.telemetry {
             Some(t) if t.endpoint.is_some() => {
-                let (trace_layer, appender, guard) = build_telemetry_layer(t)?;
+                let (initial_tracer, appender, guard) = build_telemetry_layer(t)?;
+                tracer.set(Some(initial_tracer));
                 guards.telemetry = Some(guard);
-                // Both the trace exporter and the logs appender ride the single
-                // telemetry slot; a Vec<BoxLayer> is itself a Layer<Registry>.
-                Some(vec![trace_layer, appender].boxed())
+                // Only the appender needs a reloadable layer.
+                Some(appender)
             }
             _ => None,
         };
@@ -75,7 +82,11 @@ impl XmtpLoggingBuilder {
             crate::layers::native::native_layer(cfg.native_level.unwrap_or(cfg.level))
         } else {
             (
-                stdout_layer::<Registry>(cfg.json, cfg.stdout_level.unwrap_or(cfg.level)),
+                stdout_layer::<Registry>(
+                    cfg.json,
+                    cfg.stdout_level.unwrap_or(cfg.level),
+                    self.stderr,
+                ),
                 Vec::new(),
             )
         };
@@ -87,11 +98,26 @@ impl XmtpLoggingBuilder {
         // Slot 4: reloadable telemetry layer (seeded with the pre-built exporter).
         let (otel_layer, otel_handle) = reload::Layer::new(otel_initial);
 
+        // Slot 5: one replaceable sink. The layer stays installed when empty.
+        let sink = crate::layers::sink::SinkSlot::default();
+
+        // Reloading the OTel layer hides its context-access downcast. Keep it
+        // fixed and replace its tracer when telemetry changes.
+        let trace_filter = tracer.clone();
+        let trace_layer = tracing_opentelemetry::layer()
+            .with_tracer(tracer.clone())
+            .with_filter(tracing_subscriber::filter::dynamic_filter_fn(
+                move |_, _| trace_filter.enabled(),
+            ));
         let layers: Vec<BoxLayer> = vec![
             filter_layer.boxed(),
             primary_layer,
             file_layer.boxed(),
             otel_layer.boxed(),
+            sink.clone().boxed(),
+            trace_layer.boxed(),
+            #[cfg(feature = "metrics")]
+            crate::span_metrics::SpanMetricsLayer.boxed(),
         ];
 
         // Only fallible step left is the global-default install itself.
@@ -105,6 +131,8 @@ impl XmtpLoggingBuilder {
             native_filters,
             file_handle,
             otel_handle,
+            sink,
+            tracer,
             guards,
         );
 

@@ -1,5 +1,5 @@
 use openmls::prelude::UnknownExtension;
-use openmls::prelude::{Ciphersuite, Extension};
+use openmls::prelude::{Ciphersuite, Extension, KeyPackage};
 use prost::{EncodeError, Message};
 use xmtp_configuration::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
 use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
@@ -143,6 +143,23 @@ impl WrapperEncryptionExtension {
             algorithm,
             pub_key_bytes,
         }
+    }
+
+    /// The wrapper a key package advertises: its `WelcomeWrapperEncryption`
+    /// extension, or Curve25519 under the package's init key when it has none.
+    pub fn advertised_by(key_package: &KeyPackage) -> Result<Self, ConversionError> {
+        key_package
+            .extensions()
+            .unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID)
+            .map_or_else(
+                || {
+                    Ok(Self::new(
+                        WrapperAlgorithm::Curve25519,
+                        key_package.hpke_init_key().as_slice().to_vec(),
+                    ))
+                },
+                Self::try_from,
+            )
     }
 }
 

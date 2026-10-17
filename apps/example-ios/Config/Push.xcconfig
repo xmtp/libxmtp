@@ -1,0 +1,4 @@
+#include "Release.xcconfig"
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) PUSH_ENABLED
+CODE_SIGN_ENTITLEMENTS = ExampleApp/Resources/ExampleApp-Push.entitlements
+INFOPLIST_FILE = Config/Push-Info.plist

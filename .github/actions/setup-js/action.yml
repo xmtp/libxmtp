@@ -1,0 +1,88 @@
+name: "Setup JavaScript"
+description: "Restore the pnpm store by cache mode and install the root workspace"
+inputs:
+  cache-mode:
+    description: >-
+      The job's setup-nix cache mode; every job passes the same mode to both
+      actions. "read": no pnpm store restore, so pnpm downloads each tarball
+      and checks it against the lockfile. "ci": restore only. "trusted":
+      restore, install without lifecycle scripts, and save pnpm-* entries.
+    required: false
+    default: "read"
+  nix:
+    description: "Use pnpm from the active Nix development shell"
+    required: false
+    default: "true"
+  filter:
+    description: >-
+      A pnpm filter for the install, such as "@xmtp/release-tools...". Empty
+      (the default) installs the whole workspace. pnpm also installs the root
+      project's dependencies with a filter.
+    required: false
+    default: ""
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      if: ${{ inputs.nix != 'true' }}
+      with:
+        node-version-file: ".node-version"
+    # This reads the exact pnpm version from the root packageManager field.
+    - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      if: ${{ inputs.nix != 'true' }}
+
+    - name: Find pnpm store path (Nix)
+      id: nix-store
+      if: ${{ inputs.nix == 'true' }}
+      shell: bash
+      run: |
+        echo "path=$(dev/nix-shell --shell js-node 'pnpm store path --silent')" >> "$GITHUB_OUTPUT"
+        # Later composite actions can use the Nix-owned pnpm without entering
+        # a second development shell.
+        echo "$(dirname "$(dev/nix-shell --shell js-node 'command -v pnpm')")" >> "$GITHUB_PATH"
+
+    - name: Find pnpm store path
+      id: host-store
+      if: ${{ inputs.nix != 'true' }}
+      shell: bash
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+    # pnpm checks restored store files only against the store's own index,
+    # not against the lockfile, so only trusted jobs save the store, and
+    # release, publish, and deploy jobs (mode read) do not restore it.
+    - name: Restore pnpm store
+      if: ${{ inputs.cache-mode == 'ci' }}
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      with:
+        path: ${{ steps.nix-store.outputs.path || steps.host-store.outputs.path }}
+        key: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          pnpm-${{ runner.os }}-${{ runner.arch }}-
+    - name: Restore and save pnpm store
+      if: ${{ inputs.cache-mode == 'trusted' }}
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      with:
+        path: ${{ steps.nix-store.outputs.path || steps.host-store.outputs.path }}
+        key: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          pnpm-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Install workspace dependencies (Nix)
+      if: ${{ inputs.nix == 'true' }}
+      shell: bash
+      env:
+        PNPM_FILTER: ${{ inputs.filter }}
+        # Install scripts can write into the store that a trusted job saves,
+        # and pnpm does not check restored store files against the lockfile.
+        PNPM_IGNORE_SCRIPTS: ${{ inputs.cache-mode == 'trusted' && 'true' || '' }}
+      run: dev/nix-shell --shell js-node 'pnpm install --frozen-lockfile --prefer-offline ${PNPM_FILTER:+--filter "$PNPM_FILTER"} ${PNPM_IGNORE_SCRIPTS:+--ignore-scripts}'
+
+    - name: Install workspace dependencies
+      if: ${{ inputs.nix != 'true' }}
+      shell: bash
+      env:
+        PNPM_FILTER: ${{ inputs.filter }}
+        # Install scripts can write into the store that a trusted job saves,
+        # and pnpm does not check restored store files against the lockfile.
+        PNPM_IGNORE_SCRIPTS: ${{ inputs.cache-mode == 'trusted' && 'true' || '' }}
+      run: pnpm install --frozen-lockfile --prefer-offline ${PNPM_FILTER:+--filter "$PNPM_FILTER"} ${PNPM_IGNORE_SCRIPTS:+--ignore-scripts}

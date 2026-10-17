@@ -1,0 +1,135 @@
+import { Args, Flags } from "@oclif/core";
+import type { GroupPermissionMode } from "@xmtp/node-sdk";
+import { type CreateGroupOptions } from "@xmtp/node-sdk";
+
+import { BaseCommand } from "@/baseCommand";
+import {
+  identifierKindFlag,
+  publicIdentity,
+  reportUnresolvedHandles,
+} from "@/utils/identity";
+import { memberDetails } from "@/utils/members";
+
+export default class ConversationsCreateGroup extends BaseCommand {
+  static description = `Create a new group conversation.
+
+Creates a new group conversation with the specified members.
+Members are Ethereum addresses, or handles such as nick#2341 with
+--identifier-kind handle.
+
+Group options include:
+- Name: Display name for the group
+- Description: Description of the group's purpose
+- Image URL: URL to group avatar/image
+- Permissions: Permission level (all_members, admin_only, custom)
+
+The creator automatically becomes a super admin of the group.
+
+Returns the new group's ID and details.`;
+
+  static examples = [
+    {
+      command: "<%= config.bin %> <%= command.id %> <address-1> <address-2>",
+      description: "Create group with two members",
+    },
+    {
+      command:
+        '<%= config.bin %> <%= command.id %> <address> --name "My Group"',
+      description: "Create group with a name",
+    },
+    {
+      command:
+        '<%= config.bin %> <%= command.id %> <address> --name "Team" --description "Team chat" --image-url "https://example.com/image.png"',
+      description: "Create group with full metadata",
+    },
+    {
+      command:
+        "<%= config.bin %> <%= command.id %> <address> --permissions admin-only",
+      description: "Create group with admin-only permissions",
+    },
+    {
+      command:
+        "<%= config.bin %> <%= command.id %> nick bo#0042 --identifier-kind handle",
+      description: "Create group with the inboxes that hold two handles",
+    },
+    {
+      command: "<%= config.bin %> <%= command.id %> <address> --json",
+      description: "Output as JSON for scripting",
+    },
+  ];
+
+  static strict = false; // Allow multiple positional args
+
+  static args = {
+    identifiers: Args.string({
+      description: "Ethereum addresses or handles to add to the group",
+      required: true,
+    }),
+  };
+
+  static flags = {
+    ...BaseCommand.baseFlags,
+    "identifier-kind": identifierKindFlag(),
+    name: Flags.string({
+      description: "Group name",
+      helpValue: "<name>",
+    }),
+    description: Flags.string({
+      description: "Group description",
+      helpValue: "<description>",
+    }),
+    "image-url": Flags.string({
+      description: "Group image URL",
+      helpValue: "<url>",
+    }),
+    permissions: Flags.option({
+      options: ["all-members", "admin-only"] as const,
+      description: "Permission preset for the group",
+      default: "all-members",
+    })(),
+  };
+
+  async run(): Promise<void> {
+    const { argv, flags } = await this.parse(ConversationsCreateGroup);
+    const identifiers = argv as string[];
+
+    if (identifiers.length === 0) {
+      this.error("At least one identifier is required to create a group");
+    }
+
+    const client = await this.initClient();
+
+    const identifierObjects = identifiers.map((id) =>
+      publicIdentity(id, flags["identifier-kind"]),
+    );
+
+    const permissionsMap: Record<string, GroupPermissionMode> = {
+      "all-members": { kind: "allMembers" },
+      "admin-only": { kind: "adminOnly" },
+    };
+
+    const options: CreateGroupOptions = {
+      name: flags.name,
+      description: flags.description,
+      imageUrl: flags["image-url"],
+      permissions: permissionsMap[flags.permissions],
+    };
+
+    const group = await reportUnresolvedHandles(client, identifierObjects, () =>
+      client.conversations.createGroup(identifierObjects, options),
+    );
+
+    const members = await group.members();
+    const state = await group.state();
+
+    this.output({
+      id: group.id,
+      name: state.name,
+      description: state.description,
+      imageUrl: state.imageUrl,
+      createdAt: group.createdAt.date.toISOString(),
+      memberCount: members.length,
+      members: await memberDetails(client, members, this.jsonOutput),
+    });
+  }
+}

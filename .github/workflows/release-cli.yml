@@ -1,0 +1,177 @@
+name: Release CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-type:
+        required: true
+        type: choice
+        description: "dev, rc, or final"
+        options:
+          - dev
+          - rc
+          - final
+      rc-number:
+        required: false
+        type: string
+        description: "RC number (required for rc releases)"
+      node-sdk-version:
+        required: false
+        type: string
+        description: "Published @xmtp/node-sdk version to pin (defaults to npm latest)"
+      dry-run:
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      release-type:
+        required: true
+        type: string
+      rc-number:
+        required: false
+        type: string
+      ref:
+        required: false
+        type: string
+      timestamp:
+        required: false
+        type: string
+      node-sdk-version:
+        required: false
+        type: string
+      pending-version:
+        required: false
+        type: string
+      pending-kind:
+        required: false
+        type: string
+      dry-run:
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      version:
+        description: "The published version string"
+        value: ${{ jobs.publish.outputs.version }}
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  check-push-permissions:
+    uses: ./.github/workflows/check-release-push.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      dry-run: ${{ inputs.dry-run }}
+    secrets: inherit
+
+  setup:
+    needs: [check-push-permissions]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      node-sdk-version: ${{ steps.node-sdk-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+      - uses: ./.github/actions/setup-release-tools
+      - name: Compute version
+        id: version
+        env:
+          RELEASE_TYPE: ${{ inputs.release-type }}
+          RC_NUMBER: ${{ inputs.rc-number }}
+          PENDING_VERSION: ${{ inputs.pending-version }}
+          PENDING_KIND: ${{ inputs.pending-kind }}
+          REF: ${{ inputs.ref || github.ref }}
+          TIMESTAMP: ${{ inputs.timestamp }}
+        run: |
+          if [ "$RELEASE_TYPE" = "rc" ]; then
+            VERSION=$(xmtp-release compute-version --sdk cli --release-type rc --rc-number "$RC_NUMBER")
+          elif [ "$RELEASE_TYPE" = "dev" ]; then
+            VERSION=$(xmtp-release compute-version --sdk cli --release-type dev --source-ref "$REF" --timestamp "$TIMESTAMP")
+          elif [ "$RELEASE_TYPE" = "nightly" ]; then
+            if [ -z "$PENDING_VERSION" ] || [ -z "$PENDING_KIND" ]; then
+              echo "::error::nightly resolve called with empty pending version/kind"
+              exit 1
+            fi
+            VERSION=$(xmtp-release resolve-sdk-version --sdk cli --release-type nightly --timestamp "$TIMESTAMP" --pending-version "$PENDING_VERSION" --pending-kind "$PENDING_KIND")
+          else
+            VERSION=$(xmtp-release compute-version --sdk cli --release-type final)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed version: $VERSION"
+      - name: Resolve node-sdk version to pin
+        id: node-sdk-version
+        env:
+          NODE_SDK_VERSION: ${{ inputs.node-sdk-version }}
+        run: |
+          if [ -n "$NODE_SDK_VERSION" ]; then
+            VERSION="$NODE_SDK_VERSION"
+          else
+            VERSION=$(npm view @xmtp/node-sdk version)
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::invalid @xmtp/node-sdk version: $VERSION"
+            exit 1
+          fi
+          if [ "${VERSION%%.*}" -lt 8 ]; then
+            echo "::error::This CLI requires @xmtp/node-sdk 8 or later"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [setup, check-push-permissions]
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    env:
+      NIX_DEVSHELL: js-node
+      # The Node SDK build copies the release-profile Nix tree that CI tested.
+      XMTP_SDK_BUILD: nix
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-release-tools
+        with:
+          nix: "true"
+          # This job also builds the Node SDK and the CLI.
+          filter: ""
+      - name: Build CLI release artifact
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          dev/nix-shell '
+            pnpm --filter @xmtp/node-sdk build
+            xmtp-release set-manifest-version --sdk cli --version "$VERSION"
+            pnpm --filter @xmtp/cli build
+            pnpm --filter @xmtp/cli manifest'
+      - name: Upload build output
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cli_build
+          path: |
+            apps/cli/dist
+            apps/cli/oclif.manifest.json
+          retention-days: 1
+
+  publish:
+    needs: [setup, build, check-push-permissions]
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+      package-dir: apps/cli
+      sdk: cli
+      version: ${{ needs.setup.outputs.version }}
+      artifact-pattern: cli_build
+      artifact-path: apps/cli
+      ignore-scripts: true
+      dep-name: "@xmtp/node-sdk"
+      dep-version: ${{ needs.setup.outputs.node-sdk-version }}
+      dry-run: ${{ inputs.dry-run }}
+    secrets: inherit

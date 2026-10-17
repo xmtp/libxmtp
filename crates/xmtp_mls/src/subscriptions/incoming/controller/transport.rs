@@ -1,0 +1,323 @@
+use super::*;
+
+/// Doubling delay for a source that keeps returning permanent errors.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct RetryBackoff {
+    pub(super) initial: Duration,
+    pub(super) max: Duration,
+}
+
+impl RetryBackoff {
+    /// `failures` counts consecutive permanent errors and starts at one.
+    pub(super) fn delay(&self, failures: u32) -> Duration {
+        let shift = failures.saturating_sub(1).min(u32::BITS - 1);
+        self.initial
+            .checked_mul(1u32 << shift)
+            .unwrap_or(self.max)
+            .min(self.max)
+    }
+}
+
+/// One receiver lifecycle. Requested topics are not proof of registration.
+pub(super) struct Transport {
+    pub(super) factory: Option<Arc<dyn SubscriptionFactory>>,
+    pub(super) state: TransportState,
+    pub(super) requested: HashSet<Topic>,
+    pub(super) registered: HashSet<Topic>,
+    pub(super) generation: u64,
+    pub(super) error: Option<Arc<IncomingError>>,
+    /// Consecutive permanent failures. Only the retry delay grows with it.
+    pub(super) permanent_failures: u32,
+    pub(super) recovery: crate::subscriptions::recovery::RecoverySnapshot,
+    pub(super) attempted_open: Option<RequestKey>,
+    has_connected: std::sync::atomic::AtomicBool,
+    shared_recovery: Arc<parking_lot::Mutex<crate::subscriptions::recovery::RecoverySnapshot>>,
+}
+
+pub(super) enum TransportState {
+    Waiting(Instant),
+    Opening(OpenFuture),
+    Streaming(IncomingSubscription<NetworkError>),
+    Unary,
+}
+
+pub(super) enum TransportEvent {
+    Opened(Result<Opened, NetworkError>),
+    Incoming(Option<Result<IncomingEvent, NetworkError>>),
+}
+
+impl Transport {
+    pub(super) fn new(
+        factory: Option<Arc<dyn SubscriptionFactory>>,
+        shared_recovery: Arc<parking_lot::Mutex<crate::subscriptions::recovery::RecoverySnapshot>>,
+    ) -> Self {
+        Self {
+            factory,
+            state: TransportState::Waiting(Instant::now()),
+            requested: HashSet::new(),
+            registered: HashSet::new(),
+            generation: 0,
+            error: None,
+            permanent_failures: 0,
+            recovery: Default::default(),
+            attempted_open: None,
+            has_connected: std::sync::atomic::AtomicBool::new(false),
+            shared_recovery,
+        }
+    }
+
+    /// Cancel an obsolete receiver without resetting a pending retry delay.
+    pub(super) fn request(&mut self, topics: HashSet<Topic>) {
+        if self.requested == topics {
+            return;
+        }
+        self.requested = topics;
+        self.recovery.healthy_since = None;
+        self.registered.clear();
+        if !matches!(self.state, TransportState::Waiting(_)) {
+            self.state = TransportState::Waiting(Instant::now());
+        }
+    }
+
+    pub(super) fn can_open(&self) -> bool {
+        !self.requested.is_empty()
+            && match self.state {
+                TransportState::Waiting(at) => Instant::now() >= at,
+                TransportState::Unary => self.registered != self.requested,
+                _ => false,
+            }
+    }
+
+    pub(super) fn start(&mut self, future: OpenFuture, request: RequestKey) {
+        self.generation += 1;
+        self.attempted_open = Some(request);
+        self.state = TransportState::Opening(future);
+    }
+
+    pub(super) async fn next(&mut self) -> TransportEvent {
+        match &mut self.state {
+            TransportState::Opening(future) => TransportEvent::Opened(future.await),
+            TransportState::Streaming(subscription) => {
+                TransportEvent::Incoming(subscription.events.next().await)
+            }
+            _ => futures::future::pending().await,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn is_opening(&self) -> bool {
+        matches!(self.state, TransportState::Opening(_))
+    }
+
+    pub(super) fn subscription(&self) -> Option<&IncomingSubscription<NetworkError>> {
+        match &self.state {
+            TransportState::Streaming(subscription) => Some(subscription),
+            _ => None,
+        }
+    }
+
+    pub(super) fn backing_off(&self) -> bool {
+        matches!(self.state, TransportState::Waiting(at) if Instant::now() < at)
+    }
+
+    #[cfg(test)]
+    pub(super) fn retry_at(&self) -> Option<Instant> {
+        match self.state {
+            TransportState::Waiting(at) => Some(at),
+            _ => None,
+        }
+    }
+
+    /// A wake advances a pending retry, including one scheduled after a
+    /// permanent error. No failure is terminal.
+    pub(super) fn wake(&mut self) {
+        if let TransportState::Waiting(at) = &mut self.state {
+            *at = Instant::now();
+        }
+    }
+
+    /// Drop all uncommitted wire progress. The next open starts from durable receipt.
+    ///
+    /// A shorter delay never shortens a longer pending one. An unrelated
+    /// per-topic failure must not erase a permanent-failure backoff and send
+    /// the client back to reopening against a broken backend every second.
+    pub(super) fn disconnect(&mut self, delay: Duration) {
+        self.recovery.healthy_since = None;
+        self.registered.clear();
+        let at = Instant::now() + delay;
+        self.state = match self.state {
+            TransportState::Waiting(pending) if pending > at => TransportState::Waiting(pending),
+            _ => TransportState::Waiting(at),
+        };
+    }
+
+    /// A permanent classification describes one response, not the source. The
+    /// receiver keeps retrying on a growing delay so a server that repairs
+    /// itself is picked up without recreating the client. Skipping an envelope
+    /// is never the recovery: only the delay changes.
+    pub(super) fn fail(&mut self, error: NetworkError, delay: Duration, backoff: RetryBackoff) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let cooldown_refusal = std::error::Error::source(&error)
+            .and_then(|source| source.downcast_ref::<xmtp_api_backend::TransportError>())
+            .is_some_and(xmtp_api_backend::TransportError::is_cooldown_refusal);
+        #[cfg(target_arch = "wasm32")]
+        let cooldown_refusal = false;
+        if cooldown_refusal {
+            // Auth refused this open before refresh or a request. The clock
+            // keeps running, but this event did not spend a failed cycle.
+            self.disconnect(delay);
+            self.error = Some(Arc::new(error.into()));
+            self.recovery.error = self.error.clone();
+            *self.shared_recovery.lock() = self.recovery.clone();
+            return;
+        }
+        let retryable = error.is_retryable();
+        let delay = if retryable {
+            self.permanent_failures = 0;
+            delay
+        } else {
+            self.permanent_failures = self.permanent_failures.saturating_add(1);
+            backoff.delay(self.permanent_failures)
+        };
+        tracing::warn!(
+            error = %error,
+            retryable,
+            permanent_failures = self.permanent_failures,
+            retry_in_ms = delay.as_millis() as u64,
+            "incoming receiver failed"
+        );
+        self.disconnect(delay);
+        self.error = Some(Arc::new(error.into()));
+        // Acquisition reads this mutex too. Publish each failure at its count
+        // change, so a new stream cannot inherit an unpublished old failure.
+        let mut shared = self.shared_recovery.lock();
+        self.recovery.failures = self.recovery.failures.saturating_add(1);
+        self.recovery.error = self.error.clone();
+        *shared = self.recovery.clone();
+    }
+
+    /// Clear the permanent-failure streak after the source proves it works.
+    pub(super) fn opened(&mut self) {
+        self.permanent_failures = 0;
+    }
+
+    pub(super) fn registered(&mut self) {
+        if !self.requested.is_empty() && self.registered == self.requested {
+            self.recovery.healthy_since.get_or_insert_with(Instant::now);
+        }
+    }
+
+    pub(super) fn ended(&mut self) {
+        let mut shared = self.shared_recovery.lock();
+        self.recovery.failures = self.recovery.failures.saturating_add(1);
+        self.recovery.healthy_since = None;
+        self.recovery.error = Some(Arc::new(IncomingError::ReceiverEnded));
+        *shared = self.recovery.clone();
+    }
+
+    pub(super) fn connection(&self) -> IncomingConnection {
+        match self.state {
+            // Report a repeatedly failing source as failed so hosts can surface
+            // it, while the receiver keeps retrying underneath.
+            _ if self.permanent_failures > 0
+                && !matches!(
+                    self.state,
+                    TransportState::Streaming(_) | TransportState::Unary
+                ) =>
+            {
+                IncomingConnection::Failed
+            }
+            TransportState::Streaming(ref subscription) if !subscription.is_connected() => {
+                if self
+                    .has_connected
+                    .load(std::sync::atomic::Ordering::Acquire)
+                {
+                    IncomingConnection::Reconnecting
+                } else {
+                    IncomingConnection::Connecting
+                }
+            }
+            TransportState::Unary
+                if self
+                    .factory
+                    .as_ref()
+                    .is_some_and(|factory| factory.is_suspended()) =>
+            {
+                IncomingConnection::Reconnecting
+            }
+            TransportState::Streaming(_) | TransportState::Unary => {
+                self.has_connected
+                    .store(true, std::sync::atomic::Ordering::Release);
+                IncomingConnection::Connected
+            }
+            TransportState::Opening(_) if self.generation == 1 => IncomingConnection::Connecting,
+            TransportState::Waiting(_) if self.generation == 0 => IncomingConnection::Connecting,
+            _ => IncomingConnection::Reconnecting,
+        }
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::subscriptions::connection_state::ConnectionStates;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use xmtp_events::{
+        ClientEvent, ConnectionState, EventBus, EventFilter, EventKind, PublicBusWriter,
+    };
+
+    // verifies: EVENT-027
+    #[xmtp_common::test(unwrap_try = true)]
+    fn retained_source_changes_emit_one_client_connection_transition() {
+        let connected = Arc::new(AtomicBool::new(false));
+        let source = connected.clone();
+        let subscription =
+            IncomingSubscription::<NetworkError>::new(Box::pin(futures::stream::pending()), |_| {})
+                .with_connection_source(move || source.load(Ordering::Acquire))
+                .map_error(|error| error);
+        let mut transport = Transport::new(None, Default::default());
+        transport.state = TransportState::Streaming(subscription);
+        let bus = EventBus::<()>::new();
+        let events = bus.subscribe(
+            EventFilter::new([EventKind::ConnectionStateChanged]),
+            Some(8),
+        );
+        let states = ConnectionStates::default();
+        states.set_writer(Arc::new(PublicBusWriter::new(&bus)));
+        states.open(1);
+        assert_eq!(transport.connection(), IncomingConnection::Connecting);
+        states.update(1, transport.connection());
+        connected.store(true, Ordering::Release);
+        states.update(1, transport.connection());
+        assert_eq!(transport.connection(), IncomingConnection::Connected);
+        connected.store(false, Ordering::Release);
+        assert_eq!(transport.connection(), IncomingConnection::Reconnecting);
+        states.update(1, transport.connection());
+        states.update(1, transport.connection());
+        connected.store(true, Ordering::Release);
+        assert_eq!(transport.connection(), IncomingConnection::Connected);
+        states.update(1, transport.connection());
+        states.update(1, transport.connection());
+        states.close(1);
+        let transitions: Vec<_> = events
+            .drain()
+            .into_iter()
+            .filter_map(|event| match event.client {
+                Some(ClientEvent::ConnectionStateChanged(change)) => {
+                    Some((change.previous, change.current))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            transitions,
+            [
+                (ConnectionState::Closed, ConnectionState::Connecting),
+                (ConnectionState::Connecting, ConnectionState::Connected),
+                (ConnectionState::Connected, ConnectionState::Reconnecting),
+                (ConnectionState::Reconnecting, ConnectionState::Connected),
+                (ConnectionState::Connected, ConnectionState::Closed),
+            ]
+        );
+    }
+}

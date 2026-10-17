@@ -11,37 +11,39 @@
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 
 pub mod association_state;
+pub mod attachments;
 pub mod consent_record;
 pub mod conversation_list;
-pub mod d14n_migration_cutover;
 pub mod database;
 pub mod db_connection;
+pub mod delivery;
 pub mod group;
 pub mod group_intent;
 pub mod group_message;
-pub mod icebox;
 pub mod identity;
 pub mod identity_cache;
 pub mod identity_update;
+pub mod incoming_envelope;
 pub mod key_package_history;
 pub mod key_store_entry;
 pub mod local_commit_log;
 pub mod message_deletion;
 pub mod migrations;
+pub mod notifications;
 pub mod pending_remove;
 pub mod pragmas;
 pub mod processed_device_sync_messages;
 pub mod readd_status;
+pub mod received_proposal;
 pub mod refresh_state;
 pub mod remote_commit_log;
 pub mod schema;
 mod schema_gen;
+pub mod server_configuration;
 pub mod store;
+pub mod stream_storage;
 pub mod tasks;
 pub mod user_preferences;
-
-#[cfg(test)]
-mod migration_test;
 
 pub use self::db_connection::DbConnection;
 use diesel::{migration::Migration, result::DatabaseErrorKind};
@@ -202,7 +204,7 @@ impl ConnectionError {
 
     #[cfg(target_arch = "wasm32")]
     pub fn db_needs_connection(&self) -> bool {
-        false
+        matches!(self, Self::Platform(PlatformStorageError::Disconnected))
     }
 }
 
@@ -294,7 +296,8 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
 
     type DbQuery: crate::DbQuery + MaybeSend + MaybeSync;
 
-    fn init(&self) -> Result<(), ConnectionError> {
+    /// Reject incompatible formats before migration; never infer F from old processed progress.
+    fn init(&self) -> Result<(), StorageError> {
         self.conn().raw_query(|conn| {
             self.validate(conn).map_err(|e| {
                 diesel::result::Error::DatabaseError(
@@ -302,6 +305,43 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     Box::new(e.to_string()),
                 )
             })?;
+            #[derive(QueryableByName)]
+            struct MigrationTable {
+                #[diesel(sql_type = diesel::sql_types::Text)]
+                name: String,
+            }
+            let migration_table = sql_query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__diesel_schema_migrations'",
+            ).get_result::<MigrationTable>(conn).optional()?;
+            if let Some(table) = migration_table {
+                debug_assert_eq!(table.name, "__diesel_schema_migrations");
+                let known = MIGRATIONS.versions();
+                let applied = conn.applied_migrations()
+                    .map_err(diesel::result::Error::QueryBuilderError)?;
+                if applied.iter().any(|version| !known.contains(&version.to_string())) {
+                    return Ok(Err(StorageError::PreTransitionDatabase));
+                }
+                if !applied.is_empty() {
+                    let current_format = sql_query(
+                        "SELECT name FROM pragma_table_info('refresh_state') WHERE name = 'received_sequence_id'",
+                    ).get_result::<MigrationTable>(conn).optional()?;
+                    if current_format.is_none() {
+                        return Ok(Err(StorageError::OldStreamDatabase));
+                    }
+                    // The baseline gained `server_configuration`.
+                    // Diesel records one version for the whole baseline, so a
+                    // database created by an earlier self-hosted build is never
+                    // re-migrated and would meet the configuration queries with
+                    // "no such table". Reject it here, with the same instruction
+                    // every other baseline change gives, instead of failing later.
+                    let has_configuration = sql_query(
+                        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'server_configuration'",
+                    ).get_result::<MigrationTable>(conn).optional()?;
+                    if has_configuration.is_none() {
+                        return Ok(Err(StorageError::OldStreamDatabase));
+                    }
+                }
+            }
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(diesel::result::Error::QueryBuilderError)?;
 
@@ -312,7 +352,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                 return Ok(Err(ConnectionError::InvalidVersion {
                     expected: last_migration,
                     found: db_version,
-                }));
+                }.into()));
             }
 
             let sqlite_version =
@@ -350,6 +390,22 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
 
 #[macro_export]
 macro_rules! impl_fetch {
+    ($model:ty, $table:ident, $key:ty, select) => {
+        impl<C: $crate::ConnectionExt> $crate::Fetch<$model> for C {
+            type Key = $key;
+            fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+                use $crate::diesel::{OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper};
+                self.raw_query(|conn| {
+                    $crate::encrypted_store::schema::$table::table
+                        .find(key.clone())
+                        .select(<$model>::as_select())
+                        .first(conn)
+                        .optional()
+                })
+                .map_err(Into::into)
+            }
+        }
+    };
     ($model:ty, $table:ident) => {
         impl<C> $crate::Fetch<$model> for C
         where
@@ -462,20 +518,28 @@ pub trait MlsProviderExt: OpenMlsProvider<StorageError = SqlKeyStoreError> {
 }
 
 trait EmbeddedMigrationsExt {
-    fn final_migration(&self) -> String;
+    /// Every embedded version, oldest (the self-hosted baseline) first.
+    fn versions(&self) -> Vec<String>;
+
+    #[cfg(test)]
+    fn baseline(&self) -> String {
+        self.versions().swap_remove(0)
+    }
+
+    fn final_migration(&self) -> String {
+        self.versions()
+            .pop()
+            .expect("There is at least one migration")
+    }
 }
 impl EmbeddedMigrationsExt for EmbeddedMigrations {
-    fn final_migration(&self) -> String {
+    fn versions(&self) -> Vec<String> {
         let migrations: Vec<Box<dyn Migration<Sqlite>>> = self
             .migrations()
             .expect("Migrations are directly embedded, so this cannot error");
         migrations
-            .first()
-            .expect("There is at least one migration")
-            .name()
-            .to_string()
-            .chars()
-            .filter(|c| c.is_numeric())
+            .iter()
+            .map(|m| m.name().version().to_string())
             .collect()
     }
 }
@@ -489,7 +553,8 @@ impl MigrationHarnessExt for SqliteConnection {
         let migration: String = self
             .applied_migrations()
             .map_err(diesel::result::Error::QueryBuilderError)?
-            .pop()
+            .into_iter()
+            .next()
             .expect("This function should be run after migrations are applied")
             .to_string();
 

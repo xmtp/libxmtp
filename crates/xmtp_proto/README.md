@@ -1,5 +1,6 @@
 # xmtp_proto
 
-This crate generates Rust definitions and methods for protobufs from <https://github.com/xmtp/proto>.
+This crate generates Rust definitions and methods from the protobuf sources in the workspace root `proto/` directory.
 
-Make sure to run `../dev/gen_protos.sh` and commit your changes whenever you need to consume new changes from the proto repo.
+The build script writes generated Rust, serde implementations, and the descriptor set to Cargo `OUT_DIR`.
+Run `dev/nix-shell 'buf lint proto'` from the workspace root after you change a protobuf source.

@@ -1,31 +1,34 @@
 use super::*;
+use crate::groups::app_data::membership_upkeep::membership_upkeep;
 use crate::groups::group_membership::GroupMembership;
 use crate::groups::{
-    GroupError, build_group_membership_extension,
+    GroupError,
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
-    update_required_capabilities_for_proposals,
-    validated_commit::extract_group_membership,
 };
 use crate::identity::parse_credential;
 use openmls::{
     credentials::BasicCredential,
-    extensions::Extensions,
-    group::GroupContext,
     key_packages::KeyPackage,
-    messages::proposals::{AppDataUpdateOperation, Proposal},
+    messages::proposals::AppDataUpdateOperation,
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, tls_codec::Serialize},
 };
 use openmls_traits::signatures::Signer;
 use prost::Message;
 use tls_codec::VLBytes;
+use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_mls_common::{
     app_data::{
-        component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
+        component_id::ComponentId,
+        components::{
+            inbox_id_set::SuperAdminListComponent, tls_map_components::GroupMembershipComponent,
+        },
         typed::Component,
+        typed_facade::MlsGroupAppData,
     },
     inbox_id::InboxId,
     tls_map::TlsMapDelta,
 };
+use xmtp_mls_validation::commit::{CommitRuleError, extract_group_membership};
 use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
 /// Inbox ids that received at least one Add proposal in this commit.
@@ -57,28 +60,6 @@ pub(crate) fn inbox_ids_from_new_key_packages(
         .collect()
 }
 
-/// Drop net-new members whose installations all failed key-package fetch.
-/// An inbox without an MLS leaf must not appear in the membership dict/extension
-/// or dict and tree state diverge (see `ProposeMemberUpdate` path in `mls_sync.rs`).
-pub(crate) fn strip_unverified_new_adds(
-    new_membership: &mut GroupMembership,
-    old_membership: &GroupMembership,
-    new_key_packages: &[KeyPackage],
-) {
-    let verified_adds = inbox_ids_from_new_key_packages(new_key_packages);
-    let phantom_adds: Vec<String> = new_membership
-        .inbox_ids()
-        .into_iter()
-        .filter(|inbox_id| {
-            old_membership.get(inbox_id).is_none() && !verified_adds.contains(*inbox_id)
-        })
-        .map(str::to_string)
-        .collect();
-    for inbox_id in phantom_adds {
-        new_membership.remove(&inbox_id);
-    }
-}
-
 /// Build the wire-level `TlsMapDelta<InboxId, VLBytes>` payload for an
 /// `AppDataUpdate(GROUP_MEMBERSHIP)` proposal from the diff between
 /// the old and new `GroupMembership` view. Shared between the commit-
@@ -86,28 +67,80 @@ pub(crate) fn strip_unverified_new_adds(
 /// propose-by-reference `IntentKind::ProposeMemberUpdate` flow so
 /// both emit byte-identical payloads for the same diff.
 ///
-/// One mutation per affected inbox:
-/// - `Insert(inbox_id, encode(V1 { sequence_id, failed_installations: [] }))`
-///   for inboxes added.
-/// - `Update(inbox_id, encode(V1 { ... }))` for inboxes whose
-///   `sequence_id` changed.
-/// - `Delete(inbox_id)` for inboxes removed.
-///
-/// `failed_installations` is left empty here — per the proto comment
-/// it's a sender-authoritative retry-suppression hint and the
-/// per-inbox partitioning happens at bootstrap. Steady-state membership
-/// updates intentionally don't propagate failed_installations changes
-/// over the AppData path; the worst case is a slightly noisier retry
-/// loop. Future enhancement once a clearer attribution path exists.
+/// Preserve failed installations in their owning inbox entries. Receivers use
+/// these entries to validate why an authenticated installation has no MLS leaf.
 pub(crate) fn build_group_membership_app_data_payload(
+    conn: &impl xmtp_db::DbQuery,
+    group: &OpenMlsGroup,
     old: &GroupMembership,
     new: &GroupMembership,
 ) -> Result<Vec<u8>, GroupError> {
+    use xmtp_mls_common::app_data::component_source::read_from_app_data_dict;
+    let old_bytes = read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, group)
+        .ok_or(GroupError::MissingSequenceId)?;
+    build_membership_delta(conn, &old_bytes, old, new)
+}
+
+/// Selection and publication use the same delta from the committed dictionary.
+pub(super) fn build_membership_delta(
+    conn: &impl xmtp_db::DbQuery,
+    old_bytes: &[u8],
+    old: &GroupMembership,
+    new: &GroupMembership,
+) -> Result<Vec<u8>, GroupError> {
+    use crate::identity_updates::{IdentityRequirement, require_association_state};
+    use xmtp_mls_common::app_data::component_source::ComponentSourceError;
+    let prior =
+        GroupMembershipComponent::decode_value(old_bytes).map_err(ComponentSourceError::from)?;
+    let wanted: HashSet<_> = new.failed_installations.iter().cloned().collect();
+    let mut owners: HashMap<Vec<u8>, InboxId> = HashMap::new();
+    for (inbox, bytes) in prior.iter() {
+        let value = GroupMembershipEntry::decode(bytes.as_slice())?;
+        if let Some(group_membership_entry::Version::V1(value)) = value.version {
+            for installation in value.failed_installations {
+                owners.insert(installation, *inbox);
+            }
+        }
+    }
+    if !wanted.is_empty() {
+        for (inbox, &sequence_id) in &new.members {
+            if sequence_id == 0 {
+                continue;
+            }
+            let state = require_association_state(
+                conn,
+                &IdentityRequirement {
+                    inbox_id: inbox.clone(),
+                    sequence_id,
+                },
+            )
+            .map_err(crate::groups::validated_commit::CommitValidationError::from)?;
+            let inbox = InboxId::from_hex(inbox).map_err(ComponentSourceError::from)?;
+            for installation in state.installation_ids() {
+                owners.insert(installation, inbox);
+            }
+        }
+    }
     let mut delta = TlsMapDelta::<InboxId, VLBytes>::new();
 
     // Inserts and updates: walk new.members, classify against old.
     for (inbox_id_str, &sequence_id) in new.members.iter() {
-        let entry = encode_membership_entry(sequence_id)?;
+        let inbox = InboxId::from_hex(inbox_id_str).map_err(ComponentSourceError::from)?;
+        let mut failed_installations: Vec<_> = wanted
+            .iter()
+            .filter(|installation| owners.get(*installation) == Some(&inbox))
+            .cloned()
+            .collect();
+        failed_installations.sort_unstable();
+        let entry = GroupMembershipEntry {
+            version: Some(group_membership_entry::Version::V1(
+                group_membership_entry::V1 {
+                    sequence_id,
+                    failed_installations,
+                },
+            )),
+        }
+        .encode_to_vec();
         match old.members.get(inbox_id_str) {
             None => {
                 // New inbox: Insert.
@@ -115,7 +148,11 @@ pub(crate) fn build_group_membership_app_data_payload(
                     .map_err(|e| GroupError::ComponentSource(e.into()))?;
                 delta = delta.insert(inbox_id, VLBytes::new(entry));
             }
-            Some(&old_seq) if old_seq != sequence_id => {
+            Some(_)
+                if prior
+                    .get(&inbox)
+                    .is_none_or(|value| value.as_slice() != entry.as_slice()) =>
+            {
                 // Existing inbox with bumped sequence_id: Update.
                 let inbox_id = InboxId::from_hex(inbox_id_str)
                     .map_err(|e| GroupError::ComponentSource(e.into()))?;
@@ -138,52 +175,62 @@ pub(crate) fn build_group_membership_app_data_payload(
 
     <GroupMembershipComponent as Component>::encode_mutation(&delta).map_err(|e| {
         GroupError::ComponentSource(
-            crate::groups::app_data::component_source::ComponentSourceError::from(e),
+            xmtp_mls_common::app_data::component_source::ComponentSourceError::from(e),
         )
     })
 }
 
-/// Encode a per-inbox `GroupMembershipEntry::V1` value with the given
-/// `sequence_id` and an empty `failed_installations` list.
-fn encode_membership_entry(sequence_id: u64) -> Result<Vec<u8>, GroupError> {
-    let entry = GroupMembershipEntry {
-        version: Some(group_membership_entry::Version::V1(
-            group_membership_entry::V1 {
-                sequence_id,
-                failed_installations: vec![],
-            },
-        )),
-    };
-    Ok(entry.encode_to_vec())
+/// Super admins stay members. Receivers reject both the Remove proposal and
+/// the membership proposal that would drop one, so publish neither.
+pub(super) fn reject_super_admin_removal(
+    openmls_group: &OpenMlsGroup,
+    removed: &[String],
+) -> Result<(), GroupError> {
+    let super_admins = MlsGroupAppData::new(openmls_group.extensions())
+        .get::<SuperAdminListComponent>()?
+        .unwrap_or_default();
+    if super_admins
+        .iter()
+        .any(|admin| removed.contains(&admin.to_hex()))
+    {
+        return Err(CommitValidationError::Rule(CommitRuleError::InsufficientPermissions).into());
+    }
+    Ok(())
 }
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
 #[xmtp_common::mls_span]
-pub(crate) async fn apply_update_group_membership_intent(
-    context: &impl XmtpSharedContext,
+pub(crate) fn apply_update_group_membership_intent(
+    storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
+    mut changes_with_kps: MembershipDiffWithKeyPackages,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
+    reject_super_admin_removal(openmls_group, &intent_data.removed_members)?;
     let extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
     let mut new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
 
-    let group_id = GroupId::try_from(openmls_group.group_id())?;
-    let mut changes_with_kps = calculate_membership_changes_with_keypackages(
-        context,
-        &group_id,
-        &new_group_membership,
-        &old_group_membership,
-    )
-    .await?;
+    // The caller formed this request before the publication fetch. Losing the
+    // last usable package for a requested inbox must fail the request, even if
+    // pending proposals can still produce another valid commit or a no-op.
+    // One usable installation remains sufficient for its inbox.
+    let verified_adds = inbox_ids_from_new_key_packages(&changes_with_kps.new_key_packages);
+    if new_group_membership
+        .inbox_ids()
+        .into_iter()
+        .any(|inbox| old_group_membership.get(inbox).is_none() && !verified_adds.contains(inbox))
+    {
+        return Err(if changes_with_kps.failed_installations.is_empty() {
+            GroupError::InvalidGroupMembership
+        } else {
+            GroupError::InvalidPublicKeys(changes_with_kps.failed_installations)
+        });
+    }
 
-    strip_unverified_new_adds(
-        &mut new_group_membership,
-        &old_group_membership,
-        &changes_with_kps.new_key_packages,
-    );
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
@@ -201,6 +248,7 @@ pub(crate) async fn apply_update_group_membership_intent(
         && membership_diff.updated_inboxes.is_empty()
         && membership_diff.added_inboxes.is_empty()
         && membership_diff.removed_inboxes.is_empty()
+        && openmls_group.pending_proposals().next().is_none()
     {
         return Ok(None);
     }
@@ -218,191 +266,102 @@ pub(crate) async fn apply_update_group_membership_intent(
     failed_installations.extend(std::mem::take(&mut changes_with_kps.failed_installations));
     let mut failed_installations: Vec<Vec<u8>> = failed_installations.into_iter().collect();
     // `PartialEq` compares this field as an ordered `Vec`.
-    // `extensions_changed` uses that result to decide if it needs a GCE.
     failed_installations.sort_unstable();
     new_group_membership.failed_installations = failed_installations;
 
-    // Detect whether this is a migrated group. On migrated groups the
-    // legacy `GROUP_MEMBERSHIP_EXTENSION_ID` is gone and the
-    // membership lives in the AppData dictionary; the membership
-    // delta travels as an `AppDataUpdate(GROUP_MEMBERSHIP)` proposal
-    // rather than a GCE proposal updating the legacy extension.
-    //
-    // Uses the canonical `is_migrated_extensions` predicate (presence
-    // of the `COMPONENT_REGISTRY` entry written by the bootstrap
-    // commit) so we agree with every other send/receive/validate gate
-    // in the migration.
-    let is_migrated = super::super::app_data::is_migrated_extensions(openmls_group.extensions());
-
-    // Update the extensions to have the new GroupMembership.
-    // On migrated groups we deliberately skip writing the legacy
-    // `GROUP_MEMBERSHIP_EXTENSION_ID` — bootstrap removed it and the
-    // AppDataUpdate proposal carries the delta instead.
-    let mut new_extensions = extensions.clone();
-    if !is_migrated {
-        new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership))?;
-    }
-
-    // Check if proposals need to be disabled due to new members not supporting them
+    // New members must support the AppData dictionary that stores all group data.
     let app_data_ext_type = openmls::prelude::ExtensionType::AppDataDictionary;
-    let mut proposals_currently_enabled = openmls_group
-        .extensions()
-        .iter()
-        .any(|ext| ext.extension_type() == app_data_ext_type);
-    let mut downgrade_to_legacy = false;
-    if proposals_currently_enabled && !changes_with_kps.new_key_packages.is_empty() {
+    if !changes_with_kps.new_key_packages.is_empty() {
         let new_members_support_proposals = changes_with_kps.new_key_packages.iter().all(|kp| {
             kp.leaf_node()
                 .capabilities()
                 .extensions()
                 .contains(&app_data_ext_type)
         });
-        // TODO: D14N Hammer
         if !new_members_support_proposals {
-            tracing::info!(
-                "Disabling proposals: new members don't support the AppData dictionary extension"
-            );
-            new_extensions.remove(app_data_ext_type);
-            update_required_capabilities_for_proposals(&mut new_extensions, false)?;
-            proposals_currently_enabled = false;
-            // If this group was migrated, downgrading to legacy
-            // means we need to re-add the legacy GROUP_MEMBERSHIP
-            // extension since the AppDataUpdate path is no longer
-            // available. (This is a rare rollback scenario; covered
-            // here defensively so the subsequent direct-commit path
-            // doesn't lose membership state.)
-            if is_migrated {
-                new_extensions
-                    .add_or_replace(build_group_membership_extension(&new_group_membership))?;
-                downgrade_to_legacy = true;
-            }
+            return Err(GroupError::ProposalsNotSupported(
+                "A dictionary-native group requires AppDataDictionary support".into(),
+            ));
         }
     }
 
-    if proposals_currently_enabled {
-        // Batched proposal path: proposals + (AppDataUpdate or GCE) + commit in one publish
-        let app_data_payload = if is_migrated {
-            Some(build_group_membership_app_data_payload(
-                &old_group_membership,
-                &new_group_membership,
-            )?)
-        } else {
-            None
-        };
-        let publish_intent_data = compute_publish_data_for_proposal_based_update(
-            context,
-            openmls_group,
-            changes_with_kps.new_installations,
-            changes_with_kps.new_key_packages,
-            leaf_nodes_to_remove,
-            new_extensions,
-            app_data_payload,
-            signer,
-        )
-        .await?;
-        let _ = downgrade_to_legacy; // marker so future logic can branch on it; currently unused
-        Ok(Some(publish_intent_data))
-    } else {
-        // Direct commit path (no proposals)
-        let publish_intent_data = compute_publish_data_for_group_membership_update(
-            context,
-            openmls_group,
-            changes_with_kps.new_installations,
-            changes_with_kps.new_key_packages,
-            leaf_nodes_to_remove,
-            new_extensions,
-            signer,
-        )
-        .await?;
-        Ok(Some(publish_intent_data))
-    }
+    let app_data_payload = build_group_membership_app_data_payload(
+        &storage.db(),
+        openmls_group,
+        &old_group_membership,
+        &new_group_membership,
+    )?;
+    let publish_intent_data = compute_publish_data_for_proposal_based_update(
+        storage,
+        openmls_group,
+        changes_with_kps.new_key_packages,
+        leaf_nodes_to_remove,
+        app_data_payload,
+        false,
+        catalogue,
+        signer,
+    )?;
+    Ok(Some(publish_intent_data))
 }
 
+/// Creates MLS proposals (Add/Remove + AppDataUpdate) and a commit that references them.
+/// All payloads are returned together so they can be published in a single
+/// `send_group_messages` call, eliminating multiple network roundtrips.
 #[tracing::instrument(level = "trace", skip_all)]
-async fn compute_publish_data_for_group_membership_update(
-    context: &impl XmtpSharedContext,
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the catalogue is the client's fixed snapshot, threaded explicitly"
+)]
+fn compute_publish_data_for_proposal_based_update(
+    storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
-    installations_to_add: Vec<Installation>,
     key_packages_to_add: Vec<KeyPackage>,
     leaf_nodes_to_remove: Vec<LeafNodeIndex>,
-    new_extensions: Extensions<GroupContext>,
+    app_data_membership_payload: Vec<u8>,
+    inline_membership: bool,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
-    // Use savepoint pattern to create commit without persisting state
-    let ((commit, maybe_welcome_message, _), staged_commit, group_epoch) =
-        generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
-            group.update_group_membership(
-                provider,
-                &signer,
-                &key_packages_to_add,
-                &leaf_nodes_to_remove,
-                new_extensions,
-            )
-        })?;
-
-    let staged_commit = staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
-
-    let post_commit_action = match maybe_welcome_message {
-        Some(welcome_message) => Some(PostCommitAction::from_welcome(
-            welcome_message,
-            installations_to_add,
-        )?),
-        None => None,
-    };
-
-    Ok(PublishIntentData {
-        payloads_to_publish: vec![commit.tls_serialize_detached()?],
-        post_commit_action: post_commit_action.map(|action| action.to_bytes()),
-        staged_commit: Some(staged_commit),
-        should_send_push_notification: false,
-        group_epoch,
-    })
-}
-
-/// Like `compute_publish_data_for_group_membership_update`, but instead of creating a direct
-/// commit via `update_group_membership`, creates MLS proposals (Add/Remove + GCE *or*
-/// AppDataUpdate) and a commit that references them. All payloads are returned together so
-/// they can be published in a single `send_group_messages` call, eliminating multiple network
-/// roundtrips.
-///
-/// `app_data_membership_payload`:
-/// - `Some(bytes)` on migrated groups — emit an
-///   `AppDataUpdate(GROUP_MEMBERSHIP, Update(bytes))` proposal-by-reference.
-///   `bytes` is the wire-encoded `TlsMapDelta<InboxId, VLBytes>` from
-///   `build_group_membership_app_data_payload`.
-/// - `None` on unmigrated groups — fall back to a GCE proposal that
-///   updates the legacy `GROUP_MEMBERSHIP_EXTENSION_ID` extension.
-#[allow(clippy::too_many_arguments)]
-#[tracing::instrument(level = "trace", skip_all)]
-async fn compute_publish_data_for_proposal_based_update(
-    context: &impl XmtpSharedContext,
-    openmls_group: &mut OpenMlsGroup,
-    installations_to_add: Vec<Installation>,
-    key_packages_to_add: Vec<KeyPackage>,
-    leaf_nodes_to_remove: Vec<LeafNodeIndex>,
-    new_extensions: Extensions<GroupContext>,
-    app_data_membership_payload: Option<Vec<u8>>,
-    signer: impl Signer,
-) -> Result<PublishIntentData, GroupError> {
-    let is_migrated_path = app_data_membership_payload.is_some();
-    // Only used on the legacy path. On the migrated path the
-    // membership delta travels via the AppDataUpdate proposal so the
-    // GCE-changed check is irrelevant.
-    let extensions_changed = if is_migrated_path {
-        false
-    } else {
-        let current_membership = extract_group_membership(openmls_group.extensions())?;
-        let new_membership_check = extract_group_membership(&new_extensions)?;
-        current_membership != new_membership_check
-    };
-    let new_extensions_for_filter = new_extensions.clone();
-
     let ((proposal_payloads, bundle), staged_commit, group_epoch) =
-        generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
+        generate_prepared_commit(storage, openmls_group, |group, provider| {
             let mut proposal_payloads: Vec<Vec<u8>> = Vec::new();
 
+            // Selection has checked pending Adds against the target membership
+            // and current packages. Reuse a selected reference when this intent
+            // names the same installation. Keep its authenticated proposer.
+            let pending_adds: HashSet<Vec<u8>> = group
+                .pending_proposals()
+                .filter_map(|proposal| match proposal.proposal() {
+                    Proposal::Add(add) => Some(
+                        add.key_package()
+                            .leaf_node()
+                            .signature_key()
+                            .as_slice()
+                            .to_vec(),
+                    ),
+                    _ => None,
+                })
+                .collect();
+            let key_packages_to_add: Vec<_> = key_packages_to_add
+                .into_iter()
+                .filter(|key_package| {
+                    !pending_adds.contains(key_package.leaf_node().signature_key().as_slice())
+                })
+                .collect();
+            let pending_removals: HashSet<_> = group
+                .pending_proposals()
+                .filter_map(|proposal| match proposal.proposal() {
+                    Proposal::Remove(remove) => Some(remove.removed()),
+                    _ => None,
+                })
+                .collect();
+            let leaf_nodes_to_remove: Vec<_> = leaf_nodes_to_remove
+                .into_iter()
+                .filter(|leaf| !pending_removals.contains(leaf))
+                .collect();
+
             // 1. Create Add proposals
-            for kp in &key_packages_to_add {
+            for kp in key_packages_to_add.iter().filter(|_| !inline_membership) {
                 let (msg, _) = group
                     .propose_add_member(provider, &signer, kp)
                     .map_err(GroupError::ProposeAddMember)?;
@@ -410,78 +369,56 @@ async fn compute_publish_data_for_proposal_based_update(
             }
 
             // 2. Create Remove proposals
-            for &leaf_index in &leaf_nodes_to_remove {
+            for &leaf_index in leaf_nodes_to_remove.iter().filter(|_| !inline_membership) {
                 let (msg, _) = group
                     .propose_remove_member(provider, &signer, leaf_index)
                     .map_err(GroupError::ProposeRemoveMember)?;
                 proposal_payloads.push(msg.tls_serialize_detached()?);
             }
 
-            // 3a. Migrated: emit AppDataUpdate(GROUP_MEMBERSHIP) proposal carrying the delta.
-            //     Receivers walk the proposal alongside the Add/Remove proposals
-            //     and apply the dict update via `accumulate_app_data_updates`.
-            if let Some(payload) = &app_data_membership_payload {
+            // 3. Emit the AppDataUpdate(GROUP_MEMBERSHIP) proposal carrying the delta.
+            // Receivers walk the proposal alongside the Add/Remove proposals
+            // and apply the dictionary update via `accumulate_app_data_updates`.
+            if !has_pending_membership_delta(group, &app_data_membership_payload)? {
                 let (msg, _) = group
                     .propose_app_data_update(
                         provider,
                         &signer,
                         ComponentId::GROUP_MEMBERSHIP.as_u16(),
-                        AppDataUpdateOperation::Update(payload.clone().into()),
+                        AppDataUpdateOperation::Update(app_data_membership_payload.clone().into()),
                     )
-                    .map_err(GroupError::Proposal)?;
-                proposal_payloads.push(msg.tls_serialize_detached()?);
-            // 3b. Legacy: GCE proposal updating GROUP_MEMBERSHIP_EXTENSION_ID
-            //     (only when the membership actually changed).
-            } else if extensions_changed {
-                let (msg, _) = group
-                    .propose_group_context_extensions(provider, new_extensions.clone(), &signer)
                     .map_err(GroupError::Proposal)?;
                 proposal_payloads.push(msg.tls_serialize_detached()?);
             }
 
-            // 4. Create commit consuming all proposals (including the ones just created).
-            //    On migrated groups, also pre-compute the dict updates
-            //    so the commit's confirmation tag agrees with what the
-            //    receiver will compute via its own AppDataUpdate apply path.
-            let new_membership = extract_group_membership(&new_extensions_for_filter)
-                .inspect_err(|err| {
-                    // `None` downstream means "accept all GCE proposals" — a
-                    // parse failure taking that path deserves a trace.
-                    tracing::warn!("failed to extract legacy group membership: {err:?}")
-                })
-                .ok();
-            let app_data_updates = if is_migrated_path {
-                Some(crate::groups::app_data::pending_app_data_updates(group)?)
-            } else {
-                None
-            };
+            // 4. Carry registry reconciliation and removed-member cleanup
+            // inline, so their authority is judged against the post-commit
+            // membership. Pre-compute the dictionary updates so the
+            // confirmation tag agrees with the receiver's apply path.
+            let (upkeep, app_data_updates) = membership_upkeep(group, catalogue)?;
+
+            // 5. Create a commit consuming all proposals.
             let mut stage = group
                 .commit_builder()
                 .consume_proposal_store(true)
+                .add_proposals(upkeep)
+                .propose_adds(
+                    key_packages_to_add
+                        .iter()
+                        .filter(|_| inline_membership)
+                        .cloned(),
+                )
+                .propose_removals(
+                    leaf_nodes_to_remove
+                        .iter()
+                        .filter(|_| inline_membership)
+                        .copied(),
+                )
                 .load_psks(provider.storage())
                 .map_err(CommitToPendingProposalsError::from)?;
-            if let Some(Some(updates)) = app_data_updates {
-                stage.with_app_data_dictionary_updates(Some(updates));
-            }
+            stage.with_app_data_dictionary_updates(app_data_updates);
             let bundle = stage
-                .build(provider.rand(), provider.crypto(), &signer, |qp| {
-                    match qp.proposal() {
-                        // Always filter GCEs against expected membership.
-                        // Accept only if it matches our new_membership; reject stale ones.
-                        // Compare the full GroupMembership (members + failed_installations).
-                        // On migrated groups `extract_group_membership(new_extensions)`
-                        // can't extract (no legacy ext present); we conservatively
-                        // accept all GCEs in that case since the membership is
-                        // delivered via the AppDataUpdate proposal instead.
-                        Proposal::GroupContextExtensions(gce) => match &new_membership {
-                            Some(expected) => extract_group_membership(gce.extensions())
-                                .map(|m| &m == expected)
-                                .unwrap_or(false),
-                            None => true,
-                        },
-                        _ => true,
-                    }
-                })
+                .build(provider.rand(), provider.crypto(), &signer, |_| true)
                 .map_err(CommitToPendingProposalsError::from)?
                 .stage_commit(provider)
                 .map_err(CommitToPendingProposalsError::from)?;
@@ -494,14 +431,13 @@ async fn compute_publish_data_for_proposal_based_update(
 
     // Build all payloads with commit last (for intent hash matching)
     let mut payloads_to_publish = proposal_payloads;
-    // There is currently no feasible way to include dependencies on the previous payloads for the icebox.
-    // We may want to revisit this in the future by allowing something like `originator_id = same_as_message` and `sequence_id = this_sequence_id - n`.
+    // The publish unit stores all proposals and the commit atomically.
     payloads_to_publish.push(commit.tls_serialize_detached()?);
 
     let post_commit_action = match maybe_welcome_message {
         Some(welcome_message) => Some(PostCommitAction::from_welcome(
             welcome_message,
-            installations_to_add,
+            installations_for_staged_adds(&decode_staged_commit(&staged_commit)?)?,
         )?),
         None => None,
     };
@@ -515,11 +451,77 @@ async fn compute_publish_data_for_proposal_based_update(
     })
 }
 
+/// Reuse an accepted delta with the same result, including a different mutation order.
+pub(super) fn has_pending_membership_delta(
+    group: &OpenMlsGroup,
+    payload: &[u8],
+) -> Result<bool, GroupError> {
+    let prior = xmtp_mls_common::app_data::component_source::read_from_app_data_dict(
+        ComponentId::GROUP_MEMBERSHIP,
+        group,
+    )
+    .ok_or(GroupError::InvalidGroupMembership)?;
+    let desired = GroupMembershipComponent::apply_update_payload(payload, Some(&prior))
+        .map_err(xmtp_mls_common::app_data::component_source::ComponentSourceError::from)?;
+    let desired = membership_from_app_data_bytes(&desired)?;
+    for proposal in group.pending_proposals() {
+        if let Proposal::AppDataUpdate(update) = proposal.proposal()
+            && update.component_id() == ComponentId::GROUP_MEMBERSHIP.as_u16()
+            && let AppDataUpdateOperation::Update(payload) = update.operation()
+        {
+            let retained =
+                GroupMembershipComponent::apply_update_payload(payload.as_slice(), Some(&prior))
+                    .map_err(
+                        xmtp_mls_common::app_data::component_source::ComponentSourceError::from,
+                    )?;
+            if membership_from_app_data_bytes(&retained)? == desired {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// Welcome every included Add using its exact selected key package, including
+/// accepted proposals from other members.
+pub(crate) fn installations_for_staged_adds(
+    staged_commit: &StagedCommit,
+) -> Result<Vec<Installation>, GroupError> {
+    staged_commit
+        .add_proposals()
+        .map(|proposal| {
+            let key_package = xmtp_id::key_package::VerifiedKeyPackageV2::try_from(
+                proposal.add_proposal().key_package().clone(),
+            )
+            .map_err(crate::groups::intents::IntentError::from)?;
+            Installation::from_verified_key_package(&key_package).map_err(Into::into)
+        })
+        .collect()
+}
+
+/// Preserve Welcome work for every Add selected by any kind of commit.
+pub(crate) fn welcome_post_commit_action(
+    welcome: Option<openmls::prelude::MlsMessageOut>,
+    staged_commit: Option<&[u8]>,
+) -> Result<Option<Vec<u8>>, GroupError> {
+    let Some(welcome) = welcome else {
+        return Ok(None);
+    };
+    let staged_commit =
+        decode_staged_commit(staged_commit.ok_or(GroupError::MissingPendingCommit)?)?;
+    Ok(Some(
+        PostCommitAction::from_welcome(welcome, installations_for_staged_adds(&staged_commit)?)?
+            .to_bytes(),
+    ))
+}
+
 #[xmtp_common::mls_span]
-pub(crate) async fn apply_readd_installations_intent(
-    context: &impl XmtpSharedContext,
+pub(crate) fn apply_readd_installations_intent(
+    storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: ReaddInstallationsIntentData,
+    changes_with_kps: MembershipDiffWithKeyPackages,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let readded_installations: HashSet<Vec<u8>> =
@@ -539,19 +541,22 @@ pub(crate) async fn apply_readd_installations_intent(
         }
     }
 
-    let mut installations_to_welcome = Vec::new();
-    let mut key_packages_to_welcome = Vec::new();
-    let mut failed_installations = Vec::new();
-    get_keypackages_for_installation_ids(
-        context,
-        installations_to_readd,
-        &mut installations_to_welcome,
-        &mut key_packages_to_welcome,
-        &mut failed_installations,
-    )
-    .await?;
+    if installations_to_readd.is_empty() {
+        return Ok(None);
+    }
+    let key_packages_to_welcome = changes_with_kps
+        .new_key_packages
+        .into_iter()
+        .filter(|key_package| {
+            installations_to_readd.contains(key_package.leaf_node().signature_key().as_slice())
+        })
+        .collect();
+    let failed_installations = changes_with_kps
+        .failed_installations
+        .into_iter()
+        .filter(|installation| installations_to_readd.contains(installation));
 
-    // Update the group membership extension to reflect any failed installations
+    // Update group membership to reflect any failed installations.
     let extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
     let failed_installations: HashSet<Vec<u8>> = old_group_membership
@@ -560,144 +565,162 @@ pub(crate) async fn apply_readd_installations_intent(
         .into_iter()
         .chain(failed_installations)
         .collect();
+    let mut failed_installations: Vec<_> = failed_installations.into_iter().collect();
+    failed_installations.sort_unstable();
     let new_group_membership = GroupMembership {
         members: old_group_membership.members.clone(),
-        failed_installations: failed_installations.into_iter().collect(),
+        failed_installations,
     };
-    let mut new_extensions = extensions.clone();
-    new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership))?;
-
-    let publish_intent_data = compute_publish_data_for_group_membership_update(
-        context,
+    let payload = build_readd_membership_payload(openmls_group, &new_group_membership)?;
+    let publish_intent_data = compute_publish_data_for_proposal_based_update(
+        storage,
         openmls_group,
-        installations_to_welcome,
         key_packages_to_welcome,
         leaf_indices_to_remove,
-        new_extensions,
+        payload,
+        // A super-admin re-add must be checked as one commit. Its Remove
+        // alone is forbidden; the matching Add keeps the inbox present.
+        true,
+        catalogue,
         signer,
-    )
-    .await?;
+    )?;
 
     Ok(Some(publish_intent_data))
+}
+
+/// Keep existing failures in their inbox entries. Attribute new failures with
+/// the current ratchet tree, before the readd removes those installations.
+fn build_readd_membership_payload(
+    group: &OpenMlsGroup,
+    membership: &GroupMembership,
+) -> Result<Vec<u8>, GroupError> {
+    use xmtp_mls_common::app_data::component_source::{ComponentSourceError, read_component_bytes};
+
+    let malformed = |reason: &str| ComponentSourceError::MalformedComponentValue {
+        component_id: ComponentId::GROUP_MEMBERSHIP,
+        reason: reason.to_string(),
+    };
+    let bytes = read_component_bytes(ComponentId::GROUP_MEMBERSHIP, group.extensions())?
+        .ok_or_else(|| malformed("missing membership component"))?;
+    let entries =
+        GroupMembershipComponent::decode_value(&bytes).map_err(ComponentSourceError::from)?;
+    let failed: HashSet<_> = membership.failed_installations.iter().collect();
+    let mut failures_by_inbox: HashMap<InboxId, Vec<Vec<u8>>> = HashMap::new();
+    for member in group.members() {
+        if failed.contains(&member.signature_key) {
+            let credential = BasicCredential::try_from(member.credential)?;
+            let inbox = InboxId::from_hex(&parse_credential(credential.identity())?)
+                .map_err(ComponentSourceError::from)?;
+            failures_by_inbox
+                .entry(inbox)
+                .or_default()
+                .push(member.signature_key);
+        }
+    }
+
+    let mut delta = TlsMapDelta::<InboxId, VLBytes>::new();
+    for (inbox, failures) in failures_by_inbox {
+        let prior = entries
+            .get(&inbox)
+            .ok_or_else(|| malformed("failed installation inbox is absent from membership"))?;
+        let mut entry = GroupMembershipEntry::decode(prior.as_slice())?;
+        let Some(group_membership_entry::Version::V1(value)) = &mut entry.version else {
+            return Err(malformed("membership entry has no version").into());
+        };
+        value.failed_installations.extend(failures);
+        value.failed_installations.sort_unstable();
+        value.failed_installations.dedup();
+        let updated = entry.encode_to_vec();
+        if updated != prior.as_slice() {
+            delta = delta.update(inbox, VLBytes::new(updated));
+        }
+    }
+    GroupMembershipComponent::encode_mutation(&delta)
+        .map_err(|error| ComponentSourceError::from(error).into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, RwLock};
 
-    use crate::{
-        groups::{
-            build_group_config, build_mutable_metadata_extension_default,
-            build_mutable_permissions_extension, build_protected_metadata_extension,
-            build_starting_group_membership_extension,
-        },
-        identity::create_credential,
-        test::mock::{NewMockContext, context},
-    };
-    use openmls::{group::MlsGroupCreateConfig, prelude::CredentialWithKey};
-    use rstest::*;
-    use xmtp_cryptography::XmtpInstallationCredential;
-    use xmtp_cryptography::configuration::CIPHERSUITE;
-    use xmtp_db::mock::MockDbQuery;
-
-    fn generate_config(
-        creator_inbox: &str,
-        members: &[&str],
-    ) -> Result<MlsGroupCreateConfig, GroupError> {
-        let mut membership = GroupMembership::new();
-        membership.add(creator_inbox.to_string(), 0);
-        members
-            .iter()
-            .for_each(|m| membership.add(m.to_string(), 0));
-        let _group_membership = build_group_membership_extension(&membership);
-        let protected_metadata =
-            build_protected_metadata_extension(creator_inbox, ConversationType::Group, None)?;
-        let mutable_metadata =
-            build_mutable_metadata_extension_default(creator_inbox, Default::default())?;
-        let group_membership = build_starting_group_membership_extension(creator_inbox, 0);
-        let mutable_permissions = build_mutable_permissions_extension(Default::default())?;
-        let group_config = build_group_config(
-            protected_metadata,
-            mutable_metadata,
-            group_membership,
-            mutable_permissions,
-        )?;
-        Ok(group_config)
-    }
-
-    #[rstest]
-    #[xmtp_common::test]
-    #[allow(clippy::readonly_write_lock, clippy::await_holding_lock)]
-    async fn applies_group_membership_intent(mut context: NewMockContext) {
-        let mut credentials = HashMap::new();
-        let installation_key = XmtpInstallationCredential::new();
-        let key_pair = openmls_basic_credential::SignatureKeyPair::from(installation_key.clone());
-        key_pair.store(&context.mls_storage).unwrap();
-        let signature_key = installation_key.clone().into();
-        let credential = CredentialWithKey {
-            credential: create_credential("alice").unwrap(),
-            signature_key,
-        };
-        credentials.insert(CIPHERSUITE, credential);
-        // create a mocked, MLS client + group using openmls test framework
-        let client = openmls::test_utils::test_framework::client::Client::<_> {
-            identity: b"alice".to_vec(),
-            credentials,
-            provider: XmtpOpenMlsProviderRef::new(&context.mls_storage),
-            groups: RwLock::new(HashMap::new()),
-        };
-        let config = generate_config("alice", &["bob", "caro", "eve"]).unwrap();
-        let id = client.create_group(config, CIPHERSUITE).unwrap();
-        let installation = XmtpInstallationCredential::new();
-
-        let db_calls = || {
-            let mut mock_db = MockDbQuery::new();
-            mock_db
-                .expect_get_latest_sequence_id()
-                .returning(|_ids| Ok(HashMap::new()));
-            mock_db
-        };
-        context.store.expect_db().returning(db_calls);
-
-        let mut groups = client.groups.write().unwrap();
-        let g = groups.get_mut(&id).unwrap();
-
-        // once context is in an arc, can no longer set expectations
-        let context = Arc::new(context);
-        let intent = apply_update_group_membership_intent(
-            context.as_ref(),
-            g,
-            UpdateGroupMembershipIntentData {
-                membership_updates: HashMap::new(),
-                removed_members: Vec::new(),
-                failed_installations: Vec::new(),
-            },
-            installation,
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn membership_delta_reuse_ignores_mutation_order() {
+        use crate::tester;
+        use tls_codec::Deserialize;
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        tester!(caro, disable_workers);
+        tester!(dave, disable_workers);
+        let group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        let old =
+            group.with_group_snapshot(|mls| Ok(extract_group_membership(mls.extensions())?))?;
+        let intent = group
+            .get_membership_update_intent(&[caro.inbox_id(), dave.inbox_id()], &[])
+            .await?;
+        let new = intent.apply_to_group_membership(&old);
+        let changes = calculate_membership_changes_with_keypackages(
+            &group.context,
+            &group.group_id,
+            &new,
+            &old,
         )
-        .await
-        .unwrap();
-        assert!(intent.is_none());
-    }
-
-    #[xmtp_common::test]
-    fn strip_unverified_new_adds_removes_phantom_members() {
-        let mut old = GroupMembership::new();
-        old.add("alice".to_string(), 1);
-
-        let mut new = old.clone();
-        new.add("bob".to_string(), 2);
-        new.add("carol".to_string(), 3);
-
-        // No key packages => both net-new adds are phantom.
-        strip_unverified_new_adds(&mut new, &old, &[]);
-        assert_eq!(new.members, old.members);
-
-        // Identity updates on existing members are preserved even without KPs.
-        new.add("bob".to_string(), 2);
-        new.add("alice".to_string(), 5);
-        strip_unverified_new_adds(&mut new, &old, &[]);
-        assert_eq!(new.get("alice"), Some(&5));
-        assert!(!new.members.contains_key("bob"));
+        .await?;
+        let outcome: TransactionOutcome<()> =
+            crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+                tx.with_group(group.group_id, |mls, storage| {
+                    let payload =
+                        build_group_membership_app_data_payload(&storage.db(), mls, &old, &new)?;
+                    let mut reversed =
+                        TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(&payload)?;
+                    assert_eq!(reversed.mutations.len(), 2);
+                    reversed.mutations.reverse();
+                    let reversed = reversed.tls_serialize_detached()?;
+                    assert_ne!(payload, reversed);
+                    let provider = XmtpOpenMlsProviderRef::new(storage);
+                    let signer = &group.context.identity().installation_keys;
+                    // Seed authenticated pending proposals with an equivalent delta
+                    // in the opposite wire order. No mutation may be signed twice.
+                    for package in &changes.new_key_packages {
+                        mls.propose_add_member(&provider, signer, package)
+                            .map_err(GroupError::ProposeAddMember)?;
+                    }
+                    mls.propose_app_data_update(
+                        &provider,
+                        signer,
+                        ComponentId::GROUP_MEMBERSHIP.as_u16(),
+                        AppDataUpdateOperation::Update(reversed.into()),
+                    )
+                    .map_err(GroupError::Proposal)?;
+                    let publish = compute_publish_data_for_proposal_based_update(
+                        storage,
+                        mls,
+                        changes.new_key_packages.clone(),
+                        vec![],
+                        payload,
+                        false,
+                        &[],
+                        group.context.identity().installation_keys.clone(),
+                    )?;
+                    assert_eq!(
+                        publish.payloads_to_publish.len(),
+                        1,
+                        "reuse accepted Adds and the complete membership delta"
+                    );
+                    let staged = decode_staged_commit(publish.staged_commit.as_ref().unwrap())?;
+                    assert_eq!(staged.add_proposals().count(), 2);
+                    ValidatedCommit::from_staged_commit_local(
+                        &group.context,
+                        &storage.db(),
+                        &staged,
+                        mls.own_leaf_index(),
+                        mls,
+                        u64::MAX,
+                    )?;
+                    Ok::<_, GroupError>(Rollback)
+                })
+            })?;
+        assert!(matches!(outcome, Rollback));
     }
 }

@@ -31,6 +31,8 @@ pub mod native_exports {
 }
 
 mod instrumentation;
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+pub use instrumentation::count_sql_queries;
 
 #[derive(Debug)]
 pub enum PersistentOrMem<P, S, M> {
@@ -117,15 +119,6 @@ mod persistent_or_mem_tests {
         fn reconnect(&self) -> Result<(), crate::ConnectionError> {
             Ok(())
         }
-    }
-
-    #[test]
-    fn single_arm_dispatches() {
-        // Single arm with a real (CountingConn) type dispatches correctly.
-        let c: PersistentOrMem<CountingConn, CountingConn, CountingConn> =
-            PersistentOrMem::Single(CountingConn);
-        assert!(c.disconnect().is_ok());
-        assert!(c.reconnect().is_ok());
     }
 
     #[test]

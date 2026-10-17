@@ -1,0 +1,67 @@
+---
+title: Sync
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Syncing pulls new envelopes into the local database. Conversation lists, message lists, and message counts read the local database. Sync makes new data visible to these queries.
+
+| Call                                   | Pulls                                                    |
+| -------------------------------------- | -------------------------------------------------------- |
+| `conversation.sync()`                  | Messages and group updates for one conversation          |
+| `conversations.sync()`                 | Conversations you have been added to                     |
+| `conversations.syncAll(consentStates)` | Welcomes, selected conversations, and device-sync groups |
+| `preferences.sync()`                   | Welcomes and conversations, including device-sync groups |
+
+All four SDKs use `conversations.syncAll`. Kotlin and Swift access the collection through `client.conversations`.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="sync-browser.ts" region="sync"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="sync-node.ts" region="sync"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+val consentStates = listOf(ConsentState.ALLOWED)
+val summary = client.conversations.syncAll(consentStates)
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+let consentStates: [ConsentState] = [.allowed]
+let summary = try await client.conversations.syncAll(consentStates: consentStates)
+```
+
+</TabItem>
+</Tabs>
+
+`syncAll` fixes the initial conversation set before network work starts. It processes pending outgoing work, then fetches and processes envelopes through fixed targets. Welcomes within the captured target can add conversations to this call. Later publications do not expand its target. Restored inactive conversations from an archive are excluded.
+
+| Summary field | Meaning                                                                     |
+| ------------- | --------------------------------------------------------------------------- |
+| `eligible`    | Conversations enrolled in this sync, including discoveries from welcomes    |
+| `synced`      | Enrolled conversations that remain active after the required work completes |
+
+The counts can include device-sync groups and underlying groups of a stitched DM. An unchanged active conversation can count as synced. If sync cannot complete its required work, it throws an error instead of returning a successful summary.
+
+Use an allowed-only consent filter to limit which conversations this call syncs. The filter does not remove messages already stored by another sync call or a background task.
+
+## Device sync
+
+Device sync shares consent records and HMAC root keys between a user's installations. It does not transfer message history. Use an [archive](/sdk/backups/) to move message history.
+
+The device-sync worker processes updates received in sync groups. `preferences.sync()` and `syncAll()` fetch those groups; the worker also runs in the background while enabled.
+
+Device sync is on by default. Set `deviceSync: false` in `ClientOptions` to turn it off on any SDK.
+
+Use [client events](/sdk/events/) to update app state after local changes. Events do not replace durable message readers.

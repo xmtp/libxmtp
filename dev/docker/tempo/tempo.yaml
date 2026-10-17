@@ -1,0 +1,41 @@
+server:
+  http_listen_port: 3200
+
+backend_scheduler:
+  provider:
+    retention:
+      interval: 5m
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+metrics_generator:
+  processor:
+    service_graphs: {}
+    span_metrics: {}
+  storage:
+    path: /var/tempo/generator
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+
+overrides:
+  defaults:
+    compaction:
+      block_retention: 6h
+    metrics_generator:
+      processors: [service-graphs, span-metrics]

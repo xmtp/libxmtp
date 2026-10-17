@@ -21,7 +21,6 @@ pub struct StoredIdentityUpdate {
     pub sequence_id: i64,
     pub server_timestamp_ns: i64,
     pub payload: Vec<u8>,
-    pub originator_id: i32,
 }
 
 impl StoredIdentityUpdate {
@@ -34,14 +33,12 @@ impl StoredIdentityUpdate {
         sequence_id: i64,
         server_timestamp_ns: i64,
         payload: Vec<u8>,
-        originator_id: i32,
     ) -> Self {
         Self {
             inbox_id,
             sequence_id,
             server_timestamp_ns,
             payload,
-            originator_id,
         }
     }
 }
@@ -234,7 +231,6 @@ pub(crate) mod tests {
             sequence_id,
             rand_time(),
             rand_vec::<24>(),
-            1,
         )
     }
 

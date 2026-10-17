@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Check ephemeral backend dependency boundaries and test recipe environments."""
+
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import sys
+
+# The default database URL is per-worktree: dev/worktree-env derives the port
+# from the worktree's slot, so only the main checkout gets 55432. Match the
+# shape rather than one literal; the override case below still pins an exact
+# value, which is what actually needs guarding.
+DEFAULT_DATABASE_URL_PATTERN = (
+    r"^postgres://xmtp:xmtp@(localhost|127\.0\.0\.1):\d+/xmtp_backend$"
+)
+
+
+def main():
+    if sys.argv[1:2] == ["--assert-env"]:
+        assert os.environ["SQLX_OFFLINE"] == "true"
+        assert os.environ["RUST_MIN_STACK"] == os.environ["EXPECTED_TEST_STACK"]
+        actual = os.environ["DATABASE_URL"]
+        expected = os.environ["EXPECTED_DATABASE_URL"]
+        if expected == "<default>":
+            assert re.match(DEFAULT_DATABASE_URL_PATTERN, actual), actual
+        else:
+            assert actual == expected, f"{actual!r} != {expected!r}"
+        print("PASS: test compilation and execution share the required environment")
+        return
+
+    root = Path(__file__).resolve().parent.parent
+    for options in [
+        "--target wasm32-unknown-unknown -e normal,dev",
+        "--features test-utils -e normal",
+    ]:
+        result = subprocess.run(
+            ["dev/nix-shell", f"cargo tree -p xmtp_mls {options}"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert "xmtp_backend " not in result.stdout, result.stdout
+        print(f"PASS: no backend dependency for {options}")
+
+    for target, database_url, test_stack in [
+        ("workspace", None, None),
+        ("crate xmtp_mls", "postgres://example/override", "16777216"),
+    ]:
+        env = os.environ.copy()
+        env.pop("DATABASE_URL", None)
+        if database_url is not None:
+            env["DATABASE_URL"] = database_url
+        env["EXPECTED_DATABASE_URL"] = database_url or "<default>"
+        env["SQLX_OFFLINE"] = "false"
+        env.pop("RUST_MIN_STACK", None)
+        if test_stack is not None:
+            env["RUST_MIN_STACK"] = test_stack
+        env["EXPECTED_TEST_STACK"] = test_stack or "8388608"
+        env["CARGO_TEST_CMD"] = shlex.join(
+            [str(Path(__file__).resolve()), "--assert-env"]
+        )
+        subprocess.run(
+            ["dev/nix-shell", f"just test {target}"], cwd=root, env=env, check=True
+        )
+
+
+if __name__ == "__main__":
+    main()

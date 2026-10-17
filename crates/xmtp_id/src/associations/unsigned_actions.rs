@@ -71,6 +71,19 @@ impl SignatureTextCreator for UnsignedChangeRecoveryAddress {
     }
 }
 
+/// A `ClaimHandle` before it is signed. `handle` is kept exactly as carried,
+/// because the signature text holds it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnsignedClaimHandle {
+    pub handle: String,
+}
+
+impl SignatureTextCreator for UnsignedClaimHandle {
+    fn signature_text(&self) -> String {
+        format!("- Claim handle\n  (Handle: {})", self.handle)
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum UnsignedAction {
@@ -78,6 +91,7 @@ pub enum UnsignedAction {
     AddAssociation(UnsignedAddAssociation),
     RevokeAssociation(UnsignedRevokeAssociation),
     ChangeRecoveryAddress(UnsignedChangeRecoveryAddress),
+    ClaimHandle(UnsignedClaimHandle),
 }
 
 impl SignatureTextCreator for UnsignedAction {
@@ -87,6 +101,7 @@ impl SignatureTextCreator for UnsignedAction {
             UnsignedAction::AddAssociation(action) => action.signature_text(),
             UnsignedAction::RevokeAssociation(action) => action.signature_text(),
             UnsignedAction::ChangeRecoveryAddress(action) => action.signature_text(),
+            UnsignedAction::ClaimHandle(action) => action.signature_text(),
         }
     }
 }
@@ -109,6 +124,7 @@ impl UnsignedIdentityUpdate {
 }
 
 impl SignatureTextCreator for UnsignedIdentityUpdate {
+    // implements: IDENT-020
     fn signature_text(&self) -> String {
         let all_signatures = self
             .actions
@@ -143,6 +159,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: IDENT-010, IDENT-020
     fn create_signatures() {
         let account_identifier =
             Identifier::eth("0x1234567890abcdef1234567890abcdef12345678").unwrap();
@@ -211,5 +228,29 @@ Current time: 1970-01-01T00:00:00Z
 
 For more info: https://xmtp.org/signatures";
         assert_eq!(signature_text, expected_text)
+    }
+
+    /// A claim contributes its own two lines, with the handle as carried, so
+    /// a signer sees exactly the handle a validator applies.
+    // verifies: IDENT-020
+    #[xmtp_common::test(unwrap_try = true)]
+    fn claim_handle_signature_text_is_fixed() {
+        let identity_update = UnsignedIdentityUpdate {
+            inbox_id: "fcd18d86276d7a99fe522dba9660c420f03c8648785ada7c5daae232a3df77a9".into(),
+            client_timestamp_ns: 1_712_750_400_000_000_000,
+            actions: vec![UnsignedAction::ClaimHandle(UnsignedClaimHandle {
+                handle: "nick#2341".into(),
+            })],
+        };
+        let expected_text = "XMTP : Authenticate to inbox
+
+Inbox ID: fcd18d86276d7a99fe522dba9660c420f03c8648785ada7c5daae232a3df77a9
+Current time: 2024-04-10T12:00:00Z
+
+- Claim handle
+  (Handle: nick#2341)
+
+For more info: https://xmtp.org/signatures";
+        assert_eq!(identity_update.signature_text(), expected_text);
     }
 }

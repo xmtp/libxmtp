@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# The Serena MCP broker from the locked agent tool environment.
+set -euo pipefail
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+exec "$repo_root/dev/agents/uv-run" python "$repo_root/dev/agents/serena_broker.py" "$@"

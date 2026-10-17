@@ -1,0 +1,329 @@
+use crate::XmtpError;
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+static LOGGING: OnceLock<xmtp_logging::LoggingHandle> = OnceLock::new();
+
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum LogLevel {
+    Off,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl From<LogLevel> for xmtp_logging::Level {
+    fn from(value: LogLevel) -> Self {
+        match value {
+            LogLevel::Off => Self::Off,
+            LogLevel::Error => Self::Error,
+            LogLevel::Warn => Self::Warn,
+            LogLevel::Info => Self::Info,
+            LogLevel::Debug => Self::Debug,
+            LogLevel::Trace => Self::Trace,
+        }
+    }
+}
+
+impl From<xmtp_logging::Level> for LogLevel {
+    fn from(value: xmtp_logging::Level) -> Self {
+        match value {
+            xmtp_logging::Level::Off => Self::Off,
+            xmtp_logging::Level::Error => Self::Error,
+            xmtp_logging::Level::Warn => Self::Warn,
+            xmtp_logging::Level::Info => Self::Info,
+            xmtp_logging::Level::Debug => Self::Debug,
+            xmtp_logging::Level::Trace => Self::Trace,
+        }
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct LoggingOptions {
+    #[uniffi(default = None)]
+    pub level: Option<LogLevel>,
+    #[uniffi(default = false)]
+    pub structured: bool,
+    #[uniffi(default = false)]
+    pub performance: bool,
+    #[uniffi(default = None)]
+    pub otel: Option<OtelOptions>,
+    #[uniffi(default)]
+    pub resource_attributes: HashMap<String, String>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OtelOptions {
+    pub endpoint: String,
+    pub service_name: String,
+    #[uniffi(default = 1.0)]
+    pub sample_ratio: f64,
+}
+
+#[xmtp_macro::sdk_export]
+pub async fn init_logging(options: LoggingOptions) -> Result<(), XmtpError> {
+    let level = options.level.unwrap_or(LogLevel::Info);
+    if let Some(handle) = LOGGING.get() {
+        return handle.set_level(level.into()).map_err(XmtpError::from_core);
+    }
+    let builder = xmtp_logging::XmtpLogging::builder()
+        .level(level.into())
+        .json(options.structured)
+        .with_native(!options.structured)
+        .with_performance(options.performance);
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = builder.with_telemetry(options.otel.map(|otel| xmtp_logging::TelemetryConfig {
+        endpoint: Some(otel.endpoint),
+        service_name: Some(otel.service_name),
+        sample_ratio: otel.sample_ratio,
+        logs: true,
+        resource_attributes: options.resource_attributes.into_iter().collect(),
+    }));
+    let handle = builder.install().map_err(XmtpError::from_core)?;
+    LOGGING
+        .set(handle)
+        .map_err(|_| XmtpError::invalid("logging was initialized concurrently"))
+}
+
+#[xmtp_macro::sdk_export]
+pub async fn flush_telemetry() {
+    if let Some(handle) = LOGGING.get() {
+        handle.flush();
+    }
+}
+
+mod sink {
+    use super::{LOGGING, LogLevel, XmtpError};
+    use crate::Timestamp;
+    use std::sync::Arc;
+    use xmtp_logging::LogSinkTarget;
+
+    // The browser logging proofs emit ordered records and read the Rust queue
+    // through these exports. Only their test-only WASM fixtures enable them.
+    /// Emit ordered records for host callback checks.
+    #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
+    #[xmtp_macro::sdk_export]
+    pub async fn sdk_conformance_emit(count: u32) -> Result<(), XmtpError> {
+        for sequence in 0..count {
+            tracing::error!(target: "xmtp_sdk::conformance", sequence, "conformance log");
+        }
+        Ok(())
+    }
+
+    /// Read errors observed by Rust after direct host sink calls.
+    #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
+    #[xmtp_macro::sdk_export]
+    pub async fn sdk_conformance_sink_error_count() -> Result<u64, XmtpError> {
+        Ok(queue().error_count())
+    }
+
+    #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
+    #[xmtp_macro::sdk_export]
+    pub async fn sdk_conformance_sink_dropped_count() -> Result<u64, XmtpError> {
+        Ok(queue().dropped_count())
+    }
+
+    #[derive(Clone, Debug, uniffi::Record)]
+    pub struct LogRecord {
+        pub level: LogLevel,
+        pub target: String,
+        pub message: String,
+        pub fields: std::collections::HashMap<String, String>,
+        pub timestamp: Timestamp,
+        pub dropped_records: u64,
+    }
+
+    impl From<xmtp_logging::LogRecord> for LogRecord {
+        fn from(value: xmtp_logging::LogRecord) -> Self {
+            Self {
+                level: value.level.into(),
+                target: value.target,
+                message: value.message,
+                fields: value.fields.into_iter().collect(),
+                timestamp: Timestamp(value.timestamp_ns),
+                dropped_records: value.dropped_records,
+            }
+        }
+    }
+
+    #[xmtp_macro::callback_error]
+    #[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
+    pub enum LogSinkError {
+        #[error("log sink failed: {reason}")]
+        Failed { reason: String },
+    }
+
+    impl From<uniffi::UnexpectedUniFFICallbackError> for LogSinkError {
+        fn from(error: uniffi::UnexpectedUniFFICallbackError) -> Self {
+            Self::Failed {
+                reason: error.to_string(),
+            }
+        }
+    }
+
+    // Foreign traits need `with_foreign`, which `sdk_export` cannot emit.
+    #[uniffi::export(with_foreign)]
+    #[xmtp_common::async_trait]
+    pub trait LogSink: Send + Sync + 'static {
+        async fn log(&self, record: LogRecord) -> Result<(), LogSinkError>;
+    }
+
+    static QUEUE: std::sync::OnceLock<Arc<xmtp_logging::SinkQueue<dyn LogSink>>> =
+        std::sync::OnceLock::new();
+
+    #[cfg(not(target_arch = "wasm32"))]
+    static DRAIN: std::sync::OnceLock<Box<dyn xmtp_common::StreamHandle<StreamOutput = ()>>> =
+        std::sync::OnceLock::new();
+
+    #[cfg(target_arch = "wasm32")]
+    thread_local! {
+        static DRAIN: std::cell::RefCell<Option<Box<dyn xmtp_common::StreamHandle<StreamOutput = ()>>>> = const { std::cell::RefCell::new(None) };
+    }
+
+    fn queue() -> &'static Arc<xmtp_logging::SinkQueue<dyn LogSink>> {
+        QUEUE.get_or_init(|| Arc::new(xmtp_logging::SinkQueue::default()))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(super) async fn wait_idle() {
+        futures::future::poll_fn(|cx| queue().poll_idle(cx)).await;
+    }
+
+    struct SinkBridge;
+    impl LogSinkTarget for SinkBridge {
+        fn enabled(&self) -> bool {
+            queue().has_sink()
+        }
+
+        fn on_record(
+            &self,
+            record: xmtp_logging::LogRecord,
+        ) -> Result<(), xmtp_logging::SinkError> {
+            queue().push(record);
+            Ok(())
+        }
+    }
+
+    async fn drain(queue: Arc<xmtp_logging::SinkQueue<dyn LogSink>>) {
+        loop {
+            let dispatch = futures::future::poll_fn(|cx| queue.poll_next(cx)).await;
+            let sink = dispatch.target.clone();
+            let record = dispatch.record.clone().into();
+            // One foreign call outlives replacement and completes before the next starts.
+            let success = matches!(
+                crate::foreign::call(async move { sink.log(record).await }).await,
+                Ok(Ok(()))
+            );
+            queue.complete(dispatch, success);
+        }
+    }
+
+    fn start_drain() {
+        #[cfg(not(target_arch = "wasm32"))]
+        DRAIN.get_or_init(|| Box::new(xmtp_common::spawn(None, drain(queue().clone()))));
+        #[cfg(target_arch = "wasm32")]
+        DRAIN.with_borrow_mut(|handle| {
+            if handle.is_none() {
+                *handle = Some(Box::new(xmtp_common::spawn(None, drain(queue().clone()))));
+            }
+        });
+    }
+
+    fn handle() -> Result<&'static xmtp_logging::LoggingHandle, XmtpError> {
+        LOGGING
+            .get()
+            .ok_or_else(|| XmtpError::invalid("init_logging must be called first"))
+    }
+
+    /// Install or clear the optional asynchronous app sink.
+    #[xmtp_macro::sdk_export]
+    pub async fn set_log_sink(sink: Option<Arc<dyn LogSink>>) -> Result<(), XmtpError> {
+        let handle = handle()?;
+        start_drain();
+        queue().replace(sink);
+        handle.set_sink(Some(Arc::new(SinkBridge)));
+        Ok(())
+    }
+
+    /// Private host admission receipt. @xmtp-worker @xmtp-internal
+    #[xmtp_macro::sdk_export]
+    pub fn sdk_log_sink_handoff() -> bool {
+        queue().handoff()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone, Copy, Debug, uniffi::Enum)]
+    pub enum LogRotation {
+        Minutely,
+        Hourly,
+        Daily,
+        Never,
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    impl From<LogRotation> for xmtp_logging::Rotation {
+        fn from(value: LogRotation) -> Self {
+            match value {
+                LogRotation::Minutely => Self::Minutely,
+                LogRotation::Hourly => Self::Hourly,
+                LogRotation::Daily => Self::Daily,
+                LogRotation::Never => Self::Never,
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone, Copy, Debug, uniffi::Enum)]
+    pub enum LogProcessType {
+        Main,
+        Extension,
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    impl From<LogProcessType> for xmtp_logging::ProcessType {
+        fn from(value: LogProcessType) -> Self {
+            match value {
+                LogProcessType::Main => Self::Main,
+                LogProcessType::Extension => Self::NotificationExtension,
+            }
+        }
+    }
+
+    #[xmtp_macro::sdk_export(native_only)]
+    pub fn enter_debug_writer(
+        directory: String,
+        rotation: LogRotation,
+        max_files: u32,
+        level: LogLevel,
+        process_type: LogProcessType,
+    ) -> Result<(), XmtpError> {
+        handle()?
+            .enable_file(xmtp_logging::FileConfig {
+                dir: directory,
+                rotation: rotation.into(),
+                max_files,
+                process_type: process_type.into(),
+                level: level.into(),
+            })
+            .map_err(XmtpError::from_core)
+    }
+
+    #[xmtp_macro::sdk_export(native_only)]
+    pub fn exit_debug_writer() -> Result<(), XmtpError> {
+        handle()?.disable_file().map_err(XmtpError::from_core)
+    }
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    mod tests;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use sink::{LogProcessType, LogRotation};
+pub use sink::{LogRecord, LogSink, LogSinkError};
+
+// Worker retirement waits for queued and handed-off logs. Operation responses
+// and sink replacement do not wait for this barrier.
+#[cfg(target_arch = "wasm32")]
+pub(crate) async fn wait_for_worker_idle() {
+    sink::wait_idle().await;
+}

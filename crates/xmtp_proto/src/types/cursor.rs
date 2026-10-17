@@ -1,170 +1,38 @@
-//! xmtp message cursor type and implementations
+//! Position on one backend topic.
 use serde::{Deserialize, Serialize};
-use std::iter::Once;
-use std::{collections::HashMap, fmt};
-use xmtp_configuration::Originators;
 
-use crate::types::{OriginatorId, SequenceId};
-use crate::xmtp::xmtpv4;
+use super::SequenceId;
+use crate::backend_v1;
 
-/// XMTP cursor type
-/// represents a position in an ordered sequence of messages, belonging
-// force use of the `new` constructor w/ non_exhaustive
-// so we retain some control of the internal structure/use of this type
-// and disallow ad-hoc construction
-// while still allowing access to fields with `.field` notation
-#[non_exhaustive]
+/// Highest sequence id processed on one topic. Zero starts at the beginning.
 #[derive(
-    Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
-pub struct Cursor {
-    pub sequence_id: super::SequenceId,
-    pub originator_id: super::OriginatorId,
+pub struct Cursor(pub SequenceId);
+
+impl From<backend_v1::Cursor> for Cursor {
+    fn from(value: backend_v1::Cursor) -> Self {
+        Self(value.sequence_id)
+    }
 }
 
-impl Cursor {
-    pub fn new<O: Into<u32>>(sequence_id: u64, originator_id: O) -> Self {
+impl From<Cursor> for backend_v1::Cursor {
+    fn from(value: Cursor) -> Self {
         Self {
-            sequence_id,
-            originator_id: originator_id.into(),
-        }
-    }
-
-    pub const fn commit_log(sequence_id: u64) -> Self {
-        Self {
-            sequence_id,
-            originator_id: Originators::REMOTE_COMMIT_LOG,
-        }
-    }
-
-    pub const fn v3_welcomes(sequence_id: u64) -> Self {
-        Self {
-            sequence_id,
-            originator_id: Originators::WELCOME_MESSAGES,
-        }
-    }
-
-    pub const fn v3_messages(sequence_id: u64) -> Self {
-        Self {
-            sequence_id,
-            originator_id: Originators::APPLICATION_MESSAGES,
-        }
-    }
-
-    pub const fn installations(sequence_id: u64) -> Self {
-        Self {
-            sequence_id,
-            originator_id: Originators::INSTALLATIONS,
-        }
-    }
-
-    pub const fn mls_commits(sequence_id: u64) -> Self {
-        Self {
-            sequence_id,
-            originator_id: Originators::MLS_COMMITS,
-        }
-    }
-
-    pub const fn inbox_log(sequence_id: u64) -> Self {
-        Self {
-            sequence_id,
-            originator_id: Originators::INBOX_LOG,
+            sequence_id: value.0,
         }
     }
 }
 
-impl fmt::Display for Cursor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "[sid({:6}):oid({:3})]",
-            self.sequence_id, self.originator_id
-        )
+impl std::fmt::Display for Cursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
 #[cfg(any(test, feature = "test-utils"))]
 impl xmtp_common::Generate for Cursor {
     fn generate() -> Self {
-        Cursor {
-            sequence_id: xmtp_common::rand_u64(),
-            originator_id: openmls::test_utils::random_u32(),
-        }
-    }
-}
-
-impl From<Cursor> for xmtpv4::envelopes::Cursor {
-    fn from(value: Cursor) -> Self {
-        let mut map = HashMap::new();
-        map.insert(value.originator_id, value.sequence_id);
-        xmtpv4::envelopes::Cursor {
-            node_id_to_sequence_id: map,
-        }
-    }
-}
-
-impl<'a> IntoIterator for &'a Cursor {
-    type Item = (&'a OriginatorId, &'a SequenceId);
-    type IntoIter = Once<(&'a OriginatorId, &'a SequenceId)>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        std::iter::once((&self.originator_id, &self.sequence_id))
-    }
-}
-
-impl<'a> IntoIterator for &'a mut Cursor {
-    type Item = (&'a mut OriginatorId, &'a mut SequenceId);
-    type IntoIter = Once<(&'a mut OriginatorId, &'a mut SequenceId)>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        std::iter::once((&mut self.originator_id, &mut self.sequence_id))
-    }
-}
-
-impl IntoIterator for Cursor {
-    type Item = (OriginatorId, SequenceId);
-    type IntoIter = Once<(OriginatorId, SequenceId)>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        std::iter::once((self.originator_id, self.sequence_id))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use rstest::rstest;
-
-    use super::*;
-
-    #[rstest]
-    #[case(Cursor::commit_log(100), 100, Originators::REMOTE_COMMIT_LOG)]
-    #[case(Cursor::v3_welcomes(200), 200, Originators::WELCOME_MESSAGES)]
-    #[case(Cursor::v3_messages(300), 300, Originators::APPLICATION_MESSAGES)]
-    #[case(Cursor::installations(400), 400, Originators::INSTALLATIONS)]
-    #[case(Cursor::mls_commits(500), 500, Originators::MLS_COMMITS)]
-    #[case(Cursor::inbox_log(600), 600, Originators::INBOX_LOG)]
-    #[xmtp_common::test]
-    async fn test_originator_constructors(
-        #[case] cursor: Cursor,
-        #[case] expected_seq: u64,
-        #[case] expected_orig: u32,
-    ) {
-        assert_eq!(cursor.sequence_id, expected_seq);
-        assert_eq!(cursor.originator_id, expected_orig);
-    }
-
-    #[rstest]
-    #[case(Cursor::new(1, 1u32), Cursor::new(2, 1u32), true)] // same originator, different seq
-    #[case(Cursor::new(2, 1u32), Cursor::new(1, 1u32), false)]
-    #[case(Cursor::new(1, 1u32), Cursor::new(1, 1u32), false)] // equal
-    #[case(Cursor::new(1, 1u32), Cursor::new(1, 2u32), true)] // different originators
-    #[xmtp_common::test]
-    async fn test_ordering(
-        #[case] cursor1: Cursor,
-        #[case] cursor2: Cursor,
-        #[case] cursor1_less: bool,
-    ) {
-        assert_eq!(cursor1 < cursor2, cursor1_less);
-        assert_eq!(cursor1 == cursor2, !cursor1_less && cursor2 >= cursor1);
+        Self(xmtp_common::rand_u64())
     }
 }

@@ -88,24 +88,6 @@ macro_rules! if_native {
     )*};
 }
 
-/// Convenience macro to easily export items for d14n
-#[macro_export]
-macro_rules! if_d14n {
-    ($($item:item)*) => {$(
-        #[cfg(feature = "d14n")]
-        $item
-    )*}
-}
-
-/// Convenience macro to easily export items for d14n
-#[macro_export]
-macro_rules! if_v3 {
-    ($($item:item)*) => {$(
-        #[cfg(not(feature = "d14n"))]
-        $item
-    )*}
-}
-
 /// Feature flag for dev network
 #[macro_export]
 macro_rules! if_dev {

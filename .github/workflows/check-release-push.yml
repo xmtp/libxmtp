@@ -1,0 +1,64 @@
+name: Check release push permissions
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      dry-run:
+        description: Resolve the source without creating an App token
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      source-sha:
+        description: Commit of the requested release ref
+        value: ${{ jobs.verify.outputs.source-sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    # Every job that reads GH_APP_ID and GH_APP_PK runs in the `release`
+    # environment, whose deployment policy admits only main and
+    # release/*. A dry run reads no App secret and may build any branch.
+    environment: ${{ inputs.dry-run != true && 'release' || '' }}
+    outputs:
+      source-sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Resolve release source
+        id: source
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # Releases publish only commits that are on trunk or a release branch.
+      # A dry run publishes nothing, so it may build any branch.
+      - name: Check that the source is on a release branch
+        if: ${{ inputs.dry-run != true }}
+        run: |
+          set -euo pipefail
+          # Commits only: the check needs history, not trees or blobs.
+          git fetch --quiet --no-tags --filter=tree:0 origin \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/heads/release/*:refs/remotes/origin/release/*'
+          branches=$(git for-each-ref --contains HEAD --format='%(refname:lstrip=3)' \
+            refs/remotes/origin/main 'refs/remotes/origin/release/')
+          if [[ -z "$branches" ]]; then
+            echo "::error title=Release source::$(git rev-parse HEAD) is not on main or a release/** branch"
+            exit 1
+          fi
+          echo "Release source is on: $(tr '\n' ' ' <<< "$branches")"
+      - name: Verify release App permissions
+        if: ${{ inputs.dry-run != true }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PK }}
+          permission-contents: write
+          permission-workflows: write

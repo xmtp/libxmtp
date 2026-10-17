@@ -1,0 +1,5 @@
+error: `inbox_id` is a synchronous getter; mark it #[sdk(immutable)] when its value never changes for the object's lifetime, or make it async
+ --> tests/ui/sdk_export_unmarked_getter.rs:8:12
+  |
+8 |     pub fn inbox_id(&self) -> String {
+  |            ^^^^^^^^

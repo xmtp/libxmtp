@@ -1,0 +1,23 @@
+{
+  "extends": "../../../../dev/js/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "WebWorker"],
+    "target": "ES2024",
+    "typeRoots": ["../../../../sdks/node/node_modules/@types"],
+    "types": ["node"],
+    // The runtime imports the binding, the generated modules beside it, and
+    // the @ubjs packages. For editors, they resolve in the generated Node
+    // tree, which links the @ubjs packages; run `just sdk generate node`.
+    // The binding there imports that tree's runtime copy, so a class that
+    // crosses the binding (Message) exists twice and an editor reports where
+    // the two meet. `just sdk lint` checks the copy inside each generated
+    // tree, where every module exists once.
+    "rootDirs": ["..", "../../../../target/sdk-generated/typescript-napi"],
+    "paths": {
+      "@ubjs/core": [
+        "../../../../target/sdk-generated/typescript-napi/node_modules/@ubjs/core"
+      ]
+    }
+  },
+  "include": ["**/*.ts"]
+}

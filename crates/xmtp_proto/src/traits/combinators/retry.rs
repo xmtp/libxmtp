@@ -4,7 +4,7 @@ use xmtp_common::{
     ExponentialBackoff, MaybeSend, MaybeSync, Retry, Strategy as RetryStrategy, retry_async,
 };
 
-use crate::api::{ApiClientError, Client, Endpoint, Pageable, Query, QueryRaw};
+use crate::api::{ApiClientError, Client, Endpoint, Query, QueryRaw};
 
 /// The concrete type of a [`crate::api::retry`] Combinators.
 /// Generally using the concrete type can be avoided with type inference
@@ -20,15 +20,6 @@ impl<E> RetryQuery<E> {
             endpoint,
             retry: Default::default(),
         }
-    }
-}
-
-impl<E> Pageable for RetryQuery<E>
-where
-    E: Pageable,
-{
-    fn set_cursor(&mut self, cursor: u64) {
-        self.endpoint.set_cursor(cursor)
     }
 }
 

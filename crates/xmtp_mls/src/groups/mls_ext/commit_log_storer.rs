@@ -22,6 +22,7 @@ pub trait CommitLogStorer: std::marker::Sized {
         provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
+        commit_log_enabled: bool,
     ) -> Result<Self, GroupError>;
 
     fn from_backup_stub_logged(
@@ -29,6 +30,7 @@ pub trait CommitLogStorer: std::marker::Sized {
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
         group_id: GroupId,
+        commit_log_enabled: bool,
     ) -> Result<Self, GroupError>;
 
     fn from_welcome_logged(
@@ -36,6 +38,7 @@ pub trait CommitLogStorer: std::marker::Sized {
         welcome: StagedWelcome,
         sender_inbox_id: &str,
         sender_installation_id: &[u8],
+        commit_log_enabled: bool,
     ) -> Result<Self, GroupError>;
 
     fn merge_staged_commit_logged(
@@ -44,6 +47,7 @@ pub trait CommitLogStorer: std::marker::Sized {
         staged_commit: StagedCommit,
         validated_commit: &ValidatedCommit,
         sequence_id: i64,
+        commit_log_enabled: bool,
     ) -> Result<(), GroupMessageProcessingError>;
 
     /// Marks a commit as failed in the commit log.
@@ -56,14 +60,17 @@ pub trait CommitLogStorer: std::marker::Sized {
         commit_cursor: u64,
         commit_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
+        commit_log_enabled: bool,
     ) -> Result<(), StorageError>;
 }
 
 impl CommitLogStorer for MlsGroup {
+    // implements: GMOD-037
     fn from_creation_logged(
         provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
+        commit_log_enabled: bool,
     ) -> Result<Self, GroupError> {
         let mls_group = MlsGroup::new(
             provider,
@@ -75,7 +82,7 @@ impl CommitLogStorer for MlsGroup {
             },
         )?;
 
-        if xmtp_configuration::ENABLE_COMMIT_LOG {
+        if commit_log_enabled {
             NewLocalCommitLog {
                 group_id: mls_group.group_id().try_into()?,
                 commit_sequence_id: 0,
@@ -99,6 +106,7 @@ impl CommitLogStorer for MlsGroup {
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
         group_id: GroupId,
+        commit_log_enabled: bool,
     ) -> Result<Self, GroupError> {
         let mls_group = MlsGroup::new_with_group_id(
             provider,
@@ -111,7 +119,7 @@ impl CommitLogStorer for MlsGroup {
             },
         )?;
 
-        if xmtp_configuration::ENABLE_COMMIT_LOG {
+        if commit_log_enabled {
             // It is safe to log this stubbed encryption state, because we will not upload anything
             // to the remote commit log with a sequence ID of 0.
             NewLocalCommitLog {
@@ -137,11 +145,12 @@ impl CommitLogStorer for MlsGroup {
         welcome: StagedWelcome,
         sender_inbox_id: &str,
         sender_installation_id: &[u8],
+        commit_log_enabled: bool,
     ) -> Result<Self, GroupError> {
         // Failed welcomes do not need to be added to the commit log
         let mls_group = welcome.into_group(provider)?;
 
-        if xmtp_configuration::ENABLE_COMMIT_LOG {
+        if commit_log_enabled {
             NewLocalCommitLog {
                 group_id: mls_group.group_id().try_into()?,
                 // TODO(rich): Replace with the cursor sequence ID of the welcome once implemented
@@ -161,12 +170,14 @@ impl CommitLogStorer for MlsGroup {
         Ok(mls_group)
     }
 
+    // implements: FORK-001
     fn merge_staged_commit_logged(
         &mut self,
         provider: &impl MlsProviderExt,
         staged_commit: StagedCommit,
         validated_commit: &ValidatedCommit,
         sequence_id: i64,
+        commit_log_enabled: bool,
     ) -> Result<(), GroupMessageProcessingError> {
         // Whether this commit removes our own leaf (authored by anyone — an
         // admin removal or our own leave request). Captured before the merge
@@ -175,6 +186,11 @@ impl CommitLogStorer for MlsGroup {
         let last_epoch_number = self.epoch().as_u64() as i64;
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
         self.merge_staged_commit(provider, staged_commit)?;
+        // The merge emptied the proposal store; its delivery evidence goes with it.
+        provider
+            .key_store()
+            .db()
+            .forget_received_proposals(self.group_id().try_into()?)?;
         let applied_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
 
         if removed_us {
@@ -186,7 +202,7 @@ impl CommitLogStorer for MlsGroup {
             // epoch, and exited — instead of claiming we applied the new
             // epoch with a stale authenticator (which fork detection would
             // misread as a fork; see commit-log fork investigation).
-            if xmtp_configuration::ENABLE_COMMIT_LOG {
+            if commit_log_enabled {
                 NewLocalCommitLog {
                     group_id: self.group_id().try_into()?,
                     commit_sequence_id: sequence_id,
@@ -223,7 +239,7 @@ impl CommitLogStorer for MlsGroup {
             });
         }
 
-        if xmtp_configuration::ENABLE_COMMIT_LOG {
+        if commit_log_enabled {
             NewLocalCommitLog {
                 group_id: self.group_id().try_into()?,
                 commit_sequence_id: sequence_id,
@@ -248,8 +264,9 @@ impl CommitLogStorer for MlsGroup {
         commit_sequence_id: u64,
         commit_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
+        commit_log_enabled: bool,
     ) -> Result<(), StorageError> {
-        if !xmtp_configuration::ENABLE_COMMIT_LOG {
+        if !commit_log_enabled {
             return Ok(());
         }
         let group_id: GroupId = self.group_id().try_into()?;

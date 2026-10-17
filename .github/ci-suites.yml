@@ -1,0 +1,679 @@
+# CI suite selection. This file is the only place to edit it.
+#
+# After a change, run `dev/nix-shell 'python3.11 dev/ci-suites generate'` and
+# commit .github/ci-suites.json and .github/workflows/{lint,test}-generated.yml.
+# `just lint-config` fails when they are stale.
+# `dev/ci-suites explain PATH...` shows what a path selects.
+#
+# Each suite is one reusable workflow. ci.yml calls lint-generated.yml with the
+# selected lint suites and test-generated.yml with the selected test suites.
+# Each generated workflow calls the selected suites' workflows, which run all
+# of their jobs.
+#
+# A pull request runs a suite when a changed file or PR label matches one of
+# its pr_filters. The filters are joined with OR. The suite's workflow file
+# and every local workflow and action it uses also select the suite.
+# Each PR filter is one of:
+#   "glob"                A path glob. `**` crosses directories, `*` does not.
+#   "!glob"               Excludes matching paths from the suite.
+#   cargo_package: name   A Cargo package, or a list of them. The package's
+#                         path-dependency closure selects the suite: normal,
+#                         build and target-specific dependencies, plus the
+#                         package's own dev-dependencies. `@default-members` is
+#                         the workspace default members.
+#   path_group: name      The path filters of a group in `path_groups`.
+#   pr_label: name        An exact PR label name. Valid only in suite filters.
+#
+# Every suite sets every key below, in this order, except covered_by. Nothing
+# has a default.
+#   phase             lint or test.
+#   workflow          The suite's workflow file in .github/workflows.
+#   run_on            Events that can run the suite: draft_pr_push and
+#                     ready_pr_push (pull request pushes) and merge (pushes to
+#                     main). A merge runs every suite that lists
+#                     it. A manual run runs every suite.
+#   disable_on_forks  true skips the suite for fork pull requests.
+#   secrets           `inherit` (all secrets), `kache` (only the Kache keys),
+#                     `cachix-pr` (only the PR-cache token),
+#                     or `none` (no secrets; the suite gets only GITHUB_TOKEN).
+#   permissions       Token permissions for the suite.
+#   covered_by        Optional. A suite whose run makes this one unnecessary.
+#   kache             The Kache scopes the workflows use, or []. Generation
+#                     checks them.
+#   products          The product groups the suite waits for, or []. Only test
+#                     suites can wait: the products jobs run in the test phase.
+#   pr_filters        The filters described above, or [].
+#
+# A changed file that matches `shared` runs every suite. A file that matches no
+# rule also runs every suite. A `neutral` file selects a suite only through a
+# repository-wide glob, which starts with `**/` (for example `**/*.md`).
+# A pull request that deletes or renames a file also runs the suites in
+# `on_deleted_path`, which check that every rule still names real files.
+# A `!` exclusion in a path group applies to all path matches for the suite
+# that uses it. Exclusions and neutral files do not block label matches.
+#
+# `products` maps a product group name to its `path_filters` (the path-only
+# filter syntax). nix/ci-sets.nix lists the group's flake outputs as
+# `ciSets.x86_64-linux.<group>`. test-generated.yml gets one job,
+# `products_<group>`, that builds the group once (mode ci, so it pushes to
+# xmtp-pr), and each suite that waits for the group needs that job. A run
+# builds a group when a selected suite waits for it and a changed file matches
+# its filters, or on a full run. Fork pull requests and Dependabot runs get no
+# Cachix token, so they build no group. A suite whose group did not run builds
+# the products itself, so a filter that is too narrow costs time, not coverage.
+version: 1
+
+on_deleted_path: [lint_config]
+
+shared:
+  - "{flake.nix,flake.lock,rust-toolchain.toml,justfile}"
+  - ".cargo/**"
+  - "proto/**"
+  - "nix/lib/{base,default,filesets,mkToolchain,mkVersion,patches,shell-common}.nix"
+  - "nix/lib/kache.toml"
+  - "nix/lib/packages/{kache,rtk}.nix"
+  - "nix/shells/{local,rust}.nix"
+  - "nix/apps.nix"
+  - ".github/{ci-suites.yml,ci-suites.json}"
+  - ".github/workflows/{ci,lint-generated,test-generated}.yml"
+  - ".github/actions/setup-nix/**"
+  - "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run}"
+
+neutral:
+  - "**/{AGENTS,CLAUDE}.md"
+  - ".github/**/*.md"
+  - "{README,CONTRIBUTING,ONBOARDING,TEST_SCENARIOS}.md"
+  - "{LICENSE,.envrc,.gitignore,.git-blame-ignore-revs,.gitattributes,.dockerignore,codecov.yml,cliff.toml}"
+  - "{.agents,.claude,.codex,.macroscope,.murmur,.vscode,.zed}/**"
+  - "{img,diagrams}/**"
+  - "apps/.gitkeep"
+  - ".github/{CODEOWNERS,dependabot.yml}"
+  - ".github/ISSUE_TEMPLATE/**"
+  - "dev/{ast-outline,bench,serena}"
+  - "dev/nix-up"
+
+path_groups:
+  # Suites that start the Docker stack test against a backend built from source.
+  # A backend change runs the backend suites and four client suites that talk
+  # to it: test_workspace, test_wasm, test_node, and check_sdk_unit. The
+  # Android, iOS, browser, agent, and SDK platform suites add wrapper code that
+  # a backend change does not touch; the merge run covers them. The
+  # observability services (Tempo, Prometheus, Grafana) select only test_xdbg,
+  # which checks them.
+  docker_backend:
+    - "apps/backend/**"
+    - "crates/xmtp_attachments_server/**"
+    - "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}"
+    - "dev/docker/{postgres,s3,toxiproxy}/**"
+    - "dev/backend/{local.toml,local-s3.toml}"
+    - "nix/package/backend.nix"
+    - "nix/musl-docker.nix"
+  # The native backend package and the test services (nix/services), which
+  # `just backend ci` runs. test_backend checks the services contract; test_ios
+  # uses `just backend ci` but is not selected by backend changes (see
+  # docker_backend).
+  native_backend:
+    - "apps/backend/**"
+    - "crates/xmtp_attachments_server/**"
+    - "dev/backend/**"
+    - "dev/docker/s3/**"
+    - "nix/package/backend.nix"
+    - "nix/services/**"
+  js_workspace:
+    - "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+    - "sdks/js.just"
+    # lint_js alone runs the source lint script and its test.
+    - "dev/js/{sdk-*,tsconfig.*.json}"
+    - "nix/{js,js-node}.nix"
+    - "nix/lib/packages/pnpm.nix"
+  # The SDK facade and its generated bindings. Rust core changes reach the SDK
+  # suites through the merge run, not on pull requests.
+  sdk_core:
+    - "crates/xmtp_sdk/**"
+    # The SDK products are Rust builds, so workspace dependency changes reach them.
+    - "{Cargo.toml,Cargo.lock}"
+    - "apps/xmtp_sdk_bindgen/**"
+    - "nix/package/xmtp-sdk{,-native,-node-runtime}.nix"
+    - "nix/package/libffi-zig-cross.site"
+    - "nix/package/node.nix"
+    - "nix/node-packages.nix"
+    - "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix"
+    - "nix/sdk-platforms.json"
+    - "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix"
+    - "nix/lib/packages/napi-rs-cli/**"
+  swift:
+    - "sdks/ios/**"
+    - "{Package.swift,Package.resolved,.spi.yml}"
+    - "nix/lib/ios-env.nix"
+    - "nix/package/ios.nix"
+    - "nix/lib/packages/{swiftformat,swiftlint}.nix"
+    - "dev/check-apple-toolchain"
+  android:
+    - "sdks/android/**"
+    - "nix/lib/android-*"
+    - "nix/shells/android{,-ci}.nix"
+    - "nix/android-packages.nix"
+    - "!docs/**"
+  example_ios:
+    - "apps/example-ios/**"
+    - "nix/package/example-ios-run.nix"
+    - "!**/*.md"
+  # Nix inputs of both example suites, without selecting SDK/backend source
+  # changes. The common shell toolchain reads both mobile platform definitions.
+  example_common_nix:
+    - "nix/package/xmtp-sdk{,-native}.nix"
+    - "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix"
+    - "nix/sdk-platforms.json"
+    - "nix/package/backend.nix"
+    - "nix/musl-docker.nix"
+  example_android_nix:
+    - path_group: example_common_nix
+    - "nix/package/example-android-apk*"
+    - "nix/package/libffi-zig-cross.site"
+    - "nix/android-packages.nix"
+    - "nix/lib/android-*"
+    - "nix/shells/android{,-ci}.nix"
+    - "nix/ci-sets.nix"
+  example_ios_nix:
+    - path_group: example_common_nix
+    - "nix/package/{example-ios-run,ios}.nix"
+    # The iOS/default shell inherits pnpm and WASM tools from the Rust shell.
+    - "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix"
+    - "nix/services/**"
+  js_packages:
+    - "sdks/{node,browser,agent}/**"
+    - "apps/{cli,web-chat,docs}/**"
+
+products:
+  # The JavaScript suites' and the docs site's Nix products: the Node and
+  # browser trees and the browser platform fixtures. JS-only changes build no
+  # group; the suites substitute the warm outputs.
+  sdk_js:
+    path_filters:
+      - path_group: sdk_core
+      - "nix/ci-sets.nix"
+  # The Android suites' Nix products: the Kotlin tree, the JNI libraries, and
+  # the JNA host library. They are Rust builds of the SDK and do not read
+  # sdks/android, so a Kotlin-only change builds no group.
+  sdk_android:
+    path_filters:
+      - path_group: sdk_core
+      - "nix/android-packages.nix"
+      - "nix/lib/android-env.nix"
+      - "nix/ci-sets.nix"
+
+suites:
+  # --- Lint ------------------------------------------------------------------
+  lint_workspace:
+    phase: lint
+    workflow: lint-workspace.yml
+    run_on: [draft_pr_push, ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      # `just lint-rust-source` checks the workspace manifests; treefmt in
+      # lint_config checks Rust format.
+      - "**/Cargo.toml"
+      - "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
+      - ".config/hakari.toml"
+      - "crates/xmtp-workspace-hack/**"
+      # No other suite owns this module; any `just` run parses it.
+      - "apps/chaos/chaos.just"
+  lint_js:
+    phase: lint
+    workflow: lint-js.yml
+    run_on: [draft_pr_push, ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - path_group: js_workspace
+      - path_group: js_packages
+      - "dev/js/{lint-source.mjs,test-lint-source.mjs}"
+      # Source lint and format. lint_config type-checks these tools, so
+      # check_types does not select them.
+      - "dev/release-tools/**"
+  lint_config:
+    phase: lint
+    workflow: lint-config.yml
+    run_on: [draft_pr_push, ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      # treefmt formats and checks these file types across the repository.
+      # Every tracked Rust file is under crates/ or apps/ today. This rule
+      # does not select a Rust file elsewhere: a known path (for example under
+      # sdks/android/) runs its own suites, and an unknown path runs all.
+      - "**/*.{nix,py,sh,toml,kt,swift}"
+      - "{crates,apps}/**/*.rs"
+      - "{.editorconfig,sdks/ios/.swiftformat,apps/example-ios/.swiftformat}"
+      # The treefmt configuration.
+      - "nix/fmt.nix"
+      # `dev/ci-suites check` reads every workflow and action.
+      - ".github/**"
+      # `just lint-config` type-checks and lints the release tools.
+      - "dev/release-tools/**"
+      - path_group: js_workspace
+  lint_proto:
+    phase: lint
+    workflow: lint-proto.yml
+    run_on: [draft_pr_push, ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - "proto/**"
+  docs_quality:
+    phase: lint
+    workflow: docs-quality.yml
+    run_on: [draft_pr_push, ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: kache
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - path_group: js_workspace
+      # markdownlint reads every Markdown file.
+      - "**/*.md"
+      - "nix/docs.nix"
+      - "{apps/docs,docs}/**"
+      - "sdks/agent/src/**"
+      - "sdks/*/package.json"
+      - "dev/js/sdk-package"
+  lint_ios:
+    phase: lint
+    workflow: lint-ios.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - path_group: swift
+  lint_deny:
+    phase: lint
+    workflow: lint-deny.yml
+    run_on: [draft_pr_push, ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - "{Cargo.lock,deny.toml}"
+      - "**/Cargo.toml"
+
+  lint_example_ios:
+    phase: lint
+    workflow: lint-example-ios.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: cachix-pr
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - path_group: example_ios
+      - path_group: swift
+      - path_group: sdk_core
+
+  # --- Dev tools -------------------------------------------------------------
+  # `just test dev`: the dev/tests/run modules, the Fly dashboard test, and the
+  # release-tools tests. lint_config keeps the lints of these files.
+  test_dev:
+    phase: test
+    workflow: test-dev.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      # dev/tests/run finds test modules in dev/tests, dev/specs, nix/lib, and
+      # the Android example fixtures and performance tools. The tests read and
+      # run Nix, Python, shell, and TOML files across the repository.
+      - "**/*.{nix,py,sh,toml}"
+      # The tests read every workflow and action.
+      - ".github/**"
+      # `just test dev` runs the tests of these tools.
+      - "dev/{tests,agents,specs,release-tools,fly,ci}/**"
+      - "dev/ci-failure-markers"
+      # The dev tests and the Fly dashboard test read these files.
+      - "dev/docker/{compose.yml,load-backend-image,load-env,up}"
+      - "dev/docker/grafana/dashboards/backend.json"
+      - "dev/tls/**"
+      - "apps/backend/backend.just"
+      # dev/tests/test_services.py runs it.
+      - "dev/services"
+      # dev/tests/test_sdk_package.py runs it.
+      - "dev/js/sdk-package"
+      # dev/tests/test_android_release.py reads the SDK Gradle properties.
+      - "sdks/android/gradle.properties"
+      # dev/tests/test_ci_suites.py dry-runs the iOS lifecycle recipes.
+      - "sdks/ios/ios.just"
+      # dev/tests/test_script_lint.py lints every extensionless script; they
+      # live under a dev/ directory, except this one. The leading `**/` lets a
+      # neutral script such as dev/nix-up select this suite.
+      - "**/dev/**"
+      - "sdks/browser/test/platform/object-store/with-object-store"
+      - "sdks/android/android.just"
+      - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
+      # test_script_lint.py reads the shellcheck exclusions.
+      - "nix/fmt.nix"
+      # The release-tools tests and the release push test run its tools.
+      - path_group: js_workspace
+
+  # --- Rust ------------------------------------------------------------------
+  check_rust:
+    phase: test
+    workflow: check-rust.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: kache
+    permissions: {contents: read}
+    kache: [rust-clippy-native, rust-clippy-wasm]
+    products: []
+    pr_filters:
+      - cargo_package: ["@default-members", xmtp-sdk-bindgen]
+      - "{.clippy.toml,dev/wasm.just}"
+  check_sdk_unit:
+    phase: test
+    workflow: check-sdk-unit.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: kache
+    permissions: {contents: read}
+    kache: [sdk-tests-debug]
+    products: []
+    pr_filters:
+      - cargo_package: xmtp_sdk
+      - path_group: docker_backend
+      - ".config/nextest.toml"
+  test_backend:
+    phase: test
+    workflow: test-backend.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - cargo_package: xmtp_backend
+      - path_group: docker_backend
+      # apps/backend tests embed these files.
+      - "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}"
+      - path_group: native_backend
+      - "nix/{ci-checks,package/backend-tests}.nix"
+  test_validation:
+    phase: test
+    workflow: test-validation.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - cargo_package: [xmtp_mls_validation, xmtp_id, xmtp_proto]
+      - "{crates/xmtp_mls_validation/dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
+  test_workspace:
+    phase: test
+    workflow: test-workspace.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - cargo_package: "@default-members"
+      - path_group: docker_backend
+      - "{.config/nextest.toml,webdriver.json}"
+      - "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
+      # The derivation starts these services.
+      - "nix/services/**"
+  test_keepalive:
+    phase: test
+    workflow: test-keepalive-probe.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - cargo_package: keepalive-probe
+      - "{nix/package/keepalive-probe-check.nix,nix/ci-checks.nix}"
+  test_wasm:
+    phase: test
+    workflow: test-wasm.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - cargo_package:
+          - xmtp_mls
+          - xmtp_cryptography
+          - xmtp_common
+          - xmtp_api
+          - xmtp_id
+          - xmtp_db
+          - xmtp_api_backend
+          - xmtp_content_types
+          - xmtp_attachments
+          - xmtp_sdk
+      - path_group: docker_backend
+      - "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
+      - "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}"
+      - "nix/services/**"
+  test_xdbg:
+    phase: test
+    workflow: test-xdbg.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - cargo_package: xdbg
+      # The observability job runs xdbg against the Docker stack and checks
+      # its traces, metrics, and dashboard.
+      - path_group: docker_backend
+      - "dev/docker/{tempo,prometheus,grafana}/**"
+      - "dev/docker/{observe-check.sh,observe_check.py}"
+      - "nix/package/xdbg{,-check}.nix"
+      - "nix/ci-checks.nix"
+  docs_rust:
+    phase: test
+    workflow: docs-rust-reference.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: kache
+    permissions: {contents: read}
+    covered_by: docs_site
+    kache: [rust-reference]
+    products: []
+    pr_filters:
+      - cargo_package: ["@default-members", error_glossary]
+      - "{docs/error_glossary.md,dev/gen-error-glossary}"
+
+  # --- JavaScript ------------------------------------------------------------
+  check_types:
+    phase: test
+    workflow: check-types.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: [sdk_js]
+    pr_filters:
+      - path_group: js_workspace
+      - path_group: js_packages
+      - path_group: sdk_core
+  check_sdk:
+    phase: test
+    workflow: check-sdk-products.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: [sdk_js, sdk_android]
+    pr_filters:
+      - path_group: js_workspace
+      - path_group: sdk_core
+      - "sdks/{node,browser}/package.json"
+      - "sdks/browser/test/platform/**"
+      - "nix/check-sdk-products.py"
+  test_node:
+    phase: test
+    workflow: test-node-sdk.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: [sdk_js]
+    pr_filters:
+      - path_group: js_workspace
+      - path_group: sdk_core
+      - path_group: docker_backend
+      - "sdks/node/**"
+      - "apps/cli/**"
+  test_agent:
+    phase: test
+    workflow: test-agent-sdk.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: [sdk_js]
+    pr_filters:
+      - path_group: js_workspace
+      - path_group: sdk_core
+      - "sdks/{node,agent}/**"
+      - "apps/cli/**"
+  test_browser:
+    phase: test
+    workflow: test-browser-sdk.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: [sdk_js]
+    pr_filters:
+      - path_group: js_workspace
+      - path_group: sdk_core
+      - "sdks/browser/**"
+      - "apps/web-chat/**"
+      # The attachment test PUTs to the stack's S3 from the browser origin, so
+      # it depends on the S3 CORS policy and the Compose lines that apply it.
+      - "dev/docker/s3/**"
+      - "dev/docker/compose.yml"
+  test_sdk_platform:
+    phase: test
+    workflow: test-sdk-platform.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: [sdk_js]
+    pr_filters:
+      - path_group: js_workspace
+      - path_group: sdk_core
+      - "sdks/browser/**"
+  docs_site:
+    phase: test
+    workflow: deploy-docs.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: kache
+    permissions: {contents: read}
+    kache: [rust-reference]
+    products: [sdk_js]
+    pr_filters:
+      - path_group: js_workspace
+      - path_group: sdk_core
+      - "apps/docs/**"
+      - "nix/docs.nix"
+      - "docs/**"
+      - "sdks/agent/src/**"
+      - "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}"
+      - "!sdks/agent/src/**/*.test.ts"
+
+  # --- Mobile ----------------------------------------------------------------
+  test_ios:
+    phase: test
+    workflow: test-ios.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: true
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - path_group: sdk_core
+      - path_group: swift
+  test_android:
+    phase: test
+    workflow: test-android.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: [sdk_android]
+    pr_filters:
+      # sdk-build runs `gradlew build`, which includes Android Lint and
+      # Spotless, so no separate Android lint suite exists.
+      - path_group: sdk_core
+      - path_group: android
+  test_example_android:
+    phase: test
+    workflow: test-example-android.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: [sdk_android]
+    pr_filters:
+      - "apps/example-android/**"
+      - path_group: example_android_nix
+      - pr_label: "android"
+
+  test_example_ios:
+    phase: test
+    workflow: test-example-ios.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: cachix-pr
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - "apps/example-ios/**"
+      - path_group: example_ios_nix
+      - pr_label: "iOS"

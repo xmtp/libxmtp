@@ -59,6 +59,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-007
     fn test_encode_decode() {
         let new_member = Inbox {
             inbox_id: rand_string::<24>(),
@@ -78,6 +79,8 @@ pub(crate) mod tests {
         let encoded = GroupUpdatedCodec::encode(data).unwrap();
         assert_eq!(encoded.clone().r#type.unwrap().type_id, "group_updated");
         assert!(!encoded.content.is_empty());
+        // A membership-change message has no fallback text.
+        assert_eq!(encoded.fallback, None);
 
         let decoded = GroupUpdatedCodec::decode(encoded).unwrap();
         assert_eq!(decoded.added_inboxes[0], new_member);

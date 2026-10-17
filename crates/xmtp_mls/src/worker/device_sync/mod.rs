@@ -3,12 +3,13 @@ use crate::{
     context::XmtpSharedContext,
     groups::{
         GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
-        welcome_sync::WelcomeService,
     },
+    identity::parse_credential,
     mls_store::{MlsStore, MlsStoreError},
-    subscriptions::{SubscribeError, SyncWorkerEvent},
+    subscriptions::{SubscribeError, internal::InternalEvent},
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
+use openmls::prelude::{BasicCredential, Member};
 use owo_colors::OwoColorize;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
@@ -16,15 +17,12 @@ use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
-use xmtp_archive::{ArchiveError, BackupMetadata};
+use xmtp_archive::ArchiveError;
 use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::tasks::NewTask;
-use xmtp_db::{
-    NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
-    group_message::StoredGroupMessage,
-};
+use xmtp_db::{NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs};
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
@@ -38,10 +36,7 @@ use xmtp_proto::xmtp::{
             AddMissingInstallations as AddMissingInstallationsProto, Task as TaskProto,
             task::Task as TaskKindProto,
         },
-        message_contents::{
-            ContentTypeId, EncodedContent, PlaintextEnvelope,
-            plaintext_envelope::{Content, V1},
-        },
+        message_contents::{ContentTypeId, EncodedContent},
     },
 };
 
@@ -53,6 +48,42 @@ pub use xmtp_archive::archive_options::{ArchiveOptions, BackupElementSelection};
 
 #[cfg(test)]
 mod tests;
+
+/// Encode sync content as the `EncodedContent` bytes of a sync message.
+fn sync_message_bytes(content: ContentProto) -> Vec<u8> {
+    let content = DeviceSyncContentProto {
+        content: Some(content),
+    };
+    encoded_content_to_bytes(EncodedContent {
+        r#type: Some(ContentTypeId {
+            authority_id: "xmtp.org".to_string(),
+            type_id: "application/x-protobuf".to_string(),
+            version_major: 1,
+            version_minor: 0,
+        }),
+        parameters: HashMap::new(),
+        fallback: None,
+        compression: None,
+        content: content.encode_to_vec(),
+    })
+}
+
+/// A sync group belongs to the own inbox only when that inbox added this
+/// client and every leaf node's credential names it.
+// implements: SYNC-010
+pub(crate) fn is_own_sync_group(
+    own_inbox_id: &str,
+    added_by_inbox_id: &str,
+    members: impl IntoIterator<Item = Member>,
+) -> bool {
+    added_by_inbox_id == own_inbox_id
+        && members.into_iter().all(|member| {
+            BasicCredential::try_from(member.credential)
+                .ok()
+                .and_then(|credential| parse_credential(credential.identity()).ok())
+                .is_some_and(|inbox_id| inbox_id == own_inbox_id)
+        })
+}
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum DeviceSyncError {
@@ -77,11 +108,6 @@ pub enum DeviceSyncError {
     #[error("storage error: {0}")]
     #[error_code(inherit)]
     Storage(#[from] StorageError),
-    /// HTTP request error.
-    ///
-    /// HTTP request for sync payload failed. Retryable.
-    #[error("reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
     /// Type conversion error.
     ///
     /// Internal type conversion failed. Retryable.
@@ -98,11 +124,6 @@ pub enum DeviceSyncError {
     #[error("group error: {0}")]
     #[error_code(inherit)]
     Group(#[from] GroupError),
-    /// No pending request.
-    ///
-    /// No pending sync request to reply to. Retryable.
-    #[error("no pending request to reply to")]
-    NoPendingRequest,
     /// Invalid payload.
     ///
     /// Sync message payload is malformed. Retryable.
@@ -113,11 +134,6 @@ pub enum DeviceSyncError {
     /// Device sync kind not specified. Not retryable.
     #[error("unspecified device sync kind")]
     UnspecifiedDeviceSyncKind,
-    /// Sync payload too old.
-    ///
-    /// Sync reply is outdated. Retryable.
-    #[error("sync reply is too old")]
-    SyncPayloadTooOld,
     #[error(transparent)]
     #[error_code(inherit)]
     Subscribe(#[from] SubscribeError),
@@ -139,21 +155,6 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     #[error_code(inherit)]
     Deserialization(#[from] DeserializationError),
-    /// Already acknowledged.
-    ///
-    /// Sync interaction already acknowledged. Not retryable.
-    #[error("Sync interaction is already acknowledged by another installation")]
-    AlreadyAcknowledged,
-    /// Missing options.
-    ///
-    /// Sync request options not provided. Retryable.
-    #[error("Sync request is missing options")]
-    MissingOptions,
-    /// Missing sync server URL.
-    ///
-    /// Sync server URL not configured. Not retryable.
-    #[error("Missing sync server url")]
-    MissingSyncServerUrl,
     /// Missing sync group.
     ///
     /// Sync group not found. Not retryable.
@@ -166,7 +167,7 @@ pub enum DeviceSyncError {
     ///
     /// Sync completed with errors. May be retryable.
     #[error("{}", _0.to_string())]
-    Sync(Box<SyncSummary>),
+    Sync(#[source] Box<SyncSummary>),
     /// MLS store error.
     ///
     /// OpenMLS key store operation failed. Retryable.
@@ -182,13 +183,6 @@ pub enum DeviceSyncError {
     /// Required field not present. Retryable.
     #[error("Missing Field: {0:?} {1}")]
     MissingField(MissingField, String),
-    /// Missing payload.
-    ///
-    /// Sync payload not found for PIN. Retryable. The PIN itself is a secret
-    /// archive reference token and must never appear in the error (it is
-    /// logged on the FFI error path), only whether one was provided.
-    #[error("Could not find payload (pin provided: {0})")]
-    MissingPayload(bool),
 }
 
 #[derive(Debug)]
@@ -226,10 +220,7 @@ impl RetryableError for DeviceSyncError {
     fn is_retryable(&self) -> bool {
         !matches!(
             self,
-            Self::AlreadyAcknowledged
-                | Self::MissingSyncGroup
-                | Self::MissingSyncServerUrl
-                | Self::UnspecifiedDeviceSyncKind
+            Self::MissingSyncGroup | Self::UnspecifiedDeviceSyncKind
         )
     }
 }
@@ -243,7 +234,6 @@ impl From<NotFound> for DeviceSyncError {
 #[derive(Clone)]
 pub struct DeviceSyncClient<Context> {
     pub(crate) context: Context,
-    pub(crate) welcome_service: WelcomeService<Context>,
     pub(crate) mls_store: MlsStore<Context>,
     pub(crate) metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
@@ -252,7 +242,6 @@ impl<Context: XmtpSharedContext> DeviceSyncClient<Context> {
     pub fn new(context: Context, metrics: Arc<WorkerMetrics<SyncMetric>>) -> Self {
         Self {
             context: context.clone(),
-            welcome_service: WelcomeService::new(context.clone()),
             mls_store: MlsStore::new(context),
             metrics,
         }
@@ -283,46 +272,25 @@ where
     /// Sends a device sync message.
     /// If the `group_id` is `None`, the message will be sent
     /// to the primary sync group ID.
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = self.context.inbox_id()), skip(self, content)))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self))
+        tracing::instrument(level = "trace", skip(self, content))
     )]
+    // implements: SYNC-004
     async fn send_device_sync_message(
         &self,
         content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
-        let content = DeviceSyncContentProto {
-            content: Some(content),
-        };
-
         let sync_group = self.get_sync_group().await?;
 
         let msg = format!(
-            "[{}] Sending sync message to group {:?}",
-            self.context.installation_id(),
+            "Sending sync message to group {:?}",
             xmtp_common::fmt::debug_hex(sync_group.group_id)
         );
         tracing::info!("{}", msg.yellow());
 
-        let mut content_bytes = vec![];
-        content
-            .encode(&mut content_bytes)
-            .map_err(|err| ClientError::Generic(err.to_string()))?;
-
-        let encoded_content = EncodedContent {
-            r#type: Some(ContentTypeId {
-                authority_id: "xmtp.org".to_string(),
-                type_id: "application/x-protobuf".to_string(),
-                version_major: 1,
-                version_minor: 0,
-            }),
-            parameters: HashMap::new(),
-            fallback: None,
-            compression: None,
-            content: content_bytes,
-        };
-        let content_bytes = encoded_content_to_bytes(encoded_content);
+        let content_bytes = sync_message_bytes(content);
 
         let message_id = sync_group.prepare_message(
             &content_bytes,
@@ -330,30 +298,49 @@ where
                 should_push: false,
                 idempotency_key: None,
             },
-            |key| PlaintextEnvelope {
-                content: Some(Content::V1(V1 {
-                    content: content_bytes.clone(),
-                    idempotency_key: key.to_string(),
-                })),
-            },
         )?;
 
         sync_group.sync_until_last_intent_resolved().await?;
 
-        // Notify our own worker of our own message so it can process it.
-        let _ = self
-            .context
-            .worker_events()
-            .send(SyncWorkerEvent::NewSyncGroupMsg);
+        xmtp_events::EventWriter::emit(
+            self.context.events(),
+            None,
+            Some(InternalEvent::SyncMessagePublished),
+        );
 
         Ok(message_id)
     }
 
+    /// The newest sync group that only the own inbox is in.
+    /// Older builds stored sync groups from other inboxes; this skips them.
+    // implements: SYNC-002, SYNC-010
+    pub(crate) fn primary_sync_group(&self) -> Result<Option<MlsGroup<Context>>, GroupError> {
+        let own_inbox_id = self.context.inbox_id();
+        for stored in self.context.db().all_sync_groups()? {
+            let group = self.mls_store.group(&stored.id)?;
+            let own = group.with_group_snapshot(|mls_group| {
+                Ok(is_own_sync_group(
+                    own_inbox_id,
+                    &stored.added_by_inbox_id,
+                    mls_group.members(),
+                ))
+            })?;
+            if own {
+                return Ok(Some(group));
+            }
+            tracing::debug!(
+                group_id = %stored.id,
+                "skipping a sync group that names another inbox"
+            );
+        }
+        Ok(None)
+    }
+
+    // implements: SYNC-001
     #[instrument(level = "trace", skip_all)]
     pub async fn get_sync_group(&self) -> Result<MlsGroup<Context>, GroupError> {
-        let db = self.context.db();
-        let sync_group = match db.primary_sync_group()? {
-            Some(sync_group) => self.mls_store.group(&sync_group.id)?,
+        let sync_group = match self.primary_sync_group()? {
+            Some(sync_group) => sync_group,
             None => {
                 let sync_group = MlsGroup::create_and_insert(
                     self.context.clone(),
@@ -363,9 +350,8 @@ where
                     None,
                 )?;
                 tracing::info!(
-                    "[{}] Creating sync group: {}",
-                    hex::encode(self.context.installation_id()),
-                    hex::encode(sync_group.group_id)
+                    "Creating sync group: {}",
+                    xmtp_common::fmt::debug_hex(sync_group.group_id)
                 );
                 if let Err(inline_err) = sync_group.add_missing_installations().await {
                     // The group row is already persisted, so this add is never
@@ -400,6 +386,7 @@ where
         any(test, feature = "test-utils"),
         tracing::instrument(level = "info", skip_all)
     )]
+    // implements: SYNC-014
     pub fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
         let groups = self.mls_store.find_groups(GroupQueryArgs {
             last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
@@ -422,7 +409,6 @@ where
     ) -> Result<(), DeviceSyncError> {
         let task = NewTask::builder()
             .originating_message_sequence_id(0)
-            .originating_message_originator_id(0)
             .build(TaskProto {
                 task: Some(TaskKindProto::AddMissingInstallations(
                     AddMissingInstallationsProto {
@@ -431,33 +417,20 @@ where
                 )),
             })?;
         self.context.db().create_or_ignore_task(task)?;
-        self.context.task_channels().wake();
+        xmtp_events::EventWriter::emit(
+            self.context.events(),
+            None,
+            Some(InternalEvent::TaskScheduled),
+        );
         Ok(())
     }
 }
 
-pub trait IterWithContent<A, B> {
-    fn iter_with_content(self) -> impl DoubleEndedIterator<Item = (A, B)>;
-}
-
-impl IterWithContent<StoredGroupMessage, ContentProto> for Vec<StoredGroupMessage> {
-    fn iter_with_content(
-        self,
-    ) -> impl DoubleEndedIterator<Item = (StoredGroupMessage, ContentProto)> {
-        self.into_iter().flat_map(|msg| {
-            let result = (|| {
-                let encoded_content = EncodedContent::decode(&*msg.decrypted_message_bytes).ok()?;
-                let content = DeviceSyncContentProto::decode(&*encoded_content.content).ok()?;
-                content.content.map(|c| (msg, c))
-            })();
-
-            result.into_iter()
-        })
-    }
-}
-
-pub struct AvailableArchive {
-    pub pin: String,
-    pub metadata: BackupMetadata,
-    pub sent_by_installation: Vec<u8>,
+/// Decode only device-sync content that this client supports.
+///
+/// Old archive transfer fields decode as an unset oneof after their field
+/// numbers became reserved. Ignore them so older installations do not make
+/// the sync worker fail or retry the message.
+fn decode_supported_content(bytes: &[u8]) -> Option<ContentProto> {
+    DeviceSyncContentProto::decode(bytes).ok()?.content
 }

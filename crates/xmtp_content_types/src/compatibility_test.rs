@@ -95,6 +95,7 @@ fn decode_and_reencode(
 }
 
 #[test]
+// verifies: CTYPE-014, CTYPE-019
 fn integration_test() {
     let fixtures_path = Path::new("fixtures/serialized_content.json");
     let json_content =

@@ -1,0 +1,22 @@
+// Out-of-band signaling payloads that are sent between devices on
+// side channels outside of the main group.
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+message OneshotMessage {
+  oneof message_type {
+    ReaddRequest readd_request = 1;
+  }
+}
+
+// A request sent by an installation to recover from a fork. Other members
+// may remove and readd that installation from the group.
+// XIP: https://community.xmtp.org/t/xip-68-draft-automated-fork-recovery/951
+message ReaddRequest {
+  bytes group_id = 1;
+  // The sequence ID of the latest commit log entry at the time the request
+  // is sent; used to disambiguate cases where an installation forks
+  // and is readded multiple times.
+  uint64 latest_commit_sequence_id = 2;
+}

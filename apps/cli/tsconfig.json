@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../dev/js/tsconfig.node.json",
+  "compilerOptions": {
+    "isolatedModules": false,
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "noEmit": true,
+    "rootDirs": ["src"],
+    "outDir": "dist",
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "tsdown.config.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

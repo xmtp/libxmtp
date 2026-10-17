@@ -3,6 +3,21 @@ use diesel::connection::InstrumentationEvent;
 use diesel::result::Error as DieselError;
 use std::fmt::Write;
 
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+tokio::task_local! {
+    static SQL_COUNTS: std::cell::Cell<(u64, u64)>;
+}
+
+/// Count executed SQL statements and write transactions in the current task.
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+pub fn count_sql_queries<R>(f: impl FnOnce() -> R) -> (R, u64, u64) {
+    SQL_COUNTS.sync_scope(std::cell::Cell::new((0, 0)), || {
+        let result = f();
+        let (queries, begins) = SQL_COUNTS.with(std::cell::Cell::get);
+        (result, queries, begins)
+    })
+}
+
 // Logs query errors. Panics on `database is locked` by default — a held lock in
 // a pure Rust test is a real bug. Consumers with the client's retry machinery opt
 // OUT via `XMTP_NO_PANIC_ON_DB_LOCK` (e.g. node-sdk Vitest workers, #3765).
@@ -24,6 +39,13 @@ impl Instrumentation for TestInstrumentation {
     fn on_connection_event(&mut self, event: InstrumentationEvent<'_>) {
         use InstrumentationEvent::*;
         match event {
+            #[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+            StartQuery { .. } => {
+                let _ = SQL_COUNTS.try_with(|counts| {
+                    let (queries, begins) = counts.get();
+                    counts.set((queries + 1, begins));
+                });
+            }
             FinishQuery { query, error, .. } => {
                 if let Some(e) = error {
                     tracing::error!("query {} errored with {:?}", query, error);
@@ -50,6 +72,11 @@ impl Instrumentation for TestInstrumentation {
                 }
             }
             BeginTransaction { depth, .. } => {
+                #[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+                let _ = SQL_COUNTS.try_with(|counts| {
+                    let (queries, begins) = counts.get();
+                    counts.set((queries, begins + 1));
+                });
                 tracing::trace!("Begin Transaction @ depth={}", depth);
             }
             CommitTransaction { depth, .. } => {

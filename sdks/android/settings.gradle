@@ -1,4 +1,10 @@
 pluginManagement {
+    def pins = new Properties()
+    file('gradle/toolchain.properties').withInputStream { pins.load(it) }
+    resolutionStrategy.eachPlugin {
+        def version = pins.getProperty("plugin.${requested.id.id}")
+        if (version) useVersion(version)
+    }
     repositories {
         gradlePluginPortal()
         google()
@@ -14,5 +20,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "xmtp-android"
-include ':example'
 include ':library'

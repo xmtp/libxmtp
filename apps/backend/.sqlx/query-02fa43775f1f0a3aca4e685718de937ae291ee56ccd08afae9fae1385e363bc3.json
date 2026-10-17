@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(\n    (SELECT max(sequence_id) FROM envelopes WHERE push_eligible) > $1,\n    false\n) AS \"above!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "above!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "02fa43775f1f0a3aca4e685718de937ae291ee56ccd08afae9fae1385e363bc3"
+}

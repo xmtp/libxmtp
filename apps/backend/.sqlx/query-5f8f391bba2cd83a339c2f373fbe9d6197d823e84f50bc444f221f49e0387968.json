@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM push_recipient WHERE recipient_id = $1 AND secret_hash = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f8f391bba2cd83a339c2f373fbe9d6197d823e84f50bc444f221f49e0387968"
+}

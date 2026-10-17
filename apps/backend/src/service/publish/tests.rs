@@ -1,0 +1,557 @@
+use crate::test_support as support;
+
+use crate::api::{self, publish_error::Reason};
+use prost::Message;
+use support::TestServer;
+use tonic::Code;
+use xmtp_mls_validation::test_utils::{
+    GroupMessageKind, TestChain, expired_key_package_envelope, group_message_envelope,
+    identity_envelope, identity_history_with_passkey, inline_welcome_envelope,
+    malformed_signature_create_inbox_update, scw_change_recovery_update_at,
+    scw_create_inbox_update_at,
+};
+
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-211
+async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
+    use xmtp_mls_validation::test_utils::{commit_log_envelope, key_package_envelope};
+    let server = TestServer::new(|_| {}).await?;
+    let mut envelopes = Vec::new();
+    let mut expected = Vec::new();
+    for (index, (kind, should_push, hmac_length, eligible)) in [
+        (GroupMessageKind::Application, true, 32, true),
+        (GroupMessageKind::Application, false, 32, false),
+        (GroupMessageKind::Application, true, 31, true),
+        (GroupMessageKind::Application, false, 33, false),
+        (GroupMessageKind::Commit, false, 32, true),
+        (GroupMessageKind::Proposal, false, 0, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut envelope = group_message_envelope([index as u8; 16], kind, []);
+        if let Some(api::client_envelope::Payload::GroupMessage(group)) = &mut envelope.payload {
+            group.should_push = should_push;
+            group.sender_hmac = vec![88; hmac_length];
+        }
+        envelopes.push(envelope);
+        expected.push((eligible, (hmac_length == 32).then(|| vec![88; 32])));
+    }
+    envelopes.extend([
+        inline_welcome_envelope([77; 32]),
+        key_package_envelope("", Default::default()).envelope,
+        commit_log_envelope([66; 16]),
+    ]);
+    expected.extend([(true, None), (false, None), (false, None)]);
+    let identity = identity_history_with_passkey().await;
+    envelopes.push(identity_envelope(identity.history[0].clone()));
+    expected.push((false, None));
+    let metas = server.publish(envelopes.clone()).await?;
+    for ((meta, original), (eligible, hmac)) in metas.iter().zip(&envelopes).zip(expected) {
+        let sequence_id = meta.cursor.as_ref().unwrap().sequence_id as i64;
+        let row: (bool, Option<Vec<u8>>, Vec<u8>) = sqlx::query_as(
+            "SELECT push_eligible, sender_hmac, payload FROM envelopes WHERE sequence_id = $1",
+        )
+        .bind(sequence_id)
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+        assert_eq!(row.0, eligible);
+        assert_eq!(row.1, hmac);
+        let canonical = xmtp_proto::types::canonical_envelope(original);
+        assert_eq!(row.2, canonical.bytes);
+        assert_eq!(
+            meta.message_hash.as_ref().unwrap().hash,
+            Some(api::message_hash::Hash::Sha256(canonical.hash.to_vec()))
+        );
+    }
+    assert_eq!(server.publish(envelopes).await?, metas);
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn application_envelope_limit_accepts_exact_size_and_rejects_one_past() {
+    let envelope = group_message_envelope([1; 16], GroupMessageKind::Application, []);
+    let size = envelope.encoded_len();
+    let mut oversized = envelope.clone();
+    if let Some(api::client_envelope::Payload::GroupMessage(message)) = &mut oversized.payload {
+        message.data.push(1);
+    }
+    assert_eq!(oversized.encoded_len(), size + 1);
+
+    let server = TestServer::new(|config| config.limits.max_envelope_bytes = size).await?;
+    let exact = server.publish(vec![envelope]).await?;
+    assert_eq!(exact.len(), 1);
+
+    let error = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: vec![oversized],
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::InvalidArgument);
+    let status = tonic_types::pb::Status::decode(error.details())?;
+    let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+    assert_eq!(detail.index, Some(0));
+    assert_eq!(detail.reason(), Reason::TooLarge);
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn publish_topic_limit_accepts_exact_count_and_rejects_one_past() {
+    let server = TestServer::new(|config| config.limits.max_publish_topics = 1).await?;
+    let first = inline_welcome_envelope([2; 32]);
+    let second = inline_welcome_envelope([3; 32]);
+    let third = inline_welcome_envelope([4; 32]);
+    assert_eq!(server.publish(vec![first]).await?.len(), 1);
+
+    let error = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: vec![second, third],
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::InvalidArgument);
+    let status = tonic_types::pb::Status::decode(error.details())?;
+    let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+    assert_eq!(detail.index, None);
+    assert_eq!(detail.reason(), Reason::TooLarge);
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-221, API-222, API-287, API-288
+async fn concurrent_retries_preserve_original_metadata_and_positions() {
+    let Some(metrics) = support::metrics::isolated(
+        concat!(
+            module_path!(),
+            "::concurrent_retries_preserve_original_metadata_and_positions"
+        )
+        .strip_prefix("xmtp_backend::")
+        .unwrap(),
+    ) else {
+        return;
+    };
+    let server = TestServer::new(|_| {}).await?;
+    let first = inline_welcome_envelope([1; 32]);
+    let second = inline_welcome_envelope([2; 32]);
+    let batch = vec![first.clone(), second.clone(), first.clone()];
+    let (left, right) = tokio::join!(server.publish(batch.clone()), server.publish(batch));
+    let left = left?;
+    assert_eq!(left, right?);
+    assert_eq!(left[0], left[2]);
+    assert!(
+        left[0].cursor.as_ref().unwrap().sequence_id < left[1].cursor.as_ref().unwrap().sequence_id
+    );
+    assert_eq!(
+        server.publish(vec![second, first]).await?,
+        vec![left[1].clone(), left[0].clone()]
+    );
+    let count = sqlx::query_scalar!("SELECT count(*) FROM envelopes")
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+    assert_eq!(count, Some(2));
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "stored")]
+        ),
+        3.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "duplicate")]
+        ),
+        5.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "rejected")]
+        ),
+        0.0
+    );
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-220
+async fn failed_batch_leaves_new_topics_empty_and_reports_first_original_error() {
+    let Some(metrics) = support::metrics::isolated(
+        concat!(
+            module_path!(),
+            "::failed_batch_leaves_new_topics_empty_and_reports_first_original_error"
+        )
+        .strip_prefix("xmtp_backend::")
+        .unwrap(),
+    ) else {
+        return;
+    };
+    let server = TestServer::new(|_| {}).await?;
+    let retained = inline_welcome_envelope([3; 32]);
+    server.publish(vec![retained.clone()]).await?;
+    let request = api::PublishRequest {
+        envelopes: vec![
+            retained,
+            expired_key_package_envelope().envelope,
+            api::ClientEnvelope::default(),
+            inline_welcome_envelope([4; 32]),
+        ],
+    };
+    let error = server.publisher().publish(request).await.unwrap_err();
+    assert_eq!(error.code(), Code::InvalidArgument);
+    let status = tonic_types::pb::Status::decode(error.details())?;
+    let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+    assert_eq!(detail.index, Some(1));
+    assert_eq!(detail.reason(), Reason::InvalidKeyPackage);
+    let count = sqlx::query_scalar!("SELECT count(*) FROM envelopes")
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+    assert_eq!(count, Some(1));
+    let watermarks = sqlx::query_scalar!("SELECT count(*) FROM topic_watermark")
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+    assert_eq!(watermarks, Some(1));
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "stored")]
+        ),
+        1.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "rejected")]
+        ),
+        4.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_rejections_total",
+            &[("reason", Reason::InvalidKeyPackage.as_str_name())]
+        ),
+        1.0
+    );
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-223
+async fn publish_errors_keep_the_original_index_for_each_validation_reason() {
+    let server = TestServer::new(|_| {}).await?;
+    let fixture = identity_history_with_passkey().await;
+    let cases = [
+        (api::ClientEnvelope::default(), Reason::MalformedPayload),
+        (
+            expired_key_package_envelope().envelope,
+            Reason::InvalidKeyPackage,
+        ),
+        (
+            identity_envelope(fixture.update.clone()),
+            Reason::InvalidIdentityUpdate,
+        ),
+        (
+            identity_envelope(malformed_signature_create_inbox_update()),
+            Reason::InvalidSignature,
+        ),
+    ];
+    for (bad, reason) in cases {
+        let good = inline_welcome_envelope([70; 32]);
+        let error = server
+            .publisher()
+            .publish(api::PublishRequest {
+                envelopes: vec![good.clone(), good, bad, api::ClientEnvelope::default()],
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), Code::InvalidArgument);
+        let status = tonic_types::pb::Status::decode(error.details())?;
+        let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+        assert_eq!(detail.index, Some(2));
+        assert_eq!(detail.reason(), reason);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM envelopes")
+                .fetch_one(&server.backend.store.primary)
+                .await?,
+            0
+        );
+    }
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-211, API-212
+async fn welcome_batch_commits_each_destination_and_canonical_payload() {
+    let server = TestServer::new(|_| {}).await?;
+    let envelopes: Vec<_> = (0..32)
+        .map(|id| inline_welcome_envelope([id; 32]))
+        .collect();
+    let metas = server.publish(envelopes.clone()).await?;
+    let watermarks: Vec<(Vec<u8>, i64)> =
+        sqlx::query_as("SELECT topic, last_sequence_id FROM topic_watermark")
+            .fetch_all(&server.backend.store.primary)
+            .await?;
+    assert_eq!(watermarks.len(), envelopes.len());
+    assert_eq!(metas.len(), envelopes.len());
+    for (envelope, meta) in envelopes.into_iter().zip(metas) {
+        let fetched = server
+            .query()
+            .query_newest(api::QueryNewestRequest {
+                topics: vec![meta.topic.clone().unwrap()],
+                include_full_envelope: true,
+            })
+            .await?
+            .into_inner()
+            .results
+            .pop()?;
+        assert_eq!(fetched.envelope, Some(envelope.clone()));
+        assert_eq!(fetched.meta, Some(meta.clone()));
+        assert_eq!(meta.expiry_ns - meta.server_ns, 7_776_000_000_000_000);
+        let hash = xmtp_proto::types::canonical_envelope(&envelope).hash;
+        assert_eq!(
+            meta.message_hash.unwrap().hash,
+            Some(api::message_hash::Hash::Sha256(hash.to_vec()))
+        );
+        assert!(watermarks.contains(&(
+            meta.topic.unwrap().topic,
+            meta.cursor.unwrap().sequence_id as i64,
+        )));
+    }
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-220
+async fn watermark_guard_failure_rolls_back_every_new_envelope() {
+    let Some(metrics) = support::metrics::isolated(
+        concat!(
+            module_path!(),
+            "::watermark_guard_failure_rolls_back_every_new_envelope"
+        )
+        .strip_prefix("xmtp_backend::")
+        .unwrap(),
+    ) else {
+        return;
+    };
+    let server = TestServer::new(|_| {}).await?;
+    let topic = xmtp_proto::types::TopicKind::WelcomeMessagesV1
+        .create([7; 32])
+        .to_vec();
+    sqlx::query!(
+        "INSERT INTO topic_watermark (topic, last_sequence_id) VALUES ($1, 9223372036854775807)",
+        &topic
+    )
+    .execute(&server.backend.store.primary)
+    .await?;
+    let result = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: vec![
+                inline_welcome_envelope([7; 32]),
+                inline_welcome_envelope([8; 32]),
+            ],
+        })
+        .await;
+    assert_eq!(result.unwrap_err().code(), Code::Internal);
+    assert_eq!(
+        sqlx::query_scalar!("SELECT count(*) FROM envelopes")
+            .fetch_one(&server.backend.store.primary)
+            .await?,
+        Some(0)
+    );
+    assert_eq!(
+        sqlx::query_scalar!("SELECT count(*) FROM topic_watermark")
+            .fetch_one(&server.backend.store.primary)
+            .await?,
+        Some(1)
+    );
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_db_errors_total", &[("kind", "invariant")]),
+        1.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "rejected")]
+        ),
+        2.0
+    );
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-212, OPS-002
+async fn permanent_payloads_and_expired_metadata_remain_readable() {
+    use xmtp_mls_validation::test_utils::{commit_log_envelope, group_message_envelope};
+    let server = TestServer::new(|_| {}).await?;
+    let envelopes = vec![
+        group_message_envelope([10; 16], GroupMessageKind::Application, [0xff]),
+        group_message_envelope([10; 16], GroupMessageKind::Proposal, []),
+        group_message_envelope([10; 16], GroupMessageKind::Commit, []),
+        commit_log_envelope([10; 16]),
+    ];
+    let metas = server.publish(envelopes.clone()).await?;
+    assert!(metas[0].expiry_ns > metas[0].server_ns);
+    for meta in &metas[1..] {
+        assert_eq!(meta.expiry_ns, 0);
+    }
+    assert!(!metas[0].is_commit_or_proposal);
+    assert!(metas[1].is_commit_or_proposal);
+    assert!(metas[2].is_commit_or_proposal);
+    assert!(!metas[3].is_commit_or_proposal);
+    let id = metas[0].cursor.as_ref().unwrap().sequence_id as i64;
+    sqlx::query!(
+        "UPDATE envelopes SET server_ns = 0, expiry_ns = 1 WHERE sequence_id = $1",
+        id
+    )
+    .execute(&server.backend.store.primary)
+    .await?;
+    let fetched = server
+        .query()
+        .query(api::QueryRequest {
+            queries: vec![support::query_topic(
+                metas[0].topic.clone().unwrap(),
+                id as u64 - 1,
+            )],
+            limit: 1,
+        })
+        .await?
+        .into_inner()
+        .envelopes
+        .pop()?;
+    assert_eq!(fetched.envelope, Some(envelopes[0].clone()));
+    assert_eq!(fetched.meta.unwrap().expiry_ns, 1);
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn valid_key_packages_are_retained_and_served_by_newest() {
+    use xmtp_mls_validation::test_utils::key_package_envelope;
+    let server = TestServer::new(|_| {}).await?;
+    let fixture = key_package_envelope("", Default::default());
+    let original = server.publish(vec![fixture.envelope.clone()]).await?;
+    assert_eq!(
+        server.publish(vec![fixture.envelope.clone()]).await?,
+        original
+    );
+    let newest = server
+        .query()
+        .query_newest(api::QueryNewestRequest {
+            topics: vec![original[0].topic.clone().unwrap()],
+            include_full_envelope: true,
+        })
+        .await?
+        .into_inner();
+    assert_eq!(newest.results[0].envelope, Some(fixture.envelope));
+    assert_eq!(newest.results[0].meta, Some(original[0].clone()));
+    server.stop().await?;
+}
+
+/// Publish one identity update. Return its rejection's status code and publish
+/// reason, if any, with the envelope count stored afterwards.
+async fn publish_identity(
+    server: &TestServer,
+    update: xmtp_proto::xmtp::identity::associations::IdentityUpdate,
+) -> support::TestResult<(Result<(), (Code, Option<Reason>)>, i64)> {
+    let result = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: vec![identity_envelope(update)],
+        })
+        .await
+        .map(drop)
+        .map_err(|error| {
+            let reason = tonic_types::pb::Status::decode(error.details())
+                .ok()
+                .and_then(|status| status.details.into_iter().next())
+                .and_then(|detail| api::PublishError::decode(detail.value.as_slice()).ok())
+                .map(|detail| detail.reason());
+            (error.code(), reason)
+        });
+    let rows = sqlx::query_scalar("SELECT count(*) FROM envelopes")
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+    Ok((result, rows))
+}
+
+/// Accepts every signature at a block the chain has produced and, like an
+/// `eth_call` at an unknown block, fails retryably for any other.
+struct ChainVerifier(TestChain);
+
+#[xmtp_common::async_trait]
+impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for ChainVerifier {
+    async fn is_valid_signature(
+        &self,
+        account_id: xmtp_id::associations::AccountId,
+        _: [u8; 32],
+        _: alloy_primitives::Bytes,
+        block_number: Option<u64>,
+    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
+    {
+        use xmtp_id::scw_verifier::{ChainBlocks, ValidationResponse, VerifierError};
+        let head = self.0.head(account_id.get_chain_id()).await?.number;
+        let block_number = block_number.unwrap_or(head);
+        if block_number > head {
+            return Err(VerifierError::MissingBlock(block_number));
+        }
+        Ok(ValidationResponse {
+            is_valid: true,
+            block_number: Some(block_number),
+            error: None,
+        })
+    }
+}
+
+/// A removed wallet signer can sign today and name a block from before its
+/// removal, and a signature check judges only the block it names. So the
+/// backend admits a new update only when each ERC-6492 block is at or below
+/// its chain's head and at most 1800 seconds older than it, and rejects it
+/// before storage otherwise, even when the chain cannot evaluate a signature
+/// at a block it has not produced. The rule binds admission alone: a stored update
+/// whose block has since aged stays valid when its log is replayed to admit
+/// the next update, and a chain outage stays retryable rather than reading as
+/// a bad signature.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: IDENT-062
+async fn scw_admission_freshness() {
+    const HEAD: u64 = 10_000;
+    let chain = TestChain::at(HEAD);
+    let server =
+        TestServer::with_verifier(|_| {}, ChainVerifier(chain.clone()), chain.clone()).await?;
+    let stale = Err((Code::InvalidArgument, Some(Reason::InvalidSignature)));
+
+    let future = publish_identity(&server, scw_create_inbox_update_at(HEAD + 1)).await?;
+    assert_eq!(future, (stale, 0), "a block after the head");
+    let too_old = publish_identity(&server, scw_create_inbox_update_at(HEAD - 1801)).await?;
+    assert_eq!(too_old, (stale, 0), "a block 1801 seconds before the head");
+    let oldest = publish_identity(&server, scw_create_inbox_update_at(HEAD - 1800)).await?;
+    assert_eq!(oldest, (Ok(()), 1), "a block 1800 seconds before the head");
+
+    chain.set(None);
+    let outage = publish_identity(&server, scw_change_recovery_update_at(HEAD)).await?;
+    assert_eq!(
+        outage,
+        (Err((Code::Unavailable, None)), 1),
+        "a chain outage"
+    );
+
+    let later = HEAD + 1_000_000;
+    chain.set(Some(later));
+    let replayed = publish_identity(&server, scw_change_recovery_update_at(later)).await?;
+    assert_eq!(
+        replayed,
+        (Ok(()), 2),
+        "an update after an aged stored block"
+    );
+    server.stop().await?;
+}

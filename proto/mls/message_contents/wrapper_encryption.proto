@@ -1,0 +1,22 @@
+// Encryption algorithms for the Welcome Wrapper
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// Describes the algorithm used to encrypt the Welcome Wrapper
+enum WelcomeWrapperAlgorithm {
+  WELCOME_WRAPPER_ALGORITHM_UNSPECIFIED = 0;
+  WELCOME_WRAPPER_ALGORITHM_CURVE25519 = 1;
+  WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6 = 2;
+  // Only used for WelcomePointee's
+  WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY = 3;
+}
+
+// The KeyPackageExtension that stores the PubKey and the WelcomeWrapperEncryption
+message WelcomeWrapperEncryption {
+  bytes pub_key = 1;
+  WelcomeWrapperAlgorithm algorithm = 2;
+}

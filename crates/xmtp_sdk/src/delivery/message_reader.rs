@@ -1,0 +1,531 @@
+use parking_lot::Mutex;
+use std::sync::Arc;
+use tokio::sync::Mutex as AsyncMutex;
+#[cfg(test)]
+use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
+use xmtp_db::delivery::acknowledgement::DeliveryAckRequest;
+use xmtp_mls::context::XmtpSharedContext;
+use xmtp_mls::messages::enrichment::enrich_messages_with_stored;
+use xmtp_mls::subscriptions::{
+    local_delivery::{
+        DeliveryAcknowledgement, DeliveryScope, LocalDeliveryError, LocalDeliveryFilter,
+    },
+    message_reader::{MessageReader as CoreMessageReader, MessageReaderControl},
+};
+#[cfg(all(test, not(target_arch = "wasm32")))]
+use xmtp_proto::types::GroupId;
+
+use crate::{ConnectionState, Message, XmtpError, conversation::on_sdk_worker};
+
+#[derive(uniffi::Object)]
+pub struct MessageReader {
+    reader: Arc<AsyncMutex<CoreMessageReader<xmtp_mls::MlsContext>>>,
+    request_lock: AsyncMutex<()>,
+    control: MessageReaderControl,
+    state: Arc<Mutex<ReaderState>>,
+    context: xmtp_mls::MlsContext,
+    client_key: u64,
+    #[cfg(test)]
+    pub(crate) handoff_gate: Arc<Mutex<Option<Arc<HandoffGate>>>>,
+    #[cfg(test)]
+    pub(crate) worker_reply_gate: Mutex<Option<Arc<HandoffGate>>>,
+    #[cfg(test)]
+    pub(crate) request_gates: Mutex<RequestGates>,
+    #[cfg(test)]
+    pub(crate) request_cancel: Mutex<Option<CancellationToken>>,
+    #[cfg(test)]
+    pub(crate) request_ack_admission: Mutex<Option<Arc<DeliveryAckRequest>>>,
+    #[cfg(test)]
+    corrupt_next_message: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    idle_read: Arc<Notify>,
+}
+
+struct CancelMessageRead {
+    token: CancellationToken,
+    ack_admission: Arc<DeliveryAckRequest>,
+}
+
+impl Drop for CancelMessageRead {
+    fn drop(&mut self) {
+        // Final commit admission and cancellation have one atomic order.
+        // Neither cancellation nor Drop waits for the database writer.
+        self.ack_admission.cancel();
+        self.token.cancel();
+    }
+}
+
+struct ReaderState {
+    ended: bool,
+    previous: Option<DeliveryAcknowledgement<xmtp_mls::MlsContext>>,
+    pending: Option<PendingMessage>,
+}
+
+struct PendingMessage {
+    message: Message,
+    acknowledgement: DeliveryAcknowledgement<xmtp_mls::MlsContext>,
+}
+
+#[cfg(test)]
+pub(crate) struct HandoffGate {
+    pub(crate) arrived: tokio::sync::Notify,
+    pub(crate) release: tokio::sync::Notify,
+}
+
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct RequestGates {
+    pub(crate) before_check: Option<Arc<HandoffGate>>,
+    pub(crate) before_ack: Option<Arc<HandoffGate>>,
+    pub(crate) after_ack: Option<Arc<HandoffGate>>,
+    pub(crate) after_cancel_check: Option<Arc<HandoffGate>>,
+    pub(crate) after_take: Option<Arc<AckAdmissionGate>>,
+    pub(crate) during_write: Option<Arc<AckAdmissionGate>>,
+    pub(crate) settled: Option<Arc<Notify>>,
+    pub(crate) ack_observer:
+        Option<Arc<dyn Fn(xmtp_db::delivery::acknowledgement::DeliveryAckPhase) + Send + Sync>>,
+}
+
+#[cfg(test)]
+pub(crate) struct AckAdmissionGate {
+    pub(crate) arrived: Notify,
+    pub(crate) released: Mutex<bool>,
+    pub(crate) wake: parking_lot::Condvar,
+}
+
+#[cfg(test)]
+impl AckAdmissionGate {
+    pub(crate) fn wait(&self) {
+        self.arrived.notify_one();
+        let mut released = self.released.lock();
+        let deadline =
+            xmtp_common::time::Instant::now() + xmtp_common::time::Duration::from_secs(10);
+        while !*released {
+            let remaining = deadline.saturating_duration_since(xmtp_common::time::Instant::now());
+            if remaining.is_zero() || self.wake.wait_for(&mut released, remaining).timed_out() {
+                break;
+            }
+        }
+        assert!(*released, "ACK admission gate was not released");
+    }
+}
+
+#[cfg(test)]
+struct RequestSettled(Option<Arc<Notify>>);
+
+#[cfg(test)]
+impl Drop for RequestSettled {
+    fn drop(&mut self) {
+        if let Some(settled) = &self.0 {
+            settled.notify_one();
+        }
+    }
+}
+
+#[cfg(test)]
+async fn wait_at_request_gate(gate: Option<Arc<HandoffGate>>) {
+    if let Some(gate) = gate {
+        gate.arrived.notify_one();
+        gate.release.notified().await;
+    }
+}
+
+impl MessageReader {
+    pub(crate) fn open(
+        context: xmtp_mls::MlsContext,
+        scope: DeliveryScope,
+        filter: LocalDeliveryFilter,
+        from: Option<String>,
+        client_key: u64,
+    ) -> Result<Arc<Self>, XmtpError> {
+        use xmtp_db::delivery::QueryDelivery;
+        let from = from.as_deref().map(super::cursor::parse).transpose()?;
+        if let Some(cursor) = from {
+            let current = context
+                .db()
+                .current_delivery_cursor()
+                .map_err(|error| super::delivery_error(LocalDeliveryError::Storage(error)))?;
+            if cursor.database_id != current.database_id {
+                return Err(super::delivery_error(LocalDeliveryError::Storage(
+                    xmtp_db::StorageError::Stream(
+                        xmtp_db::stream_storage::StreamStorageError::ForeignCursor,
+                    ),
+                )));
+            }
+            if cursor.delivery_sequence > current.delivery_sequence {
+                return Err(super::cursor::invalid());
+            }
+        }
+        let reader = CoreMessageReader::new(context.clone(), scope, filter, from)
+            .map_err(super::delivery_error)?;
+        let control = reader.control();
+        Ok(Arc::new(Self {
+            reader: Arc::new(AsyncMutex::new(reader)),
+            request_lock: AsyncMutex::new(()),
+            control,
+            state: Arc::new(Mutex::new(ReaderState {
+                ended: false,
+                previous: None,
+                pending: None,
+            })),
+            context,
+            client_key,
+            #[cfg(test)]
+            handoff_gate: Arc::new(Mutex::new(None)),
+            #[cfg(test)]
+            worker_reply_gate: Mutex::new(None),
+            #[cfg(test)]
+            request_gates: Mutex::new(RequestGates::default()),
+            #[cfg(test)]
+            request_cancel: Mutex::new(None),
+            #[cfg(test)]
+            request_ack_admission: Mutex::new(None),
+            #[cfg(test)]
+            corrupt_next_message: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            idle_read: Arc::new(Notify::new()),
+        }))
+    }
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) fn is_ended_for_test(&self) -> bool {
+        self.state.lock().ended
+    }
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) fn update_scope_for_test(&self, group_ids: Vec<GroupId>) {
+        self.control.update_scope(DeliveryScope::Groups(group_ids));
+    }
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) fn update_all_scope_for_test(&self) {
+        self.control.update_scope(DeliveryScope::All);
+    }
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) fn control_for_test(&self) -> MessageReaderControl {
+        self.control.clone()
+    }
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) fn corrupt_next_message_for_test(&self) {
+        self.corrupt_next_message
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) fn idle_read_for_test(&self) -> Arc<Notify> {
+        self.idle_read.clone()
+    }
+}
+
+impl Drop for MessageReader {
+    fn drop(&mut self) {
+        self.control.close();
+    }
+}
+
+#[xmtp_macro::sdk_export]
+impl MessageReader {
+    /// Acknowledge the prior item only when this read starts.
+    pub async fn next(&self) -> Result<Option<Message>, XmtpError> {
+        let _request = self.request_lock.lock().await;
+        let request_cancel = CancellationToken::new();
+        let ack_admission = Arc::new(DeliveryAckRequest::default());
+        let _cancel_on_drop = CancelMessageRead {
+            token: request_cancel.clone(),
+            ack_admission: ack_admission.clone(),
+        };
+        #[cfg(test)]
+        let gates = self.request_gates.lock().clone();
+        #[cfg(test)]
+        if let Some(observer) = &gates.ack_observer {
+            ack_admission.set_observer(observer.clone());
+        }
+        #[cfg(test)]
+        {
+            *self.request_cancel.lock() = Some(request_cancel.clone());
+            *self.request_ack_admission.lock() = Some(ack_admission.clone());
+        }
+        let reader = self.reader.clone();
+        let state = self.state.clone();
+        let control = self.control.clone();
+        let client_key = self.client_key;
+        let context = self.context.clone();
+        #[cfg(test)]
+        let handoff_gate = self.handoff_gate.clone();
+        #[cfg(test)]
+        let idle_read = self.idle_read.clone();
+        #[cfg(test)]
+        let mut corrupt_next_message = self
+            .corrupt_next_message
+            .swap(false, std::sync::atomic::Ordering::AcqRel);
+        let ready = on_sdk_worker(
+            self.context.clone(),
+            Box::pin(async move {
+                #[cfg(test)]
+                let _settled = RequestSettled(gates.settled);
+                let mut reader = reader.lock().await;
+                #[cfg(test)]
+                wait_at_request_gate(gates.before_check).await;
+                if request_cancel.is_cancelled() {
+                    return Ok(false);
+                }
+                #[cfg(test)]
+                wait_at_request_gate(gates.before_ack).await;
+                {
+                    let mut state = state.lock();
+                    if state.ended {
+                        return Ok(false);
+                    }
+                    let previous = state.previous.take();
+                    #[cfg(test)]
+                    if let Some(gate) = gates.after_take {
+                        gate.wait();
+                    }
+                    if let Some(previous) = previous {
+                        #[cfg(test)]
+                        if let Some(gate) = gates.during_write {
+                            gate.wait();
+                        }
+                        match previous.acknowledge_cancellable(&ack_admission) {
+                            Ok(false) => {
+                                state.previous = Some(previous);
+                                return Ok(false);
+                            }
+                            Ok(true) => {}
+                            Err(error) if selection_changed(&error) => {}
+                            Err(error) => {
+                                state.ended = true;
+                                control.close();
+                                return Err(super::delivery_error(error));
+                            }
+                        }
+                    }
+                    if let Some(pending) = state.pending.take() {
+                        match pending
+                            .acknowledgement
+                            .check_owner_cancellable(&ack_admission)
+                        {
+                            Ok(admitted) => {
+                                state.pending = Some(pending);
+                                return Ok(admitted);
+                            }
+                            Err(error) if selection_changed(&error) => {
+                                pending.acknowledgement.reject();
+                            }
+                            Err(error) => {
+                                state.ended = true;
+                                control.close();
+                                return Err(super::delivery_error(error));
+                            }
+                        }
+                    }
+                }
+                #[cfg(test)]
+                wait_at_request_gate(gates.after_ack).await;
+                loop {
+                    #[cfg(test)]
+                    idle_read.notify_one();
+                    let item = match tokio::select! {
+                        biased;
+                        _ = request_cancel.cancelled() => return Ok(false),
+                        result = reader.next_delivery() => result,
+                    } {
+                        Ok(item) => item,
+                        Err(_) if state.lock().ended => return Ok(false),
+                        Err(error) => {
+                            state.lock().ended = true;
+                            control.close();
+                            return Err(super::delivery_error(error));
+                        }
+                    };
+                    let Some(item) = item else { return Ok(false) };
+                    #[cfg(test)]
+                    let mut item = item;
+                    #[cfg(test)]
+                    if corrupt_next_message {
+                        item.message.id.clear();
+                        corrupt_next_message = false;
+                    }
+                    if state.lock().ended {
+                        item.acknowledgement.reject();
+                        return Ok(false);
+                    }
+                    let enriched = match enrich_messages_with_stored(
+                        context.db(),
+                        &item.message.group_id,
+                        vec![item.message.clone()],
+                    ) {
+                        Ok(enriched) => enriched,
+                        Err(error) => {
+                            state.lock().ended = true;
+                            control.close();
+                            item.acknowledgement.reject();
+                            return Err(super::enrichment_error(error));
+                        }
+                    };
+                    let message = match enriched.into_iter().next() {
+                        Some(value) => Message::from_enriched(
+                            value.stored,
+                            value.decoded,
+                            value.parent_stored,
+                            client_key,
+                        )
+                        .or_else(|_| Message::from_stored(item.message.clone(), client_key)),
+                        None => Message::from_stored(item.message.clone(), client_key),
+                    };
+                    let message = match message {
+                        Ok(message) => message.with_delivery_cursor(Some(item.cursor)),
+                        Err(error) => {
+                            state.lock().ended = true;
+                            control.close();
+                            item.acknowledgement.reject();
+                            return Err(error);
+                        }
+                    };
+                    #[cfg(test)]
+                    let gate = handoff_gate.lock().take();
+                    #[cfg(test)]
+                    if let Some(gate) = gate {
+                        gate.arrived.notify_one();
+                        gate.release.notified().await;
+                    }
+                    if request_cancel.is_cancelled() {
+                        let mut state = state.lock();
+                        if state.ended {
+                            item.acknowledgement.reject();
+                        } else {
+                            state.pending = Some(PendingMessage {
+                                message,
+                                acknowledgement: item.acknowledgement,
+                            });
+                        }
+                        return Ok(false);
+                    }
+                    #[cfg(test)]
+                    wait_at_request_gate(gates.after_cancel_check.clone()).await;
+                    // Preparation does not admit the item. This check is the handoff.
+                    match item.acknowledgement.check_owner_cancellable(&ack_admission) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            let mut state = state.lock();
+                            if state.ended {
+                                item.acknowledgement.reject();
+                            } else {
+                                state.pending = Some(PendingMessage {
+                                    message,
+                                    acknowledgement: item.acknowledgement,
+                                });
+                            }
+                            return Ok(false);
+                        }
+                        Err(error) if selection_changed(&error) => {
+                            item.acknowledgement.reject();
+                            continue;
+                        }
+                        Err(_) if state.lock().ended => {
+                            item.acknowledgement.reject();
+                            return Ok(false);
+                        }
+                        Err(error) => {
+                            state.lock().ended = true;
+                            control.close();
+                            return Err(super::delivery_error(error));
+                        }
+                    }
+                    let mut state = state.lock();
+                    if state.ended {
+                        item.acknowledgement.reject();
+                        return Ok(false);
+                    }
+                    state.pending = Some(PendingMessage {
+                        message,
+                        acknowledgement: item.acknowledgement,
+                    });
+                    return Ok(true);
+                }
+            }),
+        )
+        .await;
+        #[cfg(test)]
+        let gate = self.worker_reply_gate.lock().take();
+        #[cfg(test)]
+        if let Some(gate) = gate {
+            gate.arrived.notify_one();
+            gate.release.notified().await;
+        }
+        ready.and_then(|ready| {
+            if !ready {
+                return Ok(None);
+            }
+            let mut state = self.state.lock();
+            if state.ended {
+                return Ok(None);
+            }
+            let pending = state
+                .pending
+                .take()
+                .ok_or_else(|| XmtpError::unknown("message handoff missing"))?;
+            state.previous = Some(pending.acknowledgement);
+            Ok(Some(pending.message))
+        })
+    }
+
+    pub async fn end(&self) -> Result<(), XmtpError> {
+        let reader = self.reader.clone();
+        let state = self.state.clone();
+        let control = self.control.clone();
+        on_sdk_worker(self.context.clone(), async move {
+            {
+                let mut state = state.lock();
+                state.ended = true;
+                control.close();
+                if let Some(previous) = state.previous.take() {
+                    previous.reject();
+                }
+                if let Some(pending) = state.pending.take() {
+                    pending.acknowledgement.reject();
+                }
+            }
+            let _reader = reader.lock().await;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn connection_state(&self) -> ConnectionState {
+        self.control.catch_up_snapshot().connection.into()
+    }
+
+    pub async fn connection_state_changed(
+        &self,
+        previous: ConnectionState,
+    ) -> Result<ConnectionState, XmtpError> {
+        let request_cancel = CancellationToken::new();
+        let _cancel_on_drop = super::CancelReadOnDrop(request_cancel.clone());
+        let control = self.control.clone();
+        let mut changes = control.observer();
+        on_sdk_worker(
+            self.context.clone(),
+            Box::pin(async move {
+                loop {
+                    let current = control.catch_up_snapshot().connection.into();
+                    if current != previous || current == ConnectionState::Closed {
+                        return Ok(current);
+                    }
+                    tokio::select! {
+                        _ = request_cancel.cancelled() => return Ok(ConnectionState::Closed),
+                        _ = changes.changed() => {},
+                    }
+                }
+            }),
+        )
+        .await
+    }
+}
+
+pub(crate) fn selection_changed(error: &LocalDeliveryError) -> bool {
+    matches!(error, LocalDeliveryError::SelectionChanged)
+}

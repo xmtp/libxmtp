@@ -1,13 +1,6 @@
-#!/bin/bash
-set -eou pipefail
-
-if ! docker network inspect libxmtp-backend >/dev/null 2>&1; then
-  docker network create libxmtp-backend --label proxynet
-fi
-
-docker compose \
-  -f dev/docker/docker-compose.yml \
-  -f dev/docker/docker-compose-d14n.yml \
-  --env-file dev/docker/local.env \
-  -p "libxmtp" \
-  "$@"
+#!/usr/bin/env bash
+set -euo pipefail
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=load-env
+. "${script_dir}/load-env"
+exec docker compose -f "$script_dir/compose.yml" -p "${XMTP_COMPOSE_PROJECT}" "$@"

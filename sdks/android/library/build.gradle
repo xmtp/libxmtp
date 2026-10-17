@@ -3,12 +3,47 @@ plugins {
     id 'maven-publish'
     id 'com.android.library'
     id 'org.jetbrains.kotlin.android'
-    id 'com.google.protobuf' version '0.9.1'
-    id "org.jetbrains.dokka" version "1.8.10"
+    id "org.jetbrains.dokka"
 }
 
-dokkaGfmPartial {
-    outputDirectory.set(file("build/docs/partial"))
+dokka {
+    dokkaSourceSets.configureEach {
+        // The generated sources are the public API. Include them in the reference.
+    }
+}
+
+// Use the configured Dokka version for the Maven documentation artifact.
+// AGP's withJavadocJar() uses its own older Dokka version for Kotlin sources.
+def releaseJavadocJar = tasks.register("releaseJavadocJar", Jar) {
+    archiveClassifier.set("javadoc")
+    from(tasks.named("dokkaGeneratePublicationHtml").flatMap { it.outputDirectory })
+}
+
+// Read a port for the local test stack: the environment first, then
+// dev/docker/.env (written by dev/worktree-env), then the slot-0 default.
+// Gradle may run without the `just` recipes, so do not rely on the environment
+// alone: falling back to the default would point a worktree's tests at the main
+// checkout's backend.
+String worktreePort(String name, String fallback) {
+    String fromEnv = System.getenv(name)
+    if (fromEnv != null && !fromEnv.isEmpty()) {
+        return fromEnv
+    }
+    File env = new File(projectDir, "../../../dev/docker/.env")
+    if (env.isFile()) {
+        for (String line : env.readLines()) {
+            if (line.startsWith(name + "=")) {
+                // dev/worktree-env single-quotes values.
+                return line.substring(name.length() + 1).replaceAll("^'|'\$", "")
+            }
+        }
+    }
+    return fallback
+}
+
+String androidBackendURL() {
+    String url = System.getenv("XMTP_ANDROID_BACKEND_URL")
+    return url ?: "http://10.0.2.2:${worktreePort('XMTP_BACKEND_PORT', '5050')}"
 }
 
 android {
@@ -21,6 +56,21 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles "consumer-rules.pro"
+
+        // Each worktree publishes the local stack on its own ports, so the test
+        // endpoints come from this worktree's environment. Prefer a variable the
+        // `just` recipes export, then dev/docker/.env, so a direct ./gradlew or
+        // Android Studio run still reaches this worktree's backend rather than
+        // the main checkout's. 10.0.2.2 is how the emulator reaches the host;
+        // only the port moves.
+        buildConfigField "String", "XMTP_BACKEND_URL",
+            "\"${androidBackendURL()}\""
+        buildConfigField "String", "ANVIL_URL",
+            "\"http://10.0.2.2:${worktreePort("XMTP_ANVIL_PORT", "8545")}\""
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {
@@ -30,6 +80,7 @@ android {
         }
     }
     compileOptions {
+        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
@@ -38,11 +89,11 @@ android {
     }
     kotlinOptions {
         jvmTarget = '17'
+        freeCompilerArgs += ["-Xjvm-default=all"]
     }
     publishing {
         singleVariant("release") {
             withSourcesJar()
-            withJavadocJar()
         }
     }
     lint {
@@ -50,58 +101,49 @@ android {
         checkTestSources = false
         ignoreTestSources = true
     }
-    // Include generated bindings from Nix build
+    // Use one matched generated package and its JNI libraries.
     sourceSets {
         main {
-            java.srcDirs += ["${rootProject.projectDir}/.build/bindings/java"]
-            jniLibs.srcDirs += ["${rootProject.projectDir}/.build/bindings/jniLibs"]
+            def generated = System.getenv("XMTP_SDK_GENERATED_DIR")
+            def sources = generated ? "${generated}/kotlin" : "${projectDir.parentFile}/.build/bindings"
+            java.srcDirs += ["${sources}/uniffi", "${sources}/runtime", "${sources}/android"].collect { file(it).canonicalFile }
+            jniLibs.srcDirs += [System.getenv("XMTP_SDK_ANDROID_JNI_DIR") ?: "${projectDir.parentFile}/.build/bindings/jniLibs"]
+            assets.srcDirs += ["${buildDir}/generated/contract"]
+        }
+        // `dev/check-consumers` adds one negative consumer to the unit test
+        // sources. That compile must fail.
+        def negativeConsumer = findProperty("xmtpNegativeConsumer")
+        if (negativeConsumer) {
+            test {
+                java.srcDirs += [file(negativeConsumer)]
+            }
         }
     }
 }
 
-protobuf {
-    protoc {
-        artifact = "com.google.protobuf:protoc:3.21.9"
-    }
-    plugins {
-        grpc {
-            artifact = "io.grpc:protoc-gen-grpc-java:1.62.2"
-        }
-        grpckt {
-            artifact = "io.grpc:protoc-gen-grpc-kotlin:1.4.1:jdk8@jar"
-        }
-    }
-    generateProtoTasks {
-        all()*.plugins {
-            grpc {}
-            grpckt {}
-        }
-        all()*.builtins {
-            kotlin {}
-        }
-    }
+def generatedRoot = System.getenv("XMTP_SDK_GENERATED_DIR")
+def contractSource = generatedRoot ? "${generatedRoot}/kotlin/sdk-contract.json" : "${projectDir.parentFile}/.build/bindings/sdk-contract.json"
+tasks.register("stageSDKContract", Copy) {
+    fileMode = 0644
+    from contractSource
+    into "${buildDir}/generated/contract"
 }
+tasks.named("preBuild").configure { dependsOn "stageSDKContract" }
 
 dependencies {
-    implementation 'com.google.crypto.tink:tink-android:1.8.0'
-    implementation 'io.grpc:grpc-kotlin-stub:1.4.1'
-    implementation 'io.grpc:grpc-okhttp:1.62.2'
-    implementation 'io.grpc:grpc-protobuf-lite:1.62.2'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0'
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:${rootProject.ext.androidToolchain.getProperty('desugar')}"
+    api 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0'
     implementation 'androidx.lifecycle:lifecycle-process:2.7.0'
-    implementation 'org.web3j:crypto:4.9.4'
-    implementation "net.java.dev.jna:jna:5.17.0@aar"
-    api 'com.google.protobuf:protobuf-kotlin-lite:3.22.3'
-    api 'org.xmtp:proto-kotlin:3.88.0'
+    implementation "net.java.dev.jna:jna:5.18.1@aar"
 
     testImplementation 'junit:junit:4.13.2'
-    testImplementation 'androidx.test:monitor:1.7.2'
-    androidTestImplementation 'app.cash.turbine:turbine:1.1.0'
+    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
+    // JVM tests need the host dispatcher that is absent from the Android AAR.
+    testRuntimeOnly 'net.java.dev.jna:jna:5.18.1@jar'
+    androidTestImplementation 'org.web3j:core:4.9.4'
     androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
-    androidTestImplementation 'org.web3j:core:4.9.4'
-    androidTestImplementation 'org.web3j:contracts:4.9.4'
 }
 
 afterEvaluate {
@@ -113,16 +155,17 @@ afterEvaluate {
                 version = rootProject.version
 
                 from components.release
+                artifact releaseJavadocJar
 
                 pom {
                     name = "XMTP"
                     description = "XMTP Android Library"
-                    url = "https://github.com/xmtp/xmtp-android"
+                    url = "https://github.com/xmtp/libxmtp"
 
                     licenses {
                         license {
                             name = "MIT License"
-                            url = "https://github.com/xmtp/xmtp-android/blob/main/LICENSE"
+                            url = "https://github.com/xmtp/libxmtp/blob/main/sdks/android/LICENSE"
                         }
                     }
                     developers {
@@ -134,9 +177,9 @@ afterEvaluate {
                         }
                     }
                     scm {
-                        connection = "https://github.com/xmtp/xmtp-android.git"
-                        developerConnection = "https://github.com/xmtp/xmtp-android.git"
-                        url = "https://github.com/xmtp/xmtp-android/tree/main"
+                        connection = "https://github.com/xmtp/libxmtp.git"
+                        developerConnection = "https://github.com/xmtp/libxmtp.git"
+                        url = "https://github.com/xmtp/libxmtp/tree/main/sdks/android"
                     }
                 }
             }
@@ -148,4 +191,12 @@ afterEvaluate {
         useInMemoryPgpKeys(signingKey, signingPassword)
         sign publishing.publications.release
     }
+}
+
+// Share the pinned legacy files with the native migration tests. The tests
+// load the host library through jna.library.path and call the local backend;
+// neither is a task input, so CI's build cache must not replay a result.
+tasks.withType(Test).configureEach {
+    systemProperty "xmtp.legacy.fixtures", rootProject.file("../../crates/xmtp_legacy_migration/fixtures").canonicalPath
+    outputs.cacheIf("tests use native code and a backend outside the task inputs") { false }
 }

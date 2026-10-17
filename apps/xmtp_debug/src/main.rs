@@ -6,7 +6,7 @@ mod constants;
 mod logger;
 mod metrics;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use color_eyre::eyre::{Result, eyre};
 
 use std::sync::{Arc, OnceLock};
@@ -36,9 +36,26 @@ extern crate tracing;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    xmtp_cryptography::install_crypto_provider();
     color_eyre::install()?;
 
     let opts = config()?;
+    if matches!(opts.cmd, Some(args::Commands::GenerateApiKey)) {
+        const API_KEY_BYTES: usize = 32;
+        println!(
+            "{}",
+            hex::encode(xmtp_common::rand_array::<API_KEY_BYTES>())
+        );
+        return Ok(());
+    }
+    if opts.backend.url.is_none() && !opts.version {
+        AppOpts::command()
+            .error(
+                clap::error::ErrorKind::MissingRequiredArgument,
+                "--url is required",
+            )
+            .exit();
+    }
     let mut logger = logger::Logger::from(&opts.log);
     logger.init()?;
     metrics::init_metrics(opts.metrics);
@@ -55,8 +72,21 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// The version also keys stored identities and the SQLite directory.
+///
+/// The Nix compile sets `VERGEN_GIT_SHA` to the placeholder `nix`, so it caches
+/// across commits, and its wrapper always sets `XDBG_GIT_SHA` to the build's
+/// commit. Only that placeholder build reads `XDBG_GIT_SHA`; other builds keep
+/// their compile-time SHA, so an inherited variable cannot move their state.
 pub fn get_version() -> String {
-    format!("{}-{}", env!("CARGO_PKG_VERSION"), env!("VERGEN_GIT_SHA"))
+    // Matches `NIX_GIT_SHA` in `nix/package/xdbg.nix`.
+    const NIX_PLACEHOLDER_SHA: &str = "nix";
+    let compiled = env!("VERGEN_GIT_SHA");
+    let sha = match std::env::var("XDBG_GIT_SHA") {
+        Ok(sha) if compiled == NIX_PLACEHOLDER_SHA && !sha.is_empty() => sha,
+        _ => compiled.to_owned(),
+    };
+    format!("{}-{sha}", env!("CARGO_PKG_VERSION"))
 }
 
 pub fn config() -> Result<&'static AppOpts> {

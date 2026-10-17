@@ -1,0 +1,18 @@
+---
+import MarkdownContent from "@astrojs/starlight/components/MarkdownContent.astro";
+import { isHomepage } from "../lib/homepage-route";
+import { isSearchReference } from "../../scripts/search-config.mjs";
+const reference = isSearchReference(Astro.locals.starlightRoute.entry.id);
+---
+
+<div data-pagefind-weight={reference ? "0.1" : "1"}>
+  {
+    isHomepage(Astro.locals.starlightRoute.entry.id) ? (
+      <slot />
+    ) : (
+      <MarkdownContent>
+        <slot />
+      </MarkdownContent>
+    )
+  }
+</div>

@@ -35,7 +35,6 @@ async fn test_remote_is_valid_signature(#[future] docker_smart_wallet: SmartWall
         ident.inbox_id(0).unwrap(),
         Identifier::eth(account_address).unwrap(),
         0,
-        None,
     );
 
     let xmtp_client = Client::builder(identity_strategy)
@@ -104,7 +103,6 @@ async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWal
         ident.inbox_id(0).unwrap(),
         Identifier::eth(account_address).unwrap(),
         0,
-        None,
     );
 
     let scw_client = Client::builder(identity_strategy)
@@ -217,7 +215,6 @@ async fn test_two_smart_contract_wallets_group_messaging(
         ident1.inbox_id(0).unwrap(),
         Identifier::eth(account_address1).unwrap(),
         0,
-        None,
     );
 
     let client1 = Client::builder(identity_strategy1)
@@ -309,7 +306,6 @@ async fn test_invalid_scw_prevents_db_storage(#[future] docker_smart_wallet: Sma
         ident.inbox_id(0).unwrap(),
         Identifier::eth(account_address).unwrap(),
         0,
-        None,
     );
 
     // Use a mock verifier that returns FALSE for verification
@@ -399,7 +395,6 @@ async fn test_invalid_scw_then_valid_scw_recovery(
         ident.inbox_id(0).unwrap(),
         Identifier::eth(&account_address).unwrap(),
         0,
-        None,
     );
 
     // STEP 1: Start with a mock verifier that returns FALSE
@@ -446,7 +441,6 @@ async fn test_invalid_scw_then_valid_scw_recovery(
         ident.inbox_id(0).unwrap(),
         Identifier::eth(account_address.clone()).unwrap(),
         0,
-        None,
     );
 
     let client2 = Client::builder(identity_strategy2)
@@ -519,8 +513,7 @@ async fn test_operations_fail_when_not_ready() {
     // Create client with regular wallet but don't register identity
     let wallet = generate_local_wallet();
     let ident = wallet.identifier();
-    let identity_strategy =
-        IdentityStrategy::new(ident.inbox_id(0).unwrap(), ident.clone(), 0, None);
+    let identity_strategy = IdentityStrategy::new(ident.inbox_id(0).unwrap(), ident.clone(), 0);
 
     let client = Client::builder(identity_strategy)
         .temp_store()

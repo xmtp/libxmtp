@@ -1,0 +1,762 @@
+//! Request limits, canonical publish units, and complete topic reads.
+use crate::{ApiClientWrapper, ApiError, Result, dyn_err};
+use futures::{StreamExt, TryStreamExt, stream};
+use prost::Message;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    future::Future,
+};
+use tonic::Code;
+use xmtp_common::{RetryableError, retry_async};
+use xmtp_configuration::*;
+use xmtp_proto::{
+    api::grpc_status,
+    api_client::XmtpBackendClient,
+    backend_v1 as wire,
+    types::{
+        CanonicalEnvelope, Cursor, IncomingBatchLimits, OrderedEnvelopeBatch, Topic, TopicCursor,
+    },
+};
+
+pub const MAX_PUBLISH_CHUNKS_IN_FLIGHT: usize = 4;
+pub const MAX_READ_CHUNKS_IN_FLIGHT: usize = 4;
+
+/// One bounded ordered query result. Receipt is not committed by the query.
+#[derive(Debug)]
+pub struct OrderedQueryPage {
+    /// Per-topic batches with their original read positions.
+    pub batches: Vec<OrderedEnvelopeBatch>,
+    /// More data or an unread topic chunk remains. Resume from committed receipt.
+    pub has_more: bool,
+}
+
+#[derive(Clone, Debug)]
+struct PublishEnvelope {
+    envelope: wire::ClientEnvelope,
+    canonical: CanonicalEnvelope,
+    topic: Topic,
+}
+
+/// One envelope, or a commit and its proposals. A unit is never split.
+#[derive(Clone, Debug)]
+pub struct PublishUnit {
+    envelopes: Vec<PublishEnvelope>,
+}
+impl PublishUnit {
+    /// Build a unit against the shapes one deployment published.
+    /// A unit that cannot fit in a single request is rejected here,
+    /// before any network call.
+    // implements: CONF-073
+    pub fn new_within(
+        envelopes: Vec<wire::ClientEnvelope>,
+        limits: &LimitsConfiguration,
+    ) -> Result<Self> {
+        if envelopes.is_empty() {
+            return Err(ApiError::InvalidRequest("empty publish unit"));
+        }
+        let envelopes = envelopes
+            .into_iter()
+            .map(|envelope| {
+                let parsed = xmtp_mls_validation::parse_envelope(envelope)?;
+                if parsed.canonical.bytes.len() > limits.max_envelope_bytes {
+                    return Err(ApiError::EnvelopeTooLarge);
+                }
+                Ok(PublishEnvelope {
+                    envelope: parsed.envelope,
+                    canonical: parsed.canonical,
+                    topic: parsed.topic,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let unit = Self { envelopes };
+        let mut measure = PublishMeasure::new(limits);
+        measure.add(&unit);
+        if !measure.fits() {
+            return Err(ApiError::UnitTooLarge);
+        }
+        Ok(unit)
+    }
+
+    pub fn single_within(
+        envelope: wire::ClientEnvelope,
+        limits: &LimitsConfiguration,
+    ) -> Result<Self> {
+        Self::new_within(vec![envelope], limits)
+    }
+
+    /// Build a unit against the compiled defaults, for a caller that holds no
+    /// snapshot. Every client path goes through `new_within`.
+    pub fn new(envelopes: Vec<wire::ClientEnvelope>) -> Result<Self> {
+        Self::new_within(envelopes, &LimitsConfiguration::default())
+    }
+
+    pub fn single(envelope: wire::ClientEnvelope) -> Result<Self> {
+        Self::new(vec![envelope])
+    }
+}
+
+pub(crate) fn request(units: &[PublishUnit]) -> wire::PublishRequest {
+    wire::PublishRequest {
+        envelopes: units
+            .iter()
+            .flat_map(|unit| unit.envelopes.iter().map(|e| e.envelope.clone()))
+            .collect(),
+    }
+}
+/// Measure repeated envelope fields without cloning or encoding the request.
+struct PublishMeasure<'a> {
+    bytes: usize,
+    topics: HashSet<&'a Topic>,
+    limits: &'a LimitsConfiguration,
+}
+impl<'a> PublishMeasure<'a> {
+    fn new(limits: &'a LimitsConfiguration) -> Self {
+        Self {
+            bytes: 0,
+            topics: HashSet::new(),
+            limits,
+        }
+    }
+
+    fn add(&mut self, unit: &'a PublishUnit) {
+        for envelope in &unit.envelopes {
+            let len = envelope.canonical.bytes.len();
+            self.bytes += 1 + prost::length_delimiter_len(len) + len;
+            self.topics.insert(&envelope.topic);
+        }
+    }
+
+    fn fits(&self) -> bool {
+        self.bytes <= self.limits.max_request_bytes
+            && self.topics.len() <= self.limits.max_publish_topics
+    }
+}
+
+/// Split units into requests the deployment accepts. A commit and
+/// its proposals are one unit and never straddle a chunk.
+// implements: CONF-073
+pub fn chunk_publish_within<'a>(
+    units: &'a [PublishUnit],
+    limits: &LimitsConfiguration,
+) -> Result<Vec<&'a [PublishUnit]>> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let mut measure = PublishMeasure::new(limits);
+    for (end, unit) in units.iter().enumerate() {
+        measure.add(unit);
+        if !measure.fits() {
+            if start == end {
+                return Err(ApiError::UnitTooLarge);
+            }
+            chunks.push(&units[start..end]);
+            start = end;
+            measure = PublishMeasure::new(limits);
+            measure.add(unit);
+            if !measure.fits() {
+                return Err(ApiError::UnitTooLarge);
+            }
+        }
+    }
+    if start < units.len() {
+        chunks.push(&units[start..]);
+    }
+    Ok(chunks)
+}
+
+/// Chunk against the compiled defaults, for a caller that holds no snapshot.
+pub fn chunk_publish(units: &[PublishUnit]) -> Result<Vec<&[PublishUnit]>> {
+    chunk_publish_within(units, &LimitsConfiguration::default())
+}
+
+/// The type URL of the structured detail on a refused publish.
+const PUBLISH_ERROR_TYPE_URL: &str = "type.googleapis.com/xmtp.backend.v1.PublishError";
+
+/// The reason in the structured `PublishError` detail of an
+/// `INVALID_ARGUMENT` publish refusal, or `None` when the error carries no
+/// such detail. The status message is never read.
+pub(crate) fn publish_error_reason(
+    error: &(dyn std::error::Error + 'static),
+) -> Option<wire::publish_error::Reason> {
+    if crate::preflight::failure(error).is_some() {
+        return None;
+    }
+    let status = grpc_status(error).filter(|status| status.code() == Code::InvalidArgument)?;
+    let details = tonic_types::pb::Status::decode(status.details()).ok()?;
+    details
+        .details
+        .iter()
+        .filter(|detail| detail.type_url == PUBLISH_ERROR_TYPE_URL)
+        .find_map(|detail| wire::PublishError::decode(detail.value.as_slice()).ok())
+        .and_then(|error| wire::publish_error::Reason::try_from(error.reason).ok())
+}
+
+pub(crate) fn size_error(error: &(dyn std::error::Error + 'static)) -> bool {
+    if crate::preflight::failure(error).is_some() {
+        return false;
+    }
+    let Some(status) = grpc_status(error) else {
+        return false;
+    };
+    match status.code() {
+        Code::OutOfRange | Code::ResourceExhausted => true,
+        Code::InvalidArgument => {
+            publish_error_reason(error) == Some(wire::publish_error::Reason::TooLarge)
+        }
+        _ => false,
+    }
+}
+
+/// A size refusal that proves nothing was stored, so smaller requests may
+/// follow. `OUT_OF_RANGE` proves nothing: the request can commit before its
+/// response outgrows the transport, so its caller settles it with a read.
+// implements: API-284
+fn publish_size_error(error: &(dyn std::error::Error + 'static)) -> bool {
+    size_error(error) && grpc_status(error).is_none_or(|status| status.code() != Code::OutOfRange)
+}
+
+/// Size failures bypass backoff while the caller can reduce the request.
+#[derive(Debug, thiserror::Error)]
+enum CallError<E> {
+    #[error(transparent)]
+    Resize(E),
+    #[error(transparent)]
+    Retry(E),
+}
+impl<E: RetryableError + 'static> RetryableError for CallError<E> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Resize(_) => false,
+            Self::Retry(error) => {
+                crate::preflight::failure(error).is_none() && error.is_retryable()
+            }
+        }
+    }
+}
+
+impl<C> ApiClientWrapper<C> {
+    pub(crate) async fn retry_call<T, E, F, Fut>(
+        &self,
+        mut call: F,
+        resize: bool,
+    ) -> std::result::Result<T, E>
+    where
+        E: RetryableError + 'static,
+        F: FnMut() -> Fut,
+        Fut: Future<Output = std::result::Result<T, E>>,
+    {
+        retry_async!(
+            self.retry_strategy,
+            (async {
+                call().await.map_err(|error| {
+                    if resize && size_error(&error) {
+                        CallError::Resize(error)
+                    } else {
+                        CallError::Retry(error)
+                    }
+                })
+            })
+        )
+        .map_err(|error| match error {
+            CallError::Resize(error) | CallError::Retry(error) => error,
+        })
+    }
+}
+
+impl<C: XmtpBackendClient> ApiClientWrapper<C> {
+    /// Publish each atomic unit and return metadata in envelope order.
+    #[xmtp_common::rpc_span]
+    pub async fn publish_units(&self, units: Vec<PublishUnit>) -> Result<Vec<wire::EnvelopeMeta>> {
+        let chunks = chunk_publish_within(&units, self.limits())?
+            .into_iter()
+            .map(<[_]>::to_vec)
+            .collect::<Vec<_>>();
+        let mut responses: Vec<_> = stream::iter(chunks.into_iter().enumerate().map(
+            |(index, chunk)| async move {
+                Ok::<_, ApiError>((index, self.publish_chunk(&chunk).await?))
+            },
+        ))
+        .buffer_unordered(MAX_PUBLISH_CHUNKS_IN_FLIGHT)
+        .try_collect()
+        .await?;
+        responses.sort_by_key(|(index, _)| *index);
+        Ok(responses.into_iter().flat_map(|(_, metas)| metas).collect())
+    }
+
+    async fn publish_chunk(&self, units: &[PublishUnit]) -> Result<Vec<wire::EnvelopeMeta>> {
+        let mut pending = VecDeque::from([units]);
+        let mut metas = Vec::new();
+        while let Some(units) = pending.pop_front() {
+            let request = request(units);
+            match self
+                .retry_call(|| self.api_client.publish(request.clone()), units.len() > 1)
+                .await
+            {
+                Ok(response) => {
+                    let expected: Vec<_> = units.iter().flat_map(|unit| &unit.envelopes).collect();
+                    if response.envelope_metas.len() != expected.len() {
+                        return Err(ApiError::InvalidResponse("publish metadata count"));
+                    }
+                    for (meta, envelope) in response.envelope_metas.iter().zip(expected) {
+                        let (topic, _, _) =
+                            xmtp_api_backend::envelope::metadata(meta, envelope.topic.kind())?;
+                        if topic != envelope.topic {
+                            return Err(ApiError::InvalidResponse("publish topic"));
+                        }
+                    }
+                    metas.extend(response.envelope_metas);
+                }
+                Err(error) if publish_size_error(&error) && units.len() > 1 => {
+                    let (left, right) = units.split_at(units.len() / 2);
+                    pending.push_front(right);
+                    pending.push_front(left);
+                }
+                Err(error) => return Err(dyn_err(error)),
+            }
+        }
+        Ok(metas)
+    }
+
+    /// Read one bounded ordered page without decoding MLS payloads.
+    /// Commit each batch before requesting more from the new received prefix `F`.
+    // implements: PROC-020
+    pub async fn query_ordered_page(
+        &self,
+        cursors: TopicCursor,
+        limit: u32,
+        limits: IncomingBatchLimits,
+    ) -> Result<OrderedQueryPage> {
+        if limit == 0
+            || limit as usize > self.limits().max_query_limit
+            || limits.max_rows == 0
+            || limits.max_bytes == 0
+        {
+            return Err(ApiError::InvalidRequest("query limit"));
+        }
+        let topics: Vec<_> = cursors.into_iter().collect();
+        let mut pending: VecDeque<_> = topics
+            .chunks(self.limits().max_query_topics)
+            .map(|topics| (topics.to_vec(), limit))
+            .collect();
+        let mut page = OrderedQueryPage {
+            batches: Vec::new(),
+            has_more: false,
+        };
+        let mut remaining = limits;
+        while let Some((topics, requested_limit)) = pending.pop_front() {
+            if remaining.max_rows == 0 || remaining.max_bytes == 0 {
+                page.has_more = true;
+                break;
+            }
+            let requested_limit =
+                requested_limit.min(remaining.max_rows.min(u32::MAX as usize) as u32);
+            let request = wire::QueryRequest {
+                queries: topics
+                    .iter()
+                    .map(|(topic, cursor)| wire::TopicQuery {
+                        topic: Some(wire::Topic {
+                            topic: topic.cloned_vec(),
+                        }),
+                        cursor: Some((*cursor).into()),
+                    })
+                    .collect(),
+                limit: requested_limit,
+            };
+            let response = match self
+                .retry_call(
+                    || self.api_client.query(request.clone()),
+                    requested_limit > 1 || topics.len() > 1,
+                )
+                .await
+            {
+                Ok(response) => response,
+                Err(error) if size_error(&error) && requested_limit > 1 => {
+                    pending.push_front((topics, (requested_limit / 2).max(1)));
+                    continue;
+                }
+                Err(error) if size_error(&error) && topics.len() > 1 => {
+                    let (left, right) = topics.split_at(topics.len() / 2);
+                    pending.push_front((right.to_vec(), requested_limit));
+                    pending.push_front((left.to_vec(), requested_limit));
+                    continue;
+                }
+                Err(error) => return Err(dyn_err(error)),
+            };
+            let has_more = response
+                .continuation
+                .ok_or(ApiError::InvalidResponse("query continuation"))?
+                .has_more;
+            if has_more && response.envelopes.is_empty() {
+                return Err(ApiError::InvalidResponse("query has more without progress"));
+            }
+            if response.envelopes.len() > requested_limit as usize {
+                return Err(ApiError::InvalidResponse("query response limit"));
+            }
+            let mut positions = topics.iter().cloned().collect();
+            let batches = match xmtp_api_backend::envelope::ordered_batches(
+                &mut positions,
+                response.envelopes,
+                remaining,
+            ) {
+                Ok(batches) => batches,
+                Err(xmtp_api_backend::envelope::EnvelopeError::Capacity) if requested_limit > 1 => {
+                    pending.push_front((topics, (requested_limit / 2).max(1)));
+                    continue;
+                }
+                Err(xmtp_api_backend::envelope::EnvelopeError::Capacity)
+                    if !page.batches.is_empty() =>
+                {
+                    page.has_more = true;
+                    break;
+                }
+                Err(error) => return Err(error.into()),
+            };
+            for batch in &batches {
+                remaining.max_rows -= batch.envelopes.len();
+                remaining.max_bytes -= batch
+                    .envelopes
+                    .iter()
+                    .map(Message::encoded_len)
+                    .sum::<usize>();
+            }
+            page.has_more |= has_more;
+            page.batches.extend(batches);
+        }
+        Ok(page)
+    }
+
+    /// Capture fixed newest targets. Absent topics have target zero.
+    /// Keep these targets unchanged while waiting for processing to reach them.
+    // implements: PROC-015
+    pub async fn newest_topic_cursors(&self, topics: Vec<Topic>) -> Result<TopicCursor> {
+        let mut cursors: TopicCursor = topics
+            .iter()
+            .cloned()
+            .map(|topic| (topic, Cursor(0)))
+            .collect();
+        for result in self.newest(topics, false).await? {
+            let topic = Topic::parse(
+                &result
+                    .topic
+                    .ok_or(ApiError::InvalidResponse("newest topic"))?
+                    .topic,
+            )?;
+            let meta = result
+                .meta
+                .ok_or(ApiError::InvalidResponse("newest metadata"))?;
+            let (_, cursor, _) = xmtp_api_backend::envelope::metadata(&meta, topic.kind())?;
+            cursors.insert(topic, cursor);
+        }
+        Ok(cursors)
+    }
+
+    /// Read every page. Each topic advances only to its own returned cursor.
+    pub async fn query_all(
+        &self,
+        cursors: TopicCursor,
+        limit: u32,
+    ) -> Result<Vec<wire::ServerEnvelope>> {
+        if limit == 0 || limit as usize > self.limits().max_query_limit {
+            return Err(ApiError::InvalidRequest("query limit"));
+        }
+        let topics: Vec<_> = cursors.into_iter().collect();
+        let results: Vec<Vec<_>> = stream::iter(
+            topics
+                .chunks(self.limits().max_query_topics)
+                .map(<[_]>::to_vec)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|chunk| self.query_chunk(chunk, limit)),
+        )
+        .buffer_unordered(MAX_READ_CHUNKS_IN_FLIGHT)
+        .try_collect()
+        .await?;
+        Ok(results.into_iter().flatten().collect())
+    }
+
+    async fn query_chunk(
+        &self,
+        topics: Vec<(Topic, Cursor)>,
+        limit: u32,
+    ) -> Result<Vec<wire::ServerEnvelope>> {
+        let mut output = Vec::new();
+        self.scan_chunk(topics, limit, |page| {
+            output.extend(page);
+            false
+        })
+        .await?;
+        Ok(output)
+    }
+
+    /// Settle a publish whose outcome is unknown without resending it: a
+    /// `Query` of every topic in `units`, from the start, returns the stored
+    /// metadata of each envelope in envelope order, matched by its canonical
+    /// hash. `None` marks an envelope the backend did not store. Pages that
+    /// match nothing are dropped, and the read stops once every envelope matched.
+    /// A record without valid metadata fails the read: it could be any envelope,
+    /// so the read cannot prove one absent.
+    #[xmtp_common::rpc_span]
+    pub async fn settle_units(
+        &self,
+        units: &[PublishUnit],
+    ) -> Result<Vec<Option<wire::EnvelopeMeta>>> {
+        let envelopes: Vec<_> = units.iter().flat_map(|unit| &unit.envelopes).collect();
+        let mut pending: HashMap<_, Vec<_>> = HashMap::new();
+        for (index, envelope) in envelopes.iter().enumerate() {
+            pending
+                .entry(envelope.canonical.hash.to_vec())
+                .or_default()
+                .push(index);
+        }
+        let mut settled = vec![None; envelopes.len()];
+        let topics: HashSet<_> = envelopes.iter().map(|envelope| &envelope.topic).collect();
+        let topics: Vec<_> = topics
+            .into_iter()
+            .map(|topic| (topic.clone(), Cursor(0)))
+            .collect();
+        let limit = self.limits().max_query_limit as u32;
+        for chunk in topics.chunks(self.limits().max_query_topics) {
+            let mut invalid = false;
+            self.scan_chunk(chunk.to_vec(), limit, |page| {
+                invalid = page.into_iter().any(|stored| {
+                    let Some(meta) = stored.meta else { return true };
+                    let Ok(hash) = xmtp_api_backend::envelope::message_hash(&meta) else {
+                        return true;
+                    };
+                    let Some(indices) = pending.remove(&hash) else {
+                        return false;
+                    };
+                    // Identical envelopes share one hash and one stored copy.
+                    let topic = &envelopes[indices[0]].topic;
+                    let valid = xmtp_api_backend::envelope::metadata(&meta, topic.kind())
+                        .is_ok_and(|(stored_topic, _, _)| stored_topic == *topic);
+                    for index in indices {
+                        settled[index] = Some(meta.clone());
+                    }
+                    !valid
+                });
+                invalid || pending.is_empty()
+            })
+            .await?;
+            if invalid {
+                return Err(ApiError::InvalidResponse("settled metadata"));
+            }
+            if pending.is_empty() {
+                break;
+            }
+        }
+        Ok(settled)
+    }
+
+    /// Read pages of `topics` in cursor order until `visit` returns true or
+    /// every topic is exhausted.
+    async fn scan_chunk(
+        &self,
+        topics: Vec<(Topic, Cursor)>,
+        limit: u32,
+        mut visit: impl FnMut(Vec<wire::ServerEnvelope>) -> bool,
+    ) -> Result<()> {
+        let mut pending = VecDeque::from([(topics, limit)]);
+        while let Some((mut topics, mut limit)) = pending.pop_front() {
+            loop {
+                let request = wire::QueryRequest {
+                    queries: topics
+                        .iter()
+                        .map(|(topic, cursor)| wire::TopicQuery {
+                            topic: Some(wire::Topic {
+                                topic: topic.cloned_vec(),
+                            }),
+                            cursor: Some((*cursor).into()),
+                        })
+                        .collect(),
+                    limit,
+                };
+                match self
+                    .retry_call(
+                        || self.api_client.query(request.clone()),
+                        limit > 1 || topics.len() > 1,
+                    )
+                    .await
+                {
+                    Ok(response) => {
+                        let has_more = response
+                            .continuation
+                            .ok_or(ApiError::InvalidResponse("query continuation"))?
+                            .has_more;
+                        let mut cursors: HashMap<_, _> = topics
+                            .iter_mut()
+                            .map(|(topic, cursor)| (topic.clone(), cursor))
+                            .collect();
+                        let mut advanced = false;
+                        for envelope in &response.envelopes {
+                            let meta = envelope
+                                .meta
+                                .as_ref()
+                                .ok_or(ApiError::InvalidResponse("query metadata"))?;
+                            let topic = Topic::parse(
+                                &meta
+                                    .topic
+                                    .as_ref()
+                                    .ok_or(ApiError::InvalidResponse("query topic"))?
+                                    .topic,
+                            )?;
+                            let cursor = cursors
+                                .get_mut(&topic)
+                                .ok_or(ApiError::InvalidResponse("unrequested query topic"))?;
+                            let sequence = meta
+                                .cursor
+                                .as_ref()
+                                .ok_or(ApiError::InvalidResponse("query cursor"))?
+                                .sequence_id;
+                            if sequence <= cursor.0 || sequence > i64::MAX as u64 {
+                                return Err(ApiError::InvalidResponse(
+                                    "query cursor did not advance",
+                                ));
+                            }
+                            **cursor = Cursor(sequence);
+                            advanced = true;
+                        }
+                        if visit(response.envelopes) {
+                            return Ok(());
+                        }
+                        if !has_more {
+                            break;
+                        }
+                        if !advanced {
+                            return Err(ApiError::InvalidResponse(
+                                "query has more without progress",
+                            ));
+                        }
+                    }
+                    Err(error) if size_error(&error) && limit > 1 => {
+                        limit = (limit / 2).max(1);
+                    }
+                    Err(error) if size_error(&error) && topics.len() > 1 => {
+                        let right = topics.split_off(topics.len() / 2);
+                        pending.push_front((right, limit));
+                    }
+                    Err(error) => return Err(dyn_err(error)),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn newest(
+        &self,
+        topics: Vec<Topic>,
+        full: bool,
+    ) -> Result<Vec<wire::query_newest_response::Result>> {
+        let topics: Vec<_> = topics
+            .into_iter()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let cap = if full {
+            self.limits().max_newest_full_topics
+        } else {
+            self.limits().max_newest_metadata_topics
+        };
+        let results: Vec<Vec<_>> = stream::iter(
+            topics
+                .chunks(cap)
+                .map(<[_]>::to_vec)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|chunk| async move { self.newest_chunk(&chunk, full).await }),
+        )
+        .buffer_unordered(MAX_READ_CHUNKS_IN_FLIGHT)
+        .try_collect()
+        .await?;
+        Ok(results.into_iter().flatten().collect())
+    }
+
+    async fn newest_chunk(
+        &self,
+        topics: &[Topic],
+        full: bool,
+    ) -> Result<Vec<wire::query_newest_response::Result>> {
+        let mut pending = VecDeque::from([topics]);
+        let mut output = Vec::new();
+        while let Some(topics) = pending.pop_front() {
+            let request = wire::QueryNewestRequest {
+                topics: topics
+                    .iter()
+                    .map(|topic| wire::Topic {
+                        topic: topic.cloned_vec(),
+                    })
+                    .collect(),
+                include_full_envelope: full,
+            };
+            match self
+                .retry_call(
+                    || self.api_client.query_newest(request.clone()),
+                    topics.len() > 1,
+                )
+                .await
+            {
+                Ok(response) => {
+                    let mut seen = HashSet::new();
+                    for result in &response.results {
+                        let topic = Topic::parse(
+                            &result
+                                .topic
+                                .as_ref()
+                                .ok_or(ApiError::InvalidResponse("newest topic"))?
+                                .topic,
+                        )?;
+                        if !topics.contains(&topic) || !seen.insert(topic.clone()) {
+                            return Err(ApiError::InvalidResponse(
+                                "unrequested or duplicate newest topic",
+                            ));
+                        }
+                        let meta = result
+                            .meta
+                            .as_ref()
+                            .ok_or(ApiError::InvalidResponse("newest metadata"))?;
+                        let (meta_topic, _, _) =
+                            xmtp_api_backend::envelope::metadata(meta, topic.kind())?;
+                        if meta_topic != topic || (full && result.envelope.is_none()) {
+                            return Err(ApiError::InvalidResponse("newest envelope"));
+                        }
+                    }
+                    output.extend(response.results);
+                }
+                Err(error) if size_error(&error) && topics.len() > 1 => {
+                    let (left, right) = topics.split_at(topics.len() / 2);
+                    pending.push_front(right);
+                    pending.push_front(left);
+                }
+                Err(error) => return Err(dyn_err(error)),
+            }
+        }
+        Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use xmtp_mls_validation::test_utils::{
+        GroupMessageKind, group_message_envelope, inline_welcome_envelope,
+    };
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn running_publish_measure_matches_encoded_mixed_request() {
+        let units = [
+            PublishUnit::single(inline_welcome_envelope([1; 32]))?,
+            PublishUnit::new(vec![
+                group_message_envelope([2; 16], GroupMessageKind::Proposal, [0; 127]),
+                group_message_envelope([2; 16], GroupMessageKind::Commit, [0; 16384]),
+            ])?,
+            PublishUnit::single(inline_welcome_envelope([1; 32]))?,
+            PublishUnit::single(inline_welcome_envelope([3; 32]))?,
+        ];
+        let limits = LimitsConfiguration::default();
+        let mut measure = PublishMeasure::new(&limits);
+        for (index, unit) in units.iter().enumerate() {
+            measure.add(unit);
+            assert_eq!(measure.bytes, request(&units[..=index]).encoded_len());
+        }
+        assert_eq!(measure.topics.len(), 3);
+    }
+}

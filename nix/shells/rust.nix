@@ -1,58 +1,43 @@
-# Focused Rust dev shell for crates/ and bindings/ work.
-# Supports: dev/lint, dev/lint-rust, cargo test, cargo nextest, WASM checks.
-# Does NOT include debugging/profiling tools or convenience packages — see local.nix.
+# The Rust core shell, for CI Rust jobs and as the base of `default` and
+# `android` (through `inputsFrom` and `shellCommon.rustShellEnv`).
+# Supports: dev/lint, dev/lint-rust, cargo test, cargo nextest, WASM checks,
+# and the SDK checks, which also run Node and pnpm.
 {
-  stdenv,
-  darwin,
-  lib,
   mkShell,
   foundry-bin,
-  just,
-  sqlcipher,
-  corepack,
+  xmtp-pnpm,
+  nodejs_26,
+  uv,
   xmtp,
 }:
 let
-  inherit (stdenv) isDarwin;
   inherit (xmtp) shellCommon;
-  rust-toolchain =
-    xmtp.mkNativeToolchain
-      [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ]
-      [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in
-mkShell {
-  meta.description = "Rust development environment for libXMTP crates and bindings";
+mkShell (
+  shellCommon.rustShellEnv
+  // {
+    meta.description = "Rust development environment for libXMTP crates and bindings";
 
-  inherit (shellCommon.rustBase) hardeningDisable nativeBuildInputs LD_LIBRARY_PATH;
-  inherit (shellCommon.rustBase.env)
-    OPENSSL_DIR
-    OPENSSL_LIB_DIR
-    OPENSSL_NO_VENDOR
-    STACK_OVERFLOW_CHECK
-    XMTP_NIX_ENV
-    ;
-  inherit (shellCommon.wasmEnv)
-    CC_wasm32_unknown_unknown
-    AR_wasm32_unknown_unknown
-    CFLAGS_wasm32_unknown_unknown
-    ;
+    XMTP_DEV_SHELL = "rust";
 
-  buildInputs =
-    shellCommon.rustBase.buildInputs
-    ++ [
-      rust-toolchain
-      foundry-bin
-      # .envrc auto-loads this shell, so the repo's `just` workflow must resolve here
-      just
-      sqlcipher
-      corepack
-    ]
-    ++ shellCommon.wasmTools
-    ++ shellCommon.cargoTools
-    ++ shellCommon.cargoCiTools
-    ++ shellCommon.protoTools
-    ++ shellCommon.lintTools
-    ++ lib.optionals isDarwin [
-      darwin.cctools
+    shellHook = shellCommon.rustShellHook;
+
+    inherit (shellCommon.rustBase) nativeBuildInputs;
+
+    buildInputs = shellCommon.rustCorePackages ++ [
+      (shellCommon.mkTools "rust" (
+        [
+          foundry-bin
+          xmtp-pnpm
+          nodejs_26
+          uv
+        ]
+        ++ shellCommon.wasmTools
+        ++ shellCommon.agentTools
+        ++ shellCommon.cargoCiTools
+        ++ shellCommon.protoTools
+        ++ shellCommon.lintTools
+      ))
     ];
-}
+  }
+)

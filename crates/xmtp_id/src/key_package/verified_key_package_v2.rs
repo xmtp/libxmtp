@@ -80,6 +80,7 @@ impl VerifiedKeyPackageV2 {
     }
 
     /// Create a verified key package from TLS-Serialized bytes.
+    // implements: JOIN-007, JOIN-008
     pub fn from_bytes(
         crypto_provider: &RustCrypto,
         data: &[u8],
@@ -127,6 +128,7 @@ impl VerifiedKeyPackageV2 {
 impl TryFrom<KeyPackage> for VerifiedKeyPackageV2 {
     type Error = KeyPackageVerificationError;
 
+    // implements: JOIN-004
     fn try_from(kp: KeyPackage) -> Result<Self, Self::Error> {
         let leaf_node = kp.leaf_node();
         let basic_credential = BasicCredential::try_from(leaf_node.credential().clone())?;

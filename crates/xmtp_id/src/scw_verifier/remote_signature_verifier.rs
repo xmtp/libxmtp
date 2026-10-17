@@ -3,11 +3,11 @@ use crate::associations::AccountId;
 use alloy::primitives::{BlockNumber, Bytes};
 
 use xmtp_proto::{
-    prelude::XmtpIdentityClient,
-    xmtp::identity::api::v1::{
-        VerifySmartContractWalletSignatureRequestSignature,
+    backend_v1::{
         VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+        verify_smart_contract_wallet_signatures_request::Signature as VerifySmartContractWalletSignatureRequestSignature,
     },
+    prelude::XmtpBackendClient,
 };
 
 pub struct RemoteSignatureVerifier<C> {
@@ -23,7 +23,7 @@ impl<ApiClient> RemoteSignatureVerifier<ApiClient> {
 #[xmtp_common::async_trait]
 impl<C> SmartContractSignatureVerifier for RemoteSignatureVerifier<C>
 where
-    C: XmtpIdentityClient,
+    C: XmtpBackendClient,
 {
     async fn is_valid_signature(
         &self,
@@ -47,14 +47,19 @@ where
 
         let VerifySmartContractWalletSignaturesResponse { responses } = result;
 
-        Ok(responses
-            .into_iter()
-            .next()
-            .ok_or(VerifierError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "API returned empty response for signature verification request",
-            )))?
-            .into())
+        let response =
+            responses
+                .into_iter()
+                .next()
+                .ok_or(VerifierError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "API returned empty response for signature verification request",
+                )))?;
+        Ok(ValidationResponse {
+            is_valid: response.is_valid,
+            block_number: response.block_number,
+            error: response.error,
+        })
     }
 }
 

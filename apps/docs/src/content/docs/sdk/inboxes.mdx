@@ -1,0 +1,416 @@
+---
+title: Inboxes
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+With XMTP, a user can have one or more **inboxes** they use to access their messages. An inbox ID is a stable identifier for a user's messaging identity and is used as the destination for messages in direct message and group conversations. It is the SHA-256 digest of the first identity's identifier text followed by a decimal nonce. It does not depend on a key package.
+
+An inbox can have multiple **identities** associated with it. A public identity has an `ethereum` or `passkey` kind and an identifier string. EOA and SCW signers both use an Ethereum identity. A passkey uses a public key encoded as hex.
+
+Messages addressed to these identities use the same inbox ID on the same backend. A new installation must join or sync conversations to obtain their state.
+
+The first time someone uses your app with an identity they've never used with any app built with XMTP, your app creates an inbox ID and **installation** associated with the identity. To do this, you [create a client](/sdk/client/) for their identity.
+
+:::tip[Agent installations]
+The installation concepts described in this document apply to both inbox apps and agents. However, the context differs. **Inbox apps** typically have installations across different devices and apps (phone, laptop, different XMTP apps), while **agents** typically have a single installation that is persisted.
+:::
+
+The client creates an inbox ID and installation ID associated with the identity. The first identity is the recovery identity. Its signer authorizes identity removal, installation revocation, and recovery identity changes.
+
+![Diagram showing creation of an inbox and installation](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/create-inbox-install.png)
+
+When you make subsequent calls to create a client for the same identity and a local database is not present, the client uses the same inbox ID, but creates a new installation ID.
+
+The backend defaults to 10 active installations per inbox. At the limit, the user needs to [revoke installations](#manage-installations).
+
+![Diagram showing an added installation](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/add-installation.png)
+
+You can enable a user to add multiple identities to their inbox. Adding an identity does not create an installation. A later client created with that identity can register its own installation for the same inbox.
+
+![Diagram showing an added identity](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/add-id.png)
+
+You can enable a user to remove an identity from their inbox. You cannot remove the recovery identity.
+
+## Update and installation limits
+
+### Inbox update limit
+
+The backend defaults to 256 identity log entries per inbox. The operator can change `limits.max_identity_entries`. The creation entry counts. Later entries include actions such as:
+
+- Add a wallet
+- Remove a wallet
+- Add an installation
+- Revoke an installation
+- Claim a [handle](#handles)
+
+:::danger[CRITICAL FOR PRODUCTION]
+Inbox updates are cumulative and **cannot be reversed**. Revoking an installation counts as an update but does not decrease the total count. When the log reaches the configured limit, the backend rejects further entries for that inbox.
+:::
+
+The backend enforces the limit only when it receives the update. The SDK does not reject it in advance. If the backend rejects an update because the log is full, contact the backend operator. A separate inbox does not inherit the old inbox's conversations.
+
+**Why this limit exists:** Every client that interacts with the inbox must fetch and validate its identity updates. In a group, the work increases for every member with a long update history.
+
+### Installation limit
+
+The backend defaults to 10 active installations per inbox. The operator can change `mls.max_installations_per_inbox`. The SDK reads this limit from server configuration. At the limit, the user must revoke an installation before adding one. The limit controls MLS group size and avoids repeated registration.
+
+:::warning[Important]
+The only way to avoid consuming installation updates is to ensure your XMTP database is persisted and reloaded between app sessions and deployments. When you reuse an existing database, you maintain the same installation instead of creating a new one each time.
+:::
+
+Installations accumulate per backend. Separate backend deployments have separate identity logs and counts. The same identifier and nonce can derive the same inbox ID in each deployment.
+
+Default and directory storage place the database at `{root}/{deployment}/{inboxId}/xmtp.db3`. A storage label adds a directory below the root. Keep the same storage options to reuse the installation. There is no `env` client option.
+
+### Best practices
+
+1. Reuse the same local database and encryption key on every launch.
+2. Point tests at a backend you can reset. Clear its database when a limit blocks the test.
+3. Revoke unused installations before the active count reaches the configured limit.
+4. Record enough installation data to help a user select the correct device.
+
+### Derive an inbox ID
+
+All four SDKs expose `generateInboxId` to calculate an inbox ID from an identity and nonce. This calculation does not register or move an identity. Client creation uses `registration.nonce` when it needs to derive an inbox ID; the default is `0`. An existing identifier association still selects its current inbox. A new nonce does not reset a full log or merge conversations.
+
+## Manage installations
+
+Show a user the installation ID, last activity time, app version, and device data that your app stores. Revoking an installation removes its authorization from the identity log. It does not delete its local copy of earlier messages.
+
+| Task                           | Browser, Node                                | Kotlin, Swift                                                                                                         |
+| ------------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Read inbox state               | `client.inboxState(true)`                    | `client.inboxState(refreshFromNetwork = true)` (Kotlin) or `client.inboxState(refreshFromNetwork: true)` (Swift)      |
+| Read several inbox states      | `Client.inboxStates(ids, backend)`           | `SDKClient.inboxStates(ids, backend)` (Kotlin) or `SDKClient.inboxStates(ids: ids, backend: backend)` (Swift)         |
+| Revoke selected installations  | `client.revokeInstallations(signer, ids)`    | `client.revokeInstallations(signer, ids)` (Kotlin) or `client.revokeInstallations(signer: signer, ids: ids)` (Swift)  |
+| Revoke all other installations | `client.revokeAllOtherInstallations(signer)` | `client.revokeAllOtherInstallations(signer)` (Kotlin) or `client.revokeAllOtherInstallations(signer: signer)` (Swift) |
+
+`InboxState` returns `inboxId`, `identities`, `installations`, `recoveryIdentity`,
+optional `creationSignatureKind`, optional `handle`, and `otherHandles` (see
+[Show handles](#show-handles)). Static `inboxStates` leaves
+`creationSignatureKind` absent. Each installation has `id` and an optional
+`createdAt`. The SDK does not return a last activity time or device name. Store
+those values in your app if needed.
+
+Static state lookup and revocation need no local client. JavaScript accepts backend
+options or a connected `Backend`. Kotlin and Swift use `BackendSource`.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="inboxes-browser.ts" region="manage"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="inboxes-node.ts" region="manage"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val state = client.inboxState(refreshFromNetwork = true)
+val states = SDKClient.inboxStates(inboxIds, backend)
+client.revokeInstallations(signer, installationIds)
+client.revokeAllOtherInstallations(signer)
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let state = try await client.inboxState(refreshFromNetwork: true)
+let states = try await SDKClient.inboxStates(ids: inboxIds, backend: backend)
+try await client.revokeInstallations(signer: signer, ids: installationIds)
+try await client.revokeAllOtherInstallations(signer: signer)
+```
+
+</TabItem>
+</Tabs>
+
+If the user cannot open an active installation, call static `Client.revokeInstallations(signer, inboxId, ids, backend)` on JavaScript, or `SDKClient.revokeInstallations` on Kotlin or Swift. Supply the recovery signer. The SDK builds the request, fetches the backend chain configuration, asks the signer to sign it, and publishes the revocation.
+
+## Add an identity
+
+:::warning
+Reassigning an identity that belongs to another inbox moves its identifier lookup to the new inbox. The user loses access through that identity to the former inbox. Enable reassignment only after the user chooses it.
+:::
+
+Browser and Node call `client.unsafeAddAccount(signer, allowInboxReassign)`. Kotlin calls `client.unsafeAddAccount(signer, allowInboxReassign)`; Swift calls `client.unsafeAddAccount(signer: signer, allowInboxReassign: allowInboxReassign)`. Use `false` to reject an identity associated with another inbox. Use `true` to permit reassignment. The new identity signs the association; the current installation also signs it.
+
+## Remove an identity
+
+:::tip
+You cannot remove the recovery identity.
+:::
+
+Use `removeAccount(recoverySigner, identity)` on Browser, Node, or Kotlin. Swift uses `removeAccount(recoverySigner: recoverySigner, identity: identity)`. The recovery signer signs the removal. To remove the current recovery identity, first change the recovery identity with `changeRecoveryIdentifier`.
+
+## Select an identity to display
+
+When an inbox has multiple associated identities, the `identities` array is ordered by the `client_timestamp_ns` field, which sorts identities based on when they were added to the inbox, placing identities with recorded times in ascending order. An identity with no recorded time, including the initial identity, sorts after them. Equal timestamps have no promised order.
+
+For UI display purposes, show the inbox's current handle when it has one. See [Show handles](#show-handles). Otherwise, use the only identity when there is one, or the first non-recovery identity in the ordered array.
+
+## Handles
+
+A **handle** is a short public name, such as `nick` or `nick#2341`, that an inbox claims so that other people can find it. Handles are optional. An inbox can claim a handle after it registers.
+
+A handle is a name part, then an optional `#` and a code of exactly 4 digits. The name part starts with a lowercase letter and has 1 to 27 characters: lowercase letters, digits, `_`, and `-`. `nick` and `nick#2341` are two different handles. When a user types a handle, the SDK changes ASCII capitals to lowercase.
+
+:::caution[Handles are public and permanent]
+Anyone can look up a handle and read every handle that an inbox claimed. A claim is never removed, released, or moved to another inbox. An old handle still finds its inbox after the inbox claims a new one. Tell users this before they claim a handle.
+:::
+
+The client claims a handle with an entry in the inbox's identity log, signed with its installation key. The user does not sign with a wallet. Each claim uses one entry of the [inbox update limit](#inbox-update-limit). The backend decides whether a claim is accepted. A claim fails with one of these errors:
+
+| Error                | Cause                                                                                                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `HandleTaken`        | Another inbox holds the handle.                                                                           |
+| `HandleNotAllowed`   | The name part is on the backend's reserved list, or is shorter than the deployment's minimum name length. |
+| `HandleTooSoon`      | The inbox claimed a handle less than 7 days ago.                                                          |
+| `HandleLimitReached` | The inbox made 64 claims. The SDK finds this in the inbox's own state before it signs.                    |
+
+None of these errors is retryable. Text outside the handle grammar fails with `InvalidArgument` before any request. A switch back to an older handle of the inbox is a new claim. It must pass every check in the table, and it counts toward the 64 claims. See [Handle limits](/reference/limits/#handle-limits).
+
+### Check a name as the user types
+
+The backend publishes its minimum name length in the server configuration as `handles.minNameLength`. Use it for a hint while the user types. The SDK never applies it: it does not refuse a claim or hide a handle because of it. The client's configuration snapshot can be older than the backend's setting, so the backend's answer decides. A handle claimed before the minimum changed stays valid.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="inboxes-browser.ts" region="hint"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="inboxes-node.ts" region="hint"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+fun handleHint(client: SDKClient, typed: String): String? {
+    // Lowercase ASCII capitals only, as the SDK does.
+    val handle = typed.replace(Regex("[A-Z]")) { it.value.lowercase() }
+    if (!Regex("[a-z][a-z0-9_-]{0,26}(#[0-9]{4})?").matches(handle)) {
+        return "Start with a letter. Use letters, digits, _ and -."
+    }
+    // A hint only: the backend decides each claim.
+    val minNameLength = client.serverConfiguration().handles.minNameLength
+    val name = handle.substringBefore('#')
+    return if (name.length.toUInt() < minNameLength) "Use at least $minNameLength characters before #." else null
+}
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+import Foundation
+import XmtpSdk
+
+func handleHint(client: SDKClient, typed: String) -> String? {
+    // Lowercase ASCII capitals only, as the SDK does.
+    let handle = String(typed.map { $0.isASCII ? Character($0.lowercased()) : $0 })
+    guard handle.range(of: "^[a-z][a-z0-9_-]{0,26}(#[0-9]{4})?$", options: .regularExpression) != nil else {
+        return "Start with a letter. Use letters, digits, _ and -."
+    }
+    // A hint only: the backend decides each claim.
+    let minNameLength = client.serverConfiguration().handles.minNameLength
+    let name = handle.split(separator: "#").first ?? ""
+    return name.count < minNameLength ? "Use at least \(minNameLength) characters before #." : nil
+}
+```
+
+</TabItem>
+</Tabs>
+
+Before the client exists, read the same value with `Client.fetchServerConfiguration(backend)` on Browser and Node, or `SDKClient.fetchServerConfiguration` on Kotlin and Swift.
+
+### Find and claim a handle
+
+`availableHandles(name)` returns the handles that no inbox holds, with the typed name first when it is free. For a name without a code, it checks the name and 100 random codes in one lookup. For a name with a code, it checks only that handle. An empty result means that every checked handle is taken: call it again for new codes, or ask for another name. An unregistered client can call it. It does not check the reserved list or the minimum name length, so a claim of a returned handle can still fail with `HandleNotAllowed`.
+
+`claimHandle(handle)` claims the handle for the client's inbox. The handle becomes the inbox's current handle.
+
+The candidate loop is app code. The SDK does not choose a handle, and it does not retry a claim. When a person chooses the handle:
+
+- On `HandleTaken`, another inbox claimed the handle first, or a lookup did not see that claim yet. Show new candidates and let the user pick again.
+- On `HandleNotAllowed`, ask for another name. Every code of that name fails the same way.
+- On `HandleTooSoon`, tell the user that the handle can change again 7 days after the last change.
+- On `HandleLimitReached`, tell the user that the inbox cannot claim more handles.
+
+Never claim a handle that the user did not choose. A claim is permanent, and the inbox must then wait 7 days before its next claim.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="inboxes-browser.ts" region="claim"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="inboxes-node.ts" region="claim"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+suspend fun chooseHandle(
+    client: SDKClient,
+    name: String,
+    pick: suspend (candidates: List<String>, taken: String?) -> String?,
+): String? {
+    var candidates = client.availableHandles(name)
+    var taken: String? = null
+    while (true) {
+        val choice = pick(candidates, taken) ?: return null
+        try {
+            client.claimHandle(choice)
+            return choice
+        } catch (e: XmtpException.HandleTaken) {
+            // Show other errors to the user. Never claim a handle they did not pick.
+            taken = choice
+            candidates = client.availableHandles(name)
+        }
+    }
+}
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+func chooseHandle(
+    client: SDKClient,
+    name: String,
+    pick: (_ candidates: [String], _ taken: String?) async throws -> String?
+) async throws -> String? {
+    var candidates = try await client.availableHandles(name: name)
+    var taken: String?
+    while let choice = try await pick(candidates, taken) {
+        do {
+            try await client.claimHandle(handle: choice)
+            return choice
+        } catch XmtpError.HandleTaken {
+            // Show other errors to the user. Never claim a handle they did not pick.
+            taken = choice
+            candidates = try await client.availableHandles(name: name)
+        }
+    }
+    return nil
+}
+```
+
+</TabItem>
+</Tabs>
+
+### Claim a handle for an agent
+
+An automated app, such as an agent, has no person to ask. On `HandleTaken`, it can claim the next candidate itself. Claim once, and keep the handle on later starts. `availableHandles` and `claimHandle` are on `agent.client`.
+
+```ts source="inboxes-agent.ts" region="agent-claim"
+
+```
+
+### Show handles
+
+`InboxState` and `Member` have `handle`, the inbox's current handle, and `otherHandles`, its other handles with the most recent first. The current handle is the handle that the inbox claimed last. A `Member` reads them from the newest identity state that the client holds for that inbox.
+
+When an inbox has a current handle, show that handle as the text that identifies the inbox. Show the other handles only as secondary information, for example in a detail view. An old handle still finds its inbox, so when a user finds an inbox by an old handle, show the current handle.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="inboxes-browser.ts" region="display"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="inboxes-node.ts" region="display"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val labels = group.members().map { member ->
+    // The current handle identifies the inbox. Other handles are secondary.
+    (member.handle ?: member.inboxId) to member.otherHandles
+}
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let labels = try await group.members().map { member in
+    // The current handle identifies the inbox. Other handles are secondary.
+    (title: member.handle ?? member.inboxId, alsoKnownAs: member.otherHandles)
+}
+```
+
+</TabItem>
+</Tabs>
+
+When the client stores a newer identity state for an inbox with a different current handle, it emits a `handle.changed` event. Read the members again to show the new handle. See [Events](/sdk/events/#available-events).
+
+### Find an inbox by handle
+
+A `PublicIdentity` with the kind `handle` names the inbox that claimed the handle. Calls that take a `PublicIdentity` to find an inbox also take a handle: `inboxIdFor`, `getDmByIdentity`, `createDm`, `createGroup`, `addMembers`, and `removeMembers`. One list can mix handles and accounts. Before one of these calls, `client.inboxIdFor` or static `inboxIdFor` included, uses a lookup answer, the SDK checks that the inbox's own identity log claimed the handle. On both the client and the static path, it checks any smart contract wallet signature in that log with the backend's verifier, as it does for every identity log, so it trusts the backend for those verdicts. An old handle finds the inbox too.
+
+The SDK never derives an inbox ID from a handle. For a handle that no inbox claimed, `client.inboxIdFor` returns no inbox, static `inboxIdFor` fails with `IdentityNotFound`, and a call that creates a conversation or changes members fails with `IdentityNotFound`.
+
+`canMessage` also takes a handle. It reports the handle under the key `handle:<handle>`, in lowercase. `true` means only that the backend names an inbox for the handle. `canMessage` gives you no inbox, so the SDK does not check this answer against an identity log. A `true` is enough to remove a taken handle from a list of candidates. To reach the inbox, use one of the calls above.
+
+A handle is not an account: it signs nothing. Client creation, `generateInboxId`, and the calls that add, remove, or change an account fail with `InvalidArgument` for a handle.
+
+The Agent SDK adds `createDmWithHandle`, `createGroupWithHandles`, and `addMembersWithHandles`:
+
+```ts source="inboxes-agent.ts" region="agent-helpers"
+
+```
+
+## FAQ
+
+### What happens when a user removes an identity?
+
+If the user removes an identity from the inbox, the identity no longer has access to the inbox it was removed from.
+
+![An identity removed from an inbox](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/removed-id.png)
+
+That identity no longer resolves to the former inbox. This does not revoke existing installation keys or erase their local messages. If someone sends a message to the identity, the message is not associated with the original inbox. A later client resolves the identity again. If it has no current association, the SDK falls back to the inbox ID derived from that identity and nonce. Do not assume this always creates a new inbox ID.
+
+### How is the recovery identity used?
+
+The recovery identity and its signer can be used to sign transactions that remove identities and revoke installations. An added identity cannot remove the recovery identity because it does not control the recovery signer.
+
+### Can two inboxes be combined?
+
+There is no way to combine two inboxes. Reassigning an identity from inbox 2 to inbox 1 moves identifier lookup to inbox 1. It does not move the conversations or revoke inbox 2's installations.
+
+![Moving an identity between inboxes](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/two-inbox-remap-id.png)
+
+To help users avoid this state, ensure that your UX surfaces their ability to add multiple identities to a single inbox.
+
+### Does an associated identity open the existing inbox?
+
+A new client for the identity resolves to the associated inbox. If the identity is reassigned, a new client resolves to the new inbox. Existing installation access is controlled separately through installation revocation.

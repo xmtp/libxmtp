@@ -1,0 +1,112 @@
+// External invite payloads used for QR-code or link-based joining via MLS external commits
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// v1 shape of the shareable invite blob for QR-code or link-based joining
+// of an XMTP group via an MLS external commit.
+message ExternalInvitePayloadV1 {
+  // Application-defined opaque bytes identifying the service location.
+  bytes service_pointer = 1;
+  // Identifier for the service slot holding the encrypted blob. Format
+  // is application-defined (UUID, snowflake, short slot key, etc.) and
+  // opaque to libxmtp; the only constraint is that the value is unique
+  // within the chosen service. Decoupled from the MLS group_id —
+  // rotation may keep this stable (overwrite the same slot) or change
+  // it (new slot on the service); the admin chooses per invite.
+  //
+  // MUST be at least 4 bytes (collision-avoidance floor for tiny
+  // services). RECOMMENDED: 16 random bytes when no application-
+  // specific scheme is in use. Maximum length is not capped by the
+  // protocol; applications should bound it to fit their QR / link
+  // transport.
+  //
+  // After joining, the joiner verifies this matches
+  // `EXTERNAL_COMMIT_POLICY.external_group_id` in the group state as
+  // defense-in-depth against a stale or swapped QR.
+  bytes external_group_id = 2;
+  // 32 bytes; ChaCha20Poly1305 key used to wrap the GroupInfo. Matches
+  // `EXTERNAL_COMMIT_POLICY.symmetric_key` in the group state.
+  bytes symmetric_key = 3;
+}
+
+// Versioned envelope for the shareable invite blob. The application embeds
+// the serialized bytes in whatever transport it prefers (hex, base64, raw
+// QR, NFC, etc.) and stores the corresponding EncryptedGroupInfoBlob on an
+// external service keyed by the v1 payload's `external_group_id`.
+//
+// New wire-format variants are added as new oneof entries; readers that
+// don't recognize a variant treat the invite as unparseable and fail
+// closed (no implicit downgrade).
+message ExternalInvitePayload {
+  oneof version {
+    ExternalInvitePayloadV1 v1 = 1;
+  }
+}
+
+// v1 shape of the encrypted-GroupInfo envelope.
+//
+// `epoch` and `group_state_hash` are plaintext metadata serving two
+// distinct purposes:
+//
+//   * `epoch` provides a total ordering on uploads. The service accepts
+//     an upload iff `upload.epoch > current.epoch` (strictly newer);
+//     lower-epoch uploads are stale and rejected outright.
+//
+//   * `group_state_hash` is a consistency check at a single epoch. MLS
+//     is deterministic — every member that applies the same commit
+//     derives identical group state — so two correct uploads at the
+//     same epoch MUST carry the same hash. When `upload.epoch ==
+//     current.epoch`: equal hashes mean an idempotent re-upload (no-op
+//     or duplicate-reject); different hashes mean the uploaders are on
+//     forked views of the group and the service must refuse to pick a
+//     winner.
+//
+// The joiner additionally verifies on download that the blob's `epoch`
+// and `group_state_hash` match the decrypted GroupInfo before
+// attempting to join — closes the "malicious service swapped
+// ciphertext" gap.
+message EncryptedGroupInfoBlobV1 {
+  // 12 bytes; ChaCha20Poly1305 nonce specific to this ciphertext.
+  bytes nonce = 1;
+  // wrap_payload_symmetric output: AEAD ciphertext over the serialized
+  // MlsMessageOut(GroupInfo).
+  bytes ciphertext = 2;
+  // MLS group epoch of the wrapped GroupInfo. Plaintext; the service
+  // totally orders uploads by this value — strictly-newer wins, stale
+  // is rejected. Joiner verifies against the decrypted GroupInfo
+  // before joining.
+  uint64 epoch = 3;
+  // Tree-hash (or equivalent group-state digest) of the wrapped
+  // GroupInfo. Plaintext; the service uses this only at equal epochs
+  // to detect forks (same epoch + differing hash = forked uploaders).
+  // Not used for ordering. Joiner verifies against the decrypted
+  // GroupInfo before joining.
+  bytes group_state_hash = 4;
+  // Wall-clock expiry of this blob, in nanoseconds since UNIX epoch.
+  // 0 means no expiry. The service uses this as a TTL hint and MAY
+  // garbage-collect blobs past their `expires_at_ns` autonomously.
+  // The joining client also enforces this — refuses to join from an
+  // expired blob even if the service is still serving it. Admin
+  // bounds the campaign by setting this at upload time; extending an
+  // invite is a re-upload with a later value.
+  uint64 expires_at_ns = 5;
+}
+
+// Versioned envelope wrapping a single GroupInfo TLS-serialized bytes
+// under an AEAD scheme (ChaCha20Poly1305 in v1) with a fresh nonce per
+// re-encryption. Stored on the external service and replaced by joiners
+// (with a fresh nonce) after each successful join.
+//
+// New variants represent breaking wire-format changes (different AEAD,
+// different metadata layout). Readers that don't recognize a variant
+// fail closed — the joiner cannot attempt MLS state transitions against
+// a blob it can't validate.
+message EncryptedGroupInfoBlob {
+  oneof version {
+    EncryptedGroupInfoBlobV1 v1 = 1;
+  }
+}

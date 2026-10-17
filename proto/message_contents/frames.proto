@@ -1,0 +1,53 @@
+// Signature is a generic structure for public key signatures.
+syntax = "proto3";
+
+package xmtp.message_contents;
+
+import "message_contents/public_key.proto";
+import "message_contents/signature.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/message_contents";
+option java_package = "org.xmtp.proto.message.contents";
+
+// The message that will be signed by the Client and returned inside the
+// `action_body` field of the FrameAction message
+message FrameActionBody {
+  // The URL of the frame that was clicked
+  // May be different from `post_url`
+  string frame_url = 1;
+  // The 1-indexed button that was clicked
+  int32 button_index = 2;
+  // Timestamp of the click in milliseconds since the epoch
+  uint64 timestamp = 3 [deprecated = true];
+  // A unique identifier for the conversation, not tied to anything on the
+  // network. Will not match the topic or conversation_id
+  string opaque_conversation_identifier = 4;
+  // Unix timestamp
+  uint32 unix_timestamp = 5;
+  // Input text from a text input field
+  string input_text = 6;
+  // A state serialized to a string (for example via JSON.stringify()). Maximum 4096 bytes.
+  string state = 7;
+  // A 0x wallet address
+  string address = 8;
+  // A hash from a transaction
+  string transaction_id = 9;
+}
+
+// The outer payload that will be sent as the `messageBytes` in the
+// `trusted_data` part of the Frames message
+message FrameAction {
+  Signature signature = 1 [deprecated = true];
+  // The SignedPublicKeyBundle of the signer, used to link the XMTP signature
+  // with a blockchain account through a chain of signatures.
+  SignedPublicKeyBundle signed_public_key_bundle = 2 [deprecated = true];
+  // Serialized FrameActionBody message, so that the signature verification can
+  // happen on a byte-perfect representation of the message
+  bytes action_body = 3;
+  // The installation signature
+  bytes installation_signature = 4;
+  // The public installation id used to sign.
+  bytes installation_id = 5;
+  // The inbox id of the installation used to sign.
+  string inbox_id = 6;
+}

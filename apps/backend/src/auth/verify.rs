@@ -1,0 +1,296 @@
+//! API key admission or one signature check per request. No network IO.
+use super::keys::{KeySet, select};
+use crate::config::auth::{AuthConfig, MAX_KID_BYTES, algorithm};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use jsonwebtoken::{decode, decode_header, errors::ErrorKind};
+use serde::{Deserialize, Deserializer};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::{collections::BTreeSet, sync::Arc};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
+
+pub(crate) const MAX_TOKEN_BYTES: usize = 8 * 1024;
+pub(crate) const MISSING: &str = "missing bearer token";
+pub(crate) const MALFORMED_BEARER: &str = "authorization header is not a bearer token";
+pub(crate) const UNSUPPORTED: &str = "token is not a supported JWT";
+pub(crate) const UNTRUSTED: &str = "token signature is not trusted";
+pub(crate) const EXPIRED: &str = "token has expired";
+pub(crate) const NOT_YET_VALID: &str = "token is not yet valid";
+pub(crate) const AUDIENCE: &str = "token audience is not allowed";
+pub(crate) const ISSUER: &str = "token issuer is not allowed";
+pub(crate) const SCOPE: &str = "token is missing a required scope";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AuthContext {
+    Jwt {
+        sub: Option<String>,
+        scopes: BTreeSet<String>,
+    },
+    ApiKey {
+        name: String,
+    },
+}
+#[derive(Deserialize)]
+pub(crate) struct Claims {
+    pub sub: Option<String>,
+    #[serde(default, deserialize_with = "scope_claim")]
+    pub scope: Option<ScopeClaim>,
+}
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(crate) enum ScopeClaim {
+    String(String),
+    Array(Vec<String>),
+}
+fn scope_claim<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<ScopeClaim>, D::Error> {
+    ScopeClaim::deserialize(deserializer).map(Some)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Rejection {
+    Missing,
+    Bearer,
+    Malformed,
+    UnsupportedAlg,
+    Untrusted,
+    Expired,
+    NotYetValid,
+    Audience,
+    Issuer,
+    Scope,
+}
+impl Rejection {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::Bearer | Self::Malformed => "malformed",
+            Self::UnsupportedAlg => "unsupported_alg",
+            Self::Untrusted => "untrusted",
+            Self::Expired => "expired",
+            Self::NotYetValid => "not_yet_valid",
+            Self::Audience => "audience",
+            Self::Issuer => "issuer",
+            Self::Scope => "scope",
+        }
+    }
+    // implements: AUTH-014
+    pub(crate) fn status(self) -> tonic::Status {
+        let message = match self {
+            Self::Missing => MISSING,
+            Self::Bearer => MALFORMED_BEARER,
+            Self::Malformed | Self::UnsupportedAlg => UNSUPPORTED,
+            Self::Untrusted => UNTRUSTED,
+            Self::Expired => EXPIRED,
+            Self::NotYetValid => NOT_YET_VALID,
+            Self::Audience => AUDIENCE,
+            Self::Issuer => ISSUER,
+            Self::Scope => SCOPE,
+        };
+        if self == Self::Scope {
+            tonic::Status::permission_denied(message)
+        } else {
+            tonic::Status::unauthenticated(message)
+        }
+    }
+}
+
+pub(crate) struct Verifier {
+    pub keys: Arc<KeySet>,
+    config: AuthConfig,
+    api_keys: Vec<(String, [u8; 32])>,
+    jwt_configured: bool,
+}
+impl Verifier {
+    pub fn new(keys: Arc<KeySet>, config: AuthConfig) -> Self {
+        let api_keys = config
+            .api_keys
+            .iter()
+            .map(|(name, value)| (name.clone(), Sha256::digest(value.as_bytes()).into()))
+            .collect();
+        let jwt_configured = config.jwks_url.is_some() || config.keys.is_some();
+        Self {
+            keys,
+            config,
+            api_keys,
+            jwt_configured,
+        }
+    }
+
+    /// Match an API key first, or select exactly one trusted JWT signing key.
+    /// Claims are checked only after the signature succeeds. No token data is logged.
+    // implements: AUTH-005, AUTH-006, AUTH-007, AUTH-008, AUTH-010
+    pub fn verify(&self, headers: &http::HeaderMap) -> Result<AuthContext, Rejection> {
+        let header = headers
+            .get(http::header::AUTHORIZATION)
+            .ok_or(Rejection::Missing)?;
+        let header = header.to_str().map_err(|_| Rejection::Bearer)?;
+        let (scheme, token) = header.split_once(' ').ok_or(Rejection::Bearer)?;
+        let token = token.trim();
+        if !scheme.eq_ignore_ascii_case("bearer") || token.is_empty() {
+            return Err(Rejection::Bearer);
+        }
+        if token.len() > MAX_TOKEN_BYTES {
+            return Err(Rejection::Malformed);
+        }
+        let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let mut matched = Choice::from(0);
+        let mut matched_index = 0_u64;
+        for (index, (_, expected)) in self.api_keys.iter().enumerate() {
+            let equal = digest.ct_eq(expected);
+            matched |= equal;
+            matched_index = u64::conditional_select(&matched_index, &(index as u64), equal);
+        }
+        if bool::from(matched) {
+            return Ok(AuthContext::ApiKey {
+                name: self.api_keys[matched_index as usize].0.clone(),
+            });
+        }
+        if !self.jwt_configured {
+            return Err(Rejection::Untrusted);
+        }
+        let encoded_header = token.split('.').next().ok_or(Rejection::Malformed)?;
+        let header_bytes = URL_SAFE_NO_PAD
+            .decode(encoded_header)
+            .map_err(|_| Rejection::Malformed)?;
+        let raw_header: Value =
+            serde_json::from_slice(&header_bytes).map_err(|_| Rejection::Malformed)?;
+        let alg = raw_header
+            .get("alg")
+            .and_then(Value::as_str)
+            .ok_or(Rejection::Malformed)?;
+        if algorithm(alg).is_none() {
+            return Err(Rejection::UnsupportedAlg);
+        }
+        let header = decode_header(token).map_err(|_| Rejection::Malformed)?;
+        if header
+            .kid
+            .as_ref()
+            .is_some_and(|kid| kid.len() > MAX_KID_BYTES)
+        {
+            return Err(Rejection::Malformed);
+        }
+        // Decode syntax before key lookup. This value is untrusted until decode verifies it.
+        let claims = jsonwebtoken::dangerous::insecure_decode::<Value>(token)
+            .map_err(|_| Rejection::Malformed)?
+            .claims;
+        if !claims.is_object() {
+            return Err(Rejection::Malformed);
+        }
+        let keys = self.keys.0.load();
+        let key = select(&keys, header.kid.as_deref(), header.alg).ok_or(Rejection::Untrusted)?;
+        match decode::<Value>(token, &key.key, &key.validation) {
+            Ok(_) => {}
+            // These errors are produced only after signature verification. Check them
+            // below in a stable order; the library uses an unordered required-claim set.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::MissingRequiredClaim(_)
+                        | ErrorKind::InvalidClaimFormat(_)
+                        | ErrorKind::ExpiredSignature
+                        | ErrorKind::ImmatureSignature
+                        | ErrorKind::InvalidAudience
+                        | ErrorKind::InvalidIssuer
+                ) => {}
+            Err(error) => {
+                return Err(match error.kind() {
+                    ErrorKind::Base64(_)
+                    | ErrorKind::Json(_)
+                    | ErrorKind::InvalidToken
+                    | ErrorKind::Utf8(_) => Rejection::Malformed,
+                    _ => Rejection::Untrusted,
+                });
+            }
+        }
+        self.check_claims(claims)
+    }
+
+    /// Enforce strict JSON claim types and the documented error order.
+    /// This must only receive claims whose signature has been verified.
+    // implements: AUTH-011, AUTH-012, AUTH-013, AUTH-014, AUTH-031
+    fn check_claims(&self, value: Value) -> Result<AuthContext, Rejection> {
+        let now = xmtp_common::time::now_secs() as u64;
+        let exp = numeric_date(value.get("exp").ok_or(Rejection::Expired)?);
+        let mut malformed = exp.is_none();
+        if exp.is_some_and(|exp| exp < now.saturating_sub(self.config.leeway_seconds)) {
+            return Err(Rejection::Expired);
+        }
+        if let Some(nbf) = value.get("nbf") {
+            let nbf = numeric_date(nbf);
+            malformed |= nbf.is_none();
+            if nbf.is_some_and(|nbf| nbf > now.saturating_add(self.config.leeway_seconds)) {
+                return Err(Rejection::NotYetValid);
+            }
+        }
+        let audience = match value.get("aud") {
+            None => None,
+            Some(Value::String(aud)) => Some(vec![aud.as_str()]),
+            Some(Value::Array(aud)) => {
+                let audience = aud.iter().map(Value::as_str).collect::<Option<Vec<_>>>();
+                malformed |= audience.is_none();
+                audience
+            }
+            _ => {
+                malformed = true;
+                None
+            }
+        };
+        if let Some(allowed) = &self.config.audiences
+            && (value.get("aud").is_none()
+                || audience.as_ref().is_some_and(|audience| {
+                    !audience
+                        .iter()
+                        .any(|aud| allowed.iter().any(|allowed| allowed == aud))
+                }))
+        {
+            return Err(Rejection::Audience);
+        }
+        let issuer = value.get("iss").and_then(Value::as_str);
+        malformed |= value.get("iss").is_some() && issuer.is_none();
+        if let Some(allowed) = &self.config.issuers
+            && (value.get("iss").is_none()
+                || issuer.is_some_and(|issuer| !allowed.iter().any(|allowed| allowed == issuer)))
+        {
+            return Err(Rejection::Issuer);
+        }
+        // Type errors follow valid time and allowlist failures.
+        if malformed || value.get("sub").is_some_and(|sub| !sub.is_string()) {
+            return Err(Rejection::Malformed);
+        }
+        let claims: Claims = serde_json::from_value(value).map_err(|_| Rejection::Malformed)?;
+        let scopes: BTreeSet<String> = match claims.scope {
+            Some(ScopeClaim::String(scopes)) => scopes
+                .split(' ')
+                .filter(|scope| !scope.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            Some(ScopeClaim::Array(scopes)) => scopes.into_iter().collect(),
+            None => BTreeSet::new(),
+        };
+        if self
+            .config
+            .required_scopes
+            .iter()
+            .any(|scope| !scopes.contains(scope))
+        {
+            return Err(Rejection::Scope);
+        }
+        Ok(AuthContext::Jwt {
+            sub: claims.sub,
+            scopes,
+        })
+    }
+}
+
+/// Parse finite NumericDate values that are not less than zero. Round fractional seconds.
+/// Reject strings and negative numbers. Use the largest timestamp for larger dates.
+fn numeric_date(value: &Value) -> Option<u64> {
+    if let Some(seconds) = value.as_u64() {
+        return Some(seconds);
+    }
+    let seconds = value.as_f64()?;
+    (seconds.is_finite() && seconds >= 0.0).then(|| seconds.round() as u64)
+}
+
+#[cfg(test)]
+mod tests;

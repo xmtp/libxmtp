@@ -145,6 +145,7 @@ impl Size for InboxId {
     }
 }
 
+// implements: META-011
 impl Serialize for InboxId {
     #[inline]
     fn tls_serialize<W: Write>(&self, writer: &mut W) -> Result<usize, tls_codec::Error> {
@@ -159,6 +160,7 @@ impl Serialize for InboxId {
     }
 }
 
+// implements: META-011
 impl Deserialize for InboxId {
     #[inline]
     fn tls_deserialize<R: Read>(bytes: &mut R) -> Result<Self, tls_codec::Error>
@@ -210,6 +212,7 @@ mod tests {
     // break these regardless of what random inputs the proptests generate.
 
     #[xmtp_common::test]
+    // verifies: META-011
     fn test_tls_serialize_writes_version_prefix_then_payload() {
         let id = InboxId::from_bytes([0xAB; 32]);
         let bytes = id.tls_serialize_detached().unwrap();
@@ -238,6 +241,7 @@ mod tests {
     /// `InvalidVectorLength` before we see the decode; with it off, our
     /// `consumed == 1` guard surfaces `DecodingError`.
     #[xmtp_common::test]
+    // verifies: META-011
     fn test_tls_deserialize_rejects_non_minimal_version_zero() {
         // 2-byte QUIC varint: prefix 0b01 → `0x40 0x00` decodes to 0.
         let mut bytes = vec![0x40, 0x00];

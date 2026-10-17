@@ -1,0 +1,27 @@
+name: Lint iOS example
+on:
+  workflow_call:
+    secrets:
+      CACHIX_PR_AUTH_TOKEN:
+        required: false
+permissions:
+  contents: read
+env:
+  NIX_DEVSHELL: ios
+jobs:
+  lint:
+    name: Lint (iOS example)
+    runs-on: warp-macos-15-arm64-6x
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: "26.3"
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
+      - name: Lint iOS example
+        run: dev/nix-shell 'just example-ios lint'

@@ -8,17 +8,14 @@
     {
       treefmt = {
         flakeFormatter = true;
-        flakeCheck = true;
+        # lint_config runs treefmt; no job builds flake checks.
+        flakeCheck = false;
         projectRootFile = "flake.nix";
         programs = {
           nixfmt.enable = true;
           rustfmt = {
             enable = true;
             package = rustfmt;
-            excludes = [
-              "crates/xmtp_proto/src/gen/*"
-              "crates/xmtp-workspace-hack/*"
-            ];
           };
           ruff-format.enable = true;
           ruff-check.enable = true;
@@ -35,26 +32,6 @@
             excludes = [
               "*.env"
               "**/Dockerfile"
-            ];
-          };
-          # Formats the JS SDKs (sdks/js). This is the formatter of record for
-          # TypeScript/JS there; the SDK eslint config intentionally omits the
-          # prettier plugin so the two don't fight.
-          prettier = {
-            enable = true;
-            includes = [
-              "sdks/js/**/*.ts"
-              "sdks/js/**/*.tsx"
-              "sdks/js/**/*.js"
-              "sdks/js/**/*.cjs"
-              "sdks/js/**/*.mjs"
-              "sdks/js/**/*.json"
-              "sdks/js/**/*.md"
-            ];
-            excludes = [
-              "sdks/js/**/dist/**"
-              "sdks/js/.yarn/**"
-              "sdks/js/**/CHANGELOG.md"
             ];
           };
         };
@@ -80,6 +57,8 @@
           swiftformat = {
             command = "${pkgs.swiftformat}/bin/swiftformat";
             includes = [ "*.swift" ];
+            # Preserve the stock UniFFI layout used by the transform fixture.
+            excludes = [ "apps/xmtp_sdk_bindgen/src/swift_event_fixture.swift" ];
           };
         };
       };

@@ -132,16 +132,8 @@ impl Watchdog {
     /// disabled — in which case the stream never trips and behaves exactly as it did before
     /// the watchdog existed.
     ///
-    /// When enabled this is the configured [`idle_timeout`](Self::idle_timeout) field. Tests
-    /// may force a (short) timeout via [`set_test_idle_timeout`] regardless of `enabled`, so
-    /// the stale-trip and reconnect paths can be exercised in seconds without setting env.
+    /// When enabled this is the configured [`idle_timeout`](Self::idle_timeout) field.
     fn idle_timeout(&self) -> Option<Duration> {
-        #[cfg(test)]
-        {
-            if let Some(timeout) = test_overrides::idle_timeout() {
-                return Some(timeout);
-            }
-        }
         self.enabled.then_some(self.idle_timeout)
     }
 
@@ -194,32 +186,6 @@ impl Watchdog {
 
 /// Process-wide watchdog configuration, read from the environment exactly once.
 static WATCHDOG: LazyLock<Watchdog> = LazyLock::new(Watchdog::from_env);
-
-#[cfg(test)]
-pub(crate) use test_overrides::set_idle_timeout as set_test_idle_timeout;
-
-/// Test-only knobs for the watchdog. The override is thread-local, so it only reaches a
-/// spawned stream task when that task runs on the setting thread — i.e. under a
-/// current-thread runtime such as `traced_test!`.
-#[cfg(test)]
-mod test_overrides {
-    use super::Duration;
-    use std::cell::Cell;
-
-    thread_local! {
-        static IDLE_TIMEOUT: Cell<Option<Duration>> = const { Cell::new(None) };
-    }
-
-    pub(crate) fn idle_timeout() -> Option<Duration> {
-        IDLE_TIMEOUT.with(Cell::get)
-    }
-
-    /// Override the watchdog idle timeout on the current thread (`None` restores the
-    /// production default).
-    pub(crate) fn set_idle_timeout(timeout: Option<Duration>) {
-        IDLE_TIMEOUT.with(|t| t.set(timeout));
-    }
-}
 
 /// A factory for the idle-deadline future. Expressed as a trait with a blanket impl —
 /// rather than two `cfg`-gated `Box<dyn Fn .. + Send>` aliases — so the `Send`-or-not split
@@ -352,16 +318,82 @@ where
     }
 }
 
+/// Why a subscription stopped, alongside the token that stops it.
+///
+/// An ordinary close (the client shutting down) ends a stream silently, exactly
+/// as it always has. A close caused by a blocked connection —
+/// another deployment answering, or a minimum version this build no
+/// longer meets — delivers that typed error to the callback first, so
+/// the app learns why its streams went away rather than seeing a bare close.
+#[derive(Clone, Default)]
+pub(crate) struct StreamCancel {
+    token: CancellationToken,
+    configuration: Option<crate::server_configuration::ServerConfigurationHandle>,
+}
+
+impl From<CancellationToken> for StreamCancel {
+    /// A token with no client behind it: cancellation is always an ordinary
+    /// close. Used by the watchdog's own unit tests.
+    fn from(token: CancellationToken) -> Self {
+        Self {
+            token,
+            configuration: None,
+        }
+    }
+}
+
+impl StreamCancel {
+    pub(crate) fn new(context: &impl crate::context::XmtpSharedContext) -> Self {
+        Self {
+            token: context.cancellation_token().clone(),
+            configuration: Some(context.server_configuration().clone()),
+        }
+    }
+
+    pub(crate) fn cancelled(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {
+        self.token.cancelled()
+    }
+
+    /// The reason this close carries, if the connection is blocked.
+    /// Returned as the blocked connection cause rather than the error because
+    /// `SubscribeError` is not `Clone` and the reason is reported twice: once
+    /// to the callback, once as the handle's result.
+    fn fatal(&self) -> Option<crate::server_configuration::BlockedConnection> {
+        self.configuration.as_ref()?.blocked_connection()
+    }
+}
+
+/// The result a subscription loop ends with, once its loop has left.
+///
+/// An ordinary close — the inner stream ending, or the client shutting down —
+/// is `Ok(())`. A cancellation with a blocked connection cause
+/// reports that typed error to the callback and returns it as the
+/// handle's result, so the app learns why its streams went away instead of
+/// seeing a bare close. Every callback subscription ends through this, so none
+/// of them can drift into swallowing a blocked connection failure.
+pub(crate) fn close_reason<T>(
+    cancel: &StreamCancel,
+    cancelled: bool,
+    callback: &mut impl FnMut(Result<T, SubscribeError>),
+) -> Result<(), SubscribeError> {
+    let Some(blocked_connection) = cancelled.then(|| cancel.fatal()).flatten() else {
+        return Ok(());
+    };
+    let reported = || {
+        SubscribeError::Configuration(Box::new(crate::client::ClientError::from(
+            &blocked_connection,
+        )))
+    };
+    callback(Err(reported()));
+    Err(reported())
+}
+
 /// Spawn a self-healing subscription: [`run_watchdog_stream`] as its own task, with
 /// readiness signaled once the first underlying stream is established.
 ///
-/// This is the single implementation behind `stream_messages_with_callback`,
-/// `stream_conversations_with_callback`, and `stream_all_messages_with_callback`; keeping it
-/// in one place is what stops those three from drifting apart. (The bidi pump's legacy
-/// fallback awaits [`run_watchdog_stream`] inside its own already-spawned task — same
-/// runner, same semantics, no second spawn.)
+/// This runner serves the legacy conversation callback stream.
 pub(crate) fn spawn_watchdog_stream<T, S, Fut, Sub, Cb, Close>(
-    cancel: CancellationToken,
+    cancel: StreamCancel,
     label: &'static str,
     subscribe: Sub,
     callback: Cb,
@@ -403,11 +435,11 @@ where
 ///
 /// On a stale trip the next subscription is established *before* the throttle wait and while
 /// the stale stream is still in scope — so the new stream (and, for the conversation stream,
-/// its `LocalEvents` broadcast receiver) is already buffering during the wait, and events
+/// its local event subscription) is already buffering during the wait, and events
 /// arriving mid-reconnect are not dropped. `on_close` runs exactly once when the loop ends
 /// (clean end, cancellation, or startup error).
 pub(crate) async fn run_watchdog_stream<T, S, Fut, Sub, Ready, Cb, Close>(
-    cancel: CancellationToken,
+    cancel: StreamCancel,
     label: &'static str,
     mut subscribe: Sub,
     ready: Ready,
@@ -461,7 +493,9 @@ where
         };
         // Reconnect only on a watchdog stale-trip; a clean end or cancellation ends it.
         if cancelled || !stale {
-            break 'reconnect Ok(());
+            // A client with a blocked connection closes its streams *with*
+            // the reason, so the app sees the typed error and not a bare close.
+            break 'reconnect close_reason(&cancel, cancelled, &mut callback);
         }
         tracing::debug!(stream = label, "stream went stale; reconnecting");
 
@@ -474,7 +508,11 @@ where
                 Err(e) => {
                     tracing::warn!(stream = label, "failed to recreate stream, will retry: {e}");
                     tokio::select! {
-                        _ = cancel.cancelled() => break 'reconnect Ok(()),
+                        // A connection block that lands mid-reconnect
+                        // closes this stream with the reason too, not silently.
+                        _ = cancel.cancelled() => {
+                            break 'reconnect close_reason(&cancel, true, &mut callback);
+                        }
                         _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
                     }
                 }
@@ -483,7 +521,8 @@ where
         // Throttle: never resubscribe faster than the floor. A long-idle trip waits ~0;
         // only a tight loop is paced. `next` buffers during the wait.
         tokio::select! {
-            _ = cancel.cancelled() => break 'reconnect Ok(()),
+            // Same during the throttle wait: the blocked connection is the close reason.
+            _ = cancel.cancelled() => break 'reconnect close_reason(&cancel, true, &mut callback),
             _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
         }
         attempt_started = Instant::now();
@@ -658,6 +697,85 @@ mod tests {
         // Well past any real timeout: a disabled watchdog must still be waiting, never stale.
         let polled = xmtp_common::time::timeout(Duration::from_millis(100), watchdog.next()).await;
         assert!(polled.is_err(), "disabled watchdog should never trip");
+    }
+
+    /// A blocked connection that starts while the stream is between
+    /// subscriptions — retrying a failed `subscribe()`, or waiting out the
+    /// reconnect throttle — closes it with the reason, not as a clean end.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_blocked_connection_during_reconnect_closes_with_the_reason() {
+        use crate::server_configuration::{BlockedConnection, ServerConfigurationHandle};
+        use std::sync::atomic::AtomicUsize;
+
+        for fail_resubscribe in [true, false] {
+            let configuration = ServerConfigurationHandle::default();
+            configuration.block_connection(BlockedConnection::ClientVersionTooOld {
+                client: "1.0.0".to_string(),
+                minimum: "9999.0.0".to_string(),
+            });
+            let token = CancellationToken::new();
+            let cancel = StreamCancel {
+                token: token.clone(),
+                configuration: Some(configuration),
+            };
+
+            let calls = Arc::new(AtomicUsize::new(0));
+            let subscribe = {
+                let calls = calls.clone();
+                let token = token.clone();
+                move || {
+                    let first = calls.fetch_add(1, Ordering::Relaxed) == 0;
+                    let token = token.clone();
+                    async move {
+                        // Both subscriptions share one concrete stream type: a
+                        // boxed one would need `Send`, which `SubscribeError`
+                        // does not have on wasm.
+                        if first {
+                            // One stale trip sends the loop down the reconnect path.
+                            return Ok(stream::iter(vec![Err(SubscribeError::StreamStale)])
+                                .chain(stream::pending()));
+                        }
+                        // The refresh worker blocks the connection and cancels while we are here.
+                        token.cancel();
+                        if fail_resubscribe {
+                            // Cancelled while retrying a failed subscription.
+                            Err(SubscribeError::GroupMessageNotFound)
+                        } else {
+                            // Cancelled during the reconnect throttle.
+                            Ok(stream::iter(Vec::<Result<u8, SubscribeError>>::new())
+                                .chain(stream::pending()))
+                        }
+                    }
+                }
+            };
+
+            let reported = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+            let sink = reported.clone();
+            let closed = run_watchdog_stream(
+                cancel,
+                "test",
+                subscribe,
+                || {},
+                move |item: Result<u8, SubscribeError>| {
+                    if let Err(error) = item {
+                        sink.lock().push(error.to_string());
+                    }
+                },
+                || {},
+            )
+            .await
+            .expect_err("a cancellation with a blocked connection must not close cleanly");
+
+            assert!(
+                closed.to_string().contains("9999.0.0"),
+                "the handle must report the blocked connection cause, got {closed}"
+            );
+            let reported = reported.lock().clone();
+            assert!(
+                reported.iter().any(|error| error.contains("9999.0.0")),
+                "the callback must see the blocked connection cause, got {reported:?}"
+            );
+        }
     }
 
     /// Env parsing: present + valid values win, an explicit `0` is honored, and

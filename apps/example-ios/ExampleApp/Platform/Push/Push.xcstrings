@@ -1,0 +1,216 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Notifications": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        }
+      }
+    },
+    "Status": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        }
+      }
+    },
+    "Open Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        }
+      }
+    },
+    "Off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        }
+      }
+    },
+    "On": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        }
+      }
+    },
+    "Off: APNs is not configured": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: APNs is not configured"
+          }
+        }
+      }
+    },
+    "Off: iOS permission is required": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: iOS permission is required"
+          }
+        }
+      }
+    },
+    "Waiting for APNs token": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for APNs token"
+          }
+        }
+      }
+    },
+    "APNs registration failed. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "APNs registration failed. Try again."
+          }
+        }
+      }
+    },
+    "Cannot save notification setting. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot save notification setting. Try again."
+          }
+        }
+      }
+    },
+    "Cannot change conversation notifications. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot change conversation notifications. Try again."
+          }
+        }
+      }
+    },
+    "Backend APNs channel is not configured": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend APNs channel is not configured"
+          }
+        }
+      }
+    },
+    "Notification registration failed: permission denied": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification registration failed: permission denied"
+          }
+        }
+      }
+    },
+    "Notification registration failed: invalid argument": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification registration failed: invalid argument"
+          }
+        }
+      }
+    },
+    "Notification registration failed: out of range": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification registration failed: out of range"
+          }
+        }
+      }
+    },
+    "Notification registration failed: unsupported": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification registration failed: unsupported"
+          }
+        }
+      }
+    },
+    "Notification registration failed. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification registration failed. Try again."
+          }
+        }
+      }
+    },
+    "Conversation is unavailable.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation is unavailable."
+          }
+        }
+      }
+    },
+    "XMTP Messenger": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XMTP Messenger"
+          }
+        }
+      }
+    },
+    "You got a message.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You got a message."
+          }
+        }
+      }
+    },
+    "push.explanation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get alerts when new messages arrive. You can use Chats with notifications off."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -1,0 +1,29 @@
+// Definitions for backups
+syntax = "proto3";
+package xmtp.device_sync.consent_backup;
+
+option java_package = "org.xmtp.proto.device_sync";
+
+// Proto representation of a consent record save
+message ConsentSave {
+  ConsentTypeSave entity_type = 1;
+  ConsentStateSave state = 2;
+  string entity = 3;
+  int64 consented_at_ns = 4;
+}
+
+// Consent record type
+enum ConsentTypeSave {
+  CONSENT_TYPE_SAVE_UNSPECIFIED = 0;
+  CONSENT_TYPE_SAVE_CONVERSATION_ID = 1;
+  CONSENT_TYPE_SAVE_INBOX_ID = 2;
+  CONSENT_TYPE_SAVE_ADDRESS = 3 [deprecated = true];
+}
+
+// Consent record state
+enum ConsentStateSave {
+  CONSENT_STATE_SAVE_UNSPECIFIED = 0;
+  CONSENT_STATE_SAVE_UNKNOWN = 1;
+  CONSENT_STATE_SAVE_ALLOWED = 2;
+  CONSENT_STATE_SAVE_DENIED = 3;
+}

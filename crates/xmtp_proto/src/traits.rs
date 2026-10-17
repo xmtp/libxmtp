@@ -1,7 +1,7 @@
 //! Api Client Traits
 
 use crate::{
-    api::{FakeEmptyStream, RetryQuery, V3Paged, XmtpStream, combinators::Ignore},
+    api::{FakeEmptyStream, RetryQuery, XmtpStream, combinators::Ignore},
     api_client::{AggregateStats, ApiStats, IdentityStats},
 };
 use futures::Stream;
@@ -20,15 +20,25 @@ mod error;
 mod query;
 pub mod short_hex;
 pub mod stream;
-mod vector_clock;
 pub use boxed_client::*;
 pub use error::*;
-pub use vector_clock::*;
 
 pub trait HasStats {
     fn aggregate_stats(&self) -> AggregateStats;
     fn mls_stats(&self) -> ApiStats;
     fn identity_stats(&self) -> IdentityStats;
+}
+
+impl<T: HasStats + ?Sized> HasStats for Arc<T> {
+    fn aggregate_stats(&self) -> AggregateStats {
+        (**self).aggregate_stats()
+    }
+    fn mls_stats(&self) -> ApiStats {
+        (**self).mls_stats()
+    }
+    fn identity_stats(&self) -> IdentityStats {
+        (**self).identity_stats()
+    }
 }
 
 /// provides the necessary information for a backend API call.
@@ -48,13 +58,6 @@ pub trait EndpointExt<S>: Endpoint<S> {
         combinators::ignore(self)
     }
 
-    fn v3_paged(self, cursor: Option<u64>) -> V3Paged<Self, <Self as Endpoint<S>>::Output>
-    where
-        Self: Sized + Endpoint<S>,
-    {
-        combinators::v3_paged(self, cursor)
-    }
-
     fn retry(self) -> RetryQuery<Self>
     where
         Self: Sized + Endpoint<S>,
@@ -71,16 +74,6 @@ pub trait EndpointExt<S>: Endpoint<S> {
 }
 
 impl<S, E> EndpointExt<S> for E where E: Endpoint<S> {}
-
-/// Trait indicating an [`Endpoint`] can be paged
-/// paging will return a limited number of results
-/// per request. a cursor is present indicating
-/// the position in the total list of results
-/// on the backend.
-pub trait Pageable {
-    /// set the cursor for this pageable endpoint
-    fn set_cursor(&mut self, cursor: u64);
-}
 
 // choosing not to use the #[pin] macro here
 // because the manual structural pinning implementation is easy enough, and the
@@ -136,6 +129,14 @@ pub trait Client: MaybeSend + MaybeSync {
     /// it a separate failure domain from a direct client to the same backend.
     fn host(&self) -> &str;
 
+    /// Whether this transport stack was given a way to obtain a credential —
+    /// an auth callback or an auth handle. A stack with no auth
+    /// middleware in it reports `false`, and `build` refuses a deployment that
+    /// requires authentication.
+    fn has_credential_source(&self) -> bool {
+        false
+    }
+
     async fn request(
         &self,
         request: request::Builder,
@@ -189,6 +190,10 @@ where
         (**self).host()
     }
 
+    fn has_credential_source(&self) -> bool {
+        (**self).has_credential_source()
+    }
+
     async fn request(
         &self,
         request: request::Builder,
@@ -226,6 +231,10 @@ where
         (**self).host()
     }
 
+    fn has_credential_source(&self) -> bool {
+        (**self).has_credential_source()
+    }
+
     async fn request(
         &self,
         request: request::Builder,
@@ -261,6 +270,10 @@ where
 {
     fn host(&self) -> &str {
         (**self).host()
+    }
+
+    fn has_credential_source(&self) -> bool {
+        (**self).has_credential_source()
     }
 
     async fn request(
@@ -339,8 +352,7 @@ pub trait QueryStream<T, C>
 where
     C: Client,
 {
-    /// stream items from an endpoint
-    /// [`QueryStreamExt::subscribe`] or [`crate::api::stream_as`] should be used to indicate
+    /// Stream items from an endpoint. Use [`QueryStreamExt::subscribe`] to set
     /// the type of item in the stream.
     async fn stream(&mut self, client: &C) -> Result<XmtpStream<T>, ApiClientError>;
 

@@ -1,43 +1,30 @@
+pub use xmtp_cryptography::GeneratePostQuantumKeyError;
 mod identity_ext;
 pub use identity_ext::*;
 
 use crate::XmtpApi;
-use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
 use derive_builder::Builder;
+use openmls::prelude::HpkeKeyPair;
 use openmls::prelude::hash_ref::HashReference;
-use openmls::prelude::{HpkeKeyPair, LeafNode};
 use openmls::{
-    credentials::{BasicCredential, CredentialWithKey, errors::BasicCredentialError},
-    extensions::{
-        ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
-    },
+    credentials::errors::BasicCredentialError,
+    extensions::Extension,
     key_packages::KeyPackage,
-    messages::proposals::ProposalType,
-    prelude::{Capabilities, Credential as OpenMlsCredential, tls_codec::Serialize},
+    prelude::{Credential as OpenMlsCredential, tls_codec::Serialize},
 };
-use openmls_libcrux_crypto::Provider as LibcruxProvider;
-use openmls_traits::{
-    OpenMlsProvider, crypto::OpenMlsCrypto, random::OpenMlsRand, types::CryptoError,
-};
-use prost::Message;
+use openmls_traits::types::CryptoError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
-use tls_codec::SecretVLBytes;
 use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::ErrorCode;
+use xmtp_common::snippet::Snippet;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
-use xmtp_configuration::{
-    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
-    GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
-    MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
-    WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
-};
-use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
+use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::TransactionOutcome::Continue;
@@ -47,29 +34,29 @@ use xmtp_db::sql_key_store::{
     KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
 };
 use xmtp_db::{ConnectionExt, MlsProviderExt, TransactionOutcome};
-use xmtp_db::{Fetch, StorageError, Store};
+use xmtp_db::{Fetch, StorageError};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::key_package::KeyPackageVerificationError;
-use xmtp_id::key_package::{WrapperAlgorithm, WrapperEncryptionExtension};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     InboxId, InboxIdRef,
     associations::{
         MemberIdentifier,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        sign_with_legacy_key,
     },
 };
 use xmtp_proto::types::InstallationId;
-use xmtp_proto::xmtp::identity::MlsCredential;
 
 /**
  * The identity strategy determines how the [`ClientBuilder`](crate::builder::ClientBuilder) constructs an identity on startup.
  *
  * [`IdentityStrategy::CreateIfNotFound`] will attempt to create a new identity if one isn't found in the store.
  * This is the default behavior.
+ *
+ * [`IdentityStrategy::CreateForIdentifier`] acts as `CreateIfNotFound` for the inbox of an identifier,
+ * which the builder asks the backend for only after it has checked the backend's deployment.
  *
  * [`IdentityStrategy::CachedOnly`] will attempt to get an identity from the store. If not found, it will
  * return an error. This is useful if you don't want to create a new identity on startup because the caller
@@ -85,8 +72,10 @@ pub enum IdentityStrategy {
         inbox_id: InboxId,
         identifier: Identifier,
         nonce: u64,
-        legacy_signed_private_key: Option<Vec<u8>>,
     },
+    /// `CreateIfNotFound` for the inbox the backend associates with the
+    /// identifier, or else the inbox its registration at the nonce creates.
+    CreateForIdentifier { identifier: Identifier, nonce: u64 },
     /// Identity that is already in the disk store
     CachedOnly,
     /// An already-built Identity for testing purposes
@@ -106,18 +95,39 @@ impl IdentityStrategy {
     /// Create a new Identity Strategy, with [`IdentityStrategy::CreateIfNotFound`].
     /// If an Identity is not found in the local store, creates a new one.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn new(
-        inbox_id: InboxId,
-        identifier: Identifier,
-        nonce: u64,
-        legacy_signed_private_key: Option<Vec<u8>>,
-    ) -> Self {
+    pub fn new(inbox_id: InboxId, identifier: Identifier, nonce: u64) -> Self {
         Self::CreateIfNotFound {
             inbox_id,
             identifier,
             nonce,
-            legacy_signed_private_key,
         }
+    }
+
+    /// Create an [`IdentityStrategy::CreateForIdentifier`], for a caller that
+    /// does not know the identifier's inbox.
+    pub fn for_identifier(identifier: Identifier, nonce: u64) -> Self {
+        Self::CreateForIdentifier { identifier, nonce }
+    }
+
+    /// Replace [`IdentityStrategy::CreateForIdentifier`] with
+    /// [`IdentityStrategy::CreateIfNotFound`] for the identifier's inbox. Call
+    /// it only after the backend's deployment is checked: the request carries
+    /// the identifier.
+    pub(crate) async fn with_inbox<ApiClient: XmtpApi>(
+        self,
+        api_client: &ApiClientWrapper<ApiClient>,
+    ) -> Result<Self, IdentityError> {
+        let Self::CreateForIdentifier { identifier, nonce } = self else {
+            return Ok(self);
+        };
+        let found = api_client
+            .get_inbox_ids(vec![identifier.clone().into()])
+            .await?;
+        let inbox_id = match found.into_iter().next().flatten() {
+            Some(inbox_id) => inbox_id,
+            None => identifier.inbox_id(nonce)?,
+        };
+        Ok(Self::new(inbox_id, identifier, nonce))
     }
 }
 
@@ -146,19 +156,30 @@ impl IdentityStrategy {
             .map(|i: StoredIdentity| i.try_into())
             .transpose()?;
 
-        debug!("identity strategy: {self:?}, identity in store: {stored_identity:?}");
-        match self {
+        let strategy = match &self {
+            CreateIfNotFound { .. } => "create_if_not_found",
+            CreateForIdentifier { .. } => "create_for_identifier",
+            CachedOnly => "cached_only",
+            #[cfg(any(test, feature = "test-utils"))]
+            ExternalIdentity(_) => "external_identity",
+        };
+        debug!(
+            strategy,
+            stored_identity_present = stored_identity.is_some(),
+            "identity strategy"
+        );
+        match self.with_inbox(api_client).await? {
             CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
+            CreateForIdentifier { .. } => unreachable!("with_inbox replaces the strategy"),
             CreateIfNotFound {
                 inbox_id,
                 identifier,
                 nonce,
-                legacy_signed_private_key,
             } => {
                 if let Some(stored_identity) = stored_identity {
                     tracing::debug!(
                         installation_id =
-                            hex::encode(stored_identity.installation_keys.public_bytes()),
+                            stored_identity.installation_keys.public_bytes().snippet(),
                         inbox_id = stored_identity.inbox_id,
                         "Found existing identity in store"
                     );
@@ -175,10 +196,9 @@ impl IdentityStrategy {
                         inbox_id,
                         identifier,
                         nonce,
-                        legacy_signed_private_key,
                         api_client,
                         mls_storage,
-                        scw_signature_verifier,
+                        &scw_signature_verifier,
                     )
                     .await
                 }
@@ -217,11 +237,6 @@ pub enum IdentityError {
     /// MLS basic credential validation failed. Not retryable.
     #[error(transparent)]
     BasicCredential(#[from] BasicCredentialError),
-    /// Legacy key re-use.
-    ///
-    /// Attempted to reuse a legacy key. Not retryable.
-    #[error("Legacy key re-use")]
-    LegacyKeyReuse,
     /// Uninitialized identity.
     ///
     /// Identity not yet initialized. Not retryable.
@@ -232,26 +247,11 @@ pub enum IdentityError {
     /// Problem with installation key. Not retryable.
     #[error("Installation key {0}")]
     InstallationKey(String),
-    /// Malformed legacy key.
-    ///
-    /// Legacy key format is invalid. Not retryable.
-    #[error("Malformed legacy key: {0}")]
-    MalformedLegacyKey(String),
-    /// Legacy signature error.
-    ///
-    /// Legacy signature is invalid. Not retryable.
-    #[error("Legacy signature: {0}")]
-    LegacySignature(String),
     /// Crypto error.
     ///
     /// Cryptographic operation failed. Not retryable.
     #[error(transparent)]
     Crypto(#[from] CryptoError),
-    /// Legacy key mismatch.
-    ///
-    /// Legacy key does not match address. Not retryable.
-    #[error("legacy key does not match address")]
-    LegacyKeyMismatch,
     /// OpenMLS error.
     ///
     /// OpenMLS library error. Not retryable.
@@ -276,6 +276,11 @@ pub enum IdentityError {
     /// Associated InboxID does not match stored value. Not retryable.
     #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
     InboxIdMismatch { id: InboxId, stored: InboxId },
+    /// Identifier not in inbox.
+    ///
+    /// The identifier does not belong to the inbox of the stored identity. Not retryable.
+    #[error("The identifier does not belong to the stored InboxId {inbox_id}.")]
+    IdentifierNotInInbox { inbox_id: InboxId },
     /// No associated Inbox ID.
     ///
     /// Address has no associated InboxID. Not retryable.
@@ -302,6 +307,9 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     ApiClient(#[from] xmtp_api::ApiError),
+    /// Identity publication failed. Retryability depends on the cause.
+    #[error(transparent)]
+    IdentityUpdate(#[from] crate::identity_updates::IdentityUpdateError),
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
@@ -342,6 +350,12 @@ pub enum IdentityError {
     /// Builder field not initialized. Not retryable.
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
+}
+
+impl From<xmtp_db::diesel::result::Error> for IdentityError {
+    fn from(error: xmtp_db::diesel::result::Error) -> Self {
+        Self::StorageError(error.into())
+    }
 }
 
 impl NeedsDbReconnect for IdentityError {
@@ -424,18 +438,13 @@ impl Identity {
     /// Create a new [Identity] instance.
     ///
     /// If the address is already associated with an inbox_id, the existing inbox_id will be used.
-    /// Users will be required to sign with their wallet, and the legacy is ignored even if it's provided.
-    ///
-    /// If the address is NOT associated with an inbox_id, a new inbox_id will be generated.
-    /// If a legacy key is provided, it will be used to sign the identity update and no wallet signature is needed.
-    ///
-    /// If no legacy key is provided, a wallet signature is always required.
+    /// If it is not, a new inbox_id is generated from the identifier and nonce.
+    /// Either way, the caller must sign with their wallet.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn new<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
         inbox_id: InboxId,
         identifier: Identifier,
         nonce: u64,
-        legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
@@ -444,7 +453,7 @@ impl Identity {
         let inbox_ids = api_client
             .get_inbox_ids(vec![identifier.clone().into()])
             .await?;
-        let associated_inbox_id = inbox_ids.get(&(&identifier).into());
+        let associated_inbox_id = inbox_ids.first().and_then(Option::as_ref);
         let installation_keys = XmtpInstallationCredential::new();
 
         if let Some(associated_inbox_id) = associated_inbox_id {
@@ -476,12 +485,16 @@ impl Identity {
                 IdentityError::NewIdentity(format!("Error resolving identity state: {}", err))
             })?;
 
+            // The deployment sets the ceiling; the wrapper carries the
+            // snapshot resolved before any identity work ran.
+            let max_installations = api_client.configuration().mls.max_installations_per_inbox;
             let current_installation_count = state.installation_ids().len();
-            if current_installation_count >= MAX_INSTALLATIONS_PER_INBOX {
+            // implements: CONF-044
+            if current_installation_count >= max_installations {
                 return Err(IdentityError::TooManyInstallations {
                     inbox_id: associated_inbox_id.clone(),
                     count: current_installation_count,
-                    max: MAX_INSTALLATIONS_PER_INBOX,
+                    max: max_installations,
                 });
             }
 
@@ -501,7 +514,7 @@ impl Identity {
                         signature,
                         installation_keys.verifying_key(),
                     ),
-                    scw_signature_verifier,
+                    &scw_signature_verifier,
                 )
                 .await?;
 
@@ -512,66 +525,6 @@ impl Identity {
                 signature_request: Some(signature_request),
                 is_ready: AtomicBool::new(false),
             };
-
-            Ok(identity)
-        } else if let Some(legacy_signed_private_key) = legacy_signed_private_key {
-            // The legacy signed private key may only be used if the nonce is 0
-            if nonce != 0 {
-                return Err(IdentityError::NewIdentity(
-                    "Nonce must be 0 if legacy key is provided".to_string(),
-                ));
-            }
-            // If the inbox_id found on the network does not match the one generated from the address and nonce, we must error
-            let generated_inbox_id = identifier.inbox_id(nonce)?;
-            if inbox_id != generated_inbox_id {
-                return Err(IdentityError::NewIdentity(
-                    "Inbox ID doesn't match nonce & address".to_string(),
-                ));
-            }
-            let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-            builder = builder.create_inbox(identifier.clone(), nonce);
-            let mut signature_request = builder
-                .add_association(
-                    MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
-                    identifier.clone().into(),
-                )
-                .build();
-
-            let sig = installation_keys
-                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
-
-            signature_request
-                .add_signature(
-                    UnverifiedSignature::new_installation_key(
-                        sig,
-                        installation_keys.verifying_key(),
-                    ),
-                    &scw_signature_verifier,
-                )
-                .await?;
-            signature_request
-                .add_signature(
-                    UnverifiedSignature::LegacyDelegated(sign_with_legacy_key(
-                        signature_request.signature_text(),
-                        legacy_signed_private_key,
-                    )?),
-                    scw_signature_verifier,
-                )
-                .await?;
-
-            // Make sure to register the identity before applying the signature request
-            let identity = Self {
-                inbox_id: inbox_id.clone(),
-                installation_keys,
-                credential: create_credential(inbox_id)?,
-                signature_request: None,
-                is_ready: AtomicBool::new(true),
-            };
-
-            identity.register(api_client, mls_storage).await?;
-
-            let identity_update = signature_request.build_identity_update()?;
-            api_client.publish_identity_update(identity_update).await?;
 
             Ok(identity)
         } else {
@@ -600,7 +553,7 @@ impl Identity {
                         sig,
                         installation_keys.verifying_key(),
                     ),
-                    scw_signature_verifier,
+                    &scw_signature_verifier,
                 )
                 .await?;
 
@@ -682,30 +635,9 @@ impl Identity {
             .build(provider, include_post_quantum)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn register<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
-        &self,
-        api_client: &ApiClientWrapper<ApiClient>,
-        mls_storage: &S,
-    ) -> Result<(), IdentityError> {
-        let stored_identity: Option<StoredIdentity> = mls_storage.db().fetch(&())?;
-        if stored_identity.is_some() {
-            info!("Identity already registered. skipping key package publishing");
-            return Ok(());
-        }
-
-        self.rotate_and_upload_key_package(
-            api_client,
-            mls_storage,
-            CREATE_PQ_KEY_PACKAGE_EXTENSION,
-        )
-        .await?;
-        Ok(StoredIdentity::try_from(self)?.store(&mls_storage.db())?)
-    }
-
-    /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    /// Callers must follow with `key_package_maintenance::nudge_rotation` — the
-    /// column write alone leaves the KpRotation task parked until next restart.
+    /// Store fresh key material before upload, then record its publication receipt.
+    /// Receipt order controls retirement. Unknown publications stay available.
+    /// Receipt bookkeeping and the next rotation deadline commit together.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<
         ApiClient: XmtpApi,
@@ -723,68 +655,60 @@ impl Identity {
             self.generate_and_store_key_package(mls_storage, include_post_quantum)?;
 
         // Upload to network
-        match api_client.upload_key_package(kp_bytes, true).await {
-            Ok(()) => {
-                // Successfully uploaded. Delete previous KPs
-                let provider = XmtpOpenMlsProviderRef::new(mls_storage);
-                provider
-                    .storage()
-                    .transaction(|conn| {
-                        let storage = conn.key_store();
-                        storage
-                            .db()
-                            .mark_key_package_before_id_to_be_deleted(history_id)?;
-                        Ok::<_, StorageError>(Continue(()))
-                    })
-                    .map(TransactionOutcome::into_continued)?;
-                mls_storage
-                    .db()
-                    .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+        match api_client.upload_key_package(kp_bytes).await {
+            Ok(meta) => {
+                let published_cursor = meta.cursor.filter(|cursor| cursor.sequence_id > 0).ok_or(
+                    xmtp_api::ApiError::InvalidResponse("key package publish cursor"),
+                )?;
+                // Backend publication order can differ from local generation order.
+                crate::state_tx::state_write(mls_storage, |tx| {
+                    let storage = tx.storage();
+                    storage.db().record_key_package_publication(
+                        history_id,
+                        xmtp_proto::types::Cursor(published_cursor.sequence_id),
+                    )?;
+                    storage
+                        .db()
+                        .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+                    Ok::<_, StorageError>(Continue(()))
+                })
+                .map(TransactionOutcome::into_continued)?;
                 Ok(())
             }
             Err(err) => Err(IdentityError::ApiClient(err)),
         }
     }
 
-    /// Generate and store key package locally (not uploaded to network).
-    /// Returns serialized bytes and history ID for later upload/cleanup.
-    /// Prevents orphaned key packages if signature validation fails.
+    /// Store key material and its history row in one state transaction.
+    /// Return bytes for upload and the history ID for its later receipt.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn generate_and_store_key_package<S: XmtpMlsStorageProvider>(
         &self,
         mls_storage: &S,
         include_post_quantum: bool,
     ) -> Result<(Vec<u8>, i32), IdentityError> {
-        let provider = XmtpOpenMlsProviderRef::new(mls_storage);
-        let NewKeyPackageResult {
-            key_package: kp,
-            pq_pub_key,
-        } = self.new_key_package(&provider, include_post_quantum)?;
-
-        let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
-        let history_id = provider
-            .storage()
-            .db()
-            .store_key_package_history_entry(hash_ref, pq_pub_key)?
-            .id;
-
-        let kp_bytes = kp.tls_serialize_detached()?;
-
-        Ok((kp_bytes, history_id))
+        crate::state_tx::state_write(mls_storage, |tx| {
+            let storage = tx.storage();
+            let provider = XmtpOpenMlsProviderRef::new(&storage);
+            let NewKeyPackageResult {
+                key_package: kp,
+                pq_pub_key,
+            } = self.new_key_package(&provider, include_post_quantum)?;
+            let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
+            let history_id = storage
+                .db()
+                .store_key_package_history_entry(hash_ref, pq_pub_key)?
+                .id;
+            let kp_bytes = kp.tls_serialize_detached()?;
+            Ok::<_, IdentityError>(Continue((kp_bytes, history_id)))
+        })
+        .map(TransactionOutcome::into_continued)
     }
 }
 
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
     pub static ENABLE_WELCOME_POINTERS: bool;
-    /// Test-only opt-out from advertising `AppDataDictionary` in the
-    /// key package's leaf-node capabilities. Tests that simulate an
-    /// "old client without AppData support" set this to `false` for
-    /// the scope of one client build, and the resulting KP omits the
-    /// extension type from its `Capabilities`. Production has no
-    /// equivalent gate — `AppDataDictionary` is broadcast
-    /// unconditionally.
-    pub static ENABLE_APP_DATA_DICTIONARY_BROADCAST: bool;
 }
 
 #[derive(Builder, Debug)]
@@ -811,115 +735,46 @@ impl XmtpKeyPackageBuilder {
         include_post_quantum: bool,
     ) -> Result<NewKeyPackageResult, IdentityError> {
         let this = self.inner_build()?;
-        let last_resort = Extension::LastResort(LastResortExtension::default());
-        let welcome_pointee_encryption_aead_types =
-            WelcomePointersExtension::available_types().try_into()?;
-        let mut extensions = vec![last_resort, welcome_pointee_encryption_aead_types];
-        #[cfg(any(test, feature = "test-utils"))]
-        {
-            if !ENABLE_WELCOME_POINTERS.try_with(|v| *v).unwrap_or(true) {
-                let extension = extensions
-                    .pop()
-                    .expect("Welcome pointers extension is always present");
-                assert_eq!(
-                    extension.extension_type(),
-                    ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID)
-                );
-            }
-        }
-        let mut post_quantum_keypair = None;
-        if include_post_quantum {
-            let keypair = generate_post_quantum_key()?;
-            extensions.push(build_post_quantum_public_key_extension(&keypair.public)?);
-            post_quantum_keypair = Some(keypair);
-        }
-        let key_package_extensions = Extensions::from_vec(extensions)?;
-
-        let application_id =
-            Extension::ApplicationId(ApplicationIdExtension::new(this.inbox_id.as_bytes()));
-        let leaf_node_extensions = Extensions::<LeafNode>::single(application_id)?;
-
         #[allow(unused_mut)]
-        let mut capability_extensions = vec![
-            ExtensionType::LastResort,
-            ExtensionType::ApplicationId,
-            ExtensionType::ImmutableMetadata,
-            // Advertise AppDataDictionary so the bootstrap commit
-            // (and later AppDataUpdate proposals) are accepted —
-            // OpenMLS rejects commits whose new extension set isn't
-            // covered by every leaf's capabilities. Advertising
-            // unconditionally is the simplest path: required-vs-
-            // supported is enforced by RequiredCapabilities, not by
-            // this leaf-node list. This advertisement also doubles
-            // as the migration-eligibility signal that
-            // `all_members_support_proposals` reads.
-            ExtensionType::AppDataDictionary,
-            ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
-            ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
-            ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
-            ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
-            ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
-        ];
-        // Test-only opt-out: tests that simulate an "old client
-        // without AppData support" drop the advertisement so the
-        // member-support check fails for that installation.
+        let mut options = xmtp_id::key_package::KeyPackageOptions {
+            include_post_quantum,
+            ..Default::default()
+        };
         #[cfg(any(test, feature = "test-utils"))]
         {
-            if !ENABLE_APP_DATA_DICTIONARY_BROADCAST
-                .try_with(|v| *v)
-                .unwrap_or(true)
-            {
-                capability_extensions.retain(|e| *e != ExtensionType::AppDataDictionary);
-            }
+            options.welcome_pointers = ENABLE_WELCOME_POINTERS.try_with(|v| *v).unwrap_or(true);
+            options.lifetime =
+                Some(crate::utils::test_mocks_helpers::maybe_mock_package_lifetime());
         }
-        // Advertise both `GroupContextExtensions` (required by all groups)
-        // and `AppDataUpdate` (used by the new app-data path) so this client
-        // can join groups that commit AppDataUpdate proposals. Required-vs-
-        // supported is enforced by the group's RequiredCapabilities, not by
-        // this leaf-node list, so advertising more is always safe.
-        let capabilities = Capabilities::new(
-            None,
-            Some(&[CIPHERSUITE]),
-            Some(&capability_extensions),
-            Some(&[
-                ProposalType::GroupContextExtensions,
-                ProposalType::AppDataUpdate,
-            ]),
-            None,
-        );
-
-        let kp_builder = KeyPackage::builder()
-            .leaf_node_capabilities(capabilities)
-            .leaf_node_extensions(leaf_node_extensions)
-            .key_package_extensions(key_package_extensions);
-
-        let kp_builder = {
-            #[cfg(any(test, feature = "test-utils"))]
-            {
-                use crate::utils::test_mocks_helpers::maybe_mock_package_lifetime;
-                let life_time = maybe_mock_package_lifetime();
-                kp_builder.key_package_lifetime(life_time)
-            }
-            #[cfg(not(any(test, feature = "test-utils")))]
-            {
-                kp_builder
-            }
-        };
-
-        let kp = kp_builder.build(
-            CIPHERSUITE,
-            provider,
+        let generated = xmtp_id::key_package::build_key_package(
+            &this.inbox_id,
+            this.credential,
             &this.installation_keys,
-            CredentialWithKey {
-                credential: this.credential,
-                signature_key: this.installation_keys.public_slice().into(),
-            },
+            provider,
+            options,
+        )
+        .map_err(|error| match error {
+            xmtp_id::key_package::KeyPackageConstructionError::Generation(e) => {
+                IdentityError::KeyPackageGenerationError(e)
+            }
+            xmtp_id::key_package::KeyPackageConstructionError::InvalidExtension(e) => {
+                IdentityError::InvalidExtension(e)
+            }
+            xmtp_id::key_package::KeyPackageConstructionError::Encode(e) => {
+                IdentityError::CredentialSerialization(e)
+            }
+            xmtp_id::key_package::KeyPackageConstructionError::PostQuantum(e) => {
+                IdentityError::GeneratePostQuantumKey(e)
+            }
+        })?;
+        store_key_package_references(
+            provider,
+            generated.bundle.key_package(),
+            &generated.post_quantum_keypair,
         )?;
-
-        store_key_package_references(provider, kp.key_package(), &post_quantum_keypair)?;
         Ok(NewKeyPackageResult {
-            key_package: kp.key_package().clone(),
-            pq_pub_key: post_quantum_keypair.map(|kp| kp.public),
+            key_package: generated.bundle.key_package().clone(),
+            pq_pub_key: generated.post_quantum_keypair.map(|kp| kp.public),
         })
     }
 }
@@ -939,9 +794,7 @@ pub(crate) fn serialize_key_package_hash_ref(
 }
 
 // Takes a post quantum public key and returns the key used to store it in the key package references table
-pub(crate) fn pq_key_package_references_key(
-    raw_pub_key: &Vec<u8>,
-) -> Result<Vec<u8>, IdentityError> {
+pub(crate) fn pq_key_package_references_key(raw_pub_key: &[u8]) -> Result<Vec<u8>, IdentityError> {
     Ok(raw_pub_key.tls_serialize_detached()?)
 }
 
@@ -957,58 +810,17 @@ pub(crate) fn deserialize_key_package_hash_ref(
 pub(crate) fn create_credential(
     inbox_id: impl AsRef<str>,
 ) -> Result<OpenMlsCredential, IdentityError> {
-    let inbox_id = inbox_id.as_ref().to_string();
-    let cred = MlsCredential { inbox_id };
-    let mut credential_bytes = Vec::new();
-    let _ = cred.encode(&mut credential_bytes);
-
-    Ok(BasicCredential::new(credential_bytes).into())
+    Ok(xmtp_id::key_package::create_credential(inbox_id))
 }
 
 pub fn parse_credential(credential_bytes: &[u8]) -> Result<InboxId, IdentityError> {
-    let cred = MlsCredential::decode(credential_bytes)?;
-    Ok(cred.inbox_id)
+    Ok(xmtp_id::key_package::parse_credential(credential_bytes)?)
 }
 
 pub fn build_post_quantum_public_key_extension(
     public_key: &[u8],
 ) -> Result<Extension, IdentityError> {
-    let ext =
-        WrapperEncryptionExtension::new(WrapperAlgorithm::XWingMLKEM768Draft6, public_key.to_vec());
-
-    Ok(ext.try_into()?)
-}
-
-/// Error type for generating a post quantum key pair
-#[derive(Debug, Error)]
-pub enum GeneratePostQuantumKeyError {
-    #[error(transparent)]
-    Crypto(#[from] openmls_traits::types::CryptoError),
-    #[error(transparent)]
-    Rand(#[from] openmls_libcrux_crypto::RandError),
-}
-
-impl xmtp_common::ErrorCode for GeneratePostQuantumKeyError {
-    fn error_code(&self) -> &'static str {
-        match self {
-            Self::Crypto(_) => "GeneratePostQuantumKeyError::Crypto",
-            Self::Rand(_) => "GeneratePostQuantumKeyError::Rand",
-        }
-    }
-}
-
-/// Generate a new key pair using our post quantum ciphersuite
-pub(crate) fn generate_post_quantum_key() -> Result<HpkeKeyPair, GeneratePostQuantumKeyError> {
-    let provider = LibcruxProvider::default();
-    let rand = provider.rand();
-
-    let ikm: SecretVLBytes = rand
-        .random_vec(POST_QUANTUM_CIPHERSUITE.hash_length())?
-        .into();
-
-    Ok(provider
-        .crypto()
-        .derive_hpke_keypair(POST_QUANTUM_CIPHERSUITE.hpke_config(), ikm.as_slice())?)
+    Ok(xmtp_id::key_package::build_post_quantum_public_key_extension(public_key)?)
 }
 
 // Store the hash reference, keyed with both the public init key and the post quantum init key.
@@ -1063,7 +875,6 @@ mod tests {
     use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
     use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
     use tls_codec::Serialize;
-    use xmtp_api_d14n::protocol::XmtpQuery;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpMlsStorageProvider;
     use xmtp_db::XmtpOpenMlsProviderRef;
@@ -1074,7 +885,60 @@ mod tests {
     };
     use xmtp_id::key_package::WrapperAlgorithm;
     use xmtp_mls_common::group::DMMetadataOptions;
-    use xmtp_proto::types::TopicKind;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn initialize_identity_debug_log_reports_strategy() {
+        use super::IdentityStrategy;
+        use openmls::credentials::{Credential, CredentialType};
+        use std::sync::atomic::AtomicBool;
+        use tracing::instrument::WithSubscriber;
+        use xmtp_api::ApiClientWrapper;
+        use xmtp_api_backend::MockBackendClient;
+        use xmtp_common::{Retry, rand_vec};
+        use xmtp_cryptography::XmtpInstallationCredential;
+        use xmtp_db::{Store, XmtpTestDb, identity::StoredIdentity, sql_key_store::SqlKeyStore};
+        use xmtp_id::associations::test_utils::{
+            MockSmartContractSignatureVerifier, WalletTestExt,
+        };
+        use xmtp_logging::{Level, test_logging::LogCapture};
+
+        let store = xmtp_db::TestDb::create_persistent_store(None).await;
+        let identifier = generate_local_wallet().identifier();
+        let inbox_id = identifier.inbox_id(0).unwrap();
+        let stored: StoredIdentity = (&super::Identity {
+            inbox_id: inbox_id.clone(),
+            installation_keys: XmtpInstallationCredential::new(),
+            credential: Credential::new(CredentialType::Basic, rand_vec::<24>()),
+            signature_request: None,
+            is_ready: AtomicBool::new(true),
+        })
+            .try_into()
+            .unwrap();
+        stored.store(&store.conn()).unwrap();
+
+        let strategy = IdentityStrategy::new(inbox_id.clone(), identifier, 0);
+        let api = ApiClientWrapper::new(MockBackendClient::new(), Retry::default());
+        let verifier = MockSmartContractSignatureVerifier::new(true);
+        let capture = LogCapture::new(Level::Debug);
+        let loaded = strategy
+            .initialize_identity(&api, &SqlKeyStore::new(&store.db()), &verifier)
+            .with_subscriber(capture.dispatch())
+            .await
+            .unwrap();
+
+        let output = capture.output();
+        assert_eq!(loaded.inbox_id, inbox_id);
+        assert!(output.contains("identity strategy"), "{output}");
+        assert!(
+            output.contains("\"strategy\":\"create_if_not_found\""),
+            "{output}"
+        );
+        assert!(
+            output.contains("\"stored_identity_present\":true"),
+            "{output}"
+        );
+    }
 
     async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
         let mut kp_mapping = client
@@ -1092,13 +956,8 @@ mod tests {
         let welcomes = client
             .context
             .api()
-            .query_at(
-                TopicKind::WelcomeMessagesV1.create(client.context.installation_id()),
-                None,
-            )
+            .query_welcome_messages(client.context.installation_id())
             .await
-            .unwrap()
-            .welcome_messages()
             .unwrap();
 
         welcomes[0].clone()
@@ -1199,39 +1058,6 @@ mod tests {
         assert!(key_package_from_db.is_none());
     }
 
-    /// Companion to `test_app_data_update_advertised_but_not_required` in
-    /// `groups/tests/test_proposals.rs`, which covers the group-creator side.
-    ///
-    /// The joiner side: a key package built by `XmtpKeyPackageBuilder` must
-    /// advertise `AppDataUpdate` on its leaf node so this installation can be
-    /// added to groups whose commits inline AppDataUpdate proposals. If this
-    /// regresses, new clients would fail RequiredCapabilities on join into any
-    /// group created by a peer that later requires the capability.
-    #[xmtp_common::test]
-    async fn test_app_data_update_capability_advertised_on_key_package() {
-        use openmls::messages::proposals::ProposalType;
-
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let storage = client.context.mls_storage();
-        let provider = XmtpOpenMlsProviderRef::new(storage);
-
-        let kp = client
-            .identity()
-            .new_key_package(&provider, false)
-            .unwrap()
-            .key_package;
-        let proposals = kp.leaf_node().capabilities().proposals();
-
-        assert!(
-            proposals.contains(&ProposalType::AppDataUpdate),
-            "key package must advertise AppDataUpdate, got: {proposals:?}",
-        );
-        assert!(
-            proposals.contains(&ProposalType::GroupContextExtensions),
-            "key package must still advertise GroupContextExtensions, got: {proposals:?}",
-        );
-    }
-
     #[test]
     fn test_generate_post_quantum_key_error_codes() {
         use super::GeneratePostQuantumKeyError;
@@ -1252,14 +1078,8 @@ mod tests {
         use xmtp_common::ErrorCode;
 
         // Test simple variants
-        let err = IdentityError::LegacyKeyReuse;
-        assert_eq!(err.error_code(), "IdentityError::LegacyKeyReuse");
-
         let err = IdentityError::UninitializedIdentity;
         assert_eq!(err.error_code(), "IdentityError::UninitializedIdentity");
-
-        let err = IdentityError::LegacyKeyMismatch;
-        assert_eq!(err.error_code(), "IdentityError::LegacyKeyMismatch");
 
         let err = IdentityError::RequiredIdentityNotFound;
         assert_eq!(err.error_code(), "IdentityError::RequiredIdentityNotFound");

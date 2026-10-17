@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(w.last_sequence_id, 0) AS \"head!\"\n        FROM unnest($1::bytea[]) WITH ORDINALITY AS wanted(topic, ordinal)\n        LEFT JOIN topic_watermark w ON w.topic = wanted.topic ORDER BY wanted.ordinal",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "head!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "ByteaArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9ba4509d53b022fc9075992281b4af07bda66f76eb868bbaed00a447e666748f"
+}

@@ -1,0 +1,271 @@
+import { randomUUID } from "node:crypto";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve, sep } from "node:path";
+
+import {
+  buildClient,
+  clientOptions,
+  createClient,
+  createRegisteredClient,
+  createSigner,
+} from "@test/helpers";
+import {
+  Client,
+  XmtpError,
+  generateInboxId,
+  latestInboxUpdatesCount,
+} from "@xmtp/node-sdk";
+import { describe, expect, it } from "vitest";
+
+describe("Client", () => {
+  // verifies: STORE-004
+  it("keeps default storage in the current data directory when an old database exists", async () => {
+    const { signer, identifier } = createSigner();
+    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-default-"));
+    const previousDirectory = process.cwd();
+    process.chdir(directory);
+    try {
+      const oldPath = join(
+        directory,
+        `xmtp-production-${generateInboxId(identifier)}.db3`,
+      );
+      const oldClient = await Client.create(
+        signer,
+        clientOptions({
+          registration: { auto: false },
+          storage: {
+            location: {
+              dbPath: oldPath,
+              attachmentsDir: `${oldPath}.attachments`,
+            },
+          },
+        }),
+      );
+      await oldClient.end();
+
+      const current = await Client.create(
+        signer,
+        clientOptions({
+          registration: { auto: false },
+          storage: { location: "default" },
+        }),
+      );
+      try {
+        expect(current.storagePath).not.toBe(realpathSync(oldPath));
+        expect(
+          current.storagePath?.startsWith(
+            `${join(realpathSync(directory), "xmtp")}${sep}`,
+          ),
+        ).toBe(true);
+      } finally {
+        await current.end();
+      }
+    } finally {
+      process.chdir(previousDirectory);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("builds a client without a signer and runs the static identity calls", async () => {
+    const { signer, identifier, address } = createSigner();
+    const backend = { url: process.env.XMTP_BACKEND_URL! };
+    const options = clientOptions({ backend });
+    const registered = await createRegisteredClient(signer, options);
+    const { inboxId, installationId } = registered;
+    const signature = await registered.signWithInstallationKey("gm");
+    const installationKey = registered.installationIdBytes;
+    expect(
+      await registered.verifySignedWithInstallationKey("gm", signature),
+    ).toBe(true);
+    await registered.end();
+    expect(
+      await Client.verifySignedWithPublicKey("gm", signature, installationKey),
+    ).toBe(true);
+    const built = await buildClient(identifier, options);
+    expect(built.inboxId).toBe(inboxId);
+    expect(built.identity).toEqual(identifier);
+    await built.end();
+    // The static wrappers in runtime/ts/client.ts move the backend argument to
+    // the front. Only a live call catches an argument swap.
+    expect(await Client.inboxIdFor(identifier, backend)).toBe(inboxId);
+    expect(await Client.isAddressAuthorized(inboxId, address, backend)).toBe(
+      true,
+    );
+    expect(
+      await Client.isAddressAuthorized(
+        inboxId,
+        "0x1234567890123456789012345678901234567890",
+        backend,
+      ),
+    ).toBe(false);
+    expect(
+      await Client.isInstallationAuthorized(inboxId, installationId, backend),
+    ).toBe(true);
+    expect(
+      await Client.isInstallationAuthorized(inboxId, "00".repeat(32), backend),
+    ).toBe(false);
+
+    const other = await createRegisteredClient(signer, { backend });
+    try {
+      await Client.revokeInstallations(
+        signer,
+        inboxId,
+        [installationId],
+        backend,
+      );
+      const [state] = await Client.inboxStates([inboxId], backend);
+      expect(state.inboxId).toBe(inboxId);
+      expect(state.installations.map((i) => i.id)).toEqual([
+        other.installationId,
+      ]);
+      // The instance lookup returns an optional inbox ID. An identity with no
+      // inbox lifts to undefined, not null. (The static lookup above computes
+      // the nonce-0 inbox ID instead.)
+      expect(await other.inboxIdFor(createSigner().identifier)).toBeUndefined();
+
+      // Generated lifts with no Rust-side check: the inbox state identities,
+      // the boolean and bigint maps, and the optional key package lifetime.
+      expect(state.identities).toEqual([identifier]);
+      expect(state.recoveryIdentity).toEqual(identifier);
+      expect(await other.inboxState(true)).toMatchObject({
+        inboxId,
+        identities: [identifier],
+        recoveryIdentity: identifier,
+        installations: state.installations,
+      });
+      expect(
+        (await other.inboxStates([inboxId], true)).map((s) => s.identities),
+      ).toEqual([[identifier]]);
+      const unknown = createSigner().identifier;
+      expect(
+        Object.fromEntries(
+          await Client.canMessage([identifier, unknown], backend),
+        ),
+      ).toEqual({
+        [`ethereum:${address}`]: true,
+        [`ethereum:${unknown.identifier}`]: false,
+      });
+      const own = await other.ownInboxUpdatesCount(true);
+      expect(typeof own).toBe("bigint");
+      expect(await other.latestInboxUpdatesCount([inboxId], true)).toEqual(
+        new Map([[inboxId, own]]),
+      );
+      expect(await latestInboxUpdatesCount([inboxId], backend)).toEqual(
+        new Map([[inboxId, own]]),
+      );
+      const statuses = await other.keyPackageStatuses([other.installationId]);
+      const lifetime = statuses.get(other.installationId)?.lifetime;
+      expect(lifetime!.notAfter - lifetime!.notBefore).toBe(
+        BigInt(3600 * 24 * 7 * 12 + 3600),
+      );
+      expect(other.libxmtpVersion.length).toBeGreaterThan(0);
+    } finally {
+      await other.end();
+    }
+  });
+
+  it("uses the selected storage pool, encryption key, app version and workers", async () => {
+    const storage = {
+      location: {
+        dbPath: `./test-${randomUUID()}.db3`,
+        attachmentsDir: `./test-${randomUUID()}.attachments`,
+      },
+      encryptionKey: new Uint8Array(32),
+      pool: { min: 1, max: 2 },
+    };
+    const backend = {
+      url: process.env.XMTP_BACKEND_URL!,
+      appVersion: "test/8",
+    };
+    const workers = {
+      defaultIntervalNs: 60_000_000_000n,
+      intervals: [
+        { kind: "deviceSync" as const, intervalNs: 30_000_000_000n },
+        { kind: "taskRunner" as const, enabled: false },
+      ],
+    };
+    const { signer, identifier } = createSigner();
+    const client = await createClient(signer, {
+      storage,
+      backend,
+      workers,
+      registration: { nonce: 1n },
+    });
+    try {
+      expect(client.options.storage.location).toEqual(storage.location);
+      expect(client.options.storage.pool).toEqual(storage.pool);
+      expect(client.options.storage.encryptionKey).toBeUndefined();
+      expect(client.storagePath).toBe(resolve(storage.location.dbPath));
+      // The generated getters lift the app version and the worker options.
+      expect(client.appVersion).toBe("test/8");
+      expect(client.options.backend).toEqual(backend);
+      expect(client.options.workers).toEqual(workers);
+      // The selected nonce reaches the inbox ID calculation as a u64.
+      expect(client.inboxId).toBe(generateInboxId(identifier, 1n));
+      // The disabled task runner reaches Rust, and its error lifts to the
+      // public class.
+      const failure = await client
+        .enableNotifications({
+          channel: {
+            kind: "http",
+            url: "https://example.com/xmtp-notification-test",
+            signingKey: new Uint8Array(32).fill(1),
+          },
+        })
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(XmtpError.TaskRunnerDisabled);
+      expect(failure).toMatchObject({
+        details: { code: "TaskRunnerDisabled" },
+      });
+    } finally {
+      await client.end();
+    }
+  });
+
+  // verifies: STORE-009, STORE-010
+  it("reconnects the same live client storage and keeps its history", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    const storage = client.storage;
+    const inboxId = client.inboxId;
+    try {
+      const path = await storage.path();
+      expect(path).toBe(client.storagePath);
+      const group = await client.conversations.createGroup([]);
+      const messageId = await group.sendText("stored before reconnect");
+      await storage.reconnect();
+      expect(await storage.path()).toBe(path);
+      expect(client.inboxId).toBe(inboxId);
+      expect((await client.conversations.getMessageById(messageId))?.id).toBe(
+        messageId,
+      );
+    } finally {
+      await client.end();
+    }
+    await expect(storage.reconnect()).rejects.toBeInstanceOf(
+      XmtpError.ClientClosed,
+    );
+  });
+
+  it("confirms registration before it reports success and permits a repeat", async () => {
+    const client = await createClient(createSigner().signer);
+    try {
+      expect(await client.isRegistered()).toBe(false);
+      await client.register();
+      expect(await client.isRegistered()).toBe(true);
+      await client.register();
+      expect(await client.isRegistered()).toBe(true);
+    } finally {
+      await client.end();
+    }
+  });
+
+  it("rejects operations after end and resolves a second end", async () => {
+    const client = await createClient(createSigner().signer);
+    await client.end();
+    await expect(client.conversations.list()).rejects.toBeInstanceOf(
+      XmtpError.ClientClosed,
+    );
+    await expect(client.end()).resolves.not.toThrow();
+  });
+});

@@ -1,0 +1,25 @@
+// Group mutable metadata
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// Message for group mutable metadata
+message GroupMutableMetadataV1 {
+  // Map to store various metadata attributes (Group name, etc.)
+  map<string, string> attributes = 1;
+  Inboxes admin_list = 2;
+  // Creator starts as only super_admin
+  // Only super_admin can add/remove other super_admin
+  Inboxes super_admin_list = 3;
+  // Top-level commit_log_signer removed in favor of attribute
+  reserved 4;
+  reserved "commit_log_signer";
+}
+
+// Wrapper around a list of repeated Inbox Ids
+message Inboxes {
+  repeated string inbox_ids = 1;
+}

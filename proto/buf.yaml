@@ -1,0 +1,28 @@
+version: v1
+name: buf.build/xmtp/proto
+breaking:
+  use:
+    - FILE
+lint:
+  allow_comment_ignores: true
+  use:
+    - STANDARD
+  ignore_only:
+    DIRECTORY_SAME_PACKAGE:
+      - device_sync
+    ENUM_ZERO_VALUE_SUFFIX:
+      - message_contents/content.proto
+      - mls/message_contents/content.proto
+    PACKAGE_SAME_GO_PACKAGE:
+      - mls/message_contents
+    PACKAGE_SAME_JAVA_PACKAGE:
+      - mls/message_contents
+    RPC_REQUEST_RESPONSE_UNIQUE:
+      - identity/api/v1/identity.proto
+    RPC_RESPONSE_STANDARD_NAME:
+      - backend/v1/backend.proto
+      - identity/api/v1/identity.proto
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+    - PACKAGE_VERSION_SUFFIX
+    - SERVICE_SUFFIX

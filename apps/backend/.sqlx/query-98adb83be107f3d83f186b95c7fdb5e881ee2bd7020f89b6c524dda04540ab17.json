@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO topic_watermark (topic, last_sequence_id) VALUES ($1, 9223372036854775807)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "98adb83be107f3d83f186b95c7fdb5e881ee2bd7020f89b6c524dda04540ab17"
+}

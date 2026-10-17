@@ -1,6 +1,8 @@
 **/target
 **/*.rs.bk
 bin/
+!apps/cli/bin/
+!apps/cli/bin/*.js
 pkg/
 wasm-pack.log
 
@@ -11,14 +13,11 @@ wasm-pack.log
 # generated
 bindings_swift/Sources
 bindings_swift/xmtp-rust-swift.zip
-bindings/mobile/jniLibs
 
 # Logs
 logs
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 lerna-debug.log*
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
@@ -63,6 +62,7 @@ build/Release
 # Dependency directories
 node_modules/
 **/node_modules/
+.pnpm-store/
 package-lock.json
 jspm_packages/
 
@@ -78,6 +78,9 @@ web_modules/
 # Optional eslint cache
 .eslintcache
 
+# dev/js/lint-source.mjs writes these Oxlint configs while it runs.
+.oxlint-source-*.json
+
 # Microbundle cache
 .rpt2_cache/
 .rts2_cache_cjs/
@@ -90,12 +93,12 @@ web_modules/
 # Output of 'npm pack'
 *.tgz
 
-# Yarn Integrity file
-.yarn-integrity
-
 # dotenv environment variables file
 .env
 .env.test
+
+# Generated per worktree by dev/worktree-env.
+dev/docker/.env
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -135,13 +138,6 @@ dist
 
 # JetBrains IDE Info
 .idea/
-
-# yarn v2
-**/.yarn/cache
-**/.yarn/unplugged
-**/.yarn/build-state.yml
-**/.yarn/install-state.gz
-.pnp.*
 
 # Swap files for vim
 *.swp
@@ -209,3 +205,25 @@ docs/plans
 # Claude Code
 .claude/scheduled_tasks.lock
 /target-linux-amd64
+
+# Python runtime bytecode
+__pycache__/
+*.pyc
+
+# Agent Python runtime and bytecode
+dev/agents/.venv/
+dev/agents/__pycache__/
+dev/specs/__pycache__/
+
+# Murmur local config (per-developer, not checked in)
+.murmur/murmur.local.yaml
+.murmur/murmur.*.local.yaml
+
+# Private chaos runs and evidence
+/.chaos/
+
+# Signing keys and service credentials, anywhere in the tree. The retired
+# apps/android/xmtpv3_example ignored these; keep them out of every checkout.
+*.jks
+*.keystore
+google-services.json

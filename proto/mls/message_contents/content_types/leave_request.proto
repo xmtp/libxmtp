@@ -1,0 +1,22 @@
+// leave_request.proto
+// This file defines the LeaveRequest message type and is associated with the following ContentTypeId:
+//
+// ContentTypeId {
+//     authority_id: "xmtp.org",
+//     type_id:      "leaveRequest",
+//     version_major: 1,
+//     version_minor: 0,
+// }
+//
+syntax = "proto3";
+
+package xmtp.mls.message_contents.content_types;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents/content_types";
+option java_package = "org.xmtp.proto.mls.message_contents.content_types";
+
+// LeaveRequest message type
+message LeaveRequest {
+  // A serialized AuthenticatedNote containing the sender's signed, member-only verifiable statement
+  optional bytes authenticated_note = 1;
+}

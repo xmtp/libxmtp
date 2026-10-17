@@ -1,6 +1,6 @@
 use crate::{context::XmtpSharedContext, identity_updates::IdentityUpdates};
 
-use super::{GroupError, MlsGroup, validated_commit::extract_group_membership};
+use super::{GroupError, MlsGroup};
 use xmtp_db::prelude::*;
 use xmtp_db::{
     StorageError,
@@ -8,8 +8,9 @@ use xmtp_db::{
 };
 use xmtp_id::{
     InboxId,
-    associations::{AssociationState, Identifier},
+    associations::{AssociationState, Identifier, handle::Handle},
 };
+use xmtp_mls_validation::commit::extract_group_membership;
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {
@@ -18,6 +19,11 @@ pub struct GroupMember {
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: PermissionLevel,
     pub consent_state: ConsentState,
+    /// The display handle of the newest association state the client holds
+    /// for the member, or `None` when it has claimed no handle.
+    pub handle: Option<Handle>,
+    /// The other handles of that state, the most recently claimed first.
+    pub other_handles: Vec<Handle>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,10 +38,10 @@ where
     Context: XmtpSharedContext,
 {
     /// Load the member list for the group from the DB, merging together multiple installations into a single entry
+    // implements: IDENT-086
     pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
         let db = self.context.db();
-        let storage = self.context.mls_storage();
-        let group_membership = self.load_mls_group_with_lock(storage, |mls_group| {
+        let group_membership = self.with_group_snapshot(|mls_group| {
             Ok(extract_group_membership(mls_group.extensions())?)
         })?;
         let requests = group_membership
@@ -84,11 +90,23 @@ where
                 return Err(GroupError::InvalidGroupMembership);
             }
         }
-        let mutable_metadata = self.mutable_metadata()?;
+        // The membership state gives identifiers and installations. Handles
+        // come from the newest state held, which can be newer.
+        let inbox_ids: Vec<&str> = requests.iter().map(|(id, _)| id.as_str()).collect();
+        let mut newest_states = db.newest_cached_states(&inbox_ids)?;
+        let mutable_metadata = self.live_mutable_metadata()?;
         let members = association_states
             .into_iter()
             .map(|association_state| {
                 let inbox_id_str = association_state.inbox_id().to_string();
+                // The membership state is cached, so the inbox has an entry at
+                // least as new as it.
+                let newest_state: Option<AssociationState> = newest_states
+                    .remove(&inbox_id_str)
+                    .map(|(_, state)| state.try_into())
+                    .transpose()
+                    .map_err(StorageError::from)?;
+                let handle_state = newest_state.as_ref().unwrap_or(&association_state);
                 let is_admin = mutable_metadata.is_admin(&inbox_id_str);
                 let is_super_admin = mutable_metadata.is_super_admin(&inbox_id_str);
                 let permission_level = if is_super_admin {
@@ -107,6 +125,8 @@ where
                     installation_ids: association_state.installation_ids(),
                     permission_level,
                     consent_state: consent.map_or(ConsentState::Unknown, |c| c.state),
+                    handle: handle_state.display_handle().cloned(),
+                    other_handles: handle_state.other_handles().cloned().collect(),
                 })
             })
             .collect::<Result<Vec<GroupMember>, GroupError>>()?;

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Smoke Check"
+  short_description: "Check local XMTP chat with two Node bots"
+
+policy:
+  allow_implicit_invocation: false

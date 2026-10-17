@@ -1,3 +1,5 @@
+<!-- PR sections sit below the pull request title. -->
+<!-- markdownlint-disable MD041 -->
 ## Introduction 📟
 <!-- Brief explanation of the problem to be solved / bug to be fixed. -->
 

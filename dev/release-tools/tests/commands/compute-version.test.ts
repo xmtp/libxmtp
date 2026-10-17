@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { handler } from "../../src/commands/compute-version";
 
 // The handler resolves the short sha through git, so exercise it against a
@@ -13,9 +15,9 @@ describe("compute-version --source-ref / --timestamp", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-compute-"));
-    fs.mkdirSync(path.join(tmpDir, "sdks/js/node-sdk"), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, "sdks/node"), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, "sdks/js/node-sdk/package.json"),
+      path.join(tmpDir, "sdks/node/package.json"),
       `${JSON.stringify({ name: "@xmtp/node-sdk", version: "6.2.0" }, null, 2)}\n`,
     );
     execSync("git init", { cwd: tmpDir });
@@ -50,6 +52,29 @@ describe("compute-version --source-ref / --timestamp", () => {
       spy.mockRestore();
     }
   }
+
+  it("uses a backend branch version without changing the Rust manifest", () => {
+    const cargoPath = path.join(tmpDir, "Cargo.toml");
+    const cargo = '[workspace.package]\nversion = "1.12.0-dev"\n';
+    fs.writeFileSync(cargoPath, cargo);
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      handler({
+        _: [],
+        $0: "test",
+        repoRoot: tmpDir,
+        sdk: "libxmtp",
+        baseVersion: "8.0.0",
+        releaseType: "rc",
+        rcNumber: 1,
+        sourceRef: "release/8.0.0",
+      });
+      expect(spy).toHaveBeenLastCalledWith("8.0.0-rc1");
+      expect(fs.readFileSync(cargoPath, "utf-8")).toBe(cargo);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 
   it("emits the ordered pre.* shape for a main-cut dev", () => {
     const version = run("refs/heads/main");

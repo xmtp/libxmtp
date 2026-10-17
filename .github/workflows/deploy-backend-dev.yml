@@ -1,0 +1,71 @@
+name: Deploy persistent backend
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  BACKEND_HOST: backend-dev.xmtp.to
+
+concurrency:
+  group: fly-backend-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: backend-dev
+      url: https://${{ env.BACKEND_HOST }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check for a newer commit
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [ "$head" = "$GITHUB_SHA" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Skip superseded commit $GITHUB_SHA"
+          fi
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
+        if: steps.current.outputs.deploy == 'true'
+        with:
+          version: "0.4.104"
+      - uses: ./.github/actions/setup-node
+        if: steps.current.outputs.deploy == 'true'
+      - name: Deploy private observability services
+        if: steps.current.outputs.deploy == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          node --test dev/fly/render-dashboard.test.mjs
+          dev/fly/deploy-observability
+      - name: Deploy backend commit
+        if: steps.current.outputs.deploy == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: dev/fly/deploy-backend "ghcr.io/xmtp/backend:sha-$GITHUB_SHA"
+      - name: Check deployed services
+        if: steps.current.outputs.deploy == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl checks list --app xmtp-backend-dev
+          # Probe the client-facing TLS endpoint without Fly SSH permissions.
+          for attempt in $(seq 1 6); do
+            if docker run --rm \
+              ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.57@sha256:f77f1257805ecb57f1f0c36c5825d3c2e47aa81cce87128675e768463ed6487a \
+              -addr="$BACKEND_HOST:443" -tls -connect-timeout=10s -rpc-timeout=10s; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Public backend gRPC health check failed."
+          exit 1

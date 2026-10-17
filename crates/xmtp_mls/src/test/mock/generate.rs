@@ -19,17 +19,20 @@ use rstest::*;
 
 #[fixture]
 pub fn context() -> NewMockContext {
-    let (local_events, _) = tokio::sync::broadcast::channel(32);
-    let (worker_events, _) = tokio::sync::broadcast::channel(32);
+    let events = xmtp_events::EventBus::new();
     XmtpMlsLocalContext {
+        attachments: Default::default(),
         identity: Identity::mock_identity(),
-        api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
+        api_client: ApiClientWrapper::new(Arc::new(MockBackendClient::new()), Default::default()),
         store: xmtp_db::MockXmtpDb::new(),
         mutexes: MutexRegistry::new(),
+        #[cfg(test)]
         mls_commit_lock: Default::default(),
         version_info: VersionInfo::default(),
-        local_events,
-        worker_events,
+        server_configuration: Default::default(),
+        public_event_writer: Arc::new(xmtp_events::PublicBusWriter::new(&events)),
+        events,
+        registration_event_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),
         device_sync: DeviceSync {
             mode: DeviceSyncMode::Disabled,
@@ -39,21 +42,19 @@ pub fn context() -> NewMockContext {
         worker_config: Default::default(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
         task_channels: TaskWorkerChannels::default(),
-        disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(),
         worker_metrics: Arc::default(),
         cancellation_token: tokio_util::sync::CancellationToken::new(),
         shutdown_complete: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        foreground_calls: Default::default(),
+        #[cfg(any(test, target_arch = "wasm32"))]
+        message_clock: Default::default(),
+        delivery_owner: Default::default(),
+        incoming_runtime: Default::default(),
+        identity_resolutions: Default::default(),
     }
 }
 
-pub fn generate_inbox_id_credential() -> (String, XmtpInstallationCredential) {
-    let signing_key = XmtpInstallationCredential::new();
-
-    let wallet = PrivateKeySigner::random();
-    let inbox_id = wallet.identifier().inbox_id(0).unwrap();
-
-    (inbox_id, signing_key)
-}
+pub use xmtp_id::utils::generate_inbox_id_credential;
 
 pub fn generate_messages_with_ids(ids: &[u64]) -> Vec<xmtp_proto::types::GroupMessage> {
     ids.iter()
@@ -66,8 +67,8 @@ pub fn generate_message(
     group_id: &xmtp_proto::types::GroupId,
 ) -> xmtp_proto::types::GroupMessage {
     let mut msg = xmtp_proto::types::GroupMessage::generate();
-    msg.cursor.sequence_id = cursor;
-    msg.cursor.originator_id = xmtp_configuration::Originators::APPLICATION_MESSAGES;
+    msg.cursor.0 = cursor;
+
     msg.group_id = *group_id;
     msg
 }
@@ -95,7 +96,7 @@ pub fn generate_errored_summary(error_cursors: &[u64], successful_cursors: &[u64
                     .iter()
                     .copied()
                     .chain(successful_cursors.iter().copied())
-                    .map(Cursor::v3_messages),
+                    .map(Cursor),
             ),
             new_messages: generate_messages_with_ids(successful_cursors)
                 .iter()
@@ -103,12 +104,7 @@ pub fn generate_errored_summary(error_cursors: &[u64], successful_cursors: &[u64
                 .collect(),
             errored: error_cursors
                 .iter()
-                .map(|c| {
-                    (
-                        Cursor::v3_messages(*c),
-                        GroupMessageProcessingError::InvalidPayload,
-                    )
-                })
+                .map(|c| (Cursor(*c), GroupMessageProcessingError::InvalidPayload))
                 .collect(),
             app_data_changes: Vec::new(),
         },
@@ -132,7 +128,7 @@ pub fn generate_errored_summary_with_group(
                     .iter()
                     .copied()
                     .chain(successful_cursors.iter().copied())
-                    .map(Cursor::v3_messages),
+                    .map(Cursor),
             ),
             new_messages: successful_cursors
                 .iter()
@@ -143,12 +139,7 @@ pub fn generate_errored_summary_with_group(
                 .collect(),
             errored: error_cursors
                 .iter()
-                .map(|c| {
-                    (
-                        Cursor::v3_messages(*c),
-                        GroupMessageProcessingError::InvalidPayload,
-                    )
-                })
+                .map(|c| (Cursor(*c), GroupMessageProcessingError::InvalidPayload))
                 .collect(),
             app_data_changes: Vec::new(),
         },
@@ -175,8 +166,9 @@ pub fn generate_stored_msg(
         version_minor: 0,
         authority_id: "testauthority".to_string(),
         reference_id: None,
-        sequence_id: cursor.sequence_id as i64,
-        originator_id: cursor.originator_id as i64,
+        sequence_id: cursor.0 as i64,
+        envelope_hash: None,
+        expiry_ns: None,
         expire_at_ns: None,
         inserted_at_ns: 0,
         should_push: true,

@@ -1,0 +1,28 @@
+app = "xmtp-backend-dev-tempo"
+primary_region = "sjc"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+dockerfile = "Dockerfile"
+
+# No public services or IP addresses. Fly private networking uses IPv6.
+[[mounts]]
+source = "tempo_data"
+destination = "/var/tempo"
+
+[checks.ready]
+type = "http"
+port = 3200
+path = "/ready"
+interval = "15s"
+timeout = "5s"
+grace_period = "60s"
+
+[[restart]]
+policy = "always"
+
+[[vm]]
+cpu_kind = "shared"
+cpus = 1
+memory = "1gb"

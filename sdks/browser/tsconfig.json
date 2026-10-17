@@ -1,0 +1,16 @@
+{
+  "extends": "../../dev/js/tsconfig.web.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "sourceMap": true,
+    "types": ["vitest/globals", "vite/client"]
+  },
+  "include": [
+    "test",
+    "type-tests/notifications.ts",
+    "type-tests/publicSurface.ts",
+    "type-tests/streamOptions.ts",
+    "vite.config.ts"
+  ],
+  "exclude": ["test/platform"]
+}

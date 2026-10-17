@@ -1,0 +1,42 @@
+// wallet_send_calls.proto
+// This file defines the WalletSendCalls message type and is associated with the following ContentTypeId:
+//
+// ContentTypeId {
+//     authority_id: "xmtp.org",
+//     type_id:      "walletSendCalls",
+//     version_major: 1,
+//     version_minor: 0,
+// }
+//
+syntax = "proto3";
+
+package xmtp.mls.message_contents.content_types;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents/content_types";
+option java_package = "org.xmtp.proto.mls.message_contents.content_types";
+
+// WalletSendCalls represents parameters for sending wallet calls
+message WalletSendCalls {
+  string version = 1;
+  // hex chain id, e.g., "0x1"
+  string chain_id = 2;
+  // hex address of the sender, e.g., "0xabc..."
+  string from = 3;
+  repeated Call calls = 4;
+  // wallet capabilities to request or configure
+  map<string, string> capabilities = 5;
+}
+
+// Call represents an individual transaction call
+message Call {
+  // destination address
+  string to = 1;
+  // call data payload
+  string data = 2;
+  // hex value to send
+  string value = 3;
+  // hex gas limit
+  string gas = 4;
+  // metadata for the call
+  map<string, string> metadata = 5;
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "LOCK TABLE envelopes IN SHARE MODE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "297059bc595a2cda7bbfc3b02d16d423dcf8b77355baeeb1fa3541db0fd53d58"
+}

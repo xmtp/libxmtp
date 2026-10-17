@@ -1,13 +1,24 @@
 name: "Setup Release Tools"
-description: "Install release tools and make xmtp-release available in PATH"
+description: "Make the installed xmtp-release command available in PATH"
+inputs:
+  nix:
+    description: "Use pnpm from the active Nix development shell"
+    required: false
+    default: "false"
+  filter:
+    description: >-
+      The pnpm install filter. The default installs only the release tools
+      and the root project; a job that also builds or tests JavaScript passes
+      an empty value for the whole workspace.
+    required: false
+    default: "@xmtp/release-tools..."
 runs:
   using: "composite"
   steps:
-    - uses: ./.github/actions/setup-node
-    - name: Install release tools
-      working-directory: dev/release-tools
-      shell: bash
-      run: yarn install
+    - uses: ./.github/actions/setup-js
+      with:
+        nix: ${{ inputs.nix }}
+        filter: ${{ inputs.filter }}
     - name: Add xmtp-release to PATH
       shell: bash
       run: |
@@ -15,7 +26,8 @@ runs:
         mkdir -p "$BIN_DIR"
         cat > "$BIN_DIR/xmtp-release" << 'WRAPPER'
         #!/usr/bin/env bash
-        cd "$GITHUB_WORKSPACE/dev/release-tools" && exec yarn cli "$@"
+        # Keep pnpm messages out of captured versions and JSON.
+        cd "$GITHUB_WORKSPACE" && exec pnpm --silent --filter @xmtp/release-tools cli "$@"
         WRAPPER
         chmod +x "$BIN_DIR/xmtp-release"
         echo "$BIN_DIR" >> "$GITHUB_PATH"

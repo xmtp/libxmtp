@@ -1,0 +1,238 @@
+---
+title: Migrate to a self-hosted backend
+description: Move to a self-hosted backend, preserve required history, and choose an SDK Upgrade Guide.
+---
+
+The new XMTP SDKs use a backend that you operate. The backend does not join or
+copy the previous XMTP network. All participants in a conversation must use the
+same deployment. Update the app's SDK calls, create new local databases, and
+replace the old push integration.
+
+This guide compares two fixed source versions:
+
+| Before                                                                                                  | After                                                                                                          |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| [`main` at `cc878025da`](https://github.com/xmtp/libxmtp/tree/cc878025dab2f93bca18b67fa9fca562a65f2247) | [`self-hosted` at `610175f3b3`](https://github.com/xmtp/libxmtp/tree/610175f3b3108e7d8c6b8b01df6d99296a6e08b2) |
+
+These are source baselines, not one shared release number. The examples marked
+**Before** use the old SDK. The examples marked **After** use the new SDK. Do not
+mix imports or generated runtime assets from the two versions. React Native is
+not included in this repository's new SDKs.
+
+## Recommended versions
+
+Use **8.0.0-rc2** for every SDK and the backend. Pin the exact release candidate
+version in your app and deployment configuration.
+
+| Component | Package or image                                    | Recommended version               |
+| --------- | --------------------------------------------------- | --------------------------------- |
+| Browser   | `@xmtp/browser-sdk`                                 | `8.0.0-rc2`                       |
+| Node      | `@xmtp/node-sdk`                                    | `8.0.0-rc2`                       |
+| Android   | `org.xmtp:android`                                  | `8.0.0-rc2`                       |
+| iOS       | Swift package product `XmtpSdk` from `xmtp/libxmtp` | `8.0.0-rc2` (tag `ios-8.0.0-rc2`) |
+| Agent     | `@xmtp/agent-sdk`                                   | `8.0.0-rc2`                       |
+| Backend   | `ghcr.io/xmtp/backend`                              | `8.0.0-rc2`                       |
+
+See [Install the XMTP SDK](/get-started/install/) for the exact package commands.
+Run the backend with `ghcr.io/xmtp/backend:8.0.0-rc2`; see
+[Run the backend](/get-started/run-the-backend/#run-the-container-image).
+
+## Migration order
+
+1. [Deploy the backend](/deploy/overview/) and configure its URL, authentication,
+   retention, limits, and optional attachment and push services.
+2. [Install the matching SDK](/get-started/install/). An older network
+   SDK cannot use this backend.
+3. Preserve required history with the old SDK. Keep a recoverable copy of each
+   database and its encryption key before replacing it.
+4. Choose your SDK in [SDK Upgrade Guides](#sdk-upgrade-guides). Update
+   the signer, client options, method calls, and result handling.
+5. Register users and create conversations on the new backend. Test sending,
+   reading, restart, stream recovery, and push with two installations before
+   moving users.
+
+## Backend, storage, and authentication
+
+Pass an explicit backend URL through `ClientOptions.backend`. Include the
+scheme: `https://` for a public deployment, or `http://` for local development.
+There is no default network or fallback endpoint. Remove the old `apiUrl`,
+`gatewayHost`, and mobile `isSecure` options.
+
+Use `StorageOptions` to select the database location and optional label. A label
+names a directory component; it does not select a network. Its default is absent.
+The SDK rejects unsafe path components. The Agent SDK retains `XMTP_ENV` as a
+storage label and uses `XMTP_BACKEND_URL` for the endpoint.
+
+For a directory location, storage contains an optional label directory, then a
+deployment directory and an inbox directory. Keep the database, attachment
+directory, and encryption key together. Browser storage does not accept a
+database encryption key. Native storage accepts an optional 32-byte key.
+
+Backend authentication is separate from the signer used for XMTP identity.
+Supply a credential source, or supply a credential and update it with
+`setCredential`. The credential has a header value, an expiry in Unix seconds,
+and an optional header name. The default header is `authorization`. For bearer
+authentication, include `Bearer` and one space before the API key or JWT.
+
+The SDK caches callback credentials and uses bounded recovery after expiry or
+rejection. A direct credential has no refresh callback; the app must replace it.
+Configuration discovery does not use credentials or call the credential source.
+See [Backend authentication](/sdk/client/#backend-authentication) for each SDK's
+credential shape.
+
+### Configuration and errors
+
+`fetchServerConfiguration` takes a backend source and needs no client or database.
+Each client keeps the configuration snapshot captured when it was built. Read
+`client.serverConfiguration` in JavaScript, or `client.serverConfiguration()` on
+mobile. `refreshServerConfiguration()` stores configuration for the next build;
+it does not replace the current client's snapshot.
+
+Online creation fetches configuration when no cached copy exists or the URL
+changes. Background refresh runs about hourly. The deployment supplies group
+and installation limits; the defaults are 250 group members and 10 installations
+per inbox.
+
+Handle typed `XmtpError` variants in JavaScript and Swift, or `XmtpException`
+variants in Kotlin. The SDK-specific sections show their shapes. Preserve
+`ErrorDetails`, including its code, category, retry flag, and any stream failure.
+
+A database is bound to a backend identifier. Its URL can change while the
+identifier stays the same. A different identifier records a persistent conflict
+and stops backend operations. A later matching refresh does not clear that
+conflict. Use a database created for the intended deployment.
+
+## The local database must be recreated
+
+A database created before the transition is rejected with this error:
+
+```text
+This database predates the backend transition. Delete the database file and create a new client.
+```
+
+The error is not retryable. The SDK leaves the database intact. Close the old
+client before file operations. Use prepareMigrationArchive from the normal SDK
+package to convert a supported legacy database into an encrypted history archive.
+The converter uses a temporary copy and does not need a client or network access.
+Import that archive through the new client's archives resource. Then use a new
+storage location, or remove the old database through the app's migration flow.
+The normal client cannot open a legacy database directly.
+
+Browser readMigrationArchive loads the completed archive into memory. It accepts
+up to 100 MB (100,000,000 bytes), inclusive, and returns MigrationOutput for a
+larger archive before allocating its bytes. The per-record limit is separate.
+
+A new database creates a new installation. Register it on the new backend.
+After migration, preserve the database and its key between launches to avoid
+creating more installations and reaching the deployment's limit.
+
+Await client shutdown with `end()` before external database operations. Browser
+storage tools are now available through `Storage.admin()`. Import requires an
+absent destination and a current database. It does not overwrite an existing
+file or convert a pre-transition database. Import changes the database identity
+and invalidates earlier delivery cursors and acknowledgement tokens.
+
+## Keeping history
+
+You can import messages and conversations from a trusted database file created
+by a supported older SDK. Close the old SDK, keep a recoverable copy of the
+database and its encryption key, and use `prepareMigrationArchive` to create an
+encrypted archive. Import that archive through the new client's `archives`
+resource. Only import history from a database you trust.
+
+Imported conversations are inactive. You can read their message history, but
+you cannot send or receive new messages in them. Importing history does not
+move contacts or active conversations to the new network.
+
+Before you can message your old contacts, they must join the same new
+self-hosted network. Once they have joined, create new conversations with them
+on that network.
+
+Every archive method requires a separate 32-byte archive key. See
+[Backups](/sdk/backups/) for import methods and key handling.
+
+## Streams, sync, and delivery
+
+Message readers can deliver retained messages when they open, then continue
+with new messages. Do not assume that a stream contains only new traffic.
+Make app effects safe to repeat.
+
+| Consumer                           | Acknowledgement boundary                                                           |
+| ---------------------------------- | ---------------------------------------------------------------------------------- |
+| JavaScript or Swift async iterator | The next read acknowledges the previous item.                                      |
+| JavaScript `onValue` callback      | The stream advances after the awaited callback returns successfully.               |
+| Kotlin `Flow`                      | The direct collector returns before the next read. A buffer changes this boundary. |
+
+Closing does not acknowledge the last item. A crash before acknowledgement can
+cause repeat delivery. Await work that must finish before acknowledgement.
+Custom codec decode errors remain on delivered messages with their original
+bytes and error details; they do not silently remove the message.
+
+One default message reader owns delivery progress for a database. An explicit
+delivery cursor opens an independent reader without advancing that default
+progress. A history snapshot provides a boundary between local history and
+subsequent delivery. Cursors are local to their database.
+
+Reader selection stays fixed for the reader's lifetime. Open a new reader to
+change it. JavaScript's old retry callbacks and `disableSync` options are removed.
+The core handles bounded recovery. A terminal error ends the reader; the app can
+open a replacement on the same client. Notification streams have no separate
+pre-sync. Use an explicit sync when the app needs a current snapshot first.
+
+Message streams perform network catch-up and local processing. Apps that keep a
+message stream open do not need repeated manual sync calls to receive messages.
+Explicit `sync`, `conversations.syncAll`, and `catchUpToLive` remain useful
+for a fixed read or a background handler. A completed catch-up can report rejected
+envelopes: its `failed` count and `completed` flag describe separate results.
+An incomplete barrier throws an error with the partial summary in its stream
+failure details. See [Sync](/sdk/sync/) and [Cursors](/protocol/cursors/).
+
+If a send returns `PublishedButUnconfirmed`, sync the conversation to finish
+confirmation. Do not send the message again.
+
+## Push notifications
+
+Replace the separate push server, manual topic subscriptions, and HMAC-key
+updates with the SDK's notification APIs. Node, Kotlin, and Swift expose
+`enableNotifications`, `notificationState`, and `disableNotifications`. Agents
+use `agent.client`. Browser does not expose these methods.
+
+The SDK maintains subscriptions and registration renewal while its task runner
+runs. Use `conversation.setNotifications` for overrides. Read the effective
+value from the state snapshot: `group.state().common.notificationsEnabled` or
+`dm.state().notificationsEnabled`, with the required `await` or `try` for your
+SDK. Re-register after migration; old-server registrations and overrides are
+not imported.
+
+Configure the backend's [push channels](/deploy/push-configuration/). APNs needs
+the operator's key, team ID, key ID, bundle ID, and environment. FCM needs a
+Firebase service account. Apps supply their provider token, or an HTTPS receiver
+URL and a random 32-byte signing key. Registration fails if the selected channel
+is not configured. Retire the old push server when app migration is complete;
+the new `disableNotifications` cannot remove its registrations.
+
+Push payloads contain a base64 binary `topic` and decimal-text `sequence_id`,
+with no message bytes. APNs sends a background notification; FCM sends a data
+message. HTTPS also includes `recipient_id` and signed Standard Webhooks headers.
+
+Treat a push as a hint. Open the correct database, process pending Welcomes,
+sync the conversation, and read decrypted messages. Apply consent and sender
+checks and suppress duplicates before showing a notification. Delivery can be
+delayed, repeated, or absent. See [Push notifications](/sdk/push-notifications/)
+for complete payload routing and handler examples.
+
+The SDK's display topic, such as `[group_message_v1/<hex-id>]`, differs from the
+base64 push field. Neither uses the old `/xmtp/mls/1/g-<id>/proto` routing label.
+Use the [topic layout](/protocol/topics/) to decode payloads.
+
+## SDK Upgrade Guides
+
+Choose the SDK used by your app. Each guide lists only changes to calls,
+options, result types, or behavior. Apply the shared migration steps above
+before you update the SDK.
+
+- [Browser SDK Upgrade Guide](/get-started/migrate-to-self-hosted/browser-sdk-upgrade-guide/)
+- [Node SDK Upgrade Guide](/get-started/migrate-to-self-hosted/node-sdk-upgrade-guide/)
+- [Kotlin SDK Upgrade Guide](/get-started/migrate-to-self-hosted/kotlin-sdk-upgrade-guide/)
+- [Swift SDK Upgrade Guide](/get-started/migrate-to-self-hosted/swift-sdk-upgrade-guide/)
+- [Agent SDK Upgrade Guide](/get-started/migrate-to-self-hosted/agent-sdk-upgrade-guide/)

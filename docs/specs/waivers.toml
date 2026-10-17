@@ -1,0 +1,437 @@
+# Waivers under SPEC-055. Each entry names a requirement that carries no
+# `verifies:` link, with the kind that says why (SPEC-094).
+#
+# `gap` entries record behaviour the implementation does not yet satisfy. They
+# are the ones SPEC-026 requires when a spec states the intended behaviour and
+# the code does something else. Each needs an owner and an issue.
+#
+# `analysis` entries record an obligation a recorded review establishes and no
+# test can.
+#
+# `untested` entries name the code that satisfies the row without a proving
+# test. Each needs an owner.
+#
+# The issue links below are placeholders. Each needs a real issue before its
+# spec is approved.
+[[waiver]]
+id = "JOIN-077"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A Welcome whose wrapper algorithm is unknown is held for one day and then rejected. A Welcome whose MLS version is unsupported is held with no deadline, so it is never rejected and blocks key-package retirement for as long as it stays in the queue."
+
+[[waiver]]
+id = "JOIN-060"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Three separate failures. The two-party conversation check rejects only when every policy differs from the fixed set, so a conversation with a single permissive policy is accepted. A conversation the joiner added itself skips the policy and admin checks. A conversation naming the kind used between an inbox's own installations is installed with no validation at all."
+
+[[waiver]]
+id = "JOIN-002"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A group whose members do not all advertise a capability silently drops that capability for the whole group rather than the non-advertising installation being excluded, and a key package that fails verification is treated as one that does not advertise the capability."
+
+[[waiver]]
+id = "FORK-020"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A super admin promoted after joining never publishes commit-log entries, because should_publish_commit_log is set only at group creation and at Welcome."
+
+[[waiver]]
+id = "FORK-041"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "is_commit_log_forked is never reset after a replacement Welcome, and the worker excludes groups already marked forked, so a repaired member reports forked for ever."
+
+[[waiver]]
+id = "FORK-060"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The readd responder requires is_super_admin and a DM's super admin list is empty, so a DM readd request is never answered."
+
+[[waiver]]
+id = "FORK-062"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "apply_readd_installations_intent removes a target whose key package fetch failed and records it in failed_installations instead of leaving it in place."
+
+[[waiver]]
+id = "IDENT-045"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No chain id is recorded for the recovery role, so a recovery identifier that is not a member carries no chain binding."
+
+[[waiver]]
+id = "IDENT-046"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature."
+
+[[waiver]]
+id = "CONS-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "insert_or_replace_consent_records sets only state, so a repeated same-state act by an app is reported unchanged and the stored time never moves."
+
+[[waiver]]
+id = "CONS-023"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Creator auto-allow tests creator_inbox_id only, not the adder, and stores it with the current time, replacing any existing record including a synced denial."
+
+[[waiver]]
+id = "CONS-024"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The creator auto-allow runs after DM consent stitching and overwrites the inherited record."
+
+[[waiver]]
+id = "CONS-025"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
+
+[[waiver]]
+id = "SYNC-021"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published."
+
+[[waiver]]
+id = "PUSH-257"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Dispatch does not wait for open subscription transactions, so an envelope settled after the start position was read and dispatched before the subscription committed is never attempted."
+
+[[waiver]]
+id = "PERM-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The per-inbox proposer map overwrites earlier attribution when one inbox has several proposals."
+
+[[waiver]]
+id = "PERM-015"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Final membership authorization evaluates the retained proposer for each inbox rather than the proposer of every corresponding Add or Remove."
+
+[[waiver]]
+id = "DMS-010"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Consent inheritance orders records by descending time and then takes the last, selecting the oldest decision, and replaces its timestamp with the current time."
+
+[[waiver]]
+id = "DMS-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Duplicate detection compares accumulated hashes of the most recent non-empty fields and ignores the initiator, rather than comparing complete payloads."
+
+[[waiver]]
+id = "PROC-021"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Recovery can discard the old receiver before the replacement is ready, and retries failures that a terminal authentication or request-size error excludes from general recovery."
+
+[[waiver]]
+id = "PROC-036"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Client processing logs still contain full installation identifiers."
+
+[[waiver]]
+id = "PROC-043"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current reader has no close reason that classifies stream errors as retryable or terminal."
+
+[[waiver]]
+id = "SEND-019"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "MlsGroup::publish_messages (SDK publishMessages) waits only for the last intent it selected and does not report an exact outcome for each earlier intent. The SDK also maps an ordered rejection to Unknown without the rejected intent's stable reason code; that mapping moves to a later SEND-019 change."
+
+[[waiver]]
+id = "ARCH-008"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Export reduces an unknown content type identifier to the string unknown, and import does not give the embedded identifier precedence."
+
+[[waiver]]
+id = "ARCH-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "An imported message carries no per-message expiry and no distinction between unknown expiry and no expiry. So when exclude_disappearing_messages is set, export still includes restored messages whose expiry is unknown (a NULL expire_at_ns), because the store cannot tell them from messages that never expire. Separating the two needs a schema change."
+
+[[waiver]]
+id = "ARCH-020"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Restored conversations do not project the archived creator, arbitrary mutable attributes, or admin and super-admin lists. Their creator is unknown and their member and role lists are empty until validated activation. The group id, kind, DM pair, creation time, adder, disappearing scalar settings, and activity remain preserved. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+
+[[waiver]]
+id = "CTYPE-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The Rust send path accepts raw bytes without requiring a complete typed envelope."
+
+[[waiver]]
+id = "CTYPE-010"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A raw-envelope send uses a fixed default for the push flag instead of the value the catalogue gives for the content type."
+
+[[waiver]]
+id = "CTYPE-022"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The legacy reaction encoder and the unrestricted raw-send path still permit publishing reaction major version 1."
+
+[[waiver]]
+id = "CTYPE-027"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The core reply decoder represents an unrecognized nested type as Custom. The new SDK converts a missing host codec to an Unknown reply body with the decompressed EncodedContent and original nested bytes. Legacy SDK reply paths remain outside this new SDK proof."
+
+[[waiver]]
+id = "EVENT-001"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "One-event evidence remains missing for the HMAC root-key path that stores a new root key under SYNC-015 and SYNC-022, replacing an ended group, activating a restored group, and a transaction that aborts before commit and succeeds on retry."
+
+[[waiver]]
+id = "EVENT-002"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "The specified event kinds and payloads have no versioned client event catalogue."
+
+[[waiver]]
+id = "EVENT-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "The current local event channels have no shared rule that excludes every event naming a sync group."
+
+[[waiver]]
+id = "EVENT-012"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "Current event channels do not preserve the specified per-group, per-entity, and transaction event order."
+
+[[waiver]]
+id = "EVENT-024"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "Installed-package proof pending for the attachment payload members, which the generated SDK is expected to set on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. Issue 4207 tracks the rest of the event contract."
+
+[[waiver]]
+id = "EVENT-056"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "The Rust bus is per client and shared credentials fan out to each client's bus, but no SDK facade hands events to app subscriptions or verifies isolation when two clients share storage or credentials."
+
+[[waiver]]
+id = "LOG-001"
+kind = "untested"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "init_logging installs the native primary layer or browser console layer independently of SinkSlot. Clearing the app sink leaves those layers installed. No generated-target test proves default log delivery on every target. Follow-up Task 7 owns the missing proof."
+
+[[waiver]]
+id = "LOG-007"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "Sink replacement has no shared boundary that stops old handoffs without waiting for the active callback; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-008"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "The native SinkBridge calls LogSink::log inline during SDK operations. A callback that calls and waits for Client::end deadlocks when the emitting operation holds a ForegroundCall: end waits for that guard, which cannot drop until the callback returns. Follow-up Task 7 must dispatch callbacks independently of guarded client work."
+
+[[waiver]]
+id = "LOG-009"
+kind = "untested"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "layers::sink::deliver contains callback errors and panics, and native logging layers remain separate from SinkSlot. Existing sink error and panic tests do not prove messaging and native-log survival through every public target. Follow-up Task 7 owns the missing proof."
+
+[[waiver]]
+id = "LOG-010"
+kind = "untested"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "IdentityStrategy::initialize_identity logs only a fixed strategy name and stored-identity presence. AuthBridge::on_auth_required replaces credential callback failures with fixed messages, and mobile create_client logs database-key presence and length rather than key bytes. The identity source-event test proves the removed legacy-key leak stays closed, but no complete test proves authentication credential, private signing-key, and database encryption-key omission through app sinks and native output on every public target. Follow-up Task 7 owns the remaining emitter audit and destination proof."
+
+[[waiver]]
+id = "STORE-019"
+kind = "untested"
+owner = "protocol"
+reason = "core_location in xmtp_sdk opens a Directory location as a data_dir storage location, whose database file xmtp_mls names {data_dir}/{deployment}/{inbox_id}/xmtp.db3. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "STORE-020"
+kind = "untested"
+owner = "protocol"
+reason = "core_location in xmtp_sdk maps a Directory location, under its label when one is set, to a data_dir storage location and an Explicit location to an explicit one with both paths unchanged; each host runtime's resolved first maps the Default location to a Directory under the platform root. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "STORE-021"
+kind = "untested"
+owner = "protocol"
+reason = "core_location in xmtp_sdk rejects such a label with a StorageLocation error before it opens or creates a path. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "EVENT-015"
+kind = "untested"
+owner = "attachments"
+reason = "ClientEvent::from_core in xmtp_sdk converts the seven attachment.* kinds, and EventReader and the event listeners hand them off in the order the client emitted them. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "EVENT-020"
+kind = "untested"
+owner = "attachments"
+reason = "EventKind and EventFilter in xmtp_sdk include the seven attachment.* kinds, so a subscription selects them before queueing. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "ATCH-009"
+kind = "untested"
+owner = "attachments"
+reason = "Attachments::offered in xmtp_sdk reads the offer from the client's snapshot without a request. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "ATCH-072"
+kind = "untested"
+owner = "attachments"
+reason = "The TypeScript public layer checks the source tag, required source member, and absence of the opposite member before binding conversion. A malformed source returns XmtpError.Attachment with cause malformed. Swift and Kotlin enums cannot express this malformed shape. Installed-package proof is still pending: Swift runs in the macOS CI job, and the Android emulator and installed-package checks are not yet run."
+
+[[waiver]]
+id = "ATCH-038"
+kind = "untested"
+owner = "attachments"
+reason = "Attachments::pending in xmtp_sdk returns the pending attachment the client holds for the remote attachment's content digest, with its current status, or a staged_unusable failure. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "ATCH-067"
+kind = "untested"
+owner = "attachments"
+reason = "Attachments::list_pending in xmtp_sdk lists the pending attachments that are not complete, each with its remote attachment and status. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "ATCH-040"
+kind = "untested"
+owner = "attachments"
+reason = "core_location in xmtp_sdk passes a Directory location to xmtp_mls as a data_dir storage location, which lays out the inbox's files under {data_dir}/{deployment}/{inbox_id}/. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "ATCH-069"
+kind = "untested"
+owner = "attachments"
+reason = "Client::create and Client::build in xmtp_sdk resolve the deployment directory through xmtp_mls, which reads the data directory's record before any request and fails an offline first start with a storage-location error. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "ATCH-044"
+kind = "untested"
+owner = "attachments"
+reason = "Attachments::local_path in xmtp_sdk derives the plaintext path from the client and the remote attachment without a request or a file read. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "ATCH-062"
+kind = "untested"
+owner = "attachments"
+reason = "Attachments::list_local in xmtp_sdk lists the client's local attachments as LocalAttachment values. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "ATCH-060"
+kind = "untested"
+owner = "attachments"
+reason = "XmtpError::Attachment in xmtp_sdk carries one AttachmentFailure, with one AttachmentFailureCause, for a failed creation, upload, download, or path derivation. The TypeScript source-shape guard also returns this error with cause malformed. Installed-package proof is still pending: Swift runs in the macOS CI job, and the Android emulator and installed-package checks are not yet run."
+
+[[waiver]]
+id = "ATCH-061"
+kind = "untested"
+owner = "attachments"
+reason = "AttachmentFailure in xmtp_sdk keeps the credential cause with its credential_kind and retryable. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "ATCH-079"
+kind = "untested"
+owner = "attachments"
+reason = "AttachmentFailure in xmtp_sdk keeps the final HTTP status in http_status. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "CONF-061"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "Installed-package proof pending for the attachments, application_components, and handles fields, which the generated SDK exposes on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+[[waiver]]
+id = "CONF-062"
+kind = "untested"
+owner = "attachments"
+reason = "fetch_server_configuration in xmtp_sdk reads a deployment's configuration, with its attachments field, from a backend source alone through xmtp_mls, which applies CONF-071. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
+id = "ATCH-039"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "Client-level test proves streaming (at most 2 MiB process growth for a 64 MiB attachment); the per-attachment 1,048,576-byte bound is not attributable in a test."
+
+[[waiver]]
+id = "ARCH-017"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "The successful-import preservation clause has the historical-metadata gap described in ARCH-020 and ARCH-024. Export selection, defaults, windows, and failure on unreadable or unencodable selected records remain required. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+
+[[waiver]]
+id = "ARCH-022"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "The historical-metadata preservation clause has the gaps described in ARCH-020 and ARCH-024. Both version-0 nonce forms, group ids and DM pairs, message ids and bytes, and consent remain supported. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+
+[[waiver]]
+id = "ARCH-024"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Restored conversations report an unknown creator until validated activation, including when the archive supplied a creator. Legacy getters use empty text; the new SDK uses its optional unknown value. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."

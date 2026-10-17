@@ -1,0 +1,26 @@
+// Definitions for backups
+syntax = "proto3";
+package xmtp.device_sync.event_backup;
+
+option java_package = "org.xmtp.proto.device_sync";
+
+// Proto representation of a client record save
+message EventSave {
+  option deprecated = true;
+  int64 created_at_ns = 1;
+  string event = 2;
+  bytes details = 3;
+  optional bytes group_id = 4;
+  EventLevelSave level = 5;
+  optional string icon = 6;
+}
+
+enum EventLevelSave {
+  option deprecated = true;
+  EVENT_LEVEL_SAVE_UNSPECIFIED = 0;
+  EVENT_LEVEL_SAVE_NONE = 1;
+  EVENT_LEVEL_SAVE_SUCCESS = 2;
+  EVENT_LEVEL_SAVE_WARN = 3;
+  EVENT_LEVEL_SAVE_ERROR = 4;
+  EVENT_LEVEL_SAVE_FAULT = 5;
+}

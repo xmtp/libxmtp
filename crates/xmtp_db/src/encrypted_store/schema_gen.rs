@@ -18,15 +18,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    d14n_migration_cutover (id) {
-        id -> Integer,
-        cutover_ns -> BigInt,
-        last_checked_ns -> BigInt,
-        has_migrated -> Bool,
-    }
-}
-
-diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -40,7 +31,7 @@ diesel::table! {
         published_in_epoch -> Nullable<BigInt>,
         should_push -> Bool,
         sequence_id -> Nullable<BigInt>,
-        originator_id -> Nullable<BigInt>,
+        prepared_envelopes -> Nullable<Binary>,
     }
 }
 
@@ -59,12 +50,21 @@ diesel::table! {
         version_minor -> Integer,
         authority_id -> Text,
         reference_id -> Nullable<Binary>,
-        originator_id -> BigInt,
         sequence_id -> BigInt,
+        envelope_hash -> Nullable<Binary>,
+        expiry_ns -> Nullable<BigInt>,
         inserted_at_ns -> BigInt,
         expire_at_ns -> Nullable<BigInt>,
         should_push -> Bool,
         idempotency_key -> Text,
+        delivery_sequence -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
+    group_welcome_discovery (group_id) {
+        group_id -> Binary,
+        first_welcome_sequence_id -> BigInt,
     }
 }
 
@@ -85,29 +85,11 @@ diesel::table! {
         paused_for_version -> Nullable<Text>,
         maybe_forked -> Bool,
         fork_details -> Text,
-        originator_id -> Nullable<BigInt>,
         should_publish_commit_log -> Bool,
         commit_log_public_key -> Nullable<Binary>,
         is_commit_log_forked -> Nullable<Bool>,
         has_pending_leave_request -> Nullable<Bool>,
-    }
-}
-
-diesel::table! {
-    icebox (originator_id, sequence_id) {
-        originator_id -> BigInt,
-        sequence_id -> BigInt,
-        group_id -> Binary,
-        envelope_payload -> Binary,
-    }
-}
-
-diesel::table! {
-    icebox_dependencies (envelope_originator_id, envelope_sequence_id, dependency_originator_id, dependency_sequence_id) {
-        envelope_originator_id -> BigInt,
-        envelope_sequence_id -> BigInt,
-        dependency_originator_id -> BigInt,
-        dependency_sequence_id -> BigInt,
+        push_override -> Nullable<Integer>,
     }
 }
 
@@ -118,7 +100,6 @@ diesel::table! {
         credential_bytes -> Binary,
         rowid -> Nullable<Integer>,
         next_key_package_rotation_ns -> Nullable<BigInt>,
-        registration_cursor_originator_id -> Nullable<BigInt>,
         registration_cursor_sequence_id -> Nullable<BigInt>,
     }
 }
@@ -137,7 +118,19 @@ diesel::table! {
         sequence_id -> BigInt,
         server_timestamp_ns -> BigInt,
         payload -> Binary,
-        originator_id -> Integer,
+    }
+}
+
+diesel::table! {
+    incoming_envelopes (entity_id, entity_kind, sequence_id) {
+        entity_id -> Binary,
+        entity_kind -> Integer,
+        sequence_id -> BigInt,
+        envelope -> Binary,
+        retry_at_ns -> BigInt,
+        blocked -> Bool,
+        error_code -> Nullable<Text>,
+        retry_expires_at_ns -> Nullable<BigInt>,
     }
 }
 
@@ -148,6 +141,16 @@ diesel::table! {
         created_at_ns -> BigInt,
         delete_at_ns -> Nullable<BigInt>,
         post_quantum_public_key -> Nullable<Binary>,
+        published_sequence_id -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
+    local_attachments (path) {
+        path -> Text,
+        created_at_ns -> BigInt,
+        mime_type -> Nullable<Text>,
+        filename -> Nullable<Text>,
     }
 }
 
@@ -194,6 +197,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    pending_attachments (content_digest) {
+        content_digest -> Text,
+        remote_attachment -> Binary,
+        created_at_ns -> BigInt,
+        status -> Text,
+        failure_cause -> Nullable<Text>,
+        failure_credential_kind -> Nullable<Text>,
+        failure_retryable -> Nullable<Bool>,
+        failure_missing_scope -> Nullable<Bool>,
+        failure_http_status -> Nullable<Integer>,
+        lease_id -> Nullable<Binary>,
+        lease_expires_at_ns -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
     pending_remove (group_id, inbox_id) {
         group_id -> Binary,
         inbox_id -> Text,
@@ -210,6 +229,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    push_uploaded_topic (topic) {
+        topic -> Binary,
+        hmac_epoch_base -> Nullable<BigInt>,
+        include_commits -> Bool,
+        root_key_fingerprint -> Binary,
+        stale -> Bool,
+    }
+}
+
+diesel::table! {
     readd_status (group_id, installation_id) {
         group_id -> Binary,
         installation_id -> Binary,
@@ -219,11 +248,21 @@ diesel::table! {
 }
 
 diesel::table! {
-    refresh_state (entity_id, entity_kind, originator_id) {
+    received_proposals (group_id, epoch, proposal_ref) {
+        group_id -> Binary,
+        epoch -> BigInt,
+        proposal_ref -> Binary,
+    }
+}
+
+diesel::table! {
+    refresh_state (entity_id, entity_kind) {
         entity_id -> Binary,
         entity_kind -> Integer,
         sequence_id -> BigInt,
-        originator_id -> Integer,
+        received_sequence_id -> Nullable<BigInt>,
+        last_rejection_sequence_id -> Nullable<BigInt>,
+        last_rejection_code -> Nullable<Text>,
     }
 }
 
@@ -240,10 +279,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    server_configuration (id) {
+        id -> Integer,
+        identifier -> Text,
+        backend_url -> Text,
+        response -> Binary,
+        fetched_at_ns -> BigInt,
+        conflicting_identifier -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     tasks (id) {
         id -> Integer,
         originating_message_sequence_id -> BigInt,
-        originating_message_originator_id -> Integer,
         created_at_ns -> BigInt,
         expires_at_ns -> BigInt,
         attempts -> Integer,
@@ -264,36 +313,54 @@ diesel::table! {
         hmac_key -> Nullable<Binary>,
         hmac_key_cycled_at_ns -> Nullable<BigInt>,
         dm_group_updates_migrated -> Bool,
+        stream_database_id -> Binary,
+        delivery_owner -> Nullable<Binary>,
+        delivery_owner_until_ns -> Nullable<BigInt>,
+        push_recipient_id -> Nullable<Binary>,
+        push_recipient_secret -> Nullable<Binary>,
+        push_state -> Integer,
+        push_failed_error -> Nullable<Binary>,
+        push_config -> Nullable<Binary>,
+        push_deadlines -> Nullable<Binary>,
+        push_last_state -> Nullable<Binary>,
+        push_repairing -> Bool,
+        push_generation -> BigInt,
+        push_suppressed -> Nullable<Binary>,
     }
 }
 
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
-diesel::joinable!(icebox -> groups (group_id));
+diesel::joinable!(group_welcome_discovery -> groups (group_id));
 diesel::joinable!(message_deletions -> group_messages (id));
+diesel::joinable!(received_proposals -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
     consent_records,
-    d14n_migration_cutover,
     group_intents,
     group_messages,
+    group_welcome_discovery,
     groups,
-    icebox,
-    icebox_dependencies,
     identity,
     identity_cache,
     identity_updates,
+    incoming_envelopes,
     key_package_history,
+    local_attachments,
     local_commit_log,
     message_deletions,
     openmls_key_store,
     openmls_key_value,
+    pending_attachments,
     pending_remove,
     processed_device_sync_messages,
+    push_uploaded_topic,
     readd_status,
+    received_proposals,
     refresh_state,
     remote_commit_log,
+    server_configuration,
     tasks,
     user_preferences,
 );

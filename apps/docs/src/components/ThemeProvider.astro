@@ -1,0 +1,13 @@
+{/* Apply the system theme before rendering to prevent a theme flash. */}
+<script is:inline>
+  (() => {
+    const preference = window.matchMedia("(prefers-color-scheme: dark)");
+    const updateTheme = () => {
+      document.documentElement.dataset.theme = preference.matches
+        ? "dark"
+        : "light";
+    };
+    updateTheme();
+    preference.addEventListener("change", updateTheme);
+  })();
+</script>

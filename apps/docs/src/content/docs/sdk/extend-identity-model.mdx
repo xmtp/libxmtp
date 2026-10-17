@@ -1,0 +1,36 @@
+---
+title: Extend the identity model
+---
+
+XMTP separates public identifiers from signatures. A new identifier kind needs protocol, verifier, binding, and SDK changes. Check compatibility before deploying it.
+
+This document provides a general blueprint for how to extend XMTP to non-EVM platforms where identities are controlled by public keys, such as Solana, Bitcoin, Zcash, and others.
+
+## Why non-EVM chains need an extension
+
+EVM externally owned accounts use secp256k1 ECDSA and work without extra configuration. EVM smart contract wallets need a configured chain RPC endpoint. The current SDK also supports P-256 passkeys. A chain-specific identifier that these kinds cannot represent needs a new identifier kind and signature verifier.
+
+## Inbox identity updates
+
+An XMTP inbox groups identities and installations under one inbox ID. An identity update can add or remove an identity. Existing inbox members and new members sign the update as required by the action.
+
+Every identity type has two important jobs:
+
+1. It needs to provide a unique public identifier (an address or public key) others can use to reach the inbox
+2. It needs to provide a way to prove ownership of that identifier
+
+## Add an identity type
+
+1. Define the identifier format in the Rust identity module.
+2. Add its wire representation to the identity protocol messages in `proto/`.
+3. Implement typed signature input and verification in `xmtp_id`.
+4. Add the new identifier and signature types to each binding and SDK.
+5. Add tests for valid signatures, invalid signatures, malformed identifiers, and mixed-version identity updates.
+
+Use the existing identifier and verified-signature implementations as the source pattern. New identifier support must not weaken validation for existing Ethereum identifiers.
+
+Clients reject identity updates with unsupported identifier kinds. This can prevent them from validating the later state of an inbox. Plan the rollout so a user does not depend on the new kind until all required clients support it.
+
+## Permission limits
+
+Define which actions the new identifier and signature can authorize. The current model permits both Ethereum and passkey identities to create an inbox and act as its recovery identity. An existing installation can authorize an association. The new member also proves ownership. Revocation and recovery changes require the recovery identity's signature. Do not assume that a new kind automatically has these capabilities.

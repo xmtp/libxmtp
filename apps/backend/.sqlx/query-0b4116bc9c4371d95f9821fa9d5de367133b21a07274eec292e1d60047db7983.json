@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM pg_locks\n                WHERE database = (SELECT oid FROM pg_database WHERE datname = current_database())\n                  AND locktype = $1 AND NOT granted) AS \"waiting!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "waiting!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0b4116bc9c4371d95f9821fa9d5de367133b21a07274eec292e1d60047db7983"
+}

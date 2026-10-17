@@ -1,0 +1,946 @@
+use super::{
+    ENVELOPE_OVERHEAD, FETCH_TOPICS, OUTBOUND_FRAMES, StreamHub, fetch,
+    keepalive::Challenge,
+    output::{Frame, Reservation, SessionOutput, WireResponse},
+    registry::{LiveBatch, Mailbox},
+};
+use crate::{
+    api,
+    config::{Config, DELIVERY_FRAME_BYTES},
+    db,
+    stream::StreamEnd,
+    stream::fetch::Request,
+    telemetry::{self, DeliveryPhase, Frame as MetricFrame, StreamKind, UpdateOutcome},
+};
+use futures::{
+    FutureExt, StreamExt,
+    future::{BoxFuture, pending},
+    stream::BoxStream,
+};
+use prost::Message;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    ops::ControlFlow,
+    sync::Arc,
+};
+use tokio::sync::mpsc;
+use tonic::{Status, Streaming};
+use tracing::{Instrument, instrument::WithSubscriber};
+use xmtp_common::rate_limit::Bucket;
+use xmtp_common::time::{Duration, Instant, sleep};
+use xmtp_proto::types::Topic;
+
+struct Registration {
+    generation: u64,
+    floor: i64,
+    needed: i64,
+    queued: bool,
+    fetching: bool,
+    acknowledged: bool,
+}
+struct PendingUpdate {
+    id: u64,
+    removed_topics: usize,
+    topics: Vec<Vec<u8>>,
+    heads: BoxFuture<'static, Result<Vec<i64>, Status>>,
+}
+struct PendingFetch {
+    requests: Vec<Request>,
+    page: BoxFuture<'static, Result<fetch::ResultPage, Status>>,
+}
+struct Session {
+    static_subscription: bool,
+    request_id: uuid::Uuid,
+    hub: Arc<StreamHub>,
+    id: u64,
+    config: Arc<Config>,
+    mailbox: Arc<Mailbox>,
+    output: mpsc::Sender<Frame>,
+    topics: HashMap<Vec<u8>, Registration>,
+    ready: VecDeque<(Vec<u8>, u64)>,
+    fetching: Option<PendingFetch>,
+    pending_update: Option<PendingUpdate>,
+    deferred_updates: VecDeque<api::subscribe_request::Update>,
+    deferred_bytes: usize,
+    update_id: u64,
+    updates: Bucket,
+    pings: Bucket,
+    send_idle: Instant,
+    challenge: Option<Challenge>,
+    nonce: u64,
+    outbound_wait: Option<Instant>,
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.finish_outbound_wait();
+        telemetry::stream_ended(self.mailbox.terminal.reason());
+        self.hub.registry.disconnect(self.id);
+    }
+}
+
+/// Open one native ingestion session. Dropping its output wakes the owner,
+/// cancels pending fetches, and removes every shared registration.
+pub(crate) fn native(
+    hub: Arc<StreamHub>,
+    config: Arc<Config>,
+    input: Streaming<api::SubscribeRequest>,
+    request_id: uuid::Uuid,
+) -> Result<impl futures::Stream<Item = Result<api::SubscribeResponse, Status>> + Send, Status> {
+    Ok(
+        start(hub, config, Box::pin(input), request_id, None)?.map(|result| {
+            result.and_then(|value| match value {
+                WireResponse::Native(value) => Ok(value),
+                _ => Err(Status::internal("native response mismatch")),
+            })
+        }),
+    )
+}
+
+/// Use the same ordered delivery owner with a fixed interest set. The unary
+/// request's end is not connected to the native half-close signal.
+pub(crate) fn static_subscription(
+    hub: Arc<StreamHub>,
+    config: Arc<Config>,
+    topics: Vec<api::TopicQuery>,
+    request_id: uuid::Uuid,
+) -> Result<impl futures::Stream<Item = Result<api::SubscribeStaticResponse, Status>> + Send, Status>
+{
+    if topics.is_empty() || topics.len() > config.limits.max_static_topics {
+        return Err(Status::invalid_argument("invalid static topic count"));
+    }
+    Ok(start(
+        hub,
+        config,
+        Box::pin(futures::stream::pending()),
+        request_id,
+        Some(topics),
+    )?
+    .map(|result| {
+        result.and_then(|value| match value {
+            WireResponse::Static(value) => Ok(value),
+            _ => Err(Status::internal("static response mismatch")),
+        })
+    }))
+}
+
+fn start(
+    hub: Arc<StreamHub>,
+    config: Arc<Config>,
+    input: BoxStream<'static, Result<api::SubscribeRequest, Status>>,
+    request_id: uuid::Uuid,
+    initial: Option<Vec<api::TopicQuery>>,
+) -> Result<SessionOutput, Status> {
+    let mailbox = Arc::new(Mailbox {
+        frame_bytes: DELIVERY_FRAME_BYTES.min(config.limits.max_response_bytes.saturating_add(5)),
+        ..Default::default()
+    });
+    let id = hub.registry.connect(
+        mailbox.clone(),
+        if initial.is_some() {
+            StreamKind::Static
+        } else {
+            StreamKind::Bidi
+        },
+    )?;
+    let (output, receiver) = mpsc::channel(OUTBOUND_FRAMES);
+    let mut session = Session {
+        static_subscription: initial.is_some(),
+        hub,
+        id,
+        request_id,
+        config: config.clone(),
+        mailbox: mailbox.clone(),
+        output,
+        topics: HashMap::new(),
+        ready: VecDeque::new(),
+        fetching: None,
+        update_id: 0,
+        pending_update: None,
+        deferred_updates: VecDeque::new(),
+        deferred_bytes: 0,
+        updates: Bucket::new(
+            config.limits.max_update_frames_per_second,
+            config.limits.max_update_burst,
+        ),
+        pings: Bucket::new(
+            config.limits.max_ping_frames_per_second,
+            config.limits.max_ping_burst,
+        ),
+        send_idle: Instant::now(),
+        challenge: None,
+        nonce: 0,
+        outbound_wait: None,
+    };
+    if let Some(topics) = initial {
+        session.update(api::subscribe_request::Update {
+            id: 1,
+            adds: topics,
+            removes: Vec::new(),
+        })?;
+    }
+    let terminal = mailbox.terminal.clone();
+    let span = tracing::Span::current();
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
+    let task = tokio::spawn(
+        async move {
+            if let Err(error) = session.run(input).await {
+                let reason = match error.code() {
+                    tonic::Code::ResourceExhausted => StreamEnd::Backpressure,
+                    tonic::Code::DeadlineExceeded => StreamEnd::Keepalive,
+                    tonic::Code::Unavailable | tonic::Code::Internal => StreamEnd::Database,
+                    tonic::Code::Cancelled => StreamEnd::Client,
+                    _ => StreamEnd::Invalid,
+                };
+                mailbox.terminal.fail(error, reason);
+            }
+        }
+        .instrument(span)
+        .with_subscriber(dispatch),
+    );
+    Ok(SessionOutput::new(receiver, terminal, task))
+}
+
+impl Session {
+    fn fail(&self, error: Status, reason: StreamEnd) -> Status {
+        self.mailbox.terminal.fail(error.clone(), reason);
+        error
+    }
+    fn finish_outbound_wait(&mut self) {
+        if let Some(started) = self.outbound_wait.take() {
+            telemetry::stream_outbound_waited(started.elapsed());
+        }
+    }
+
+    /// Serialize control, targets, history, live data, and timers in one owner.
+    /// Target reads and history remain cancellable while input is processed.
+    // implements: API-250, API-259
+    async fn run(
+        &mut self,
+        mut input: BoxStream<'static, Result<api::SubscribeRequest, Status>>,
+    ) -> Result<(), Status> {
+        if !self.static_subscription {
+            self.control(api::subscribe_response::Response::Started(
+                api::subscribe_response::Started {
+                    keepalive_interval_ms: self.config.streams.keepalive_interval_ms as u32,
+                },
+            ))?;
+        }
+        let mut pending_input = VecDeque::new();
+        loop {
+            if self.mailbox.terminal.closed() {
+                return Ok(());
+            }
+            if let Some(error) = self.mailbox.terminal.error() {
+                return Err(error);
+            }
+            self.mail()?;
+            if let Some(frame) = pending_input.pop_front() {
+                self.input(frame)?;
+                continue;
+            }
+            if self.pending_update.is_none()
+                && let Some(update) = self.deferred_updates.pop_front()
+            {
+                self.deferred_bytes -= update.encoded_len();
+                self.update(update)?;
+            }
+            if self.fetching.is_none() {
+                self.fetching = self.start_fetch();
+            }
+            let timer = self.timer();
+            let mailbox = self.mailbox.clone();
+            tokio::select! {
+                // Recheck cancellation and terminal errors on the next turn.
+                _ = mailbox.terminal.wake.notified() => {},
+                // Process the next client request, or close on end of stream.
+                frame = input.next() => match frame {
+                    Some(frame) => self.input(frame?)?,
+                    None => return Ok(()),
+                },
+                // Queue the update acknowledgement before scheduling its history.
+                heads = async {
+                    match &mut self.pending_update {
+                        Some(update) => (&mut update.heads).await,
+                        None => pending().await,
+                    }
+                } => {
+                    self.applied(heads?)?;
+                },
+                // Admit a history page, rejecting stale registration generations.
+                page = async {
+                    match &mut self.fetching {
+                        Some(fetch) => (&mut fetch.page).await,
+                        None => pending().await,
+                    }
+                } => {
+                    self.fetching = None;
+                    self.fetched(page?)?;
+                },
+                // Start the Pong deadline after the challenge is handed off.
+                handed = async {
+                    match &mut self.challenge {
+                        Some(challenge) if challenge.deadline.is_none() => (&mut challenge.handed).await.ok(),
+                        _ => pending().await,
+                    }
+                } => {
+                    if let (Some(sent), Some(challenge)) = (handed, &mut self.challenge) {
+                        challenge.start_deadline(sent, Duration::from_millis(self.config.streams.max_pong_wait_ms))?;
+                    }
+                },
+                // Process new tailer notices and live payloads on the next turn.
+                _ = mailbox.wake.notified() => {},
+                // Resume fetching when outbound frames release capacity.
+                _ = mailbox.budget.wake.notified() => {},
+                // Send an idle keepalive or check the outstanding Pong deadline.
+                _ = timer => {
+                    if self.on_timer(&mut input, &mut pending_input)?.is_break() {
+                        return Ok(());
+                    }
+                },
+            }
+        }
+    }
+
+    fn timer(&self) -> BoxFuture<'static, ()> {
+        if self.static_subscription && self.pending_update.is_some() {
+            return pending().boxed();
+        }
+        let deadline = match &self.challenge {
+            Some(challenge) => challenge.deadline,
+            None => Some(
+                self.send_idle + Duration::from_millis(self.config.streams.keepalive_interval_ms),
+            ),
+        };
+        match deadline {
+            Some(deadline) => sleep(deadline.saturating_duration_since(Instant::now())).boxed(),
+            None => pending().boxed(),
+        }
+    }
+
+    /// Inspect already buffered input before failing an expired challenge.
+    /// Answer client Pings. Keep other frames ordered for later processing.
+    /// Client EOF completes the session without an error.
+    // implements: API-255, API-256, API-257
+    fn on_timer(
+        &mut self,
+        input: &mut BoxStream<'static, Result<api::SubscribeRequest, Status>>,
+        pending_input: &mut VecDeque<api::SubscribeRequest>,
+    ) -> Result<ControlFlow<()>, Status> {
+        if self.static_subscription {
+            return self
+                .wire_control(WireResponse::Static(api::SubscribeStaticResponse {
+                    response: Some(api::subscribe_static_response::Response::Keepalive(
+                        api::subscribe_static_response::Keepalive {},
+                    )),
+                }))
+                .map(|_| ControlFlow::Continue(()));
+        }
+        if self.challenge.is_some() {
+            let mut bytes = 0;
+            while let Some(frame) = input.next().now_or_never() {
+                let Some(frame) = frame else {
+                    return Ok(ControlFlow::Break(()));
+                };
+                let frame = frame?;
+                if let Some(api::subscribe_request::Request::Pong(pong)) = &frame.request {
+                    telemetry::stream_frame_received(MetricFrame::Pong);
+                    self.pong(pong.nonce)?;
+                    if self.challenge.is_none() {
+                        return Ok(ControlFlow::Continue(()));
+                    }
+                } else {
+                    bytes += frame.encoded_len();
+                    if bytes > self.config.limits.max_request_bytes {
+                        return Err(self.fail(
+                            Status::resource_exhausted("pending control capacity exceeded"),
+                            StreamEnd::Capacity,
+                        ));
+                    }
+                    self.validate_request(&frame).inspect_err(|_| {
+                        if matches!(
+                            &frame.request,
+                            Some(api::subscribe_request::Request::Update(_))
+                        ) {
+                            telemetry::stream_updated(UpdateOutcome::Invalid);
+                        }
+                    })?;
+                    if matches!(
+                        &frame.request,
+                        Some(api::subscribe_request::Request::Ping(_))
+                    ) {
+                        self.input(frame)?;
+                    } else {
+                        pending_input.push_back(frame);
+                    }
+                }
+            }
+            return Err(Status::deadline_exceeded("matching pong not received"));
+        }
+        self.nonce = self.nonce.wrapping_add(1);
+        let (sent, handed) = tokio::sync::oneshot::channel();
+        let frame = api::SubscribeResponse {
+            response: Some(api::subscribe_response::Response::Ping(api::Ping {
+                nonce: self.nonce,
+            })),
+        };
+        let reservation = self
+            .mailbox
+            .budget
+            .reserve(frame.encoded_len() + 5)
+            .ok_or_else(capacity)?;
+        self.admit(WireResponse::Native(frame), reservation, Some(sent))?;
+        self.challenge = Some(Challenge {
+            nonce: self.nonce,
+            handed,
+            deadline: None,
+        });
+        Ok(ControlFlow::Continue(()))
+    }
+
+    // implements: API-258
+    fn input(&mut self, frame: api::SubscribeRequest) -> Result<(), Status> {
+        match frame
+            .request
+            .ok_or_else(|| Status::invalid_argument("request is absent"))?
+        {
+            api::subscribe_request::Request::Update(update) => {
+                telemetry::stream_frame_received(MetricFrame::Update);
+                if !self.updates.take() {
+                    telemetry::stream_updated(UpdateOutcome::RateLimited);
+                    return Err(self.fail(
+                        Status::resource_exhausted("update rate exceeded"),
+                        StreamEnd::RateLimited,
+                    ));
+                }
+                if self.pending_update.is_some() || !self.deferred_updates.is_empty() {
+                    self.validate_update_fields(&update).map_err(|error| {
+                        telemetry::stream_updated(UpdateOutcome::Invalid);
+                        self.fail(error, StreamEnd::Invalid)
+                    })?;
+                    self.deferred_bytes += update.encoded_len();
+                    if self.deferred_bytes > self.config.limits.max_request_bytes {
+                        return Err(self.fail(
+                            Status::resource_exhausted("pending update capacity exceeded"),
+                            StreamEnd::Capacity,
+                        ));
+                    }
+                    self.deferred_updates.push_back(update);
+                    Ok(())
+                } else {
+                    self.update(update)
+                }
+            }
+            api::subscribe_request::Request::Ping(ping) => {
+                telemetry::stream_frame_received(MetricFrame::Ping);
+                if !self.pings.take() {
+                    return Err(self.fail(
+                        Status::resource_exhausted("ping rate exceeded"),
+                        StreamEnd::RateLimited,
+                    ));
+                }
+                self.control(api::subscribe_response::Response::Pong(api::Pong {
+                    nonce: ping.nonce,
+                }))
+            }
+            api::subscribe_request::Request::Pong(pong) => {
+                telemetry::stream_frame_received(MetricFrame::Pong);
+                self.pong(pong.nonce)
+            }
+        }
+    }
+
+    /// Complete only the matching challenge after its Ping reached transport.
+    /// An unrepresentable deadline fails the stream instead of its owner task.
+    fn pong(&mut self, nonce: u64) -> Result<(), Status> {
+        if let Some(challenge) = &mut self.challenge {
+            if challenge.deadline.is_none()
+                && let Ok(sent) = challenge.handed.try_recv()
+            {
+                challenge.start_deadline(
+                    sent,
+                    Duration::from_millis(self.config.streams.max_pong_wait_ms),
+                )?;
+            }
+            if challenge.nonce == nonce && challenge.deadline.is_some() {
+                self.challenge = None;
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate the complete update before changing interests. Register all new
+    /// topics before starting their head read; no history may precede Applied.
+    #[xmtp_common::span(prefix = "stream")]
+    // implements: API-253
+    fn update(&mut self, update: api::subscribe_request::Update) -> Result<(), Status> {
+        let adds = self.validate_update(&update).map_err(|error| {
+            telemetry::stream_updated(UpdateOutcome::Invalid);
+            self.fail(error, StreamEnd::Invalid)
+        })?;
+        self.update_id = update.id;
+        let mut removed_topics = 0;
+        for topic in update.removes {
+            removed_topics += usize::from(self.topics.remove(&topic.topic).is_some());
+            self.hub.registry.remove(self.id, &topic.topic);
+        }
+        self.cancel_removed_fetch();
+        let mut added = Vec::new();
+        for (topic, floor) in adds {
+            if self.topics.contains_key(&topic) {
+                continue;
+            }
+            self.hub.registry.add(self.id, topic.clone(), update.id)?;
+            self.topics.insert(
+                topic.clone(),
+                Registration {
+                    generation: update.id,
+                    floor,
+                    needed: floor,
+                    queued: false,
+                    fetching: false,
+                    acknowledged: false,
+                },
+            );
+            added.push(topic);
+        }
+        let read = self.hub.read.clone();
+        let topics = added.clone();
+        self.pending_update = Some(PendingUpdate {
+            id: update.id,
+            removed_topics,
+            topics: added,
+            heads: async move {
+                if topics.is_empty() {
+                    return Ok(Vec::new());
+                }
+                db::stream::heads(&read, &topics)
+                    .await
+                    .map_err(|_| Status::unavailable("target capture failed"))
+            }
+            .boxed(),
+        });
+        Ok(())
+    }
+
+    /// Admit targets before enabling new registrations to fetch or become current.
+    // implements: API-252
+    fn applied(&mut self, heads: Vec<i64>) -> Result<(), Status> {
+        let update = self
+            .pending_update
+            .take()
+            .ok_or_else(|| Status::internal("target capture missing"))?;
+        let targets = update
+            .topics
+            .iter()
+            .zip(&heads)
+            .map(|(topic, &head)| api::CatchupTarget {
+                topic: Some(api::Topic {
+                    topic: topic.clone(),
+                }),
+                through_sequence_id: head as u64,
+            })
+            .collect();
+        self.control(api::subscribe_response::Response::Applied(
+            api::subscribe_response::Applied {
+                id: update.id,
+                added_targets: targets,
+            },
+        ))?;
+        telemetry::stream_updated(UpdateOutcome::Applied);
+        if self.static_subscription {
+            tracing::info!(request_id = %self.request_id, added_topics = update.topics.len(),
+                removed_topics = update.removed_topics, "static subscription started");
+        } else {
+            tracing::info!(request_id = %self.request_id, update_id = update.id,
+                added_topics = update.topics.len(), removed_topics = update.removed_topics, "subscription interests updated");
+        }
+        for (topic, head) in update.topics.into_iter().zip(heads) {
+            if let Some(registration) = self.topics.get_mut(&topic) {
+                registration.needed = registration.needed.max(head);
+                registration.acknowledged = true;
+            }
+            self.schedule(topic);
+        }
+        Ok(())
+    }
+
+    // implements: API-251
+    fn validate_request(&self, frame: &api::SubscribeRequest) -> Result<(), Status> {
+        match frame
+            .request
+            .as_ref()
+            .ok_or_else(|| Status::invalid_argument("request is absent"))?
+        {
+            api::subscribe_request::Request::Update(update) => {
+                self.validate_update_fields(update).map(|_| ())
+            }
+            api::subscribe_request::Request::Ping(_) | api::subscribe_request::Request::Pong(_) => {
+                Ok(())
+            }
+        }
+    }
+
+    fn validate_update(
+        &self,
+        update: &api::subscribe_request::Update,
+    ) -> Result<Vec<(Vec<u8>, i64)>, Status> {
+        let adds = self.validate_update_fields(update)?;
+        let mut total = self.topics.len();
+        for (topic, _) in &adds {
+            total += usize::from(!self.topics.contains_key(topic));
+        }
+        for topic in &update.removes {
+            total -= usize::from(self.topics.contains_key(&topic.topic));
+        }
+        if total
+            > if self.static_subscription {
+                self.config.limits.max_static_topics
+            } else {
+                self.config.limits.max_stream_topics
+            }
+        {
+            return Err(Status::invalid_argument("stream topic limit exceeded"));
+        }
+        Ok(adds)
+    }
+
+    fn validate_update_fields(
+        &self,
+        update: &api::subscribe_request::Update,
+    ) -> Result<Vec<(Vec<u8>, i64)>, Status> {
+        let limits = &self.config.limits;
+        if update.id == 0
+            || update.id <= self.update_id
+            || update.adds.len()
+                > if self.static_subscription {
+                    limits.max_static_topics
+                } else {
+                    limits.max_update_adds
+                }
+            || update.removes.len() > limits.max_update_removes
+        {
+            return Err(Status::invalid_argument("invalid update id or item count"));
+        }
+        let mut seen = HashSet::new();
+        let mut adds = Vec::with_capacity(update.adds.len());
+        for query in &update.adds {
+            let topic = query
+                .topic
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("topic is absent"))?;
+            Topic::parse(&topic.topic).map_err(|_| Status::invalid_argument("invalid topic"))?;
+            let floor = i64::try_from(query.cursor.as_ref().map_or(0, |cursor| cursor.sequence_id))
+                .map_err(|_| Status::invalid_argument("invalid cursor"))?;
+            if !seen.insert(topic.topic.clone()) {
+                return Err(Status::invalid_argument("duplicate update topic"));
+            }
+            adds.push((topic.topic.clone(), floor));
+        }
+        for topic in &update.removes {
+            Topic::parse(&topic.topic).map_err(|_| Status::invalid_argument("invalid topic"))?;
+            if !seen.insert(topic.topic.clone()) {
+                return Err(Status::invalid_argument("overlapping update topic"));
+            }
+        }
+        Ok(adds)
+    }
+
+    fn schedule(&mut self, topic: Vec<u8>) {
+        let Some(registration) = self.topics.get_mut(&topic) else {
+            return;
+        };
+        if !registration.acknowledged {
+            return;
+        }
+        if registration.floor >= registration.needed {
+            registration.needed = self
+                .hub
+                .registry
+                .current(self.id, &topic, registration.floor);
+        }
+        if registration.floor < registration.needed
+            && !registration.queued
+            && !registration.fetching
+        {
+            registration.queued = true;
+            self.ready.push_back((topic, registration.generation));
+        }
+    }
+
+    /// Reserve one bounded data frame before scheduling at most one fair turn.
+    fn start_fetch(&mut self) -> Option<PendingFetch> {
+        if self.ready.is_empty() {
+            self.finish_outbound_wait();
+            return None;
+        }
+        let budget = self
+            .mailbox
+            .budget
+            .available()
+            .min(self.mailbox.frame_bytes);
+        if budget < self.config.limits.max_envelope_bytes + ENVELOPE_OVERHEAD {
+            self.outbound_wait.get_or_insert_with(Instant::now);
+            return None;
+        }
+        let Some(reservation) = self.mailbox.budget.reserve(budget) else {
+            self.outbound_wait.get_or_insert_with(Instant::now);
+            return None;
+        };
+        self.finish_outbound_wait();
+        let mut requests = Vec::new();
+        while requests.len() < FETCH_TOPICS {
+            let Some((topic, generation)) = self.ready.pop_front() else {
+                break;
+            };
+            let Some(registration) = self.topics.get_mut(&topic) else {
+                continue;
+            };
+            if !registration.queued || registration.generation != generation {
+                continue;
+            }
+            registration.queued = false;
+            registration.fetching = true;
+            requests.push(Request {
+                generation: registration.generation,
+                range: db::stream::Range {
+                    topic,
+                    after: registration.floor,
+                    through: registration.needed,
+                },
+            });
+        }
+        if requests.is_empty() {
+            return None;
+        }
+        Some(PendingFetch {
+            page: fetch::fetch(self.hub.clone(), requests.clone(), budget, reservation).boxed(),
+            requests,
+        })
+    }
+
+    /// Cancel a turn that includes a removed registration before acknowledging
+    /// removal. Its errors no longer belong to this session. No rows were
+    /// admitted, so surviving topics keep their order ahead of later ready work.
+    fn cancel_removed_fetch(&mut self) {
+        let stale = self.fetching.as_ref().is_some_and(|fetch| {
+            fetch.requests.iter().any(|request| {
+                self.topics
+                    .get(&request.range.topic)
+                    .is_none_or(|registration| registration.generation != request.generation)
+            })
+        });
+        if !stale {
+            return;
+        }
+        let fetch = self.fetching.take().expect("stale fetch exists");
+        drop(fetch.page);
+        for request in fetch.requests.into_iter().rev() {
+            if let Some(registration) = self.topics.get_mut(&request.range.topic)
+                && registration.generation == request.generation
+            {
+                registration.fetching = false;
+                registration.queued = true;
+                self.ready
+                    .push_front((request.range.topic, request.generation));
+            }
+        }
+    }
+
+    /// Discard stale generations, advance floors only after output admission,
+    /// and preserve unvisited topic priority at a byte cutoff.
+    fn fetched(&mut self, page: fetch::ResultPage) -> Result<(), Status> {
+        let mut envelopes = Vec::new();
+        let mut advances = Vec::new();
+        for (ordinal, row) in page.rows {
+            let request = &page.requests[ordinal];
+            if let Some(registration) = self.topics.get(&row.topic)
+                && registration.generation == request.generation
+                && row.sequence_id > registration.floor
+            {
+                advances.push((row.topic.clone(), row.sequence_id));
+                envelopes.push(row.try_into()?);
+            }
+        }
+        if !envelopes.is_empty() {
+            self.messages(envelopes, page.reservation, DeliveryPhase::CatchUp)?;
+            for (topic, floor) in advances {
+                if let Some(registration) = self.topics.get_mut(&topic) {
+                    registration.floor = floor;
+                }
+            }
+        }
+        let mut unvisited = Vec::new();
+        for (ordinal, request) in page.requests.into_iter().enumerate() {
+            if let Some(registration) = self.topics.get_mut(&request.range.topic)
+                && registration.generation == request.generation
+            {
+                registration.fetching = false;
+                if ordinal >= page.visited {
+                    registration.queued = true;
+                    unvisited.push((request.range.topic, registration.generation));
+                } else {
+                    self.schedule(request.range.topic);
+                }
+            }
+        }
+        for topic in unvisited.into_iter().rev() {
+            self.ready.push_front(topic);
+        }
+        Ok(())
+    }
+
+    fn mail(&mut self) -> Result<(), Status> {
+        let mail = {
+            let mut mail = self.mailbox.mail.lock();
+            std::mem::take(&mut *mail)
+        };
+        for (topic, (generation, head)) in mail.heads {
+            if let Some(registration) = self.topics.get_mut(&topic)
+                && registration.generation == generation
+            {
+                registration.needed = registration.needed.max(head);
+                self.schedule(topic);
+            }
+        }
+        for batch in mail.live {
+            self.live(batch)?;
+        }
+        Ok(())
+    }
+
+    /// Use the shared tailer payload directly. This path never reads payloads
+    /// from the database for an already-current registration.
+    fn live(&mut self, batch: LiveBatch) -> Result<(), Status> {
+        let mut envelopes = Vec::new();
+        let mut advances = Vec::new();
+        for (generation, row) in batch.rows {
+            if let Some(registration) = self.topics.get(&row.topic)
+                && registration.generation == generation
+                && row.sequence_id > registration.floor
+            {
+                advances.push((row.topic.clone(), row.sequence_id));
+                envelopes.push((*row).clone().try_into()?);
+            }
+        }
+        if envelopes.is_empty() {
+            return Ok(());
+        }
+        self.messages(envelopes, batch.reservation, DeliveryPhase::Live)?;
+        for (topic, floor) in advances {
+            if let Some(registration) = self.topics.get_mut(&topic) {
+                registration.floor = floor;
+            }
+        }
+        Ok(())
+    }
+
+    fn messages(
+        &mut self,
+        envelopes: Vec<api::ServerEnvelope>,
+        reservation: Reservation,
+        phase: DeliveryPhase,
+    ) -> Result<(), Status> {
+        let count = envelopes.len();
+        let value = if self.static_subscription {
+            WireResponse::Static(api::SubscribeStaticResponse {
+                response: Some(api::subscribe_static_response::Response::Messages(
+                    api::subscribe_static_response::Messages { envelopes },
+                )),
+            })
+        } else {
+            WireResponse::Native(api::SubscribeResponse {
+                response: Some(api::subscribe_response::Response::Messages(
+                    api::subscribe_response::Messages { envelopes },
+                )),
+            })
+        };
+        if value.encoded_len() + 5 > self.mailbox.frame_bytes {
+            return Err(capacity());
+        }
+        self.admit(value, reservation, None)?;
+        telemetry::stream_envelopes_sent(phase, count);
+        Ok(())
+    }
+
+    fn control(&mut self, response: api::subscribe_response::Response) -> Result<(), Status> {
+        let value = if self.static_subscription {
+            let api::subscribe_response::Response::Applied(applied) = response else {
+                return Err(Status::internal("static control mismatch"));
+            };
+            WireResponse::Static(api::SubscribeStaticResponse {
+                response: Some(api::subscribe_static_response::Response::Started(
+                    api::subscribe_static_response::Started {
+                        keepalive_interval_ms: self.config.streams.keepalive_interval_ms as u32,
+                        targets: applied.added_targets,
+                    },
+                )),
+            })
+        } else {
+            WireResponse::Native(api::SubscribeResponse {
+                response: Some(response),
+            })
+        };
+        self.wire_control(value)
+    }
+
+    fn wire_control(&mut self, value: WireResponse) -> Result<(), Status> {
+        let bytes = value.encoded_len() + 5;
+        if value.encoded_len() > self.config.limits.max_response_bytes {
+            return Err(capacity());
+        }
+        let reservation = self.mailbox.budget.reserve(bytes).ok_or_else(capacity)?;
+        self.admit(value, reservation, None)
+    }
+
+    /// Admit one ordered frame. Exhaustion fails the stream; it never drops a
+    /// frame while allowing the caller to advance its delivery floor.
+    fn admit(
+        &mut self,
+        value: WireResponse,
+        mut reservation: Reservation,
+        challenge: Option<tokio::sync::oneshot::Sender<Instant>>,
+    ) -> Result<(), Status> {
+        let frame = metric_frame(&value);
+        reservation.shrink(value.encoded_len() + 5);
+        self.output
+            .try_send(Frame {
+                value,
+                reservation,
+                challenge,
+            })
+            .map_err(|_| capacity())?;
+        if let Some(frame) = frame {
+            telemetry::stream_frame_sent(frame);
+        }
+        self.send_idle = Instant::now();
+        Ok(())
+    }
+}
+
+fn capacity() -> Status {
+    Status::resource_exhausted("stream output capacity exceeded")
+}
+
+fn metric_frame(value: &WireResponse) -> Option<MetricFrame> {
+    use api::{
+        subscribe_response::Response as Native, subscribe_static_response::Response as Static,
+    };
+    match value {
+        WireResponse::Native(value) => value.response.as_ref().map(|response| match response {
+            Native::Started(_) => MetricFrame::Started,
+            Native::Applied(_) => MetricFrame::Applied,
+            Native::Messages(_) => MetricFrame::Messages,
+            Native::Ping(_) => MetricFrame::Ping,
+            Native::Pong(_) => MetricFrame::Pong,
+        }),
+        WireResponse::Static(value) => value.response.as_ref().map(|response| match response {
+            Static::Started(_) => MetricFrame::Started,
+            Static::Messages(_) => MetricFrame::Messages,
+            Static::Keepalive(_) => MetricFrame::Keepalive,
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests;

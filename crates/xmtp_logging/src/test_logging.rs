@@ -18,6 +18,29 @@ use std::sync::OnceLock;
 
 static INIT: OnceLock<()> = OnceLock::new();
 
+#[cfg(not(target_arch = "wasm32"))]
+mod capture;
+#[cfg(not(target_arch = "wasm32"))]
+pub use capture::LogCapture;
+#[cfg(not(target_arch = "wasm32"))]
+mod otlp;
+#[cfg(not(target_arch = "wasm32"))]
+pub use otlp::{OtlpCollector, string_attribute};
+
+/// Send tracing events through the real sink layer for a focused host test.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn sink_errors_from_tracing(
+    target: std::sync::Arc<dyn crate::LogSinkTarget>,
+    emit: impl FnOnce(),
+) -> u64 {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let slot = crate::layers::sink::SinkSlot::default();
+    slot.set_sink(Some(target));
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(slot.clone()), emit);
+    slot.error_count()
+}
+
 /// Build the test logging layer(s).
 ///
 /// Honors `STRUCTURED` (json) and `SHOW_SPAN_FIELDS`; otherwise emits a compact
@@ -110,5 +133,42 @@ pub fn logger() {
 
             console_error_panic_hook::set_once();
         });
+    }
+}
+
+/// Run a synchronous test under a private registry with an optional trace layer.
+/// All future polls and span drops must happen inside `run`. Return its result
+/// and the spans exported by the layer.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn with_trace_layer<T>(
+    enabled: bool,
+    run: impl FnOnce() -> T,
+) -> (T, Vec<opentelemetry_sdk::trace::SpanData>) {
+    use opentelemetry::trace::TracerProvider as _;
+    use tracing_subscriber::prelude::*;
+    crate::propagation::install();
+    let capture = SpanCapture::default();
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_simple_exporter(capture.clone())
+        .build();
+    let layer =
+        enabled.then(|| tracing_opentelemetry::layer().with_tracer(provider.tracer("test")));
+    let result = tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), run);
+    let spans = std::mem::take(&mut *capture.0.lock());
+    (result, spans)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Debug, Default)]
+struct SpanCapture(std::sync::Arc<parking_lot::Mutex<Vec<opentelemetry_sdk::trace::SpanData>>>);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl opentelemetry_sdk::trace::SpanExporter for SpanCapture {
+    async fn export(
+        &self,
+        batch: Vec<opentelemetry_sdk::trace::SpanData>,
+    ) -> opentelemetry_sdk::error::OTelSdkResult {
+        self.0.lock().extend(batch);
+        Ok(())
     }
 }

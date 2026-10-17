@@ -14,12 +14,18 @@ mod error;
 mod filter;
 mod handle;
 mod layers;
+pub mod propagation;
+#[cfg(all(feature = "metrics", not(target_arch = "wasm32")))]
+pub mod span_metrics;
 
 pub use builder::{XmtpLogging, XmtpLoggingBuilder};
 pub use config::*;
 pub use error::Error;
 pub use filter::filter_directive;
 pub use handle::LoggingHandle;
+mod sink_queue;
+pub use layers::sink::{LogRecord, LogSinkTarget, SinkError};
+pub use sink_queue::{SINK_QUEUE_CAPACITY, SinkDispatch, SinkQueue};
 
 // OTLP trace export is native-only: `opentelemetry-otlp`/`tonic` do not build on
 // wasm, and the browser has no exporter.

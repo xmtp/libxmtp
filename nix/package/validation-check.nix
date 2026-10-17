@@ -1,0 +1,72 @@
+# Focused native, wasm, and dependency-isolation checks for xmtp_mls_validation.
+{
+  xmtp,
+  wasm-bindgen-cli,
+  nodejs_24,
+  python3,
+  taplo,
+}:
+let
+  inherit (xmtp) craneLib base;
+  root = ./../..;
+  rust = craneLib.overrideToolchain xmtp.hostToolchain;
+
+  # The tested packages, their dev-dependencies, and the check script.
+  src = xmtp.filesets.mkClosureSource rust {
+    roots = [
+      (root + /crates/xmtp_mls_validation)
+      (root + /crates/xmtp_proto)
+      (root + /crates/xmtp_id)
+    ];
+    dev = true;
+    extra = [ (root + /crates/xmtp_mls_validation/dev/check-validation) ];
+  };
+
+  commonArgs = base.commonArgs // {
+    inherit (xmtp.shellCommon.wasmEnv)
+      CC_wasm32_unknown_unknown
+      AR_wasm32_unknown_unknown
+      CFLAGS_wasm32_unknown_unknown
+      ;
+  };
+
+  cargoArtifacts = base.mkCargoArtifacts rust (
+    commonArgs
+    // {
+      buildPhaseCargoCommand = ''
+        cargo test --locked --no-run -p xmtp_mls_validation --features test-utils
+        cargo test --locked --no-run -p xmtp_proto \
+          all_payloads_have_stable_canonical_bytes_and_distinct_outer_hashes
+        cargo test --locked --no-run -p xmtp_id
+        cargo test --locked --no-run --profile wasm-test --target wasm32-unknown-unknown \
+          -p xmtp_mls_validation --features test-utils
+        cargo test --locked --no-run --profile wasm-test --target wasm32-unknown-unknown \
+          -p xmtp_proto all_payloads_have_stable_canonical_bytes_and_distinct_outer_hashes
+        cargo test --locked --no-run --profile wasm-test --target wasm32-unknown-unknown \
+          -p xmtp_id
+      '';
+    }
+  );
+in
+rust.buildPackage (
+  commonArgs
+  // {
+    inherit src cargoArtifacts;
+    cargoVendorDir = base.mkCargoVendorDir rust;
+    pname = "xmtp-mls-validation-check";
+    version = xmtp.mkVersion rust;
+    nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
+      wasm-bindgen-cli
+      nodejs_24
+      python3
+      taplo
+    ];
+    buildPhaseCargoCommand = "bash crates/xmtp_mls_validation/dev/check-validation all";
+    doCheck = false;
+    doInstallCargoArtifacts = false;
+    # A check result must name no store path, so it substitutes on a hit.
+    allowedReferences = [ ];
+    doNotPostBuildInstallCargoBinaries = true;
+    installPhaseCommand = "touch $out";
+  }
+)

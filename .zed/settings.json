@@ -1,77 +1,136 @@
 {
   "file_types": {
-    "Rust": ["**/*.rs"],
+    "Rust": ["**/*.rs"]
   },
   "languages": {
     "Rust": {
       "language_servers": ["rust-analyzer"],
-      "format_on_save": "on",
+      "format_on_save": "on"
     },
     "TypeScript": {
-      "formatter": "prettier",
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"]
+        }
+      }
+    },
+    "TSX": {
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"]
+        }
+      }
     },
     "JavaScript": {
-      "formatter": "prettier",
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"]
+        }
+      }
     },
     "JSON": {
-      "formatter": "prettier",
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"]
+        }
+      }
     },
+    "JSONC": {
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"]
+        }
+      }
+    },
+    "Astro": {
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": [
+            "--filter",
+            "@xmtp/docs",
+            "exec",
+            "prettier",
+            "--stdin-filepath",
+            "{buffer_path}"
+          ]
+        }
+      }
+    },
+    // nil is disabled: it prompts repeatedly to fetch missing flake inputs.
+    // nixd gives the same completion, diagnostics, and navigation.
     "Nix": {
-      "language_servers": ["nixd", "nil"],
-      "formatter": "language_server",
+      "language_servers": ["nixd", "!nil"],
+      "formatter": "language_server"
     },
     "Kotlin": {
       "language_servers": ["kotlin-language-server", "!kotlin-lsp"],
-      "format_on_save": "off",
-    },
+      "format_on_save": "off"
+    }
   },
   "lsp": {
     "kotlin-language-server": {
       "settings": {
         "compiler": {
           "jvm": {
-            "target": "17",
-          },
-        },
-      },
+            "target": "17"
+          }
+        }
+      }
     },
     "nixd": {
       "settings": {
         "nixd": {
           "formatting": {
-            "command": ["nixfmt"],
-          },
-        },
-      },
+            "command": ["nixfmt"]
+          }
+        }
+      }
     },
     "rust-analyzer": {
+      "binary": {
+        "path": "/bin/bash",
+        "arguments": [
+          "-c",
+          "exec ./dev/nix-shell --shell default --command rust-analyzer"
+        ]
+      },
       "initialization_options": {
         "cargo": {
           "sysroot": "discover",
-          "allTargets": true,
+          "allTargets": false,
           "buildScripts": {
-            "enable": true,
+            "enable": true
           },
-          "features": ["bench", "test-utils"],
+          "features": [],
+          "extraEnv": {
+            "SQLX_OFFLINE": "true"
+          }
         },
         "check": {
           "command": "check",
-          "allTargets": true,
-          "features": ["bench", "test-utils"],
+          "workspace": false,
+          "allTargets": false,
+          "features": []
         },
         "linkedProjects": ["Cargo.toml"],
         "procMacro": {
           "enable": true,
           "attributes": {
-            "enable": true,
+            "enable": true
           },
           "ignored": {
             "tracing": ["instrument"],
             "async-recursion": ["async_recursion"],
             "ctor": ["ctor"],
             "tokio": ["test"],
-            "async-stream": ["stream", "try_stream"],
-          },
+            "async-stream": ["stream", "try_stream"]
+          }
         },
         "diagnostics": {
           "enable": true,
@@ -79,13 +138,10 @@
             "unlinked-file",
             "unresolved-macro-call",
             "unresolved-proc-macro",
-            "macro-error",
-          ],
-        },
-        "files": {
-          "exclude": ["bindings/wasm"],
-        },
-      },
-    },
-  },
+            "macro-error"
+          ]
+        }
+      }
+    }
+  }
 }

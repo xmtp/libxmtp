@@ -1,0 +1,429 @@
+use super::*;
+use xmtp_configuration::{
+    ApplicationComponentDefinition, ApplicationComponentError,
+    BACKEND_DEFAULT_HANDLE_MIN_NAME_LENGTH, BACKEND_DEFAULT_MAX_PUBLISH_TOPICS,
+    BACKEND_DEFAULT_MAX_QUERY_LIMIT, BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
+    BACKEND_DEFAULT_WELCOME_SECONDS, ComponentPermissions, ENABLE_COMMIT_LOG,
+    MAX_ATTACHMENT_RETENTION_SECONDS, MAX_ATTACHMENT_UPLOAD_BYTES, MAX_GROUP_SIZE, MetadataPolicy,
+    ServerConfigurationError,
+};
+
+/// A response with every published field set, so a test can prove each one
+/// survives the conversion.
+fn populated() -> backend_v1::GetConfigurationResponse {
+    backend_v1::GetConfigurationResponse {
+        identifier: "org.example.xmtp".to_owned(),
+        server_version: "1.2.3".to_owned(),
+        min_libxmtp_version: "1.0.0".to_owned(),
+        auth: Some(backend_v1::AuthConfiguration {
+            enabled: true,
+            keys: vec![backend_v1::auth_configuration::SigningKey {
+                kid: "key-1".to_owned(),
+                alg: "EdDSA".to_owned(),
+            }],
+            audiences: vec!["xmtp".to_owned()],
+            issuers: vec!["https://issuer.example".to_owned()],
+            required_scopes: vec!["messages:write".to_owned()],
+        }),
+        retention: Some(backend_v1::RetentionConfiguration {
+            group_message_seconds: 11,
+            welcome_seconds: 22,
+            key_package_seconds: 33,
+        }),
+        limits: Some(backend_v1::LimitsConfiguration {
+            max_envelope_bytes: 1,
+            max_request_bytes: 2,
+            max_response_bytes: 3,
+            max_publish_topics: 4,
+            max_query_topics: 5,
+            max_query_limit: 6,
+            default_query_limit: 7,
+            max_newest_metadata_topics: 8,
+            max_newest_full_topics: 9,
+            max_update_adds: 10,
+            max_update_removes: 11,
+            max_stream_topics: 12,
+            max_static_topics: 13,
+            max_lookup_identifiers: 14,
+            max_scw_signatures: 15,
+            max_identity_entries: 16,
+            max_update_frames_per_second: 17,
+            max_update_burst: 18,
+            max_ping_frames_per_second: 19,
+            max_ping_burst: 20,
+        }),
+        mls: Some(backend_v1::MlsConfiguration {
+            max_group_members: 42,
+            max_installations_per_inbox: 7,
+            commit_log_enabled: Some(false),
+        }),
+        handles: Some(backend_v1::HandlesConfiguration { min_name_length: 5 }),
+        smart_contract_wallet_chains: vec!["eip155:1".to_owned(), "eip155:8453".to_owned()],
+        attachments: None,
+        application_components: vec![backend_v1::ApplicationComponentDefinition {
+            component_id: 0xC001,
+            name: "USER_PRONOUNS".to_owned(),
+            component_type: 7,
+            permissions: Some(mls::ComponentPermissions {
+                insert_policy: Some(base(5)),
+                update_policy: Some(mls::MetadataPolicy {
+                    kind: Some(Kind::AnyCondition(AnyCondition {
+                        policies: vec![base(5), base(3)],
+                    })),
+                }),
+                delete_policy: Some(mls::MetadataPolicy {
+                    kind: Some(Kind::AndCondition(AndCondition {
+                        policies: vec![base(4)],
+                    })),
+                }),
+            }),
+            in_groups: true,
+            in_dms: false,
+        }],
+    }
+}
+
+fn base(tag: i32) -> mls::MetadataPolicy {
+    mls::MetadataPolicy {
+        kind: Some(Kind::Base(tag)),
+    }
+}
+
+/// The native form of the catalogue entry in `populated`.
+fn pronouns() -> ApplicationComponentDefinition {
+    ApplicationComponentDefinition {
+        component_id: 0xC001,
+        name: "USER_PRONOUNS".to_owned(),
+        component_type: 7,
+        permissions: ComponentPermissions {
+            insert: Some(MetadataPolicy::Base(5)),
+            update: Some(MetadataPolicy::Any(vec![
+                MetadataPolicy::Base(5),
+                MetadataPolicy::Base(3),
+            ])),
+            delete: Some(MetadataPolicy::And(vec![MetadataPolicy::Base(4)])),
+        },
+        in_groups: true,
+        in_dms: false,
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn every_published_field_survives_the_conversion() {
+    let configuration = ServerConfiguration::from(populated());
+
+    assert_eq!(configuration.identifier, "org.example.xmtp");
+    assert_eq!(configuration.server_version, "1.2.3");
+    assert_eq!(configuration.min_libxmtp_version, "1.0.0");
+
+    assert!(configuration.auth.enabled);
+    assert_eq!(configuration.auth.keys.len(), 1);
+    assert_eq!(configuration.auth.keys[0].kid, "key-1");
+    assert_eq!(configuration.auth.keys[0].alg, "EdDSA");
+    assert_eq!(configuration.auth.audiences, vec!["xmtp".to_owned()]);
+    assert_eq!(
+        configuration.auth.issuers,
+        vec!["https://issuer.example".to_owned()]
+    );
+    assert_eq!(
+        configuration.auth.required_scopes,
+        vec!["messages:write".to_owned()]
+    );
+
+    assert_eq!(configuration.retention.group_message_seconds, 11);
+    assert_eq!(configuration.retention.welcome_seconds, 22);
+    assert_eq!(configuration.retention.key_package_seconds, 33);
+
+    let limits = &configuration.limits;
+    assert_eq!(limits.max_envelope_bytes, 1);
+    assert_eq!(limits.max_request_bytes, 2);
+    assert_eq!(limits.max_response_bytes, 3);
+    assert_eq!(limits.max_publish_topics, 4);
+    assert_eq!(limits.max_query_topics, 5);
+    assert_eq!(limits.max_query_limit, 6);
+    assert_eq!(limits.default_query_limit, 7);
+    assert_eq!(limits.max_newest_metadata_topics, 8);
+    assert_eq!(limits.max_newest_full_topics, 9);
+    assert_eq!(limits.max_update_adds, 10);
+    assert_eq!(limits.max_update_removes, 11);
+    assert_eq!(limits.max_stream_topics, 12);
+    assert_eq!(limits.max_static_topics, 13);
+    assert_eq!(limits.max_lookup_identifiers, 14);
+    assert_eq!(limits.max_scw_signatures, 15);
+    assert_eq!(limits.max_identity_entries, 16);
+    assert_eq!(limits.max_update_frames_per_second, 17);
+    assert_eq!(limits.max_update_burst, 18);
+    assert_eq!(limits.max_ping_frames_per_second, 19);
+    assert_eq!(limits.max_ping_burst, 20);
+
+    assert_eq!(configuration.mls.max_group_members, 42);
+    assert_eq!(configuration.mls.max_installations_per_inbox, 7);
+    assert_eq!(configuration.mls.commit_log_enabled, Some(false));
+    assert!(!configuration.mls.commit_log_enabled());
+
+    assert_eq!(configuration.handles.min_name_length, 5);
+
+    assert_eq!(
+        configuration.smart_contract_wallet_chains,
+        vec!["eip155:1".to_owned(), "eip155:8453".to_owned()]
+    );
+    assert_eq!(configuration.application_components, vec![pronouns()]);
+}
+
+// The backend publishes through the reverse conversion and a client later
+// copies the snapshot entry into a group registry, so both directions must
+// carry every field and every policy shape unchanged.
+
+// A definition the client cannot represent faithfully must still fail
+// validation, not turn into a different, valid definition.
+// verifies: CONF-071
+#[xmtp_common::test(unwrap_try = true)]
+fn an_unrepresentable_definition_is_refused_after_conversion() {
+    let reason = |edit: fn(&mut backend_v1::ApplicationComponentDefinition)| {
+        let mut response = populated();
+        edit(&mut response.application_components[0]);
+        ServerConfiguration::from(response).validate()
+    };
+    let refused = |reason| Err(ServerConfigurationError::ApplicationComponent { index: 0, reason });
+
+    // 0x1C001 would truncate to the valid 0xC001.
+    assert_eq!(
+        reason(|d| d.component_id = 0x1_C001),
+        refused(ApplicationComponentError::ComponentId)
+    );
+    assert_eq!(
+        reason(|d| d.permissions = None),
+        refused(ApplicationComponentError::Permissions)
+    );
+    assert_eq!(
+        reason(|d| d.permissions.as_mut().unwrap().delete_policy = None),
+        refused(ApplicationComponentError::Permissions)
+    );
+    // A policy with no kind is set but unusable, like the unspecified base.
+    assert_eq!(
+        reason(|d| {
+            d.permissions.as_mut().unwrap().insert_policy = Some(mls::MetadataPolicy { kind: None })
+        }),
+        refused(ApplicationComponentError::Permissions)
+    );
+}
+
+// verifies: CONF-025
+#[xmtp_common::test(unwrap_try = true)]
+fn a_zero_field_reads_as_the_compiled_default() {
+    let mut response = populated();
+    let limits = response.limits.as_mut()?;
+    limits.max_publish_topics = 0;
+    limits.max_query_limit = 0;
+    response.retention.as_mut()?.welcome_seconds = 0;
+    response.mls.as_mut()?.max_group_members = 0;
+
+    let configuration = ServerConfiguration::from(response);
+    assert_eq!(
+        configuration.limits.max_publish_topics,
+        BACKEND_DEFAULT_MAX_PUBLISH_TOPICS
+    );
+    assert_eq!(
+        configuration.limits.max_query_limit,
+        BACKEND_DEFAULT_MAX_QUERY_LIMIT
+    );
+    assert_eq!(
+        configuration.retention.welcome_seconds,
+        BACKEND_DEFAULT_WELCOME_SECONDS
+    );
+    assert_eq!(configuration.mls.max_group_members, MAX_GROUP_SIZE);
+    // The values that were not zeroed still come from the wire.
+    assert_eq!(configuration.limits.max_query_topics, 5);
+}
+
+// verifies: CONF-025
+#[xmtp_common::test(unwrap_try = true)]
+fn an_absent_submessage_reads_as_every_compiled_default() {
+    let response = backend_v1::GetConfigurationResponse {
+        identifier: "org.example.xmtp".to_owned(),
+        ..Default::default()
+    };
+    let configuration = ServerConfiguration::from(response);
+
+    assert_eq!(configuration.limits, LimitsConfiguration::default());
+    assert_eq!(configuration.retention, RetentionConfiguration::default());
+    assert_eq!(configuration.mls, MlsConfiguration::default());
+    assert!(!configuration.auth.enabled);
+    // Absent, so the client keeps its compiled commit-log default.
+    assert_eq!(configuration.mls.commit_log_enabled, None);
+    assert_eq!(configuration.mls.commit_log_enabled(), ENABLE_COMMIT_LOG);
+    assert!(configuration.smart_contract_wallet_chains.is_empty());
+    configuration.validate()?;
+}
+
+/// A handle minimum of 0 and an absent `handles` message both read as the
+/// compiled default of 3, as every other zero does.
+// verifies: CONF-025
+#[xmtp_common::test(unwrap_try = true)]
+fn handles_zero_or_absent_uses_default() {
+    let mut response = populated();
+    response.handles.as_mut()?.min_name_length = 0;
+    assert_eq!(
+        ServerConfiguration::from(response).handles,
+        HandlesConfiguration { min_name_length: 3 }
+    );
+
+    let mut response = populated();
+    response.handles = None;
+    assert_eq!(
+        ServerConfiguration::from(response).handles.min_name_length,
+        BACKEND_DEFAULT_HANDLE_MIN_NAME_LENGTH
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn the_stored_bytes_round_trip_through_prost() {
+    use prost::Message;
+
+    let response = populated();
+    let encoded = response.encode_to_vec();
+    let decoded = backend_v1::GetConfigurationResponse::decode(encoded.as_slice())?;
+    assert_eq!(
+        ServerConfiguration::from(decoded),
+        ServerConfiguration::from(populated())
+    );
+}
+
+// verifies: CONF-025
+#[xmtp_common::test(unwrap_try = true)]
+fn attachments_absent_is_none() {
+    let configuration = ServerConfiguration::from(populated());
+    assert!(configuration.attachments.is_none());
+    configuration.validate()?;
+}
+
+// verifies: CONF-025
+#[xmtp_common::test(unwrap_try = true)]
+fn attachments_zero_max_reads_default() {
+    let mut response = populated();
+    response.attachments = Some(backend_v1::AttachmentsConfiguration {
+        base_url: "http://localhost/attachments".to_owned(),
+        max_upload_bytes: 0,
+        retention_seconds: 86_400,
+    });
+
+    let configuration = ServerConfiguration::from(response);
+    let attachments = configuration.attachments.as_ref()?;
+    assert_eq!(
+        attachments.base_url.as_str(),
+        "http://localhost/attachments"
+    );
+    assert_eq!(
+        attachments.max_upload_bytes,
+        BACKEND_DEFAULT_MAX_UPLOAD_BYTES
+    );
+    assert_eq!(attachments.retention_seconds, 86_400);
+    configuration.validate()?;
+}
+
+// verifies: CONF-025
+#[xmtp_common::test(unwrap_try = true)]
+fn attachment_fields_use_compiled_defaults_when_zero() {
+    let mut response = populated();
+    response.attachments = Some(backend_v1::AttachmentsConfiguration {
+        base_url: "https://example.com/attachments".to_owned(),
+        max_upload_bytes: 0,
+        retention_seconds: 0,
+    });
+
+    let configuration = ServerConfiguration::from(response);
+    let attachments = configuration
+        .attachments
+        .as_ref()
+        .expect("present attachment offer");
+    assert_eq!(BACKEND_DEFAULT_MAX_UPLOAD_BYTES, 104_857_600);
+    assert_eq!(attachments.max_upload_bytes, 104_857_600);
+    assert_eq!(attachments.retention_seconds, 0);
+    configuration.validate()?;
+}
+
+// verifies: ATCH-008
+#[xmtp_common::test(unwrap_try = true)]
+fn unusable_attachments_is_none() {
+    for (base_url, max_upload_bytes, retention_seconds) in [
+        ("http://example.com/attachments", 1, 0),
+        ("https://h:0", 1, 0),
+        ("http://127.0.0.1:0", 1, 0),
+        ("HTTPS://example.com/a", 1, 0),
+        ("Http://127.0.0.1/a", 1, 0),
+        ("https://example.com/attachments?key=value", 1, 0),
+        ("https://example.com/attachments#section", 1, 0),
+        ("https://example.com/attachments/", 1, 0),
+        ("https://example.com/attachments/ ", 1, 0),
+        ("https://example.com/attachments/\n", 1, 0),
+        ("https://example.com/a/..", 1, 0),
+        ("https://example.com/x/../files", 1, 0),
+        ("https://example.com/./files", 1, 0),
+        (" https://example.com/a", 1, 0),
+        ("https://example.com/files ", 1, 0),
+        ("https://example.com/fi les", 1, 0),
+        ("https://example.com/fi\tles", 1, 0),
+        (r"https:\\example.com\a", 1, 0),
+        ("https:example.com/a", 1, 0),
+        ("https:example.com/files", 1, 0),
+        ("https:/example.com/files", 1, 0),
+        ("https://bücher.example/att", 1, 0),
+        ("https://exa%6Dple.com/att", 1, 0),
+        ("http://2130706433/att", 1, 0),
+        ("http://0x7f.1/att", 1, 0),
+        ("http://127.1/att", 1, 0),
+        ("https://user:secret@example.com/attachments", 1, 0),
+        ("https://user@example.com/attachments", 1, 0),
+        (
+            "https://example.com/attachments",
+            MAX_ATTACHMENT_UPLOAD_BYTES + 1,
+            0,
+        ),
+        (
+            "https://example.com/attachments",
+            1,
+            MAX_ATTACHMENT_RETENTION_SECONDS + 1,
+        ),
+    ] {
+        let mut response = populated();
+        response.attachments = Some(backend_v1::AttachmentsConfiguration {
+            base_url: base_url.to_owned(),
+            max_upload_bytes,
+            retention_seconds,
+        });
+        let configuration = ServerConfiguration::from(response);
+        assert!(configuration.attachments.is_none(), "{base_url}");
+        configuration.validate()?;
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn usable_attachments_keep_the_offer() {
+    for (base_url, retention_seconds) in [
+        (
+            "https://example.com/attachments",
+            MAX_ATTACHMENT_RETENTION_SECONDS,
+        ),
+        ("https://example.com", 0),
+        ("https://CDN.example.com/att", 0),
+        ("https://example.com:443/att", 0),
+        ("http://LOCALHOST/files", 0),
+        ("http://127.0.0.1:9000", 0),
+        ("http://127.0.0.1/attachments", 0),
+        ("http://[::1]/attachments", 0),
+        ("http://[0:0:0:0:0:0:0:1]/att", 0),
+    ] {
+        let mut response = populated();
+        response.attachments = Some(backend_v1::AttachmentsConfiguration {
+            base_url: base_url.to_owned(),
+            max_upload_bytes: MAX_ATTACHMENT_UPLOAD_BYTES,
+            retention_seconds,
+        });
+        let configuration = ServerConfiguration::from(response);
+        let attachments = configuration.attachments.as_ref()?;
+        assert_eq!(attachments.base_url, base_url);
+        assert_eq!(attachments.max_upload_bytes, MAX_ATTACHMENT_UPLOAD_BYTES);
+        assert_eq!(attachments.retention_seconds, retention_seconds);
+        configuration.validate()?;
+    }
+}

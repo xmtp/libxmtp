@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::groups::validated_commit::LibXMTPVersion;
+use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
 #[cfg(feature = "bench")]
 pub mod bench;
@@ -16,11 +16,9 @@ pub mod hash {
 }
 
 pub mod time {
-    const SECS_IN_30_DAYS: i64 = 60 * 60 * 24 * 30;
-
     /// Current hmac epoch. HMAC keys change every 30 days
     pub fn hmac_epoch() -> i64 {
-        xmtp_common::time::now_secs() / SECS_IN_30_DAYS
+        xmtp_push_types::hmac_epoch(xmtp_common::time::now_secs())
     }
 }
 
@@ -33,6 +31,7 @@ pub mod id {
     use xmtp_proto::xmtp::mls::message_contents::{PlaintextEnvelope, plaintext_envelope::V1};
 
     /// Relies on a client-created idempotency_key (which could be a timestamp)
+    // implements: SEND-002
     pub fn calculate_message_id(
         group_id: impl AsRef<[u8]>,
         decrypted_message_bytes: &[u8],

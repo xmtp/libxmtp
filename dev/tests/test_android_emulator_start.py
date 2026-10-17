@@ -1,0 +1,339 @@
+#!/usr/bin/env python3
+"""Exercise the real startup supervisor with executable emulator/ADB fixtures."""
+
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+HELPER = Path(
+    os.environ.get(
+        "ANDROID_EMULATOR_START_HELPER", ROOT / "nix/lib/android-emulator-start.py"
+    )
+)
+# The tests that assert the startup deadline use a short one. The others get a
+# budget that the processes of concurrent test modules cannot use up.
+DEADLINE_SECONDS = 2
+STARTUP_SECONDS = 10
+# The fixture emulator "crashes" with SIGUSR1. Its default action ends the
+# process without a core dump, so macOS writes no crash report and shows no
+# crash dialog for each test run.
+FIXTURE = r"""
+import os
+from pathlib import Path
+import resource
+import signal
+import subprocess
+import sys
+import time
+
+home = Path(os.environ["FIXTURE_HOME"])
+mode = os.environ["FIXTURE_MODE"]
+role = Path(sys.argv[0]).name
+child_script = Path(sys.argv[0]).with_name("child")
+args = sys.argv[1:]
+if role == "emulator" and args in (["-version"], ["-accel-check"]):
+    (home / "emulator-library-path").write_text(os.environ.get("LD_LIBRARY_PATH", "absent"))
+    print("emulator diagnostic " + args[0])
+    sys.exit(0)
+if role == "adb" and args[:1] == ["devices"]:
+    print("List of devices attached")
+    sys.exit(0)
+if role == "adb" and "logcat" in args:
+    print("fixture guest log")
+    sys.exit(0)
+
+(home / f"{role}-{os.getpid()}.pid").touch()
+if role == "emulator":
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    crashdb = home / "emu-crash-fixture.db"
+    (crashdb / "pending").mkdir(parents=True)
+    (crashdb / "pending/.fixture.dmp").write_text("fixture minidump")
+    print(f"Storing crashdata in: {crashdb}, detection is enabled", flush=True)
+    print("fixture kernel output", flush=True)
+    while True:
+        time.sleep(0.05)
+
+if role == "test":
+    import json
+    (home / "test.env").write_text(json.dumps({key: os.environ[key] for key in (
+        "ANDROID_SERIAL", "ANDROID_USER_HOME", "ANDROID_AVD_HOME"
+    )}))
+    subprocess.Popen([sys.executable, str(child_script)])
+    while not (home / "child.started").exists():
+        time.sleep(0.01)
+    (home / "test.started").touch()
+    if mode == "test-hang":
+        time.sleep(60)
+    sys.exit(0)
+elif role == "clock":
+    (home / "clock.started").touch()
+    if mode == "hung-clock":
+        time.sleep(60)
+    print("clock synchronized")
+elif args[2:] == ["wait-for-device"]:
+    time.sleep(60)
+elif args[2:] == ["get-state"]:
+    (home / "adb.started").touch()
+    if mode == "hung-adb":
+        child = subprocess.Popen([sys.executable, str(child_script)])
+        while not (home / "child.started").exists():
+            time.sleep(0.01)
+        time.sleep(60)
+    if mode == "offline":
+        sys.exit(1)
+    print("device\r")
+elif args[2:] == ["shell", "getprop", "dev.bootcomplete"]:
+    (home / "boot.started").touch()
+    counter = home / "boot.counter"
+    count = int(counter.read_text()) + 1 if counter.exists() else 1
+    counter.write_text(str(count))
+    print("10" if mode == "boot-hang" else ("0" if count < 3 else "1\r"))
+elif args[2:] == ["shell", "getprop", "ro.build.version.sdk"]:
+    print("34" if mode == "wrong-api" else "23\r")
+else:
+    raise SystemExit("Unexpected command: " + repr(args))
+"""
+CHILD = r"""
+import os
+from pathlib import Path
+import signal
+import time
+home = Path(os.environ["FIXTURE_HOME"])
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+(home / f"child-{os.getpid()}.pid").touch()
+(home / "child.started").touch()
+while True:
+    time.sleep(0.05)
+"""
+
+
+class EmulatorStartupTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Write the fixture executables once. macOS checks a new executable on
+        # its first run. That costs about 120 ms, and much more under load,
+        # which made fixture commands outlast the shortened budgets below.
+        executables = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(executables.cleanup)
+        cls.bin = Path(executables.name)
+        for role, code in [
+            ("emulator", FIXTURE),
+            ("adb", FIXTURE),
+            ("clock", FIXTURE),
+            ("test", FIXTURE),
+            ("child", CHILD),
+        ]:
+            executable = cls.bin / role
+            executable.write_text(f"#!{sys.executable}\n" + code)
+            executable.chmod(0o755)
+        clock = cls.bin / "clock.sh"
+        clock.write_text(f'#!/usr/bin/env bash\nexec "{cls.bin / "clock"}"\n')
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.home = Path(self.temporary.name)
+        self.logs = self.home / "logs"
+        self.android_home = self.home / "nix-android-user-home-fixture"
+        self.avd = self.android_home / "avd/libxmtp-test.avd"
+        self.avd.mkdir(parents=True)
+        (self.avd / "config.ini").write_text("hw.ramSize=4096\n")
+        self.helper = self.home / "supervisor.py"
+        self.write_helper(STARTUP_SECONDS)
+        self.command = [
+            sys.executable,
+            str(self.helper),
+            str(self.bin / "adb"),
+            str(self.bin / "emulator"),
+            "libxmtp-test",
+            "emulator-5560",
+            "23",
+            str(self.bin / "clock.sh"),
+            "-no-window",
+        ]
+        self.env = dict(
+            os.environ,
+            FIXTURE_HOME=str(self.home),
+            ANDROID_USER_HOME=str(self.android_home),
+            ANDROID_AVD_HOME=str(self.android_home / "avd"),
+            NIX_ANDROID_EMULATOR_LOG_DIR=str(self.logs),
+        )
+        self.addCleanup(self.clean_processes)
+
+    def write_helper(self, startup_timeout):
+        """Shorten only production budgets; run the same CLI and subprocess logic."""
+        self.helper.write_text(
+            HELPER.read_text()
+            .replace("STARTUP_TIMEOUT = 300", f"STARTUP_TIMEOUT = {startup_timeout}")
+            .replace("COMMAND_TIMEOUT = 15", "COMMAND_TIMEOUT = 1")
+            .replace("POLL_INTERVAL = 0.25", "POLL_INTERVAL = 0.02")
+            .replace("CLEANUP_TIMEOUT = 2", "CLEANUP_TIMEOUT = 0.2")
+            .replace("DIAGNOSTIC_TIMEOUT = 15", "DIAGNOSTIC_TIMEOUT = 1")
+        )
+
+    def processes(self):
+        return [
+            (path.name.split("-")[0], int(path.stem.split("-")[1]))
+            for path in self.home.glob("*.pid")
+        ]
+
+    @staticmethod
+    def alive(pid):
+        try:
+            os.kill(pid, 0)
+            # Orphaned zombies can briefly await init's reap on Linux.
+            status = Path(f"/proc/{pid}/stat")
+            return not status.exists() or status.read_text().split(") ")[1][0] != "Z"
+        except ProcessLookupError:
+            return False
+
+    def clean_processes(self):
+        for _, pid in self.processes():
+            if self.alive(pid):
+                try:
+                    os.killpg(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    os.kill(pid, signal.SIGKILL)
+
+    def run_start(
+        self, mode, interrupt=False, marker="boot.started", signum=signal.SIGTERM
+    ):
+        process = subprocess.Popen(
+            self.command,
+            env=dict(self.env, FIXTURE_MODE=mode),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            if interrupt:
+                deadline = time.monotonic() + 3
+                while not (self.home / marker).exists():
+                    if time.monotonic() >= deadline:
+                        self.fail(f"Fixture did not reach {marker}")
+                    time.sleep(0.02)
+                process.send_signal(signum)
+            stdout, stderr = process.communicate(timeout=STARTUP_SECONDS + 5)
+        except BaseException:
+            process.kill()
+            process.communicate()
+            raise
+        self.output = stdout + stderr
+        if "NIX_ANDROID_EMULATOR_LOG_DIR" not in self.env:
+            self.logs = Path(
+                re.search(r"Emulator startup diagnostics: (.+)", self.output)[1]
+            )
+            self.addCleanup(shutil.rmtree, self.logs)
+        self.record = json.loads((self.logs / "startup.json").read_text())
+        return process.returncode
+
+    def scope_command(self):
+        self.command.extend(["--", str(self.android_home), str(self.bin / "test")])
+
+    def assert_scope_cleaned(self):
+        self.assertFalse(self.android_home.exists(), "Owned Android home survived")
+        self.assertTrue(self.logs.exists(), "Retained diagnostics were removed")
+        for role, pid in self.processes():
+            self.assertFalse(self.alive(pid), f"Owned {role} process {pid} survived")
+
+    def test_scoped_sigterm_stops_all_owned_processes_and_removes_home(self):
+        self.scope_command()
+        self.assertEqual(
+            self.run_start("test-hang", interrupt=True, marker="test.started"),
+            143,
+            self.output,
+        )
+        self.assert_scope_cleaned()
+
+    def assert_failed(self, mode, reason, phase):
+        self.assertNotEqual(self.run_start(mode), 0, self.output)
+        self.assertIn(reason, self.output)
+        self.assertNotIn("Emulator ready", self.output)
+        self.assertEqual(self.record["status"], "failed")
+        self.assertEqual(self.record["phase"], phase)
+        self.assertLess(self.record["elapsed_seconds"], 6)
+        self.assertEqual((self.logs / "config.ini").read_text(), "hw.ramSize=4096\n")
+        for role, pid in self.processes():
+            self.assertFalse(
+                self.alive(pid), f"{role} process {pid} survived startup failure"
+            )
+
+    def test_success_waits_for_boot_and_preserves_live_emulator(self):
+        self.assertEqual(self.run_start("success"), 0, self.output)
+        self.assertIn("Emulator ready (emulator-5560)", self.output)
+        self.assertEqual(self.record["status"], "ready")
+        self.assertTrue(self.alive(self.record["pid"]))
+        self.assertEqual((self.home / "boot.counter").read_text(), "3")
+        self.assertTrue((self.home / "clock.started").exists())
+        self.assertEqual(self.record["command"][-1], "-no-window")
+
+    def test_offline_device_has_a_deadline(self):
+        self.write_helper(DEADLINE_SECONDS)
+        self.assert_failed("offline", "startup deadline exceeded", "ADB connection")
+
+    def test_hung_adb_is_bounded_and_its_descendant_is_killed(self):
+        self.assert_failed("hung-adb", "Startup command timed out", "ADB connection")
+        self.assertTrue((self.home / "child.started").exists())
+
+    def test_hung_clock_uses_the_shared_startup_deadline(self):
+        self.write_helper(DEADLINE_SECONDS)
+        self.assert_failed(
+            "hung-clock", "startup deadline exceeded", "clock synchronization"
+        )
+
+    def test_api_mismatch_prevents_readiness(self):
+        self.assert_failed(
+            "wrong-api", "API mismatch: expected 23, got 34", "API verification"
+        )
+
+    def test_sigterm_cleans_up_startup(self):
+        self.assertNotEqual(self.run_start("boot-hang", interrupt=True), 0, self.output)
+        self.assertIn("Startup interrupted", self.output)
+        self.assertTrue(all(not self.alive(pid) for _, pid in self.processes()))
+
+
+class StopProcessTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "darwin", "Only Darwin rejects the signal")
+    def test_stop_process_waits_for_an_exiting_leader(self):
+        spec = importlib.util.spec_from_file_location("android_emulator_start", HELPER)
+        supervisor = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(supervisor)
+        # Darwin rejects a signal to the group while its leader exits, and
+        # waitpid can still report the leader as running in that window.
+        # The poll does not sleep, because the window is short. The deadline
+        # stops a hang if a later Darwin stops rejecting the signal.
+        for _ in range(50):
+            process = subprocess.Popen(
+                [sys.executable, "-c", "pass"], start_new_session=True
+            )
+            deadline = time.monotonic() + 5
+            rejected = False
+            while not rejected and time.monotonic() < deadline:
+                try:
+                    os.killpg(process.pid, 0)
+                except PermissionError:
+                    rejected = True
+                except ProcessLookupError:
+                    break
+            if rejected and process.poll() is None:
+                break
+            process.kill()
+            process.wait()
+        else:
+            self.fail("The leader exit window was never observed")
+        supervisor.stop_process(process)
+        self.assertEqual(process.returncode, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

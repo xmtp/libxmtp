@@ -7,10 +7,7 @@ use rand::{
 };
 use xmtp_proto::types::{Cursor, GroupId};
 
-use crate::{
-    DuplicateItem, NotFound, StorageError, refresh_state::EntityKind,
-    sql_key_store::SqlKeyStoreError,
-};
+use crate::{DuplicateItem, NotFound, StorageError, sql_key_store::SqlKeyStoreError};
 
 // choose a random db error in StorageError
 // only cover errors that can happen in db access
@@ -27,7 +24,7 @@ impl Distribution<StorageError> for StandardUniform {
             7 => StorageError::Builder(derive_builder::UninitializedFieldError::new("test field")),
             8 => rand::random(), // platform
             9 => StorageError::Prost(
-                <xmtp_proto::mls_v1::GroupMessage as prost::Message>::decode([].as_slice())
+                <xmtp_proto::backend_v1::GroupMessage as prost::Message>::decode([0xff].as_slice())
                     .unwrap_err(),
             ),
             10 => StorageError::Connection(rand::random()),
@@ -68,11 +65,7 @@ impl Distribution<NotFound> for StandardUniform {
             7 => NotFound::IntentForPublish(i32::MAX),
             8 => NotFound::IntentForCommitted(i32::MIN),
             9 => NotFound::IntentById(i32::MIN),
-            10 => NotFound::RefreshStateByIdKindAndOriginator(
-                Vec::new(),
-                EntityKind::ApplicationMessage,
-                0,
-            ),
+            10 => NotFound::PostQuantumPrivateKey,
             11 => NotFound::CipherSalt("random salt for testing".into()),
             12 => NotFound::SyncGroup(xmtp_common::rand_array::<32>().into()),
             13 => NotFound::MlsGroup(GroupId::from(xmtp_common::rand_array::<16>())),

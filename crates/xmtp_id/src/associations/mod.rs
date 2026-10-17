@@ -1,5 +1,12 @@
+#[cfg(test)]
+mod handle_claims;
+#[cfg(test)]
+mod identity_invalid_mutations;
+mod verify_updates;
+pub use verify_updates::verify_updates;
 mod association_log;
 pub mod builder;
+pub mod handle;
 pub mod ident;
 pub(super) mod member;
 pub(super) mod serialization;
@@ -12,6 +19,7 @@ pub mod unverified;
 pub mod verified_signature;
 
 pub use self::association_log::*;
+pub use self::handle::{Handle, InvalidHandle, MAX_HANDLE_CLAIMS, MAX_HANDLE_NAME_LEN};
 pub use self::member::{HasMemberKind, Identifier, Member, MemberIdentifier, MemberKind};
 pub use self::serialization::{DeserializationError, map_vec, try_map_vec};
 pub use self::signature::*;
@@ -158,6 +166,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-012
     fn test_create_inbox() {
         let create_request = CreateInbox::default();
         let inbox_id = create_request
@@ -176,6 +185,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-042
     fn create_and_add_separately() {
         let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().to_string();
@@ -210,6 +220,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-004
     fn create_and_add_together() {
         let create_action = CreateInbox::default();
         let account_address = create_action.account_identifier.clone();
@@ -244,45 +255,6 @@ pub(crate) mod tests {
             state.get(&new_member_identifier).unwrap().added_by_entity,
             Some(account_address.into())
         );
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn create_from_legacy_key() {
-        let member_identifier = Identifier::rand_ethereum();
-        let create_action = CreateInbox {
-            nonce: 0,
-            account_identifier: member_identifier.clone(),
-            initial_identifier_signature: VerifiedSignature::new(
-                member_identifier.clone().into(),
-                SignatureKind::LegacyDelegated,
-                "0".as_bytes().to_vec(),
-                None,
-            ),
-        };
-        let inbox_id = member_identifier.inbox_id(0).unwrap();
-        let state = get_state(vec![IdentityUpdate::new_test(
-            vec![Action::CreateInbox(create_action)],
-            inbox_id.clone(),
-        )])
-        .unwrap();
-        assert_eq!(state.members().len(), 1);
-
-        // The legacy key can only be used once. After this, subsequent updates should fail
-        let update = Action::AddAssociation(AddAssociation {
-            existing_member_signature: VerifiedSignature::new(
-                member_identifier.into(),
-                SignatureKind::LegacyDelegated,
-                // All requests from the same legacy key will have the same signature nonce
-                "0".as_bytes().to_vec(),
-                None,
-            ),
-            ..Default::default()
-        });
-        let update_result = apply_update(
-            state,
-            IdentityUpdate::new_test(vec![update], inbox_id.clone()),
-        );
-        assert!(matches!(update_result, Err(AssociationError::Replay)));
     }
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -321,6 +293,7 @@ pub(crate) mod tests {
         assert_eq!(new_state.members().len(), 3);
     }
 
+    // verifies: IDENT-012
     #[wasm_bindgen_test(unsupported = test)]
     fn reject_invalid_signature_on_create() {
         // Creates a signature with the wrong signer
@@ -348,6 +321,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-040
     fn reject_invalid_signature_on_update() {
         let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().to_string();
@@ -426,6 +400,7 @@ pub(crate) mod tests {
         ));
     }
 
+    // verifies: IDENT-041
     #[wasm_bindgen_test(unsupported = test)]
     fn reject_if_installation_adding_installation() {
         let existing_state = new_test_inbox_with_installation();
@@ -491,6 +466,7 @@ pub(crate) mod tests {
         assert!(new_state.get(&installation_id).is_none());
     }
 
+    // verifies: IDENT-044
     #[wasm_bindgen_test(unsupported = test)]
     fn revoke_children() {
         let initial_state = new_test_inbox_with_installation();
@@ -612,6 +588,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-043, IDENT-045
     fn change_recovery_address() {
         let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().to_string();
@@ -656,6 +633,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-046
     fn scw_signature_binding() {
         let initial_chain_id: u64 = 1;
         let signer = Identifier::rand_ethereum();

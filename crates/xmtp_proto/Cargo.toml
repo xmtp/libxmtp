@@ -34,13 +34,12 @@ tonic-prost = "0.14"
 tracing.workspace = true
 url.workspace = true
 xmtp_common.workspace = true
+xmtp_events.workspace = true
 xmtp_configuration.workspace = true
 
 # optional
 diesel = { workspace = true, optional = true, features = ["sqlite"] }
 mockall = { workspace = true, optional = true }
-toxiproxy_rust = { workspace = true, optional = true }
-xmtp-workspace-hack.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # `codegen` is required because `build.rs` gates server-side generated
@@ -56,8 +55,7 @@ bincode.workspace = true
 mockall.workspace = true
 rstest.workspace = true
 tokio = { workspace = true }
-toxiproxy_rust.workspace = true
-xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils-network"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
@@ -66,14 +64,8 @@ ctor.workspace = true
 [build-dependencies]
 tonic-prost-build = "0.14"
 walkdir = "2.5"
-color-eyre.workspace = true
-relative-path = "2"
-xshell = "0.2"
 pbjson-build = "0.9"
 tonic = { workspace = true, features = ["codegen"] }
-# this puts protoc on path with std::env::set_var("PROTOC", protobuf_src::protoc());
-# but takes forever to compile
-# protobuf-src = "2.1"
 
 [features]
 default = []
@@ -83,6 +75,7 @@ test-utils = [
   "xmtp_common/test-utils",
   "xmtp_configuration/test-utils",
   "dep:mockall",
-  "dep:toxiproxy_rust",
 ]
+test-utils-network = ["test-utils", "xmtp_common/test-utils-network"]
 grpc_server_impls = ["tonic/codegen"]
+grpc_client_impls = ["tonic/codegen"]

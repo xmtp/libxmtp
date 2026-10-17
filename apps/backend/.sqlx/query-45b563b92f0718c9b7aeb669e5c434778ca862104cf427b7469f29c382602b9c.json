@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT secret_hash, topic_count, channel FROM push_recipient WHERE recipient_id = $1 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "secret_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "push_recipient",
+            "name": "secret_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "topic_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "push_recipient",
+            "name": "topic_count"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "channel",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "push_recipient",
+            "name": "channel"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "45b563b92f0718c9b7aeb669e5c434778ca862104cf427b7469f29c382602b9c"
+}

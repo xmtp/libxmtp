@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Run the browser platform proofs in sdks/browser/test/platform against the
+# staged SDK: real WASM worker proofs in Node, Chromium proofs in Playwright,
+# and the Vitest Playwright suite with the loopback object store.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+case "${1:-all}" in
+  all|migration) ;;
+  *) echo "Expected all or migration" >&2; exit 2 ;;
+esac
+if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+  exec env NIX_DEVSHELL=js dev/nix-shell "crates/xmtp_sdk/dev/run-browser-platform-tests ${1:-all}"
+fi
+. dev/docker/load-env
+platform=sdks/browser/test/platform
+node crates/xmtp_sdk/dev/stage-package.mjs browser
+
+if [ "${1:-all}" = all ] || [ "${1:-all}" = migration ]; then
+  NIX_DEVSHELL=rust dev/nix-shell 'dev/agent-run cargo build --locked -p xmtp_legacy_migration --example fixture_host --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir target/migration-fixture-host target/wasm32-unknown-unknown/debug/examples/fixture_host.wasm'
+  node "$platform/migration/browser.mjs" --current-sdk
+  node "$platform/migration/browser-regressions.mjs"
+  node "$platform/migration/archive-read-limit.mjs"
+  node "$platform/migration/working-copy.mjs"
+  node "$platform/migration/lifecycle.mjs"
+  node "$platform/migration/message-sizes.mjs"
+  node "$platform/migration/group-consent-sizes.mjs"
+fi
+if [ "${1:-all}" = migration ]; then exit 0; fi
+
+crates/xmtp_sdk/dev/check-wasm-init
+crates/xmtp_sdk/dev/copy-browser-fixtures
+# `just sdk test-bridge` runs bridge.real.mts and bridge.values.real.mts
+# through the generated conformance.gen.test.ts.
+NODE_OPTIONS="--preserve-symlinks --expose-gc" \
+  sdks/node/node_modules/.bin/tsx "$platform/bridge.panic.real.mts"
+NODE_OPTIONS="--preserve-symlinks --expose-gc" \
+  sdks/node/node_modules/.bin/tsx "$platform/release.gc.mts"
+NODE_OPTIONS="--preserve-symlinks --expose-gc" \
+  sdks/node/node_modules/.bin/tsx "$platform/bridge.gc.real.mts"
+NODE_OPTIONS=--preserve-symlinks \
+  sdks/node/node_modules/.bin/tsx "$platform/bridge.log.real.mts"
+for proof in bridge storage package logging; do
+  NODE_OPTIONS='' sdks/node/node_modules/.bin/tsx "$platform/$proof.chromium.mts"
+done
+export VITE_XMTP_BACKEND_URL="${XMTP_BACKEND_URL:?load the worktree backend URL}"
+# The loopback object store serves download fixtures and relays the backend.
+SDK_RELAY_TARGET="$XMTP_BACKEND_URL" NODE_OPTIONS=--preserve-symlinks \
+  sdks/browser/test/platform/object-store/with-object-store \
+  sdks/browser/node_modules/.bin/vitest run \
+  --config "$platform/vitest.browser.config.mts"

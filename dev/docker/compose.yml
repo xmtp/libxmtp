@@ -1,0 +1,189 @@
+# The project name comes from dev/docker/.env, written by dev/worktree-env, so
+# each worktree gets its own stack. The default keeps the main checkout's name.
+name: ${XMTP_COMPOSE_PROJECT:-libxmtp}
+
+services:
+  db:
+    image: postgres:18.6
+    environment:
+      POSTGRES_USER: xmtp
+      POSTGRES_PASSWORD: xmtp
+      POSTGRES_DB: xmtp_backend
+    ports:
+      - "127.0.0.1:${XMTP_BACKEND_DB_PORT:-55432}:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    volumes:
+      - ./postgres/primary-init.sh:/docker-entrypoint-initdb.d/primary-init.sh:ro
+    command: ["postgres", "-c", "wal_keep_size=256MB"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U xmtp -d xmtp_backend"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  replica:
+    image: postgres:18.6
+    user: postgres
+    environment:
+      PGPASSWORD: replicator
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${XMTP_BACKEND_REPLICA_PORT:-55433}:5432"
+    tmpfs:
+      - /var/lib/postgresql:mode=1777
+    volumes:
+      - ./postgres/replica-start.sh:/replica-start.sh:ro
+    entrypoint: ["bash", "/replica-start.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U xmtp -d xmtp_backend"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  s3:
+    image: ghcr.io/versity/versitygw:v1.8.0@sha256:30292fc2eeacc67a36993b01f7a7a5e3361a19cced0e80c1d71cfa2a4b0a2499
+    environment:
+      ROOT_ACCESS_KEY: xmtps3
+      ROOT_SECRET_KEY: xmtps3secret
+      VGW_BACKEND: posix
+      VGW_BACKEND_ARGS: /data
+      VGW_HEALTH: /health
+      VGW_CORS_ALLOW_ORIGIN: "*"
+    ports: ["127.0.0.1:${XMTP_S3_PORT:-9067}:7070"]
+    volumes: [s3-data:/data]
+
+  s3-init:
+    image: amazon/aws-cli:2.31.3@sha256:16c5b063e953c28a00ff2e4360de17fb8e0abba3c0c9088dd7e3bbe38ec60507
+    depends_on: { s3: { condition: service_started } }
+    environment:
+      AWS_ACCESS_KEY_ID: xmtps3
+      AWS_SECRET_ACCESS_KEY: xmtps3secret
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_PAGER: ""
+    volumes: ["./s3:/init:ro"]
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        until aws --endpoint-url http://s3:7070 s3api list-buckets >/dev/null 2>&1; do sleep 1; done;
+        aws --endpoint-url http://s3:7070 s3api head-bucket --bucket attachments >/dev/null 2>&1 ||
+          aws --endpoint-url http://s3:7070 s3api create-bucket --bucket attachments;
+        aws --endpoint-url http://s3:7070 s3api put-bucket-policy --bucket attachments --policy file:///init/public-read.json;
+        aws --endpoint-url http://s3:7070 s3api put-bucket-cors --bucket attachments --cors-configuration file:///init/cors.json;
+        touch /tmp/s3-ready;
+        exec sleep infinity
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/s3-ready"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    # `just backend up` loads this worktree's Nix build under the tag that
+    # dev/worktree-env writes to .env, so each stack runs its own build. The
+    # default is the Nix archive's tag, for a run without .env.
+    image: ${XMTP_BACKEND_IMAGE:-ghcr.io/xmtp/backend:self-hosted}
+    depends_on:
+      db: { condition: service_healthy }
+      replica: { condition: service_healthy }
+      s3-init: { condition: service_healthy }
+      tempo: { condition: service_started }
+    environment: { XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp_backend, XMTP_CHAIN_31337_URL: http://anvil:8545, XMTP_REPLICA_URL: postgres://xmtp:xmtp@replica:5432/xmtp_backend, XMTP_S3_URL: "${XMTP_S3_URL:-http://127.0.0.1:9067}", XMTP_S3_BASE_URL: "${XMTP_S3_BASE_URL:-http://127.0.0.1:9067/attachments}", OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317 }
+    volumes: ["../backend/local-s3.toml:/config.toml:ro"]
+    command: ["--config-file", "/config.toml"]
+    # The backend binds all interfaces on purpose: the Android emulator reaches
+    # the host at 10.0.2.2, which loopback-only publishing would not serve.
+    ports: ["${XMTP_BACKEND_PORT:-5050}:5050", "127.0.0.1:${XMTP_BACKEND_METRICS_PORT:-9464}:9464"]
+    healthcheck:
+      test: ["CMD", "/bin/grpc-health-probe", "-addr=127.0.0.1:5050"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+  anvil:            # chain for the backend's SCW verification and for the existing SCW tests
+    image: ghcr.io/foundry-rs/foundry:stable@sha256:043752653d5be351c71709091b3db97c4421c907eb40ea294195e7f532aadf46
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--base-fee", "100"]
+    ports: ["127.0.0.1:${XMTP_ANVIL_PORT:-8545}:8545"]
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    depends_on: { backend: { condition: service_healthy } }
+    # Individual bindings keep Docker's port ownership output unambiguous.
+    ports:
+      - "127.0.0.1:${XMTP_TOXIPROXY_API_PORT:-8474}:8474"
+      - "127.0.0.1:${XMTP_TOXIPROXY_PORT:-6010}:6010"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_0_PORT:-6003}:6003"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_1_PORT:-6005}:6005"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_2_PORT:-6007}:6007"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_3_PORT:-6012}:6012"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_4_PORT:-6014}:6014"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_5_PORT:-6019}:6019"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_6_PORT:-6021}:6021"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_7_PORT:-6023}:6023"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_8_PORT:-6025}:6025"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_9_PORT:-6030}:6030"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_10_PORT:-6035}:6035"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_11_PORT:-6037}:6037"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_12_PORT:-6039}:6039"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_13_PORT:-6041}:6041"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_14_PORT:-6043}:6043"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_15_PORT:-6047}:6047"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_16_PORT:-6052}:6052"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_17_PORT:-6054}:6054"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_18_PORT:-6056}:6056"
+    volumes: ["./toxiproxy/config.json:/etc/toxiproxy/config.json:ro"]
+    entrypoint: ["/toxiproxy"]
+    command: ["-host=0.0.0.0", "-config=/etc/toxiproxy/config.json"]
+
+  tempo:
+    image: grafana/tempo:3.0.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    # Each binding is listed separately, and the OTLP HTTP host port is offset so
+    # it is not adjacent to the gRPC one. Docker collapses adjacent, aligned
+    # bindings into a range ("4317-4318->4317-4318") in `docker ps`, which the
+    # port-conflict check in dev/worktree-env would not match.
+    ports:
+      - "127.0.0.1:${XMTP_TEMPO_PORT:-3200}:3200"
+      - "127.0.0.1:${XMTP_OTLP_GRPC_PORT:-4317}:4317"
+      - "127.0.0.1:${XMTP_OTLP_HTTP_PORT:-4328}:4318"
+    # No healthcheck: this distroless image has no shell, wget, or curl.
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    tmpfs: [/prometheus:mode=1777]
+    ports: ["127.0.0.1:${XMTP_PROMETHEUS_PORT:-9090}:9090"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+  grafana:
+    image: grafana/grafana:12.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    tmpfs: [/var/lib/grafana:mode=1777]
+    ports: ["127.0.0.1:${XMTP_GRAFANA_PORT:-3000}:3000"]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3000/api/health"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  tempo-data:
+  s3-data:

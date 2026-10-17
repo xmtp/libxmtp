@@ -1,0 +1,32 @@
+# xmtp_api_backend
+
+Backend client, endpoints, decoders, middleware, and static streams.
+
+```bash
+just check crate xmtp_api_backend
+just test crate xmtp_api_backend
+just test workspace -p xmtp_api_backend endpoint_paths_match_backend_services
+```
+
+`BackendClient<C>` implements the backend unary trait. `MessageBackendBuilder`
+requires one host URL and keeps the auth callback, auth handle, app version,
+and read-only option. The wrapper in `xmtp_api` owns retries and request limits.
+
+Static streams and bidi streams use backend frames and scalar topic cursors.
+`queries/backend/` holds the backend binding and transport implementation.
+`queries/{bidi,bidi_transport}.rs` hold the shared transport.
+`queries/bidi_transport/tests/` groups transport tests by behavior.
+`queries/bidi_transport_props.rs` holds the property tests.
+The connection, transport, and property tests share the scripted peer in
+`test/bidi.rs`. The legacy protocol and client modules have been removed.
+
+Tests use a mock transport. Fault tests can use `ToxicTestClientCreator` with
+the local `backend` proxy on port 6010 after `just backend up`. Backend test URLs come from `xmtp_configuration`.
+
+Auth state belongs to `AuthHandle`. All changes take its state lock, including
+`set` and callback completion. Callback errors must not retain or log their text.
+Unary and server-stream calls replay once after a current credential is rejected.
+Bidi opens return the auth error and leave reopen policy to the transport.
+Three consecutive failures block requests for 60 seconds. The next request
+runs one probe. Unit tests use a shorter cool-down in `middleware/auth.rs`.
+Run auth tests with `just test workspace -p xmtp_api_backend middleware::auth`.

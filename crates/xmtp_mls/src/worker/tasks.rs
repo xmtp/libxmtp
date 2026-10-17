@@ -1,23 +1,19 @@
 use crate::{
     context::XmtpSharedContext,
+    subscriptions::internal::InternalEvent,
     worker::{
-        NeedsDbReconnect, Worker, WorkerFactory, WorkerKind,
-        device_sync::{ArchiveOptions, DeviceSyncClient, DeviceSyncError},
+        NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, device_sync::DeviceSyncError,
         key_package_maintenance as kp,
     },
 };
 use prost::Message;
 use std::sync::Arc;
-use xmtp_common::Event;
 use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
 use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
-use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
+use xmtp_db::tasks::{QueryTasks, Task as DbTask, TaskDataHash};
 use xmtp_db::{StorageError, diesel};
-use xmtp_macro::log_event;
-use xmtp_proto::{
-    types::{WelcomeMessage, WelcomeMessageType},
-    xmtp::mls::database::Task as TaskProto,
-};
+use xmtp_events::Subscription;
+use xmtp_proto::xmtp::mls::database::Task as TaskProto;
 
 /// How far out to push a task whose kind this build does not understand. Long
 /// enough that an old client sharing the database does not spin on it, short
@@ -38,6 +34,9 @@ pub(crate) mod test_hooks {
     /// `(target_data_hash, deadline)` → `run_task` returns `RescheduleAt(deadline)`
     /// for the matching task. Reset at test end; assumes process-per-test isolation.
     pub(crate) static RESCHEDULE_OVERRIDE: Mutex<Option<(Vec<u8>, i64)>> = Mutex::new(None);
+    pub(crate) static TASK_SCHEDULED_CONSUMED: Mutex<
+        Option<(Vec<u8>, tokio::sync::oneshot::Sender<()>)>,
+    > = Mutex::new(None);
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -58,10 +57,6 @@ pub enum TaskWorkerError {
         expected: String,
         got: String,
     },
-    #[error("task runner receiver locked")]
-    ReceiverLocked,
-    #[error("Cannot send sync archives without metrics handle")]
-    MissingMetrics,
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
     #[error("identity error: {0}")]
@@ -70,6 +65,8 @@ pub enum TaskWorkerError {
     KeyPackageMaintenance(
         #[from] crate::worker::key_package_maintenance::KeyPackageMaintenanceError,
     ),
+    #[error("notification task failed")]
+    Notification(#[from] crate::client::notifications::NotificationError),
 }
 
 impl NeedsDbReconnect for TaskWorkerError {
@@ -85,29 +82,33 @@ impl NeedsDbReconnect for TaskWorkerError {
             TaskWorkerError::DeviceSync(_) => false,
             TaskWorkerError::InvalidTaskData { .. } => false,
             TaskWorkerError::InvalidHash { .. } => false,
-            TaskWorkerError::ReceiverLocked => false,
-            TaskWorkerError::MissingMetrics => false,
             TaskWorkerError::Conversion(_) => false,
             TaskWorkerError::Identity(e) => e.needs_db_reconnect(),
             TaskWorkerError::KeyPackageMaintenance(e) => e.needs_db_reconnect(),
+            TaskWorkerError::Notification(
+                crate::client::notifications::NotificationError::Storage(e),
+            ) => e.db_needs_connection(),
+            TaskWorkerError::Notification(
+                crate::client::notifications::NotificationError::Group(e),
+            ) => e.needs_db_reconnect(),
+            TaskWorkerError::Notification(_) => false,
         }
     }
 }
 
-/// Message to the TaskRunner loop.
-pub enum TaskMessage {
-    /// Persist a new durable task row.
-    New(DbNewTask),
-    /// No-op wake: the task row was already inserted directly in a DB
-    /// transaction; receiving this just makes the loop re-read the tasks table.
-    Wake,
-}
-
 #[derive(Clone)]
 pub struct TaskWorkerChannels {
-    // Using unbounded to avoid potential issues with the receiver queue being full
-    pub task_sender: tokio::sync::mpsc::UnboundedSender<TaskMessage>,
-    pub task_receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<TaskMessage>>>,
+    /// Serializes notification requests across inline calls and task turns.
+    pub(crate) notification_request: Arc<tokio::sync::Mutex<()>>,
+    /// Confirmed backend topics retained while local notifications are disabled.
+    /// This memory state does not survive a client restart.
+    /// Lock before the database writer. Never hold across an await.
+    pub(crate) notification_pending_topics: Arc<
+        parking_lot::Mutex<
+            std::collections::BTreeMap<Vec<u8>, xmtp_db::notifications::UploadedTopic>,
+        >,
+    >,
+    notification_revision: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Default for TaskWorkerChannels {
@@ -118,28 +119,26 @@ impl Default for TaskWorkerChannels {
 
 impl TaskWorkerChannels {
     pub fn new() -> Self {
-        let (task_sender, task_receiver) = tokio::sync::mpsc::unbounded_channel();
         Self {
-            task_sender,
-            task_receiver: Arc::new(tokio::sync::Mutex::new(task_receiver)),
+            notification_request: Default::default(),
+            notification_pending_topics: Default::default(),
+            notification_revision: Default::default(),
         }
     }
-    pub fn send(&self, new_task: DbNewTask) {
-        self.task_sender
-            .send(TaskMessage::New(new_task))
-            .expect("Task receiver is owned by same struct");
+    /// Invalidate a prepared notification batch after a local change.
+    pub fn mark_notification_changed(&self) {
+        use std::sync::atomic::Ordering;
+        self.notification_revision.fetch_add(1, Ordering::AcqRel);
     }
-    /// Wake the TaskRunner to re-evaluate its next due task. Use after inserting
-    /// a task row directly in a DB transaction (best-effort; idempotent).
-    pub fn wake(&self) {
-        self.task_sender
-            .send(TaskMessage::Wake)
-            .expect("Task receiver is owned by same struct");
+
+    pub(crate) fn notification_revision(&self) -> usize {
+        self.notification_revision
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 }
 
-/// Durably enqueue a `PullInDeadline` for `target_data_hash`, then wake the loop.
-/// Row is committed before the wake; duplicates coalesce on data_hash. Lifetime is
+/// Durably enqueue a `PullInDeadline` for `target_data_hash`, then emit its fact.
+/// The row is committed before the event; duplicates coalesce on data_hash. Lifetime is
 /// bounded by `expires_at_ns` alone (pass `NEVER_EXPIRES` for critical nudges).
 /// Callers must commit the target row FIRST: a pull-in never waits for its target —
 /// a miss is dropped (debug-logged), since a missing target is normally a completed
@@ -153,7 +152,6 @@ pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
     let now = xmtp_common::time::now_ns();
     let task = xmtp_db::tasks::NewTask::builder()
         .originating_message_sequence_id(0)
-        .originating_message_originator_id(0)
         .next_attempt_at_ns(now) // the pull-in itself is due immediately
         .expires_at_ns(expires_at_ns)
         .max_attempts(i32::MAX) // lifetime bounded by expires_at_ns, not retries
@@ -166,7 +164,10 @@ pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
             )),
         })?;
     context.db().create_or_ignore_task(task)?;
-    context.task_channels().wake();
+    use xmtp_events::EventWriter;
+    context
+        .events()
+        .emit(None, Some(InternalEvent::TaskScheduled));
     Ok(())
 }
 
@@ -196,7 +197,7 @@ where
 
 pub struct TaskWorker<Context> {
     context: Context,
-    channels: TaskWorkerChannels,
+    subscription: Option<Arc<Subscription<InternalEvent>>>,
 }
 
 #[xmtp_common::async_trait]
@@ -206,6 +207,10 @@ where
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::TaskRunner
+    }
+
+    fn set_subscription(&mut self, subscription: Arc<Subscription<InternalEvent>>) {
+        self.subscription = Some(subscription);
     }
 
     async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>> {
@@ -226,28 +231,73 @@ where
     Context: XmtpSharedContext + 'static,
 {
     pub fn new(context: Context) -> Self {
-        let channels = context.task_channels().clone();
-        Self { context, channels }
+        Self {
+            context,
+            subscription: None,
+        }
     }
-    pub async fn run(&mut self) -> Result<(), TaskWorkerError> {
-        let mut receiver = match self.channels.task_receiver.try_lock() {
-            Ok(receiver) => receiver,
-            Err(_) => return Err(TaskWorkerError::ReceiverLocked),
+
+    #[cfg(test)]
+    fn record_task_fact(&self, event: &xmtp_events::EventEnvelope<InternalEvent>) {
+        if !matches!(&event.internal, Some(InternalEvent::TaskScheduled)) {
+            return;
+        }
+        let witness = {
+            let mut hook = test_hooks::TASK_SCHEDULED_CONSUMED.lock().unwrap();
+            if hook.as_ref().is_some_and(|(installation, _)| {
+                installation.as_slice() == self.context.installation_id().to_vec().as_slice()
+            }) {
+                hook.take()
+            } else {
+                None
+            }
         };
+        if let Some((_, received)) = witness {
+            let _ = received.send(());
+        }
+    }
+
+    pub async fn run(&mut self) -> Result<(), TaskWorkerError> {
+        if self.subscription.is_none() {
+            let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::TaskRunner)
+                .expect("task runner has an event filter");
+            self.subscription = Some(Arc::new(self.context.events().subscribe(filter, depth)));
+        }
+        let subscription = self
+            .subscription
+            .as_ref()
+            .expect("subscription is initialized")
+            .clone();
+        crate::worker::notifications::wake(&self.context)?;
         loop {
+            let drained = subscription.drain();
+            #[cfg(test)]
+            for event in &drained {
+                self.record_task_fact(event);
+            }
+            if drained
+                .into_iter()
+                .any(|event| !matches!(event.internal, Some(InternalEvent::TaskScheduled)))
+            {
+                crate::worker::notifications::wake(&self.context)?;
+            }
             let next_task = self.context.db().get_next_task()?;
             let next_wakeup = Self::next_wakeup(
                 next_task.as_ref().map(|t| t.next_attempt_at_ns),
                 xmtp_common::time::now_ns(),
             );
             tokio::select! {
-                msg = receiver.recv() => {
-                    // A Wake is a no-op here: its row is already in the DB, and
-                    // any recv loops back to recompute the next due task.
-                    if let TaskMessage::New(task) =
-                        msg.expect("Task sender is owned by the task worker")
-                    {
-                        self.context.db().create_task(task)?;
+                event = subscription.next() => {
+                    let Some(event) = event else { break Ok(()); };
+                    #[cfg(test)]
+                    self.record_task_fact(&event);
+                    let more_notification_changes = subscription.drain().into_iter().any(|event| {
+                            !matches!(event.internal, Some(InternalEvent::TaskScheduled))
+                        });
+                    let notification_changed = !matches!(event.internal, Some(InternalEvent::TaskScheduled))
+                        || more_notification_changes;
+                    if notification_changed {
+                        crate::worker::notifications::wake(&self.context)?;
                     }
                 }
                 () = xmtp_common::time::sleep(next_wakeup) => {
@@ -300,7 +350,13 @@ where
                 let next_attempt_duration = (((task.initial_backoff_duration_ns as f64)
                     * attempt_scaling_factor) as i64)
                     .min(task.max_backoff_duration_ns);
-                let next_attempt_at_ns = now.saturating_add(next_attempt_duration);
+                let retry_from =
+                    if task.data_hash == crate::worker::notifications::task_hash().as_ref() {
+                        xmtp_common::time::now_ns()
+                    } else {
+                        now
+                    };
+                let next_attempt_at_ns = retry_from.saturating_add(next_attempt_duration);
                 tracing::warn!(%error, "Task {} retry failed. Retrying in {next_attempt_duration}ns", task.id);
                 match context
                     .db()
@@ -344,51 +400,8 @@ where
             }
         };
         match task_proto.task {
-            Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(
-                welcome_pointer,
-            )) => {
-                Self::process_welcome_pointer(task, welcome_pointer, context).await?;
-            }
-            Some(xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
-                send_sync_archive,
-            )) => {
-                let Some(metrics) = context.sync_metrics().clone() else {
-                    return Err(TaskWorkerError::MissingMetrics);
-                };
-                let Some(proto_options) = send_sync_archive.options.clone() else {
-                    tracing::warn!(
-                        "SendSyncArchive task has no archive options. Unable to process."
-                    );
-                    return Ok(TaskOutcome::Done);
-                };
-                let options: ArchiveOptions = proto_options.into();
-
-                let client = DeviceSyncClient::new(context.clone(), metrics);
-
-                let pin = send_sync_archive.pin.clone().unwrap_or_else(|| {
-                    let pin = xmtp_common::rand_string::<5>();
-                    format!("{pin:04}")
-                });
-
-                client
-                    .send_archive(
-                        &options,
-                        &xmtp_proto::types::GroupId::try_from(
-                            send_sync_archive.sync_group_id.as_slice(),
-                        )?,
-                        &pin,
-                        &send_sync_archive.server_url,
-                    )
-                    .await
-                    .inspect_err(|e| {
-                        log_event!(
-                            Event::DeviceSyncArchiveUploadFailure,
-                            context.installation_id(),
-                            group_id = send_sync_archive.sync_group_id,
-                            pin = send_sync_archive.pin(),
-                            error = %e
-                        )
-                    })?;
+            Some(xmtp_proto::xmtp::mls::database::task::Task::NotificationSync(_)) => {
+                return Ok(crate::worker::notifications::run(context).await?);
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessPendingSelfRemove(
                 pending,
@@ -555,37 +568,6 @@ where
             Err(e) => Err(e.into()),
         }
     }
-    async fn process_welcome_pointer(
-        task: &DbTask,
-        welcome_pointer: xmtp_proto::xmtp::mls::message_contents::WelcomePointer,
-        context: &Context,
-    ) -> Result<(), TaskWorkerError> {
-        let decrypted_welcome_pointer = WelcomeMessage {
-            cursor: xmtp_proto::types::Cursor::new(
-                task.originating_message_sequence_id as u64,
-                task.originating_message_originator_id as u32,
-            ),
-            created_ns: chrono::DateTime::from_timestamp_nanos(task.created_at_ns),
-            variant: WelcomeMessageType::DecryptedWelcomePointer(
-                welcome_pointer
-                    .try_into()
-                    .map_err(crate::groups::GroupError::from)?,
-            ),
-        };
-        let welcome_service = crate::groups::welcome_sync::WelcomeService::new(context.clone());
-        let validator = crate::groups::InitialMembershipValidator::new(context);
-        let group = welcome_service
-            // cursor_increment is false because the cursor has already been incremented
-            .process_new_welcome(&decrypted_welcome_pointer, false, validator)
-            .await?;
-        if let Some(group) = group {
-            context
-                .local_events()
-                .send(crate::subscriptions::LocalEvents::NewGroup(group.group_id))
-                .ok();
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -627,7 +609,6 @@ mod tests {
         let hash = data_hash_for(&proto);
         let task = NewTask::builder()
             .originating_message_sequence_id(0)
-            .originating_message_originator_id(0)
             .next_attempt_at_ns(next)
             .expires_at_ns(expires)
             .attempts(attempts)

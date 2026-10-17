@@ -1,0 +1,3 @@
+# The stock generators do not use cargo metadata in this build.
+[crate-roots]
+xmtp_sdk = "../../crates/xmtp_sdk"

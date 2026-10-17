@@ -20,8 +20,6 @@ pub struct StoredIdentity {
     rowid: Option<i32>,
     pub next_key_package_rotation_ns: Option<i64>,
     #[builder(default)]
-    pub registration_cursor_originator_id: Option<i64>,
-    #[builder(default)]
     pub registration_cursor_sequence_id: Option<i64>,
 }
 
@@ -40,12 +38,14 @@ impl StoredIdentity {
             credential_bytes,
             rowid: None,
             next_key_package_rotation_ns: None,
-            registration_cursor_originator_id: None,
+
             registration_cursor_sequence_id: None,
         }
     }
 }
 pub trait QueryIdentity {
+    /// Clear only the registration receipt that was confirmed.
+    fn clear_registration_cursor(&self, sequence_id: i64) -> Result<(), StorageError>;
     fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
     /// Atomically lower/initialize the rotation column (5s debounce) AND enqueue a
     /// `PullInDeadline` task targeting `rotation_task_hash` at the resulting column
@@ -73,6 +73,10 @@ impl<T> QueryIdentity for &T
 where
     T: QueryIdentity,
 {
+    fn clear_registration_cursor(&self, sequence_id: i64) -> Result<(), StorageError> {
+        (**self).clear_registration_cursor(sequence_id)
+    }
+
     fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         (**self).queue_key_package_rotation()
     }
@@ -102,6 +106,16 @@ where
 }
 
 impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
+    fn clear_registration_cursor(&self, sequence_id: i64) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::identity)
+                .filter(dsl::registration_cursor_sequence_id.eq(sequence_id))
+                .set(dsl::registration_cursor_sequence_id.eq(None::<i64>))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
     fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
@@ -165,7 +179,6 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
 
                 let pull_in = crate::tasks::NewTask::builder()
                     .originating_message_sequence_id(0)
-                    .originating_message_originator_id(0)
                     .expires_at_ns(crate::tasks::NEVER_EXPIRES)
                     .max_attempts(i32::MAX)
                     .build(TaskProto {
@@ -250,7 +263,6 @@ pub(crate) mod tests {
         use xmtp_proto::xmtp::mls::database::{KpRotation, Task as TaskProto, task::Task};
         crate::tasks::NewTask::builder()
             .originating_message_sequence_id(0)
-            .originating_message_originator_id(0)
             .expires_at_ns(crate::tasks::NEVER_EXPIRES)
             .max_attempts(i32::MAX)
             .next_attempt_at_ns(0)

@@ -1,0 +1,15 @@
+{
+  "extends": "../../dev/js/tsconfig.web.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["DOM", "DOM.Iterable", "ESNext", "WebWorker"],
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "resolveJsonModule": true,
+    "sourceMap": true
+  },
+  "include": ["src", "vite.config.ts", "postcss.config.cjs"],
+  "exclude": ["dist", "node_modules"]
+}

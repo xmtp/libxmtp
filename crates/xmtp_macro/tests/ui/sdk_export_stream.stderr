@@ -1,0 +1,17 @@
+error: unknown stream parameter; expected name, options, or owner
+ --> tests/ui/sdk_export_stream.rs:9:9
+  |
+9 |         extra = "value"
+  |         ^^^^^^^^^^^^^^^
+
+error: #[sdk(stream(...))] needs an async object reader method with one optional record input and Result<Arc<MessageReader or ConversationReader>, XmtpError>
+  --> tests/ui/sdk_export_stream.rs:16:11
+   |
+16 |     #[sdk(stream(name = "consume", options = "MessageStreamOptions", owner = "key"))]
+   |           ^^^^^^
+
+error: write #[sdk(stream(...))] instead of `@xmtp-stream` in a doc comment
+  --> tests/ui/sdk_export_stream.rs:22:5
+   |
+22 |     #[doc = "@xmtp-stream=consume:MessageStreamOptions:key"]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -2,7 +2,7 @@
 # Keep it simple and stick to defaults where possible
 
 # File exclusions
---exclude Sources/XMTPiOS/Proto,Sources/XMTPiOS/Libxmtp/xmtpv3.swift,Sources/XMTPiOSDynamic/Libxmtp/xmtpv3.swift,.build
+--exclude Sources/XmtpSdk/xmtp_sdk.swift,Sources/XmtpSdk/runtime,.build,Artifacts
 
 # Use tabs for indentation (matching existing .swiftformat)
 --indent tabs
@@ -25,3 +25,6 @@
 # Disable rules that incorrectly remove await keywords
 # The redundantAsync rule is too aggressive and removes await in autoclosure contexts
 --disable redundantAsync
+
+# Use the selected Swift compiler syntax for formatting.
+--swiftversion 6.1

@@ -1,10 +1,15 @@
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 use crate::messages::decoded_message::DecodedMessage;
-use crate::messages::enrichment::{EnrichMessageError, enrich_messages};
+use crate::messages::enrichment::{
+    EnrichMessageError, EnrichedStoredMessage, enrich_messages, enrich_messages_with_stored,
+};
 use xmtp_db::DbQuery;
 use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
+
+mod page;
+pub use page::{EnrichedHistoryPage, EnrichedRecoveryPage};
 
 impl<Context> MlsGroup<Context>
 where
@@ -17,6 +22,34 @@ where
     ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
         self.find_messages_v2_with_conn(query, conn)
+    }
+
+    #[xmtp_common::mls_span]
+    pub fn find_messages_v2_with_stored(
+        &self,
+        query: &MsgQueryArgs,
+    ) -> Result<Vec<EnrichedStoredMessage>, EnrichMessageError> {
+        let conn = self.context.db();
+        use xmtp_db::delivery::QueryDelivery;
+        let rows = conn
+            .app_visible_message_rows(
+                &self.group_id,
+                &filter_out_hidden_message_types_from_query(query),
+            )
+            .map_err(EnrichMessageError::Storage)?;
+        let cursors: std::collections::HashMap<_, _> = rows
+            .iter()
+            .map(|row| (row.stored.id.clone(), row.cursor))
+            .collect();
+        let mut enriched = enrich_messages_with_stored(
+            conn,
+            &self.group_id,
+            rows.into_iter().map(|row| row.stored).collect(),
+        )?;
+        for message in &mut enriched {
+            message.delivery_cursor = cursors.get(&message.stored.id).copied().flatten();
+        }
+        Ok(enriched)
     }
 
     #[xmtp_common::mls_span]
@@ -66,10 +99,9 @@ mod tests {
     use super::*;
     use crate::builder::ClientBuilder;
     use crate::groups::QueryableContentFields;
-    use crate::messages::decoded_message::MessageBody;
+    use crate::messages::decoded_message::{ContentDecodeFailureKind, MessageBody};
     use hex::ToHexExt;
     use xmtp_common::time::now_ns;
-    use xmtp_configuration::Originators;
     use xmtp_content_types::ContentCodec;
     use xmtp_content_types::test_utils::TestContentGenerator;
     use xmtp_content_types::text::TextCodec;
@@ -115,7 +147,8 @@ mod tests {
             authority_id: queryable_fields.authority_id,
             reference_id: queryable_fields.reference_id,
             sequence_id: 0,
-            originator_id: Originators::APPLICATION_MESSAGES.into(),
+            envelope_hash: None,
+            expiry_ns: None,
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push: true,
@@ -137,7 +170,7 @@ mod tests {
             .as_ref()
             .map(|ct| {
                 (
-                    DbContentType::from(ct.type_id.clone()),
+                    DbContentType::from_identifier(&ct.authority_id, &ct.type_id, ct.version_major),
                     ct.version_major as i32,
                     ct.version_minor as i32,
                     ct.authority_id.clone(),
@@ -160,7 +193,8 @@ mod tests {
             authority_id: queryable_fields.3,
             reference_id,
             sequence_id: 0,
-            originator_id: Originators::APPLICATION_MESSAGES.into(),
+            envelope_hash: None,
+            expiry_ns: None,
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push: true,
@@ -349,7 +383,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_find_messages_with_reactions() {
+    async fn test_find_messages_v2_with_reactions() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
 
@@ -463,10 +497,10 @@ mod tests {
             "replier1",
         );
 
-        // Query messages - should still return the reply but with None in_reply_to
+        // A sender-controlled reference that is not a message id resolves to
+        // no parent; the reply is still valid content.
         let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
         assert_message_count(&messages, 1);
-
         assert_reply_has_no_reference(&messages[0]);
         if let MessageBody::Reply(reply) = &messages[0].content {
             assert_eq!(reply.reference_id, "not-valid-hex!@#");
@@ -503,6 +537,7 @@ mod tests {
         }
     }
 
+    // verifies: CTYPE-008, CTYPE-009
     #[xmtp_common::test]
     async fn test_find_messages_undecodable_messages() {
         let (group, context) = setup_test_group().await;
@@ -518,17 +553,22 @@ mod tests {
             "sender1",
         );
 
-        // Store a message with invalid/malformed content (use Text type to avoid filtering)
-        create_and_store_message(
-            &conn,
+        // An old row: bytes that are not an EncodedContent, cached as Text
+        // the way a client stored it before classification was checked.
+        let malformed = vec![0xff, 0x00, 0x80];
+        create_test_message_raw(
             &group.group_id,
             vec![2],
-            TestContentGenerator::malformed_content_with_type(TextCodec::content_type()),
-            1000,
-            "sender2",
-        );
+            malformed.clone(),
+            now_ns() + 1000,
+            "sender2".into(),
+            None,
+            None,
+        )
+        .store(&conn)
+        .unwrap();
 
-        // Store a message with unknown content type
+        // A complete typed envelope with no core codec
         create_and_store_message(
             &conn,
             &group.group_id,
@@ -538,23 +578,105 @@ mod tests {
             "sender3",
         );
 
-        // Query messages - malformed content still creates a message
         let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-
-        // We should get all 3 messages even though some have malformed content
         assert_message_count(&messages, 3);
-
-        // First message should be valid text
         assert_text_content(&messages[0], "Valid message");
 
-        // Second message - since we're using EncodedContent, it gets decoded as text
-        assert_text_content(&messages[1], "malformed content for a known type");
+        assert_eq!(messages[1].metadata.id, vec![2]);
+        assert_eq!(messages[1].metadata.content_type, None);
+        let MessageBody::Undecodable(undecodable) = &messages[1].content else {
+            panic!(
+                "expected undecodable content, got {:?}",
+                messages[1].content
+            );
+        };
+        assert_eq!(undecodable.raw_bytes, malformed);
+        assert_eq!(
+            undecodable.failure.kind,
+            ContentDecodeFailureKind::MalformedEnvelope
+        );
 
-        if let MessageBody::Custom(content) = &messages[2].content {
-            assert_eq!(content.fallback, Some("Invalid message".to_string()));
-        } else {
-            panic!("Expected custom content for unknown type message");
-        }
+        let MessageBody::Custom(content) = &messages[2].content else {
+            panic!("expected custom content for unknown type message");
+        };
+        assert_eq!(
+            content.encoded.fallback,
+            Some("Invalid message".to_string())
+        );
+        assert_eq!(
+            messages[2].fallback_text,
+            Some("Invalid message".to_string())
+        );
+    }
+
+    /// History, lookup by id, and a reply's parent all keep a malformed row
+    /// with its id and exact bytes, and later rows stay visible.
+    // verifies: CTYPE-008
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn malformed_rows_are_kept_on_history_lookup_and_parent_paths() {
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let group = client.create_group(None, Default::default())?;
+        let conn = client.context.db();
+
+        let malformed = vec![0xff, 0x00, 0x80];
+        let malformed_id = vec![7, 7, 7];
+        create_test_message_raw(
+            &group.group_id,
+            malformed_id.clone(),
+            malformed.clone(),
+            now_ns(),
+            "sender1".into(),
+            None,
+            None,
+        )
+        .store(&conn)?;
+        let reply_id = create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![8, 8, 8],
+            TestContentGenerator::reply_content(
+                &malformed_id.encode_hex(),
+                TextCodec::content_type(),
+                b"replying to bytes".to_vec(),
+            ),
+            1000,
+            "sender2",
+        );
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![9, 9, 9],
+            TestContentGenerator::text_content("later"),
+            2000,
+            "sender3",
+        );
+
+        let messages = group.find_messages_v2(&MsgQueryArgs::default())?;
+        assert_eq!(
+            messages
+                .iter()
+                .map(|message| message.metadata.id.clone())
+                .collect::<Vec<_>>(),
+            vec![malformed_id.clone(), reply_id.clone(), vec![9, 9, 9]]
+        );
+        let is_kept = |message: &DecodedMessage| {
+            matches!(&message.content, MessageBody::Undecodable(undecodable)
+                if undecodable.raw_bytes == malformed
+                    && undecodable.failure.kind == ContentDecodeFailureKind::MalformedEnvelope)
+        };
+        assert!(is_kept(&messages[0]), "history: {:?}", messages[0].content);
+        assert_text_content(&messages[2], "later");
+
+        let MessageBody::Reply(reply) = &messages[1].content else {
+            panic!("expected reply, got {:?}", messages[1].content);
+        };
+        let parent = reply.in_reply_to.as_ref().expect("reply parent");
+        assert_eq!(parent.metadata.id, malformed_id);
+        assert!(is_kept(parent), "parent: {:?}", parent.content);
+
+        let looked_up = client.message_v2(malformed_id.clone())?;
+        assert_eq!(looked_up.metadata.id, malformed_id);
+        assert!(is_kept(&looked_up), "lookup: {:?}", looked_up.content);
     }
 
     #[xmtp_common::test]
@@ -832,8 +954,11 @@ mod tests {
 
             // The inner content should be Custom (since we used an unknown content type)
             if let MessageBody::Custom(custom) = reply.content.as_ref() {
-                assert_eq!(custom.r#type.as_ref().unwrap().type_id, "custom/payload");
-                assert_eq!(custom.content, b"custom payload data");
+                assert_eq!(
+                    custom.encoded.r#type.as_ref().unwrap().type_id,
+                    "custom/payload"
+                );
+                assert_eq!(custom.encoded.content, b"custom payload data");
             } else {
                 panic!(
                     "Expected Custom inner content in Reply, got {:?}",

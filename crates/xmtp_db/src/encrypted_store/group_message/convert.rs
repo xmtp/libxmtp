@@ -1,5 +1,4 @@
 use super::*;
-use xmtp_configuration::Originators;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::device_sync::message_backup::{
     ContentTypeSave, DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave,
@@ -11,10 +10,17 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
         let kind = value.kind().try_into()?;
         let delivery_status = value.delivery_status().try_into()?;
 
-        let mut content_type: ContentType = value.content_type_save().into();
-        if matches!(content_type, ContentType::Unknown) {
-            content_type = value.content_type.into();
-        }
+        let legacy_type: ContentType = value.content_type_save().into();
+        let type_id = if legacy_type == ContentType::Unknown {
+            value.content_type.clone()
+        } else {
+            legacy_type.to_string()
+        };
+        let content_type = ContentType::from_identifier(
+            &value.authority_id,
+            &type_id,
+            u32::try_from(value.version_major).unwrap_or_default(),
+        );
 
         Ok(Self {
             id: value.id,
@@ -31,9 +37,8 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             authority_id: value.authority_id,
             reference_id: value.reference_id,
             sequence_id: value.sequence_id.unwrap_or(0),
-            originator_id: value
-                .originator_id
-                .unwrap_or(Originators::APPLICATION_MESSAGES.into()),
+            envelope_hash: None,
+            expiry_ns: None,
             expire_at_ns: None,
             inserted_at_ns: 0,  // Will be set by database
             should_push: false, // Default to false for synced messages
@@ -111,11 +116,11 @@ impl From<StoredGroupMessage> for GroupMessageSave {
             authority_id: value.authority_id,
             reference_id: value.reference_id,
             sequence_id: Some(value.sequence_id),
-            originator_id: Some(value.originator_id),
 
             // Deprecated
             #[allow(deprecated)]
             content_type_save: 0,
+            ..Default::default()
         }
     }
 }
@@ -134,5 +139,55 @@ impl From<DeliveryStatus> for DeliveryStatusSave {
             DeliveryStatus::Published => Self::Published,
             DeliveryStatus::Unpublished => Self::Unpublished,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // verifies: CTYPE-001, CTYPE-018
+    #[allow(deprecated)]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn saved_content_type_requires_catalogue_authority_and_major() {
+        let base = GroupMessageSave {
+            group_id: vec![1; 16],
+            kind: GroupMessageKindSave::Application as i32,
+            delivery_status: DeliveryStatusSave::Published as i32,
+            content_type: "text".into(),
+            authority_id: "xmtp.org".into(),
+            version_major: 1,
+            ..Default::default()
+        };
+
+        for old_type in [0, ContentTypeSave::Text as i32] {
+            let mut standard = base.clone();
+            standard.content_type_save = old_type;
+            assert_eq!(
+                StoredGroupMessage::try_from(standard.clone())?.content_type,
+                ContentType::Text
+            );
+
+            standard.authority_id = "custom.example".into();
+            assert_eq!(
+                StoredGroupMessage::try_from(standard)?.content_type,
+                ContentType::Unknown
+            );
+        }
+
+        let mut legacy = base.clone();
+        legacy.content_type.clear();
+        legacy.content_type_save = ContentTypeSave::Text as i32;
+        assert_eq!(
+            StoredGroupMessage::try_from(legacy)?.content_type,
+            ContentType::Text
+        );
+
+        let mut unsupported = base;
+        unsupported.version_major = 99;
+        assert_eq!(
+            StoredGroupMessage::try_from(unsupported)?.content_type,
+            ContentType::Unknown
+        );
     }
 }

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
 import semver from "semver";
+import { describe, it, expect, vi } from "vitest";
+
 import {
   computeVersion,
   filterAndSortTags,
@@ -19,6 +20,16 @@ describe("filterAndSortTags", () => {
     ];
     const result = filterAndSortTags(tags, "ios-", "-libxmtp");
     expect(result).toEqual(["4.10.0", "4.9.0", "4.8.0"]);
+  });
+
+  it("keeps SDK tags when there is no artifact suffix", () => {
+    expect(
+      filterAndSortTags(
+        ["node-sdk-6.1.0", "node-sdk-8.0.0-rc1", "ios-4.11.0"],
+        "node-sdk-",
+        "",
+      ),
+    ).toEqual(["6.1.0"]);
   });
 
   it("includes prerelease tags when flag is set", () => {

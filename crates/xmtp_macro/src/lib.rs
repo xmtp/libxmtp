@@ -1,19 +1,162 @@
 extern crate proc_macro;
 
 mod async_trait;
-mod builder;
-mod builders;
 mod error_code;
 mod log_macros;
 mod logging;
+mod sdk_export;
+mod sdk_member;
 mod span_macro;
 mod test_macro;
 mod timeout_macro;
 
 #[cfg(test)]
-mod builder_test;
+mod facade_markers_test;
+#[cfg(test)]
+mod sdk_export_test;
+#[cfg(test)]
+mod sdk_member_test;
 #[cfg(test)]
 mod timeout_macro_test;
+
+/// Export an impl block, trait, function, record, or enum through UniFFI on
+/// native and wasm32 targets, and describe it to the SDK generator.
+///
+/// If the item has an async function, native targets use the Tokio async
+/// runtime. Sync-only items use plain `uniffi::export` on every target.
+/// Every method in an impl block and every free function gets a tracing span.
+/// Trait methods with a default body also get a span. Functions that return
+/// `Result` record errors. An existing `#[tracing::instrument]` is kept.
+/// On a record or enum, make this the first attribute, above every derive: a
+/// derive written above it expands first, and the macro never sees it. The
+/// `#[derive(uniffi::Record)]` or `#[derive(uniffi::Enum)]` below it still
+/// exports the type.
+///
+/// Arguments:
+///
+/// - `native_only` / `wasm_only`: limit the whole item to one target, as
+///   `#[cfg(not(target_arch = "wasm32"))]` or `#[cfg(target_arch = "wasm32")]`
+///   above it would.
+/// - `pure`: a synchronous free function with value-only arguments, for the
+///   browser's main-thread module. It can forward stock argument defaults with
+///   `pure, default(name = None)`. The SDK generator rejects object, client,
+///   and foreign-trait arguments on a pure export.
+/// - `client_static`: an asynchronous free function that every SDK also
+///   exposes as a static member of its Client. The static's name is the
+///   function's without a trailing `_with_backend`, in the SDK's casing, and
+///   it takes the function's arguments in order with the `BackendSource`
+///   argument moved last: `can_message_with_backend(backend, identities)`
+///   becomes `Client.canMessage(identities, backend)`. The function stays
+///   exported as well. It cannot be `native_only` or `wasm_only`. The
+///   `BackendSource` cannot have a default, and no defaulted parameter can
+///   end the function after it: the static takes the backend last, so a
+///   TypeScript caller could not leave that parameter out.
+///
+/// Members take `#[sdk(...)]`:
+///
+/// - `#[sdk(immutable)]` on a synchronous `&self` method without arguments
+///   that returns a value: the value never changes for the object's lifetime.
+///   The SDKs expose it as a readonly property, and the browser bridge reads
+///   it once. Such a method needs the option unless the bridge never forwards
+///   it: its item is `native_only`, or its doc comment says `@xmtp-worker`.
+///   Make a live read async instead.
+/// - `#[sdk(kind = "namespace.name")]` on an enum variant: the public string
+///   of the variant. `EventKind` takes one per variant. Mark every variant of
+///   the enum or none.
+/// - `#[sdk(redact)]` on a named record or variant field: generated Kotlin
+///   `toString` and Swift `description` print `<redacted>` for it.
+///   `#[sdk(redact = "key")]` hides one key of a string map field; the key
+///   holds ASCII letters, digits, `_`, `.`, and `-`. Redaction fails closed:
+///   every other field of that record, or of any variant of that enum, takes
+///   `#[sdk(redact)]` or `#[sdk(shown)]`, and the macro implements `Debug`
+///   for the type by calling its `fn redacted_debug(&self, f: &mut
+///   Formatter<'_>) -> fmt::Result`, which the type writes. A derived `Debug` then conflicts
+///   with it, wherever the derive sits. A `uniffi::Error` type cannot redact
+///   a field: the Kotlin binding renames it.
+///
+/// `pure`, `client_static`, and each member option but `shown` become a
+/// `#[doc = "@xmtp-..."]` line that UniFFI carries into the library metadata,
+/// and a type with a redacted field gets `@xmtp-redacted`. The generator reads them and strips
+/// them from generated documentation; see `apps/xmtp_sdk_bindgen/README.md`.
+/// The macro rejects these markers in a doc comment, where they would skip
+/// its checks. When rustc reports "cannot find
+/// attribute `sdk` in this scope", the item lacks `#[xmtp_macro::sdk_export]`
+/// as its first attribute.
+/// The caller must depend on `uniffi` and `tracing`.
+///
+/// ```ignore
+/// #[xmtp_macro::sdk_export]
+/// impl Client {
+///     #[sdk(immutable)]
+///     pub fn inbox_id(&self) -> InboxId { /* ... */ }
+///     pub async fn sync(&self) -> Result<(), SyncError> { /* ... */ }
+/// }
+///
+/// #[xmtp_macro::sdk_export]
+/// #[derive(Clone, Copy, uniffi::Enum)]
+/// pub enum EventKind {
+///     #[sdk(kind = "conversation.joined")]
+///     ConversationJoined,
+/// }
+///
+/// #[xmtp_macro::sdk_export]
+/// #[derive(Clone, uniffi::Record)]
+/// pub struct Credential {
+///     #[sdk(shown)]
+///     pub name: Option<String>,
+///     #[sdk(redact)]
+///     pub value: String,
+/// }
+///
+/// impl Credential {
+///     fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+///         f.debug_struct("Credential").field("name", &self.name).finish_non_exhaustive()
+///     }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn sdk_export(
+    attr: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    sdk_export::sdk_export(attr.into(), input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Check that a foreign-trait error type accepts unexpected UniFFI callback errors.
+///
+/// Put this attribute on a concrete error enum or struct. The caller must
+/// depend on `uniffi`.
+///
+/// ```
+/// #[xmtp_macro::callback_error]
+/// #[derive(Debug, thiserror::Error)]
+/// #[error("callback failed")]
+/// struct CallbackError;
+///
+/// impl From<uniffi::UnexpectedUniFFICallbackError> for CallbackError {
+///     fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
+///         Self
+///     }
+/// }
+/// ```
+///
+/// ```compile_fail
+/// #[xmtp_macro::callback_error]
+/// #[derive(Debug, thiserror::Error)]
+/// #[error("callback failed")]
+/// struct CallbackError;
+/// ```
+#[proc_macro_attribute]
+pub fn callback_error(
+    attr: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    sdk_export::callback_error(attr.into(), input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -26,70 +169,6 @@ pub fn async_trait(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     async_trait::async_trait(attr, input)
-}
-
-/// Attribute macro that generates a NAPI-annotated builder pattern for a struct.
-///
-/// Each field must be annotated with one of:
-/// - `#[builder(required)]` — passed in the constructor; no setter generated
-/// - `#[builder(optional)]` — field type must be `Option<T>`; setter takes `T`, wraps in `Some`
-/// - `#[builder(default = "expr")]` — has a default value; setter takes the full type
-/// - `#[builder(skip)]` — no setter; initialized via `Default::default()`
-///
-/// The macro generates a `new()` constructor (with all required fields as parameters)
-/// and fluent setters for optional/default fields. The `build()` method is NOT generated;
-/// implement it manually.
-///
-/// # Example
-///
-/// ```ignore
-/// #[napi_builder]
-/// pub struct FooBuilder {
-///     #[builder(required)]
-///     name: String,
-///     #[builder(optional)]
-///     desc: Option<String>,
-///     #[builder(default = "42")]
-///     count: u32,
-///     #[builder(skip)]
-///     internal: Vec<u8>,
-/// }
-/// ```
-#[proc_macro_attribute]
-pub fn napi_builder(
-    attr: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    builders::napi_builder(attr, input)
-}
-
-/// Attribute macro that generates a wasm_bindgen-annotated builder pattern for a struct.
-///
-/// Behaves identically to [`napi_builder`] but emits `#[wasm_bindgen]` annotations
-/// instead of `#[napi]`, and generates `js_name = camelCase` attributes on setters.
-///
-/// See [`napi_builder`] for field attribute documentation.
-#[proc_macro_attribute]
-pub fn wasm_builder(
-    attr: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    builders::wasm_builder(attr, input)
-}
-
-/// Attribute macro that generates a UniFFI-annotated builder pattern for a struct.
-///
-/// Emits `#[derive(uniffi::Object)]` on the struct and `#[uniffi::export]` on the
-/// impl block. UniFFI annotates the impl block as a whole rather than individual
-/// methods, so `constructor_ann` and `setter_ann` are empty.
-///
-/// See [`napi_builder`] for field attribute documentation.
-#[proc_macro_attribute]
-pub fn uniffi_builder(
-    attr: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    builders::uniffi_builder(attr, input)
 }
 
 /// A test macro that delegates to the appropriate test framework based on the target architecture.
@@ -215,8 +294,9 @@ pub fn rpc_span(
 }
 
 /// Instrument an `xmtp_db` query method as `operation = "db.<fn_name>"` in
-/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Surfaces as
-/// `xmtp.db.*` Collector metrics. See [`span`] for the shared rationale.
+/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Use
+/// `#[db_span(redact_error)]` to log a fixed error field and return the original
+/// error unchanged. Surfaces as `xmtp.db.*` Collector metrics. See [`span`] for the shared rationale.
 #[proc_macro_attribute]
 pub fn db_span(
     attr: proc_macro::TokenStream,
@@ -226,8 +306,9 @@ pub fn db_span(
 }
 
 /// Instrument a high-level MLS operation as `operation = "mls.<fn_name>"` in
-/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Surfaces as
-/// `xmtp.mls.*` Collector metrics. See [`span`] for the shared rationale.
+/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Use
+/// `#[mls_span(redact_error)]` to log a fixed error field and return the original
+/// error unchanged. Surfaces as `xmtp.mls.*` Collector metrics. See [`span`] for the shared rationale.
 #[proc_macro_attribute]
 pub fn mls_span(
     attr: proc_macro::TokenStream,

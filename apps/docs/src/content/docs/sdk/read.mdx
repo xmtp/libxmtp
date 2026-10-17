@@ -1,0 +1,168 @@
+---
+title: Read conversations and messages
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+## Message list options
+
+`messages()` returns enriched messages on all four SDKs. Each message includes reactions, a reply count, and its reply parent when available. There is no separate `enrichedMessages()` method.
+
+| Option                                | Default    | Description                       |
+| ------------------------------------- | ---------- | --------------------------------- |
+| `limit`                               | None       | Maximum result count              |
+| `sentBefore`, `sentAfter`             | None       | Filter by sent time               |
+| `insertedBefore`, `insertedAfter`     | None       | Filter by local insertion time    |
+| `sortBy`                              | Sent time  | Sort by sent or inserted time     |
+| `direction`                           | Ascending  | Ascending or descending           |
+| `deliveryStatus`                      | All        | Published, unpublished, or failed |
+| `kind`                                | All        | Application or membership change  |
+| `contentTypes`, `excludeContentTypes` | All / none | Include or exclude content types  |
+| `excludeSenderInboxIds`               | None       | Exclude sender inbox IDs          |
+
+Time filters use `Timestamp` values. A `Timestamp` has an `ns` field for nanoseconds. Pass `direction` when order matters.
+
+`countMessages(options)` returns a count without loading messages. It accepts `ListMessagesOptions`, but ignores `limit`, `direction`, and `sortBy`.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="read-browser.ts" region="messages"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="read-node.ts" region="messages"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+val messages = conversation.messages(ListMessagesOptions(limit = 10u))
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+let messages = try await conversation.messages(options: ListMessagesOptions(limit: 10))
+```
+
+</TabItem>
+</Tabs>
+
+Read the message's `content` value and handle its content kind. For a reply, also inspect `replyContent` or `inReplyToContent`.
+
+### Paginate messages
+
+By default, messages are sorted by `sentAt`. A message can arrive after a newer message. Use `insertedAt` to paginate the local history by insertion time on all four SDKs.
+
+A timestamp-only cursor can skip messages that have the same timestamp at a page boundary. For recent history followed by live delivery, use a [message history snapshot and delivery cursor](/sdk/stream/). A snapshot is a bounded recent tail. To replay all retained delivery history, start an independent reader at `client.conversations.beginningDeliveryCursor()` in each SDK.
+
+Here is how to paginate messages with the cursor that each SDK exposes:
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="read-browser.ts" region="pagination"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="read-node.ts" region="pagination"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val firstPage = group.messages(ListMessagesOptions(
+    limit = 20u,
+    sortBy = MessageSortBy.INSERTED_AT,
+    direction = MessageOrder.DESCENDING,
+))
+val secondPage = group.messages(ListMessagesOptions(
+    limit = 20u,
+    sortBy = MessageSortBy.INSERTED_AT,
+    direction = MessageOrder.DESCENDING,
+    insertedBefore = firstPage.lastOrNull()?.insertedAt,
+))
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let firstPage = try await group.messages(options: ListMessagesOptions(
+  limit: 20, direction: .descending, sortBy: .insertedAt
+))
+let secondPage = try await group.messages(options: ListMessagesOptions(
+  limit: 20, insertedBefore: firstPage.last?.insertedAt,
+  direction: .descending, sortBy: .insertedAt
+))
+```
+
+</TabItem>
+</Tabs>
+
+## List conversations
+
+We recommend listing allowed conversations only. This ensures that spammy conversations don't appear in the main inbox.
+
+| Method                              | Returns        |
+| ----------------------------------- | -------------- |
+| `conversations.list(options)`       | Groups and DMs |
+| `conversations.listGroups(options)` | Groups only    |
+| `conversations.listDms(options)`    | DMs only       |
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="read-browser.ts" region="conversations"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="read-node.ts" region="conversations"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+val conversations = client.conversations.list(
+    ListConversationsOptions(consentStates = listOf(ConsentState.ALLOWED))
+)
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+let conversations = try await client.conversations.list(
+  options: ListConversationsOptions(consentStates: [.allowed])
+)
+```
+
+</TabItem>
+</Tabs>
+
+| Option                                    | Default             | Description                          |
+| ----------------------------------------- | ------------------- | ------------------------------------ |
+| `consentStates`                           | Allowed and unknown | Consent states to include            |
+| `kind`                                    | Both                | Groups or DMs                        |
+| `limit`                                   | None                | Maximum result count                 |
+| `orderBy`                                 | Created time        | Creation or last activity            |
+| `createdBefore`, `createdAfter`           | None                | Creation-time bounds                 |
+| `lastActivityBefore`, `lastActivityAfter` | None                | Last-activity bounds                 |
+| `includeDuplicateDms`                     | `false`             | Include every underlying stitched DM |
+
+These options are available on all four SDKs. Time bounds use `Timestamp` values. Set `orderBy` to creation time and use `createdBefore` to paginate. A timestamp-only boundary can skip conversations with the same creation time.
+
+:::warning[Do not use with streaming]
+Do not paginate a conversation list while a conversation stream adds items to that same list. Keep the stream and paginated result separate until pagination ends.
+:::

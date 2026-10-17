@@ -1,0 +1,33 @@
+included:
+  - ExampleApp
+  - ExampleAppUITests
+  - Packages/ExampleKit/Sources
+  - Packages/ExampleKit/Tests
+excluded:
+  - .build
+# SwiftFormat owns comma placement and braces on wrapped conditions.
+disabled_rules:
+  - trailing_comma
+  - opening_brace
+opt_in_rules:
+  - force_unwrapping
+identifier_name:
+  excluded:
+    - id
+    - dm
+    - x
+    - y
+force_unwrapping:
+  severity: error
+force_try:
+  severity: error
+force_cast:
+  severity: error
+custom_rules:
+  no_optional_try:
+    included:
+      - ".*\\.swift"
+    name: "No optional try"
+    regex: "try[\\?]"
+    message: "Handle this error explicitly."
+    severity: error

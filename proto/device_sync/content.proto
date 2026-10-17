@@ -1,0 +1,46 @@
+// Sync group messages
+syntax = "proto3";
+package xmtp.device_sync.content;
+
+import "device_sync/consent_backup.proto";
+
+option java_package = "org.xmtp.proto.device_sync";
+
+// All potential device sync group messages
+message DeviceSyncContent {
+  reserved 1, 3;
+  reserved "request", "reply";
+
+  oneof content {
+    DeviceSyncAcknowledge acknowledge = 2;
+    PreferenceUpdates preference_updates = 4;
+  }
+}
+
+// Acknowledges a request
+message DeviceSyncAcknowledge {
+  string request_id = 1;
+}
+
+// Preference updates
+message PreferenceUpdates {
+  repeated PreferenceUpdate updates = 1;
+}
+
+// Preference update
+message PreferenceUpdate {
+  oneof update {
+    xmtp.device_sync.consent_backup.ConsentSave consent = 1;
+    HmacKeyUpdate hmac = 2;
+  }
+}
+
+message V1UserPreferenceUpdate {
+  repeated bytes contents = 1;
+}
+
+// Hmac key update
+message HmacKeyUpdate {
+  bytes key = 1;
+  int64 cycled_at_ns = 2;
+}

@@ -1,0 +1,12 @@
+{
+  "extends": "../../../dev/js/tsconfig.node.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "notifications.ts",
+    "publicSurface.ts",
+    "serverConfiguration.ts",
+    "streamOptions.ts"
+  ]
+}

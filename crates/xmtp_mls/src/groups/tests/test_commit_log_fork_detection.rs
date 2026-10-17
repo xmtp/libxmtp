@@ -6,19 +6,163 @@ use crate::groups::validated_commit::ValidatedCommit;
 use crate::tester;
 use openmls::group::MlsGroup as OpenMlsGroup;
 use openmls::prelude::{ProcessedMessageContent, Sender};
-use xmtp_configuration::Originators;
 use xmtp_db::Store;
 use xmtp_db::TransactionOutcome::Rollback;
 use xmtp_db::encrypted_store::local_commit_log::NewLocalCommitLog;
 use xmtp_db::encrypted_store::remote_commit_log::{CommitResult, NewRemoteCommitLog};
+use xmtp_db::incoming_envelope::StreamTopic;
 use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::prelude::*;
 use xmtp_db::{
-    MlsProviderExt, StorageError, TransactionOutcome, TransactionalKeyStore, XmtpOpenMlsProvider,
+    MlsProviderExt, StorageError, TransactionOutcome, TransactionalKeyStore, XmtpOpenMlsProviderRef,
 };
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, Topic};
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+// The fault is artificial. State changes, log writing, signatures, transport,
+// remote verification, and fork detection use the normal implementation.
+// verifies: FORK-040, FORK-073
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_real_divergence_detected_through_signed_commit_logs() {
+    use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;
+    use xmtp_db::consent_record::ConsentState;
+
+    tester!(alix, with_commit_log_worker: false);
+    tester!(bo, with_commit_log_worker: false);
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let b = bo.wait_for_welcomes().await?.first()?.to_owned();
+    b.update_consent_state(ConsentState::Allowed)?;
+
+    // Start with a shared successful commit after Bo's Welcome anchor.
+    a.update_group_name("shared".into()).await?;
+    let target = Cursor(a.local_commit_log().await?.last()?.commit_sequence_id as u64);
+    crate::subscriptions::barrier::wait_through(
+        &b.context,
+        [(Topic::new_group_message(b.group_id), target)].into(),
+        None,
+    )
+    .await?;
+    assert_eq!(
+        b.context
+            .db()
+            .topic_progress(&StreamTopic::group(b.group_id))?
+            .processed,
+        target
+    );
+    assert_eq!(
+        a.context
+            .db()
+            .topic_progress(&StreamTopic::group(a.group_id))?
+            .processed,
+        target
+    );
+    let shared_epoch = b.epoch().await?;
+    let shared_authenticator = b.epoch_authenticator().await?;
+    assert_eq!(a.epoch().await?, shared_epoch);
+    assert_eq!(a.epoch_authenticator().await?, shared_authenticator);
+
+    a.update_group_name("diverged".into()).await?;
+    // Reject one valid commit on Bo. Always remove the injected fault before
+    // checking the result, so subsequent delivery uses real epoch validation.
+    let target = Cursor(a.local_commit_log().await?.last()?.commit_sequence_id as u64);
+    set_test_mode_future_wrong_epoch(true);
+    let rejected_sync = crate::subscriptions::barrier::wait_through(
+        &b.context,
+        [(Topic::new_group_message(b.group_id), target)].into(),
+        None,
+    )
+    .await;
+    set_test_mode_future_wrong_epoch(false);
+    rejected_sync?;
+    assert_eq!(b.epoch().await?, shared_epoch);
+    assert_eq!(b.epoch_authenticator().await?, shared_authenticator);
+    assert!(a.epoch().await? > b.epoch().await?);
+    assert_ne!(
+        a.epoch_authenticator().await?,
+        b.epoch_authenticator().await?
+    );
+
+    let rejected_logs = b.local_commit_log().await?;
+    let rejected = rejected_logs.last()?;
+    assert_eq!(rejected.commit_result, CommitResult::WrongEpoch);
+    assert_eq!(rejected.last_epoch_authenticator, shared_authenticator);
+    assert_eq!(rejected.applied_epoch_authenticator, shared_authenticator);
+    let applied_logs = a.local_commit_log().await?;
+    let applied = applied_logs.last()?;
+    assert_eq!(applied.commit_sequence_id, rejected.commit_sequence_id);
+    assert_eq!(applied.commit_result, CommitResult::Success);
+    assert_eq!(
+        applied.applied_epoch_authenticator,
+        a.epoch_authenticator().await?
+    );
+    assert_ne!(
+        applied.applied_epoch_authenticator,
+        rejected.applied_epoch_authenticator
+    );
+
+    // Clear only the synthetic fault's flag inside this test. A later commit
+    // now has a genuinely future epoch for Bo and must set the flag itself.
+    bo.context.db().clear_fork_flag_for_group(&b.group_id)?;
+    assert!(!b.debug_info().await?.maybe_forked);
+    a.update_group_name("future epoch".into()).await?;
+    let target = Cursor(a.local_commit_log().await?.last()?.commit_sequence_id as u64);
+    crate::subscriptions::barrier::wait_through(
+        &b.context,
+        [(Topic::new_group_message(b.group_id), target)].into(),
+        None,
+    )
+    .await?;
+    // Both clients processed the same prefix, but their MLS states differ.
+    for group in [&a, &b] {
+        assert_eq!(
+            group
+                .context
+                .db()
+                .topic_progress(&StreamTopic::group(group.group_id))?
+                .processed,
+            target
+        );
+    }
+    assert!(b.debug_info().await?.maybe_forked);
+    assert_eq!(b.epoch().await?, shared_epoch);
+    assert_eq!(b.epoch_authenticator().await?, shared_authenticator);
+    assert_ne!(
+        a.epoch_authenticator().await?,
+        b.epoch_authenticator().await?
+    );
+
+    // Local divergence alone is not remote verification. Missing signed
+    // evidence must remain unknown until the publisher's records arrive.
+    let mut checker = CommitLogWorker::new(bo.context.clone());
+    let unknown = checker
+        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .await?;
+    assert_eq!(unknown[0].is_forked.as_ref()?[b.group_id.as_slice()], None);
+
+    let mut publisher = CommitLogWorker::new(alix.context.clone());
+    publisher
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
+        .await?;
+    let saved = checker
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    assert!(saved[0].save_remote_commit_log_results.as_ref()?[b.group_id.as_slice()] > 0);
+    let checked = checker
+        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .await?;
+    assert_eq!(
+        checked[0].is_forked.as_ref()?[b.group_id.as_slice()],
+        Some(true)
+    );
+    assert_eq!(
+        bo.context
+            .db()
+            .get_group_commit_log_forked_status(&b.group_id)?,
+        Some(true)
+    );
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
@@ -98,7 +242,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+// verifies: EVENT-001, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
@@ -158,6 +302,10 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     remote_entry_2.store(&alix.context.db())?;
 
     // Test fork detection
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationForkDetected]),
+        Some(4),
+    );
     let mut worker = CommitLogWorker::new(alix.context.clone());
     let results = worker
         .run_test(CommitLogTestFunction::CheckForkedState, None)
@@ -174,11 +322,19 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
         .get(group_id.as_ref())
         .unwrap();
     assert_eq!(*fork_status, Some(true), "Should detect a fork");
+    worker
+        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .await?;
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConversationForkDetected(fork)), ..
+        }] if fork.group_id == group_id.to_vec()
+    ));
 
     Ok(())
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
@@ -214,19 +370,17 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     remote_entry.store(&alix.context.db())?;
 
     // Get initial cursor values (should be 0)
-    let initial_local_cursor = alix.context.db().get_last_cursor_for_originator(
+    let initial_local_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
-    let initial_remote_cursor = alix.context.db().get_last_cursor_for_originator(
+    let initial_remote_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
 
-    assert_eq!(initial_local_cursor, Cursor::commit_log(0));
-    assert_eq!(initial_remote_cursor, Cursor::commit_log(0));
+    assert_eq!(initial_local_cursor, Cursor(0));
+    assert_eq!(initial_remote_cursor, Cursor(0));
 
     // Test fork detection
     let mut worker = CommitLogWorker::new(alix.context.clone());
@@ -252,24 +406,22 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     );
 
     // Verify cursors were updated
-    let updated_local_cursor = alix.context.db().get_last_cursor_for_originator(
+    let updated_local_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
-    let updated_remote_cursor = alix.context.db().get_last_cursor_for_originator(
+    let updated_remote_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
 
     // Cursors should be updated to the rowids of the matching entries
     assert!(
-        updated_local_cursor > Cursor::commit_log(0),
+        updated_local_cursor > Cursor(0),
         "Local cursor should be updated"
     );
     assert!(
-        updated_remote_cursor > Cursor::commit_log(0),
+        updated_remote_cursor > Cursor(0),
         "Remote cursor should be updated"
     );
 
@@ -325,15 +477,13 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     );
 
     // Verify cursors were updated
-    let updated_two_local_cursor = alix.context.db().get_last_cursor_for_originator(
+    let updated_two_local_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
-    let updated_two_remote_cursor = alix.context.db().get_last_cursor_for_originator(
+    let updated_two_remote_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
     let latest_two_local_log = alix.context.db().get_latest_log_for_group(&group_id)?;
     let latest_two_remote_log = alix
@@ -343,11 +493,11 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 
     assert_eq!(
         updated_two_local_cursor,
-        Cursor::commit_log(latest_two_local_log.unwrap().rowid as u64)
+        Cursor(latest_two_local_log.unwrap().rowid as u64)
     );
     assert_eq!(
         updated_two_remote_cursor,
-        Cursor::commit_log(latest_two_remote_log.unwrap().rowid as u64)
+        Cursor(latest_two_remote_log.unwrap().rowid as u64)
     );
 
     // Verify that the cursor positions are different
@@ -357,7 +507,6 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     Ok(())
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -433,7 +582,6 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     Ok(())
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_status_persistence_no_new_commits()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -614,7 +762,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 /// 3. After re-adding via a new welcome, the `commit_sequence_id == 0` anchor
 ///    stops comparison at the rejoin boundary and reports `None` (unknown) —
 ///    never `Some(true)`.
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_fork_detection_not_triggered_by_removal_and_readd()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -773,10 +921,9 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
 /// the group always advances the epoch and therefore changes the epoch
 /// authenticator. The only legitimate exception — a commit that removes us —
 /// is handled separately (`CommitType::RemovedFromGroup`). If the
-/// authenticator does not advance for an active member, the group state the
-/// commit was merged onto was corrupt/torn (e.g. a cross-process race on a
-/// shared MLS DB: the iOS main app and the Notification Service Extension
-/// share one SQLite DB, but `GroupCommitLock` is in-process only).
+/// authenticator does not advance for an active member, the group state is
+/// inconsistent. Production state writes serialize across processes. This
+/// test writes inconsistent state directly to check the additional merge guard.
 ///
 /// This test constructs such a torn state deterministically:
 /// 1. Pass 1: process a received commit in a rolled-back transaction and
@@ -796,7 +943,7 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
 /// the real receive path the cursor advance, merge, and log write share one
 /// transaction, so the rollback is safe and the message converges via cursor
 /// dedup on retry.
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -871,20 +1018,39 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     let bo_group = bo.group(&alix_group.group_id)?;
     bo_group.sync().await?;
 
-    // Alix publishes an UpdateGroupMembership commit that Bo has not yet
-    // processed.
+    // Record the current cursor, then have Alix publish an
+    // UpdateGroupMembership commit that Bo has not yet processed.
+    let cursor_before_update = bo
+        .context
+        .api()
+        .query_group_messages(bo_group.group_id)
+        .await?
+        .into_iter()
+        .map(|message| message.cursor.0)
+        .max()
+        .unwrap_or_default();
     alix_group.add_members(&[caro.inbox_id()]).await?;
 
-    // Bo fetches the raw commit envelope from the network.
-    let messages = bo
-        .mls_store()
+    // The dictionary-native membership update is a proposal-by-reference.
+    // Replay every proposal from this update before its commit so the copied
+    // group has the proposal store that the commit references.
+    let mut update_messages = bo
+        .context
+        .api()
         .query_group_messages(bo_group.group_id)
-        .await?;
-    let commit_envelope = messages
+        .await?
         .into_iter()
-        .max_by_key(|m| m.cursor.sequence_id)
+        .filter(|message| message.cursor.0 > cursor_before_update)
+        .collect::<Vec<_>>();
+    update_messages.sort_by_key(|message| message.cursor.0);
+    let commit_envelope = update_messages
+        .pop()
         .expect("the add-caro commit must be on the network");
-    let commit_sequence_id = commit_envelope.cursor.sequence_id as i64;
+    assert!(
+        !update_messages.is_empty(),
+        "the add-caro commit must have its proposal envelopes"
+    );
+    let commit_sequence_id = commit_envelope.cursor.0 as i64;
 
     // Bo's group is at epoch E; snapshot the raw epoch-E GroupContext and
     // epoch-keypair kv rows so they can be written back after the sync.
@@ -916,7 +1082,22 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     let mut processed_message = None;
     let result = provider.key_store().transaction(|conn| {
         let storage = conn.key_store();
-        let provider = XmtpOpenMlsProvider::new(storage);
+        let provider = XmtpOpenMlsProviderRef::new(&storage);
+        for proposal_envelope in &update_messages {
+            let proposal = process_message_with_app_data(
+                &mut group_copy,
+                &provider,
+                proposal_envelope.message.clone(),
+                bo.context.version_info().pkg_semver(),
+            )
+            .expect("processing the proposal before its commit succeeds");
+            let ProcessedMessageContent::ProposalMessage(proposal) = proposal.into_content() else {
+                panic!("the commit prefix must contain only proposals");
+            };
+            group_copy
+                .store_pending_proposal(&storage, *proposal)
+                .expect("persisting the proposal before its commit succeeds");
+        }
         processed_message = Some(process_message_with_app_data(
             &mut group_copy,
             &provider,
@@ -995,6 +1176,7 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
         staged_commit,
         &validated_commit,
         commit_sequence_id,
+        xmtp_configuration::ENABLE_COMMIT_LOG,
     );
 
     assert!(

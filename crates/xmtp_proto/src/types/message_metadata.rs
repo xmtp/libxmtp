@@ -13,6 +13,10 @@ pub struct GroupMessageMetadata {
     pub created_ns: chrono::DateTime<Utc>,
     /// GroupId of the message
     pub group_id: GroupId,
+    #[builder(default)]
+    pub envelope_hash: Option<Vec<u8>>,
+    #[builder(default)]
+    pub expiry_ns: Option<u64>,
 }
 
 impl GroupMessageMetadata {
@@ -20,11 +24,7 @@ impl GroupMessageMetadata {
         GroupMessageMetadataBuilder::default()
     }
 
-    pub fn originator_id(&self) -> u32 {
-        self.cursor.originator_id
-    }
-
     pub fn sequence_id(&self) -> u64 {
-        self.cursor.sequence_id
+        self.cursor.0
     }
 }

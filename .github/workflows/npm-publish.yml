@@ -4,57 +4,57 @@ on:
   workflow_call:
     inputs:
       ref:
-        description: 'Git ref to check out, package, and tag. Defaults to the workflow run ref; callers building a different ref MUST pass it or the version stamp and tag land on the wrong commit.'
+        description: "Git ref to check out, package, and tag. Defaults to the workflow run ref; callers building a different ref MUST pass it or the version stamp and tag land on the wrong commit."
         required: false
         type: string
-        default: ''
+        default: ""
       package-dir:
-        description: 'Path to the npm package directory'
+        description: "Path to the npm package directory"
         required: true
         type: string
-      install-dir:
-        description: 'Directory to run `yarn` install from. For a Yarn workspace member this is the workspace root, not the package dir. Defaults to package-dir.'
-        required: false
-        type: string
-        default: ''
-      lockfile-path:
-        description: 'Path to the yarn.lock used for dependency caching. For a Yarn workspace member this is the workspace-root lockfile. Defaults to <package-dir>/yarn.lock.'
-        required: false
-        type: string
-        default: ''
       sdk:
-        description: 'SDK name for release tools (e.g. node-bindings, wasm-bindings)'
+        description: "SDK name for release tools (e.g. node-sdk, browser-sdk)"
         required: true
         type: string
       version:
-        description: 'The version to publish'
+        description: "The version to publish"
         required: true
         type: string
       artifact-pattern:
-        description: 'Pattern for downloading build artifacts (optional)'
+        description: "Pattern for downloading build artifacts (optional)"
         required: false
         type: string
       artifact-path:
-        description: 'Path to download artifacts to (required if artifact-pattern is set)'
+        description: "Path to download artifacts to (required if artifact-pattern is set)"
         required: false
         type: string
       ignore-scripts:
-        description: 'Skip npm lifecycle scripts during publish (e.g. prepublishOnly)'
+        description: "Skip npm lifecycle scripts during publish (e.g. prepublishOnly)"
         required: false
         type: boolean
         default: false
       dep-name:
-        description: 'Dependency name to pin before publish (e.g. @xmtp/node-bindings)'
+        description: "Dependency name to pin before publish (e.g. @xmtp/node-sdk)"
         required: false
         type: string
-        default: ''
+        default: ""
       dep-version:
-        description: 'Exact version to pin the dependency to (e.g. 1.2.3-nightly.20260604.abc1234)'
+        description: "Exact version to pin the dependency to (e.g. 1.2.3-nightly.20260604.abc1234)"
         required: false
         type: string
-        default: ''
+        default: ""
+      dep-name-2:
+        description: "Second dependency name to pin before publish"
+        required: false
+        type: string
+        default: ""
+      dep-version-2:
+        description: "Exact version for the second dependency"
+        required: false
+        type: string
+        default: ""
       dry-run:
-        description: 'When true, run all steps EXCEPT the npm publish and tag (no side effects)'
+        description: "When true, run all steps EXCEPT the npm publish and tag (no side effects)"
         required: false
         type: boolean
         default: false
@@ -64,37 +64,40 @@ on:
         value: ${{ jobs.publish.outputs.version }}
 
 jobs:
+  check-push-permissions:
+    uses: ./.github/workflows/check-release-push.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      dry-run: ${{ inputs.dry-run }}
+    secrets: inherit
+
   publish:
+    needs: [check-push-permissions]
     permissions:
       id-token: write
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     outputs:
       version: ${{ inputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+          fetch-depth: 0
+          # Full history for the release tag, without blobs; git-cliff, which
+          # fails on a blobless clone, does not run here.
+          filter: blob:none
 
       - name: Download build artifacts
         if: ${{ inputs.artifact-pattern != '' }}
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: ${{ inputs.artifact-pattern }}
           merge-multiple: true
           path: ${{ inputs.artifact-path }}
 
-      - name: Setup node
-        uses: ./.github/actions/setup-node
-        with:
-          cache-dependency-path: "${{ inputs.lockfile-path != '' && inputs.lockfile-path || format('{0}/yarn.lock', inputs.package-dir) }}"
-
       - uses: ./.github/actions/setup-release-tools
-
-      - name: Install dependencies
-        working-directory: ${{ inputs.install-dir != '' && inputs.install-dir || inputs.package-dir }}
-        run: yarn
 
       - name: Set version
         run: xmtp-release set-manifest-version --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}"
@@ -102,6 +105,16 @@ jobs:
       - name: Pin binding dependency version
         if: ${{ inputs.dep-name != '' }}
         run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name }}" --version "${{ inputs.dep-version }}"
+
+      - name: Pin second dependency version
+        if: ${{ inputs.dep-name-2 != '' }}
+        run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name-2 }}" --version "${{ inputs.dep-version-2 }}"
+
+      - name: Set the packed product version
+        env:
+          PACKAGE_DIRECTORY: ${{ inputs.package-dir }}
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: xmtp-release stamp-package --dir "$PACKAGE_DIRECTORY" --version "$PACKAGE_VERSION"
 
       - name: Determine NPM tag
         id: npm-tag
@@ -114,16 +127,71 @@ jobs:
             echo "tag=latest" >> $GITHUB_OUTPUT
           fi
 
-      # OIDC trusted publishing needs npm >= 11.5.1. Pinned to major 11 because
-      # npm 12 requires node >= 24.15, newer than the .node-version pin.
+      # OIDC trusted publishing needs npm >= 11.5.1. Keep the tested major
+      # stable instead of taking a new npm major from the runner image.
       - name: Update npm
         run: npm install -g npm@11
 
+      - name: Pack package
+        env:
+          IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+        run: |
+          pack_dir="$RUNNER_TEMP/npm-pack"
+          mkdir -p "$pack_dir"
+          pnpm --dir "${{ inputs.package-dir }}" pack \
+            --config.node-linker=hoisted \
+            --config.ignore-scripts="$IGNORE_SCRIPTS" \
+            --pack-destination "$pack_dir"
+          shopt -s nullglob
+          tarballs=("$pack_dir"/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "::error::expected one package tarball, found ${#tarballs[@]}"
+            exit 1
+          fi
+          echo "PACKAGE_TARBALL=${tarballs[0]}" >> "$GITHUB_ENV"
+
+      - name: Prepare release tag
+        if: ${{ inputs.dry-run != true }}
+        env:
+          SDK: ${{ inputs.sdk }}
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ needs.check-push-permissions.outputs.source-sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$SOURCE_SHA" ]; then
+            echo "::error::Release HEAD does not match the selected source commit"
+            exit 1
+          fi
+          xmtp-release tag-release --sdk "$SDK" --version "$VERSION" --no-push --ignore-if-exists
+          tag_ref="refs/tags/${SDK}-${VERSION}"
+          tag_sha=$(git rev-parse "$tag_ref^{commit}")
+          if [ "$tag_sha" != "$SOURCE_SHA" ]; then
+            echo "::error::Release tag does not match the selected source commit"
+            exit 1
+          fi
+          git bundle create "$RUNNER_TEMP/release.bundle" "$tag_ref"
+      - name: Store release tag
+        if: ${{ inputs.dry-run != true }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-tag-${{ inputs.sdk }}
+          path: ${{ runner.temp }}/release.bundle
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Publish to NPM
         if: ${{ inputs.dry-run != true }}
-        working-directory: ${{ inputs.package-dir }}
-        run: npm publish --provenance ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
+        run: npm publish "$PACKAGE_TARBALL" --provenance ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
 
-      - name: Tag release
-        if: ${{ inputs.dry-run != true }}
-        run: xmtp-release tag-release --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}" --ignore-if-exists
+      - name: Preview NPM package
+        if: ${{ inputs.dry-run == true }}
+        run: npm publish "$PACKAGE_TARBALL" --dry-run ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
+
+  push-tag:
+    needs: [publish, check-push-permissions]
+    if: ${{ inputs.dry-run != true }}
+    uses: ./.github/workflows/push-release-tag.yml
+    with:
+      sdk: ${{ inputs.sdk }}
+      version: ${{ inputs.version }}
+      source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
+    secrets: inherit

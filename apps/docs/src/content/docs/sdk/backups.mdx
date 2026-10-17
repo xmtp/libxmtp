@@ -1,0 +1,137 @@
+---
+title: Backups
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Support archive-based backups to give your users an easy and durable way to back up their XMTP conversations, messages, and consent preferences from one app installation and import them into another.
+
+When an archive adds a conversation that is absent from the local database, that conversation starts inactive. Its imported history is visible in read-only mode. Import does not grant MLS membership or provide group secrets. A validated Welcome must add this installation before it can send or decrypt new messages. A conversation that is already in the database keeps its current live state.
+
+This feature includes three operations:
+
+- `exportToBytes` creates an encrypted archive in memory. Native SDKs also expose `exportToFile`.
+- `metadataFromBytes` reads metadata before import. Native SDKs also expose `metadataFromFile`.
+- `importFromBytes` imports an archive into the current installation. Native SDKs also expose `importFromFile`.
+
+Browser uses in-memory `Uint8Array` data. Node, Kotlin, and Swift also support file paths. Supply a key of exactly 32 bytes. Other key lengths fail. Store the key separately from the archive.
+
+## Create an archive
+
+The options can limit the time range and include messages, consent records, or both. `excludeDisappearingMessages` defaults to `false`.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="backups-browser.ts" region="create"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="backups-node.ts" region="create"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+client.archives().exportToFile(
+    path = "/path/to/archive.xmtp",
+    keyBytes = encryptionKey,
+    options = ArchiveOptions(excludeDisappearingMessages = true),
+)
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+try await client.archives().exportToFile(
+  path: "/path/to/archive.xmtp",
+  keyBytes: encryptionKey,
+  options: ArchiveOptions(excludeDisappearingMessages: true)
+)
+```
+
+</TabItem>
+</Tabs>
+
+## Read metadata
+
+`ArchiveMetadata` contains `backupVersion`, `elements`, `exportedAt`, `start`, and `end`. The time fields use the SDK `Timestamp` type. Browser reads metadata from bytes. Node, Kotlin, and Swift can read it from bytes or a file path. Both methods require the encryption key.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="backups-browser.ts" region="metadata"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="backups-node.ts" region="metadata"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+val metadata = client.archives().metadataFromFile(
+    path = "/path/to/archive.xmtp",
+    keyBytes = encryptionKey,
+)
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+let metadata = try await client.archives().metadataFromFile(
+  path: "/path/to/archive.xmtp",
+  keyBytes: encryptionKey
+)
+```
+
+</TabItem>
+</Tabs>
+
+## Import an archive
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="backups-browser.ts" region="import"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="backups-node.ts" region="import"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+client.archives().importFromFile(path = "/path/to/archive.xmtp", keyBytes = encryptionKey)
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+try await client.archives().importFromFile(path: "/path/to/archive.xmtp", keyBytes: encryptionKey)
+```
+
+</TabItem>
+</Tabs>
+
+The archive import is **additive**, not destructive: existing messages are preserved, and duplicate messages are ignored.
+
+## Handle inactive conversations
+
+Sending to or syncing an imported inactive conversation fails with an inactive-group error. Show its history as read-only. An active member must add this installation. After the SDK processes a valid Welcome, the conversation can become active.

@@ -1,0 +1,152 @@
+export NIX_DEVSHELL := env("NIX_DEVSHELL", "rust")
+set shell := ["./dev/nix-shell"]
+set working-directory := "../.."
+
+root := justfile_directory()
+musl_arch := if arch() == "aarch64" { "aarch64" } else { "x86_64" }
+
+# Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
+# `_env` loads it so a recipe inherits this worktree's values. An already-set
+# variable always wins, so CI and one-off overrides are untouched.
+_env := ". " + root + "/dev/docker/load-env"
+
+# Run one command with fresh test services (nix/services `clientServices`:
+# PostgreSQL without a replica, S3, anvil, the backend, and toxiproxy) on this
+# worktree's ports. The services stop when the command exits. In CI the
+# service logs go to $RUNNER_TEMP/backend-ci-logs. A script recipe preserves
+# each argument.
+[script('bash')]
+[positional-arguments]
+ci +args:
+    set -euo pipefail
+    # Do not pass this module's default Rust shell to the child command.
+    if [ -z {{ quote(env("NIX_DEVSHELL", "")) }} ]; then unset NIX_DEVSHELL; fi
+    {{ _env }}
+    printf -v XMTP_SERVICES_TEST_COMMAND '%q ' "$@"
+    export XMTP_SERVICES_TEST_COMMAND
+    if [ -n "${RUNNER_TEMP:-}" ]; then
+      export XMTP_SERVICES_LOGS="${XMTP_SERVICES_LOGS:-$RUNNER_TEMP/backend-ci-logs}"
+    fi
+    exec nix run {{ root }}#services-test
+
+# Build the binary.
+build:
+    env -u LD_LIBRARY_PATH nix build {{ root }}#xmtp-backend
+
+# Build the container image for an explicit musl architecture, or the host
+# architecture.
+#
+# A devshell puts a newer glibc on the library path, which breaks the system git
+# that Nix starts to fetch a git dependency. Remove that path for Nix.
+[script('/bin/sh')]
+image target_arch=musl_arch:
+    env -u LD_LIBRARY_PATH nix build {{ root }}#backend-image-{{ target_arch }}-unknown-linux-musl --out-link {{ root }}/result-backend-image
+
+# Run the backend outside Docker against the `db-up` database.
+run:
+    {{ _env }} && \
+      XMTP_DATABASE_URL="$DATABASE_URL" XMTP_REPLICA_URL="$XMTP_REPLICA_URL" XMTP_CHAIN_31337_URL="$ANVIL_URL" \
+      nix run {{ root }}#xmtp-backend -- --config-file {{ root }}/dev/backend/local.toml
+
+# Backend unit, RPC, storage, replica, and ingress tests. Needs `db-up`.
+test *args="":
+    {{ _env }} && \
+      RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" "{{ root }}/dev/agent-run" cargo test --locked -p xmtp_backend {{ args }}
+
+db-up:
+    {{ root }}/dev/docker/up db replica
+
+# Start the S3 test target without building the backend image.
+s3-up:
+    {{ root }}/dev/docker/up s3 s3-init
+
+sql-prepare:
+    {{ _env }} && cargo sqlx migrate run --source apps/backend/migrations
+    {{ _env }} && cd apps/backend && cargo sqlx prepare -- --all-targets
+
+sql-check:
+    {{ _env }} && cargo sqlx migrate run --source apps/backend/migrations
+    {{ _env }} && cd apps/backend && cargo sqlx prepare --check -- --all-targets
+
+[script("bash")]
+schema:
+    set -euo pipefail
+    schema_tmp="$(mktemp docs/schemas/backend-v1.XXXXXX)"
+    trap 'rm -f "$schema_tmp"' EXIT
+    cargo run --locked --quiet -p xmtp_backend --example config_schema > "$schema_tmp"
+    mv "$schema_tmp" docs/schemas/backend-v1.json
+
+# Load the `image` build under this worktree's own tag, XMTP_BACKEND_IMAGE.
+# Compose runs that tag, so another worktree's load cannot replace this build.
+# Any other value is an image to run instead, such as a published release:
+# never put a local build on that tag.
+[private]
+_load-image: image
+    {{ _env }} && if [ "$XMTP_BACKEND_IMAGE" = "xmtp-backend:$XMTP_COMPOSE_PROJECT" ]; then \
+      {{ root }}/dev/docker/load-backend-image {{ root }}/result-backend-image "$XMTP_BACKEND_IMAGE"; \
+    else \
+      echo "XMTP_BACKEND_IMAGE is $XMTP_BACKEND_IMAGE: running it, not this worktree's build." >&2; \
+    fi
+
+# Start the shared SDK and observability stack with this worktree's build.
+up *services: _load-image
+    {{ root }}/dev/docker/up {{ services }}
+
+down:
+    {{ root }}/dev/docker/compose down
+
+logs *services:
+    {{ root }}/dev/docker/compose logs {{ services }}
+
+# Show this worktree's stack identity: project, slot, ports, and URLs.
+#
+# One shell for the whole recipe: each recipe line is its own shell, so the
+# environment has to be loaded in the same command that reads it.
+@status:
+    {{ _env }} && printf '%s\n' \
+      "worktree:   $XMTP_WORKTREE_NAME (slot $XMTP_WORKTREE_SLOT)" \
+      "project:    $XMTP_COMPOSE_PROJECT" \
+      "image:      $XMTP_BACKEND_IMAGE" \
+      "backend:    $XMTP_BACKEND_URL" \
+      "toxic:      $XMTP_BACKEND_TOXIC_URL" \
+      "anvil:      $ANVIL_URL" \
+      "s3:      $XMTP_S3_URL" \
+      "database:   $DATABASE_URL" \
+      "replica:    $XMTP_REPLICA_URL" \
+      "grafana:    http://127.0.0.1:$XMTP_GRAFANA_PORT" \
+      "prometheus: http://127.0.0.1:$XMTP_PROMETHEUS_PORT" \
+      "tempo:      http://127.0.0.1:$XMTP_TEMPO_PORT" \
+      "metrics:    http://127.0.0.1:$XMTP_BACKEND_METRICS_PORT/metrics" \
+      && docker compose -f {{ root }}/dev/docker/compose.yml -p "$XMTP_COMPOSE_PROJECT" ps 2>/dev/null || true
+
+# Stop this worktree's stack, give up its port slot, and remove its image tag.
+#
+# Teardown must succeed before the claim is dropped: releasing a slot whose
+# containers are still running would let another worktree claim those ports.
+[script("bash")]
+release:
+    set -euo pipefail
+    {{ root }}/dev/docker/compose down --volumes
+    {{ _env }}
+    # Remove only the tag this worktree derived, never an override such as a
+    # published image. Shared layers stay while another tag uses them. Do it
+    # before the release: after it, a rerun can derive another slot's tag. A
+    # failure, such as a container that still uses the tag, must not keep the slot.
+    if [ "$XMTP_BACKEND_IMAGE" = "xmtp-backend:$XMTP_COMPOSE_PROJECT" ] &&
+      docker image inspect "$XMTP_BACKEND_IMAGE" >/dev/null 2>&1; then
+      docker image rm "$XMTP_BACKEND_IMAGE" >/dev/null ||
+        echo "release: kept $XMTP_BACKEND_IMAGE. Remove it with 'docker image rm' when no container uses it." >&2
+    fi
+    {{ root }}/dev/worktree-env --release
+
+# Verify client traces, backend metrics, and the local dashboard.
+observe-check:
+    bash {{ root }}/dev/docker/observe-check.sh
+
+# Build and check the separate HAProxy TLS validation stack. Always clean up.
+[script("bash")]
+tls-check: _load-image
+    set -euo pipefail
+    trap '{{ root }}/dev/tls/down' EXIT
+    {{ root }}/dev/tls/up
+    {{ root }}/dev/tls/check.sh

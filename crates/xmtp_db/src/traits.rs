@@ -1,12 +1,11 @@
 use crate::ConnectionExt;
 use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
-use crate::d14n_migration_cutover::QueryMigrationCutover;
-use crate::icebox::QueryIcebox;
 use crate::message_deletion::QueryMessageDeletion;
 use crate::pending_remove::QueryPendingRemove;
 use crate::prelude::*;
 use crate::readd_status::QueryReaddStatus;
+use crate::received_proposal::QueryReceivedProposal;
 use xmtp_common::{MaybeSend, MaybeSync};
 
 /// Get an MLS Key store in the context of a transaction
@@ -69,8 +68,11 @@ pub trait DbQuery:
     MaybeSend
     + MaybeSync
     + ReadOnly
+    + QueryLocalAttachment
+    + QueryPendingAttachment
     + QueryConsentRecord
     + QueryConversationList
+    + QueryConversationState
     + QueryDms
     + QueryGroup
     + QueryGroupVersion
@@ -83,26 +85,33 @@ pub trait DbQuery:
     + QueryDeviceSyncMessages
     + QueryRefreshState
     + QueryIdentityUpdates
+    + QueryIncomingEnvelope
+    + QueryDelivery
+    + QueryPreparedEnvelope
     + QueryLocalCommitLog
     + QueryRemoteCommitLog
+    + QueryServerConfiguration
     + QueryAssociationStateCache
     + QueryReaddStatus
+    + QueryReceivedProposal
     + QueryTasks
+    + QueryNotifications
     + QueryPendingRemove
-    + QueryIcebox
     + QueryMessageDeletion
-    + QueryMigrationCutover
     + Pragmas
     + crate::ConnectionExt
 {
 }
 
-impl<T: ?Sized> DbQuery for T where
+impl<T> DbQuery for T where
     T: MaybeSend
         + MaybeSync
         + ReadOnly
+        + QueryLocalAttachment
+        + QueryPendingAttachment
         + QueryConsentRecord
         + QueryConversationList
+        + QueryConversationState
         + QueryDms
         + QueryGroup
         + QueryGroupVersion
@@ -115,15 +124,19 @@ impl<T: ?Sized> DbQuery for T where
         + QueryDeviceSyncMessages
         + QueryRefreshState
         + QueryIdentityUpdates
+        + QueryIncomingEnvelope
+        + QueryDelivery
+        + QueryPreparedEnvelope
         + QueryLocalCommitLog
         + QueryRemoteCommitLog
+        + QueryServerConfiguration
         + QueryAssociationStateCache
         + QueryReaddStatus
+        + QueryReceivedProposal
         + QueryTasks
+        + QueryNotifications
         + QueryPendingRemove
-        + QueryIcebox
         + QueryMessageDeletion
-        + QueryMigrationCutover
         + Pragmas
         + crate::ConnectionExt
 {

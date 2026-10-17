@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-
-docker build -t xmtp/mls-validation-service:latest -f ./dev/validation_service/Dockerfile .

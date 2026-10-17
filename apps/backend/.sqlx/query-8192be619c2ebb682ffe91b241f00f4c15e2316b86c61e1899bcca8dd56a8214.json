@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE push_recipient SET topic_count = $2, renewed_ns = $3 WHERE recipient_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8192be619c2ebb682ffe91b241f00f4c15e2316b86c61e1899bcca8dd56a8214"
+}

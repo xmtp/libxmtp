@@ -17,9 +17,7 @@ from pathlib import Path
 
 TARGETS = [
     ("native-default", "Native"),
-    ("native-d14n", "Native + d14n"),
     ("wasm-default", "WASM"),
-    ("wasm-d14n", "WASM + d14n"),
 ]
 
 # nextest exit codes: 0 = all passed, 100 = some tests failed. Anything

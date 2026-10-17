@@ -1,6 +1,5 @@
 //! Construction of the HTTP clients libxmtp uses for plain HTTP(S) endpoints.
 //!
-//! Today that is the history server: device-sync archive upload and download.
 //! gRPC traffic does not go through here — it is configured in `xmtp_api_grpc`.
 
 /// Build a [`reqwest::Client`] for talking to XMTP HTTP endpoints.
@@ -12,8 +11,7 @@
 /// `Expect rustls-platform-verifier to be initialized` unless the *host application*
 /// initializes it over JNI with a `Context` and also ships the crate's Kotlin component.
 /// libxmtp is consumed as a plain `.so` through uniffi, so that initialization never
-/// happens, and the device-sync worker took the whole app down on its first archive
-/// transfer.
+/// happens, and an HTTP request could take the whole app down on its first TLS connection.
 ///
 /// So on Android we hand reqwest a rustls config built from the bundled webpki roots and
 /// the platform verifier is never constructed. This mirrors `xmtp_api_grpc`, which

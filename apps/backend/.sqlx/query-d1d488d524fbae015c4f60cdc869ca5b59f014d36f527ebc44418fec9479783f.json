@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE allocation_boundary SET closed_sequence_id = 9 WHERE singleton",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d1d488d524fbae015c4f60cdc869ca5b59f014d36f527ebc44418fec9479783f"
+}

@@ -1,0 +1,17 @@
+name: Lint Protobuf
+on:
+  workflow_call:
+env:
+  NIX_DEVSHELL: rust
+jobs:
+  lint:
+    name: Lint (Protobuf)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: "ci"
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
+      - run: just lint-proto

@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pg_wal_replay_resume()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pg_wal_replay_resume",
+        "type_info": "Void",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "60b90abc29698983e2e4692a83b775e1fb488f3a8ef15db707f4661d50f78aa2"
+}

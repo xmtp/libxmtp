@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Source checks of public names. `check-generated-surface` checks the
+# generated names.
+set -euo pipefail
+
+if rg -n 'pub (async fn|fn) [a-z_]*_at_ns\b|pub [a-z_]*_at_ns:' crates/xmtp_sdk/src --glob '*.rs'; then
+  echo "an exported nanosecond timestamp still has an _at_ns name" >&2
+  exit 1
+fi
+if rg -n '_i_d' crates/xmtp_sdk/uniffi.toml; then
+  echo "a cosmetic ID rename remains" >&2
+  exit 1
+fi
+if rg -n '(^|[[:space:]])(class|struct) (InboxId|InstallationId|ConversationId|MessageId)\b|\b(fromString|fromBytes)\(' apps/xmtp_sdk_bindgen/runtime \
+  --glob '*.swift' --glob '*.kt' --glob '*.ts'; then
+  echo "a host ID wrapper or factory remains" >&2
+  exit 1
+fi
+
+echo "Public names use stock casing and timestamp values"

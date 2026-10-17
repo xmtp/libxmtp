@@ -11,6 +11,7 @@ use diesel::{
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
+use std::collections::HashMap;
 use xmtp_configuration::OPENMLS_KV_TARGET;
 
 #[cfg(any(feature = "test-utils", test))]
@@ -19,6 +20,7 @@ mod transactions;
 
 const SELECT_QUERY: &str =
     "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
+const GROUP_CONTEXT_BATCH_SIZE: usize = 500;
 const REPLACE_QUERY: &str =
     "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
 const UPDATE_QUERY: &str =
@@ -148,6 +150,47 @@ impl<C> SqlKeyStore<C>
 where
     C: ConnectionExt,
 {
+    /// Read group contexts with one query per batch for conversation lists.
+    pub fn read_group_contexts(
+        &self,
+        group_ids: &[xmtp_proto::types::GroupId],
+    ) -> Result<HashMap<xmtp_proto::types::GroupId, openmls::group::GroupContext>, SqlKeyStoreError>
+    {
+        use crate::schema::openmls_key_value::dsl as kv;
+
+        let keys = group_ids
+            .iter()
+            .map(|id| {
+                let key = build_key::<CURRENT_VERSION, &openmls::group::GroupId>(
+                    GROUP_CONTEXT_LABEL,
+                    &id.to_openmls(),
+                )?;
+                Ok::<_, SqlKeyStoreError>((
+                    build_key_from_vec::<CURRENT_VERSION>(GROUP_CONTEXT_LABEL, key),
+                    *id,
+                ))
+            })
+            .collect::<Result<HashMap<_, _>, _>>()?;
+        let mut contexts = HashMap::with_capacity(keys.len());
+        let storage_keys = keys.keys().cloned().collect::<Vec<_>>();
+        for batch in storage_keys.chunks(GROUP_CONTEXT_BATCH_SIZE) {
+            #[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+            record_kv_read();
+            let rows: Vec<(Vec<u8>, Vec<u8>)> = self.conn.raw_query(|conn| {
+                kv::openmls_key_value
+                    .filter(kv::key_bytes.eq_any(batch))
+                    .filter(kv::version.eq(CURRENT_VERSION as i32))
+                    .select((kv::key_bytes, kv::value_bytes))
+                    .load(conn)
+            })?;
+            for (key, bytes) in rows {
+                let id = keys[&key];
+                contexts.insert(id, deserialize_bincode(GROUP_CONTEXT_LABEL, &bytes)?);
+            }
+        }
+        Ok(contexts)
+    }
+
     fn select_query<const VERSION: u16>(
         &self,
         storage_key: &Vec<u8>,

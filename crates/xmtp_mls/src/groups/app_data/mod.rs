@@ -1,30 +1,29 @@
-//! App-data plumbing for moving group state from group context extensions
-//! onto OpenMLS `AppDataUpdate` proposals.
+//! Group state stored in the OpenMLS AppData dictionary.
 //!
 //! This module is the bridge between the per-field intent handlers in
-//! `mls_sync` and the OpenMLS app data dictionary. It is intentionally
-//! `pub(crate)` — there is no public API for reading or writing arbitrary
-//! components. The existing per-field helpers (`update_group_name`,
-//! `update_admin_list_action`, …) keep their signatures and route through
-//! the appropriate sub-module here when the group has flipped
-//! `proposals_enabled`.
+//! `mls_sync` and the OpenMLS app data dictionary. The existing per-field
+//! helpers (`update_group_name`, `update_admin_list_action`, …) keep their
+//! signatures and route through the appropriate sub-module here. The
+//! component codec lives in `xmtp_mls_common::app_data::component_source`;
+//! its helpers transform bytes and do not change a group by themselves.
+//!
+//! `membership_upkeep` adds the registry reconciliation and removed-member
+//! cleanup that ride along with every commit this client builds.
 
-// `pub` (rather than `pub(crate)`) so the public `GroupError::ComponentSource`
-// variant in `crate::groups::error` doesn't trip the `private_interfaces`
-// lint. The functions inside the module remain `pub(crate)`, so the wider
-// crate ecosystem still can't read or write arbitrary components — only
-// `GroupError` consumers see the error type.
+#[allow(
+    dead_code,
+    reason = "Retained for removal with migration code in Task 5"
+)]
 pub(crate) mod bootstrap_validator;
-pub mod component_source;
+pub(crate) mod membership_upkeep;
 pub mod migration;
-pub(crate) mod policy;
 pub(crate) mod sender_intents;
-pub(crate) mod typed_facade;
 
 use std::collections::BTreeMap;
 
 use openmls::{
     component::ComponentData,
+    extensions::AppDataDictionary,
     framing::{MlsMessageOut, ProcessedMessage, ProtocolMessage},
     group::{
         AppDataUpdates, MlsGroup as OpenMlsGroup, ProcessMessageError, ProposalError,
@@ -39,10 +38,12 @@ use openmls::{
 };
 use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::ComponentRegistry};
 
-use self::component_source::{
+use xmtp_configuration::ApplicationComponentDefinition;
+use xmtp_mls_common::app_data::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
-use crate::groups::validated_commit::LibXMTPVersion;
+use xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding;
+use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
@@ -88,7 +89,7 @@ pub enum ProcessMessageWithAppDataError<StorageError: std::error::Error> {
     /// forks a group: peers above the floor accept the commit and
     /// advance without us.
     ///
-    /// Converted to `CommitValidationError::ProtocolVersionTooLow` at
+    /// Converted to `CommitRuleError::ProtocolVersionTooLow` at
     /// the `mls_sync` boundary so the existing pause machinery
     /// (`set_group_paused`, held cursor, reprocess-on-upgrade) applies
     /// unchanged.
@@ -111,17 +112,7 @@ pub enum ProcessMessageWithAppDataError<StorageError: std::error::Error> {
 /// produce the resulting [`AppDataUpdates`] the commit builder / message
 /// processor wants.
 ///
-/// Accumulates per-component state in a local [`BTreeMap`]
-/// (`Some(bytes)` for an Update, `None` for a Remove) so that two proposals
-/// targeting the same component inside one batch chain correctly — the
-/// second one's `apply_app_data_update_payload` call sees the first
-/// proposal's effect as its `old_value`. The migration PR's bootstrap
-/// commit emits multiple `AppDataUpdate(COMPONENT_REGISTRY, ...)` proposals
-/// back-to-back and would otherwise lose all but the last one.
-///
-/// Returns `Ok(None)` when the iterator yields no proposals (an empty
-/// `BTreeMap::new()` is heap-free, so the common zero-proposal case costs
-/// essentially nothing).
+/// Returns `Ok(None)` when the iterator yields no proposals.
 pub(crate) fn accumulate_app_data_updates<'a, I>(
     mls_group: &OpenMlsGroup,
     proposals: I,
@@ -129,85 +120,106 @@ pub(crate) fn accumulate_app_data_updates<'a, I>(
 where
     I: IntoIterator<Item = (openmls::component::ComponentId, &'a AppDataUpdateOperation)>,
 {
-    let mut in_batch: BTreeMap<openmls::component::ComponentId, Option<Vec<u8>>> = BTreeMap::new();
+    let mut batch = AppDataBatch::new(mls_group)?;
+    for (id, operation) in proposals {
+        batch.apply(id, operation)?;
+    }
+    Ok(batch.updates())
+}
 
-    // Load the pre-commit registry once. It supplies the
-    // `ComponentType` tag the type-aware dispatcher in
-    // `apply_app_data_update_payload` uses when an unknown component id
-    // arrives. Registry updates that land in the same commit don't
-    // retroactively change this snapshot — the typed path would need
-    // an in-batch registry overlay to handle the corner case where the
-    // very same commit both registers a new component and writes to
-    // it.
-    let registry = load_component_registry(mls_group)?;
+/// The dictionary a sequence of `AppDataUpdate` proposals produces, built
+/// one proposal at a time.
+///
+/// Per-component state (`Some(bytes)` for an Update, `None` for a Remove)
+/// lets two proposals for the same component chain: the second sees the
+/// first's effect as its old value. Every payload decodes against the
+/// pre-commit registry, as on the receive side, so a registry change in
+/// the same commit does not change how its other updates are read.
+pub(crate) struct AppDataBatch<'a> {
+    group: &'a OpenMlsGroup,
+    registry: ComponentRegistry,
+    states: BTreeMap<openmls::component::ComponentId, Option<Vec<u8>>>,
+}
 
-    for (openmls_id, operation) in proposals {
-        let xmtp_id = ComponentId::from(openmls_id);
-        match operation {
+impl<'a> AppDataBatch<'a> {
+    pub(crate) fn new(group: &'a OpenMlsGroup) -> Result<Self, ComponentSourceError> {
+        Ok(Self {
+            group,
+            registry: load_component_registry(group)?,
+            states: BTreeMap::new(),
+        })
+    }
+
+    /// A batch holding the group's pending proposals, in the order a
+    /// commit that consumes the proposal store applies them.
+    pub(crate) fn pending(group: &'a OpenMlsGroup) -> Result<Self, ComponentSourceError> {
+        let mut batch = Self::new(group)?;
+        for queued in group.pending_proposals() {
+            if let Proposal::AppDataUpdate(proposal) = queued.proposal() {
+                batch.apply(proposal.component_id(), proposal.operation())?;
+            }
+        }
+        Ok(batch)
+    }
+
+    pub(crate) fn apply(
+        &mut self,
+        id: openmls::component::ComponentId,
+        operation: &AppDataUpdateOperation,
+    ) -> Result<(), ComponentSourceError> {
+        let value = match operation {
             AppDataUpdateOperation::Update(payload) => {
-                // Resolve `old_value` from in-batch state first; fall back
-                // to the pre-commit dict only if no earlier proposal in
-                // this batch touched the same component. The match borrows
-                // from `in_batch` only for the duration of the arm body —
-                // `apply_app_data_update_payload` returns an owned `Vec<u8>`
-                // that outlives the borrow, so the follow-up `insert` is
-                // legal without cloning the prior bytes.
-                let new_value = match in_batch.get(&openmls_id) {
-                    Some(Some(bytes)) => apply_app_data_update_payload(
+                let xmtp_id = ComponentId::from(id);
+                let old = self.state(xmtp_id);
+                Some(
+                    apply_app_data_update_payload(
                         xmtp_id,
                         payload.as_slice(),
-                        Some(bytes.as_slice()),
-                        &registry,
-                    ),
-                    Some(None) => {
-                        apply_app_data_update_payload(xmtp_id, payload.as_slice(), None, &registry)
-                    }
-                    None => {
-                        let from_dict = read_from_app_data_dict(xmtp_id, mls_group);
-                        apply_app_data_update_payload(
-                            xmtp_id,
-                            payload.as_slice(),
-                            from_dict.as_deref(),
-                            &registry,
-                        )
-                    }
-                }
-                .inspect_err(|e| {
-                    tracing::warn!(
-                        component_id = %xmtp_id,
-                        error = %e,
-                        "Failed to apply AppDataUpdate payload"
-                    );
-                })?;
-                in_batch.insert(openmls_id, Some(new_value));
+                        old.as_deref(),
+                        &self.registry,
+                    )
+                    .inspect_err(|e| {
+                        tracing::warn!(
+                            component_id = %xmtp_id,
+                            error = %e,
+                            "Failed to apply AppDataUpdate payload"
+                        );
+                    })?,
+                )
             }
-            AppDataUpdateOperation::Remove => {
-                // Maps straight to `updater.remove(&id)` below — the
-                // component impl's `apply_update_payload` is never
-                // consulted for `Remove`, so component-level Remove
-                // rejections (e.g. the whole-registry Remove ban in
-                // `ComponentRegistryComponent::expand_to_changes`) are
-                // enforced during commit validation
-                // (`ValidatedCommit::from_staged_commit`), not
-                // re-checked here. That's sound because both current
-                // commit-processing paths validate before applying.
-                in_batch.insert(openmls_id, None);
-            }
+            // A Remove never consults the component's payload rules, so
+            // component-level Remove rejections (e.g. the whole-registry
+            // Remove ban) are enforced by commit validation, which both
+            // commit-processing paths run before applying.
+            AppDataUpdateOperation::Remove => None,
+        };
+        self.states.insert(id, value);
+        Ok(())
+    }
+
+    /// The component's value after the proposals applied so far.
+    pub(crate) fn state(&self, id: ComponentId) -> Option<Vec<u8>> {
+        match self.states.get(&id.as_u16()) {
+            Some(value) => value.clone(),
+            None => read_from_app_data_dict(id, self.group),
         }
     }
 
-    if in_batch.is_empty() {
-        return Ok(None);
-    }
-
-    let mut updater = mls_group.app_data_dictionary_updater();
-    for (id, value) in in_batch {
-        match value {
-            Some(bytes) => updater.set(ComponentData::from_parts(id, bytes.into())),
-            None => updater.remove(&id),
+    /// The [`AppDataUpdates`] for the commit; `None` when no proposal was
+    /// applied.
+    pub(crate) fn updates(self) -> Option<AppDataUpdates> {
+        if self.states.is_empty() {
+            return None;
         }
+        let mut updater = self.group.app_data_dictionary_updater();
+        for (id, value) in self.states {
+            match value {
+                Some(bytes) => updater.set(ComponentData::from_parts(id, bytes.into())),
+                None => updater.remove(&id),
+            }
+        }
+        updater.changes()
     }
-    Ok(updater.changes())
 }
 
 /// AppDataUpdate-aware wrapper around [`OpenMlsGroup::process_message`].
@@ -308,16 +320,36 @@ pub(crate) fn process_message_with_app_data<Provider: OpenMlsProvider>(
 /// proposal in the same network round trip before processing the
 /// commit that references it.
 ///
-/// The caller is expected to wrap this inside `generate_commit_with_rollback`
-/// so the staged commit can be extracted and persisted alongside the
-/// intent.
+/// Call this inside `generate_prepared_commit` and an outer state transaction.
+/// Store the exact attempt and staged commit in that transaction.
 pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     mls_group: &mut OpenMlsGroup,
     provider: &Provider,
     signer: &impl openmls_traits::signatures::Signer,
+    catalogue: &[ApplicationComponentDefinition],
     component_id: ComponentId,
     payload: Vec<u8>,
 ) -> Result<(MlsMessageOut, CommitMessageBundle), GroupAppDataError<Provider::StorageError>> {
+    let (mut proposals, bundle) = stage_app_data_proposals_and_commit(
+        mls_group,
+        provider,
+        signer,
+        catalogue,
+        vec![(component_id, AppDataUpdateOperation::Update(payload.into()))],
+    )?;
+    Ok((proposals.remove(0), bundle))
+}
+
+/// Propose every `updates` operation and stage one commit of them, using
+/// the same pre-commit state. The commit also carries this client's
+/// membership upkeep for `catalogue` inline.
+pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
+    mls_group: &mut OpenMlsGroup,
+    provider: &Provider,
+    signer: &impl openmls_traits::signatures::Signer,
+    catalogue: &[ApplicationComponentDefinition],
+    updates: Vec<(ComponentId, AppDataUpdateOperation)>,
+) -> Result<(Vec<MlsMessageOut>, CommitMessageBundle), GroupAppDataError<Provider::StorageError>> {
     // Lazy-batching: we deliberately do NOT block on pre-existing
     // pending proposals. This helper queues a new `AppDataUpdate` then
     // commits via `consume_proposal_store(true)`, sweeping whatever
@@ -333,62 +365,32 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     // information than the on-wire commit, but the producer of each
     // folded-in proposal already accepted that outcome by leaving it
     // pending instead of issuing its own commit.
-    let openmls_id = component_id.as_u16();
-    let operation = AppDataUpdateOperation::Update(payload.into());
+    let mut proposals = Vec::with_capacity(updates.len());
+    for (component_id, operation) in updates {
+        let (proposal, _) = mls_group
+            .propose_app_data_update(provider, signer, component_id.as_u16(), operation)
+            .map_err(GroupAppDataError::Propose)?;
+        proposals.push(proposal);
+    }
 
-    // Step 1: publish a standalone proposal. This adds the proposal to
-    // the local pending-proposal store AND returns the wire-form
-    // MlsMessageOut for the proposal so the caller can broadcast it.
-    let (proposal_msg, _proposal_ref) = mls_group
-        .propose_app_data_update(provider, signer, openmls_id, operation)
-        .map_err(GroupAppDataError::Propose)?;
+    // Step 2: registry reconciliation and cleanup after any swept removal,
+    // with the dict updates of every `AppDataUpdate` in the store (earlier
+    // intents' queued proposals included) followed by the inline upkeep, so
+    // the final dict bytes match what `process_message_with_app_data`
+    // produces on the receive side. If OpenMLS ever changes
+    // `consume_proposal_store(true)`'s sweep or `pending_proposals()`
+    // ordering, receivers reject the commit with `WrongConfirmationTag`; the
+    // AppDataUpdate E2E tests in `groups/tests/test_proposals.rs` catch that.
+    let (upkeep, app_data_updates) = membership_upkeep::membership_upkeep(mls_group, catalogue)
+        .map_err(|e| GroupAppDataError::Upkeep(Box::new(e)))?;
 
-    // Step 2: compute the per-component dict updates by sweeping every
-    // `AppDataUpdate` proposal currently in the store. The store may
-    // contain pre-existing `AppDataUpdate` proposals queued by earlier
-    // intents (e.g. two members each issuing a `GROUP_MEMBERSHIP`
-    // update, or a queued `update_group_name` that hasn't been
-    // committed yet); the accumulator chains them via the in-batch
-    // map so the final dict bytes match what
-    // `process_message_with_app_data` produces on the receive side.
-    //
-    // Non-`AppDataUpdate` proposals (Add/Remove/Update/PSK/etc.) also
-    // get swept by `consume_proposal_store(true)` at step 3 — they
-    // ride into the commit natively via OpenMLS and don't contribute
-    // to AppData dict updates, so we don't include them in this
-    // iteration.
-    //
-    // Failure mode if OpenMLS ever changes `consume_proposal_store(true)`'s
-    // sweep behavior or `pending_proposals()` ordering: sender and
-    // receiver compute different final dict bytes for the same
-    // component, the commit's confirmation tag mismatches, and
-    // receivers reject the commit with `WrongConfirmationTag`. The E2E
-    // tests in `groups/tests/test_proposals.rs` under the AppDataUpdate
-    // section will fail loudly on any OpenMLS bump that breaks this.
-    let pending_tuples: Vec<(openmls::component::ComponentId, AppDataUpdateOperation)> = mls_group
-        .pending_proposals()
-        .filter_map(|q| match q.proposal() {
-            Proposal::AppDataUpdate(p) => Some((p.component_id(), p.operation().clone())),
-            _ => None,
-        })
-        .collect();
-    let pending_iter = pending_tuples.iter().map(|(id, op)| (*id, op));
-    let app_data_updates =
-        accumulate_app_data_updates(mls_group, pending_iter).inspect_err(|e| {
-            tracing::error!(
-                component_id = %component_id,
-                error = %e,
-                "Failed to compute AppDataUpdates for standalone propose+commit"
-            );
-        })?;
-
-    // Step 3: build a commit that consumes the proposal store (picks up
-    // the just-queued proposal). No `add_proposal` call — the proposal
-    // is encoded as a `ProposalRef` because it comes from the store, not
-    // from inline staging.
+    // Step 3: build a commit that consumes the proposal store. The
+    // just-queued proposals are encoded as `ProposalRef`s; only the upkeep
+    // is inline.
     let mut stage = mls_group
         .commit_builder()
         .consume_proposal_store(true)
+        .add_proposals(upkeep)
         .load_psks(provider.storage())?;
     stage.with_app_data_dictionary_updates(app_data_updates);
 
@@ -396,7 +398,7 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
         .build(provider.rand(), provider.crypto(), signer, |_| true)?
         .stage_commit(provider)?;
 
-    Ok((proposal_msg, bundle))
+    Ok((proposals, bundle))
 }
 
 /// Errors surfaced by [`stage_app_data_propose_and_commit`].
@@ -424,7 +426,10 @@ pub enum GroupAppDataError<StorageError: std::error::Error> {
     /// state and the receiver's, which would surface as a confirmation
     /// tag mismatch on the wire if it ever escaped.
     #[error("apply payload error: {0}")]
-    ApplyPayload(#[from] self::component_source::ComponentSourceError),
+    ApplyPayload(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
+    /// Computing the removed-member cleanup for a swept removal failed.
+    #[error("membership upkeep error: {0}")]
+    Upkeep(#[source] Box<crate::groups::GroupError>),
 }
 
 // Specialize to the concrete SqlKeyStoreError because that's the only
@@ -445,6 +450,7 @@ impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::S
             // `CommitBuilderStageError`).
             Self::Propose(e) => xmtp_common::retryable!(e),
             Self::StageCommit(e) => xmtp_common::retryable!(e),
+            Self::Upkeep(e) => xmtp_common::retryable!(e),
             // Deterministic shape / staging-precondition failures —
             // CreateCommit is upstream-`false`, and ApplyPayload is a
             // sender-side encode failure that won't get better on
@@ -457,197 +463,47 @@ impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::S
 /// Compute the [`AppDataUpdates`] required to commit any pending
 /// AppDataUpdate proposals in the group's proposal store.
 ///
-/// Walks the proposal store and threads each `Update` / `Remove` through
-/// [`accumulate_app_data_updates`]. The result is what callers pass to
-/// [`CommitBuilder::with_app_data_dictionary_updates`] when committing
-/// pending proposals locally.
-///
 /// Returns `Ok(None)` when there are no AppDataUpdate proposals pending —
 /// this is the common case and lets the caller skip the `with_…` plumbing
 /// entirely without changing semantics.
 pub(crate) fn pending_app_data_updates(
     mls_group: &OpenMlsGroup,
 ) -> Result<Option<AppDataUpdates>, ComponentSourceError> {
-    let iter = mls_group
-        .pending_proposals()
-        .filter_map(|queued| match queued.proposal() {
-            Proposal::AppDataUpdate(app_data) => {
-                Some((app_data.component_id(), app_data.operation()))
-            }
-            _ => None,
-        });
-    accumulate_app_data_updates(mls_group, iter)
+    Ok(AppDataBatch::pending(mls_group)?.updates())
 }
 
-/// True when the group has completed the bootstrap migration from
-/// legacy GCE extensions to the AppData dictionary.
-///
-/// The discriminator is "does the dict have a `COMPONENT_REGISTRY`
-/// entry?" — bootstrap writes that entry as its first proposal, so
-/// its presence is the ground-truth marker that the group has been
-/// migrated.
-///
-/// This is intentionally distinct from [`MlsGroup::proposals_enabled`]:
-/// a group can have `proposals_enabled == true` without having yet
-/// completed its bootstrap commit. Read accessors key off this helper
-/// instead so they correctly fall back to the legacy GMM extension on
-/// proposals-enabled-but-unbootstrapped groups.
-pub(crate) fn is_migrated_group(mls_group: &OpenMlsGroup) -> bool {
-    is_migrated_extensions(mls_group.extensions())
-}
-
-/// Extensions-only variant of [`is_migrated_group`]. Kept in sync so
-/// every read-path gate lands on the same predicate (COMPONENT_REGISTRY
-/// present in the AppData dict) — consumers that only have an
-/// `Extensions` reference (e.g. commit-validation paths walking
-/// staged-commit extensions) can call this directly without
-/// materializing an `OpenMlsGroup`.
-///
-/// Test-only override: when a test harness has installed a
-/// [`TEST_REGISTRY_OVERRIDE`] scope the group is treated as migrated
-/// regardless of what the dict contains. This bridges the gap for
-/// tests that exercise post-bootstrap reader semantics without
-/// actually running the bootstrap commit (`enable_proposals()` end to
-/// end, which writes the real `COMPONENT_REGISTRY` entry). Production
-/// paths never hit this branch because the task-local is only
-/// initialized inside test scopes.
-pub(crate) fn is_migrated_extensions(
-    extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
-) -> bool {
-    // Test-only override: treat the group as migrated when a
-    // [`TEST_REGISTRY_OVERRIDE`] scope is active *and* the dict has
-    // any entry — i.e. at least one post-capability AppDataUpdate has
-    // written something. The dict-has-any-entry clause matters so that
-    // pre-`enable_proposals()` test steps (which write via the legacy
-    // path and leave the dict empty) still see legacy-authoritative
-    // semantics.
-    #[cfg(any(test, feature = "test-utils"))]
-    if TEST_REGISTRY_OVERRIDE.try_with(|_| ()).is_ok() {
-        let has_any_entry = extensions
-            .app_data_dictionary()
-            .map(|ext| !ext.dictionary().is_empty())
-            .unwrap_or(false);
-        if has_any_entry {
-            return true;
-        }
-    }
-    extensions
+/// The dictionary a commit built now starts from: the committed one with
+/// the pending proposals' updates applied.
+pub(crate) fn pending_dictionary(
+    mls_group: &OpenMlsGroup,
+) -> Result<AppDataDictionary, ComponentSourceError> {
+    let mut dictionary = mls_group
+        .extensions()
         .app_data_dictionary()
-        .map(|ext| {
-            ext.dictionary()
-                .contains(&ComponentId::COMPONENT_REGISTRY.as_u16())
-        })
-        .unwrap_or(false)
+        .map(|extension| extension.dictionary().clone())
+        .unwrap_or_default();
+    for (id, value) in pending_app_data_updates(mls_group)?.into_iter().flatten() {
+        match value {
+            Some(value) => dictionary.insert(id, value),
+            None => dictionary.remove(&id),
+        };
+    }
+    Ok(dictionary)
 }
 
-/// Load the [`ComponentRegistry`] for a group.
-///
-/// On a migrated group the registry lives in the AppData dict under
-/// [`ComponentId::COMPONENT_REGISTRY`]; on unmigrated groups it
-/// returns an empty registry (or the test override, when present —
-/// see [`TEST_REGISTRY_OVERRIDE`]).
-///
-/// Returns an error when a `COMPONENT_REGISTRY` entry is present in
-/// the dict but its bytes don't decode — silently swallowing that into
-/// an empty registry would let [`is_migrated_extensions`] (which only
-/// checks key existence) and this loader disagree about whether the
-/// group is migrated, and downstream readers built on an empty
-/// registry would silently lose every dict-backed component on the
-/// migrated path. Surfacing as
-/// [`ComponentSourceError::MalformedComponentValue`] keeps the
-/// wire-format-violation signal loud and reuses the same variant the
-/// rest of the dict-decode helpers already reach for.
-///
-/// ## Security model while the registry is empty (pre-bootstrap)
-///
-/// Empty registry is the **strictest** validator state, not the most
-/// permissive. Two layers make this safe:
-///
-/// 1. **Sender gate** (`mls_sync.rs`): the `AppDataUpdate` sender
-///    paths are guarded by [`is_migrated_group`] (`COMPONENT_REGISTRY`
-///    present in the dict). That's false on unmigrated groups, so the
-///    legacy GCE path runs and no `AppDataUpdate` proposals get
-///    emitted.
-///    (`test_update_group_name_uses_legacy_path_when_proposals_disabled`
-///    pins this.)
-/// 2. **Receiver deny-by-default**
-///    (`xmtp_mls_common::app_data::validation::validate_component_write`):
-///    any `AppDataUpdate` whose component has no registry entry is
-///    rejected with `ComponentPermissionError::NoRegistryEntry`,
-///    surfacing as `CommitValidationError::InsufficientPermissions` in
-///    [`validate_app_data_update_proposals_in_commit`]. So even if a
-///    Byzantine peer crafts a commit carrying `AppDataUpdate`
-///    proposals, honest receivers reject it.
-///
-/// Hardcoded components (`COMPONENT_REGISTRY`, `SUPER_ADMIN_LIST`)
-/// bypass the registry lookup by design — they're super-admin-only in
-/// code — so the bootstrap commit (which writes `COMPONENT_REGISTRY`
-/// as its first proposal) can land even against an empty registry.
-///
-/// Test code can inject a populated registry by wrapping its body in
-/// `TEST_REGISTRY_OVERRIDE.scope(registry, async { … }).await`.
+/// Read the committed component registry from the dictionary.
+/// Missing registry entries reject component writes by default.
 pub(crate) fn load_component_registry(
     mls_group: &OpenMlsGroup,
 ) -> Result<ComponentRegistry, ComponentSourceError> {
     load_component_registry_from_extensions(mls_group.extensions())
 }
 
-/// Returns the group's committed `MIN_SUPPORTED_PROTOCOL_VERSION` floor
-/// when it exceeds `own_version`, reading ONLY the pre-commit AppData
-/// dict — committed, already-validated state.
-///
-/// This is the shared trigger for the "pause, don't fork" guards on the
-/// receive paths ([`process_message_with_app_data`] before dispatch;
-/// `ValidatedCommit::from_staged_commit` before interpreting migrated
-/// group state). It is deliberately blind to any floor bump carried by
-/// the commit currently being processed: that proposal has not passed
-/// the super-admin policy check yet, and a pause triggered by
-/// unvalidated input would let any member freeze the group permanently.
-/// The commit that *raises* the floor pauses below-floor receivers
-/// through the post-policy check at the end of commit validation
-/// instead. Consequence for protocol evolution: a release introducing
-/// a new wire format must land the group-floor bump in a *strictly
-/// earlier* commit than the first commit using that format.
-///
-/// Lenient on malformed state (non-UTF-8 floor bytes, unparseable
-/// semver ⇒ `None`), mirroring `enforce_min_version_monotonicity`'s
-/// treatment of malformed priors: garbage must never brick the group.
-pub(crate) fn committed_floor_exceeding(
-    mls_group: &OpenMlsGroup,
-    own: &LibXMTPVersion,
-) -> Option<String> {
-    committed_floor_exceeding_in_extensions(mls_group.extensions(), own)
-}
-
-/// Extensions-only variant of [`committed_floor_exceeding`], split out
-/// (like [`load_component_registry_from_extensions`]) so unit tests can
-/// exercise the parse-and-compare logic without materializing an
-/// `OpenMlsGroup`.
-pub(crate) fn committed_floor_exceeding_in_extensions(
-    extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
-    own: &LibXMTPVersion,
-) -> Option<String> {
-    let bytes = extensions
-        .app_data_dictionary()?
-        .dictionary()
-        .get(&ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16())?
-        .to_vec();
-    let floor = String::from_utf8(bytes).ok()?;
-    let floor_version = LibXMTPVersion::parse(&floor).ok()?;
-    (floor_version > *own).then_some(floor)
-}
-
-/// Extensions-only variant of [`load_component_registry`]. Mirrors the
-/// [`is_migrated_group`] / [`is_migrated_extensions`] split so unit
-/// tests can exercise the registry-decode path without materializing
-/// an `OpenMlsGroup`.
+/// Read the component registry without loading an OpenMLS group.
 pub(crate) fn load_component_registry_from_extensions(
     extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
 ) -> Result<ComponentRegistry, ComponentSourceError> {
-    // Post-migration: the registry lives in the AppData dict under
-    // `COMPONENT_REGISTRY`. A migrated group's dict always has this
-    // entry (the bootstrap commit seeds it before flipping
-    // proposals_enabled), so if we find it, it's authoritative.
+    // The committed dictionary is the source of truth for the registry.
     if let Some(ext) = extensions.app_data_dictionary()
         && let Some(bytes) = ext
             .dictionary()
@@ -686,19 +542,6 @@ pub(crate) fn load_component_registry_from_extensions(
 
 #[cfg(test)]
 mod tests {
-    //! Unit coverage for the migration-marker predicate —
-    //! [`is_migrated_extensions`]. These pin the three read-side
-    //! invariants:
-    //!   (a) registry empty / dict missing => legacy-authoritative,
-    //!   (b) overlay no-op on unmigrated groups (even if `TEST_REGISTRY_OVERRIDE`
-    //!       is set but the dict is empty),
-    //!   (c) `COMPONENT_REGISTRY` in dict => migrated
-    //!       (production signal, independent of any test override).
-    //!
-    //! Post-bootstrap reader-see-dict-values coverage lives as an
-    //! integration test in `groups/tests/test_proposals.rs` — see
-    //! `test_app_data_update_overlays_legacy_gmm_on_conflict` — because
-    //! it needs the full MLS commit pipeline.
     use super::*;
     use openmls::extensions::{
         AppDataDictionary, AppDataDictionaryExtension, Extension, Extensions,
@@ -721,177 +564,12 @@ mod tests {
         Extensions::from_vec(vec![]).expect("empty extensions are always valid")
     }
 
-    /// Parse a semver string the way the production caller does (once, from
-    /// the client's own `pkg_version`). Panics on invalid input — matching
-    /// `VersionInfo`, which asserts its own version is valid at construction.
-    fn ver(s: &str) -> LibXMTPVersion {
-        LibXMTPVersion::parse(s).unwrap()
-    }
-
-    #[test]
-    fn unmigrated_without_override_is_not_migrated() {
-        // Invariant (a): no dict, no override → legacy authoritative.
-        assert!(!is_migrated_extensions(&empty_extensions()));
-        // Dict present but empty → still not migrated.
-        assert!(!is_migrated_extensions(&extensions_with_dict(&[])));
-    }
-
-    #[test]
-    fn dict_without_registry_entry_is_not_migrated() {
-        // Invariant (a) corollary: a dict entry for some *other*
-        // component isn't enough to flip the gate in production —
-        // only `COMPONENT_REGISTRY` counts.
-        let exts =
-            extensions_with_dict(&[(ComponentId::GROUP_NAME.as_u16(), b"Group Name".to_vec())]);
-        assert!(!is_migrated_extensions(&exts));
-    }
-
-    #[test]
-    fn dict_with_registry_entry_is_migrated() {
-        // Invariant (c): production signal. `COMPONENT_REGISTRY` in the
-        // dict => migrated, regardless of any test override.
-        let exts =
-            extensions_with_dict(&[(ComponentId::COMPONENT_REGISTRY.as_u16(), vec![0x01, 0x02])]);
-        assert!(is_migrated_extensions(&exts));
-    }
-
-    #[tokio::test]
-    async fn override_without_dict_entries_is_not_migrated() {
-        // Invariant (b): with `TEST_REGISTRY_OVERRIDE` set but the dict
-        // empty (i.e. the pre-`enable_proposals()` window of an
-        // integration test), the gate stays closed. This is what lets
-        // step-1 assertions in `test_app_data_update_overlays_legacy_gmm_on_conflict`
-        // still read the legacy GMM value instead of being shadowed by
-        // an empty-dict overlay.
-        let reg = ComponentRegistry::new();
-        TEST_REGISTRY_OVERRIDE
-            .scope(reg, async {
-                assert!(!is_migrated_extensions(&empty_extensions()));
-                assert!(!is_migrated_extensions(&extensions_with_dict(&[])));
-            })
-            .await;
-    }
-
-    #[tokio::test]
-    async fn override_with_dict_entry_flips_migrated_in_tests() {
-        // Complement to the above: once a test has written at least
-        // one component to the dict, the test-override branch flips
-        // the gate so subsequent reads route through the overlay.
-        let reg = ComponentRegistry::new();
-        TEST_REGISTRY_OVERRIDE
-            .scope(reg, async {
-                let exts = extensions_with_dict(&[(
-                    ComponentId::GROUP_NAME.as_u16(),
-                    b"Dict Name".to_vec(),
-                )]);
-                assert!(is_migrated_extensions(&exts));
-            })
-            .await;
-    }
-
-    // ========================================================================
-    // committed_floor_exceeding_in_extensions
-    // ========================================================================
-    //
-    // The shared trigger for the pause-before-parse guards. Two properties
-    // are load-bearing: (1) it fires strictly on floor > own — equal or
-    // lower floors must not pause; (2) it is lenient on garbage — malformed
-    // floor bytes must read as "no floor", never as an error that could
-    // wedge the group.
-
-    #[test]
-    fn floor_above_own_version_fires() {
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            b"2.0.0".to_vec(),
-        )]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            Some("2.0.0".to_string())
-        );
-        // Prerelease floors order correctly under semver: 1.11.0-dev
-        // exceeds 1.10.0 but not 1.11.0.
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            b"1.11.0-dev".to_vec(),
-        )]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.10.0")),
-            Some("1.11.0-dev".to_string())
-        );
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            None
-        );
-    }
-
-    #[test]
-    fn floor_at_or_below_own_version_does_not_fire() {
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            b"1.11.0".to_vec(),
-        )]);
-        // Equal: not paused — the floor is inclusive.
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            None
-        );
-        // Above: not paused.
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.12.0")),
-            None
-        );
-    }
-
-    #[test]
-    fn missing_floor_or_dict_does_not_fire() {
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&empty_extensions(), &ver("1.11.0")),
-            None
-        );
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&extensions_with_dict(&[]), &ver("1.11.0")),
-            None
-        );
-        // Dict present with other components but no floor entry.
-        let exts = extensions_with_dict(&[(ComponentId::GROUP_NAME.as_u16(), b"name".to_vec())]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            None
-        );
-    }
-
-    #[test]
-    fn malformed_floor_is_lenient() {
-        // Non-UTF-8 bytes → no floor, never an error.
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            vec![0xFF, 0xFE],
-        )]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            None
-        );
-        // Unparseable floor semver → no floor.
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            b"not-a-version".to_vec(),
-        )]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            None
-        );
-        // The client's own version can no longer be unparseable here: it is
-        // parsed once and asserted valid when `VersionInfo` is built, so this
-        // guard only ever compares against a valid `LibXMTPVersion`.
-    }
-
     // ========================================================================
     // load_component_registry_from_extensions
     // ========================================================================
     //
     // These pin the contract that the migration-marker
-    // (`is_migrated_extensions`, key-existence) and the registry loader
+    // (registry entry presence) and the registry loader
     // (`load_component_registry_from_extensions`, parseability) agree on
     // exactly one shape of disagreement: malformed bytes surface as a
     // hard `MalformedComponentValue` error rather than silently
@@ -900,13 +578,13 @@ mod tests {
     // to silently lose every dict-backed component, so this invariant is
     // load-bearing.
 
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn load_registry_no_dict_returns_empty() {
         let reg = load_component_registry_from_extensions(&empty_extensions()).unwrap();
         assert!(reg.is_empty());
     }
 
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn load_registry_dict_without_entry_returns_empty() {
         // Dict present but no COMPONENT_REGISTRY entry => pre-bootstrap.
         // An entry under some *other* component id must not be confused
@@ -917,7 +595,7 @@ mod tests {
         assert!(reg.is_empty());
     }
 
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn load_registry_with_valid_bytes_round_trips() {
         let original = ComponentRegistry::new();
         let bytes = original.to_bytes().expect("empty registry serializes");
@@ -926,13 +604,13 @@ mod tests {
         assert_eq!(loaded, original);
     }
 
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn load_registry_with_malformed_bytes_surfaces_error() {
         // Pin the "fail loud, never return empty" invariant: a
         // malformed `COMPONENT_REGISTRY` value must surface as
         // `MalformedComponentValue` so downstream readers don't carry
         // on with a phantom empty registry against an
-        // `is_migrated_extensions == true` dict.
+        // dictionary with a registry entry.
         let exts = extensions_with_dict(&[(
             ComponentId::COMPONENT_REGISTRY.as_u16(),
             vec![0xff, 0xff, 0xff],

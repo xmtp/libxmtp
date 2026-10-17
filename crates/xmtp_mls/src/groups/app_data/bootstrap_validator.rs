@@ -6,16 +6,11 @@
 //! compares it against the commit's `AppDataUpdate` proposals.
 //! Divergence is rejected.
 //!
-//! Entry points:
-//! - [`is_bootstrap_commit`] — shape-check a staged commit (GCE drops
-//!   the four legacy extensions and requires `AppDataDictionary` in
-//!   `RequiredCapabilities`, plus a `COMPONENT_REGISTRY` write).
-//!   Routes commits into this validator.
-//! - [`validate_bootstrap_commit`] — full validation against pre-flip
-//!   state. Pure-logic core lives in [`validate_against_canonical_subset`]
-//!   so it's unit-testable without a real `StagedCommit`.
+//! This validator remains for the migration fixtures until their removal.
+//! Dictionary-native groups reject group-context extension proposals.
 
 use std::collections::BTreeMap;
+use xmtp_mls_validation::commit::CommitRuleError;
 
 use openmls::{
     extensions::{Extension, ExtensionType, Extensions},
@@ -44,9 +39,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
     group_membership_entry::Version as GroupMembershipEntryVersion,
 };
 
-use crate::groups::validated_commit::{
-    CommitParticipant, CommitValidationError, extract_commit_participant,
-};
+use crate::groups::validated_commit::CommitValidationError;
+use xmtp_mls_validation::commit::{CommitParticipant, extract_commit_participant};
 
 /// Bootstrap-commit-specific validation failures.
 ///
@@ -60,7 +54,7 @@ pub enum BootstrapValidationError {
     /// bootstrap exceeds the receiver's version — the bootstrap was
     /// produced by a newer release whose synthesis encoding this
     /// version may not reproduce. The caller converts this to
-    /// `CommitValidationError::ProtocolVersionTooLow` so the group
+    /// `CommitRuleError::ProtocolVersionTooLow` so the group
     /// pauses (defer-and-reprocess after upgrade) instead of failing
     /// the byte-compare with `Mismatch` — a rejection that above-floor
     /// members don't share, i.e. a fork. Normally unreachable (the
@@ -156,7 +150,7 @@ pub enum BootstrapValidationError {
     Synthesis(#[from] xmtp_mls_common::app_data::migration::MigrationError),
     /// The bootstrap commit carries a proposal whose type isn't
     /// `GroupContextExtensions` or `AppDataUpdate`. Defense-in-depth:
-    /// `is_bootstrap_commit` only checks for the GCE shape plus a
+    /// the former bootstrap routing check only checks for the GCE shape plus a
     /// `COMPONENT_REGISTRY` write, so a malicious sender could in
     /// principle bundle in an `Add` / `Remove` / `Update` / `SelfRemove`
     /// / `ReInit` / `ExternalInit` / `AppEphemeral` / `Custom` proposal
@@ -166,62 +160,6 @@ pub enum BootstrapValidationError {
     /// smuggled proposal at merge time.
     #[error("bootstrap commit carries disallowed proposal type {0}")]
     DisallowedProposalType(&'static str),
-}
-
-/// Shape-check a staged commit against the bootstrap signature.
-///
-/// A bootstrap commit has, in a single MLS commit:
-/// 1. A `GroupContextExtensions` proposal that drops
-///    `MUTABLE_METADATA_EXTENSION_ID`, `GROUP_PERMISSIONS_EXTENSION_ID`,
-///    `GROUP_MEMBERSHIP_EXTENSION_ID`, and the OpenMLS-built-in
-///    `ImmutableMetadata` extension.
-/// 2. The same GCE proposal's `RequiredCapabilities` lists
-///    `ExtensionType::AppDataDictionary` (the standard MLS extension
-///    that carries the dict). After commit application this is the
-///    invariant pinning the group into migrated state.
-/// 3. At least one `AppDataUpdate` proposal writing
-///    `COMPONENT_REGISTRY`. Its application populates the
-///    `AppDataDictionary` GCE that `RequiredCapabilities` now
-///    requires.
-///
-/// The three conditions together differentiate a bootstrap from any
-/// other combinatorial GCE flow.
-pub(crate) fn is_bootstrap_commit(
-    staged_commit: &StagedCommit,
-    existing_extensions: &Extensions<GroupContext>,
-) -> bool {
-    // Only fire on the pre-flip side — a group that already has the
-    // AppDataDictionary GCE can't "bootstrap" again.
-    if crate::groups::check_proposals_enabled(existing_extensions) {
-        return false;
-    }
-
-    let mut writes_component_registry = false;
-    let mut gce_matches = false;
-    for queued in staged_commit.queued_proposals() {
-        match queued.proposal() {
-            Proposal::GroupContextExtensions(gce) => {
-                let exts = gce.extensions();
-                // Symmetric routing: a GCE that strips the legacy
-                // extensions without flipping RequiredCapabilities is
-                // NOT a bootstrap commit. Routing it to the bootstrap
-                // validator would surface a misleading
-                // "RequiredCapabilities is missing" error when the
-                // real problem is "you can't strip legacy extensions
-                // unless you're migrating".
-                gce_matches = gce_matches_bootstrap_shape(exts)
-                    && gce_required_capabilities_match_bootstrap_shape(exts);
-            }
-            Proposal::AppDataUpdate(app_data)
-                if ComponentId::from(app_data.component_id())
-                    == ComponentId::COMPONENT_REGISTRY =>
-            {
-                writes_component_registry = true;
-            }
-            _ => {}
-        }
-    }
-    gce_matches && writes_component_registry
 }
 
 /// Does `new_extensions` look like the bootstrap GCE output?
@@ -248,7 +186,7 @@ fn gce_matches_bootstrap_shape(new_extensions: &Extensions<GroupContext>) -> boo
 
 /// Does `new_extensions.required_capabilities()` carry the
 /// `AppDataDictionary` flip the bootstrap requires? Used by the router
-/// (`is_bootstrap_commit`) so a GCE that drops the legacy extensions
+/// (the former bootstrap routing check) so a GCE that drops the legacy extensions
 /// but doesn't flip RequiredCapabilities is NOT routed into the
 /// bootstrap validator at all — the steady-state validator will
 /// reject it for losing the legacy extensions on a non-migrated
@@ -280,7 +218,7 @@ pub(crate) fn extract_gce_proposer(
         if matches!(queued.proposal(), Proposal::GroupContextExtensions(_)) {
             let leaf_index = match queued.sender() {
                 Sender::Member(idx) => idx,
-                _ => return Err(CommitValidationError::ActorNotMember),
+                _ => return Err(CommitValidationError::Rule(CommitRuleError::ActorNotMember)),
             };
             let participant = extract_commit_participant(
                 leaf_index,
@@ -322,7 +260,7 @@ pub(crate) fn validate_bootstrap_commit(
     // and `AppDataUpdate` BEFORE the canonical-subset compare, so a
     // smuggled `Add`/`Remove`/`Update`/`SelfRemove`/`ReInit`/
     // `ExternalInit`/`AppEphemeral`/`Custom` proposal that satisfied
-    // `is_bootstrap_commit` (which only checks the GCE shape + a
+    // the former bootstrap routing check (which only checks the GCE shape + a
     // COMPONENT_REGISTRY write) cannot reach OpenMLS' merge step.
     validate_only_allowed_proposal_types(staged_commit)?;
 
@@ -332,19 +270,6 @@ pub(crate) fn validate_bootstrap_commit(
     // `Mismatch` would be a fork, pausing is recoverable. This check
     // sits deliberately AFTER the proposer-is-super-admin gate.
     //
-    // Non-admin injection is not possible here even though the floor is
-    // read before the canonical-subset compare: a bootstrap runs on a
-    // *pre-migration* group, where `proposals_enabled` is false, so the
-    // receive path rejects and never stores any standalone `AppDataUpdate`
-    // proposal (`ProposalsNotEnabled`, mls_sync.rs — the `!proposals_enabled
-    // && type != GroupContextExtensions` gate). A non-admin therefore cannot
-    // pre-stage an `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)` for this
-    // commit to reference; every `AppDataUpdate` in a bootstrap commit is an
-    // inline proposal authored by the super-admin committer validated above.
-    // And a super admin who reaches this line could equally pause members
-    // via a legitimate floor bump, so no new trust is extended. Malformed
-    // floor bytes are ignored (fall through to the byte-compare, which judges
-    // them against the synthesized expectation).
     if let Some(min_version) = bootstrap_floor_exceeding(staged_commit, own_version) {
         return Err(BootstrapValidationError::ProtocolVersionTooLow(min_version));
     }
@@ -421,8 +346,8 @@ fn validate_only_allowed_proposal_types(
 /// seed's bytes are what the pre-flip state demands; this helper only
 /// decides pause-vs-compare.
 fn bootstrap_floor_exceeding(staged_commit: &StagedCommit, own_version: &str) -> Option<String> {
-    use crate::groups::validated_commit::LibXMTPVersion;
     use openmls::messages::proposals::AppDataUpdateOperation;
+    use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
     let floor_bytes = staged_commit.queued_proposals().find_map(|queued| {
         if let Proposal::AppDataUpdate(p) = queued.proposal()

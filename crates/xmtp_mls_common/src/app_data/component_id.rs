@@ -21,8 +21,9 @@ const XMTP_RANGE_END: u16 = 0xBFFF;
 const XMTP_IMMUTABLE_START: u16 = 0xBE00;
 
 // --- Application Range: 0xC000-0xFEFF ---
-const APP_RANGE_START: u16 = 0xC000;
-const APP_RANGE_END: u16 = 0xFEFF;
+// The backend configuration validates operator IDs against the same range.
+const APP_RANGE_START: u16 = *xmtp_configuration::APPLICATION_COMPONENT_IDS.start();
+const APP_RANGE_END: u16 = *xmtp_configuration::APPLICATION_COMPONENT_IDS.end();
 /// Immutable application components: 0xFD00-0xFEFF (512 IDs, counting down).
 const APP_IMMUTABLE_START: u16 = 0xFD00;
 
@@ -68,6 +69,9 @@ impl ComponentId {
     pub const COMPONENT_REGISTRY: Self = Self(0x8000);
     /// The super admin list. Super admin only.
     pub const SUPER_ADMIN_LIST: Self = Self(0x8001);
+    // === Constrained Component IDs ===
+    // Stored policies are limited to Deny, AllowIfAdmin, or AllowIfSuperAdmin.
+
     /// The admin list. Configurable: super admin only or admin/super admin.
     pub const ADMIN_LIST: Self = Self(0x8002);
 
@@ -82,6 +86,10 @@ impl ComponentId {
     pub const APP_DATA: Self = Self(0x8009);
     pub const MIN_SUPPORTED_PROTOCOL_VERSION: Self = Self(0x800A);
     pub const COMMIT_LOG_SIGNER: Self = Self(0x800B);
+    /// Per-inbox display names: `TlsMap<InboxId, UTF-8 bytes>`.
+    pub const USER_DISPLAY_NAME: Self = Self(0x800C);
+    /// Opaque group image bytes, such as a remote attachment descriptor.
+    pub const GROUP_IMAGE: Self = Self(0x800D);
 
     // === Well-Known Immutable XMTP Component IDs (counting down from 0xBFFF) ===
 
@@ -89,6 +97,38 @@ impl ComponentId {
     pub const CREATOR_INBOX_ID: Self = Self(0xBFFE);
     pub const DM_MEMBERS: Self = Self(0xBFFD);
     pub const ONESHOT_MESSAGE: Self = Self(0xBFFC);
+
+    /// Every well-known component and its META section 2 name, in ID order.
+    pub const WELL_KNOWN_NAMES: [(Self, &'static str); 18] = [
+        (Self::COMPONENT_REGISTRY, "COMPONENT_REGISTRY"),
+        (Self::SUPER_ADMIN_LIST, "SUPER_ADMIN_LIST"),
+        (Self::ADMIN_LIST, "ADMIN_LIST"),
+        (Self::GROUP_MEMBERSHIP, "GROUP_MEMBERSHIP"),
+        (Self::GROUP_NAME, "GROUP_NAME"),
+        (Self::GROUP_DESCRIPTION, "GROUP_DESCRIPTION"),
+        (Self::GROUP_IMAGE_URL, "GROUP_IMAGE_URL"),
+        (Self::MESSAGE_DISAPPEAR_FROM_NS, "MESSAGE_DISAPPEAR_FROM_NS"),
+        (Self::MESSAGE_DISAPPEAR_IN_NS, "MESSAGE_DISAPPEAR_IN_NS"),
+        (Self::APP_DATA, "APP_DATA"),
+        (
+            Self::MIN_SUPPORTED_PROTOCOL_VERSION,
+            "MIN_SUPPORTED_PROTOCOL_VERSION",
+        ),
+        (Self::COMMIT_LOG_SIGNER, "COMMIT_LOG_SIGNER"),
+        (Self::USER_DISPLAY_NAME, "USER_DISPLAY_NAME"),
+        (Self::GROUP_IMAGE, "GROUP_IMAGE"),
+        (Self::ONESHOT_MESSAGE, "ONESHOT_MESSAGE"),
+        (Self::DM_MEMBERS, "DM_MEMBERS"),
+        (Self::CREATOR_INBOX_ID, "CREATOR_INBOX_ID"),
+        (Self::CONVERSATION_TYPE, "CONVERSATION_TYPE"),
+    ];
+
+    /// The well-known component with exactly this name.
+    pub fn from_well_known_name(name: &str) -> Option<Self> {
+        Self::WELL_KNOWN_NAMES
+            .iter()
+            .find_map(|&(id, known)| (known == name).then_some(id))
+    }
 
     // === Constructor and Accessors ===
 
@@ -98,6 +138,26 @@ impl ComponentId {
 
     pub const fn as_u16(self) -> u16 {
         self.0
+    }
+
+    /// Name this component in a metadata change event.
+    pub fn event_name(self) -> String {
+        if let Some(field) = super::component_source::component_id_to_metadata_field(self) {
+            return field.as_str().into();
+        }
+        match self {
+            Self::COMPONENT_REGISTRY => "COMPONENT_REGISTRY".into(),
+            Self::SUPER_ADMIN_LIST => "SUPER_ADMIN_LIST".into(),
+            Self::ADMIN_LIST => "ADMIN_LIST".into(),
+            Self::GROUP_MEMBERSHIP => "GROUP_MEMBERSHIP".into(),
+            Self::USER_DISPLAY_NAME => "USER_DISPLAY_NAME".into(),
+            Self::GROUP_IMAGE => "GROUP_IMAGE".into(),
+            Self::CONVERSATION_TYPE => "CONVERSATION_TYPE".into(),
+            Self::CREATOR_INBOX_ID => "CREATOR_INBOX_ID".into(),
+            Self::DM_MEMBERS => "DM_MEMBERS".into(),
+            Self::ONESHOT_MESSAGE => "ONESHOT_MESSAGE".into(),
+            _ => format!("component:{:04x}", self.0),
+        }
     }
 
     // === Range Helpers ===
@@ -199,12 +259,14 @@ impl Size for ComponentId {
     }
 }
 
+// implements: META-005
 impl Serialize for ComponentId {
     fn tls_serialize<W: Write>(&self, writer: &mut W) -> Result<usize, tls_codec::Error> {
         tls_codec::vlen::write_length(writer, self.0 as usize)
     }
 }
 
+// implements: META-005
 impl Deserialize for ComponentId {
     fn tls_deserialize<R: Read>(bytes: &mut R) -> Result<Self, tls_codec::Error>
     where
@@ -227,6 +289,46 @@ mod tests {
     use tls_codec::{Deserialize, Serialize};
 
     #[xmtp_common::test]
+    fn event_names_cover_known_and_application_components() {
+        assert_eq!(ComponentId::GROUP_NAME.event_name(), "group_name");
+        assert_eq!(ComponentId::ADMIN_LIST.event_name(), "ADMIN_LIST");
+        assert_eq!(
+            ComponentId::USER_DISPLAY_NAME.event_name(),
+            "USER_DISPLAY_NAME"
+        );
+        assert_eq!(ComponentId::GROUP_IMAGE.event_name(), "GROUP_IMAGE");
+        assert_eq!(ComponentId::new(0xc123).event_name(), "component:c123");
+    }
+
+    // An application name equal to one of these is refused at backend
+    // startup, so the table must hold every META section 2 name exactly, and
+    // only those.
+    #[xmtp_common::test]
+    fn well_known_names_match_exactly() {
+        assert_eq!(
+            ComponentId::from_well_known_name("GROUP_NAME"),
+            Some(ComponentId::GROUP_NAME)
+        );
+        assert_eq!(
+            ComponentId::from_well_known_name("CONVERSATION_TYPE"),
+            Some(ComponentId::CONVERSATION_TYPE)
+        );
+        for other in ["group_name", "GROUP_NAME ", "USER_PRONOUNS", ""] {
+            assert_eq!(ComponentId::from_well_known_name(other), None);
+        }
+        for pair in ComponentId::WELL_KNOWN_NAMES.windows(2) {
+            assert!(pair[0].0 < pair[1].0, "{pair:?} is out of ID order");
+        }
+        // A new well-known ID gets an event name; it must get a table row too.
+        for id in (XMTP_RANGE_START..=XMTP_RANGE_END).map(ComponentId::new) {
+            let listed = ComponentId::WELL_KNOWN_NAMES
+                .iter()
+                .any(|(known, _)| *known == id);
+            assert_eq!(listed, !id.event_name().starts_with("component:"), "{id:?}");
+        }
+    }
+
+    #[xmtp_common::test]
     fn test_well_known_ids_are_in_expected_ranges() {
         // Hardcoded
         assert!(ComponentId::COMPONENT_REGISTRY.is_hardcoded());
@@ -246,6 +348,10 @@ mod tests {
         assert!(!ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.is_immutable());
         assert!(ComponentId::COMMIT_LOG_SIGNER.is_xmtp_range());
         assert!(!ComponentId::COMMIT_LOG_SIGNER.is_immutable());
+        assert!(ComponentId::USER_DISPLAY_NAME.is_xmtp_range());
+        assert!(!ComponentId::USER_DISPLAY_NAME.is_immutable());
+        assert!(ComponentId::GROUP_IMAGE.is_xmtp_range());
+        assert!(!ComponentId::GROUP_IMAGE.is_immutable());
 
         // Immutable XMTP
         assert!(ComponentId::CONVERSATION_TYPE.is_immutable());
@@ -263,7 +369,7 @@ mod tests {
         assert!(ComponentId::new(0x8003).is_xmtp_range());
         assert!(!ComponentId::new(0x8003).is_immutable());
 
-        // The newest mutable XMTP IDs sit just past APP_DATA at 0x800A and 0x800B.
+        // The newest mutable XMTP IDs sit just past APP_DATA at 0x800A through 0x800B.
         assert!(ComponentId::new(0x800A).is_xmtp_range());
         assert!(!ComponentId::new(0x800A).is_immutable());
         assert!(ComponentId::new(0x800B).is_xmtp_range());
@@ -358,6 +464,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-005
     fn test_vlen_encoding_sizes() {
         // 1-byte vlen: 0..=0x3F
         assert_eq!(ComponentId::new(0).tls_serialized_len(), 1);
@@ -372,6 +479,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-005
     fn test_decode_rejects_value_above_u16_max() {
         // A QUIC vlen-encoded value of 0x10000 (one past u16::MAX) takes 4
         // bytes: prefix 0b10 (4-byte) || 0x00_01_00_00.

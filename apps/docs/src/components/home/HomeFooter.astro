@@ -1,0 +1,40 @@
+---
+import logo from "../../assets/home/xmtp-logo.svg";
+interface Props {
+  agentDocs: string;
+}
+const { agentDocs } = Astro.props;
+---
+
+<footer class="home home-footer">
+  <a href="/" aria-label="XMTP"
+    ><img src={logo.src} width="94" height="29" alt="XMTP" /></a
+  >
+  <span>Private messages. Open source.</span>
+  <a href={agentDocs}>Docs for agents <span aria-hidden="true">↗</span></a>
+</footer>
+<style>
+  .home-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    padding: 30px 0 40px;
+    border-top: 1px solid var(--home-line);
+    font-size: 14px;
+    color: var(--home-muted);
+  }
+  img {
+    display: block;
+    width: 94px;
+    height: 29px;
+  }
+  @media (max-width: 680px) {
+    .home-footer {
+      flex-wrap: wrap;
+    }
+    .home-footer > span {
+      display: none;
+    }
+  }
+</style>

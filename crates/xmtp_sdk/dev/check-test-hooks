@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Reject test-only hooks in shipped SDK code.
+#
+#   check-test-hooks [generated-dir]  default generated trees and runtime sources
+#   check-test-hooks --self-test      prove that the check can fail
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+
+# An identifier with a Test or test word: readerOpenedForTest,
+# bridgeTestPanic, testHook, bridge_test_panic, is_ended_for_test. Words
+# such as latestInboxUpdatesCount or Testnet do not match.
+test_hooks='\b(\w*[a-z0-9]Test([A-Z0-9_]\w*)?|test[A-Z0-9_]\w*|\w*_test([A-Z0-9_]\w*)?)\b'
+# Test source sets are not shipped. Only source files count: wasm-bindgen's
+# JavaScript glue names its own test harness.
+test_sources=(--glob '*.{swift,kt,ts}' --glob '!*.test.*' --glob '!**/tests/**'
+  --glob '!**/src/test/**' --glob '!**/Tests/**')
+# Known hooks that an open change removes, as path:name. A stale entry fails.
+allowed=()
+
+# Print path:name for each test hook under the given paths.
+hooks() {
+  rg -o -n --no-heading --with-filename "${test_sources[@]}" -e "$test_hooks" "$@" |
+    awk -F: '{ print $1 ":" $3 }' | sort -u || true
+}
+
+# check <generated-dir> <runtime-dir>...
+check() {
+  local generated="$1"
+  shift
+  # Every file of the default trees, so a test-only export such as
+  # bridgeTestPanic cannot reach a generated module beside the binding.
+  local trees=(
+    "$generated/swift"
+    "$generated/kotlin"
+    "$generated/typescript-napi"
+    "$generated/typescript-wasm"
+  )
+  local tree found entry failed=0
+  for tree in "${trees[@]}"; do
+    test -d "$tree"
+  done
+  found="$(hooks "${trees[@]}" "$@")"
+  for entry in "${allowed[@]}"; do
+    if grep -qxF "$entry" <<<"$found"; then
+      found="$(grep -vxF "$entry" <<<"$found" || true)"
+    elif [[ "$*" == *apps/xmtp_sdk_bindgen/runtime* ]]; then
+      echo "Stale allowed hook $entry: remove it from $0" >&2
+      failed=1
+    fi
+  done
+  if [[ -n "$found" ]]; then
+    echo "Test-only hooks in shipped SDK code (move them to a test source set):" >&2
+    echo "$found" >&2
+    failed=1
+  fi
+  return "$failed"
+}
+
+# expect_failure <label> <generated-dir> <runtime-dir>
+expect_failure() {
+  if check "$2" "$3" >/dev/null 2>&1; then
+    echo "self-test: $1 was not rejected" >&2
+    exit 1
+  fi
+}
+
+self_test() {
+  fixture="$(mktemp -d)"
+  trap 'rm -rf "$fixture"' EXIT
+  local generated="$fixture/generated" runtime="$fixture/runtime"
+  local clean='func latestInboxUpdatesCount() {} // env Testnet'
+  local bindings=(swift/xmtp_sdk.swift kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt
+    typescript-napi/xmtp_sdk.ts typescript-wasm/xmtp_sdk.ts)
+  local binding name
+  for binding in "${bindings[@]}"; do
+    mkdir -p "$(dirname "$generated/$binding")"
+    echo "$clean" >"$generated/$binding"
+  done
+  mkdir -p "$runtime/src/test" "$runtime/src/main" "$runtime/Tests"
+  echo 'var readerOpenedForTest = null' >"$runtime/src/test/Hooks.kt"
+  echo 'static var readerOpenedForTest = nil' >"$runtime/Tests/Hooks.swift"
+  echo 'await bridgeTestPanic();' >"$runtime/src/main/bridge.test.ts"
+  if ! check "$generated" "$runtime" >/dev/null 2>&1; then
+    echo "self-test: the clean fixture was rejected" >&2
+    exit 1
+  fi
+  for name in readerOpenedForTest bridgeTestPanic bridge_test_panic \
+    is_ended_for_test testHook; do
+    echo "let x = $name" >"$runtime/src/main/Runtime.kt"
+    expect_failure "$name in a runtime" "$generated" "$runtime"
+    rm "$runtime/src/main/Runtime.kt"
+  done
+  for name in readerOpenedForTest bridge_test_panic; do
+    echo "func $name() {}" >>"$generated/typescript-wasm/xmtp_sdk.ts"
+    expect_failure "$name in a binding" "$generated" "$runtime"
+    echo "$clean" >"$generated/typescript-wasm/xmtp_sdk.ts"
+  done
+  echo 'export const panic = bridgeTestPanic;' >"$generated/typescript-wasm/dispatch.gen.ts"
+  expect_failure "bridgeTestPanic in a generated module" "$generated" "$runtime"
+  rm "$generated/typescript-wasm/dispatch.gen.ts"
+  echo "check-test-hooks self-test passes."
+}
+
+case "${1:-}" in
+  --self-test)
+    self_test
+    ;;
+  *)
+    cd "$root"
+    check "${1:-target/sdk-generated}" apps/xmtp_sdk_bindgen/runtime
+    echo "Default bindings and runtimes have no test hooks."
+    ;;
+esac

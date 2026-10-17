@@ -25,8 +25,11 @@ use crate::{
 };
 
 mod error;
+mod prepared;
+mod publish;
 mod types;
 pub use error::*;
+pub use prepared::*;
 pub use types::*;
 
 pub type ID = i32;
@@ -138,7 +141,7 @@ pub enum IntentState {
     Superseded = 6,
 }
 
-#[derive(Queryable, Identifiable, PartialEq, Clone)]
+#[derive(Queryable, Selectable, Identifiable, PartialEq, Clone)]
 #[diesel(table_name = group_intents)]
 #[diesel(primary_key(id))]
 pub struct StoredGroupIntent {
@@ -154,7 +157,6 @@ pub struct StoredGroupIntent {
     pub published_in_epoch: Option<i64>,
     pub should_push: bool,
     pub sequence_id: Option<i64>,
-    pub originator_id: Option<i64>,
 }
 
 impl std::fmt::Debug for StoredGroupIntent {
@@ -197,7 +199,7 @@ impl std::fmt::Debug for StoredGroupIntent {
     }
 }
 
-impl_fetch!(StoredGroupIntent, group_intents, ID);
+impl_fetch!(StoredGroupIntent, group_intents, ID, select);
 
 impl<C: ConnectionExt> Delete<StoredGroupIntent> for DbConnection<C> {
     type Key = ID;
@@ -259,6 +261,20 @@ pub trait QueryGroupIntent {
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError>;
 
+    /// The last known pending intent at the start of a publication pass.
+    fn last_publish_intent_id(&self, group_id: &[u8])
+    -> Result<Option<ID>, crate::ConnectionError>;
+
+    /// A published state change takes priority over the bounded ordinary cursor.
+    fn next_publish_intent(
+        &self,
+        group_id: &[u8],
+        after: Option<ID>,
+        upper: ID,
+    ) -> Result<Option<StoredGroupIntent>, crate::ConnectionError>;
+
+    fn has_published_group_change(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
     // `post_commit_data`
     fn set_group_intent_published(
@@ -281,6 +297,21 @@ pub trait QueryGroupIntent {
     /// compare-and-swap guard no longer matches the committed state.
     fn set_group_intent_superseded(&self, intent_id: ID) -> Result<(), StorageError>;
 
+    /// Abandon every unpublished and unconfirmed intent for a group that this
+    /// installation is no longer a member of. Returns the number abandoned.
+    ///
+    /// These become [`IntentState::Error`], not `Superseded`: the write did not
+    /// lose a compare-and-swap race, so reporting it as one would tell the
+    /// caller to re-derive from a value that did not change and queue again.
+    ///
+    /// `Committed` intents are deliberately excluded: their post-commit work
+    /// already landed on the network and may still owe Welcomes to members this
+    /// installation added, which must still be published.
+    fn supersede_pending_intents_for_inactive_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<usize, StorageError>;
+
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
     fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError>;
@@ -294,6 +325,16 @@ pub trait QueryGroupIntent {
         &self,
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError>;
+
+    /// True when a row with this payload hash exists but carries an
+    /// `IntentKind` this build cannot decode.
+    ///
+    /// The hash is unique and is the SHA-256 of this installation's own
+    /// prepared envelope, so a match identifies our own echo. Identity must not
+    /// be filtered by kind: reporting "no intent" for our own message sends it
+    /// down the external-message path. Callers use this to reject the envelope
+    /// terminally instead of failing the whole query and retrying forever.
+    fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError>;
 
     /// find the commit message refresh state for each intent payload hash
     fn find_dependant_commits<P: AsRef<[u8]>>(
@@ -330,6 +371,26 @@ where
         (**self).find_group_intents(group_id, allowed_states, allowed_kinds)
     }
 
+    fn last_publish_intent_id(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<ID>, crate::ConnectionError> {
+        (**self).last_publish_intent_id(group_id)
+    }
+
+    fn next_publish_intent(
+        &self,
+        group_id: &[u8],
+        after: Option<ID>,
+        upper: ID,
+    ) -> Result<Option<StoredGroupIntent>, crate::ConnectionError> {
+        (**self).next_publish_intent(group_id, after, upper)
+    }
+
+    fn has_published_group_change(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+        (**self).has_published_group_change(group_id)
+    }
+
     fn set_group_intent_published(
         &self,
         intent_id: ID,
@@ -363,6 +424,13 @@ where
         (**self).set_group_intent_superseded(intent_id)
     }
 
+    fn supersede_pending_intents_for_inactive_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<usize, StorageError> {
+        (**self).supersede_pending_intents_for_inactive_group(group_id)
+    }
+
     fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
         (**self).set_group_intent_to_publish(intent_id)
     }
@@ -376,6 +444,10 @@ where
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError> {
         (**self).find_group_intent_by_payload_hash(payload_hash)
+    }
+
+    fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError> {
+        (**self).own_intent_kind_is_unreadable(payload_hash)
     }
 
     fn find_dependant_commits<P: AsRef<[u8]>>(
@@ -407,6 +479,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         self.raw_query(|conn| {
             diesel::insert_into(dsl::group_intents)
                 .values(to_save)
+                .returning(StoredGroupIntent::as_returning())
                 .get_result(conn)
         })
     }
@@ -434,11 +507,38 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
         query = query.order(dsl::id.asc());
 
-        self.raw_query(|conn| query.load::<StoredGroupIntent>(conn))
+        self.raw_query(|conn| {
+            query
+                .select(StoredGroupIntent::as_select())
+                .load::<StoredGroupIntent>(conn)
+        })
     }
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
     // `post_commit_data`
+    #[xmtp_common::db_span]
+    fn last_publish_intent_id(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<ID>, crate::ConnectionError> {
+        publish::last_publish_intent_id(self, group_id)
+    }
+
+    #[xmtp_common::db_span]
+    fn next_publish_intent(
+        &self,
+        group_id: &[u8],
+        after: Option<ID>,
+        upper: ID,
+    ) -> Result<Option<StoredGroupIntent>, crate::ConnectionError> {
+        publish::next_publish_intent(self, group_id, after, upper)
+    }
+
+    #[xmtp_common::db_span]
+    fn has_published_group_change(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+        Ok(publish::published_group_change_id(self, group_id)?.is_some())
+    }
+
     #[tracing::instrument(level = "debug", skip(self, payload_hash), fields(intent_id = intent_id, payload_hash = hex::encode(payload_hash)))]
     fn set_group_intent_published(
         &self,
@@ -468,6 +568,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
             let already_published = self.raw_query(|conn| {
                 dsl::group_intents
                     .filter(dsl::id.eq(intent_id))
+                    .select(StoredGroupIntent::as_select())
                     .first::<StoredGroupIntent>(conn)
             });
 
@@ -495,8 +596,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                 .filter(dsl::state.eq(IntentState::Published))
                 .set((
                     dsl::state.eq(IntentState::Committed),
-                    dsl::sequence_id.eq(cursor.sequence_id as i64),
-                    dsl::originator_id.eq(cursor.originator_id as i64),
+                    dsl::sequence_id.eq(cursor.0 as i64),
                 ))
                 .execute(conn)
         })?;
@@ -531,6 +631,41 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         }
 
         Ok(())
+    }
+
+    /// Removal is terminal for work that has not been accepted by the group.
+    /// The state is `Error`, not `Superseded`: nothing raced this write.
+    /// A `ToPublish` intent can never be published now, and a `Published` one
+    /// can never be confirmed: its own echo is unreachable behind the inactive
+    /// boundary, and a later re-add installs fresh state past it. Leaving those
+    /// intents in place strands them, and a stranded `Published` state change
+    /// preempts every later intent on the group.
+    ///
+    /// The prepared attempt is cleared with the state so no stale bytes can be
+    /// reused against a new membership generation.
+    #[tracing::instrument(level = "debug", skip(self))]
+    fn supersede_pending_intents_for_inactive_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<usize, StorageError> {
+        let rows_changed = self.raw_query(|conn| {
+            diesel::update(dsl::group_intents)
+                .filter(dsl::group_id.eq(group_id))
+                .filter(
+                    dsl::state
+                        .eq(IntentState::ToPublish)
+                        .or(dsl::state.eq(IntentState::Published)),
+                )
+                .set((
+                    dsl::state.eq(IntentState::Error),
+                    dsl::prepared_envelopes.eq(None::<Vec<u8>>),
+                    dsl::staged_commit.eq(None::<Vec<u8>>),
+                    dsl::payload_hash.eq(None::<Vec<u8>>),
+                    dsl::published_in_epoch.eq(None::<i64>),
+                ))
+                .execute(conn)
+        })?;
+        Ok(rows_changed)
     }
 
     // Set the intent with the given ID to `Committed`
@@ -568,6 +703,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                     dsl::post_commit_data.eq(None::<Vec<u8>>),
                     dsl::published_in_epoch.eq(None::<i64>),
                     dsl::staged_commit.eq(None::<Vec<u8>>),
+                    dsl::prepared_envelopes.eq(None::<Vec<u8>>),
                 ))
                 .execute(conn)
         })?;
@@ -605,6 +741,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         let result = self.raw_query(|conn| {
             dsl::group_intents
                 .filter(dsl::payload_hash.eq(payload_hash))
+                .select(StoredGroupIntent::as_select())
                 .first::<StoredGroupIntent>(conn)
                 .optional()
         })?;
@@ -612,8 +749,24 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         Ok(result)
     }
 
+    #[xmtp_common::db_span]
+    fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError> {
+        // Read the discriminant, not the enum: this must answer for a row whose
+        // kind a newer build wrote and this one cannot decode.
+        let kind = self.raw_query(|conn| {
+            dsl::group_intents
+                .filter(dsl::payload_hash.eq(payload_hash))
+                .select(dsl::kind)
+                .first::<i32>(conn)
+                .optional()
+        })?;
+        // Derive the known set from the same iterator the kind filters use,
+        // so a newly added variant is covered without editing this.
+        Ok(kind.is_some_and(|kind| !IntentKind::all().any(|known| known as i32 == kind)))
+    }
+
     /// Find the commit message refresh state for each intent by payload hash.
-    /// Returns a map from payload hash to a vector of dependencies (one per originator).
+    /// Returns a map from payload hash to a vector of group dependencies.
     #[xmtp_common::db_span]
     fn find_dependant_commits<P: AsRef<[u8]>>(
         &self,
@@ -633,20 +786,19 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                 .inner_join(
                     refresh_state::table.on(refresh_state::entity_id
                         .eq(dsl::group_id)
-                        .and(refresh_state::entity_kind.eq(EntityKind::CommitMessage))),
+                        .and(refresh_state::entity_kind.eq(EntityKind::ApplicationMessage))),
                 )
                 .select((
                     dsl::payload_hash.assume_not_null(),
                     refresh_state::sequence_id,
-                    refresh_state::originator_id,
                     dsl::group_id,
                 ))
-                .load_iter::<(Vec<u8>, i64, i32, GroupId), DefaultLoadingMode>(conn)?
-                .map_ok(|(hash, sequence_id, originator_id, group_id)| {
+                .load_iter::<(Vec<u8>, i64, GroupId), DefaultLoadingMode>(conn)?
+                .map_ok(|(hash, sequence_id, group_id)| {
                     (
                         PayloadHash::from(hash),
                         IntentDependency {
-                            cursor: Cursor::new(sequence_id as u64, originator_id as u32),
+                            cursor: Cursor(sequence_id as u64),
                             group_id,
                         },
                     )
@@ -813,6 +965,7 @@ pub(crate) mod tests {
         conn.raw_query(|raw_conn| {
             dsl::group_intents
                 .filter(dsl::group_id.eq(group_id))
+                .select(StoredGroupIntent::as_select())
                 .first(raw_conn)
         })
         .unwrap()
@@ -895,6 +1048,68 @@ pub(crate) mod tests {
                 conn.find_group_intents(group_id, Some(vec![IntentState::ToPublish]), None)
                     .is_err(),
                 "unfiltered query should surface the FromSql error for unknown kinds"
+            );
+        })
+    }
+
+    /// Identity by payload hash must survive an unreadable kind. Filtering it
+    /// away would report "not our message" for our own echo, which sends a
+    /// commit we authored down the external-message path.
+    #[xmtp_common::test]
+    fn an_unreadable_own_intent_kind_is_reported_not_hidden() {
+        let group_id = GroupId::generate();
+
+        with_connection(|conn| {
+            insert_group(conn, group_id);
+            let known_hash = rand_vec::<32>();
+            let future_hash = rand_vec::<32>();
+
+            conn.raw_query(|raw_conn| {
+                diesel::insert_into(dsl::group_intents)
+                    .values((
+                        dsl::kind.eq(IntentKind::SendMessage),
+                        dsl::group_id.eq(group_id),
+                        dsl::data.eq(rand_vec::<24>()),
+                        dsl::state.eq(IntentState::Published),
+                        dsl::payload_hash.eq(Some(known_hash.clone())),
+                        dsl::publish_attempts.eq(0),
+                        dsl::should_push.eq(false),
+                    ))
+                    .execute(raw_conn)
+            })
+            .unwrap();
+
+            let future_kind = IntentKind::all().count() as i32 + 1;
+            conn.raw_query(|raw_conn| {
+                diesel::insert_into(dsl::group_intents)
+                    .values((
+                        dsl::kind.eq(future_kind),
+                        dsl::group_id.eq(group_id),
+                        dsl::data.eq(rand_vec::<24>()),
+                        dsl::state.eq(IntentState::Published),
+                        dsl::payload_hash.eq(Some(future_hash.clone())),
+                        dsl::publish_attempts.eq(0),
+                        dsl::should_push.eq(false),
+                    ))
+                    .execute(raw_conn)
+            })
+            .unwrap();
+
+            // A readable kind is unaffected, and an absent hash is not ours.
+            assert!(!conn.own_intent_kind_is_unreadable(&known_hash).unwrap());
+            assert!(
+                !conn
+                    .own_intent_kind_is_unreadable(&rand_vec::<32>())
+                    .unwrap()
+            );
+
+            // The unreadable row is reported rather than erroring the query,
+            // so the caller can reject the envelope terminally.
+            assert!(conn.own_intent_kind_is_unreadable(&future_hash).unwrap());
+            assert!(
+                conn.find_group_intent_by_payload_hash(&future_hash)
+                    .is_err(),
+                "the typed lookup still cannot decode it; the probe is what callers use"
             );
         })
     }
@@ -1228,7 +1443,7 @@ pub(crate) mod tests {
             conn.set_group_intent_published(intent2.id, &payload_hash2, None, None, 1)
                 .unwrap();
 
-            conn.update_cursor(group_id, EntityKind::CommitMessage, Cursor::new(100, 42u32))
+            conn.update_cursor(group_id, EntityKind::ApplicationMessage, Cursor(100))
                 .unwrap();
 
             let result = conn
@@ -1239,15 +1454,15 @@ pub(crate) mod tests {
             let dep1 = result
                 .get(&PayloadHash::from(payload_hash1.clone()))
                 .unwrap();
-            assert_eq!(dep1.cursor.sequence_id, 100);
-            assert_eq!(dep1.cursor.originator_id, 42);
+            assert_eq!(dep1.cursor.0, 100);
+
             assert_eq!(dep1.group_id.as_ref(), &group_id);
 
             let dep2 = result
                 .get(&PayloadHash::from(payload_hash2.clone()))
                 .unwrap();
-            assert_eq!(dep2.cursor.sequence_id, 100);
-            assert_eq!(dep2.cursor.originator_id, 42);
+            assert_eq!(dep2.cursor.0, 100);
+
             assert_eq!(dep2.group_id.as_ref(), &group_id);
         })
     }

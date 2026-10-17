@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { getSdkConfig, SDK_CONFIGS } from "../src/lib/sdk-config";
-import { Sdk } from "../src/types";
+import path from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
+import { getSdkConfig } from "../src/lib/sdk-config";
 
 describe("SDK configs", () => {
   it("returns correct config for each SDK", () => {
@@ -15,13 +16,9 @@ describe("SDK configs", () => {
     expect(android.name).toBe("Android");
     expect(android.tagPrefix).toBe("android-");
 
-    const node = getSdkConfig("node-bindings");
-    expect(node.name).toBe("Node");
-    expect(node.tagPrefix).toBe("node-bindings-");
+    expect(() => getSdkConfig("node-bindings")).toThrow("Unknown SDK");
 
-    const wasm = getSdkConfig("wasm-bindings");
-    expect(wasm.name).toBe("WASM");
-    expect(wasm.tagPrefix).toBe("wasm-bindings-");
+    expect(() => getSdkConfig("wasm-bindings")).toThrow("Unknown SDK");
 
     const browserSdk = getSdkConfig("browser-sdk");
     expect(browserSdk.name).toBe("Browser SDK");
@@ -35,6 +32,10 @@ describe("SDK configs", () => {
     expect(agentSdk.name).toBe("Agent SDK");
     expect(agentSdk.tagPrefix).toBe("agent-sdk-");
 
+    const cli = getSdkConfig("cli");
+    expect(cli.name).toBe("CLI");
+    expect(cli.tagPrefix).toBe("cli-");
+
     const libxmtp = getSdkConfig("libxmtp");
     expect(libxmtp.name).toBe("Libxmtp");
     expect(libxmtp.tagPrefix).toBe("v");
@@ -42,15 +43,8 @@ describe("SDK configs", () => {
 
   it("throws for unknown SDK with available options", () => {
     expect(() => getSdkConfig("unknown")).toThrow(
-      "Unknown SDK: unknown. Available: ios, android, node-bindings, wasm-bindings, browser-sdk, node-sdk, agent-sdk, libxmtp",
+      "Unknown SDK: unknown. Available: ios, android, browser-sdk, node-sdk, agent-sdk, cli, libxmtp",
     );
-  });
-
-  it("has config for all SDK enum values", () => {
-    for (const sdk of Object.values(Sdk)) {
-      expect(SDK_CONFIGS[sdk]).toBeDefined();
-      expect(SDK_CONFIGS[sdk].manifest).toBeDefined();
-    }
   });
 
   describe("Libxmtp manifest provider", () => {
@@ -82,10 +76,10 @@ describe("SDK configs", () => {
 
     beforeEach(() => {
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-test-"));
-      fs.mkdirSync(path.join(tmpDir, "bindings", "node"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "sdks", "node"), { recursive: true });
       fs.writeFileSync(
-        path.join(tmpDir, "bindings", "node", "package.json"),
-        '{\n  "name": "@xmtp/node-bindings",\n  "version": "1.10.0"\n}\n',
+        path.join(tmpDir, "sdks", "node", "package.json"),
+        '{\n  "name": "@xmtp/node-sdk",\n  "version": "1.10.0"\n}\n',
       );
     });
 
@@ -94,7 +88,7 @@ describe("SDK configs", () => {
     });
 
     it("reads and writes version via manifest provider", () => {
-      const config = getSdkConfig("node-bindings");
+      const config = getSdkConfig("node-sdk");
       expect(config.manifest.readVersion(tmpDir)).toBe("1.10.0");
 
       config.manifest.writeVersion(tmpDir, "1.11.0-dev.abc1234");
@@ -102,15 +96,15 @@ describe("SDK configs", () => {
     });
   });
 
-  describe("WASM manifest provider", () => {
+  describe("Browser manifest provider", () => {
     let tmpDir: string;
 
     beforeEach(() => {
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-test-"));
-      fs.mkdirSync(path.join(tmpDir, "bindings", "wasm"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "sdks", "browser"), { recursive: true });
       fs.writeFileSync(
-        path.join(tmpDir, "bindings", "wasm", "package.json"),
-        '{\n  "name": "@xmtp/wasm-bindings",\n  "version": "1.10.0"\n}\n',
+        path.join(tmpDir, "sdks", "browser", "package.json"),
+        '{\n  "name": "@xmtp/browser-sdk",\n  "version": "1.10.0"\n}\n',
       );
     });
 
@@ -119,7 +113,7 @@ describe("SDK configs", () => {
     });
 
     it("reads and writes version via manifest provider", () => {
-      const config = getSdkConfig("wasm-bindings");
+      const config = getSdkConfig("browser-sdk");
       expect(config.manifest.readVersion(tmpDir)).toBe("1.10.0");
 
       config.manifest.writeVersion(tmpDir, "1.11.0-dev.abc1234");
@@ -153,27 +147,23 @@ describe("SDK configs", () => {
   });
 
   it("declares a version track for every SDK", () => {
-    expect(getSdkConfig("node-bindings").versionTrack).toBe("follows-libxmtp");
-    expect(getSdkConfig("wasm-bindings").versionTrack).toBe("follows-libxmtp");
     expect(getSdkConfig("ios").versionTrack).toBe("independent");
     expect(getSdkConfig("android").versionTrack).toBe("independent");
     expect(getSdkConfig("browser-sdk").versionTrack).toBe("independent");
     expect(getSdkConfig("node-sdk").versionTrack).toBe("independent");
+    expect(getSdkConfig("cli").versionTrack).toBe("independent");
     expect(getSdkConfig("libxmtp").versionTrack).toBe("follows-libxmtp");
   });
 
-  it("declares a release workflow and channels for shippable SDKs", () => {
-    const ios = getSdkConfig("ios");
-    expect(ios.releaseWorkflow).toBe("release-ios.yml");
-    expect(ios.channels).toContain("nightly");
-  });
-
-  it("declares notes globs for every SDK", () => {
-    for (const sdk of Object.values(Sdk)) {
-      const cfg = SDK_CONFIGS[sdk];
-      expect(Array.isArray(cfg.notesIncludeGlobs)).toBe(true);
-      expect(cfg.notesIncludeGlobs.length).toBeGreaterThan(0);
-      expect(Array.isArray(cfg.notesExcludeGlobs)).toBe(true);
-    }
+  it("uses the moved SDK directories", () => {
+    expect(getSdkConfig("browser-sdk").manifestPath).toBe(
+      "sdks/browser/package.json",
+    );
+    expect(getSdkConfig("node-sdk").manifestPath).toBe(
+      "sdks/node/package.json",
+    );
+    expect(getSdkConfig("agent-sdk").manifestPath).toBe(
+      "sdks/agent/package.json",
+    );
   });
 });

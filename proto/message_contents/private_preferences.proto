@@ -1,0 +1,68 @@
+// Private Key Storage
+//
+// Following definitions are not used in the protocol, instead they provide a
+// way for encoding private keys for storage.
+syntax = "proto3";
+
+package xmtp.message_contents;
+
+import "message_contents/ciphertext.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/message_contents";
+option java_package = "org.xmtp.proto.message.contents";
+
+// PrivatePreferencesAction is a message used to update the client's preference
+// store.
+message PrivatePreferencesAction {
+  // Allow 1:1 direct message (DM) access
+  message AllowAddress {
+    // Add the given wallet addresses to the allow list
+    repeated string wallet_addresses = 1;
+  }
+
+  // Deny (block) 1:1 direct message (DM) access
+  message DenyAddress {
+    // Add the given wallet addresses to the deny list
+    repeated string wallet_addresses = 1;
+  }
+
+  // Allow V3 1:1 direct message (DM) access
+  message AllowInboxId {
+    // Add the given inbox id to the allow list
+    repeated string inbox_ids = 1;
+  }
+
+  // Deny (block) V3 1:1 direct message (DM) access
+  message DenyInboxId {
+    // Add the given inbox id to the deny list
+    repeated string inbox_ids = 1;
+  }
+
+  // Allow Group access
+  message AllowGroup {
+    // Add the given group_ids to the allow list
+    repeated string group_ids = 1;
+  }
+
+  // Deny (deny) Group access
+  message DenyGroup {
+    // Add the given group_ids to the deny list
+    repeated string group_ids = 1;
+  }
+
+  oneof message_type {
+    AllowAddress allow_address = 1;
+    DenyAddress deny_address = 2;
+    AllowGroup allow_group = 3;
+    DenyGroup deny_group = 4;
+    AllowInboxId allow_inbox_id = 5;
+    DenyInboxId deny_inbox_id = 6;
+  }
+}
+
+// The payload that goes over the wire
+message PrivatePreferencesPayload {
+  oneof version {
+    Ciphertext v1 = 1;
+  }
+}

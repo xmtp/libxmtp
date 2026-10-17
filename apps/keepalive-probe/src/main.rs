@@ -2,7 +2,7 @@
 //!
 //! Holds `--count` connections to an XMTP gRPC endpoint with a configurable
 //! keepalive and reports how long each survives — either as bare idle HTTP/2
-//! connections, or (with `--subscribe-group`) as real `MlsApi/SubscribeGroupMessages`
+//! connections, or (with `--subscribe-group`) as real `SubscriptionService/Subscribe`
 //! streams that log every payload and disconnect. Keepalive defaults mirror
 //! libxmtp's `apply_channel_options` (`crates/xmtp_api_grpc/src/grpc_client/native.rs`),
 //! so a bare run reproduces a client's transport behavior; override the flags to
@@ -70,10 +70,9 @@ struct Args {
     #[arg(long)]
     connect_ip: Option<String>,
 
-    /// SUBSCRIBE MODE: hex group id to open a real `MlsApi/SubscribeGroupMessages`
+    /// SUBSCRIBE MODE: hex group id to open a real `SubscriptionService/Subscribe`
     /// stream against (xdbg-style). When set, each connection holds one live
     /// stream and logs received payloads + disconnects, instead of an idle conn.
-    /// (No auth — the V3 backend doesn't gate subscribe.)
     #[arg(long)]
     subscribe_group: Option<String>,
 
@@ -237,7 +236,7 @@ async fn run_connection(
     tls: Arc<ClientConfig>,
 ) -> ConnResult {
     let start = Instant::now();
-    // Subscribe mode (real V3 stream) vs idle mode (raw held connection).
+    // Subscribe mode (backend stream) vs idle mode (raw held connection).
     let result = match &args.subscribe_group {
         Some(group_hex) => run_subscribe(id, args, group_hex).await,
         None => establish_and_hold(args, host, port, tls)
@@ -270,7 +269,7 @@ enum SubEnd {
     Ended(String),
 }
 
-/// One `MlsApi/SubscribeGroupMessages` incarnation: subscribe, hold up to
+/// One `SubscriptionService/Subscribe` incarnation: subscribe, hold up to
 /// `budget`, return how it ended + payloads received + how long it lived.
 async fn subscribe_once(
     id: usize,
@@ -281,9 +280,11 @@ async fn subscribe_once(
     use tonic::codegen::http::uri::PathAndQuery;
     use tonic::transport::{ClientTlsConfig, Endpoint};
     use tonic_prost::ProstCodec;
-    use xmtp_proto::mls_v1::{
-        GroupMessage, SubscribeGroupMessagesRequest, subscribe_group_messages_request::Filter,
+    use xmtp_proto::backend_v1::{
+        Pong, SubscribeRequest, SubscribeResponse, TopicQuery, subscribe_request,
+        subscribe_response,
     };
+    use xmtp_proto::types::Topic;
 
     let mut ep = Endpoint::from_shared(args.endpoint.clone())
         .context("bad --endpoint")?
@@ -299,18 +300,19 @@ async fn subscribe_once(
     }
     let channel = ep.connect().await.context("connect")?;
 
-    let mut grpc = tonic::client::Grpc::new(channel);
+    let mut grpc = tonic::client::Grpc::new(channel)
+        .max_decoding_message_size(xmtp_configuration::BACKEND_DEFAULT_MAX_RESPONSE_BYTES)
+        .max_encoding_message_size(xmtp_configuration::BACKEND_DEFAULT_MAX_REQUEST_BYTES);
     grpc.ready().await.context("grpc not ready")?;
-    let codec: ProstCodec<SubscribeGroupMessagesRequest, GroupMessage> = ProstCodec::default();
-    let path = PathAndQuery::from_static("/xmtp.mls.api.v1.MlsApi/SubscribeGroupMessages");
-    let req = SubscribeGroupMessagesRequest {
-        filters: vec![Filter {
-            group_id,
-            id_cursor: 0,
-        }],
-    };
+    let codec: ProstCodec<SubscribeRequest, SubscribeResponse> = ProstCodec::default();
+    let path = PathAndQuery::from_static("/xmtp.backend.v1.SubscriptionService/Subscribe");
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let resp = grpc
-        .server_streaming(tonic::Request::new(req), path, codec)
+        .streaming(
+            tonic::Request::new(tokio_stream::wrappers::UnboundedReceiverStream::new(rx)),
+            path,
+            codec,
+        )
         .await
         .context("subscribe call")?;
     let mut stream = resp.into_inner();
@@ -321,19 +323,54 @@ async fn subscribe_once(
     let recv_loop = async {
         loop {
             match stream.message().await {
-                Ok(Some(msg)) => {
-                    received += 1;
-                    let mid = match msg.version {
-                        Some(xmtp_proto::mls_v1::group_message::Version::V1(v)) => v.id,
-                        None => 0,
-                    };
-                    tracing::info!(
-                        id,
-                        message_id = mid,
-                        total = received,
-                        "payload received (dropped)"
-                    );
-                }
+                Ok(Some(msg)) => match msg.response {
+                    Some(subscribe_response::Response::Started(_)) => {
+                        let request = SubscribeRequest {
+                            request: Some(subscribe_request::Request::Update(
+                                subscribe_request::Update {
+                                    id: 1,
+                                    adds: vec![TopicQuery {
+                                        topic: Some(xmtp_proto::backend_v1::Topic {
+                                            topic: Topic::new_group_message(&group_id).cloned_vec(),
+                                        }),
+                                        cursor: None,
+                                    }],
+                                    removes: vec![],
+                                },
+                            )),
+                        };
+                        if tx.send(request).is_err() {
+                            return SubEnd::Ended("request stream closed".into());
+                        }
+                    }
+                    Some(subscribe_response::Response::Ping(ping)) => {
+                        let request = SubscribeRequest {
+                            request: Some(subscribe_request::Request::Pong(Pong {
+                                nonce: ping.nonce,
+                            })),
+                        };
+                        if tx.send(request).is_err() {
+                            return SubEnd::Ended("request stream closed".into());
+                        }
+                    }
+                    Some(subscribe_response::Response::Messages(messages)) => {
+                        for envelope in messages.envelopes {
+                            received += 1;
+                            let mid = envelope
+                                .meta
+                                .and_then(|meta| meta.cursor)
+                                .map(|cursor| cursor.sequence_id)
+                                .unwrap_or_default();
+                            tracing::info!(
+                                id,
+                                message_id = mid,
+                                total = received,
+                                "payload received (dropped)"
+                            );
+                        }
+                    }
+                    _ => {}
+                },
                 Ok(None) => return SubEnd::Ended("server closed stream".into()),
                 Err(status) => return SubEnd::Ended(status.to_string()),
             }

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n            SELECT 1 FROM unnest($1::bytea[], $2::bigint[]) AS wanted(topic, head)\n            LEFT JOIN topic_watermark w ON w.topic = wanted.topic\n            WHERE COALESCE(w.last_sequence_id, 0) <> wanted.head\n        ) AS \"stale!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stale!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "ByteaArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "508b1a961ad143e1ba7525f6f200f896dedfb8cfe2da9ef7fca4092d2c51a025"
+}

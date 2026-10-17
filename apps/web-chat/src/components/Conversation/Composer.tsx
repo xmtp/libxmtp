@@ -1,0 +1,267 @@
+import {
+  ActionIcon,
+  Box,
+  Button,
+  Group,
+  Menu,
+  Text,
+  TextInput,
+} from "@mantine/core";
+import {
+  type PendingAttachment,
+  type RemoteAttachment,
+} from "@xmtp/browser-sdk";
+import { TextCodec, RemoteAttachmentCodec } from "@xmtp/browser-sdk/pure";
+import { useCallback, useRef, useState } from "react";
+
+import { Modal } from "@/components/Modal";
+import { useConversationContext } from "@/contexts/ConversationContext";
+import { useClient } from "@/contexts/XMTPContext";
+import { uploadEncryptedAttachment, validateFile } from "@/helpers/attachment";
+import { useConversation } from "@/hooks/useConversation";
+import { IconPlus } from "@/icons/IconPlus";
+
+import { AttachmentPreview } from "./AttachmentPreview";
+import { ReplyPreview } from "./ReplyPreview";
+
+export type ComposerProps = {
+  conversationId: string;
+};
+
+export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
+  const client = useClient();
+  const { sendText, sendReply, sendRemoteAttachment, sending } =
+    useConversation(conversationId);
+  const { replyTarget, setReplyTarget } = useConversationContext();
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const remoteAttachmentRef = useRef<RemoteAttachment | null>(null);
+  const pendingAttachmentRef = useRef<PendingAttachment | null>(null);
+  const isSending = sending || uploadingAttachment;
+  const hasContent = message.trim() !== "" || attachment;
+
+  const discardSelectedAttachment = useCallback(() => {
+    const pending = pendingAttachmentRef.current;
+    pendingAttachmentRef.current = null;
+    remoteAttachmentRef.current = null;
+    if (pending) {
+      void client.attachments
+        .deleteLocal(pending.remoteAttachment)
+        .catch(() => {});
+    }
+  }, [client]);
+
+  const handleFileSelect = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (file) {
+        const validation = validateFile(file);
+        if (validation.valid) {
+          discardSelectedAttachment();
+          setAttachment(file);
+        } else {
+          setError(validation.error);
+        }
+      }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    },
+    [discardSelectedAttachment],
+  );
+
+  const handleSend = useCallback(async () => {
+    if (!hasContent || isSending) return;
+
+    if (attachment) {
+      try {
+        if (!remoteAttachmentRef.current) {
+          setUploadingAttachment(true);
+          remoteAttachmentRef.current = await uploadEncryptedAttachment(
+            client,
+            attachment,
+            pendingAttachmentRef,
+          );
+        }
+      } catch {
+        setError("Failed to upload attachment");
+        return;
+      } finally {
+        setUploadingAttachment(false);
+      }
+
+      try {
+        if (replyTarget) {
+          await sendReply({
+            reference: replyTarget.id,
+            referenceInboxId: replyTarget.senderInboxId,
+            content: new RemoteAttachmentCodec().encode(
+              remoteAttachmentRef.current,
+            ),
+          });
+        } else {
+          await sendRemoteAttachment(remoteAttachmentRef.current);
+        }
+        setAttachment(null);
+        remoteAttachmentRef.current = null;
+        pendingAttachmentRef.current = null;
+      } catch {
+        setError("Failed to send attachment");
+        return;
+      }
+    }
+
+    if (message) {
+      try {
+        if (replyTarget) {
+          await sendReply({
+            reference: replyTarget.id,
+            referenceInboxId: replyTarget.senderInboxId,
+            content: new TextCodec().encode(message),
+          });
+        } else {
+          await sendText(message);
+        }
+        setMessage("");
+      } catch {
+        setError("Failed to send message");
+        return;
+      }
+    }
+
+    setReplyTarget(undefined);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, [
+    client,
+    message,
+    attachment,
+    hasContent,
+    isSending,
+    replyTarget,
+    sendText,
+    sendReply,
+    sendRemoteAttachment,
+    setReplyTarget,
+  ]);
+
+  return (
+    <>
+      <Box p="md" style={{ width: "100%" }}>
+        <Box
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr auto",
+            gap: "var(--mantine-spacing-xxs)",
+            alignItems: "center",
+          }}>
+          {replyTarget && (
+            <ReplyPreview
+              message={replyTarget}
+              disabled={isSending}
+              onCancel={() => {
+                setReplyTarget(undefined);
+              }}
+            />
+          )}
+          {attachment && (
+            <AttachmentPreview
+              file={attachment}
+              disabled={isSending}
+              onCancel={() => {
+                discardSelectedAttachment();
+                setAttachment(null);
+              }}
+            />
+          )}
+          <Group gap="xxs" align="center" w="100%">
+            {client.attachments.offered && (
+              <Menu shadow="md" position="top-start">
+                <Menu.Target>
+                  <ActionIcon
+                    variant="light"
+                    size="lg"
+                    radius="xl"
+                    disabled={isSending}>
+                    <IconPlus size={20} />
+                  </ActionIcon>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item onClick={() => fileInputRef.current?.click()}>
+                    <Text fw={500}>Attachment</Text>
+                    <Group align="center" justify="space-between" gap="xs">
+                      <Text size="sm" c="dimmed">
+                        Image / Video / Audio
+                      </Text>
+                      <Text size="xs" fw={500}>
+                        ≤ 1MB
+                      </Text>
+                    </Group>
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            )}
+            {client.attachments.offered && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*,audio/*"
+                onChange={handleFileSelect}
+                style={{ display: "none" }}
+              />
+            )}
+            <TextInput
+              ref={inputRef}
+              disabled={isSending}
+              size="md"
+              placeholder="Type a message..."
+              value={message}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSend();
+              }}
+              onChange={(e) => {
+                setMessage(e.target.value);
+              }}
+              style={{ flex: 1 }}
+            />
+          </Group>
+          <Button
+            disabled={!hasContent}
+            loading={isSending}
+            size="md"
+            onClick={() => void handleSend()}>
+            Send
+          </Button>
+        </Box>
+      </Box>
+      {error && (
+        <Modal
+          opened
+          centered
+          withCloseButton={false}
+          closeOnEscape={false}
+          closeOnClickOutside={false}
+          size="auto"
+          title="Error"
+          onClose={() => {
+            setError(null);
+          }}>
+          <Text ta="center" size="sm">
+            {error}
+          </Text>
+          <Group mt="md" justify="flex-end">
+            <Button
+              onClick={() => {
+                setError(null);
+              }}>
+              OK
+            </Button>
+          </Group>
+        </Modal>
+      )}
+    </>
+  );
+};

@@ -1,0 +1,293 @@
+use std::sync::Arc;
+
+use futures::io::{BufReader, Cursor};
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_mls::worker::device_sync::archive::BACKUP_VERSION;
+use xmtp_mls::{
+    context::XmtpSharedContext,
+    worker::device_sync::{
+        ArchiveOptions as CoreArchiveOptions, BackupElementSelection as CoreElement,
+        archive::{ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter, insert_importer},
+    },
+};
+
+use crate::{Timestamp, XmtpError, client::CoreClient, conversation::on_sdk_worker};
+
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum ArchiveElement {
+    Messages,
+    Consent,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ArchiveOptions {
+    #[uniffi(default = None)]
+    pub start: Option<Timestamp>,
+    #[uniffi(default = None)]
+    pub end: Option<Timestamp>,
+    #[uniffi(default = None)]
+    pub elements: Option<Vec<ArchiveElement>>,
+    #[uniffi(default = false)]
+    pub exclude_disappearing_messages: bool,
+}
+
+impl From<ArchiveOptions> for CoreArchiveOptions {
+    fn from(value: ArchiveOptions) -> Self {
+        Self {
+            start_ns: value.start.map(|value| value.0),
+            end_ns: value.end.map(|value| value.0),
+            elements: value.elements.map_or_else(
+                || vec![CoreElement::Messages, CoreElement::Consent],
+                |elements| {
+                    elements
+                        .into_iter()
+                        .map(|value| match value {
+                            ArchiveElement::Messages => CoreElement::Messages,
+                            ArchiveElement::Consent => CoreElement::Consent,
+                        })
+                        .collect()
+                },
+            ),
+            exclude_disappearing_messages: value.exclude_disappearing_messages,
+        }
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ArchiveMetadata {
+    pub backup_version: u16,
+    pub elements: Vec<ArchiveElement>,
+    pub exported_at: Timestamp,
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+}
+
+impl From<BackupMetadata> for ArchiveMetadata {
+    fn from(value: BackupMetadata) -> Self {
+        Self {
+            backup_version: value.backup_version,
+            elements: value
+                .elements
+                .into_iter()
+                .filter_map(|value| match value {
+                    CoreElement::Messages => Some(ArchiveElement::Messages),
+                    CoreElement::Consent => Some(ArchiveElement::Consent),
+                    _ => None,
+                })
+                .collect(),
+            exported_at: Timestamp(value.exported_at_ns),
+            start: value.start_ns.map(Timestamp),
+            end: value.end_ns.map(Timestamp),
+        }
+    }
+}
+
+fn key(value: Vec<u8>) -> Result<Vec<u8>, XmtpError> {
+    if value.len() != ENC_KEY_SIZE {
+        return Err(XmtpError::invalid("archive key must be exactly 32 bytes"));
+    }
+    Ok(value)
+}
+
+#[derive(uniffi::Object)]
+pub struct Archives {
+    pub(crate) client: Arc<CoreClient>,
+}
+
+#[xmtp_macro::sdk_export]
+impl Archives {
+    pub async fn export_to_bytes(
+        &self,
+        key_bytes: Vec<u8>,
+        options: Option<ArchiveOptions>,
+    ) -> Result<Vec<u8>, XmtpError> {
+        let key = key(key_bytes)?;
+        let client = self.client.clone();
+        on_sdk_worker(self.client.context.clone(), async move {
+            let options = options
+                .unwrap_or(ArchiveOptions {
+                    start: None,
+                    end: None,
+                    elements: None,
+                    exclude_disappearing_messages: false,
+                })
+                .into();
+            // wasm has no blocking pool to offload to, so it exports inline.
+            #[cfg(not(target_arch = "wasm32"))]
+            let bytes =
+                exporter::ArchiveExporter::export_to_bytes(options, client.context.db(), &key)
+                    .await;
+            #[cfg(target_arch = "wasm32")]
+            let bytes = {
+                let mut bytes = Vec::new();
+                exporter::export(options, client.context.db(), &key, &mut bytes).map(|_| bytes)
+            };
+            bytes.map_err(XmtpError::from_core)
+        })
+        .await
+    }
+
+    pub async fn import_from_bytes(
+        &self,
+        data: Vec<u8>,
+        key_bytes: Vec<u8>,
+    ) -> Result<(), XmtpError> {
+        let key = key(key_bytes)?;
+        let client = self.client.clone();
+        on_sdk_worker(self.client.context.clone(), async move {
+            let reader = Box::pin(BufReader::new(Cursor::new(data)));
+            let mut importer = ArchiveImporter::load(reader, &key)
+                .await
+                .map_err(XmtpError::from_core)?;
+            insert_importer(&mut importer, &client.context)
+                .await
+                .map_err(XmtpError::from_core)
+        })
+        .await
+    }
+
+    pub async fn metadata_from_bytes(
+        &self,
+        data: Vec<u8>,
+        key_bytes: Vec<u8>,
+    ) -> Result<ArchiveMetadata, XmtpError> {
+        let key = key(key_bytes)?;
+        on_sdk_worker(self.client.context.clone(), async move {
+            let reader = Box::pin(BufReader::new(Cursor::new(data)));
+            ArchiveImporter::load(reader, &key)
+                .await
+                .map(|importer| importer.metadata.into())
+                .map_err(XmtpError::from_core)
+        })
+        .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn archive_options_preserve_element_selection_and_time_bounds() {
+        let all: CoreArchiveOptions = ArchiveOptions {
+            start: None,
+            end: None,
+            elements: None,
+            exclude_disappearing_messages: false,
+        }
+        .into();
+        assert_eq!(all.elements.len(), 2);
+
+        let empty: CoreArchiveOptions = ArchiveOptions {
+            start: Some(Timestamp(7)),
+            end: Some(Timestamp(9)),
+            elements: Some(vec![]),
+            exclude_disappearing_messages: true,
+        }
+        .into();
+        assert!(empty.elements.is_empty());
+        assert_eq!(empty.start_ns, Some(7));
+        assert_eq!(empty.end_ns, Some(9));
+        assert!(empty.exclude_disappearing_messages);
+
+        let messages: CoreArchiveOptions = ArchiveOptions {
+            start: None,
+            end: None,
+            elements: Some(vec![ArchiveElement::Messages]),
+            exclude_disappearing_messages: false,
+        }
+        .into();
+        assert_eq!(messages.elements.len(), 1);
+        assert!(matches!(messages.elements[0], CoreElement::Messages));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn archive_metadata_keeps_fields_and_filters_unspecified() {
+        let metadata = BackupMetadata {
+            backup_version: 1,
+            elements: vec![
+                CoreElement::Messages,
+                CoreElement::Unspecified,
+                CoreElement::Consent,
+            ],
+            exported_at_ns: 12345,
+            start_ns: Some(100),
+            end_ns: Some(200),
+        };
+        let public: ArchiveMetadata = metadata.into();
+        assert_eq!(public.backup_version, 1);
+        assert_eq!(public.elements.len(), 2);
+        assert!(matches!(public.elements[0], ArchiveElement::Messages));
+        assert!(matches!(public.elements[1], ArchiveElement::Consent));
+        assert_eq!(public.exported_at.0, 12345);
+        assert_eq!(public.start.map(|time| time.0), Some(100));
+        assert_eq!(public.end.map(|time| time.0), Some(200));
+    }
+}
+
+#[xmtp_macro::sdk_export(native_only)]
+impl Archives {
+    pub async fn export_to_file(
+        &self,
+        path: String,
+        key_bytes: Vec<u8>,
+        options: Option<ArchiveOptions>,
+    ) -> Result<ArchiveMetadata, XmtpError> {
+        let key = key(key_bytes)?;
+        let client = self.client.clone();
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                let options = options.unwrap_or(ArchiveOptions {
+                    start: None,
+                    end: None,
+                    elements: None,
+                    exclude_disappearing_messages: false,
+                });
+                let saved = exporter::ArchiveExporter::export_to_file(
+                    options.into(),
+                    client.context.db(),
+                    path,
+                    &key,
+                )
+                .await
+                .map_err(XmtpError::from_core)?;
+                Ok(BackupMetadata::from_metadata_save(saved, BACKUP_VERSION).into())
+            }),
+        )
+        .await
+    }
+
+    pub async fn import_from_file(
+        &self,
+        path: String,
+        key_bytes: Vec<u8>,
+    ) -> Result<(), XmtpError> {
+        let key = key(key_bytes)?;
+        let client = self.client.clone();
+        on_sdk_worker(self.client.context.clone(), async move {
+            let mut importer = ArchiveImporter::from_file(path, &key)
+                .await
+                .map_err(XmtpError::from_core)?;
+            insert_importer(&mut importer, &client.context)
+                .await
+                .map_err(XmtpError::from_core)
+        })
+        .await
+    }
+
+    pub async fn metadata_from_file(
+        &self,
+        path: String,
+        key_bytes: Vec<u8>,
+    ) -> Result<ArchiveMetadata, XmtpError> {
+        let key = key(key_bytes)?;
+        on_sdk_worker(self.client.context.clone(), async move {
+            ArchiveImporter::from_file(path, &key)
+                .await
+                .map(|importer| importer.metadata.into())
+                .map_err(XmtpError::from_core)
+        })
+        .await
+    }
+}

@@ -116,23 +116,6 @@ mod tests {
     }
 
     #[test]
-    fn message_store_load_returns_all_messages_for_network() {
-        let (db, _tmp) = open_temp_db();
-        let store = store_for(db);
-        let m1 = sample_message([0x10u8; 16], [0x01u8; 32]);
-        let m2 = sample_message([0x20u8; 16], [0x02u8; 32]);
-        let m3 = sample_message([0x20u8; 16], [0x03u8; 32]);
-
-        store
-            .set_all(&[m1.clone(), m2.clone(), m3.clone()])
-            .expect("set_all");
-
-        let iter = store.load().expect("load").expect("non-empty");
-        let collected: Vec<Message> = iter.map(|g| g.value()).collect();
-        assert_eq!(collected.len(), 3);
-    }
-
-    #[test]
     fn message_store_load_then_filter_by_group_id() {
         let (db, _tmp) = open_temp_db();
         let store = store_for(db);
@@ -146,8 +129,10 @@ mod tests {
             .expect("set_all");
 
         let iter = store.load().expect("load").expect("non-empty");
-        let only_a: Vec<Message> = iter
-            .map(|g| g.value())
+        let all: Vec<Message> = iter.map(|g| g.value()).collect();
+        assert_eq!(all.len(), 3);
+        let only_a: Vec<Message> = all
+            .into_iter()
             .filter(|m| m.group_id() == group_a)
             .collect();
         assert_eq!(only_a.len(), 2);

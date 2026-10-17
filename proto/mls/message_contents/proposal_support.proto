@@ -1,0 +1,14 @@
+// Proposal support extension data
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// Extension data for proposal support in group context.
+// When present in the group context extensions, indicates the group
+// uses proposal-by-reference flow.
+message ProposalSupport {
+  uint32 version = 1;
+}

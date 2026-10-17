@@ -57,7 +57,7 @@ jobs:
       # claude-code-action exchanges an OIDC token for its GitHub token
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.release-branch || github.ref_name }}
           fetch-depth: 0
@@ -108,7 +108,7 @@ jobs:
 
       - name: Draft release notes (empty scaffolds)
         if: steps.classify.outputs.has_empty == 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@34968b5981d5d170904281aa3df6f3c0d4a28855 # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Agent mode denies tools not allow-listed here. Enumerated
@@ -132,11 +132,11 @@ jobs:
 
             Include changes to:
             - Shared Rust crates (xmtp_mls, xmtp_db, xmtp_id, xmtp_cryptography,
-              xmtp_proto, xmtp_api, xmtp_api_d14n) that affect SDK behavior
-            - The SDK's own bindings directory (e.g., bindings/mobile and sdks/ios for iOS)
+              xmtp_proto, xmtp_api) that affect SDK behavior
+            - The SDK source and generator directories (crates/xmtp_sdk, apps/xmtp_sdk_bindgen and sdks/ios for iOS)
 
             Exclude changes to:
-            - Other SDK bindings (e.g., bindings/wasm, bindings/node for an iOS release)
+            - Other SDK packages (e.g., sdks/browser, sdks/node for an iOS release)
             - CI/CD workflows, dev tooling, documentation, and repo infrastructure
             - Test-only changes with no user-facing impact
 
@@ -205,7 +205,7 @@ jobs:
 
       - name: Suggest release notes edits
         if: steps.classify.outputs.has_content == 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@34968b5981d5d170904281aa3df6f3c0d4a28855 # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Agent mode denies tools not allow-listed here. Enumerated
@@ -229,11 +229,11 @@ jobs:
 
             Include changes to:
             - Shared Rust crates (xmtp_mls, xmtp_db, xmtp_id, xmtp_cryptography,
-              xmtp_proto, xmtp_api, xmtp_api_d14n) that affect SDK behavior
-            - The SDK's own bindings directory (e.g., bindings/mobile and sdks/ios for iOS)
+              xmtp_proto, xmtp_api) that affect SDK behavior
+            - The SDK source and generator directories (crates/xmtp_sdk, apps/xmtp_sdk_bindgen and sdks/ios for iOS)
 
             Exclude changes to:
-            - Other SDK bindings (e.g., bindings/wasm, bindings/node for an iOS release)
+            - Other SDK packages (e.g., sdks/browser, sdks/node for an iOS release)
             - CI/CD workflows, dev tooling, documentation, and repo infrastructure
             - Test-only changes with no user-facing impact
 

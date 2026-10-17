@@ -1,0 +1,95 @@
+import { isHex } from "viem";
+import { formatUnits, hexToNumber, parseUnits } from "viem";
+import { base } from "viem/chains";
+
+import { CommandRouter } from "@/middleware/CommandRouter";
+import {
+  createERC20TransferCalls,
+  getERC20Balance,
+  getERC20Decimals,
+} from "@/util/TransactionUtil";
+
+import { getAgent } from "./getAgent";
+
+const CHAIN = base;
+/** USDC Token address on Base chain: https://basescan.org/token/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 */
+const USDC_TOKEN_CONTRACT =
+  "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
+const USDC_DECIMALS = await getERC20Decimals({
+  chain: CHAIN,
+  tokenAddress: USDC_TOKEN_CONTRACT,
+}).catch(() => 6);
+
+const agent = await getAgent();
+const router = new CommandRouter({ helpCommand: "/help" });
+
+router.command("/my-balance", "Check your USDC balance", async (ctx) => {
+  const senderAddress = await ctx.getSenderAddress();
+  const senderBalance = await getERC20Balance({
+    chain: CHAIN,
+    tokenAddress: USDC_TOKEN_CONTRACT,
+    address: assertHex(senderAddress),
+  });
+  await ctx.conversation.sendText(
+    `Your USDC balance is: ${formatUnits(senderBalance, USDC_DECIMALS)}`,
+    { shouldPush: false },
+  );
+});
+
+router.command(
+  "/your-balance",
+  "Check the agent's USDC balance",
+  async (ctx) => {
+    const ownAddress = ctx.getClientAddress();
+    const ownBalance = await getERC20Balance({
+      chain: CHAIN,
+      tokenAddress: USDC_TOKEN_CONTRACT,
+      address: assertHex(ownAddress),
+    });
+    await ctx.conversation.sendText(
+      `My USDC balance is: ${formatUnits(ownBalance, USDC_DECIMALS)}`,
+      { shouldPush: false },
+    );
+  },
+);
+
+router.command("/tx", "Send USDC to the agent (e.g. /tx 0.1)", async (ctx) => {
+  const senderAddress = await ctx.getSenderAddress();
+  const receiverAddress = agent.address;
+  const amount = parseUnits(ctx.content, USDC_DECIMALS);
+  const currency = "USDC";
+
+  const walletSendCalls = createERC20TransferCalls({
+    chain: CHAIN,
+    tokenAddress: USDC_TOKEN_CONTRACT,
+    from: assertHex(senderAddress),
+    to: assertHex(receiverAddress),
+    amount,
+    description: `Transfer "${ctx.content} ${currency}" on chain "${CHAIN.name}" to address "${receiverAddress}".`,
+  });
+
+  await ctx.conversation.sendWalletSendCalls(walletSendCalls, {
+    shouldPush: false,
+  });
+});
+
+agent.use(router.middleware());
+
+agent.on("transaction-reference", async (ctx) => {
+  const { networkId, reference } = ctx.content;
+  const networkIdDecimal = hexToNumber(assertHex(networkId));
+  await ctx.conversation.sendMarkdown(
+    `Transaction confirmed!\n` +
+      `Chain ID: [${networkIdDecimal}](https://chainlist.org/chain/${networkIdDecimal})\n` +
+      `Transaction Hash: [${reference}](https://basescan.org/tx/${reference})`,
+    { shouldPush: false },
+  );
+});
+
+await agent.start();
+
+function assertHex(value: string | undefined) {
+  if (!value || !isHex(value, { strict: true }))
+    throw new Error("Expected a hexadecimal value.");
+  return value;
+}

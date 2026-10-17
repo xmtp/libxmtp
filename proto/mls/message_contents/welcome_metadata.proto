@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// Encrypted with the welcome message data.
+message WelcomeMetadata {
+  uint64 message_cursor = 1;
+}

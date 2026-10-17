@@ -117,7 +117,7 @@ impl xmtp_common::retry::RetryableError for BootstrapSynthesisError {
 /// Synthesize the full `AppDataUpdate` payload set the bootstrap
 /// commit ships, keyed by `ComponentId`.
 ///
-/// Sync parts delegate to [`synthesize_canonical_subset_for_validation`];
+/// Sync parts delegate to [`xmtp_mls_common::app_data::migration::synthesize_canonical_subset_for_validation`];
 /// the async part calls `IdentityUpdates::get_association_state` to
 /// partition `failed_installations` by owning inbox. Installations
 /// whose owner can't be resolved are dropped — `failed_installations`
@@ -207,6 +207,11 @@ async fn build_partitioned_group_membership<C: XmtpSharedContext>(
             BootstrapSynthesisError::Common(CommonMigrationError::MissingGroupMembershipExtension)
         })?;
     let legacy_proto = GroupMembershipProto::decode(legacy_bytes.as_slice())?;
+    // No ownership lookup is needed when there are no failed installations.
+    // Preserve the sequence-zero sentinel of a creator-only group.
+    if legacy_proto.failed_installations.is_empty() {
+        return encode_partitioned_group_membership(sequence_ids, BTreeMap::new());
+    }
 
     let identity_updates = IdentityUpdates::new(context);
     let db = context.db();
@@ -272,6 +277,13 @@ async fn build_partitioned_group_membership<C: XmtpSharedContext>(
         }
     }
 
+    encode_partitioned_group_membership(sequence_ids, per_inbox_failed)
+}
+
+fn encode_partitioned_group_membership(
+    sequence_ids: &BTreeMap<InboxId, u64>,
+    mut per_inbox_failed: BTreeMap<InboxId, Vec<Vec<u8>>>,
+) -> Result<Vec<u8>, BootstrapSynthesisError> {
     // Build the final per-inbox entries. Wraps each `V1` payload in
     // the `GroupMembershipEntry` envelope so the on-the-wire shape
     // matches what `decode_group_membership_delta` reads back —
@@ -321,7 +333,7 @@ pub enum BootstrapCommitError<StorageError: std::error::Error> {
     /// decode under the component's own apply rules) — fail loud here
     /// rather than ship a commit with sender/receiver dict divergence.
     #[error("bootstrap precondition: dict apply failed: {0}")]
-    DictApply(#[from] super::component_source::ComponentSourceError),
+    DictApply(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
 }
 
 /// Build and stage the bootstrap migration commit.
@@ -389,7 +401,7 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
     }
     // RequiredCapabilities MUST list AppDataDictionary so post-flip
     // members can't add themselves without supporting the dict. Using
-    // `check_proposals_enabled` (which detects the AppDataDictionary
+    // the former migration predicate (which detects the AppDataDictionary
     // GCE itself) wouldn't work here — openmls only adds the dict GCE
     // when the AppDataUpdate proposals apply during commit processing.
     use openmls::extensions::ExtensionType;
@@ -449,13 +461,14 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
     let empty_registry = xmtp_mls_common::app_data::component_registry::ComponentRegistry::new();
     let mut updater = stage.app_data_dictionary_updater();
     for (component_id, wire_bytes) in component_values.iter() {
-        let dict_bytes = super::component_source::apply_app_data_update_payload(
-            *component_id,
-            wire_bytes,
-            None,
-            &empty_registry,
-        )
-        .map_err(BootstrapCommitError::DictApply)?;
+        let dict_bytes =
+            xmtp_mls_common::app_data::component_source::apply_app_data_update_payload(
+                *component_id,
+                wire_bytes,
+                None,
+                &empty_registry,
+            )
+            .map_err(BootstrapCommitError::DictApply)?;
         updater.set(ComponentData::from_parts(
             component_id.as_u16(),
             dict_bytes.into(),
@@ -570,6 +583,29 @@ mod tests {
             None,
             None,
         )
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn synthesize_preserves_zero_membership_without_failed_installations() {
+        let context = crate::test::mock::context();
+        let inbox = hex::encode([7; 32]);
+        let extensions = build_test_extensions(
+            default_gmm(),
+            GroupMembershipProto {
+                members: [(inbox.clone(), 0)].into(),
+                failed_installations: Vec::new(),
+            },
+            default_metadata(inbox.clone()),
+        );
+        let values =
+            synthesize_initial_component_values_from_extensions(&context, &extensions).await?;
+        let membership = migration::decode_group_membership_delta(
+            values.get(&ComponentId::GROUP_MEMBERSHIP).unwrap(),
+        )?;
+        assert_eq!(membership.len(), 1);
+        let entry = unwrap_v1(membership.get(&InboxId::from_hex(&inbox)?).unwrap());
+        assert_eq!(entry.sequence_id, 0);
+        assert!(entry.failed_installations.is_empty());
     }
 
     #[xmtp_common::test(unwrap_try = true)]

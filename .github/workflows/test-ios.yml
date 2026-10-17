@@ -3,73 +3,55 @@ name: Test iOS
 on:
   workflow_call:
 
-jobs:
-  deploy-backend:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    name: Deploy Backend
-    outputs:
-      node_url: ${{ steps.deploy.outputs.node_url }}
-      history_url: ${{ steps.deploy.outputs.history_url }}
-      app_name: ${{ steps.deploy.outputs.app_name }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-      - name: Deploy test infrastructure
-        id: deploy
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          APP_NAME="libxmtp-ios-test-${{ github.run_id }}-${{ github.run_attempt }}"
-          ./sdks/ios/dev/fly/deploy "$APP_NAME"
-          echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
-          echo "node_url=https://${APP_NAME}.fly.dev" >> "$GITHUB_OUTPUT"
-          echo "history_url=https://${APP_NAME}.fly.dev:5558" >> "$GITHUB_OUTPUT"
-      - name: Wait for services
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          NODE_HOST="${{ steps.deploy.outputs.app_name }}.fly.dev"
-          for i in $(seq 1 60); do
-            if echo | openssl s_client -connect "${NODE_HOST}:443" -servername "${NODE_HOST}" 2>/dev/null | grep -q "CONNECTED"; then
-              echo "Services ready"
-              exit 0
-            fi
-            echo "Waiting... ($i/60)"
-            sleep 5
-          done
-          exit 1
+permissions:
+  contents: read
 
+jobs:
+  # One job builds the xcframework once (`sdks/ios/dev/bindings` skips the
+  # copy when the store path is unchanged) and runs every iOS check.
   tests:
     runs-on: warp-macos-15-arm64-6x
-    needs: deploy-backend
     name: Tests (iOS)
-    timeout-minutes: 30
+    timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: ios
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
         with:
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: maxim-lobanov/setup-xcode@v1
+      # The Xcode of the iOS outputs (`xcode` in nix/lib/ios-env.nix).
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
-          xcode-version: "26"
-      - uses: taiki-e/install-action@just
-      - name: Build and test
-        env:
-          NIX_DEVSHELL: ios
-          XMTP_NODE_ADDRESS: ${{ needs.deploy-backend.outputs.node_url }}
-          XMTP_HISTORY_SERVER_ADDRESS: ${{ needs.deploy-backend.outputs.history_url }}
-        run: just ios test
-  cleanup:
-    runs-on: ubuntu-latest
-    needs: [deploy-backend, tests]
-    if: always()
-    steps:
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-      - name: Destroy app
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          xcode-version: "26.3"
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
+      - name: Check native Apple toolchain
+        run: dev/nix-shell 'dev/check-apple-toolchain'
+      # The tracked Swift under sdks/ios/Sources must match the generated
+      # Swift: a changed, deleted, or new file fails.
+      - name: Build the iOS bindings and check the tracked Swift
         run: |
-          APP_NAME="${{ needs.deploy-backend.outputs.app_name }}"
-          [ -n "$APP_NAME" ] && flyctl apps destroy "$APP_NAME" --yes || true
+          dev/nix-shell 'sdks/ios/dev/bindings'
+          drift=$(git status --porcelain -- sdks/ios/Sources)
+          if [ -n "$drift" ]; then
+            echo "::error title=Stale generated Swift::run sdks/ios/dev/bindings and commit sdks/ios/Sources"
+            printf '%s\n' "$drift"
+            git diff --stat -- sdks/ios/Sources
+            exit 1
+          fi
+      - name: Run iOS unit tests
+        run: dev/nix-shell 'just backend ci just ios test'
+      - name: Check Swift consumers
+        run: dev/nix-shell 'just ios check-consumer'
+      - name: Run iOS simulator tests
+        run: dev/nix-shell 'just backend ci just ios test-simulator'
+      - name: Retain native service logs
+        timeout-minutes: 2
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-backend-ci-logs
+          path: ${{ runner.temp }}/backend-ci-logs
+          retention-days: 7

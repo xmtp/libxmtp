@@ -13,4 +13,4 @@
 # test runs. They're text, but not hand-authored prose — they're
 # checked in only so the seeds persist across machines.
 **/proptest-regressions/** linguist-generated=true
-```[cite: 13]
+

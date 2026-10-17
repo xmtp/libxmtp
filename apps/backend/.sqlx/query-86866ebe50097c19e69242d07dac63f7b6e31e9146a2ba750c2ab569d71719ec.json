@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM push_recipient WHERE renewed_ns < (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint - $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "86866ebe50097c19e69242d07dac63f7b6e31e9146a2ba750c2ab569d71719ec"
+}

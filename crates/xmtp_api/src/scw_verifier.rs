@@ -2,15 +2,15 @@ use crate::ApiClientWrapper;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::scw_verifier::VerifierError;
 use xmtp_id::{BlockNumber, Bytes, associations::AccountId, scw_verifier::ValidationResponse};
-use xmtp_proto::prelude::XmtpIdentityClient;
-use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignatureRequestSignature;
-use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesRequest;
-use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesResponse;
+use xmtp_proto::backend_v1::VerifySmartContractWalletSignaturesRequest;
+use xmtp_proto::backend_v1::VerifySmartContractWalletSignaturesResponse;
+use xmtp_proto::backend_v1::verify_smart_contract_wallet_signatures_request::Signature as VerifySmartContractWalletSignatureRequestSignature;
+use xmtp_proto::prelude::XmtpBackendClient;
 
 #[xmtp_common::async_trait]
 impl<C> SmartContractSignatureVerifier for ApiClientWrapper<C>
 where
-    C: XmtpIdentityClient,
+    C: XmtpBackendClient,
 {
     /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
     ///
@@ -40,13 +40,18 @@ where
 
         let VerifySmartContractWalletSignaturesResponse { responses } = result;
 
-        Ok(responses
-            .into_iter()
-            .next()
-            .ok_or(VerifierError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "API returned empty response for signature verification request",
-            )))?
-            .into())
+        let response =
+            responses
+                .into_iter()
+                .next()
+                .ok_or(VerifierError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "API returned empty response for signature verification request",
+                )))?;
+        Ok(ValidationResponse {
+            is_valid: response.is_valid,
+            block_number: response.block_number,
+            error: response.error,
+        })
     }
 }

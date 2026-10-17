@@ -15,7 +15,7 @@ pub struct GrpcWebService {
 
 impl GrpcWebService {
     pub fn new(host: url::Url, _limit: Option<u64>) -> Result<Self, GrpcBuilderError> {
-        // envoy does _not_ like trailing /
+        // Remove the trailing slash before adding the RPC path.
         let url = host.as_str().trim_end_matches("/");
         let options =
             FetchOptions::default().referrer_policy(ReferrerPolicy::StrictOriginWhenCrossOrigin);

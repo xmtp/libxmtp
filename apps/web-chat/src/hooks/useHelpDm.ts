@@ -1,0 +1,45 @@
+import { useEffect, useState } from "react";
+
+import { useClient } from "@/contexts/XMTPContext";
+import { useConversations } from "@/stores/inbox/hooks";
+
+export const HELP_ADDRESS = "0x212906fdbdb70771461e6cb3376a740132e56b14";
+
+export const useHelpDm = () => {
+  const client = useClient();
+  const conversations = useConversations();
+  const [exists, setExists] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const checkHelpDm = async () => {
+      try {
+        const identity = {
+          identifier: HELP_ADDRESS,
+          kind: "ethereum" as const,
+        };
+        const reachable = await client.canMessage([identity]);
+
+        if (reachable.get(`ethereum:${identity.identifier}`)) {
+          const inboxId = await client.inboxIdFor(identity);
+          if (inboxId) {
+            const dm = await client.conversations.getDmByInboxId(inboxId);
+            setExists(dm !== undefined);
+          } else {
+            setExists(false);
+          }
+        } else {
+          setExists(false);
+        }
+      } catch {
+        setExists(false);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void checkHelpDm();
+  }, [client, conversations]);
+
+  return { exists, loading };
+};

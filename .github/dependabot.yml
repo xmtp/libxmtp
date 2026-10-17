@@ -30,28 +30,15 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
-  # Maintain dependencies for yarn
+  # Maintain dependencies for the pnpm workspace
   - package-ecosystem: "npm"
-    directory: "/bindings/wasm"
+    directory: "/"
     schedule:
       interval: "weekly"
     groups:
-      wasm-prod:
+      js-prod:
         dependency-type: "production"
-      wasm-dev:
-        dependency-type: "development"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-patch"]
-  # Maintain dependencies for yarn
-  - package-ecosystem: "npm"
-    directory: "/bindings/node"
-    schedule:
-      interval: "weekly"
-    groups:
-      node-prod:
-        dependency-type: "production"
-      node-dev:
+      js-dev:
         dependency-type: "development"
     ignore:
       - dependency-name: "*"

@@ -30,6 +30,21 @@ impl RetryableError for SyncSummary {
     }
 }
 
+impl crate::worker::NeedsDbReconnect for SyncSummary {
+    fn needs_db_reconnect(&self) -> bool {
+        self.publish_errors
+            .iter()
+            .chain(self.post_commit_errors.iter())
+            .chain(self.other.as_deref())
+            .any(crate::worker::NeedsDbReconnect::needs_db_reconnect)
+            || self
+                .process
+                .errored
+                .iter()
+                .any(|(_, error)| error.needs_db_reconnect())
+    }
+}
+
 impl SyncSummary {
     /// synced a single message successfully
     pub fn single(msg: MessageIdentifier) -> Self {
@@ -529,10 +544,7 @@ mod tests {
         // A sync that fails to process some messages is still a successful sync
         // of the group as a whole — it stays Ok and prints the success line.
         let mut process = ProcessSummary::default();
-        process.errored(
-            Cursor::new(7u64, 0u32),
-            GroupMessageProcessingError::InvalidPayload,
-        );
+        process.errored(Cursor(7u64), GroupMessageProcessingError::InvalidPayload);
         let mut summary = SyncSummary::default();
         summary.add_process(process);
 
@@ -551,10 +563,7 @@ mod tests {
     #[xmtp_common::test]
     fn source_prefers_other_over_per_message_error() {
         let mut process = ProcessSummary::default();
-        process.errored(
-            Cursor::new(7u64, 0u32),
-            GroupMessageProcessingError::InvalidPayload,
-        );
+        process.errored(Cursor(7u64), GroupMessageProcessingError::InvalidPayload);
         let mut summary = SyncSummary::default();
         summary.add_process(process);
         summary.add_publish_err(GroupError::GroupInactive);

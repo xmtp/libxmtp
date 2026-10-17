@@ -14,19 +14,22 @@
   perl,
 }:
 let
-  # Narrow fileset for buildDepsOnly — only Cargo.toml, Cargo.lock, build.rs,
-  # and files referenced by build scripts. Source (.rs) changes don't invalidate
-  # the dep cache since crane replaces them with dummies anyway.
-  depsFileset = lib.fileset.toSource {
+  # The protobuf schemas and the one real build script that a dependency
+  # layer keeps. Other files reach a layer only through the cleaned
+  # manifests, so a comment or another build script leaves it unchanged.
+  protoSource = lib.fileset.toSource {
     root = ./../..;
-    fileset = xmtp.filesets.depsOnly;
+    fileset = lib.fileset.unions [
+      ./../../proto
+      ./../../crates/xmtp_proto/build.rs
+    ];
   };
 
-  # Full fileset for buildPackage — includes all source files needed to compile
-  # the xmtpv3 crate and its workspace dependencies.
-  bindingsFileset = lib.fileset.toSource {
+  # Crane reads target paths from the full workspace, then launders source
+  # contents from its dependency-only dummy source.
+  dummyInputFileset = lib.fileset.toSource {
     root = ./../..;
-    fileset = xmtp.filesets.forCrate ./../../bindings/mobile;
+    fileset = xmtp.filesets.workspace;
   };
 
   # The suffix strictly for the build platform/native machine building the code
@@ -38,7 +41,6 @@ let
   # Common build arguments shared between iOS and Android derivations.
   # Platform-specific args (like ANDROID_HOME or __noChroot) are added by each derivation.
   commonArgs = {
-    src = depsFileset;
     # strictDeps=true breaks darwin build with ring
     strictDeps = if stdenv.buildPlatform.isDarwin then false else true;
     # these inputs do not get cross compiled
@@ -46,6 +48,7 @@ let
       pkg-config
       perl
       zlib
+      pkgsBuildHost.protobuf
     ]
     ++ lib.optionals stdenv.buildPlatform.isDarwin [ darwin.libiconv ]
     # crane#1059 stopped adding toolchain cc's to nativeBuildInputs; restore the
@@ -77,33 +80,81 @@ let
 
   };
 
-  # Make cargo artifacts for a derivation building rust code
-  # "rust" is the rust toolchain to use (native or host)
-  # "test" is whether to use "test-utils" feature
-  # "zigbuild" uses "cargo zigbuild" instead of "cargo build"
+  # Crane reads the lock file and the version from `src` during evaluation.
+  # A dummy source is a derivation, so derivations that build from one pass
+  # these values directly. Evaluation then needs no import from derivation and
+  # works for another system. Git checkouts use the toolchain's Cargo, so the
+  # vendor directory comes from the caller's Crane library.
+  mkCargoVendorDir = rust: rust.vendorCargoDeps { cargoLock = ./../../Cargo.lock; };
+
+  # Make the dependency layer of a Crane derivation. `rust` is the caller's
+  # Crane library. `overrides` sets `buildPhaseCargoCommand` to the consumer's
+  # own command, with the same packages, targets, profile, and environment, so
+  # the final build compiles no third-party crate again.
   mkCargoArtifacts =
-    rust: test: overrides:
+    rust: overrides:
+    assert lib.assertMsg (
+      overrides ? buildPhaseCargoCommand
+    ) "mkCargoArtifacts: set buildPhaseCargoCommand to the consumer's Cargo command and -p list";
     let
-      maybeTestFeature = if test then "--features test-utils" else "";
-      overrides' = if overrides == null then { } else overrides;
-      # these attrs need to be removed otherwise cache becomes invalidated on every different commit
+      dummySrc = rust.mkDummySrc {
+        src = dummyInputFileset;
+        extraDummyScript = ''
+          mkdir -p $out/proto $out/crates/xmtp_proto
+          cp --recursive ${protoSource}/proto/. $out/proto
+          cp ${protoSource}/crates/xmtp_proto/build.rs $out/crates/xmtp_proto/build.rs
+          xmtp_dummy_build=$(grep '^build = ' $out/crates/xmtp_proto/Cargo.toml)
+          substituteInPlace $out/crates/xmtp_proto/Cargo.toml \
+            --replace-fail "$xmtp_dummy_build" 'build = "build.rs"'
+        '';
+      };
     in
     rust.buildDepsOnly (
       commonArgs
       // {
-        src = rust.cleanCargoSource ../..;
-        buildPhaseCargoCommand = "cargo build ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
+        inherit dummySrc;
+        cargoVendorDir = mkCargoVendorDir rust;
+        pname = "cargo-package";
+        version = xmtp.mkVersion rust;
         doInstallCargoArtifacts = true;
       }
-      // overrides'
+      // overrides
     );
+
+  # Fail evaluation unless a shipped SDK library and its dependency layer
+  # build with static, unvendored OpenSSL, and with the Apple deployment floors
+  # (macOS 11.0; iOS 14 for a slice). Returns `drv`.
+  assertNativeEnv =
+    {
+      drv,
+      macos ? false,
+      ios ? false,
+    }:
+    let
+      problems =
+        phase: attrs:
+        lib.optional ((attrs.OPENSSL_NO_VENDOR or null) != "0") "${phase} OPENSSL_NO_VENDOR is not \"0\""
+        ++ lib.optional ((attrs.OPENSSL_STATIC or null) != "1") "${phase} OPENSSL_STATIC is not \"1\""
+        ++ lib.optional (
+          macos && (attrs.MACOSX_DEPLOYMENT_TARGET or null) != "11.0"
+        ) "${phase} MACOSX_DEPLOYMENT_TARGET is not 11.0"
+        ++ lib.optional (
+          ios
+          && !lib.hasInfix ''export IPHONEOS_DEPLOYMENT_TARGET="14"'' (
+            attrs.buildPhaseCargoCommand or (attrs.buildPhase or "")
+          )
+        ) "${phase} command does not export IPHONEOS_DEPLOYMENT_TARGET=14";
+      found = problems "build" drv ++ problems "dependency layer" drv.cargoArtifacts;
+    in
+    assert lib.assertMsg (found == [ ]) "${drv.name}: ${lib.concatStringsSep "; " found}";
+    drv;
 
 in
 {
   inherit
-    depsFileset
-    bindingsFileset
     commonArgs
+    mkCargoVendorDir
     mkCargoArtifacts
+    assertNativeEnv
     ;
 }

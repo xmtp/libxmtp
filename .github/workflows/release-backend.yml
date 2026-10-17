@@ -1,0 +1,129 @@
+name: Release backend
+
+on:
+  workflow_call:
+    inputs:
+      release-type:
+        required: true
+        type: string
+      rc-number:
+        type: string
+      ref:
+        required: true
+        type: string
+      timestamp:
+        type: string
+      dry-run:
+        type: boolean
+        default: false
+    outputs:
+      version:
+        description: "Backend image and GitHub release version"
+        value: ${{ jobs.publish.outputs.version }}
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      source-sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Pin the release source
+        id: source
+        env:
+          REF: ${{ inputs.ref }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ref="${REF#refs/heads/}"
+          git fetch --no-tags --depth=1 origin -- "$ref"
+          sha=$(git rev-parse 'FETCH_HEAD^{commit}')
+          if [ "$sha" != "$WORKFLOW_SHA" ]; then
+            echo "::error::Backend releases require the workflow revision and source ref to use the same commit"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup-release-tools
+      - name: Compute version
+        id: version
+        env:
+          RELEASE_TYPE: ${{ inputs.release-type }}
+          RC_NUMBER: ${{ inputs.rc-number }}
+          REF: ${{ inputs.ref }}
+          TIMESTAMP: ${{ inputs.timestamp }}
+        run: |
+          args=(--sdk libxmtp --release-type "$RELEASE_TYPE" --source-ref "$REF" --timestamp "$TIMESTAMP")
+          branch="${REF#refs/heads/}"
+          if [[ "$branch" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            args+=(--base-version "${BASH_REMATCH[1]}")
+          elif [ "$RELEASE_TYPE" != "dev" ]; then
+            echo "::error::Backend RC and final releases require release/X.Y.Z"
+            exit 1
+          fi
+          if [ "$RELEASE_TYPE" = "rc" ]; then
+            args+=(--rc-number "$RC_NUMBER")
+          fi
+          version=$(xmtp-release compute-version "${args[@]}")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Backend version: $version"
+
+  build:
+    needs: setup
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/push-backend.yml
+    with:
+      ref: ${{ needs.setup.outputs.source-sha }}
+      dry-run: ${{ inputs.dry-run }}
+      release-build: true
+    secrets: inherit
+
+  publish:
+    needs: [setup, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      attestations: read
+    concurrency:
+      group: backend-release-${{ needs.setup.outputs.version }}
+      cancel-in-progress: false
+    outputs:
+      version: ${{ needs.setup.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.setup.outputs.source-sha }}
+      - uses: ./.github/actions/setup-release-tools
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: inputs.dry-run != true
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish backend release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.setup.outputs.version }}
+          RELEASE_TYPE: ${{ inputs.release-type }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          args=(--version "$VERSION" --release-type "$RELEASE_TYPE")
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          xmtp-release publish-backend "${args[@]}"

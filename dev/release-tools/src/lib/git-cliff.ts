@@ -1,6 +1,8 @@
 import semver from "semver";
+
+import type { BumpType } from "@/types";
+
 import { diffBumpKind, type PendingRelease } from "./sdk-version";
-import type { BumpType } from "../types";
 
 interface CliffRelease {
   version?: string | null;
@@ -24,9 +26,9 @@ export function parsePendingFromContext(
   json: string,
   lastShippedVersion: string,
 ): PendingRelease | null {
-  let parsed: CliffRelease[];
+  let parsed: (CliffRelease | null)[];
   try {
-    parsed = JSON.parse(json) as CliffRelease[];
+    parsed = JSON.parse(json) as (CliffRelease | null)[];
   } catch (e) {
     throw new Error(
       `Could not parse git-cliff context: ${(e as Error).message}`,

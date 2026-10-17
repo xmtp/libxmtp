@@ -1,6 +1,6 @@
 use openmls::{
     extensions::{Extension, Extensions, UnknownExtension},
-    group::{GroupContext, MlsGroup as OpenMlsGroup},
+    group::GroupContext,
 };
 use prost::Message;
 use std::{collections::HashMap, fmt};
@@ -113,6 +113,15 @@ impl MessageDisappearingSettings {
 
     pub fn is_enabled(&self) -> bool {
         self.from_ns > 0 && self.in_ns > 0
+    }
+
+    /// The deadline of an application message sent at `sent_at_ns`, or `None` when
+    /// the settings are disabled or the message predates `from_ns`. A deadline past
+    /// `i64::MAX` clamps to it.
+    // implements: META-050
+    pub fn expire_at_ns(&self, sent_at_ns: i64) -> Option<i64> {
+        (self.is_enabled() && sent_at_ns >= self.from_ns)
+            .then(|| sent_at_ns.saturating_add(self.in_ns))
     }
 }
 
@@ -338,28 +347,6 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     }
 }
 
-impl TryFrom<&Extensions<GroupContext>> for GroupMutableMetadata {
-    type Error = GroupMutableMetadataError;
-
-    /// Attempts to extract GroupMutableMetadata from MLS Extensions.
-    fn try_from(value: &Extensions<GroupContext>) -> Result<Self, Self::Error> {
-        match find_mutable_metadata_extension(value) {
-            Some(metadata) => GroupMutableMetadata::try_from(metadata),
-            None => Err(GroupMutableMetadataError::MissingExtension),
-        }
-    }
-}
-
-impl TryFrom<&OpenMlsGroup> for GroupMutableMetadata {
-    type Error = GroupMutableMetadataError;
-
-    /// Attempts to extract GroupMutableMetadata from an OpenMlsGroup.
-    fn try_from(group: &OpenMlsGroup) -> Result<Self, Self::Error> {
-        let extensions = group.extensions();
-        extensions.try_into()
-    }
-}
-
 /// Finds the mutable metadata extension in the given MLS Extensions.
 ///
 /// This function searches for an Unknown Extension with the
@@ -373,35 +360,6 @@ pub fn find_mutable_metadata_extension(extensions: &Extensions<GroupContext>) ->
         }
         None
     })
-}
-
-/// Read `GroupMutableMetadata` from the **legacy** group-context
-/// extension only.
-///
-/// Use only when the caller is certain the group is unmigrated — on
-/// post-bootstrap groups the legacy extension is gone and this returns
-/// [`GroupMutableMetadataError::MissingExtension`].
-///
-/// For capability-aware reads that handle both legacy and migrated
-/// groups, use `extract_group_mutable_metadata_capability_aware` in
-/// the `xmtp_mls` crate at
-/// `xmtp_mls::groups::app_data::component_source`.
-/// (`xmtp_mls_common` cannot rustdoc-link to it because the dependency
-/// direction is one-way — this comment is the pointer.)
-pub fn extract_legacy_group_mutable_metadata(
-    group: &OpenMlsGroup,
-) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
-    extract_legacy_group_mutable_metadata_from_extensions(group.extensions())
-}
-
-/// Same as [`extract_legacy_group_mutable_metadata`], but reads directly from a
-/// group's `GroupContext` extensions — no full `OpenMlsGroup` needed.
-pub fn extract_legacy_group_mutable_metadata_from_extensions(
-    extensions: &Extensions<GroupContext>,
-) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
-    find_mutable_metadata_extension(extensions)
-        .ok_or(GroupMutableMetadataError::MissingExtension)?
-        .try_into()
 }
 
 /// Single source of truth for the `MetadataField` ↔ `ComponentId`
@@ -447,33 +405,8 @@ pub const METADATA_FIELD_COMPONENT_MAP: &[(
     ),
 ];
 
-/// Production migration predicate over raw extensions: the group is
-/// post-bootstrap iff the AppData dictionary carries the
-/// `COMPONENT_REGISTRY` entry (the bootstrap commit's first write).
-///
-/// `xmtp_mls::groups::app_data::is_migrated_extensions` layers a
-/// test-only registry override on top of this; use that one inside
-/// `xmtp_mls`. This variant exists for crates below `xmtp_mls` in the
-/// dependency graph (e.g. the archive exporter).
-pub fn extensions_are_migrated(extensions: &Extensions<GroupContext>) -> bool {
-    extensions
-        .app_data_dictionary()
-        .map(|ext| {
-            ext.dictionary()
-                .get(&super::app_data::component_id::ComponentId::COMPONENT_REGISTRY.as_u16())
-                .is_some()
-        })
-        .unwrap_or(false)
-}
-
-/// Overlay the AppData dictionary's metadata components onto `base` —
-/// the dict→legacy direction of the capability-aware read paths.
-///
-/// **Ungated**: callers decide migration state before calling (the
-/// `xmtp_mls` wrapper gates on its test-override-aware
-/// `is_migrated_extensions`; the archive exporter gates on
-/// [`extensions_are_migrated`]). No-op when the extensions carry no
-/// AppData dictionary.
+/// Overlay the AppData dictionary's metadata components onto `base`.
+/// No-op when the extensions carry no AppData dictionary.
 ///
 /// Value translation per component family:
 /// - `MESSAGE_DISAPPEAR_*`: 8-byte BE `i64` on the wire → base-10
@@ -501,6 +434,8 @@ pub fn merge_dict_into_mutable_metadata(
         }
     }
 
+    insert_absent_bounded_string_defaults(base, &[]);
+
     for (component_id, list) in [
         (ComponentId::ADMIN_LIST, &mut base.admin_list),
         (ComponentId::SUPER_ADMIN_LIST, &mut base.super_admin_list),
@@ -512,18 +447,9 @@ pub fn merge_dict_into_mutable_metadata(
     Ok(())
 }
 
-/// Best-effort variant of [`merge_dict_into_mutable_metadata`] that
-/// degrades per-field instead of failing per-group: every component
-/// that decodes is applied to `base`, every component that doesn't is
-/// skipped, and the errors are returned so the caller can log them
-/// (empty vec = clean merge).
-///
-/// Exists for the archive exporter, where one malformed component must
-/// not drop the whole group from a backup — the group's messages are
-/// exported unconditionally, so a missing group row orphans them and
-/// aborts the entire restore on a foreign-key violation. Non-export
-/// callers that want fail-fast semantics keep using the strict variant
-/// above.
+/// Merge available dictionary fields for legacy migration. Keep defaults for
+/// absent fields. Omit malformed values without replacing them with defaults.
+// implements: MIG-005
 pub fn merge_dict_into_mutable_metadata_lossy(
     base: &mut GroupMutableMetadata,
     extensions: &Extensions<GroupContext>,
@@ -531,41 +457,94 @@ pub fn merge_dict_into_mutable_metadata_lossy(
     use super::app_data::component_id::ComponentId;
 
     let Some(ext) = extensions.app_data_dictionary() else {
-        return Vec::new();
+        return vec![];
     };
     let dict = ext.dictionary();
-    let mut errors = Vec::new();
-
+    let mut errors = vec![];
+    let mut unavailable = vec![];
     for (field, id) in METADATA_FIELD_COMPONENT_MAP {
         if let Some(bytes) = dict.get(&id.as_u16()) {
-            match decode_metadata_component(*id, bytes) {
-                Ok(legacy_value) => {
-                    base.attributes
-                        .insert(field.as_str().to_string(), legacy_value);
+            let value = if *id == ComponentId::COMMIT_LOG_SIGNER && bytes.len() != 32 {
+                Err(GroupMutableMetadataError::MalformedComponent {
+                    component_id: Some(*id),
+                    reason: format!("expected 32 bytes, got {}", bytes.len()),
+                })
+            } else {
+                decode_metadata_component(*id, bytes)
+            };
+            match value {
+                Ok(value) => {
+                    base.attributes.insert(field.as_str().to_string(), value);
                 }
-                Err(e) => errors.push(e),
+                Err(error) => {
+                    base.attributes.remove(field.as_str());
+                    unavailable.push(*field);
+                    errors.push(error);
+                }
             }
         }
     }
-
-    for (component_id, list) in [
+    insert_absent_bounded_string_defaults(base, &unavailable);
+    for (id, list) in [
         (ComponentId::ADMIN_LIST, &mut base.admin_list),
         (ComponentId::SUPER_ADMIN_LIST, &mut base.super_admin_list),
     ] {
-        if let Some(bytes) = dict.get(&component_id.as_u16()) {
-            match decode_inbox_id_list(component_id, bytes) {
-                Ok(ids) => *list = ids,
-                Err(e) => errors.push(e),
+        if let Some(bytes) = dict.get(&id.as_u16()) {
+            match decode_inbox_id_list(id, bytes) {
+                Ok(value) => *list = value,
+                Err(error) => {
+                    list.clear();
+                    errors.push(error);
+                }
             }
         }
     }
     errors
 }
 
+/// The four bounded-string metadata fields that the pre-dictionary
+/// [`GroupMutableMetadata::new_default`] always seeded, each with an
+/// empty-string default.
+///
+/// The dictionary omits a component that was never set, which is the
+/// correct wire behaviour: absent and set-to-empty are genuinely
+/// different states and the dictionary keeps them apart. The legacy
+/// `attributes` map has no way to say "absent", and every consumer of
+/// it — the FFI getters, and the `GroupUpdated` metadata-change
+/// diff — was written against a map in which these four keys are
+/// always present. Defaulting them here keeps the dict→legacy
+/// projection faithful to that older shape without touching the
+/// dictionary itself.
+const DEFAULTED_BOUNDED_STRING_FIELDS: &[(MetadataField, &str)] = &[
+    (MetadataField::GroupName, DEFAULT_GROUP_NAME),
+    (MetadataField::Description, DEFAULT_GROUP_DESCRIPTION),
+    (
+        MetadataField::GroupImageUrlSquare,
+        DEFAULT_GROUP_IMAGE_URL_SQUARE,
+    ),
+    (MetadataField::AppData, ""),
+];
+
+/// Give every field in [`DEFAULTED_BOUNDED_STRING_FIELDS`] its legacy
+/// default when the dictionary carried no such component. Fields that
+/// the dictionary did carry keep their decoded value.
+fn insert_absent_bounded_string_defaults(
+    base: &mut GroupMutableMetadata,
+    unavailable: &[MetadataField],
+) {
+    for (field, default) in DEFAULTED_BOUNDED_STRING_FIELDS {
+        if unavailable.contains(field) {
+            continue;
+        }
+        base.attributes
+            .entry(field.as_str().to_string())
+            .or_insert_with(|| (*default).to_string());
+    }
+}
+
 /// Decode one Bytes/String-family component's wire bytes into its
 /// legacy string value, per the translation rules documented on
-/// [`merge_dict_into_mutable_metadata`]. Shared by the strict and
-/// lossy merge variants so both apply identical translations.
+/// [`merge_dict_into_mutable_metadata`].
 fn decode_metadata_component(
     id: super::app_data::component_id::ComponentId,
     bytes: &[u8],
@@ -594,8 +573,7 @@ fn decode_metadata_component(
 }
 
 /// Decode an `ADMIN_LIST` / `SUPER_ADMIN_LIST` component's wire bytes
-/// (`TlsSet<InboxId>`) into the legacy hex-string list form. Shared by
-/// the strict and lossy merge variants.
+/// (`TlsSet<InboxId>`) into the legacy hex-string list form.
 fn decode_inbox_id_list(
     component_id: super::app_data::component_id::ComponentId,
     bytes: &[u8],
@@ -618,7 +596,32 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    #[test]
+    /// The deadline is the backend sent time plus the duration, exactly: a message
+    /// sent before `from_ns` or under disabled settings gets none, one sent at
+    /// `from_ns` gets one, and a sum past `i64::MAX` clamps rather than overflowing.
+    // verifies: META-050
+    #[xmtp_common::test]
+    fn message_expiry_from_sent_time() {
+        let settings = MessageDisappearingSettings::new(1_000, 50);
+        assert_eq!(settings.expire_at_ns(999), None);
+        assert_eq!(settings.expire_at_ns(1_000), Some(1_050));
+        assert_eq!(settings.expire_at_ns(5_000), Some(5_050));
+
+        for disabled in [(0, 50), (1_000, 0), (-1, 50), (1_000, -1)] {
+            let disabled = MessageDisappearingSettings::new(disabled.0, disabled.1);
+            assert_eq!(disabled.expire_at_ns(5_000), None, "{disabled:?}");
+        }
+
+        let long = MessageDisappearingSettings::new(1, i64::MAX);
+        assert_eq!(long.expire_at_ns(1), Some(i64::MAX));
+        assert_eq!(long.expire_at_ns(i64::MAX), Some(i64::MAX));
+        let edge = MessageDisappearingSettings::new(1, i64::MAX - 10);
+        assert_eq!(edge.expire_at_ns(10), Some(i64::MAX));
+        assert_eq!(edge.expire_at_ns(11), Some(i64::MAX));
+        assert_eq!(edge.expire_at_ns(9), Some(i64::MAX - 1));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_commit_log_signer_utility_method() {
         // Test with valid hex-encoded signer
         let test_secret_bytes = vec![1u8; 32];
@@ -650,21 +653,80 @@ mod tests {
         assert!(bad_metadata.commit_log_signer().is_none());
     }
 
-    #[xmtp_common::test]
-    fn test_lossy_merge_applies_good_fields_and_reports_bad_ones() {
+    /// Regression: a dictionary omits a bounded-string component that
+    /// was never set, but the legacy `attributes` map that the FFI
+    /// getters and the `GroupUpdated` diff read from must still carry
+    /// the four fields with their empty-string defaults. Losing them
+    /// surfaced `undefined` instead of `""` across the JS SDKs.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_merge_defaults_absent_bounded_string_components() {
         use super::super::app_data::component_id::ComponentId;
         use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
         use openmls::group::GroupContext;
 
-        // One valid component (GROUP_NAME), two malformed ones
-        // (MESSAGE_DISAPPEAR_FROM_NS with the wrong byte width,
-        // ADMIN_LIST with bytes that aren't a TlsSet<InboxId>).
+        // A dictionary with only GROUP_NAME set: the three other
+        // bounded-string components are absent, exactly as a group
+        // created with no metadata options would be.
+        let mut dict = AppDataDictionary::new();
+        let _ = dict.insert(ComponentId::GROUP_NAME.as_u16(), b"Only Name".to_vec());
+        let extensions: Extensions<GroupContext> =
+            Extensions::from_vec(vec![Extension::AppDataDictionary(
+                AppDataDictionaryExtension::new(dict),
+            )])
+            .unwrap();
+
+        let mut base = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
+        merge_dict_into_mutable_metadata(&mut base, &extensions).unwrap();
+
+        // The component that was present keeps its decoded value.
+        assert_eq!(
+            base.attributes
+                .get(MetadataField::GroupName.as_str())
+                .map(String::as_str),
+            Some("Only Name"),
+            "a present component must not be overwritten by its default",
+        );
+
+        // The absent ones read as "" rather than being missing.
+        for field in [
+            MetadataField::Description,
+            MetadataField::GroupImageUrlSquare,
+            MetadataField::AppData,
+        ] {
+            assert_eq!(
+                base.attributes.get(field.as_str()).map(String::as_str),
+                Some(""),
+                "absent {} must default to an empty string",
+                field.as_str(),
+            );
+        }
+
+        // Fields that legacy only seeded when actually set stay
+        // absent — they never had an empty-string default.
+        for field in [
+            MetadataField::MessageDisappearFromNS,
+            MetadataField::MessageDisappearInNS,
+            MetadataField::MinimumSupportedProtocolVersion,
+            MetadataField::CommitLogSigner,
+        ] {
+            assert!(
+                !base.attributes.contains_key(field.as_str()),
+                "{} must not gain a default",
+                field.as_str(),
+            );
+        }
+    }
+
+    /// A malformed component fails the merge rather than being dropped:
+    /// commit validation and the archive exporter both rely on it.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_merge_rejects_malformed_component() {
+        use super::super::app_data::component_id::ComponentId;
+        use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
+        use openmls::group::GroupContext;
+
         let mut dict = AppDataDictionary::new();
         let _ = dict.insert(ComponentId::GROUP_NAME.as_u16(), b"Good Name".to_vec());
-        let _ = dict.insert(
-            ComponentId::MESSAGE_DISAPPEAR_FROM_NS.as_u16(),
-            vec![0x01; 3],
-        );
         let _ = dict.insert(ComponentId::ADMIN_LIST.as_u16(), vec![0xff, 0xff, 0xff]);
         let extensions: Extensions<GroupContext> =
             Extensions::from_vec(vec![Extension::AppDataDictionary(
@@ -672,43 +734,74 @@ mod tests {
             )])
             .unwrap();
 
-        // The strict variant fails on the first malformed component.
-        let mut strict_base = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
-        assert!(merge_dict_into_mutable_metadata(&mut strict_base, &extensions).is_err());
-
-        // The lossy variant applies the good field, leaves the bad
-        // ones untouched, and reports both errors with their ids.
         let mut base = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
-        let errors = merge_dict_into_mutable_metadata_lossy(&mut base, &extensions);
+        assert!(matches!(
+            merge_dict_into_mutable_metadata(&mut base, &extensions),
+            Err(GroupMutableMetadataError::MalformedComponent {
+                component_id: Some(ComponentId::ADMIN_LIST),
+                ..
+            })
+        ));
+    }
 
-        assert_eq!(
-            base.attributes
-                .get(MetadataField::GroupName.as_str())
-                .map(String::as_str),
-            Some("Good Name"),
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_lossy_merge_omits_malformed_fields_without_defaults() {
+        use super::super::app_data::component_id::ComponentId;
+        use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
+        use openmls::group::GroupContext;
+
+        let mut dict = AppDataDictionary::new();
+        let _ = dict.insert(ComponentId::GROUP_NAME.as_u16(), vec![0xff]);
+        let _ = dict.insert(
+            ComponentId::GROUP_DESCRIPTION.as_u16(),
+            b"Readable".to_vec(),
         );
+        let _ = dict.insert(ComponentId::ADMIN_LIST.as_u16(), vec![0xff, 0xff, 0xff]);
+        let _ = dict.insert(ComponentId::COMMIT_LOG_SIGNER.as_u16(), vec![1, 2, 3]);
+        let extensions: Extensions<GroupContext> =
+            Extensions::from_vec(vec![Extension::AppDataDictionary(
+                AppDataDictionaryExtension::new(dict),
+            )])?;
+        let mut base = GroupMutableMetadata::new(
+            HashMap::from([
+                ("group_name".to_string(), "Stale".to_string()),
+                (
+                    MetadataField::CommitLogSigner.as_str().to_string(),
+                    hex::encode([7; 32]),
+                ),
+            ]),
+            vec!["stale-admin".to_string()],
+            vec![],
+        );
+        let errors = merge_dict_into_mutable_metadata_lossy(&mut base, &extensions);
+        let mut components: Vec<_> = errors
+            .into_iter()
+            .map(|error| match error {
+                GroupMutableMetadataError::MalformedComponent {
+                    component_id: Some(id),
+                    ..
+                } => id.as_u16(),
+                error => panic!("unexpected metadata error: {error:?}"),
+            })
+            .collect();
+        components.sort();
+        let mut expected = [
+            ComponentId::GROUP_NAME.as_u16(),
+            ComponentId::ADMIN_LIST.as_u16(),
+            ComponentId::COMMIT_LOG_SIGNER.as_u16(),
+        ];
+        expected.sort();
+        assert_eq!(components, expected);
+        assert!(!base.attributes.contains_key("group_name"));
         assert!(
             !base
                 .attributes
-                .contains_key(MetadataField::MessageDisappearFromNS.as_str())
+                .contains_key(MetadataField::CommitLogSigner.as_str())
         );
+        assert_eq!(base.attributes["description"], "Readable");
+        assert_eq!(base.attributes["group_image_url_square"], "");
+        assert_eq!(base.attributes["app_data"], "");
         assert!(base.admin_list.is_empty());
-
-        let error_ids: Vec<_> = errors
-            .iter()
-            .map(|e| match e {
-                GroupMutableMetadataError::MalformedComponent { component_id, .. } => {
-                    component_id.unwrap()
-                }
-                other => panic!("expected MalformedComponent, got: {other:?}"),
-            })
-            .collect();
-        assert_eq!(
-            error_ids,
-            vec![
-                ComponentId::MESSAGE_DISAPPEAR_FROM_NS,
-                ComponentId::ADMIN_LIST
-            ]
-        );
     }
 }

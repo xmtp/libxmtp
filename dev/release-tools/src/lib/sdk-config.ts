@@ -1,4 +1,5 @@
-import { Sdk, type SdkConfig } from "../types";
+import { Sdk, type SdkConfig } from "@/types";
+
 import {
   createPodspecManifestProvider,
   createGradlePropertiesManifestProvider,
@@ -15,14 +16,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "-libxmtp",
     manifest: createPodspecManifestProvider("sdks/ios/XMTP.podspec"),
     versionTrack: "independent",
-    notesIncludeGlobs: ["crates/**", "bindings/mobile/**", "sdks/ios/**"],
-    notesExcludeGlobs: [
-      "bindings/wasm/**",
-      "bindings/node/**",
-      "sdks/android/**",
-    ],
-    releaseWorkflow: "release-ios.yml",
-    channels: ["nightly", "rc", "final"],
   },
   [Sdk.Android]: {
     name: "Android",
@@ -33,93 +26,38 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
       "sdks/android/gradle.properties",
     ),
     versionTrack: "independent",
-    notesIncludeGlobs: ["crates/**", "bindings/mobile/**", "sdks/android/**"],
-    notesExcludeGlobs: ["bindings/wasm/**", "bindings/node/**", "sdks/ios/**"],
-    releaseWorkflow: "release-android.yml",
-    channels: ["nightly", "rc", "final"],
-  },
-  [Sdk.NodeBindings]: {
-    name: "Node",
-    manifestPath: "bindings/node/package.json",
-    tagPrefix: "node-bindings-",
-    artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider("bindings/node/package.json"),
-    versionTrack: "follows-libxmtp",
-    notesIncludeGlobs: ["crates/**", "bindings/node/**"],
-    notesExcludeGlobs: ["bindings/wasm/**", "bindings/mobile/**"],
-    releaseWorkflow: "release-node.yml",
-    channels: ["nightly", "rc", "final"],
-  },
-  [Sdk.WasmBindings]: {
-    name: "WASM",
-    manifestPath: "bindings/wasm/package.json",
-    tagPrefix: "wasm-bindings-",
-    artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider("bindings/wasm/package.json"),
-    versionTrack: "follows-libxmtp",
-    notesIncludeGlobs: ["crates/**", "bindings/wasm/**"],
-    notesExcludeGlobs: ["bindings/node/**", "bindings/mobile/**"],
-    releaseWorkflow: "release-wasm.yml",
-    channels: ["nightly", "rc", "final"],
   },
   [Sdk.BrowserSdk]: {
     name: "Browser SDK",
-    manifestPath: "sdks/js/browser-sdk/package.json",
+    manifestPath: "sdks/browser/package.json",
     tagPrefix: "browser-sdk-",
     artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider(
-      "sdks/js/browser-sdk/package.json",
-    ),
+    manifest: createPackageJsonManifestProvider("sdks/browser/package.json"),
     versionTrack: "independent",
-    notesIncludeGlobs: [
-      "crates/**",
-      "bindings/wasm/**",
-      "sdks/js/browser-sdk/**",
-    ],
-    notesExcludeGlobs: [
-      "bindings/node/**",
-      "bindings/mobile/**",
-      "sdks/js/node-sdk/**",
-    ],
-    releaseWorkflow: "release-browser-sdk.yml",
-    channels: ["nightly", "rc", "final"],
   },
   [Sdk.NodeSdk]: {
     name: "Node SDK",
-    manifestPath: "sdks/js/node-sdk/package.json",
+    manifestPath: "sdks/node/package.json",
     tagPrefix: "node-sdk-",
     artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider(
-      "sdks/js/node-sdk/package.json",
-    ),
+    manifest: createPackageJsonManifestProvider("sdks/node/package.json"),
     versionTrack: "independent",
-    notesIncludeGlobs: ["crates/**", "bindings/node/**", "sdks/js/node-sdk/**"],
-    notesExcludeGlobs: [
-      "bindings/wasm/**",
-      "bindings/mobile/**",
-      "sdks/js/browser-sdk/**",
-    ],
-    releaseWorkflow: "release-node-sdk.yml",
-    channels: ["nightly", "rc", "final"],
   },
   [Sdk.AgentSdk]: {
     name: "Agent SDK",
-    manifestPath: "sdks/js/agent-sdk/package.json",
+    manifestPath: "sdks/agent/package.json",
     tagPrefix: "agent-sdk-",
     artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider(
-      "sdks/js/agent-sdk/package.json",
-    ),
+    manifest: createPackageJsonManifestProvider("sdks/agent/package.json"),
     versionTrack: "independent",
-    notesIncludeGlobs: ["sdks/js/agent-sdk/**"],
-    notesExcludeGlobs: [
-      "crates/**",
-      "bindings/**",
-      "sdks/js/node-sdk/**",
-      "sdks/js/browser-sdk/**",
-    ],
-    releaseWorkflow: "release-agent-sdk.yml",
-    channels: ["nightly", "rc", "final"],
+  },
+  [Sdk.Cli]: {
+    name: "CLI",
+    manifestPath: "apps/cli/package.json",
+    tagPrefix: "cli-",
+    artifactTagSuffix: "",
+    manifest: createPackageJsonManifestProvider("apps/cli/package.json"),
+    versionTrack: "independent",
   },
   [Sdk.Libxmtp]: {
     name: "Libxmtp",
@@ -128,19 +66,14 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "",
     manifest: createCargoManifestProvider("Cargo.toml"),
     versionTrack: "follows-libxmtp",
-    notesIncludeGlobs: ["crates/**", "bindings/**"],
-    notesExcludeGlobs: [],
-    releaseWorkflow: "",
-    channels: ["nightly", "rc", "final"],
   },
 };
 
 export function getSdkConfig(sdk: string): SdkConfig {
-  const config = SDK_CONFIGS[sdk as Sdk];
-  if (!config) {
+  if (!Object.hasOwn(SDK_CONFIGS, sdk)) {
     throw new Error(
       `Unknown SDK: ${sdk}. Available: ${Object.keys(SDK_CONFIGS).join(", ")}`,
     );
   }
-  return config;
+  return SDK_CONFIGS[sdk as Sdk];
 }

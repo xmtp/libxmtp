@@ -30,12 +30,14 @@ platforms = [
 # Including mio/tokio breaks webassembly builds since net features are mutually exclusive with wasm
 [traversal-excludes]
 workspace-members = [
+  # Server-only SQLx and transport features must not enter client builds.
+  "xmtp_backend",
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
-  "xnet-cli",
-  "xnet-lib",
   "keepalive-probe",
+  # The generator uses the fork's build-only dependency graph.
+  "xmtp-sdk-bindgen",
 ]
 third-party = [
   { name = "tonic" },
@@ -44,19 +46,31 @@ third-party = [
   { name = "wasm-bindgen" },
   # Excluded so workspace-hack does not unify libsqlite3-sys's
   # `bundled-sqlcipher-vendored-openssl` feature into every workspace member,
-  # which would drag openssl-sys/openssl into builds (e.g. mls-validation-service)
+  # which would drag openssl-sys/openssl into builds
   # that have no need for SQLite.
   { name = "libsqlite3-sys" },
 ]
 
 [final-excludes]
+# Portable roots do not depend on the aggregate client feature graph.
 workspace-members = [
+  "xmtp_backend",
+  "xmtp_common",
+  "xmtp_events",
+  "xmtp_cryptography",
+  "xmtp_configuration",
+  "xmtp_proto",
+  "xmtp_push_types",
+  "xmtp_id",
+  "xmtp_macro",
+  "xmtp_logging",
+  "xmtp_mls_validation",
+  "xmtp_mls_common",
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
-  "xnet-cli",
-  "xnet-lib",
   "keepalive-probe",
+  "xmtp-sdk-bindgen",
 ]
 third-party = [
   { name = "tonic" },
@@ -71,4 +85,8 @@ third-party = [
   # Sentry stays a plain dependency of the two crates that actually use it.
   { name = "sentry" },
   { name = "sentry-core" },
+  # Node's Rust tests use `noop` and `dyn-symbols` without a Node runtime.
+  # Do not enable those test features in normal addon builds.
+  # UUID v4's native random source fails to build for wasm when the hack unifies it.
+  { name = "uuid" },
 ]

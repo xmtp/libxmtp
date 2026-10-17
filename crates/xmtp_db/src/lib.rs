@@ -41,27 +41,33 @@ pub type DefaultMlsStore = SqlKeyStore<<DefaultStore as XmtpDb>::DbQuery>;
 pub mod prelude {
     pub use super::ReadOnly;
     pub use super::association_state::QueryAssociationStateCache;
+    pub use super::attachments::{QueryLocalAttachment, QueryPendingAttachment};
     pub use super::consent_record::QueryConsentRecord;
     pub use super::conversation_list::QueryConversationList;
-    pub use super::d14n_migration_cutover::QueryMigrationCutover;
+    pub use super::delivery::QueryDelivery;
+    pub use super::group::QueryConversationState;
     pub use super::group::QueryDms;
     pub use super::group::QueryGroup;
     pub use super::group::QueryGroupVersion;
     pub use super::group_intent::QueryGroupIntent;
+    pub use super::group_intent::QueryPreparedEnvelope;
     pub use super::group_message::QueryGroupMessage;
-    pub use super::icebox::QueryIcebox;
     pub use super::identity::QueryIdentity;
     pub use super::identity_cache::QueryIdentityCache;
     pub use super::identity_update::QueryIdentityUpdates;
+    pub use super::incoming_envelope::QueryIncomingEnvelope;
     pub use super::key_package_history::QueryKeyPackageHistory;
     pub use super::key_store_entry::QueryKeyStoreEntry;
     pub use super::local_commit_log::QueryLocalCommitLog;
     pub use super::migrations::QueryMigrations;
+    pub use super::notifications::QueryNotifications;
     pub use super::pragmas::Pragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::readd_status::QueryReaddStatus;
+    pub use super::received_proposal::QueryReceivedProposal;
     pub use super::refresh_state::QueryRefreshState;
     pub use super::remote_commit_log::QueryRemoteCommitLog;
+    pub use super::server_configuration::QueryServerConfiguration;
     pub use super::tasks::QueryTasks;
     pub use super::traits::*;
 }
@@ -125,8 +131,8 @@ pub mod test_util {
     use super::*;
     use ascii_table::AsciiTable;
     use diesel::{
-        ExpressionMethods, RunQueryDsl, connection::LoadConnection, deserialize::FromSqlRow,
-        sql_query,
+        ExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper, connection::LoadConnection,
+        deserialize::FromSqlRow, sql_query,
     };
 
     impl<C: ConnectionExt> DbConnection<C> {
@@ -310,7 +316,8 @@ pub mod test_util {
                 .filter(group_messages::kind.eq(GroupMessageKind::Application))
                 .order(group_messages::sequence_id.asc());
 
-            self.raw_query(|conn| query.load(conn)).unwrap()
+            self.raw_query(|conn| query.select(StoredGroupMessage::as_select()).load(conn))
+                .unwrap()
         }
 
         pub fn key_package_rotation_history(&self) -> Vec<(i64, i64)> {
@@ -335,7 +342,7 @@ pub mod test_util {
             history
         }
 
-        /// print refresh state, group messages, and icebox tables of the database to stdout in
+        /// print refresh state and group message tables of the database to stdout in
         /// column format.
         pub fn print_db(&self) {
             // matches
@@ -369,7 +376,11 @@ pub mod test_util {
 
             println!("\n=== group_messages ===");
             let msgs: Vec<crate::group_message::StoredGroupMessage> = self
-                .raw_query(|c| crate::schema::group_messages::table.load(c))
+                .raw_query(|c| {
+                    crate::schema::group_messages::table
+                        .select(StoredGroupMessage::as_select())
+                        .load(c)
+                })
                 .unwrap_or_default();
             t.column(0).set_header("id");
             t.column(1).set_header("group_id");
@@ -378,9 +389,8 @@ pub mod test_util {
             t.column(4).set_header("sender_inbox_id");
             t.column(5).set_header("delivery_status");
             t.column(6).set_header("content_type");
-            t.column(7).set_header("originator_id");
-            t.column(8).set_header("sequence_id");
-            t.column(9).set_header("message");
+            t.column(7).set_header("sequence_id");
+            t.column(8).set_header("message");
             let rows: Vec<Vec<String>> = msgs
                 .iter()
                 .map(|m| {
@@ -392,7 +402,6 @@ pub mod test_util {
                         m.sender_inbox_id.clone(),
                         format!("{:?}", m.delivery_status),
                         m.content_type.to_string(),
-                        m.originator_id.to_string(),
                         m.sequence_id.to_string(),
                         format_msg(m),
                     ]
@@ -407,47 +416,22 @@ pub mod test_util {
             let mut t = AsciiTable::default();
             println!("\n=== refresh_state ===");
             let states: Vec<crate::refresh_state::RefreshState> = self
-                .raw_query(|c| crate::schema::refresh_state::table.load(c))
+                .raw_query(|c| {
+                    crate::schema::refresh_state::table
+                        .select(crate::refresh_state::RefreshState::as_select())
+                        .load(c)
+                })
                 .unwrap_or_default();
             t.column(0).set_header("entity_id");
             t.column(1).set_header("entity_kind");
-            t.column(2).set_header("originator_id");
-            t.column(3).set_header("sequence_id");
+            t.column(2).set_header("sequence_id");
             let rows: Vec<Vec<String>> = states
                 .iter()
                 .map(|s| {
                     vec![
                         hex::encode(&s.entity_id)[..16.min(s.entity_id.len() * 2)].to_string(),
                         format!("{:?}", s.entity_kind),
-                        s.originator_id.to_string(),
                         s.sequence_id.to_string(),
-                    ]
-                })
-                .collect();
-            if rows.is_empty() {
-                println!("(empty)");
-            } else {
-                t.println(rows);
-            }
-
-            let mut t = AsciiTable::default();
-            t.column(0).set_header("originator_id");
-            t.column(1).set_header("sequence_id");
-            t.column(2).set_header("group_id");
-            t.column(3).set_header("envelope_payload");
-            println!("\n=== icebox ===");
-            let ice: Vec<crate::icebox::Icebox> = self
-                .raw_query(|c| crate::schema::icebox::table.load(c))
-                .unwrap_or_default();
-            let rows: Vec<Vec<String>> = ice
-                .iter()
-                .map(|i| {
-                    vec![
-                        i.originator_id.to_string(),
-                        i.sequence_id.to_string(),
-                        hex::encode(i.group_id)[..16].to_string(),
-                        hex::encode(&i.envelope_payload)[..20.min(i.envelope_payload.len() * 2)]
-                            .to_string(),
                     ]
                 })
                 .collect();

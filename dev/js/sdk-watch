@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Rebuild the public SDK when source changes. Finish each build before rerunning.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+
+target="${1:-}"
+case "$target" in
+  node|browser) ;;
+  *) echo "usage: $0 node|browser" >&2; exit 2 ;;
+esac
+
+if [[ -z "${XMTP_NIX_WRAPPER_ID:-}" ]] || ! command -v watchexec >/dev/null 2>&1; then
+  exec "$ROOT/dev/nix-shell" --shell js --command bash "$0" "$target"
+fi
+
+cd "$ROOT"
+watch=(
+  --watch apps/xmtp_sdk_bindgen/runtime/ts
+  --watch apps/xmtp_sdk_bindgen/src
+  --watch apps/xmtp_sdk_bindgen/templates
+  --watch apps/xmtp_sdk_bindgen/uniffi-global.toml
+  --watch apps/xmtp_sdk_bindgen/Cargo.toml
+  --watch crates/xmtp_sdk/src
+  --watch crates/xmtp_sdk/dev
+  --watch crates/xmtp_sdk/Cargo.toml
+  --watch Cargo.lock
+  --watch "sdks/$target/package.json"
+  --watch dev/js/sdk-package
+  --watch dev/js/sdk-watch
+)
+# The other workspace crates that the SDK builds with, such as crates/xmtp_mls.
+while IFS= read -r crate; do
+  [[ "$crate" == crates/xmtp_sdk ]] || watch+=(--watch "$crate")
+done < <(NIX_DEVSHELL=rust "$ROOT/dev/nix-shell" 'python3 crates/xmtp_sdk/dev/sdk-artifacts.py paths xmtp_sdk')
+exec watchexec --on-busy-update queue --debounce 300ms "${watch[@]}" \
+  --shell=none -- dev/js/sdk-package "$target"

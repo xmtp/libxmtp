@@ -78,10 +78,31 @@ pub struct FileConfig {
 }
 
 /// OTLP trace export configuration (native only).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TelemetryConfig {
+    /// Service identity. None uses OTEL_SERVICE_NAME, then "libxmtp".
+    pub service_name: Option<String>,
+    /// Root span sample ratio. Parent sampling decisions are preserved.
+    pub sample_ratio: f64,
+    /// Export tracing events as OTLP logs. Enabled by default.
+    pub logs: bool,
+    /// OTLP gRPC endpoint. None uses the standard OTLP environment variables.
     pub endpoint: Option<String>,
+    /// Extra resource attributes. Service identity always wins.
     pub resource_attributes: Vec<(String, String)>,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        const SAMPLE_ALL: f64 = 1.0;
+        Self {
+            endpoint: None,
+            service_name: None,
+            sample_ratio: SAMPLE_ALL,
+            logs: true,
+            resource_attributes: Vec::new(),
+        }
+    }
 }
 
 /// Full logging pipeline configuration.

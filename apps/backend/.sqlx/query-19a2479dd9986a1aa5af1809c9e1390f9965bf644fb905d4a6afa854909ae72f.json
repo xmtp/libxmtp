@@ -1,0 +1,109 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH wanted AS (\n                SELECT * FROM unnest($1::bytea[], $2::bigint[]) AS r(topic, cursor)\n            ), candidates AS MATERIALIZED (\n                SELECT e.sequence_id FROM wanted CROSS JOIN LATERAL (\n                    SELECT sequence_id FROM envelopes\n                    WHERE topic = wanted.topic AND sequence_id > wanted.cursor\n                    ORDER BY sequence_id LIMIT ($3::bigint + 1)\n                ) AS e ORDER BY e.sequence_id LIMIT ($3::bigint + 1)\n            ), page AS (\n                SELECT sequence_id FROM candidates ORDER BY sequence_id LIMIT $3::bigint\n            )\n            SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,\n                e.message_hash, e.is_commit_or_proposal, e.payload,\n                (SELECT count(*) > $3::bigint FROM candidates) AS \"has_more!\"\n            FROM page JOIN envelopes AS e USING (sequence_id) ORDER BY e.sequence_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sequence_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "sequence_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "topic",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "topic"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "server_ns",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "server_ns"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "expiry_ns",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "expiry_ns"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "message_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "message_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "is_commit_or_proposal",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "is_commit_or_proposal"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "payload",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "payload"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "has_more!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "ByteaArray",
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "19a2479dd9986a1aa5af1809c9e1390f9965bf644fb905d4a6afa854909ae72f"
+}

@@ -26,6 +26,8 @@ const FILE_LOG_EXTRA_ENV: &str = "XDBG_FILE_LOG_EXTRA";
 #[derive(Default)]
 pub struct Logger {
     log_format: LogFormat,
+    otel_endpoint: Option<String>,
+    telemetry_guard: Option<xmtp_logging::TelemetryGuard>,
     json: bool,
     show_fields: bool,
     human: bool,
@@ -39,6 +41,8 @@ impl<'a> From<&'a LogOptions> for Logger {
     fn from(options: &'a LogOptions) -> Self {
         Self {
             log_format: options.log_format.clone(),
+            otel_endpoint: options.otel_endpoint.clone(),
+            telemetry_guard: None,
             json: options.json,
             logfmt: options.logfmt,
             show_fields: options.show_fields,
@@ -54,6 +58,8 @@ impl Logger {
     pub fn init(&mut self) -> eyre::Result<()> {
         let Logger {
             ref log_format,
+            ref otel_endpoint,
+            ref mut telemetry_guard,
             show_fields,
             json,
             human,
@@ -164,6 +170,21 @@ impl Logger {
                     .with_filter(file_filter())
             }));
 
+        let telemetry = otel_endpoint
+            .as_ref()
+            .map(|endpoint| {
+                xmtp_logging::init(xmtp_logging::TelemetryConfig {
+                    endpoint: Some(endpoint.clone()),
+                    logs: false,
+                    ..Default::default()
+                })
+            })
+            .transpose()?;
+        let layers = telemetry.map(|(trace, logs, guard)| {
+            *telemetry_guard = Some(guard);
+            vec![trace.boxed(), logs]
+        });
+        let subscriber = subscriber.with(layers);
         let _ = tracing::dispatcher::set_global_default(Dispatch::new(subscriber));
         Ok(())
     }

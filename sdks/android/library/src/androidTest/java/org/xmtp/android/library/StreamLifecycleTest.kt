@@ -1,61 +1,81 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import kotlinx.coroutines.withContext
+import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
-import org.junit.runner.RunWith
+import org.junit.rules.TemporaryFolder
+import uniffi.xmtp_sdk.*
+import java.security.SecureRandom
 
-@RunWith(AndroidJUnit4::class)
 class StreamLifecycleTest {
-    /**
-     * One-shot catch-up joins a pending group and replays its history from
-     * durable cursors, then stops — and a second call finds nothing owed.
-     */
-    @Test
-    fun testCatchUpToLiveColdCatchesPendingGroupAndIsIdempotent() {
-        val fixtures = fixtures()
+    @get:Rule val directories = TemporaryFolder()
+
+    /** Catch-up stores pending history and leaves no work for a second call. */
+    @Test fun testCatchUpToLiveColdCatchesPendingGroupAndIsIdempotent() =
         runBlocking {
-            // bo creates a group with alix and sends. alix has never synced, so
-            // both the welcome and the message are owed.
-            val boGroup =
-                fixtures.boClient.conversations.newGroup(listOf(fixtures.alixClient.inboxId))
-            boGroup.send("missed while away")
+            val previous = AndroidStreamLifecycle.enabled
+            AndroidStreamLifecycle.enabled = false
+            try {
+                resumeStreams()
+                val context = InstrumentationRegistry.getInstrumentation().targetContext
+                val key = SecureRandom().generateSeed(32)
 
-            assertEquals(
-                0,
-                fixtures.alixClient.conversations
-                    .listGroups()
-                    .size,
-            )
-
-            val summary = fixtures.alixClient.catchUpToLive()
-            assertTrue(summary.completed)
-            assertEquals(1L, summary.conversations)
-            assertTrue(summary.messages >= 1)
-
-            val groups = fixtures.alixClient.conversations.listGroups()
-            assertEquals(1, groups.size)
-
-            // Catch-up delivered the real payload to the local store, not just a
-            // counter: the missed text is readable with no further sync.
-            val texts = groups.first().messages().map { it.body }
-            assertTrue(
-                "the missed message must be stored and readable after catch-up",
-                texts.contains("missed while away"),
-            )
-
-            // Nothing owed now: a second run persists nothing new on either axis.
-            val again = fixtures.alixClient.catchUpToLive()
-            assertEquals(0L, again.messages)
-            assertEquals(0L, again.conversations)
+                fun options() =
+                    ClientOptions(
+                        backend = BackendSource.Options(localApi()),
+                        storage =
+                            StorageOptions(
+                                StorageLocation.Directory(directories.newFolder().absolutePath),
+                                encryptionKey = key,
+                            ),
+                        deviceSync = false,
+                    )
+                val sender = SDKClient.create(context, generateLocalSigner(), options())
+                val receiver = SDKClient.create(context, generateLocalSigner(), options())
+                try {
+                    val group = sender.conversations.createGroup(listOf(receiver.inboxId()))
+                    group.sendText("missed while away")
+                    assertEquals(
+                        "The receiver has no group before catch-up",
+                        0,
+                        receiver.conversations.listGroups(null).size,
+                    )
+                    val summary = receiver.catchUpToLive(null)
+                    assertTrue(summary.completed)
+                    assertEquals(0uL, summary.failed)
+                    assertEquals(1uL, summary.conversations)
+                    assertTrue(summary.messages >= 1uL)
+                    val groups = receiver.conversations.listGroups(null)
+                    assertEquals(1, groups.size)
+                    val texts =
+                        groups.single().messages().mapNotNull {
+                            ((it.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text)?.v1
+                        }
+                    assertTrue(
+                        "Catch-up must store the missed text without another sync",
+                        texts.contains("missed while away"),
+                    )
+                    val again = receiver.catchUpToLive(null)
+                    assertTrue(again.completed)
+                    assertEquals(0uL, again.failed)
+                    assertEquals(0uL, again.messages)
+                    assertEquals(0uL, again.conversations)
+                } finally {
+                    withContext(NonCancellable) {
+                        receiver.end()
+                        sender.end()
+                    }
+                }
+            } finally {
+                AndroidStreamLifecycle.enabled = previous
+            }
         }
-    }
 
-    /** Backgrounding auto-management is a process-global toggle, on by default. */
-    @Test
-    fun testManageStreamLifecycleDefaultsOn() {
-        assertTrue(Client.manageStreamLifecycle)
+    @Test fun testManageStreamLifecycleDefaultsOn() {
+        assertTrue(AndroidStreamLifecycle.enabled)
     }
 }

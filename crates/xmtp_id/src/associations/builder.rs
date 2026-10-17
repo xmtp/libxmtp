@@ -11,16 +11,17 @@ use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 
 use super::{
-    MemberIdentifier, MemberKind, SignatureError,
+    AccountId, Handle, MemberIdentifier, MemberKind, SignatureError,
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
-        UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
-        UnsignedRevokeAssociation,
+        UnsignedChangeRecoveryAddress, UnsignedClaimHandle, UnsignedCreateInbox,
+        UnsignedIdentityUpdate, UnsignedRevokeAssociation,
     },
     unverified::{
         NewUnverifiedSmartContractWalletSignature, UnverifiedAction, UnverifiedAddAssociation,
-        UnverifiedChangeRecoveryAddress, UnverifiedCreateInbox, UnverifiedIdentityUpdate,
-        UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
+        UnverifiedChangeRecoveryAddress, UnverifiedClaimHandle, UnverifiedCreateInbox,
+        UnverifiedIdentityUpdate, UnverifiedRevokeAssociation, UnverifiedSignature,
+        UnverifiedSmartContractWalletSignature,
     },
     verified_signature::VerifiedSignature,
 };
@@ -134,6 +135,20 @@ impl SignatureRequestBuilder {
         self
     }
 
+    /// Add a ClaimHandle action signed by `signer`, a current member of the
+    /// inbox. A claim must be the only action of its update, so a request with
+    /// a claim and any other action builds an update that no validator applies.
+    pub fn claim_handle(mut self, handle: Handle, signer: MemberIdentifier) -> Self {
+        self.actions.push(PendingIdentityAction {
+            pending_signatures: HashMap::from([(SignatureField::ExistingMember, signer)]),
+            unsigned_action: UnsignedAction::ClaimHandle(UnsignedClaimHandle {
+                handle: handle.into(),
+            }),
+        });
+
+        self
+    }
+
     pub fn build(self) -> SignatureRequest {
         let unsigned_actions: Vec<UnsignedAction> = self
             .actions
@@ -176,6 +191,15 @@ pub enum SignatureRequestError {
     /// Block number not returned after successful SCW verification. May be retryable.
     #[error("Unable to get block number")]
     BlockNumber,
+    /// The deployment does not accept this chain.
+    ///
+    /// The smart contract wallet signature names a chain outside the list the
+    /// backend published. Not retryable.
+    #[error("the backend does not accept chain {chain}; it accepts {accepted:?}")]
+    ChainNotAccepted {
+        chain: String,
+        accepted: Vec<String>,
+    },
 }
 
 /// A signature request is meant to be sent over the FFI barrier (wrapped in a mutex) to platform SDKs.
@@ -187,6 +211,11 @@ pub struct SignatureRequest {
     pending_actions: Vec<PendingIdentityAction>,
     signature_text: String,
     signatures: HashMap<MemberIdentifier, UnverifiedSignature>,
+    /// The chains app-supplied smart contract wallet signatures may name
+    /// explicitly. `None` restricts nothing, which is what a request
+    /// built without a client — or by a client whose app supplied its own
+    /// verifier — keeps.
+    accepted_chains: Option<std::sync::Arc<[String]>>,
     client_timestamp_ns: u64,
     inbox_id: String,
 }
@@ -203,6 +232,7 @@ impl SignatureRequest {
             pending_actions,
             signature_text,
             signatures: HashMap::new(),
+            accepted_chains: None,
             client_timestamp_ns,
         }
     }
@@ -225,11 +255,44 @@ impl SignatureRequest {
     /// Often the front-end doesn't know the current block number when adding a smart contract.
     /// This is for when you want to add a smart-contract wallet,
     /// and need the verifier to populate the latest block number for you.
+    /// Restrict app-supplied smart contract wallet signatures to these chains
+    /// selected by the client from the snapshot it resolved,
+    /// before the request is handed to the app.
+    pub fn restrict_chains(&mut self, chains: std::sync::Arc<[String]>) {
+        self.accepted_chains = Some(chains);
+    }
+
+    /// The chains this request was restricted to, or `None` when nothing
+    /// restricted it. `Some(&[])` is a deployment that accepts no chain
+    /// at all, which is not the same as no restriction.
+    pub fn accepted_chains(&self) -> Option<&[String]> {
+        self.accepted_chains.as_deref()
+    }
+
+    /// Refuse a chain the deployment does not accept
+    /// before the verifier reaches the network. An empty accepted list refuses
+    /// every chain.
+    // implements: CONF-046
+    fn check_chain(&self, account_id: &AccountId) -> Result<(), SignatureRequestError> {
+        let Some(accepted) = self.accepted_chains.as_ref() else {
+            return Ok(());
+        };
+        let chain = account_id.get_chain_id();
+        if accepted.iter().any(|accepted| accepted == chain) {
+            return Ok(());
+        }
+        Err(SignatureRequestError::ChainNotAccepted {
+            chain: chain.to_string(),
+            accepted: accepted.to_vec(),
+        })
+    }
+
     pub async fn add_new_unverified_smart_contract_signature(
         &mut self,
         mut signature: NewUnverifiedSmartContractWalletSignature,
         scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<(), SignatureRequestError> {
+        self.check_chain(&signature.account_id)?;
         let verified_signature = VerifiedSignature::from_smart_contract_wallet(
             &self.signature_text,
             scw_verifier,
@@ -258,6 +321,9 @@ impl SignatureRequest {
         signature: UnverifiedSignature,
         scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<(), SignatureRequestError> {
+        if let UnverifiedSignature::SmartContractWallet(scw) = &signature {
+            self.check_chain(&scw.account_id)?;
+        }
         let verified_signature = signature
             .to_verified(self.signature_text.clone(), scw_verifier)
             .await?;
@@ -400,6 +466,21 @@ fn build_action(
                     unsigned_action,
                 },
             ))
+        }
+        UnsignedAction::ClaimHandle(unsigned_action) => {
+            let signer_identity = pending_action
+                .pending_signatures
+                .get(&SignatureField::ExistingMember)
+                .ok_or(SignatureRequestError::MissingSigner)?;
+            let signature = signatures
+                .get(signer_identity)
+                .cloned()
+                .ok_or(SignatureRequestError::MissingSigner)?;
+
+            Ok(UnverifiedAction::ClaimHandle(UnverifiedClaimHandle {
+                unsigned_action,
+                signature,
+            }))
         }
     }
 }
@@ -554,5 +635,122 @@ pub(crate) mod tests {
             attempt_to_add_random_member,
             Err(SignatureRequestError::UnknownSigner)
         ));
+    }
+
+    /// A request whose one pending member is a smart contract wallet, with the
+    /// wallet's address alongside it.
+    fn scw_request(chains: Option<Vec<&str>>) -> (SignatureRequest, String) {
+        let wallet = PrivateKeySigner::random();
+        let account_ident = wallet.get_identifier().unwrap();
+        let inbox_id = wallet.get_inbox_id(0);
+        let mut request = SignatureRequestBuilder::new(inbox_id)
+            .create_inbox(account_ident, 0)
+            .build();
+        if let Some(chains) = chains {
+            let chains: Vec<String> = chains.into_iter().map(str::to_owned).collect();
+            request.restrict_chains(std::sync::Arc::from(chains));
+        }
+        (request, wallet.address().to_string())
+    }
+
+    async fn add_scw_on(
+        request: &mut SignatureRequest,
+        address: &str,
+        chain: &str,
+    ) -> Result<(), SignatureRequestError> {
+        let signature = NewUnverifiedSmartContractWalletSignature::new(
+            vec![1, 2, 3],
+            AccountId::new(chain.to_owned(), address.to_owned()),
+            Some(1),
+        );
+        request
+            .add_new_unverified_smart_contract_signature(
+                signature,
+                &MockSmartContractSignatureVerifier::new(true),
+            )
+            .await
+    }
+
+    // A chain outside the published list is refused, and
+    // the error names both the chain and the list.
+    // verifies: CONF-046
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_chain_outside_the_accepted_list_is_refused() {
+        let (mut request, address) = scw_request(Some(vec!["eip155:1", "eip155:8453"]));
+        let error = add_scw_on(&mut request, &address, "eip155:137")
+            .await
+            .unwrap_err();
+        let SignatureRequestError::ChainNotAccepted { chain, accepted } = error else {
+            panic!("expected ChainNotAccepted, got {error}");
+        };
+        assert_eq!(chain, "eip155:137");
+        assert_eq!(accepted, vec!["eip155:1", "eip155:8453"]);
+        // Nothing was verified, so nothing reached the signature set.
+        assert!(request.signatures.is_empty());
+    }
+
+    // A chain the deployment named is accepted, so the restriction is
+    // the list and not a blanket refusal.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_chain_inside_the_accepted_list_is_admitted() {
+        let (mut request, address) = scw_request(Some(vec!["eip155:1"]));
+        add_scw_on(&mut request, &address, "eip155:1").await?;
+        assert_eq!(request.signatures.len(), 1);
+    }
+
+    // An empty list refuses every chain.
+    // verifies: CONF-046
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_empty_accepted_list_refuses_every_chain() {
+        let (mut request, address) = scw_request(Some(vec![]));
+        for chain in ["eip155:1", "eip155:8453", "solana:mainnet"] {
+            let error = add_scw_on(&mut request, &address, chain).await.unwrap_err();
+            let SignatureRequestError::ChainNotAccepted { accepted, .. } = error else {
+                panic!("expected ChainNotAccepted for {chain}, got {error}");
+            };
+            assert!(accepted.is_empty());
+        }
+    }
+
+    // A request no client restricted — one built without a client, or
+    // by a client whose app supplied its own verifier — restricts nothing.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_unrestricted_request_accepts_any_chain() {
+        let (mut request, address) = scw_request(None);
+        add_scw_on(&mut request, &address, "eip155:424242").await?;
+        assert_eq!(request.signatures.len(), 1);
+    }
+
+    // Ordered processing never sees this check. It
+    // verifies an identity update that is already on the network, where a chain
+    // with no route is the retryable `NoVerifier`, not `ChainNotAccepted`.
+    // verifies: IDENT-061
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_unknown_chain_stays_retryable_during_ordered_processing() {
+        use crate::scw_verifier::{
+            MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier, VerifierError,
+        };
+        use xmtp_common::RetryableError;
+
+        let verifier = MultiSmartContractSignatureVerifier::new(Default::default())?;
+        let Err(error) = verifier
+            .is_valid_signature(
+                AccountId::new(
+                    "eip155:424242".to_owned(),
+                    PrivateKeySigner::random().address().to_string(),
+                ),
+                [0u8; 32],
+                vec![1, 2, 3].into(),
+                None,
+            )
+            .await
+        else {
+            panic!("a chain with no route must not verify");
+        };
+        assert!(
+            matches!(error, VerifierError::NoVerifier(_)),
+            "ordered processing must see a missing route, got {error}"
+        );
+        assert!(error.is_retryable(), "a missing route retries");
     }
 }

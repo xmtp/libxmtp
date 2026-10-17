@@ -50,6 +50,13 @@ impl<E: ErrorCode> ErrorCode for &E {
 #[allow(dead_code)]
 mod cryptography_error_codes {
     #[derive(xmtp_common::ErrorCode)]
+    #[error_code(remote = "xmtp_cryptography::GeneratePostQuantumKeyError")]
+    enum GeneratePostQuantumKeyError {
+        Crypto(()),
+        Rand(()),
+    }
+
+    #[derive(xmtp_common::ErrorCode)]
     #[error_code(remote = "xmtp_cryptography::signature::SignatureError")]
     enum SignatureError {
         BadAddressFormat(()),

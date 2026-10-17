@@ -1,0 +1,7 @@
+{
+  "extends": "../../../dev/js/tsconfig.web.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["notifications.ts"]
+}

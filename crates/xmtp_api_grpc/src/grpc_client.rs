@@ -1,9 +1,8 @@
 mod client;
 pub use client::{ClientBuilder, GrpcClient, GrpcStream};
 
-xmtp_common::if_test! {
-    pub mod test;
-}
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test;
 
 pub type GrpcClientBuilder = client::ClientBuilder;
 

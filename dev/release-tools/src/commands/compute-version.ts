@@ -1,12 +1,13 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs, ReleaseType } from "../types";
-import { getSdkConfig } from "../lib/sdk-config";
+
+import { getShortSha } from "@/lib/git";
+import { getSdkConfig } from "@/lib/sdk-config";
 import {
   computeVersion as computeVersionFn,
   getTimestamp,
   validateTimestamp,
-} from "../lib/version";
-import { getShortSha } from "../lib/git";
+} from "@/lib/version";
+import type { GlobalArgs, ReleaseType } from "@/types";
 
 export const command = "compute-version";
 export const describe = "Compute the full version string for a release type";
@@ -28,6 +29,11 @@ export function builder(yargs: Argv<GlobalArgs>) {
       type: "number",
       describe: "RC number (required for rc releases)",
     })
+    .option("baseVersion", {
+      type: "string",
+      describe:
+        "Base version override (backend releases use their branch version)",
+    })
     .option("sourceRef", {
       type: "string",
       describe:
@@ -46,6 +52,7 @@ export function handler(
       sdk: string;
       releaseType: ReleaseType;
       rcNumber?: number;
+      baseVersion?: string;
       sourceRef?: string;
       timestamp?: string;
     }
@@ -59,7 +66,8 @@ export function handler(
   const runTimestamp = validateTimestamp(argv.timestamp);
 
   const config = getSdkConfig(argv.sdk);
-  const baseVersion = config.manifest.readVersion(argv.repoRoot);
+  const baseVersion =
+    argv.baseVersion ?? config.manifest.readVersion(argv.repoRoot);
   const needsSha = argv.releaseType === "dev" || argv.releaseType === "nightly";
   const shortSha = needsSha ? getShortSha(argv.repoRoot) : undefined;
   const fromMain =

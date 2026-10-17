@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+"$root/sdks/ios/dev/bindings"
+configuration="${CONFIGURATION:-Debug}"
+env -u LD xcodebuild build-for-testing \
+  -project "$root/apps/example-ios/ExampleApp.xcodeproj" -scheme ExampleApp \
+  -configuration "$configuration" -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath "$root/apps/example-ios/.build/DerivedData" \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
+  SWIFT_SUPPRESS_WARNINGS=NO IPHONEOS_DEPLOYMENT_TARGET=26.0
+app="$root/apps/example-ios/.build/DerivedData/Build/Products/$configuration-iphonesimulator/XMTP Messenger.app"
+test -d "$app"
+printf '%s\n' "$app"

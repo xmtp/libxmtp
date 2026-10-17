@@ -22,7 +22,6 @@ web-time.workspace = true
 # optional/test-utils/dev-deps. tracing-subscriber survives here only for the
 # bench subscriber + the `traced_test` test helper.
 parking_lot = { workspace = true, optional = true }
-toxiproxy_rust = { workspace = true, optional = true }
 tracing-flame = { version = "0.2", optional = true }
 tracing-subscriber = { workspace = true, features = [
   "fmt",
@@ -31,7 +30,6 @@ tracing-subscriber = { workspace = true, features = [
   "json",
 ], optional = true }
 wasm-bindgen-test = { workspace = true, optional = true }
-xmtp-workspace-hack.workspace = true
 xmtp_cryptography.workspace = true
 # Test subscriber lives in xmtp_logging now; `logger()` delegates to it. This is
 # a dev/test-only edge: xmtp_logging's production code does not depend on
@@ -49,22 +47,23 @@ wasm-bindgen.workspace = true
 tokio_with_wasm = { version = "0.9.0", features = ["full"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 tokio-stream = { workspace = true, features = ["time"] }
 fdlimit.workspace = true
 ctor.workspace = true
+# Used to keep reqwest off `rustls-platform-verifier` on Android (see
+# `src/http.rs`), and by that module's test on every other native target.
+rustls.workspace = true
+webpki-roots.workspace = true
 # The one telemetry dep outside xmtp_logging: `bind_task_hub` forks a per-task
 # Sentry Hub. Scope plumbing only — no client and no transport are configured
 # here, so it is inert unless xmtp_logging installs one.
 sentry-core.workspace = true
-# Used to keep reqwest off `rustls-platform-verifier` on Android (see `src/http.rs`), and
-# by that module's test on every other native target.
-rustls.workspace = true
-webpki-roots.workspace = true
 
 [dev-dependencies]
 parking_lot.workspace = true
 thiserror.workspace = true
-toxiproxy_rust.workspace = true
 tracing-subscriber = { workspace = true, features = [
   "fmt",
   "env-filter",
@@ -80,6 +79,8 @@ tokio = { workspace = true }
 wasm-bindgen-test.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = [
   "rt-multi-thread",
   "macros",
@@ -104,11 +105,11 @@ test-utils = [
   "dep:parking_lot",
   "dep:tracing-subscriber",
   "dep:wasm-bindgen-test",
-  "dep:toxiproxy_rust",
   # the test subscriber `logger()` delegates to, now owned by xmtp_logging
   "dep:xmtp_logging",
   "xmtp_cryptography/test-utils",
 ]
+test-utils-network = ["test-utils", "dep:serde", "dep:serde_json"]
 bench = ["test-utils", "dep:tracing-subscriber", "dep:tracing-flame"]
 
 [lints]

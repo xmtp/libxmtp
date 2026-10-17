@@ -1,0 +1,13 @@
+description: Read-only Rust navigation for libxmtp
+prompt: |
+  Use these tools for Rust symbols, references, declarations, and advisory diagnostics.
+  The server is bound to one worktree. Do not change projects.
+  Empty diagnostics do not prove that code compiles. Run focused Cargo checks and tests
+  through the repository's Nix wrapper before you finish a code change.
+  Use the host agent's tools for file edits and shell commands.
+fixed_tools:
+  - find_symbol
+  - get_symbols_overview
+  - find_referencing_symbols
+  - find_declaration
+  - get_diagnostics_for_file

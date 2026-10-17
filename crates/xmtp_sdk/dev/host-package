@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Stage a host-only Swift or Kotlin package from a cargo debug host library,
+# for the unit tests: `just ios test-host` and `just android test-host`.
+# Simulators, emulators, and CI use the Nix release products instead.
+#
+#   swift   sdks/ios/Artifacts/XmtpSdkFFI.xcframework with only the macOS
+#           slice, and the Swift sources in sdks/ios/Sources/XmtpSdk.
+#   kotlin  the Kotlin tree in target/sdk-host-generated (pass it to Gradle
+#           as XMTP_SDK_GENERATED_DIR) and the JNA library in
+#           sdks/android/.build/test-host-cargo/lib.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+target="${1:-}"
+case "$target" in
+  swift | kotlin) ;;
+  *) echo "usage: $0 swift|kotlin" >&2; exit 2 ;;
+esac
+
+artifacts=target/sdk-artifacts
+generated=target/sdk-host-generated
+python3 crates/xmtp_sdk/dev/sdk-artifacts.py build --targets "$target" --artifacts "$artifacts"
+python3 crates/xmtp_sdk/dev/sdk-artifacts.py render --targets "$target" --artifacts "$artifacts" --out "$generated"
+
+if [[ "$target" == swift ]]; then
+  [[ "$(uname -s)" == Darwin ]] || { echo "$0 swift needs macOS" >&2; exit 1; }
+  include="$(mktemp -d)"
+  trap 'rm -rf "$include"' EXIT
+  cp "$generated/swift/xmtp_sdkFFI.h" "$include/"
+  cp "$generated/swift/xmtp_sdkFFI.modulemap" "$include/module.modulemap"
+  framework=sdks/ios/Artifacts/XmtpSdkFFI.xcframework
+  # dev/bindings copies the Nix framework again when its stamp differs.
+  rm -f sdks/ios/Artifacts/.xcframework-store-path
+  rm -rf "$framework"
+  mkdir -p sdks/ios/Artifacts
+  xcodebuild -create-xcframework -library "$artifacts/native/libxmtp_sdk.a" \
+    -headers "$include" -output "$framework" >/dev/null
+  package=sdks/ios/Sources/XmtpSdk
+  cp "$generated/swift/xmtp_sdk.swift" "$package/"
+  rm -rf "$package/runtime"
+  cp -r "$generated/swift/runtime" "$package/"
+  chmod -R u+w "$package"
+  echo "Host-only Swift package staged: $framework"
+else
+  library=sdks/android/.build/test-host-cargo/lib
+  mkdir -p "$library"
+  cp "$artifacts"/native/libxmtp_sdk.{dylib,so} "$library/" 2>/dev/null || true
+  ls "$library"/libxmtp_sdk.* >/dev/null
+  echo "Host-only Kotlin sources: $root/$generated; JNA library: $root/$library"
+fi

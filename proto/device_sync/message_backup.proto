@@ -1,0 +1,56 @@
+// Definitions for backups
+syntax = "proto3";
+package xmtp.device_sync.message_backup;
+
+option java_package = "org.xmtp.proto.device_sync";
+
+// Proto representation of a stored group message
+message GroupMessageSave {
+  bytes id = 1;
+  bytes group_id = 2;
+  bytes decrypted_message_bytes = 3;
+  int64 sent_at_ns = 4;
+  GroupMessageKindSave kind = 5;
+  bytes sender_installation_id = 6;
+  string sender_inbox_id = 7;
+  DeliveryStatusSave delivery_status = 8;
+  ContentTypeSave content_type_save = 9 [deprecated = true];
+  int32 version_major = 10;
+  int32 version_minor = 11;
+  string authority_id = 12;
+  optional bytes reference_id = 13;
+  optional int64 sequence_id = 14;
+  optional int64 originator_id = 15;
+  string content_type = 16;
+}
+
+// Group message kind
+enum GroupMessageKindSave {
+  GROUP_MESSAGE_KIND_SAVE_UNSPECIFIED = 0;
+  GROUP_MESSAGE_KIND_SAVE_APPLICATION = 1;
+  GROUP_MESSAGE_KIND_SAVE_MEMBERSHIP_CHANGE = 2;
+}
+
+// Group message delivery status
+enum DeliveryStatusSave {
+  DELIVERY_STATUS_SAVE_UNSPECIFIED = 0;
+  DELIVERY_STATUS_SAVE_UNPUBLISHED = 1;
+  DELIVERY_STATUS_SAVE_PUBLISHED = 2;
+  DELIVERY_STATUS_SAVE_FAILED = 3;
+}
+
+// Group message content type
+enum ContentTypeSave {
+  option deprecated = true;
+  CONTENT_TYPE_SAVE_UNSPECIFIED = 0;
+  CONTENT_TYPE_SAVE_UNKNOWN = 1;
+  CONTENT_TYPE_SAVE_TEXT = 2;
+  CONTENT_TYPE_SAVE_GROUP_MEMBERSHIP_CHANGE = 3;
+  CONTENT_TYPE_SAVE_GROUP_UPDATED = 4;
+  CONTENT_TYPE_SAVE_REACTION = 5;
+  CONTENT_TYPE_SAVE_READ_RECEIPT = 6;
+  CONTENT_TYPE_SAVE_REPLY = 7;
+  CONTENT_TYPE_SAVE_ATTACHMENT = 8;
+  CONTENT_TYPE_SAVE_REMOTE_ATTACHMENT = 9;
+  CONTENT_TYPE_SAVE_TRANSACTION_REFERENCE = 10;
+}

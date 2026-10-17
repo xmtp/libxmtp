@@ -1,0 +1,139 @@
+// Group-wide external-commit policy component for the app-data registry.
+//
+// EXTERNAL_COMMIT_POLICY is a well-known component (registered with its
+// own ComponentId in the mid-range) that carries cross-cutting flags
+// governing whether and how new members may join the group via MLS
+// External Commits (RFC 9420 §12.4.3.2) — the QR-invite / link-invite
+// flow.
+//
+// This component is the master switch (defense-in-depth gate) for the
+// external-commit mechanism. Even when `allow_external_commit` is true,
+// the actual shape and effects of an external commit are bounded by:
+//
+//   1. RFC 9420 / libxmtp invariants enforced in the validator
+//      (exactly one ExternalInit, joiner credential binding on all Adds,
+//      no by-reference proposals, no SelfRemove, etc.).
+//   2. Per-component `external_committer_permissions` blocks declared on
+//      each touched component's `ComponentMetadata`.
+//
+// In other words: EXTERNAL_COMMIT_POLICY is the runtime-toggleable
+// master switch + time-window controls. `external_committer_permissions`
+// is the declarative, per-component surface that says *what* an external
+// committer may do once the master switch is on. Both must admit the
+// commit for it to be accepted.
+//
+// Toggling fields at runtime is an AppDataUpdate(EXTERNAL_COMMIT_POLICY)
+// proposal; the component's update policy (in its
+// `ComponentMetadata.permissions`) gates who can flip the bits
+// (super-admin-only by default).
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// v1 external-commit-policy payload.
+// Field-coupling invariants enforced by libxmtp when applying an
+// AppDataUpdate(EXTERNAL_COMMIT_POLICY) proposal:
+//
+//   * When `allow_external_commit` transitions to true: `symmetric_key`
+//     and `external_group_id` MUST be populated (non-empty, meeting
+//     their length requirements) in the same proposal. The two
+//     transitions are atomic — there is no window where the bit is on
+//     but the invite coordinates are unset.
+//
+//   * When `allow_external_commit` transitions to false (revoke):
+//     `symmetric_key` and `external_group_id` MUST be cleared (set to
+//     empty bytes) in the same proposal. Leaving stale coordinates in
+//     the group state after revoke would let a future re-enable
+//     accidentally revive a previously-distributed key.
+//
+//   * On re-enable (false → true after a prior revoke): the new
+//     `symmetric_key` MUST differ from every previously-used value for
+//     this group, and the new `external_group_id` SHOULD differ as
+//     well. Reusing a revoked key would re-validate every QR ever
+//     printed under that key, defeating the revocation. Admin clients
+//     are responsible for generating fresh material on each enable.
+message ExternalCommitPolicyV1 {
+  // Master switch for MLS External Commits adding new members.
+  // Required for the QR-invite flow. Defaults to false; admins
+  // (super-admin by default) opt in via
+  // AppDataUpdate(EXTERNAL_COMMIT_POLICY).
+  //
+  // See the field-coupling invariants in the message-level comment
+  // above: enabling MUST populate symmetric_key + external_group_id;
+  // revoking (true → false) MUST clear them.
+  bool allow_external_commit = 1;
+  // Wall-clock auto-disable timestamp (ns since UNIX epoch).
+  // 0 = no automatic expiry. After this timestamp the validator
+  // rejects all external commits regardless of `allow_external_commit`.
+  // Lets admins issue time-bounded invite campaigns without having to
+  // come back and flip the bit manually.
+  uint64 expires_at_ns = 2;
+  // Maximum staleness of the GroupInfo referenced by an external
+  // commit, in nanoseconds since GroupInfo export. 0 = no staleness
+  // limit. External commits whose referenced GroupInfo was exported
+  // more than `expire_in_ns` ago are rejected. Narrows the replay
+  // window for stolen-blob attacks and forces re-export frequency.
+  uint64 expire_in_ns = 3;
+  // 32-byte ChaCha20Poly1305 key used to wrap the EncryptedGroupInfoBlob
+  // for the currently-active invite. Carried in the group state so any
+  // member (especially a just-joined external committer) can re-export
+  // GroupInfo and re-upload a refreshed blob under the same key after a
+  // join — without this, a printed QR / link would die the moment the
+  // issuing admin went offline.
+  //
+  // The QR carries the same key bytes. Rotation = admin sets a new value
+  // here in a single AppDataUpdate(EXTERNAL_COMMIT_POLICY) proposal AND
+  // issues a new QR carrying the matching key; old QR holders' keys no
+  // longer decrypt blobs the service serves under the rotated slot.
+  //
+  // Length MUST be exactly 32 bytes when populated. Empty (zero-length)
+  // means no active invite — and MUST coincide with
+  // `allow_external_commit == false` (see the field-coupling invariants
+  // at the top of this message). Revoking the invite MUST clear this
+  // field; re-enabling MUST populate it with a freshly-generated value
+  // distinct from any previously-used key for this group.
+  //
+  // Note: the service_pointer (where the blob lives) is intentionally
+  // NOT stored in the group. It is per-QR application-defined opaque
+  // bytes; different invites for the same group may point at different
+  // services. Joiners use the service_pointer from the QR they scanned.
+  bytes symmetric_key = 4;
+  // Identifier for the service slot holding the active invite's
+  // encrypted blob. Application-defined opaque bytes (UUID, snowflake,
+  // short slot key, etc.); decoupled from the MLS group_id. Admins
+  // MAY rotate the symmetric_key while keeping this stable (overwrite
+  // the same slot on the service) or change both together (new slot,
+  // leaves the old slot orphaned for application-side GC).
+  //
+  // The QR carries the same value. The joiner verifies that the QR's
+  // `external_group_id` equals this field after joining, as
+  // defense-in-depth against a stale or swapped QR. Mismatch indicates
+  // the admin rotated to a new slot after the QR was minted; the
+  // joining client SHOULD treat the just-published commit as orphaned
+  // (it validates fine, but the refreshed blob the joiner would upload
+  // to the old slot will not be reachable by holders of the new QR).
+  //
+  // MUST be at least 4 bytes when populated (collision-avoidance floor
+  // for tiny services). RECOMMENDED: 16 random bytes when no
+  // application-specific scheme is in use. Empty (zero-length) means
+  // no active invite — and MUST coincide with
+  // `allow_external_commit == false` (see the field-coupling
+  // invariants at the top of this message). Revoking the invite MUST
+  // clear this field; re-enabling SHOULD use a freshly-generated value
+  // (reusing a prior `external_group_id` is permitted only when the
+  // admin intends to overwrite the old service slot — typically the
+  // admin generates a new value to leave the prior slot orphaned).
+  bytes external_group_id = 5;
+}
+
+// Versioned envelope. New variants are added as new oneof variants;
+// readers that don't recognize a variant treat the policy as default
+// (all fields zero) per the standard unknown-variant tolerance rules.
+message ExternalCommitPolicyEntry {
+  oneof version {
+    ExternalCommitPolicyV1 v1 = 1;
+  }
+}

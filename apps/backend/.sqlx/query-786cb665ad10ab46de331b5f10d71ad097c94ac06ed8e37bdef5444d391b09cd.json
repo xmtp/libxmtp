@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT sequence_id FROM push_cursor WHERE singleton",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sequence_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "push_cursor",
+            "name": "sequence_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "786cb665ad10ab46de331b5f10d71ad097c94ac06ed8e37bdef5444d391b09cd"
+}

@@ -1,3 +1,4 @@
+use super::handle::{Handle, InvalidHandle, MAX_HANDLE_CLAIMS};
 use super::member::{HasMemberKind, Identifier, Member, MemberIdentifier, MemberKind};
 use super::serialization::DeserializationError;
 use super::signature::{SignatureError, SignatureKind};
@@ -36,11 +37,16 @@ pub enum AssociationError {
     /// Required signer not found or signer identity mismatch. Not retryable.
     #[error("Missing existing member")]
     MissingExistingMember,
-    /// Legacy signature reuse.
+    /// Already a member.
     ///
-    /// Legacy delegated signature used in disallowed context. Not retryable.
-    #[error("Legacy key is only allowed to be associated using a legacy signature with nonce 0")]
-    LegacySignatureReuse,
+    /// The member being added is already a member of the inbox. Not retryable.
+    #[error("The new member is already a member of the inbox")]
+    AlreadyMember,
+    /// Empty update.
+    ///
+    /// The identity update carries no actions. Not retryable.
+    #[error("Identity update has no actions")]
+    EmptyUpdate,
     /// New member ID signature mismatch.
     ///
     /// Signer doesn't match new member identifier. Not retryable.
@@ -87,6 +93,19 @@ pub enum AssociationError {
     #[error(transparent)]
     #[error_code(inherit)]
     Convert(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
+    #[error_code(inherit)]
+    InvalidHandle(#[from] InvalidHandle),
+    /// Claim not alone.
+    ///
+    /// An identity update that claims a handle carries another action. Not retryable.
+    #[error("an identity update that claims a handle must carry no other action")]
+    ClaimNotAlone,
+    /// Handle claim limit reached.
+    ///
+    /// The inbox's log already holds the most handle claims it can hold. Not retryable.
+    #[error("the inbox has reached the limit of handle claims")]
+    HandleClaimLimit,
 }
 
 pub trait IdentityAction: Send {
@@ -95,15 +114,13 @@ pub trait IdentityAction: Send {
         existing_state: Option<AssociationState>,
         client_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError>;
-    fn signatures(&self) -> Vec<Vec<u8>>;
+    /// The canonical replay key of every signature the action carries (see [`VerifiedSignature`]).
+    fn replay_keys(&self) -> Vec<Vec<u8>>;
+    // implements: IDENT-050
     fn replay_check(&self, state: &AssociationState) -> Result<(), AssociationError> {
-        let signatures = self.signatures();
-        for signature in signatures {
-            if state.has_seen(&signature) {
-                return Err(AssociationError::Replay);
-            }
+        if self.replay_keys().iter().any(|key| state.has_seen(key)) {
+            return Err(AssociationError::Replay);
         }
-
         Ok(())
     }
 }
@@ -117,6 +134,7 @@ pub struct CreateInbox {
 }
 
 impl IdentityAction for CreateInbox {
+    // implements: IDENT-011, IDENT-012
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
@@ -137,12 +155,6 @@ impl IdentityAction for CreateInbox {
             &self.initial_identifier_signature.kind,
         )?;
 
-        if self.initial_identifier_signature.kind == SignatureKind::LegacyDelegated
-            && self.nonce != 0
-        {
-            return Err(AssociationError::LegacySignatureReuse);
-        }
-
         AssociationState::new(
             account_address,
             self.nonce,
@@ -150,8 +162,8 @@ impl IdentityAction for CreateInbox {
         )
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
-        vec![self.initial_identifier_signature.raw_bytes.clone()]
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
+        vec![self.initial_identifier_signature.replay_key.clone()]
     }
 }
 
@@ -164,6 +176,7 @@ pub struct AddAssociation {
 }
 
 impl IdentityAction for AddAssociation {
+    // implements: IDENT-040, IDENT-042
     fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
@@ -186,16 +199,9 @@ impl IdentityAction for AddAssociation {
             return Err(AssociationError::Generic("tried to add self".to_string()));
         }
 
-        // Only allow LegacyDelegated signatures on XIDs with a nonce of 0
-        // Otherwise the client should use the regular wallet signature to create
-        let existing_member_identifier = existing_member_identifier.clone();
-        let identifier: Option<Identifier> = existing_member_identifier.clone().into();
-        if let Some(identifier) = identifier
-            && (is_legacy_signature(&self.new_member_signature)
-                || is_legacy_signature(&self.existing_member_signature))
-            && existing_state.inbox_id() != identifier.inbox_id(0)?
-        {
-            return Err(AssociationError::LegacySignatureReuse);
+        // Re-adding a member would rewrite its adder and spend a log slot
+        if existing_state.get(&self.new_member_identifier).is_some() {
+            return Err(AssociationError::AlreadyMember);
         }
 
         allowed_signature_for_kind(
@@ -203,7 +209,7 @@ impl IdentityAction for AddAssociation {
             &self.new_member_signature.kind,
         )?;
 
-        let existing_member = existing_state.get(&existing_member_identifier);
+        let existing_member = existing_state.get(existing_member_identifier);
 
         if let Some(member) = existing_member {
             verify_chain_id_matches(member, &self.existing_member_signature)?;
@@ -217,14 +223,9 @@ impl IdentityAction for AddAssociation {
                 let recovery_identifier = existing_state.recovery_identifier().clone().into();
 
                 // Check if it is a signature from the recovery address, which is allowed to add members
-                if existing_member_identifier != recovery_identifier {
+                if *existing_member_identifier != recovery_identifier {
                     return Err(AssociationError::MissingExistingMember);
                 }
-                // BUT, the recovery address has to be used with a real wallet signature, can't be delegated
-                if is_legacy_signature(&self.existing_member_signature) {
-                    return Err(AssociationError::LegacySignatureReuse);
-                }
-                // If it is a real wallet signature, then it is allowed to add members
                 recovery_identifier
             }
         };
@@ -251,10 +252,10 @@ impl IdentityAction for AddAssociation {
         Ok(existing_state.add(new_member))
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
         vec![
-            self.existing_member_signature.raw_bytes.clone(),
-            self.new_member_signature.raw_bytes.clone(),
+            self.existing_member_signature.replay_key.clone(),
+            self.new_member_signature.replay_key.clone(),
         ]
     }
 }
@@ -267,6 +268,7 @@ pub struct RevokeAssociation {
 }
 
 impl IdentityAction for RevokeAssociation {
+    // implements: IDENT-043, IDENT-044
     fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
@@ -281,12 +283,6 @@ impl IdentityAction for RevokeAssociation {
             verify_chain_id_matches(member, &self.recovery_identifier_signature)?;
         }
 
-        if is_legacy_signature(&self.recovery_identifier_signature) {
-            return Err(AssociationError::SignatureNotAllowed(
-                MemberKind::Ethereum.to_string(),
-                SignatureKind::LegacyDelegated.to_string(),
-            ));
-        }
         // Don't need to check for replay here since revocation is idempotent
         let recovery_signer = &self.recovery_identifier_signature.signer;
         // Make sure there is a recovery address set on the state
@@ -314,8 +310,8 @@ impl IdentityAction for RevokeAssociation {
             }))
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
-        vec![self.recovery_identifier_signature.raw_bytes.clone()]
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
+        vec![self.recovery_identifier_signature.replay_key.clone()]
     }
 }
 
@@ -340,13 +336,6 @@ impl IdentityAction for ChangeRecoveryIdentity {
             verify_chain_id_matches(member, &self.recovery_identifier_signature)?;
         }
 
-        if is_legacy_signature(&self.recovery_identifier_signature) {
-            return Err(AssociationError::SignatureNotAllowed(
-                MemberKind::Ethereum.to_string(),
-                SignatureKind::LegacyDelegated.to_string(),
-            ));
-        }
-
         let recovery_signer = &self.recovery_identifier_signature.signer;
         if existing_state.recovery_identifier() != recovery_signer {
             return Err(AssociationError::MissingExistingMember);
@@ -355,8 +344,52 @@ impl IdentityAction for ChangeRecoveryIdentity {
         Ok(existing_state.set_recovery_identifier(self.new_recovery_identifier.clone()))
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
-        vec![self.recovery_identifier_signature.raw_bytes.clone()]
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
+        vec![self.recovery_identifier_signature.replay_key.clone()]
+    }
+}
+
+/// ClaimHandle Action
+///
+/// `handle` is the text as carried. The grammar check runs when the action is
+/// applied, so a claim outside the grammar fails as an invalid identity update.
+#[derive(Debug, Clone)]
+pub struct ClaimHandle {
+    pub handle: String,
+    pub signature: VerifiedSignature,
+}
+
+impl IdentityAction for ClaimHandle {
+    /// Applies the claim: the grammar, a signer that is a current member on the
+    /// chain it was added on, and the claim limit. The backend's uniqueness,
+    /// name, and interval checks are not applied here, so a stored log always
+    /// replays.
+    // implements: IDENT-078, IDENT-080, IDENT-081, IDENT-082
+    fn update_state(
+        &self,
+        existing_state: Option<AssociationState>,
+        _client_timestamp_ns: u64,
+    ) -> Result<AssociationState, AssociationError> {
+        let existing_state = existing_state.ok_or(AssociationError::NotCreated)?;
+        self.replay_check(&existing_state)?;
+        let handle = Handle::parse(&self.handle)?;
+
+        // A recovery identifier that is not a member cannot sign a claim.
+        let signer = existing_state
+            .get(&self.signature.signer)
+            .ok_or(AssociationError::MissingExistingMember)?;
+        verify_chain_id_matches(signer, &self.signature)?;
+        allowed_signature_for_kind(&signer.kind(), &self.signature.kind)?;
+
+        if existing_state.handle_claims() >= MAX_HANDLE_CLAIMS {
+            return Err(AssociationError::HandleClaimLimit);
+        }
+
+        Ok(existing_state.claim_handle(handle))
+    }
+
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
+        vec![self.signature.replay_key.clone()]
     }
 }
 
@@ -367,6 +400,7 @@ pub enum Action {
     AddAssociation(AddAssociation),
     RevokeAssociation(RevokeAssociation),
     ChangeRecoveryIdentity(ChangeRecoveryIdentity),
+    ClaimHandle(ClaimHandle),
 }
 
 impl IdentityAction for Action {
@@ -386,15 +420,17 @@ impl IdentityAction for Action {
             Action::ChangeRecoveryIdentity(event) => {
                 event.update_state(existing_state, client_timestamp_ns)
             }
+            Action::ClaimHandle(event) => event.update_state(existing_state, client_timestamp_ns),
         }
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
         match self {
-            Action::CreateInbox(event) => event.signatures(),
-            Action::AddAssociation(event) => event.signatures(),
-            Action::RevokeAssociation(event) => event.signatures(),
-            Action::ChangeRecoveryIdentity(event) => event.signatures(),
+            Action::CreateInbox(event) => event.replay_keys(),
+            Action::AddAssociation(event) => event.replay_keys(),
+            Action::RevokeAssociation(event) => event.replay_keys(),
+            Action::ChangeRecoveryIdentity(event) => event.replay_keys(),
+            Action::ClaimHandle(event) => event.replay_keys(),
         }
     }
 }
@@ -429,14 +465,31 @@ impl IdentityUpdate {
             _ => None,
         })
     }
+
+    /// Whether this update carries a `ClaimHandle`. An update that carries one
+    /// and applies carries no other action.
+    pub fn claims_handle(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|action| matches!(action, Action::ClaimHandle(_)))
+    }
 }
 
 impl IdentityAction for IdentityUpdate {
+    // implements: IDENT-001, IDENT-002, IDENT-003, IDENT-079
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
         _client_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError> {
+        if self.actions.is_empty() {
+            return Err(AssociationError::EmptyUpdate);
+        }
+        // Checked before any action applies, so one update cannot pass the
+        // backend's interval between claims for several claims.
+        if self.actions.len() > 1 && self.claims_handle() {
+            return Err(AssociationError::ClaimNotAlone);
+        }
         let mut state = existing_state;
         for action in &self.actions {
             state = Some(action.update_state(state, self.client_timestamp_ns)?);
@@ -454,22 +507,18 @@ impl IdentityAction for IdentityUpdate {
 
         // After all the updates in the LogEntry have been processed, add the list of signatures to the state
         // so that the signatures can not be re-used in subsequent updates
-        Ok(new_state.add_seen_signatures(self.signatures()))
+        Ok(new_state.add_seen_signatures(self.replay_keys()))
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
         self.actions
             .iter()
-            .flat_map(|action| action.signatures())
+            .flat_map(|action| action.replay_keys())
             .collect()
     }
 }
 
-#[allow(clippy::borrowed_box)]
-fn is_legacy_signature(signature: &VerifiedSignature) -> bool {
-    signature.kind == SignatureKind::LegacyDelegated
-}
-
+// implements: IDENT-041
 fn allowed_association(
     existing_member_kind: MemberKind,
     new_member_kind: MemberKind,
@@ -488,6 +537,7 @@ fn allowed_association(
 }
 
 // Ensure that the type of signature matches the new entity's role.
+// implements: IDENT-031
 fn allowed_signature_for_kind(
     role: &MemberKind,
     signature_kind: &SignatureKind,
@@ -495,7 +545,7 @@ fn allowed_signature_for_kind(
     let is_ok = match role {
         MemberKind::Ethereum => matches!(
             signature_kind,
-            SignatureKind::Erc191 | SignatureKind::Erc1271 | SignatureKind::LegacyDelegated
+            SignatureKind::Erc191 | SignatureKind::Erc1271
         ),
         MemberKind::Installation => matches!(signature_kind, SignatureKind::InstallationKey),
         MemberKind::Passkey => matches!(signature_kind, SignatureKind::P256),
@@ -523,4 +573,183 @@ fn verify_chain_id_matches(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        InboxOwner,
+        associations::{
+            apply_update,
+            builder::SignatureRequestBuilder,
+            get_state,
+            test_utils::{
+                MockSmartContractSignatureVerifier, WalletTestExt, ecdsa_negated_s_alias,
+                ecdsa_recovery_byte_alias, p256_negated_s_alias,
+            },
+            unverified::{UnverifiedAction, UnverifiedIdentityUpdate, UnverifiedSignature},
+        },
+        utils::passkey::PasskeyUser,
+    };
+    use alloy::signers::local::PrivateKeySigner;
+
+    async fn sign(
+        builder: SignatureRequestBuilder,
+        owners: &[&dyn InboxOwner],
+    ) -> UnverifiedIdentityUpdate {
+        let mut request = builder.build();
+        for owner in owners {
+            let signature = owner.sign(&request.signature_text()).unwrap();
+            request
+                .add_signature(signature, MockSmartContractSignatureVerifier::new(false))
+                .await
+                .unwrap();
+        }
+        request.build_identity_update().unwrap()
+    }
+
+    async fn verify(update: &UnverifiedIdentityUpdate) -> IdentityUpdate {
+        update
+            .to_verified(MockSmartContractSignatureVerifier::new(false))
+            .await
+            .unwrap()
+    }
+
+    /// `update` with every signature rewritten by `alias`; what was signed is untouched.
+    fn reencode(
+        update: &UnverifiedIdentityUpdate,
+        alias: impl Fn(&mut UnverifiedSignature),
+    ) -> UnverifiedIdentityUpdate {
+        let mut update = update.clone();
+        for action in &mut update.actions {
+            match action {
+                UnverifiedAction::CreateInbox(a) => alias(&mut a.initial_identifier_signature),
+                UnverifiedAction::AddAssociation(a) => {
+                    alias(&mut a.existing_member_signature);
+                    alias(&mut a.new_member_signature);
+                }
+                UnverifiedAction::RevokeAssociation(a) => {
+                    alias(&mut a.recovery_identifier_signature)
+                }
+                UnverifiedAction::ChangeRecoveryAddress(a) => {
+                    alias(&mut a.recovery_identifier_signature)
+                }
+                UnverifiedAction::ClaimHandle(a) => alias(&mut a.signature),
+            }
+        }
+        update
+    }
+
+    fn recovery_byte_form(signature: &mut UnverifiedSignature) {
+        if let UnverifiedSignature::RecoverableEcdsa(s) = signature {
+            s.signature_bytes = ecdsa_recovery_byte_alias(&s.signature_bytes);
+        }
+    }
+
+    fn negated_s_form(signature: &mut UnverifiedSignature) {
+        match signature {
+            UnverifiedSignature::RecoverableEcdsa(s) => {
+                s.signature_bytes = ecdsa_negated_s_alias(&s.signature_bytes)
+            }
+            UnverifiedSignature::Passkey(s) => s.signature = p256_negated_s_alias(&s.signature),
+            _ => {}
+        }
+    }
+
+    /// Adds `member` with `owner`'s signature, then revokes it. Returns the state just before the
+    /// add, the state after the revoke, and the signed add for replaying.
+    async fn add_then_revoke(
+        recovery: &PrivateKeySigner,
+        member: &dyn InboxOwner,
+    ) -> (AssociationState, AssociationState, UnverifiedIdentityUpdate) {
+        let inbox_id = recovery.get_inbox_id(0);
+        let recovery_id = recovery.identifier();
+        let member_id: MemberIdentifier = member.get_identifier().unwrap().into();
+        let create = sign(
+            SignatureRequestBuilder::new(&inbox_id).create_inbox(recovery_id.clone(), 0),
+            &[recovery],
+        )
+        .await;
+        let add = sign(
+            SignatureRequestBuilder::new(&inbox_id)
+                .add_association(member_id.clone(), recovery_id.clone().into()),
+            &[recovery, member],
+        )
+        .await;
+        let revoke = sign(
+            SignatureRequestBuilder::new(&inbox_id)
+                .revoke_association(recovery_id.into(), member_id.clone()),
+            &[recovery],
+        )
+        .await;
+
+        let created = get_state([verify(&create).await]).unwrap();
+        let added = apply_update(created.clone(), verify(&add).await).unwrap();
+        assert!(added.get(&member_id).is_some());
+        let revoked = apply_update(added, verify(&revoke).await).unwrap();
+        assert!(revoked.get(&member_id).is_none());
+        (created, revoked, add)
+    }
+
+    /// Replays `add` re-encoded by `alias` after the revoke. The re-encoding is a valid add in its
+    /// own right, yet shares its replay keys with the original, so it is rejected and the member
+    /// stays revoked.
+    async fn assert_alias_is_replay(
+        created: &AssociationState,
+        revoked: &AssociationState,
+        add: &UnverifiedIdentityUpdate,
+        member: &MemberIdentifier,
+        alias: impl Fn(&mut UnverifiedSignature),
+    ) {
+        let replay = reencode(add, alias);
+        assert_ne!(&replay, add, "the alias must change the signature bytes");
+        let replay = verify(&replay).await;
+        let fresh = apply_update(created.clone(), replay.clone()).unwrap();
+        assert!(fresh.get(member).is_some(), "the alias is a valid add");
+
+        let result = apply_update(revoked.clone(), replay);
+        assert!(
+            matches!(result, Err(AssociationError::Replay)),
+            "{result:?}"
+        );
+        assert!(revoked.get(member).is_none());
+    }
+
+    /// A revoked wallet's add, republished with its wallet signatures moved between the 0/1 and
+    /// 27/28 recovery-byte forms or with `s` negated, is the same add and must not re-add the
+    /// wallet.
+    #[xmtp_common::test]
+    // verifies: IDENT-050
+    async fn identity_replay_aliases_wallet_add_after_revoke() {
+        let recovery = PrivateKeySigner::random();
+        let member = PrivateKeySigner::random();
+        let member_id = member.member_identifier();
+        let (created, revoked, add) = add_then_revoke(&recovery, &member).await;
+
+        assert_alias_is_replay(&created, &revoked, &add, &member_id, recovery_byte_form).await;
+        assert_alias_is_replay(&created, &revoked, &add, &member_id, negated_s_form).await;
+        assert_alias_is_replay(&created, &revoked, &add, &member_id, |s| {
+            negated_s_form(s);
+            recovery_byte_form(s);
+        })
+        .await;
+    }
+
+    /// A revoked passkey's add, republished with the passkey's `s` negated and the recovery
+    /// wallet's recovery byte re-encoded, is the same add and must not re-add the passkey.
+    #[xmtp_common::test]
+    // verifies: IDENT-050
+    async fn identity_replay_aliases_passkey_add_after_revoke() {
+        let recovery = PrivateKeySigner::random();
+        let passkey = PasskeyUser::new().await;
+        let member_id: MemberIdentifier = passkey.identifier().into();
+        let (created, revoked, add) = add_then_revoke(&recovery, &passkey).await;
+
+        assert_alias_is_replay(&created, &revoked, &add, &member_id, |s| match s {
+            UnverifiedSignature::Passkey(_) => negated_s_form(s),
+            _ => recovery_byte_form(s),
+        })
+        .await;
+    }
 }

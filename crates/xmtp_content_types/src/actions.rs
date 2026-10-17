@@ -5,6 +5,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
+const EXPIRY_RANGE_ERROR: &str = "Actions expiry is outside the signed 64-bit nanosecond range.";
+
+const NANOS_PER_MILLISECOND: i64 = 1_000_000;
+
 const UTC_MILLIS_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.3fZ";
 
 mod datetime_utc_millis_option {
@@ -69,7 +73,18 @@ impl ContentCodec<Actions> for ActionsCodec {
         }
     }
 
+    // implements: CTYPE-019, CTYPE-030
     fn encode(actions: Actions) -> Result<EncodedContent, CodecError> {
+        if !actions.expiry_is_representable()
+            || actions.expiries().any(|expiry| {
+                expiry
+                    .timestamp_millis()
+                    .checked_mul(NANOS_PER_MILLISECOND)
+                    .is_none()
+            })
+        {
+            return Err(CodecError::Encode(EXPIRY_RANGE_ERROR.into()));
+        }
         if actions.actions.is_empty() {
             return Err(CodecError::Encode(
                 "Actions must contain at least one action.".to_string(),
@@ -101,10 +116,14 @@ impl ContentCodec<Actions> for ActionsCodec {
         })
     }
 
+    // implements: CTYPE-030
     fn decode(actions: EncodedContent) -> Result<Actions, CodecError> {
         let actions: Actions = serde_json::from_slice(&actions.content)
             .map_err(|e| CodecError::Decode(format!("Unable to deserialize actions. {e:?}")))?;
 
+        if !actions.expiry_is_representable() {
+            return Err(CodecError::Decode(EXPIRY_RANGE_ERROR.into()));
+        }
         Ok(actions)
     }
 
@@ -126,6 +145,21 @@ pub struct Actions {
         with = "datetime_utc_millis_option"
     )]
     pub expires_at: Option<DateTime<Utc>>,
+}
+
+impl Actions {
+    fn expiry_is_representable(&self) -> bool {
+        self.expiries()
+            .all(|expiry| expiry.timestamp_nanos_opt().is_some())
+    }
+
+    fn expiries(&self) -> impl Iterator<Item = &DateTime<Utc>> {
+        self.expires_at.iter().chain(
+            self.actions
+                .iter()
+                .filter_map(|action| action.expires_at.as_ref()),
+        )
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -162,9 +196,11 @@ pub enum ActionStyle {
 mod tests {
     use super::{Action, ActionStyle, Actions, ActionsCodec};
     use crate::{CodecError, ContentCodec};
-    use chrono::{TimeZone, Utc};
+    use chrono::{DateTime, TimeZone, Utc};
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: CTYPE-007, CTYPE-019
     fn encode_decode_actions() {
         let mut actions = Actions {
             id: "thanksgiving_selection".to_string(),
@@ -214,6 +250,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: CTYPE-019
     fn expires_at_serializes_as_utc_with_millis() {
         let actions = Actions {
             id: "test".to_string(),
@@ -240,5 +277,134 @@ mod tests {
             json.contains("2025-12-25T23:59:59.000Z"),
             "Actions expires_at should be formatted with milliseconds and UTC: {json}"
         );
+    }
+
+    // verifies: CTYPE-030
+    #[xmtp_common::test(unwrap_try = true)]
+    fn actions_expiry_checks_both_fields_and_range_limits() {
+        let sample = || Actions {
+            id: "choice".into(),
+            description: "Choose".into(),
+            actions: vec![Action {
+                id: "one".into(),
+                label: "One".into(),
+                image_url: None,
+                style: None,
+                expires_at: None,
+            }],
+            expires_at: None,
+        };
+        // Encode uses milliseconds. These are the nearest valid whole milliseconds.
+        for timestamp in ["1677-09-21T00:12:43.146Z", "2262-04-11T23:47:16.854Z"] {
+            for nested in [false, true] {
+                let mut actions = sample();
+                let expiry = DateTime::parse_from_rfc3339(timestamp)?.with_timezone(&Utc);
+                if nested {
+                    actions.actions[0].expires_at = Some(expiry);
+                } else {
+                    actions.expires_at = Some(expiry);
+                }
+                assert_eq!(
+                    ActionsCodec::decode(ActionsCodec::encode(actions.clone())?)?,
+                    actions
+                );
+            }
+        }
+        for (timestamp, valid) in [
+            ("1677-09-21T00:12:43.145224192Z", true),
+            ("2262-04-11T23:47:16.854775807Z", true),
+            ("1677-09-21T00:12:43.145224191Z", false),
+            ("2262-04-11T23:47:16.854775808Z", false),
+        ] {
+            for nested in [false, true] {
+                let mut actions = sample();
+                let expiry = DateTime::parse_from_rfc3339(timestamp)?.with_timezone(&Utc);
+                if nested {
+                    actions.actions[0].expires_at = Some(expiry);
+                } else {
+                    actions.expires_at = Some(expiry);
+                }
+                let wire = EncodedContent {
+                    r#type: Some(ActionsCodec::content_type()),
+                    content: serde_json::to_vec(&actions)?,
+                    ..Default::default()
+                };
+                // Keep nanosecond precision in received bytes, independent of the encoder.
+                let mut json: serde_json::Value = serde_json::from_slice(&wire.content)?;
+                if nested {
+                    json["actions"][0]["expiresAt"] = timestamp.into();
+                } else {
+                    json["expiresAt"] = timestamp.into();
+                }
+                let result = ActionsCodec::decode(EncodedContent {
+                    content: serde_json::to_vec(&json)?,
+                    ..wire
+                });
+                if valid {
+                    assert_eq!(result?, actions.clone());
+                    if timestamp.starts_with("1677") {
+                        // Millisecond truncation moves this expiry below the wire range.
+                        assert!(matches!(
+                            ActionsCodec::encode(actions),
+                            Err(CodecError::Encode(_))
+                        ));
+                    } else {
+                        assert!(ActionsCodec::decode(ActionsCodec::encode(actions)?).is_ok());
+                    }
+                } else {
+                    assert!(matches!(result, Err(CodecError::Decode(_))), "{timestamp}");
+                    assert!(
+                        matches!(ActionsCodec::encode(actions), Err(CodecError::Encode(_))),
+                        "{timestamp}"
+                    );
+                }
+            }
+        }
+    }
+
+    // verifies: CTYPE-030
+    #[xmtp_common::test(unwrap_try = true)]
+    fn last_action_expiry_is_checked() {
+        for timestamp in [
+            "1677-09-21T00:12:43.145224191Z",
+            "2262-04-11T23:47:16.854775808Z",
+        ] {
+            let expiry = DateTime::parse_from_rfc3339(timestamp)?.with_timezone(&Utc);
+            let actions = Actions {
+                id: "choices".into(),
+                description: "Choose".into(),
+                actions: vec![
+                    Action {
+                        id: "one".into(),
+                        label: "One".into(),
+                        image_url: None,
+                        style: None,
+                        expires_at: None,
+                    },
+                    Action {
+                        id: "two".into(),
+                        label: "Two".into(),
+                        image_url: None,
+                        style: None,
+                        expires_at: Some(expiry),
+                    },
+                ],
+                expires_at: None,
+            };
+            assert!(matches!(
+                ActionsCodec::encode(actions.clone()),
+                Err(CodecError::Encode(_))
+            ));
+            let mut json = serde_json::to_value(actions)?;
+            json["actions"][1]["expiresAt"] = timestamp.into();
+            assert!(matches!(
+                ActionsCodec::decode(EncodedContent {
+                    r#type: Some(ActionsCodec::content_type()),
+                    content: serde_json::to_vec(&json)?,
+                    ..Default::default()
+                }),
+                Err(CodecError::Decode(_))
+            ));
+        }
     }
 }

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Apply supported human-readable filters only when the caller opts in.
+set -u
+if [[ $# -eq 0 ]]; then
+  echo 'Usage: dev/agent-run COMMAND [ARGS...]' >&2
+  exit 2
+fi
+
+if [[ "${XMTP_RTK:-0}" != 1 || -n "${CI:-}" ]] || ! command -v rtk >/dev/null 2>&1; then
+  exec "$@"
+fi
+
+case "${1-} ${2-}" in
+  'cargo build'|'cargo check'|'cargo clippy'|'cargo test') ;;
+  'cargo nextest')
+    if [[ "${3-}" != run || "${XMTP_RTK_NEXTEST:-0}" != 1 ]]; then
+      exec "$@"
+    fi
+    ;;
+  *) exec "$@" ;;
+esac
+
+# Preserve output that a caller requested for a parser or direct inspection.
+for arg in "$@"; do
+  case "$arg" in
+    --message-format*|--format*|--output-format*|--json*|--help|-h|--version|-V|--list|--no-run|--nocapture|--no-capture|--show-output)
+      exec "$@"
+      ;;
+  esac
+done
+
+rtk "$@"
+status=$?
+if [[ $status -ne 0 ]]; then
+  echo "Command failed (exit $status). Follow any RTK recovery hint. If needed, repeat the same recipe with XMTP_RTK=0 for raw output; keep its arguments and environment." >&2
+fi
+exit "$status"

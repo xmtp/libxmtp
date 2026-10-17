@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: XMTP
+    folder: XMTP
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards

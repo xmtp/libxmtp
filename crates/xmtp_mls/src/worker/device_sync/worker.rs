@@ -1,63 +1,227 @@
-use super::{ArchiveOptions, BackupElementSelection};
 use super::{
-    DeviceSyncClient, DeviceSyncError, IterWithContent,
+    DeviceSyncClient, DeviceSyncError, decode_supported_content,
     preference_sync::{PreferenceUpdate, store_preference_updates},
 };
 use crate::{
-    client::ClientError,
     context::XmtpSharedContext,
-    groups::GroupError,
-    subscriptions::{LocalEvents, SyncWorkerEvent},
+    subscriptions::{
+        incoming::{IncomingCoordinator, IncomingScope},
+        internal::{GroupOrigin, InternalEvent, PreferenceOrigin},
+    },
     worker::{
         BoxedWorker, DynMetrics, MetricsCasting, NeedsDbReconnect, Worker, WorkerFactory,
-        WorkerKind, WorkerResult,
-        device_sync::{AvailableArchive, archive::insert_importer},
-        metrics::WorkerMetrics,
+        WorkerKind, WorkerResult, metrics::WorkerMetrics,
     },
 };
-use futures::{StreamExt, TryFutureExt};
-use std::{sync::Arc, time::Duration};
-use tokio::sync::{OnceCell, broadcast};
-use tokio_util::compat::TokioAsyncReadCompatExt;
-use tracing::instrument;
-use xmtp_archive::{ArchiveImporter, BackupMetadata, exporter::ArchiveExporter};
-use xmtp_common::{Event, NS_IN_DAY, time::now_ns};
-use xmtp_db::group_message::{MsgQueryArgs, StoredGroupMessage};
-use xmtp_db::{prelude::*, tasks::NewTask};
-use xmtp_macro::log_event;
-use xmtp_proto::types::GroupId;
-use xmtp_proto::{
-    ConversionError,
-    xmtp::{
-        device_sync::{
-            BackupElementSelection as BackupElementSelectionProto,
-            content::{
-                DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
-                DeviceSyncRequest as DeviceSyncRequestProto,
-                PreferenceUpdates as PreferenceUpdatesProto,
-                device_sync_content::Content as ContentProto, device_sync_key_type::Key,
-            },
-        },
-        mls::database::{SendSyncArchive, Task},
+use futures::TryFutureExt;
+use parking_lot::Mutex;
+use prost::Message;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
     },
+    time::Duration,
+};
+use tokio::sync::OnceCell;
+use tracing::instrument;
+use xmtp_common::Event;
+use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_db::prelude::*;
+use xmtp_events::{ClientEvent, Subscription};
+use xmtp_macro::log_event;
+use xmtp_proto::xmtp::{
+    device_sync::content::{
+        DeviceSyncAcknowledge, PreferenceUpdates as PreferenceUpdatesProto,
+        device_sync_content::Content as ContentProto,
+    },
+    mls::message_contents::EncodedContent,
 };
 
-const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
+pub(super) fn log_incoming_preference_updates(
+    updates: &[xmtp_proto::xmtp::device_sync::content::PreferenceUpdate],
+) {
+    tracing::info!(update_count = updates.len(), "Incoming preference updates");
+}
+
 const MAX_ATTEMPTS: i32 = 3;
+type PendingEvent = Arc<Mutex<Option<(u64, xmtp_events::EventEnvelope<InternalEvent>)>>>;
+
+#[cfg(test)]
+pub(crate) mod test_hooks {
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::{Arc, LazyLock, Weak},
+    };
+    use tokio::sync::Notify;
+    use xmtp_db::consent_record::StoredConsentRecord;
+    use xmtp_proto::types::InstallationId;
+
+    use super::PreferenceUpdate;
+
+    pub(crate) type ConsentKey = (i32, String);
+
+    #[derive(Clone, Copy, Debug)]
+    pub(crate) enum PreferenceStage {
+        Published,
+        Received,
+        Completed,
+    }
+
+    #[derive(Clone, Debug)]
+    pub(crate) struct ConsentObservation {
+        pub(crate) installation: InstallationId,
+        pub(crate) stage: PreferenceStage,
+        pub(crate) record: StoredConsentRecord,
+    }
+
+    struct PreferenceCaptureState {
+        keys: HashSet<ConsentKey>,
+        records: parking_lot::Mutex<Vec<ConsentObservation>>,
+        changed: Notify,
+    }
+
+    static PREFERENCE_CAPTURES: LazyLock<
+        parking_lot::Mutex<HashMap<InstallationId, Weak<PreferenceCaptureState>>>,
+    > = LazyLock::new(parking_lot::Mutex::default);
+
+    pub(crate) struct PreferenceCapture {
+        installations: Vec<InstallationId>,
+        state: Arc<PreferenceCaptureState>,
+    }
+
+    impl PreferenceCapture {
+        #[track_caller]
+        pub(crate) fn new(
+            installations: Vec<InstallationId>,
+            records: &[StoredConsentRecord],
+        ) -> Self {
+            let state = Arc::new(PreferenceCaptureState {
+                keys: records
+                    .iter()
+                    .map(|record| (record.entity_type as i32, record.entity.clone()))
+                    .collect(),
+                records: parking_lot::Mutex::default(),
+                changed: Notify::new(),
+            });
+            let mut captures = PREFERENCE_CAPTURES.lock();
+            for installation in &installations {
+                assert!(
+                    captures.get(installation).and_then(Weak::upgrade).is_none(),
+                    "one preference capture per installation"
+                );
+                captures.insert(*installation, Arc::downgrade(&state));
+            }
+            Self {
+                installations,
+                state,
+            }
+        }
+
+        pub(crate) fn snapshot(&self) -> Vec<ConsentObservation> {
+            self.state.records.lock().clone()
+        }
+
+        pub(crate) async fn changed(&self) {
+            self.state.changed.notified().await;
+        }
+    }
+
+    impl Drop for PreferenceCapture {
+        fn drop(&mut self) {
+            let mut captures = PREFERENCE_CAPTURES.lock();
+            for installation in &self.installations {
+                if captures
+                    .get(installation)
+                    .is_some_and(|capture| Weak::ptr_eq(capture, &Arc::downgrade(&self.state)))
+                {
+                    captures.remove(installation);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn captures_preferences(installation: InstallationId) -> bool {
+        PREFERENCE_CAPTURES
+            .lock()
+            .get(&installation)
+            .and_then(Weak::upgrade)
+            .is_some()
+    }
+
+    pub(crate) fn observe_preferences(
+        installation: InstallationId,
+        stage: PreferenceStage,
+        updates: &[PreferenceUpdate],
+    ) {
+        let capture = PREFERENCE_CAPTURES
+            .lock()
+            .get(&installation)
+            .and_then(Weak::upgrade);
+        let Some(capture) = capture else {
+            return;
+        };
+        let mut records = capture.records.lock();
+        let before = records.len();
+        for update in updates {
+            if let PreferenceUpdate::Consent(record) = update
+                && capture
+                    .keys
+                    .contains(&(record.entity_type as i32, record.entity.clone()))
+            {
+                records.push(ConsentObservation {
+                    installation,
+                    stage,
+                    record: record.clone(),
+                });
+            }
+        }
+        let changed = records.len() != before;
+        drop(records);
+        if changed {
+            capture.changed.notify_one();
+        }
+    }
+
+    type BlockHook = (Vec<u8>, Arc<Notify>, Arc<Notify>);
+    pub(crate) static FAIL_NEXT_PREFERENCE_PUBLISH: parking_lot::Mutex<
+        Option<(Vec<u8>, Arc<Notify>)>,
+    > = parking_lot::Mutex::new(None);
+    pub(crate) static BLOCK_NEXT_PREFERENCE_PUBLISH: parking_lot::Mutex<Option<BlockHook>> =
+        parking_lot::Mutex::new(None);
+}
+
+#[cfg(test)]
+struct TestTickGate {
+    ready: futures::channel::oneshot::Sender<()>,
+    release: futures::channel::oneshot::Receiver<()>,
+}
 
 pub struct SyncWorker<Context> {
     client: DeviceSyncClient<Context>,
-    receiver: broadcast::Receiver<SyncWorkerEvent>,
+    subscription: Option<Arc<Subscription<InternalEvent>>>,
+    pending: PendingEvent,
+    next_event_id: Arc<AtomicU64>,
     init: OnceCell<()>,
     metrics: Arc<WorkerMetrics<SyncMetric>>,
+    #[cfg(test)]
+    completed_turns: Option<Arc<[AtomicU64; 2]>>,
+    #[cfg(test)]
+    received_ticks: Option<Arc<AtomicU64>>,
+    #[cfg(test)]
+    tick_gates: std::collections::VecDeque<TestTickGate>,
 }
 
 impl<Context> SyncWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
 {
-    pub fn new(context: Context, metrics: Option<DynMetrics>) -> Self {
-        let receiver = context.worker_events().subscribe();
+    pub fn new(
+        context: Context,
+        metrics: Option<DynMetrics>,
+        pending: PendingEvent,
+        next_event_id: Arc<AtomicU64>,
+    ) -> Self {
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
             .unwrap_or(Arc::new(WorkerMetrics::new(context.installation_id())));
@@ -65,15 +229,25 @@ where
 
         Self {
             client,
-            receiver,
+            subscription: None,
+            pending,
+            next_event_id,
             init: OnceCell::new(),
             metrics,
+            #[cfg(test)]
+            completed_turns: None,
+            #[cfg(test)]
+            received_ticks: None,
+            #[cfg(test)]
+            tick_gates: Default::default(),
         }
     }
 }
 
 struct Factory<Context> {
     context: Context,
+    pending: PendingEvent,
+    next_event_id: Arc<AtomicU64>,
 }
 
 impl<Context> WorkerFactory for Factory<Context>
@@ -81,7 +255,12 @@ where
     Context: XmtpSharedContext + 'static,
 {
     fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
-        let worker = SyncWorker::new(self.context.clone(), metrics);
+        let worker = SyncWorker::new(
+            self.context.clone(),
+            metrics,
+            self.pending.clone(),
+            self.next_event_id.clone(),
+        );
         let metrics = worker.metrics.clone();
 
         (Box::new(worker) as Box<_>, Some(metrics as Arc<_>))
@@ -101,6 +280,10 @@ where
         WorkerKind::DeviceSync
     }
 
+    fn set_subscription(&mut self, subscription: Arc<Subscription<InternalEvent>>) {
+        self.subscription = Some(subscription);
+    }
+
     fn metrics(&self) -> Option<DynMetrics> {
         Some(self.metrics.clone())
     }
@@ -109,7 +292,11 @@ where
     where
         C: XmtpSharedContext + 'static,
     {
-        Factory { context }
+        Factory {
+            context,
+            pending: Arc::default(),
+            next_event_id: Arc::new(AtomicU64::new(1)),
+        }
     }
 
     async fn run_tasks(&mut self) -> WorkerResult<()> {
@@ -122,113 +309,156 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
-        self.sync_init().await?;
+        // Keep the large startup future off the worker poll stack.
+        Box::pin(self.sync_init()).await?;
+        // Receipt must outlive each sync call so remote updates can wake this worker.
+        let _receipt = IncomingCoordinator::for_context(&self.client.context)
+            .acquire(IncomingScope::DeviceSyncGroups);
         self.metrics.increment_metric(SyncMetric::Init);
 
-        let tick_fut = Self::tick(self.client.context.clone());
-        let run_fut = self.run_internal();
-
-        tokio::select! {
-            _ = tick_fut => Ok(()),
-            res = run_fut => res,
-        }
+        // Keep event futures off the containing worker poll stack.
+        Box::pin(self.run_internal()).await
     }
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
-        use tokio::sync::broadcast::error::RecvError;
-        loop {
-            let event = match self.receiver.recv().await {
-                Ok(event) => event,
-                Err(RecvError::Lagged(skipped)) => {
-                    // The skipped events may have included NewSyncGroupFromWelcome,
-                    // whose durable task rows were never created. Re-scheduling is
-                    // cheap and deduped, so recover level-triggered instead of
-                    // losing the edge; a Tick-equivalent sweep covers skipped
-                    // NewSyncGroupMsg events the same way.
-                    tracing::warn!(
-                        skipped,
-                        "sync worker receiver lagged; re-scheduling installation reconciliation"
-                    );
-                    self.client.schedule_add_installations_to_groups()?;
-                    self.evt_new_sync_group_msg(true).await?;
-                    continue;
+        use futures::StreamExt;
+        let (base, jitter) = self
+            .client
+            .context
+            .worker_interval(WorkerKind::DeviceSync, Duration::from_secs(20));
+        let intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
+        #[cfg(test)]
+        let intervals = {
+            let gates = Arc::new(Mutex::new(std::mem::take(&mut self.tick_gates)));
+            let intervals = intervals.then(move |instant| {
+                let gate = gates.lock().pop_front();
+                async move {
+                    if let Some(gate) = gate {
+                        let _ = gate.ready.send(());
+                        let _ = gate.release.await;
+                    }
+                    instant
                 }
-                Err(RecvError::Closed) => break,
-            };
-
-            // Tick is the internal timer heartbeat (every 20s): no real work, so
-            // dispatch it directly without opening a worker_turn span.
-            if matches!(event, SyncWorkerEvent::Tick) {
-                self.evt_new_sync_group_msg(true).await?;
+            });
+            xmtp_common::wasm_or_native! {
+                native => { intervals.boxed() },
+                wasm => { intervals.boxed_local() },
+            }
+        };
+        let mut intervals = intervals;
+        // Poll events while native startup jitter delays the first tick.
+        let mut skip_initial_tick = cfg!(not(target_arch = "wasm32"));
+        let subscription = self
+            .subscription
+            .as_ref()
+            .expect("runner installs subscription")
+            .clone();
+        loop {
+            let pending_event = { self.pending.lock().clone() };
+            if let Some((id, event)) = pending_event {
+                self.handle_pending_event(id, event).await?;
                 continue;
             }
-
-            tracing::info!(
-                installation_id = %self.client.context.installation_id(),
-                "new sync worker event: {event:?}",
-            );
-            self.handle_event(event).await?;
+            tokio::select! {
+                event = subscription.next() => {
+                    let Some(event) = event else { break; };
+                    let id = self.next_event_id.fetch_add(1, Ordering::Relaxed);
+                    *self.pending.lock() = Some((id, event.clone()));
+                    self.handle_pending_event(id, event).await?;
+                }
+                _ = intervals.next() => {
+                    #[cfg(test)]
+                    if let Some(ticks) = &self.received_ticks {
+                        ticks.fetch_add(1, Ordering::SeqCst);
+                    }
+                    if skip_initial_tick {
+                        skip_initial_tick = false;
+                        continue;
+                    }
+                    self.evt_new_sync_group_msg(true).await?;
+                },
+            }
         }
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn", event = ?event))]
-    async fn handle_event(&mut self, event: SyncWorkerEvent) -> Result<(), DeviceSyncError> {
-        match event {
-            SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
-                self.evt_new_sync_group_from_welcome().await
-            }
-            SyncWorkerEvent::NewSyncGroupMsg => self.evt_new_sync_group_msg(false).await,
-            SyncWorkerEvent::SyncPreferences(preference_updates) => {
-                self.evt_sync_preferences(preference_updates).await
-            }
-            SyncWorkerEvent::CycleHMAC => self.evt_cycle_hmac().await,
-            // Tick is intentionally filtered out in `run_internal` before reaching
-            // here, so it never opens a worker_turn span.
-            SyncWorkerEvent::Tick => unreachable!("Tick is handled before dispatch"),
+    async fn handle_pending_event(
+        &mut self,
+        id: u64,
+        event: xmtp_events::EventEnvelope<InternalEvent>,
+    ) -> Result<(), DeviceSyncError> {
+        // Pending state stays owned here until the event succeeds.
+        Box::pin(self.handle_event(event.clone())).await?;
+        #[cfg(test)]
+        if let Some(InternalEvent::PreferencesChanged {
+            updates,
+            origin: PreferenceOrigin::Local,
+        }) = &event.internal
+        {
+            test_hooks::observe_preferences(
+                self.client.context.installation_id(),
+                test_hooks::PreferenceStage::Completed,
+                updates,
+            );
+        }
+        let mut pending = self.pending.lock();
+        if pending
+            .as_ref()
+            .is_some_and(|(pending_id, _)| *pending_id == id)
+        {
+            *pending = None;
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
+    async fn handle_event(
+        &mut self,
+        event: xmtp_events::EventEnvelope<InternalEvent>,
+    ) -> Result<(), DeviceSyncError> {
+        if matches!(
+            event.client,
+            Some(ClientEvent::IdentityOwnInstallationRevoked(_))
+        ) {
+            self.evt_cycle_hmac().await?;
+        }
+        match event.internal {
+            Some(InternalEvent::GroupJoined {
+                is_sync: true,
+                origin: GroupOrigin::Welcomed,
+                ..
+            }) => self.evt_new_sync_group_from_welcome().await,
+            Some(
+                InternalEvent::MessageStored { is_sync: true, .. }
+                | InternalEvent::SyncMessagePublished,
+            ) => self.evt_new_sync_group_msg(false).await,
+            Some(InternalEvent::PreferencesChanged {
+                updates,
+                origin: PreferenceOrigin::Local,
+            }) => self.evt_sync_preferences(updates).await,
+            _ => Ok(()),
         }
     }
 
-    async fn tick(ctx: Context) {
-        use futures::StreamExt;
-        let (base, jitter) = ctx.worker_interval(
-            crate::worker::WorkerKind::DeviceSync,
-            Duration::from_secs(20),
-        );
-        let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
-        // The interval stream yields immediately on its first poll; skip that
-        // so the first Tick is sent only after a full interval, preserving the
-        // original sleep-then-send cadence.
-        let _ = intervals.next().await;
-        while intervals.next().await.is_some() {
-            // We don't need to worry about a mutex lock for device sync
-            // to ensure that a sync payload is not being processed by two
-            // threads at once because there should only ever be one sync worker
-            // and the sync worker processes all events in series.
-            let _ = ctx.worker_events().send(SyncWorkerEvent::Tick);
-        }
-    }
-
-    //// Ideally called when the client is registered.
-    //// Will auto-send a sync request if sync group is created.
+    /// Initialize the sync group when the client is registered.
     #[instrument(level = "trace", skip_all)]
     async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
         let Self { init, client, .. } = &self;
 
         init.get_or_try_init(|| async {
-            let conn = self.client.context.db();
             log_event!(
                 Event::DeviceSyncInitializing,
                 self.client.context.installation_id()
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            if conn.primary_sync_group()?.is_none() {
+            if client.primary_sync_group()?.is_none() {
                 log_event!(
                     Event::DeviceSyncNoPrimarySyncGroup,
                     self.client.context.installation_id()
                 );
-                let sync_group = client.get_sync_group().await?;
+                // Sync-group creation polls membership publication below this call.
+                let sync_group = Box::pin(client.get_sync_group()).await?;
                 log_event!(
                     Event::DeviceSyncCreatedPrimarySyncGroup,
                     self.client.context.installation_id(),
@@ -261,6 +491,18 @@ where
         // Cycle the HMAC
         self.client.cycle_hmac().await?;
 
+        // Consent can be stored before this primary group is adopted.
+        let updates = self
+            .client
+            .db()
+            .consent_records()?
+            .into_iter()
+            .map(PreferenceUpdate::Consent)
+            .collect::<Vec<_>>();
+        if !updates.is_empty() {
+            self.client.sync_preferences(updates).await?;
+        }
+
         Ok(())
     }
 
@@ -271,21 +513,59 @@ where
             tracing::info!("Processing {} messages.", unprocessed_messages.len());
         }
 
-        self.client
+        let result = self
+            .client
             .process_sync_group_messages(&self.metrics, unprocessed_messages)
-            .await
+            .await;
+        #[cfg(test)]
+        if result.is_ok()
+            && let Some(turns) = &self.completed_turns
+        {
+            turns[usize::from(is_tick)].fetch_add(1, Ordering::SeqCst);
+        }
+        result
     }
 
     async fn evt_sync_preferences(
         &self,
         updates: Vec<PreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
-        let updates = self.client.sync_preferences(updates).await?;
-
-        updates.iter().for_each(|update| match update {
-            PreferenceUpdate::Consent(_) => self.metrics.increment_metric(SyncMetric::ConsentSent),
-            PreferenceUpdate::Hmac { .. } => self.metrics.increment_metric(SyncMetric::HmacSent),
-        });
+        #[cfg(test)]
+        {
+            let blocked = {
+                let mut hook = test_hooks::BLOCK_NEXT_PREFERENCE_PUBLISH.lock();
+                if hook.as_ref().is_some_and(|(installation, _, _)| {
+                    installation.as_slice()
+                        == self.client.context.installation_id().to_vec().as_slice()
+                }) {
+                    hook.take()
+                } else {
+                    None
+                }
+            };
+            if let Some((_, entered, release)) = blocked {
+                entered.notify_one();
+                release.notified().await;
+            }
+            let failed = {
+                let mut hook = test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock();
+                if hook.as_ref().is_some_and(|(installation, _)| {
+                    installation.as_slice()
+                        == self.client.context.installation_id().to_vec().as_slice()
+                }) {
+                    hook.take()
+                } else {
+                    None
+                }
+            };
+            if let Some((_, observed)) = failed {
+                observed.notify_one();
+                return Err(DeviceSyncError::IO(std::io::Error::other(
+                    "test preference publication failure",
+                )));
+            }
+        }
+        self.client.sync_preferences(updates).await?;
         Ok(())
     }
 
@@ -299,7 +579,7 @@ impl<Context> DeviceSyncClient<Context>
 where
     Context: XmtpSharedContext,
 {
-    async fn process_sync_group_messages(
+    pub(super) async fn process_sync_group_messages(
         &self,
         handle: &WorkerMetrics<SyncMetric>,
         messages: Vec<StoredGroupMessage>,
@@ -309,12 +589,35 @@ where
     {
         let installation_id = self.installation_id();
 
-        for (msg, content) in messages.clone().iter_with_content() {
+        for msg in messages {
+            // Older builds stored sync groups from other inboxes.
+            // implements: SYNC-011
+            if msg.sender_inbox_id != self.context.inbox_id() {
+                tracing::warn!(
+                    group_id = %msg.group_id,
+                    sender_inbox_id = %msg.sender_inbox_id,
+                    "dropping a sync message from another inbox"
+                );
+                self.context
+                    .db()
+                    .mark_device_sync_msg_as_processed(&msg.id)?;
+                continue;
+            }
+            let content = EncodedContent::decode(&*msg.decrypted_message_bytes)
+                .ok()
+                .and_then(|content| decode_supported_content(&content.content));
+            let Some(content) = content else {
+                // Older installations can send archive transfer content. Its
+                // reserved oneof fields decode as unsupported content here.
+                // Mark it complete so the worker does not retry it forever.
+                self.context
+                    .db()
+                    .mark_device_sync_msg_as_processed(&msg.id)?;
+                continue;
+            };
             let is_external = msg.sender_installation_id != installation_id;
 
             let msg_type = match &content {
-                ContentProto::Request(_) => "Request",
-                ContentProto::Reply(_) => "Reply",
                 ContentProto::PreferenceUpdates(_) => "PreferenceUpdates",
                 ContentProto::Acknowledge(_) => "Acknowledge",
             };
@@ -362,76 +665,56 @@ where
     where
         Context::Db: 'static,
     {
-        let conn = self.context.db();
         let installation_id = self.context.installation_id();
         let is_external = msg.sender_installation_id != installation_id;
 
         match content {
-            ContentProto::Request(request) => {
-                if !is_external {
-                    // Ignore our own messages
-                    return Ok(());
-                }
-
-                self.context.task_channels().send(
-                    NewTask::builder()
-                        .originating_message_originator_id(msg.originator_id as i32)
-                        .originating_message_sequence_id(msg.sequence_id)
-                        .build(Task {
-                            task: Some(
-                                xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
-                                    SendSyncArchive {
-                                        options: request.options,
-                                        pin: Some(request.pin),
-                                        sync_group_id: msg.group_id.to_vec(),
-                                        server_url: request.server_url,
-                                    },
-                                ),
-                            ),
-                        })?,
-                );
-
-                // Mark this message as processed immediately.
-                self.context
-                    .db()
-                    .mark_device_sync_msg_as_processed(&msg.id)?;
-
-                handle.increment_metric(SyncMetric::PayloadTaskScheduled);
-            }
-            ContentProto::Reply(reply) => {
-                if !is_external {
-                    // Ignore our own messages
-                    return Ok(());
-                }
-
-                if self.is_reply_requested_by_installation(&reply).await? {
-                    self.process_archive(msg, reply).await.inspect_err(
-                                        |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), error = %err),
-                                    )?;
-                } else {
-                    log_event!(
-                        Event::DeviceSyncArchiveNotRequested,
-                        self.context.installation_id()
-                    );
-                }
-
-                handle.increment_metric(SyncMetric::PayloadProcessed);
-            }
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
+                #[cfg(test)]
+                let observed_updates =
+                    test_hooks::captures_preferences(installation_id).then(|| updates.clone());
                 if is_external {
-                    tracing::info!("Incoming preference updates: {updates:?}");
+                    log_incoming_preference_updates(&updates);
                 }
-                tracing::info!(
-                    "{} storing preference updates",
-                    self.context.installation_id()
-                );
+                // implements: PROC-036
+                tracing::info!(update_count = updates.len(), "storing preference updates");
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-                let updated = store_preference_updates(updates.clone(), &conn, handle)?;
-                if !updated.is_empty() {
-                    let _ = self
-                        .context
-                        .local_events()
-                        .send(LocalEvents::PreferencesChanged(updated));
+                crate::state_tx::state_write_with_events(
+                    self.context.mls_storage(),
+                    self.context.events(),
+                    |tx, events| {
+                        let storage = tx.storage();
+                        let db = storage.db();
+                        let updated = store_preference_updates(updates.clone(), &db, handle)?;
+                        crate::subscriptions::internal::emit_preference_updates_with_public(
+                            events,
+                            updated.public,
+                            updated.legacy.clone(),
+                            PreferenceOrigin::Sync,
+                            &db,
+                        )?;
+                        if !updated.legacy.is_empty() {
+                            self.context.task_channels().mark_notification_changed();
+                        }
+                        Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(
+                            updated.legacy,
+                        ))
+                    },
+                )?
+                .into_continued();
+                #[cfg(test)]
+                if let Some(observed_updates) = observed_updates {
+                    test_hooks::observe_preferences(
+                        installation_id,
+                        test_hooks::PreferenceStage::Received,
+                        &observed_updates
+                            .into_iter()
+                            .map(|update| {
+                                PreferenceUpdate::try_from(update)
+                                    .expect("valid observed preference update")
+                            })
+                            .collect::<Vec<_>>(),
+                    );
                 }
             }
             ContentProto::Acknowledge(DeviceSyncAcknowledge { .. }) => {
@@ -441,292 +724,6 @@ where
 
         Ok(())
     }
-
-    pub(crate) async fn send_archive(
-        &self,
-        options: &ArchiveOptions,
-        sync_group_id: &GroupId,
-        pin: &str,
-        server_url: &str,
-    ) -> Result<(), DeviceSyncError>
-    where
-        Context::Db: 'static,
-    {
-        log_event!(
-            Event::DeviceSyncArchiveUploadStart,
-            self.context.installation_id(),
-            group_id = sync_group_id,
-            server_url
-        );
-
-        // Generate a random encryption key
-        let key = xmtp_common::rand_vec::<ENC_KEY_SIZE>();
-
-        tracing::info!("Building the exporter.");
-        // Now we want to create an encrypted stream from our database to the history server.
-        //
-        // 1. Build the exporter
-        let db = self.context.db();
-        let exporter = ArchiveExporter::new(options.clone(), db, &key);
-        let metadata = exporter.metadata().clone();
-
-        tracing::info!("Uploading the archive.");
-        // 5. Make the request
-        let url = format!("{server_url}/upload");
-        let response = exporter.post_to_url(&url).await?;
-
-        // Build a sync reply message that the new installation will consume
-        let reply = DeviceSyncReplyProto {
-            encryption_key: Some(DeviceSyncKeyType {
-                key: Some(Key::Aes256Gcm(key)),
-            }),
-            request_id: pin.to_string(),
-            url: format!("{server_url}/files/{response}",),
-            metadata: Some(metadata),
-
-            // Deprecated fields
-            ..Default::default()
-        };
-
-        tracing::info!("Sending sync request reply message.");
-        // Send the message out over the network
-        self.send_device_sync_message(ContentProto::Reply(reply))
-            .await?;
-
-        // Update metrics.
-        if options.elements.contains(&BackupElementSelection::Consent) {
-            self.metrics
-                .increment_metric(SyncMetric::ConsentPayloadSent);
-        }
-        if options.elements.contains(&BackupElementSelection::Messages) {
-            self.metrics
-                .increment_metric(SyncMetric::MessagesPayloadSent);
-        }
-        self.metrics.increment_metric(SyncMetric::PayloadSent);
-
-        log_event!(
-            Event::DeviceSyncArchiveUploadComplete,
-            self.context.installation_id(),
-            group_id = sync_group_id,
-        );
-
-        Ok(())
-    }
-
-    pub async fn send_sync_request(
-        &self,
-        options: ArchiveOptions,
-        server_url: impl ToString,
-    ) -> Result<(), ClientError> {
-        let sync_group = self.get_sync_group().await?;
-        sync_group
-            .sync_with_conn()
-            .await
-            .map_err(GroupError::from)?;
-
-        let request = DeviceSyncRequestProto {
-            pin: xmtp_common::rand_string::<5>(),
-            options: Some(options.into()),
-            server_url: server_url.to_string(),
-
-            // Deprecated fields
-            #[allow(deprecated)]
-            deprecated_kind: 0,
-        };
-
-        self.send_device_sync_message(ContentProto::Request(request))
-            .await?;
-
-        self.metrics.increment_metric(SyncMetric::RequestSent);
-        log_event!(
-            Event::DeviceSyncSentSyncRequest,
-            self.context.installation_id(),
-            group_id = sync_group.group_id
-        );
-
-        Ok(())
-    }
-
-    pub async fn send_sync_archive(
-        &self,
-        options: &ArchiveOptions,
-        server_url: &str,
-        pin: &str,
-    ) -> Result<(), ClientError>
-    where
-        Context::Db: 'static,
-    {
-        let sync_group = self.get_sync_group().await?;
-        sync_group
-            .sync_with_conn()
-            .await
-            .map_err(GroupError::from)?;
-
-        self.send_archive(options, &sync_group.group_id, pin, server_url)
-            .await
-            .map_err(|e| GroupError::DeviceSync(Box::new(e)))?;
-
-        Ok(())
-    }
-
-    async fn is_reply_requested_by_installation(
-        &self,
-        reply: &DeviceSyncReplyProto,
-    ) -> Result<bool, DeviceSyncError> {
-        let sync_group = self.get_sync_group().await?;
-        let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
-
-        for (msg, content) in messages.iter_with_content() {
-            if let ContentProto::Request(DeviceSyncRequestProto { pin, .. }) = content
-                && *pin == reply.request_id
-                && msg.sender_installation_id == self.installation_id()
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    /// Processes sync archive with a matching pin. If no pin is provided, will process latest archive.
-    pub async fn process_archive_with_pin(&self, pin: Option<&str>) -> Result<(), DeviceSyncError> {
-        let mut offset = 0;
-        let mut messages = vec![];
-        loop {
-            messages = self.context.db().sync_group_messages_paged(offset, 100)?;
-            if messages.is_empty() {
-                break;
-            }
-
-            offset += messages.len() as i64;
-            for (msg, content) in messages.iter_with_content() {
-                let reply = match (pin, content) {
-                    (None, ContentProto::Reply(reply)) => reply,
-                    (Some(pin), ContentProto::Reply(reply)) if reply.request_id == pin => reply,
-                    _ => continue,
-                };
-
-                return self.process_archive(&msg, reply).await;
-            }
-        }
-
-        Err(DeviceSyncError::MissingPayload(pin.is_some()))
-    }
-
-    pub fn list_available_archives(
-        &self,
-        days_cutoff: i64,
-    ) -> Result<Vec<AvailableArchive>, DeviceSyncError> {
-        let mut offset = 0;
-        let mut messages = vec![];
-        let mut result = vec![];
-        let cutoff = now_ns() - days_cutoff * NS_IN_DAY;
-
-        'outer: loop {
-            messages = self.context.db().sync_group_messages_paged(offset, 100)?;
-
-            if messages.is_empty() {
-                break;
-            }
-            offset += messages.len() as i64;
-
-            for (msg, content) in messages.iter_with_content() {
-                if msg.sent_at_ns < cutoff {
-                    break 'outer;
-                }
-
-                let ContentProto::Reply(reply) = content else {
-                    continue;
-                };
-
-                let Some(metadata) = reply.metadata else {
-                    tracing::warn!(
-                        "Came across a device sync reply message with no metadata. request_id: {}",
-                        reply.request_id
-                    );
-                    continue;
-                };
-
-                let metadata = BackupMetadata::from_metadata_version_unknown(metadata);
-                result.push(AvailableArchive {
-                    pin: reply.request_id,
-                    metadata,
-                    sent_by_installation: msg.sender_installation_id,
-                });
-            }
-        }
-
-        Ok(result)
-    }
-
-    pub async fn process_archive(
-        &self,
-        msg: &StoredGroupMessage,
-        reply: DeviceSyncReplyProto,
-    ) -> Result<(), DeviceSyncError> {
-        log_event!(
-            Event::DeviceSyncArchiveProcessingStart,
-            self.context.installation_id(),
-            message_id = #msg.id,
-            group_id = msg.group_id
-        );
-        if reply.kind() != BackupElementSelectionProto::Unspecified {
-            log_event!(Event::DeviceSyncV1Archive, self.context.installation_id());
-            // This is a legacy payload, the legacy function will process it.
-            return Ok(());
-        }
-
-        self.welcome_service.sync_welcomes().await?;
-
-        // Get a download stream of the payload.
-        log_event!(
-            Event::DeviceSyncArchiveDownloading,
-            self.context.installation_id()
-        );
-        let response = xmtp_common::http::client()?.get(reply.url).send().await?;
-        if let Err(err) = response.error_for_status_ref() {
-            log_event!(
-                Event::DeviceSyncPayloadDownloadFailure,
-                self.context.installation_id(),
-                status = %response.status(),
-                error = %err
-            );
-            return Err(DeviceSyncError::Reqwest(err));
-        }
-
-        log_event!(
-            Event::DeviceSyncArchiveImportStart,
-            self.context.installation_id()
-        );
-
-        let stream = response
-            .bytes_stream()
-            .map(|result| result.map_err(std::io::Error::other));
-        // Convert that stream into a reader
-        let tokio_reader = tokio_util::io::StreamReader::new(stream);
-        // Convert that tokio reader into a futures reader.
-        // We use futures reader for WASM compat.
-        let reader = tokio_reader.compat();
-
-        // Create an importer around that futures_reader.
-        let Some(DeviceSyncKeyType {
-            key: Some(Key::Aes256Gcm(key)),
-        }) = reply.encryption_key
-        else {
-            return Err(ConversionError::Unspecified("encryption_key"))?;
-        };
-
-        let mut importer = ArchiveImporter::load(Box::pin(reader), &key).await?;
-
-        tracing::info!("Importing the sync payload.");
-        // Run the import.
-        insert_importer(&mut importer, &self.context).await?;
-
-        log_event!(
-            Event::DeviceSyncArchiveImportSuccess,
-            self.context.installation_id()
-        );
-        Ok(())
-    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
@@ -734,15 +731,6 @@ pub enum SyncMetric {
     Init,
     SyncGroupCreated,
     SyncGroupWelcomesProcessed,
-    RequestReceived,
-    RequestSent,
-    ConsentPayloadSent,
-    ConsentPayloadProcessed,
-    MessagesPayloadSent,
-    MessagesPayloadProcessed,
-    PayloadSent,
-    PayloadTaskScheduled,
-    PayloadProcessed,
     HmacSent,
     HmacReceived,
     ConsentSent,
@@ -752,5 +740,344 @@ pub enum SyncMetric {
 impl WorkerMetrics<SyncMetric> {
     pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
         self.register_interest(SyncMetric::Init, 1).wait().await
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+    use crate::{tester, worker::WorkerConfig};
+    use futures::FutureExt;
+    use xmtp_events::EventWriter;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn consent_published_before_primary_adoption_reaches_new_installation() {
+        use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+
+        tester!(source, disable_workers);
+        let source_sync = source.device_sync_client();
+        let old_primary = source_sync.get_sync_group().await?;
+        let group = source.create_group(None, None)?;
+        let record = StoredConsentRecord {
+            entity_type: ConsentType::ConversationId,
+            state: ConsentState::Denied,
+            entity: hex::encode(group.group_id),
+            consented_at_ns: xmtp_common::time::now_ns(),
+        };
+        source
+            .set_consent_states(std::slice::from_ref(&record))
+            .await?;
+        let record = source
+            .context
+            .db()
+            .get_consent_record(record.entity.clone(), record.entity_type)?
+            .unwrap();
+
+        tester!(copy, from: source, disable_workers);
+        let copy_sync = copy.device_sync_client();
+        let new_primary = copy_sync.get_sync_group().await?;
+        assert_ne!(old_primary.group_id, new_primary.group_id);
+        assert_eq!(
+            source_sync.primary_sync_group()?.unwrap().group_id,
+            old_primary.group_id
+        );
+        assert!(
+            copy.context
+                .db()
+                .find_group(&old_primary.group_id)?
+                .is_none()
+        );
+
+        // Publish before the source can adopt the new installation's group.
+        source_sync
+            .sync_preferences(vec![PreferenceUpdate::Consent(record.clone())])
+            .await?;
+        source.sync_welcomes().await?;
+        assert_eq!(
+            source_sync.primary_sync_group()?.unwrap().group_id,
+            new_primary.group_id
+        );
+        assert!(
+            copy.context
+                .db()
+                .get_consent_record(record.entity.clone(), record.entity_type)?
+                .is_none()
+        );
+
+        // Run the actual welcome handler, then consume its primary-group messages.
+        let source_worker = SyncWorker::new(
+            source.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        source_worker.evt_new_sync_group_from_welcome().await?;
+        new_primary.sync().await?;
+        let copy_worker = SyncWorker::new(
+            copy.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        copy_worker.evt_new_sync_group_msg(false).await?;
+        let received = copy
+            .context
+            .db()
+            .get_consent_record(record.entity.clone(), record.entity_type)?;
+        assert_eq!(
+            received.as_ref(),
+            Some(&record),
+            "a consent published before primary adoption must reach the new installation"
+        );
+        assert_eq!(received.unwrap().consented_at_ns, record.consented_at_ns);
+        source.close().await?;
+        copy.close().await?;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn worker_turn_span_omits_hmac_key() {
+        tester!(alix, disable_workers);
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let key = (1_u8..=42).collect::<Vec<_>>();
+        let key_debug = format!("{key:?}");
+        let event = xmtp_events::EventEnvelope::new(
+            None,
+            Some(InternalEvent::PreferencesChanged {
+                updates: vec![PreferenceUpdate::Hmac {
+                    key,
+                    cycled_at_ns: 1,
+                }],
+                origin: PreferenceOrigin::Sync,
+            }),
+            Default::default(),
+        );
+        let (result, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+            worker
+                .handle_event(event)
+                .now_or_never()
+                .expect("the Sync-origin handler must finish without IO")
+        });
+        result?;
+        let span = spans
+            .iter()
+            .find(|span| span.name == "handle_event")
+            .expect("the actual worker handler must export its span");
+        let fields = format!("{:?}", span.attributes);
+        assert!(fields.contains("worker_turn"));
+        assert!(fields.contains("DeviceSync"));
+        assert!(
+            !fields.contains(&key_debug),
+            "worker span must not export the HMAC root key"
+        );
+        alix.close().await?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn queued_event_precedes_first_periodic_turn() {
+        const PERIOD: Duration = Duration::from_secs(4);
+        const EVENT_WAIT: Duration = Duration::from_secs(1);
+        const PERIOD_WAIT: Duration = Duration::from_secs(6);
+        let config = WorkerConfig {
+            interval_overrides: [(WorkerKind::DeviceSync, PERIOD.as_nanos() as u64)]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        tester!(alix, disable_workers, worker_config: config);
+        let turns = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        worker.completed_turns = Some(turns.clone());
+        let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
+        worker.set_subscription(subscription.clone());
+        alix.context
+            .events()
+            .emit(None, Some(InternalEvent::SyncMessagePublished));
+
+        {
+            let run = worker.run_internal().fuse();
+            let observe = async {
+                xmtp_common::time::timeout(
+                    EVENT_WAIT,
+                    xmtp_common::wait_for_eq(|| async { turns[0].load(Ordering::SeqCst) }, 1),
+                )
+                .await
+                .expect("queued event must complete before the first periodic tick")
+                .expect("queued event wait must complete");
+                assert_eq!(turns[1].load(Ordering::SeqCst), 0);
+                xmtp_common::time::timeout(
+                    PERIOD_WAIT,
+                    xmtp_common::wait_for_eq(
+                        || async { turns[1].load(Ordering::SeqCst) >= 1 },
+                        true,
+                    ),
+                )
+                .await
+                .expect("periodic reconciliation must still complete")
+                .expect("periodic turn wait must complete");
+                assert_eq!(turns[0].load(Ordering::SeqCst), 1);
+            }
+            .fuse();
+            futures::pin_mut!(run, observe);
+            futures::select! {
+                () = observe => {},
+                result = run => panic!("worker ended before observed turns: {result:?}"),
+            }
+        }
+        subscription.close();
+        alix.close().await?;
+    }
+    struct TickControl {
+        gate: TestTickGate,
+        ready: futures::channel::oneshot::Receiver<()>,
+        release: futures::channel::oneshot::Sender<()>,
+    }
+
+    impl TickControl {
+        fn new() -> Self {
+            let (ready_tx, ready) = futures::channel::oneshot::channel();
+            let (release, release_rx) = futures::channel::oneshot::channel();
+            Self {
+                gate: TestTickGate {
+                    ready: ready_tx,
+                    release: release_rx,
+                },
+                ready,
+                release,
+            }
+        }
+    }
+
+    fn jitter_config() -> WorkerConfig {
+        const PERIOD: Duration = Duration::from_millis(40);
+        const JITTER: Duration = Duration::from_millis(20);
+        WorkerConfig {
+            interval_overrides: [(WorkerKind::DeviceSync, PERIOD.as_nanos() as u64)]
+                .into_iter()
+                .collect(),
+            jitter_overrides: [(WorkerKind::DeviceSync, JITTER.as_nanos() as u64)]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn jittered_initial_tick_does_not_block_events_or_change_first_turn() {
+        const WAIT: Duration = Duration::from_secs(1);
+        tester!(alix, disable_workers, worker_config: jitter_config());
+        let turns = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+        let ticks = Arc::new(AtomicU64::new(0));
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        worker.completed_turns = Some(turns.clone());
+        worker.received_ticks = Some(ticks.clone());
+        let first = TickControl::new();
+        let second = TickControl::new();
+        worker.tick_gates.extend([first.gate, second.gate]);
+        let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
+        worker.set_subscription(subscription.clone());
+        {
+            let run = worker.run_internal().fuse();
+            let observe = async {
+                xmtp_common::time::timeout(WAIT, first.ready)
+                    .await
+                    .expect("actual jittered first tick must reach the private gate")
+                    .expect("first tick gate must remain owned");
+                alix.context
+                    .events()
+                    .emit(None, Some(InternalEvent::SyncMessagePublished));
+                xmtp_common::time::timeout(
+                    WAIT,
+                    xmtp_common::wait_for_eq(|| async { turns[0].load(Ordering::SeqCst) }, 1),
+                )
+                .await
+                .expect("queued event must complete while the initial tick is pending")
+                .expect("queued event wait must complete");
+                assert_eq!(turns[1].load(Ordering::SeqCst), 0);
+                first.release.send(()).expect("release the first tick");
+                xmtp_common::time::timeout(WAIT, second.ready)
+                    .await
+                    .expect("actual jittered second tick must reach the private gate")
+                    .expect("second tick gate must remain owned");
+                assert_eq!(ticks.load(Ordering::SeqCst), 1);
+                let first_periodic = u64::from(cfg!(target_arch = "wasm32"));
+                assert_eq!(
+                    turns[1].load(Ordering::SeqCst),
+                    first_periodic,
+                    "native skips its first tick; Wasm reconciles its first tick"
+                );
+                second.release.send(()).expect("release the second tick");
+                xmtp_common::time::timeout(
+                    WAIT,
+                    xmtp_common::wait_for_eq(
+                        || async { turns[1].load(Ordering::SeqCst) > first_periodic },
+                        true,
+                    ),
+                )
+                .await
+                .expect("periodic reconciliation must complete after the second tick")
+                .expect("periodic reconciliation wait must complete");
+            }
+            .fuse();
+            futures::pin_mut!(run, observe);
+            futures::select! {
+                () = observe => {},
+                result = run => panic!("worker ended before observed turns: {result:?}"),
+            }
+        }
+        subscription.close();
+        alix.close().await?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn closing_subscription_stops_worker_with_initial_tick_pending() {
+        const WAIT: Duration = Duration::from_secs(1);
+        tester!(alix, disable_workers, worker_config: jitter_config());
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let first = TickControl::new();
+        worker.tick_gates.push_back(first.gate);
+        let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
+        worker.set_subscription(subscription.clone());
+        let (result, ()) = xmtp_common::time::timeout(WAIT, async {
+            futures::join!(worker.run_internal(), async {
+                first
+                    .ready
+                    .await
+                    .expect("actual first tick reaches the gate");
+                subscription.close();
+            })
+        })
+        .await
+        .expect("closed subscription must stop while the initial tick is pending");
+        result?;
+        assert!(
+            first.release.is_canceled(),
+            "ending the worker must drop the pending tick receiver"
+        );
+        alix.close().await?;
     }
 }

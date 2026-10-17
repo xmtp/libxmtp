@@ -6,6 +6,16 @@ use openmls::{
 };
 use prost::Message;
 
+impl From<crate::xmtp::mls::message_contents::ContentTypeId> for xmtp_common::types::ContentTypeId {
+    fn from(value: crate::xmtp::mls::message_contents::ContentTypeId) -> Self {
+        Self {
+            authority_id: value.authority_id,
+            type_id: value.type_id,
+            version_major: value.version_major,
+        }
+    }
+}
+
 impl TryFrom<MlsCredential> for OpenMlsCredential {
     type Error = BasicCredentialError;
 
@@ -54,5 +64,28 @@ impl TryFrom<crate::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadTyp
                 })
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod content_type_tests {
+    #[xmtp_common::test]
+    fn proto_minor_version_does_not_change_codec_id() {
+        let proto = crate::xmtp::mls::message_contents::ContentTypeId {
+            authority_id: "xmtp.org".into(),
+            type_id: "text".into(),
+            version_major: 1,
+            version_minor: 4,
+        };
+        let id = xmtp_common::types::ContentTypeId::from(proto.clone());
+        assert_eq!(
+            id,
+            xmtp_common::types::ContentTypeId::from(
+                crate::xmtp::mls::message_contents::ContentTypeId {
+                    version_minor: 9,
+                    ..proto
+                }
+            )
+        );
     }
 }

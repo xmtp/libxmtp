@@ -1,0 +1,626 @@
+//! What one backend deployment publishes about itself, and the provider every
+//! consumer reads it through.
+//!
+//! The backend answers `ConfigurationService.GetConfiguration` with these
+//! values. A client fetches them once, stores them, and holds one immutable
+//! snapshot for the life of the client. Consumers never read the database for
+//! a configuration value; they read the provider.
+//!
+//! The snapshot also carries the operator's application component catalogue
+//! ([`ApplicationComponentDefinition`]). It is a sending catalogue: a client
+//! copies an entry into the registry of a conversation it creates, and the
+//! committed group registry, never this snapshot, governs what it receives.
+//! [`validate_application_components`] holds the structural rules that the
+//! backend applies at startup and a client applies before it stores an answer.
+
+use crate::{
+    BACKEND_DEFAULT_GROUP_MESSAGE_SECONDS, BACKEND_DEFAULT_HANDLE_MIN_NAME_LENGTH,
+    BACKEND_DEFAULT_KEY_PACKAGE_SECONDS, BACKEND_DEFAULT_MAX_ENVELOPE_BYTES,
+    BACKEND_DEFAULT_MAX_IDENTITY_ENTRIES, BACKEND_DEFAULT_MAX_LOOKUP_IDENTIFIERS,
+    BACKEND_DEFAULT_MAX_NEWEST_FULL_TOPICS, BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS,
+    BACKEND_DEFAULT_MAX_PING_BURST, BACKEND_DEFAULT_MAX_PING_FRAMES_PER_SECOND,
+    BACKEND_DEFAULT_MAX_PUBLISH_TOPICS, BACKEND_DEFAULT_MAX_QUERY_LIMIT,
+    BACKEND_DEFAULT_MAX_QUERY_TOPICS, BACKEND_DEFAULT_MAX_REQUEST_BYTES,
+    BACKEND_DEFAULT_MAX_RESPONSE_BYTES, BACKEND_DEFAULT_MAX_SCW_SIGNATURES,
+    BACKEND_DEFAULT_MAX_STATIC_TOPICS, BACKEND_DEFAULT_MAX_STREAM_TOPICS,
+    BACKEND_DEFAULT_MAX_UPDATE_ADDS, BACKEND_DEFAULT_MAX_UPDATE_BURST,
+    BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND, BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
+    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS, ENABLE_COMMIT_LOG,
+    MAX_GROUP_SIZE, MAX_INSTALLATIONS_PER_INBOX,
+};
+
+/// How long after one refresh run ends before the next one starts, before
+/// jitter. The first run starts this long after build.
+pub const CONFIGURATION_REFRESH_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(3600);
+
+/// Random spread added to each wait, so a fleet of clients does not refresh
+/// at the same time.
+pub const CONFIGURATION_REFRESH_JITTER: std::time::Duration = std::time::Duration::from_secs(360);
+
+/// Attempts in one refresh run. After the last failure the run ends and the
+/// stored copy is left alone.
+pub const CONFIGURATION_REFRESH_ATTEMPTS: usize = 3;
+
+/// Waits between the attempts of one run.
+pub const CONFIGURATION_REFRESH_BACKOFF: [std::time::Duration; 2] = [
+    std::time::Duration::from_secs(5),
+    std::time::Duration::from_secs(30),
+];
+
+/// Longest operator identifier, in bytes. Shared with the backend so one rule
+/// governs what it accepts and what a client will store.
+pub const MAX_SERVER_IDENTIFIER_BYTES: usize = 256;
+
+/// Largest published numeric value, `2^53 - 1`.
+///
+/// The SDK maps every `uint64` to a JavaScript `number`, which holds
+/// integers exactly only up to this value. A deployment that publishes more
+/// would reach a JavaScript app rounded, so the client refuses it
+/// rather than reading a number the deployment never published.
+pub const MAX_PUBLISHED_VALUE: u64 = 9_007_199_254_740_991;
+
+/// Component IDs an operator may define, `0xC000`–`0xFEFF`. The group
+/// metadata ID ranges derive from this, so both sides agree on one range.
+pub const APPLICATION_COMPONENT_IDS: std::ops::RangeInclusive<u16> = 0xC000..=0xFEFF;
+
+/// Longest application component name, in UTF-8 bytes.
+pub const MAX_APPLICATION_COMPONENT_NAME_BYTES: usize = 100;
+
+/// Why a published configuration cannot be used.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ServerConfigurationError {
+    #[error(
+        "identifier must be 1 to {MAX_SERVER_IDENTIFIER_BYTES} bytes with no whitespace or control characters"
+    )]
+    Identifier,
+    #[error("min_libxmtp_version {version:?} is not a semantic version")]
+    MinimumVersion { version: String },
+    #[error("{chain:?} is not a CAIP-2 chain identifier")]
+    Chain { chain: String },
+    #[error("{field} is {value}, above the {MAX_PUBLISHED_VALUE} an SDK integer holds exactly")]
+    Magnitude { field: &'static str, value: u64 },
+    #[error("application_components[{index}]: {reason}")]
+    ApplicationComponent {
+        index: usize,
+        reason: ApplicationComponentError,
+    },
+}
+
+/// Why one application component definition cannot be used. Carries no
+/// value from the definition, so the backend can report it for a document
+/// whose contents came from the environment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ApplicationComponentError {
+    #[error("component_id must be in 0xC000-0xFEFF")]
+    ComponentId,
+    #[error("name must be 1 to {MAX_APPLICATION_COMPONENT_NAME_BYTES} UTF-8 bytes")]
+    Name,
+    #[error("component_type must be set")]
+    ComponentType,
+    #[error("insert, update, and delete policies must all be set and non-empty")]
+    Permissions,
+    #[error("in_groups or in_dms must be true")]
+    Conversations,
+    #[error("component_id repeats an earlier definition")]
+    DuplicateId,
+    #[error("name repeats an earlier definition")]
+    DuplicateName,
+}
+
+/// Check each definition alone, then the catalogue for repeated IDs and
+/// names. The error carries the position of the first failing definition.
+///
+/// A type tag or base policy this build does not know is accepted: a newer
+/// backend may publish one, and the entry's group registry, not this check,
+/// decides what a conversation accepts. A clash with a well-known component
+/// name is the backend's check alone, because a later release may add a
+/// well-known name that a deployment already uses.
+// implements: CONF-071, CONF-078
+pub fn validate_application_components(
+    definitions: &[ApplicationComponentDefinition],
+) -> Result<(), (usize, ApplicationComponentError)> {
+    let mut ids = std::collections::HashSet::new();
+    let mut names = std::collections::HashSet::new();
+    definitions
+        .iter()
+        .enumerate()
+        .try_for_each(|(index, definition)| {
+            definition
+                .validate()
+                .and_then(|()| {
+                    if !ids.insert(definition.component_id) {
+                        return Err(ApplicationComponentError::DuplicateId);
+                    }
+                    if !names.insert(definition.name.as_str()) {
+                        return Err(ApplicationComponentError::DuplicateName);
+                    }
+                    Ok(())
+                })
+                .map_err(|reason| (index, reason))
+        })
+}
+
+/// Check the shape of an operator identifier. The backend refuses to start
+/// with one that fails, and a client refuses to store one.
+pub fn validate_server_identifier(identifier: &str) -> Result<(), ServerConfigurationError> {
+    if identifier.is_empty()
+        || identifier.len() > MAX_SERVER_IDENTIFIER_BYTES
+        || identifier
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(ServerConfigurationError::Identifier);
+    }
+    Ok(())
+}
+
+/// Refuse one published number an SDK integer could not carry exactly.
+fn within_range(field: &'static str, value: u64) -> Result<(), ServerConfigurationError> {
+    if value > MAX_PUBLISHED_VALUE {
+        return Err(ServerConfigurationError::Magnitude { field, value });
+    }
+    Ok(())
+}
+
+/// A CAIP-2 identifier is `namespace:reference`, where the namespace is three
+/// to eight lowercase characters and the reference is one to thirty-two. The
+/// client only needs the shape; the verifier owns the routes.
+pub fn is_caip2_chain_id(chain: &str) -> bool {
+    let Some((namespace, reference)) = chain.split_once(':') else {
+        return false;
+    };
+    (3..=8).contains(&namespace.len())
+        && !reference.is_empty()
+        && reference.len() <= 32
+        && namespace
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && reference
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Compare two versions on major, minor, and patch only. A prerelease tag
+/// never makes a client too old for a minimum it otherwise satisfies.
+///
+/// Returns `true` when `version` is below `minimum`.
+// implements: CONF-050
+pub fn version_is_below(version: &semver::Version, minimum: &semver::Version) -> bool {
+    (version.major, version.minor, version.patch) < (minimum.major, minimum.minor, minimum.patch)
+}
+
+/// Public identity of one accepted signing key. Never the key itself.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SigningKeyDescription {
+    pub kid: String,
+    pub alg: String,
+}
+
+/// What a client must present to be admitted. The client acts only on
+/// `enabled` and `required_scopes`; the rest exists for operator tooling.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AuthConfiguration {
+    pub enabled: bool,
+    pub keys: Vec<SigningKeyDescription>,
+    pub audiences: Vec<String>,
+    pub issuers: Vec<String>,
+    pub required_scopes: Vec<String>,
+}
+
+/// How long the deployment keeps each payload kind, in seconds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RetentionConfiguration {
+    pub group_message_seconds: u64,
+    pub welcome_seconds: u64,
+    pub key_package_seconds: u64,
+}
+
+impl Default for RetentionConfiguration {
+    fn default() -> Self {
+        Self {
+            group_message_seconds: BACKEND_DEFAULT_GROUP_MESSAGE_SECONDS,
+            welcome_seconds: BACKEND_DEFAULT_WELCOME_SECONDS,
+            key_package_seconds: BACKEND_DEFAULT_KEY_PACKAGE_SECONDS,
+        }
+    }
+}
+
+/// Request shapes the deployment accepts. A client chunks its work to these
+/// values rather than to its compiled constants.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LimitsConfiguration {
+    pub max_envelope_bytes: usize,
+    pub max_request_bytes: usize,
+    pub max_response_bytes: usize,
+    pub max_publish_topics: usize,
+    pub max_query_topics: usize,
+    pub max_query_limit: usize,
+    pub default_query_limit: usize,
+    pub max_newest_metadata_topics: usize,
+    pub max_newest_full_topics: usize,
+    pub max_update_adds: usize,
+    pub max_update_removes: usize,
+    pub max_stream_topics: usize,
+    pub max_static_topics: usize,
+    pub max_lookup_identifiers: usize,
+    pub max_scw_signatures: usize,
+    pub max_identity_entries: usize,
+    pub max_update_frames_per_second: u32,
+    pub max_update_burst: u32,
+    pub max_ping_frames_per_second: u32,
+    pub max_ping_burst: u32,
+}
+
+impl Default for LimitsConfiguration {
+    fn default() -> Self {
+        Self {
+            max_envelope_bytes: BACKEND_DEFAULT_MAX_ENVELOPE_BYTES,
+            max_request_bytes: BACKEND_DEFAULT_MAX_REQUEST_BYTES,
+            max_response_bytes: BACKEND_DEFAULT_MAX_RESPONSE_BYTES,
+            max_publish_topics: BACKEND_DEFAULT_MAX_PUBLISH_TOPICS,
+            max_query_topics: BACKEND_DEFAULT_MAX_QUERY_TOPICS,
+            max_query_limit: BACKEND_DEFAULT_MAX_QUERY_LIMIT,
+            default_query_limit: BACKEND_DEFAULT_QUERY_LIMIT,
+            max_newest_metadata_topics: BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS,
+            max_newest_full_topics: BACKEND_DEFAULT_MAX_NEWEST_FULL_TOPICS,
+            max_update_adds: BACKEND_DEFAULT_MAX_UPDATE_ADDS,
+            max_update_removes: BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
+            max_stream_topics: BACKEND_DEFAULT_MAX_STREAM_TOPICS,
+            max_static_topics: BACKEND_DEFAULT_MAX_STATIC_TOPICS,
+            max_lookup_identifiers: BACKEND_DEFAULT_MAX_LOOKUP_IDENTIFIERS,
+            max_scw_signatures: BACKEND_DEFAULT_MAX_SCW_SIGNATURES,
+            max_identity_entries: BACKEND_DEFAULT_MAX_IDENTITY_ENTRIES,
+            max_update_frames_per_second: BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND,
+            max_update_burst: BACKEND_DEFAULT_MAX_UPDATE_BURST,
+            max_ping_frames_per_second: BACKEND_DEFAULT_MAX_PING_FRAMES_PER_SECOND,
+            max_ping_burst: BACKEND_DEFAULT_MAX_PING_BURST,
+        }
+    }
+}
+
+impl LimitsConfiguration {
+    /// The same snapshot with every zero replaced by the compiled default.
+    ///
+    /// Wire conversion already applies this rule, so no
+    /// published configuration can carry a zero. A snapshot built in Rust and
+    /// handed in through a `ConfigProvider` skips that conversion,
+    /// and a zero chunk dimension would panic the transport that slices its
+    /// work into chunks of it. Applying the wire rule once more,
+    /// where the transport reads the value, means it never can.
+    // implements: CONF-025
+    pub fn without_zeroes(&self) -> Self {
+        let default = Self::default();
+        macro_rules! or_default {
+            ($($field:ident),+ $(,)?) => {
+                Self {
+                    $($field: if self.$field == 0 { default.$field } else { self.$field }),+
+                }
+            };
+        }
+        or_default!(
+            max_envelope_bytes,
+            max_request_bytes,
+            max_response_bytes,
+            max_publish_topics,
+            max_query_topics,
+            max_query_limit,
+            default_query_limit,
+            max_newest_metadata_topics,
+            max_newest_full_topics,
+            max_update_adds,
+            max_update_removes,
+            max_stream_topics,
+            max_static_topics,
+            max_lookup_identifiers,
+            max_scw_signatures,
+            max_identity_entries,
+            max_update_frames_per_second,
+            max_update_burst,
+            max_ping_frames_per_second,
+            max_ping_burst,
+        )
+    }
+}
+
+/// A group metadata permission policy, mirroring the wire `MetadataPolicy`.
+///
+/// Tags stay raw integers so a policy this build does not know survives the
+/// trip from the backend to a group registry unchanged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MetadataPolicy {
+    /// A `MetadataBasePolicy` tag. `0`, unspecified, also stands for a wire
+    /// policy with no kind set; validation refuses both.
+    Base(i32),
+    /// Every policy must allow.
+    And(Vec<MetadataPolicy>),
+    /// At least one policy must allow.
+    Any(Vec<MetadataPolicy>),
+}
+
+impl MetadataPolicy {
+    /// False when some branch is unspecified or an empty condition, which no
+    /// evaluator can apply. An unknown positive tag passes: a newer client may
+    /// know it.
+    fn is_specified(&self) -> bool {
+        match self {
+            Self::Base(base) => *base > 0,
+            Self::And(policies) | Self::Any(policies) => {
+                !policies.is_empty() && policies.iter().all(Self::is_specified)
+            }
+        }
+    }
+}
+
+/// The member policies of one component. `None` is a policy the definition
+/// left out, which a valid definition never does.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ComponentPermissions {
+    pub insert: Option<MetadataPolicy>,
+    pub update: Option<MetadataPolicy>,
+    pub delete: Option<MetadataPolicy>,
+}
+
+/// One operator-defined group metadata field. A client registers it in a new
+/// group when `in_groups` is set and in a new DM when `in_dms` is set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApplicationComponentDefinition {
+    /// In [`APPLICATION_COMPONENT_IDS`]. A published ID that does not fit in
+    /// a `u16` saturates to `u16::MAX`, which is outside that range.
+    pub component_id: u16,
+    /// A stable label and lookup key, 1 to
+    /// [`MAX_APPLICATION_COMPONENT_NAME_BYTES`] UTF-8 bytes.
+    pub name: String,
+    /// A `ComponentType` tag, never `0` (unspecified).
+    pub component_type: i32,
+    pub permissions: ComponentPermissions,
+    pub in_groups: bool,
+    pub in_dms: bool,
+}
+
+impl ApplicationComponentDefinition {
+    /// The rules one definition must meet on its own.
+    pub fn validate(&self) -> Result<(), ApplicationComponentError> {
+        let ComponentPermissions {
+            insert,
+            update,
+            delete,
+        } = &self.permissions;
+        if !APPLICATION_COMPONENT_IDS.contains(&self.component_id) {
+            Err(ApplicationComponentError::ComponentId)
+        } else if self.name.is_empty() || self.name.len() > MAX_APPLICATION_COMPONENT_NAME_BYTES {
+            Err(ApplicationComponentError::Name)
+        } else if self.component_type <= 0 {
+            Err(ApplicationComponentError::ComponentType)
+        } else if ![insert, update, delete]
+            .iter()
+            .all(|policy| policy.as_ref().is_some_and(MetadataPolicy::is_specified))
+        {
+            Err(ApplicationComponentError::Permissions)
+        } else if !self.in_groups && !self.in_dms {
+            Err(ApplicationComponentError::Conversations)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Advisory group shapes. The backend publishes them and does not enforce them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MlsConfiguration {
+    pub max_group_members: usize,
+    pub max_installations_per_inbox: usize,
+    /// Absent means the client keeps its compiled default. `false` is distinct
+    /// from absent, so an operator can switch the commit log off explicitly.
+    pub commit_log_enabled: Option<bool>,
+}
+
+impl MlsConfiguration {
+    /// Whether this deployment wants clients to write and read the commit log.
+    pub fn commit_log_enabled(&self) -> bool {
+        self.commit_log_enabled.unwrap_or(ENABLE_COMMIT_LOG)
+    }
+}
+
+impl Default for MlsConfiguration {
+    fn default() -> Self {
+        Self {
+            max_group_members: MAX_GROUP_SIZE,
+            max_installations_per_inbox: MAX_INSTALLATIONS_PER_INBOX,
+            commit_log_enabled: None,
+        }
+    }
+}
+
+/// Handle settings the deployment applies when it admits a claim. They are
+/// published for apps, for example to hint at a name a user types. The client
+/// never applies them: it neither fails an operation nor hides a handle because
+/// of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HandlesConfiguration {
+    /// The shortest name part, the text before `#`, the backend admits in a
+    /// new claim.
+    pub min_name_length: u32,
+}
+
+impl Default for HandlesConfiguration {
+    fn default() -> Self {
+        Self {
+            min_name_length: BACKEND_DEFAULT_HANDLE_MIN_NAME_LENGTH,
+        }
+    }
+}
+
+/// Attachment storage offered by this deployment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttachmentsConfiguration {
+    /// The validated value exactly as the backend published it.
+    pub base_url: String,
+    pub max_upload_bytes: u64,
+    pub retention_seconds: u64,
+}
+
+/// One immutable snapshot of what a deployment published.
+///
+/// `Default` is the compiled fallback used before any fetch succeeds, and for
+/// any field the deployment left at zero.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ServerConfiguration {
+    /// Stable operator-chosen name. Empty only before a first fetch succeeds.
+    pub identifier: String,
+    pub server_version: String,
+    /// Empty when the operator published no minimum.
+    pub min_libxmtp_version: String,
+    pub auth: AuthConfiguration,
+    pub retention: RetentionConfiguration,
+    pub limits: LimitsConfiguration,
+    pub mls: MlsConfiguration,
+    pub handles: HandlesConfiguration,
+    /// Absent when attachment storage is not offered or its message is unusable.
+    pub attachments: Option<AttachmentsConfiguration>,
+    /// CAIP-2 chain ids this deployment verifies smart contract wallet
+    /// signatures on. Empty rejects every app-supplied signature.
+    pub smart_contract_wallet_chains: Vec<String>,
+    /// Group metadata fields a client registers in the conversations it
+    /// creates, in published order.
+    pub application_components: Vec<ApplicationComponentDefinition>,
+}
+
+impl ServerConfiguration {
+    /// The identifier must be well formed, any
+    /// minimum version must parse, every chain must be CAIP-2, every
+    /// numeric value must survive the trip to an SDK integer intact, and the
+    /// application catalogue must pass [`validate_application_components`].
+    // implements: CONF-071
+    pub fn validate(&self) -> Result<(), ServerConfigurationError> {
+        validate_server_identifier(&self.identifier)?;
+        self.minimum_version()?;
+        for chain in &self.smart_contract_wallet_chains {
+            if !is_caip2_chain_id(chain) {
+                return Err(ServerConfigurationError::Chain {
+                    chain: chain.clone(),
+                });
+            }
+        }
+        self.validate_magnitudes()?;
+        validate_application_components(&self.application_components).map_err(|(index, reason)| {
+            ServerConfigurationError::ApplicationComponent { index, reason }
+        })
+    }
+
+    /// §7: every `uint64` reaches JavaScript as a `number`, so a value above
+    /// `MAX_PUBLISHED_VALUE` would arrive rounded. Refusing it here is what
+    /// makes that mapping exact for every SDK. The four `uint32` rates cannot
+    /// reach the bound, so they need no check.
+    fn validate_magnitudes(&self) -> Result<(), ServerConfigurationError> {
+        within_range(
+            "group_message_seconds",
+            self.retention.group_message_seconds,
+        )?;
+        within_range("welcome_seconds", self.retention.welcome_seconds)?;
+        within_range("key_package_seconds", self.retention.key_package_seconds)?;
+
+        macro_rules! bounded {
+            ($owner:ident: $($field:ident),+ $(,)?) => {
+                $(within_range(stringify!($field), self.$owner.$field as u64)?;)+
+            };
+        }
+        bounded!(
+            limits: max_envelope_bytes,
+            max_request_bytes,
+            max_response_bytes,
+            max_publish_topics,
+            max_query_topics,
+            max_query_limit,
+            default_query_limit,
+            max_newest_metadata_topics,
+            max_newest_full_topics,
+            max_update_adds,
+            max_update_removes,
+            max_stream_topics,
+            max_static_topics,
+            max_lookup_identifiers,
+            max_scw_signatures,
+            max_identity_entries,
+        );
+        bounded!(mls: max_group_members, max_installations_per_inbox);
+        Ok(())
+    }
+
+    /// The published minimum, parsed. `None` admits every client version.
+    pub fn minimum_version(&self) -> Result<Option<semver::Version>, ServerConfigurationError> {
+        if self.min_libxmtp_version.is_empty() {
+            return Ok(None);
+        }
+        semver::Version::parse(&self.min_libxmtp_version)
+            .map(Some)
+            .map_err(|_| ServerConfigurationError::MinimumVersion {
+                version: self.min_libxmtp_version.clone(),
+            })
+    }
+
+    /// Whether this deployment accepts a smart contract wallet signature on
+    /// `chain`. An empty list accepts none.
+    pub fn accepts_chain(&self, chain: &str) -> bool {
+        self.smart_contract_wallet_chains
+            .iter()
+            .any(|accepted| accepted == chain)
+    }
+}
+
+/// One immutable configuration, read by every consumer in section 6.4.
+///
+/// A provider never touches the database. The snapshot is resolved once at
+/// build and handed to the client whole.
+pub trait ConfigProvider:
+    std::fmt::Debug + xmtp_common::MaybeSend + xmtp_common::MaybeSync
+{
+    fn server_configuration(&self) -> &ServerConfiguration;
+}
+
+/// The provider backed by the copy stored in the client database.
+#[derive(Debug, Clone, Default)]
+pub struct StoredConfigProvider(ServerConfiguration);
+
+impl StoredConfigProvider {
+    pub fn new(configuration: ServerConfiguration) -> Self {
+        Self(configuration)
+    }
+}
+
+impl ConfigProvider for StoredConfigProvider {
+    fn server_configuration(&self) -> &ServerConfiguration {
+        &self.0
+    }
+}
+
+/// A provider a test constructs from any values, with no database and no
+/// fetch. Passing one to the builder disables fetch, store, refresh, and the
+/// identifier check.
+#[derive(Debug, Clone, Default)]
+pub struct StaticConfigProvider(ServerConfiguration);
+
+impl StaticConfigProvider {
+    pub fn new(configuration: ServerConfiguration) -> Self {
+        Self(configuration)
+    }
+
+    /// Start from the compiled defaults and change only what a test needs.
+    pub fn edited(edit: impl FnOnce(&mut ServerConfiguration)) -> Self {
+        let mut configuration = ServerConfiguration {
+            identifier: "org.xmtp.static".to_owned(),
+            ..Default::default()
+        };
+        edit(&mut configuration);
+        Self(configuration)
+    }
+}
+
+impl ConfigProvider for StaticConfigProvider {
+    fn server_configuration(&self) -> &ServerConfiguration {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+mod tests;

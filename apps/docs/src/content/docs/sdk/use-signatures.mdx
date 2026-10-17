@@ -1,0 +1,118 @@
+---
+title: Use signatures
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+With XMTP, you can use various types of signatures to sign and verify payloads.
+
+## Sign with an external wallet
+
+Creating an inbox or adding an installation needs a signature from its identity. Adding an identity needs signatures from that identity and an existing member. Removing an identity or revoking an installation needs the recovery identity's signature. The SDK asks the signer for these signatures.
+
+## Sign with an installation key
+
+The client signs the supplied text with its Ed25519 installation key and the XMTP public signing context. The signature has 64 bytes. This format differs from an Ethereum EOA signature.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="use-signatures-browser.ts" region="sign"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="use-signatures-node.ts" region="sign"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val signature = client.signWithInstallationKey(signatureText)
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let signature = try await client.signWithInstallationKey(text: signatureText)
+```
+
+</TabItem>
+</Tabs>
+
+## Verify with the installation that signed
+
+All four SDKs use `verifySignedWithInstallationKey`. It verifies the text against the current installation key and returns a Boolean.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="use-signatures-browser.ts" region="verify"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="use-signatures-node.ts" region="verify"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val valid = client.verifySignedWithInstallationKey(signatureText, signature)
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let valid = try await client.verifySignedWithInstallationKey(text: signatureText, signature: signature)
+```
+
+</TabItem>
+</Tabs>
+
+## Verify with another installation
+
+Browser and Node use static `Client.verifySignedWithPublicKey`. Kotlin and Swift use static `SDKClient.verifySignedWithPublicKey`. Pass the installation's 32-byte public key, not its hex ID string. Browser and Node expose the current installation key as `client.installationIdBytes`.
+
+Verification proves that the matching installation key signed the text. It does not check inbox membership. Check membership separately when the caller must belong to a specific inbox. A wrong text or signature returns `false`. A signature with a length other than 64 bytes or a public key with a length other than 32 bytes fails with `InvalidInput`.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="use-signatures-browser.ts" region="verify-other"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="use-signatures-node.ts" region="verify-other"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val valid = SDKClient.verifySignedWithPublicKey(signatureText, signature, installationPublicKey)
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let valid = try await SDKClient.verifySignedWithPublicKey(text: signatureText, signature: signature, publicKey: installationPublicKey)
+```
+
+</TabItem>
+</Tabs>

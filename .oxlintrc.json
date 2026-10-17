@@ -1,0 +1,185 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import"],
+  "categories": {
+    "correctness": "error"
+  },
+  "options": {
+    "typeAware": true,
+    "reportUnusedDisableDirectives": "error"
+  },
+  // Stock ubrn output (the binding and its `binding.ts` root) stays excluded.
+  // The copied runtime, the generated bridge files, and the generated package
+  // roots are linted.
+  // The browser platform proofs import fixture builds under target/ that the
+  // lint job does not build. `just sdk lint` type-checks the shared ones.
+  "ignorePatterns": [
+    "**/dist/**",
+    "sdks/browser/test/platform/**",
+    "**/coverage/**",
+    "target/sdk-generated/*/xmtp_sdk*.ts",
+    "target/sdk-generated/*/binding.ts",
+    "target/sdk-generated/*/snippets/**"
+  ],
+  "rules": {
+    "no-array-constructor": "error",
+    "no-unused-expressions": "error",
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "destructuredArrayIgnorePattern": "^_",
+        "ignoreRestSiblings": true,
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "typescript/ban-ts-comment": "error",
+    "typescript/consistent-type-exports": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-deprecated": "warn",
+    "typescript/no-empty-object-type": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/no-namespace": "error",
+    "typescript/no-require-imports": "error",
+    "typescript/no-unnecessary-condition": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-unnecessary-type-constraint": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-enum-comparison": "error",
+    "typescript/no-unsafe-function-type": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/only-throw-error": "error",
+    "typescript/prefer-promise-reject-errors": "error",
+    "typescript/require-await": "error",
+    "typescript/restrict-plus-operands": [
+      "error",
+      {
+        "allowAny": false,
+        "allowBoolean": false,
+        "allowNullish": false,
+        "allowNumberAndString": false,
+        "allowRegExp": false
+      }
+    ]
+  },
+  "overrides": [
+    {
+      // The worker bridge and its generated modules check every value at the
+      // boundary, so they take no type assertions (`as const` stays allowed).
+      "files": [
+        "apps/xmtp_sdk_bindgen/runtime/ts/bridge/**",
+        "target/sdk-generated/*/runtime/bridge/**",
+        "target/sdk-generated/typescript-wasm/*.gen.ts",
+        "target/sdk-generated/typescript-wasm/*.gen.test.ts"
+      ],
+      "rules": {
+        "typescript/consistent-type-assertions": [
+          "error",
+          { "assertionStyle": "never" }
+        ]
+      }
+    },
+    {
+      // These tests deliberately check that default stringification cannot leak a key.
+      "files": ["sdks/{node,browser}/test/LocalSigningKey.test.ts"],
+      "rules": {
+        "typescript/no-base-to-string": "off"
+      }
+    },
+    {
+      // These standalone Node tools load runtime data and have no TS project.
+      // Keep correctness and promise checks.
+      "files": [
+        "crates/xmtp_sdk/dev/{stage-package,package-smoke,package-smoke-browser}.mjs",
+        ".agents/skills/smoke-check/scripts/{ping-bot,bleep-bot,run-bot}.mjs"
+      ],
+      "rules": {
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off"
+      }
+    },
+    {
+      "files": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
+      "rules": {
+        "constructor-super": "off",
+        "getter-return": "off",
+        "no-class-assign": "off",
+        "no-const-assign": "off",
+        "no-dupe-class-members": "off",
+        "no-dupe-keys": "off",
+        "no-func-assign": "off",
+        "no-import-assign": "off",
+        "no-new-native-nonconstructor": "off",
+        "no-obj-calls": "off",
+        "no-redeclare": "off",
+        "no-setter-return": "off",
+        "no-this-before-super": "off",
+        "no-unreachable": "off",
+        "no-unsafe-negation": "off",
+        "no-var": "error",
+        "no-with": "off",
+        "prefer-const": "error",
+        "prefer-rest-params": "error",
+        "prefer-spread": "error"
+      }
+    },
+    {
+      "files": ["**/*.cjs"],
+      "rules": {
+        "typescript/no-require-imports": "off"
+      }
+    },
+    {
+      "files": [
+        "**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
+        "**/{test,tests,__tests__}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
+      ],
+      "rules": {
+        "typescript/no-explicit-any": "off",
+        "typescript/no-unnecessary-condition": "off",
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off",
+        "typescript/require-await": "off",
+        "typescript/unbound-method": "off"
+      }
+    },
+    {
+      "files": ["sdks/agent/src/**/*.ts"],
+      "rules": {
+        "typescript/no-misused-promises": [
+          "error",
+          {
+            "checksVoidReturn": false
+          }
+        ]
+      }
+    },
+    {
+      "files": ["**/src/**/*.ts", "**/src/**/*.tsx"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["../**"],
+                "message": "Use a source path alias instead of a relative parent import."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

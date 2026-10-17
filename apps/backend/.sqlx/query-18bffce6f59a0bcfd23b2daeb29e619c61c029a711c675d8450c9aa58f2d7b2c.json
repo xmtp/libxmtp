@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pg_wal_replay_pause()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pg_wal_replay_pause",
+        "type_info": "Void",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "18bffce6f59a0bcfd23b2daeb29e619c61c029a711c675d8450c9aa58f2d7b2c"
+}
