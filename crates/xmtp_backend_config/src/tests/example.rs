@@ -336,7 +336,7 @@ fn referenced_variables(example: &str) -> BTreeSet<&str> {
 fn the_spec_example_loads_and_names_every_key() {
     if std::env::var_os(CHILD).is_some() {
         for (label, document) in example_documents(example()) {
-            if let Err(error) = Config::load_str(&document) {
+            if let Err(error) = ValidatedConfig::load_str(&document) {
                 panic!("{label} does not load: {error}");
             }
         }
@@ -395,7 +395,7 @@ fn every_release_example_still_loads() {
     if std::env::var_os(CHILD).is_some() {
         for (release, example) in RELEASES {
             for (label, document) in example_documents(example) {
-                if let Err(error) = Config::load_str(&document) {
+                if let Err(error) = ValidatedConfig::load_str(&document) {
                     panic!("{label} of release {release} does not load: {error}");
                 }
             }

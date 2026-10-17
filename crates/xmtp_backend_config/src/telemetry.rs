@@ -94,7 +94,6 @@ impl TelemetryConfig {
         &self,
         env_fallback: Option<String>,
     ) -> Result<Option<String>, ConfigError> {
-        self.validate()?;
         let (endpoint, field) = match &self.otlp_endpoint {
             Some(endpoint) => (endpoint.clone(), "telemetry.otlp_endpoint"),
             None => match env_fallback {

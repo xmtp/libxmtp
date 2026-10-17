@@ -400,14 +400,14 @@ fn configured_log_levels_map_to_the_shared_levels() {
 fn otlp_export_carries_the_telemetry_settings_and_the_identifier() {
     const MINIMAL: &str =
         "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n";
-    let config: Config = toml::from_str(&format!(
+    let config = ValidatedConfig::load_str(&format!(
         "{MINIMAL}[telemetry]\notlp_endpoint = 'http://tempo:4317'"
     ))?;
     let export = otlp_export(&config)?.unwrap();
     assert_eq!(export.endpoint.as_deref(), Some("http://tempo:4317"));
     assert_eq!(export.service_name.as_deref(), Some("xmtp-backend"));
     assert!(!export.logs);
-    let config: Config = toml::from_str(&format!(
+    let config = ValidatedConfig::load_str(&format!(
         "{MINIMAL}[telemetry]\notlp_endpoint = 'http://collector:4317'\notlp_logs = true\nservice_name = 'custom'\nsample_ratio = 0.25\nresource_attributes = {{ 'deployment.environment' = 'test' }}"
     ))?;
     let export = otlp_export(&config)?.unwrap();

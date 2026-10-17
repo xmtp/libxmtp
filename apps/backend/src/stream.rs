@@ -8,7 +8,7 @@ mod tailer;
 #[cfg(test)]
 mod tests;
 
-use crate::{config::Config, error::Error};
+use crate::{config::ValidatedConfig, error::Error};
 pub(crate) use registry::Registry;
 pub(crate) use session::{native, static_subscription};
 use sqlx::PgPool;
@@ -40,7 +40,11 @@ pub(crate) struct StreamHub {
 impl StreamHub {
     /// Start recovery before accepting sessions. Workers share only disposable state;
     /// database errors prevent readiness until a fresh boundary is visible.
-    pub async fn start(primary: PgPool, read: PgPool, config: &Config) -> Result<Arc<Self>, Error> {
+    pub async fn start(
+        primary: PgPool,
+        read: PgPool,
+        config: &ValidatedConfig,
+    ) -> Result<Arc<Self>, Error> {
         let registry = Arc::new(Registry::default());
         let maintenance = Arc::new(tokio::sync::Notify::new());
         let worker = tailer::start(

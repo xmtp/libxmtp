@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::Config;
+use crate::{Config, ValidatedConfig};
 
 /// Use the published artifact and standard format assertions, as a schema consumer does.
 fn validator() -> jsonschema::Validator {
@@ -171,14 +171,14 @@ fn compose_config_loads_attachment_settings() {
     assert!(load_dev_config(s3)?.attachments.is_some());
 }
 
-fn load_dev_config(contents: &str) -> Result<Config, crate::ConfigError> {
+fn load_dev_config(contents: &str) -> Result<ValidatedConfig, crate::ConfigError> {
     let contents = contents
         .replace("env:XMTP_DATABASE_URL", "postgres://localhost/xmtp")
         .replace("env:XMTP_REPLICA_URL", "postgres://localhost/xmtp")
         .replace("env:XMTP_CHAIN_31337_URL", "http://127.0.0.1:8545")
         .replace("env:XMTP_S3_BASE_URL", "http://127.0.0.1:9067/attachments")
         .replace("env:XMTP_S3_URL", "http://127.0.0.1:9067");
-    Config::load_str(&contents)
+    ValidatedConfig::load_str(&contents)
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -739,9 +739,9 @@ fn keepalive_interval_fits_the_started_wire_field() {
     )?;
     config.streams.keepalive_interval_ms = u32::MAX as u64;
     config.streams.max_pong_wait_ms = u32::MAX as u64 + 2;
-    config.validate()?;
+    config.clone().validate()?;
     config.streams.keepalive_interval_ms += 1;
-    assert!(config.validate().is_err());
+    assert!(config.clone().validate().is_err());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

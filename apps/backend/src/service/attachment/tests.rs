@@ -405,9 +405,13 @@ async fn s3_target_accepts_exact_bytes_once() -> TestResult {
         reqwest::StatusCode::PRECONDITION_FAILED
     );
     let past = Arc::new(|| SystemTime::now() - Duration::from_secs(3600));
-    let expired_config = attachment_config();
-    let TargetConfig::S3(s3) = &expired_config.target;
-    let expired_target = S3Target::new_with_clock(s3, past).await?;
+    // The server's own settings, as validation handed them out.
+    let attachments = server
+        .backend
+        .config
+        .attachments()
+        .ok_or("the server offers attachments")?;
+    let expired_target = S3Target::new_with_clock(attachments.s3(), past).await?;
     let expired_signed = expired_target
         .presign_put(&digest, bytes.len() as u64)
         .await?;

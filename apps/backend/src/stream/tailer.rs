@@ -2,7 +2,7 @@ use super::StreamEnd;
 use super::{ENVELOPE_OVERHEAD, FETCH_BUFFER_BYTES, Registry};
 use crate::telemetry;
 use crate::{
-    config::Config,
+    config::ValidatedConfig,
     db::{self, stream::Candidate},
     error::Error,
 };
@@ -47,7 +47,7 @@ pub(super) async fn start(
     primary: PgPool,
     read: PgPool,
     registry: Arc<Registry>,
-    config: &Config,
+    config: &ValidatedConfig,
     maintenance: Arc<Notify>,
 ) -> Result<JoinHandle<()>, Error> {
     let interval = Duration::from_millis(config.streams.poll_interval_ms);

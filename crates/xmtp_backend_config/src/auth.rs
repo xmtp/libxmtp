@@ -84,11 +84,6 @@ impl Default for AuthConfig {
 }
 
 impl AuthConfig {
-    /// Whether this deployment checks credentials. Only valid after validation.
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.unwrap_or(false)
-    }
-
     /// Reject invalid key sources, keys, RPC names, and timer relationships.
     /// Key errors identify the entry but never include the key value.
     ///
@@ -222,7 +217,7 @@ impl AuthConfig {
 impl std::fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthConfig")
-            .field("enabled", &self.is_enabled())
+            .field("enabled", &self.enabled.unwrap_or(false))
             .field(
                 "mode",
                 &if self.jwks_url.is_some() {

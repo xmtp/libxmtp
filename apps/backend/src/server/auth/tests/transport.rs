@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     api,
-    test_support::{RunningServer, TestServer, grpc_web},
+    test_support::{TestServer, grpc_web},
 };
 use tonic_health::pb::{
     HealthCheckRequest, health_check_response::ServingStatus, health_client::HealthClient,
@@ -97,9 +97,9 @@ async fn authenticated_native_and_web_responses_match_auth_disabled_service() {
     };
     let baseline = server.query().query(query()).await?.into_inner();
     let key = TestKey::eddsa();
-    let mut config = (*server.backend.config).clone();
-    config.auth = Some(key.auth_config());
-    let mut protected = RunningServer::new(config).await?;
+    let mut protected = server
+        .restart_with(|config| config.auth = Some(key.auth_config()))
+        .await?;
     assert_eq!(
         protected.query().query(query()).await.unwrap_err().code(),
         tonic::Code::Unauthenticated
@@ -136,9 +136,9 @@ async fn authenticated_native_and_web_responses_match_auth_disabled_service() {
 async fn configured_keys_only_serve_without_jwt_keys() {
     let (value, auth) = api_key("operator");
     let server = TestServer::new(|_| {}).await?;
-    let mut config = (*server.backend.config).clone();
-    config.auth = Some(auth);
-    let mut protected = RunningServer::new(config).await?;
+    let mut protected = server
+        .restart_with(|config| config.auth = Some(auth))
+        .await?;
     let mut request = tonic::Request::new(api::QueryRequest::default());
     request
         .metadata_mut()
@@ -176,9 +176,9 @@ async fn api_keys_and_jwts_both_admit_unary_requests() {
 async fn configured_auth_cannot_serve_without_initialized_keys() {
     let server = TestServer::new(|_| {}).await?;
     let mut backend = server.backend.clone();
-    let mut config = (*backend.config).clone();
+    let mut config = (*backend.config).clone().into_config();
     config.auth = Some(TestKey::es256().auth_config());
-    backend.config = Arc::new(config);
+    backend.config = Arc::new(config.validate()?);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let result = crate::server::serve(backend, listener, std::future::pending()).await;
     assert!(matches!(

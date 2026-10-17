@@ -93,7 +93,7 @@ fn invalid_attachment_credential_sources_name_the_key() {
             "attachments.target.S3.credentials.name",
         ),
     ] {
-        let error = Config::load_str(&format!("{source}{fields}\n")).unwrap_err();
+        let error = ValidatedConfig::load_str(&format!("{source}{fields}\n")).unwrap_err();
         assert!(
             matches!(&error, ConfigError::Invalid { field, .. } if *field == expected_key),
             "{error}"
@@ -104,7 +104,7 @@ fn invalid_attachment_credential_sources_name_the_key() {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn push_defaults_provider_fields_and_redaction() {
-    let config = Config::load_str(MINIMAL)?;
+    let config = ValidatedConfig::load_str(MINIMAL)?;
     assert_eq!(config.push.recipient_ttl_seconds, 2_592_000);
     assert_eq!(config.push.max_attempts, 3);
     assert_eq!(config.limits.max_push_topics, 100_000);
@@ -112,7 +112,7 @@ fn push_defaults_provider_fields_and_redaction() {
     let source = format!(
         "{MINIMAL}\n[push.apns]\nkey = 'private-apns-credential'\nkey_id = 'key'\nteam_id = 'team'\nbundle_id = 'bundle'\nenvironment = 'sandbox'\n[push.fcm]\nservice_account = 'private-fcm-credential'\n[push.http]\n"
     );
-    let config = Config::load_str(&source)?;
+    let config = ValidatedConfig::load_str(&source)?;
     assert!(config.push.http.is_some());
     let debug = format!("{config:?}");
     assert!(debug.contains("<redacted>"));
@@ -121,14 +121,14 @@ fn push_defaults_provider_fields_and_redaction() {
     let source = source
         .replace("private-apns-credential", "env:CARGO_MANIFEST_DIR")
         .replace("private-fcm-credential", "env:CARGO_MANIFEST_DIR");
-    let config = Config::load_str(&source)?;
+    let config = ValidatedConfig::load_str(&source)?;
     let expected = std::env::var("CARGO_MANIFEST_DIR")?;
     assert_eq!(
-        config.push.apns.unwrap().key.as_deref(),
+        config.push.apns.clone().unwrap().key.as_deref(),
         Some(expected.as_str())
     );
     assert_eq!(
-        config.push.fcm.unwrap().service_account.as_deref(),
+        config.push.fcm.clone().unwrap().service_account.as_deref(),
         Some(expected.as_str())
     );
 }
@@ -173,7 +173,7 @@ fn push_invalid_values_name_the_configuration_key() {
         ),
         ("[limits]\nmax_push_topics = 0", "limits.max_push_topics"),
     ] {
-        let error = Config::load_str(&format!("{MINIMAL}\n{extra}")).unwrap_err();
+        let error = ValidatedConfig::load_str(&format!("{MINIMAL}\n{extra}")).unwrap_err();
         assert!(
             matches!(error, ConfigError::Invalid { field: actual, .. } if actual == field),
             "{error}"
@@ -193,7 +193,7 @@ fn push_invalid_values_name_the_configuration_key() {
         "-example.org",
         "example-.org",
     ] {
-        let error = Config::load_str(&format!(
+        let error = ValidatedConfig::load_str(&format!(
             "{MINIMAL}\n[push.http]\nallowed_domains = ['{domain}']"
         ))
         .unwrap_err();
@@ -205,14 +205,14 @@ fn push_invalid_values_name_the_configuration_key() {
             }
         ));
     }
-    Config::load_str(&format!(
+    ValidatedConfig::load_str(&format!(
         "{MINIMAL}\n[push]\nrecipient_ttl_seconds = 86400\nmax_attempts = 10\n[push.http]\nallowed_domains = ['hooks.example.com', '*.EXAMPLE.org']"
     ))?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 fn push_expiry_is_checked_at_both_duration_and_clock_boundaries() {
-    let config = Config::load_str(&format!(
+    let config = ValidatedConfig::load_str(&format!(
         "{MINIMAL}\n[push]\nrecipient_ttl_seconds = {MAX_RETENTION_SECONDS}"
     ))?;
     assert_eq!(
@@ -221,7 +221,7 @@ fn push_expiry_is_checked_at_both_duration_and_clock_boundaries() {
     );
     assert_eq!(config.push.expires_at(NS_IN_SEC), None);
     assert_eq!(config.push.expires_at(-1), None);
-    let error = Config::load_str(&format!(
+    let error = ValidatedConfig::load_str(&format!(
         "{MINIMAL}\n[push]\nrecipient_ttl_seconds = {}",
         MAX_RETENTION_SECONDS + 1
     ))
@@ -242,7 +242,7 @@ fn push_expiry_is_checked_at_both_duration_and_clock_boundaries() {
 fn unknown_keys_are_refused_in_every_table() {
     let rows = example::field_table();
     let base = full_document(AuthSource::InlineKeys);
-    Config::load_str(&toml::to_string(&base)?)?;
+    ValidatedConfig::load_str(&toml::to_string(&base)?)?;
     let mut tables = vec![String::new()];
     for row in &rows {
         let element = match row.kind.as_str() {
@@ -272,7 +272,7 @@ fn unknown_keys_are_refused_in_every_table() {
         table_at(&mut document, "auth").insert("enabled".into(), enabled.into());
         table_at(&mut document, table).insert("unlisted_key".into(), true.into());
         assert!(
-            Config::load_str(&toml::to_string(&document)?).is_err(),
+            ValidatedConfig::load_str(&toml::to_string(&document)?).is_err(),
             "an unlisted key in [{table}] with auth enabled = {enabled} must be refused"
         );
     }
@@ -312,7 +312,7 @@ fn credential_kinds_refuse_the_keys_they_do_not_take() {
         let mut document = full_document(AuthSource::JwksUrl);
         table_at(&mut document, "attachments.target.S3")
             .insert("credentials".into(), credentials.clone().into());
-        Config::load_str(&toml::to_string(&document).expect("the document is TOML"))
+        ValidatedConfig::load_str(&toml::to_string(&document).expect("the document is TOML"))
     };
     let with_keys = |kind: &str, keys: &[&str]| {
         let mut credentials = toml::Table::new();
@@ -325,7 +325,7 @@ fn credential_kinds_refuse_the_keys_they_do_not_take() {
     // The refusal names the credentials table, not the extra key, until
     // refusals name their key (https://github.com/xmtp/libxmtp/issues/4587).
     // Changing this field is deliberate.
-    let assert_refused = |result: Result<Config, ConfigError>, case: &str| match result {
+    let assert_refused = |result: Result<ValidatedConfig, ConfigError>, case: &str| match result {
         Err(ConfigError::Invalid { field, .. }) => {
             assert_eq!(field, "attachments.target.S3.credentials", "{case}");
         }
@@ -471,7 +471,7 @@ fn every_cross_field_relationship_is_rejected() {
 
     config.publishing.max_publish_duration_ms = config.database.max_statement_timeout_ms;
     assert!(matches!(
-        config.validate(),
+        config.clone().validate(),
         Err(ConfigError::Invalid {
             field: "publishing.max_publish_duration_ms",
             ..
@@ -479,14 +479,14 @@ fn every_cross_field_relationship_is_rejected() {
     ));
     // Each relation holds at its boundary.
     config.publishing.max_publish_duration_ms = config.database.max_statement_timeout_ms + 1;
-    config.validate()?;
+    config.clone().validate()?;
     config.limits.max_query_limit = config.limits.default_query_limit;
     config.limits.max_update_adds = config.limits.max_stream_topics;
-    config.validate()?;
+    config.clone().validate()?;
     config = toml::from_str(MINIMAL)?;
     config.streams.max_pong_wait_ms = config.streams.keepalive_interval_ms;
     assert!(matches!(
-        config.validate(),
+        config.clone().validate(),
         Err(ConfigError::Invalid {
             field: "streams.max_pong_wait_ms",
             ..
@@ -495,7 +495,7 @@ fn every_cross_field_relationship_is_rejected() {
     config = toml::from_str(MINIMAL)?;
     config.limits.max_query_limit = config.limits.default_query_limit - 1;
     assert!(matches!(
-        config.validate(),
+        config.clone().validate(),
         Err(ConfigError::Invalid {
             field: "limits.max_query_limit",
             ..
@@ -504,7 +504,7 @@ fn every_cross_field_relationship_is_rejected() {
     config = toml::from_str(MINIMAL)?;
     config.limits.max_envelope_bytes = config.limits.max_request_bytes + 1;
     assert!(matches!(
-        config.validate(),
+        config.clone().validate(),
         Err(ConfigError::Invalid {
             field: "limits.max_envelope_bytes",
             ..
@@ -515,7 +515,7 @@ fn every_cross_field_relationship_is_rejected() {
     config.limits.max_request_bytes = RESPONSE_TEST_REQUEST_BYTES;
     config.limits.max_response_bytes = RESPONSE_TEST_ENVELOPE_BYTES;
     assert!(matches!(
-        config.validate(),
+        config.clone().validate(),
         Err(ConfigError::Invalid {
             field: "limits.max_envelope_bytes",
             ..
@@ -524,7 +524,7 @@ fn every_cross_field_relationship_is_rejected() {
     config = toml::from_str(MINIMAL)?;
     config.limits.max_update_adds = config.limits.max_stream_topics + 1;
     assert!(matches!(
-        config.validate(),
+        config.clone().validate(),
         Err(ConfigError::Invalid {
             field: "limits.max_update_adds",
             ..
@@ -534,10 +534,10 @@ fn every_cross_field_relationship_is_rejected() {
     config.limits.max_envelope_bytes = DELIVERY_FRAME_BYTES - ENVELOPE_METADATA_AND_FRAMING_BYTES;
     config.limits.max_request_bytes = DELIVERY_FRAME_BYTES;
     config.limits.max_response_bytes = DELIVERY_FRAME_BYTES;
-    config.validate()?;
+    config.clone().validate()?;
     config.limits.max_envelope_bytes = DELIVERY_FRAME_BYTES;
     assert!(matches!(
-        config.validate(),
+        config.clone().validate(),
         Err(ConfigError::Invalid {
             field: "limits.max_envelope_bytes",
             ..
@@ -552,7 +552,7 @@ fn missing_and_empty_environment_references_fail_without_values() {
         "missing",
         "[database]\nurl = 'env:XMTP_BACKEND_CONFIG_MISSING_9F31'\n",
     );
-    let missing_error = Config::load(&missing.0).expect_err("missing env must fail");
+    let missing_error = ValidatedConfig::load(&missing.0).expect_err("missing env must fail");
     assert!(
         missing_error
             .to_string()
@@ -560,7 +560,7 @@ fn missing_and_empty_environment_references_fail_without_values() {
     );
 
     let empty = write_config("empty", "[database]\nurl = 'env:'\n");
-    let empty_error = Config::load(&empty.0).expect_err("empty env must fail");
+    let empty_error = ValidatedConfig::load(&empty.0).expect_err("empty env must fail");
     assert!(!empty_error.to_string().contains("env:"));
 }
 
@@ -648,10 +648,10 @@ fn configurable_deadlines_follow_the_host_monotonic_clock_range() {
         }
         if validate_deadline(u64::MAX, field).is_err() {
             assert!(
-                matches!(config.validate(), Err(ConfigError::Invalid { field: actual, .. }) if actual == field)
+                matches!(config.clone().validate(), Err(ConfigError::Invalid { field: actual, .. }) if actual == field)
             );
         } else {
-            config.validate()?;
+            config.clone().validate()?;
         }
     }
 }
@@ -698,7 +698,7 @@ fn telemetry_defaults_and_endpoint_precedence() {
     let config: Config = toml::from_str(&format!(
         "{MINIMAL}log_format = 'json'\n[telemetry]\nmetrics_listen = ''\notlp_endpoint = 'http://collector:4317'\notlp_logs = true\nservice_name = 'custom'\nsample_ratio = 0.25\nresource_attributes = {{ 'deployment.environment' = 'test' }}"
     ))?;
-    config.validate()?;
+    config.clone().validate()?;
     assert_eq!(config.server.log_format, LogFormat::Json);
     // The configured endpoint wins over the environment fallback.
     assert_eq!(
@@ -718,7 +718,7 @@ fn telemetry_rejects_unknown_reserved_and_invalid_values_without_endpoint_conten
         let config: Config = toml::from_str(&format!(
             "{MINIMAL}\n[telemetry.resource_attributes]\n'{key}' = 'override'"
         ))?;
-        let error = config.validate().unwrap_err().to_string();
+        let error = config.clone().validate().unwrap_err().to_string();
         assert!(error.contains("telemetry.resource_attributes"));
         assert!(error.contains(key));
     }
@@ -730,7 +730,7 @@ fn telemetry_rejects_unknown_reserved_and_invalid_values_without_endpoint_conten
     ] {
         let mut config: Config = toml::from_str(MINIMAL)?;
         config.telemetry.otlp_endpoint = Some(endpoint.into());
-        let error = config.validate().unwrap_err().to_string();
+        let error = config.clone().validate().unwrap_err().to_string();
         assert!(error.contains("telemetry.otlp_endpoint"));
         assert!(!error.contains(endpoint));
         config.telemetry.otlp_endpoint = None;
@@ -745,13 +745,13 @@ fn telemetry_rejects_unknown_reserved_and_invalid_values_without_endpoint_conten
     for ratio in [-0.1, 1.1, f64::NAN, f64::INFINITY] {
         let mut config: Config = toml::from_str(MINIMAL)?;
         config.telemetry.sample_ratio = ratio;
-        assert!(config.validate().is_err());
+        assert!(config.clone().validate().is_err());
     }
     let bad = write_config(
         "telemetry-endpoint",
         &format!("{MINIMAL}\n[telemetry]\notlp_endpoint = 'env:PATH'"),
     );
-    let error = Config::load(&bad.0).unwrap_err().to_string();
+    let error = ValidatedConfig::load(&bad.0).unwrap_err().to_string();
     assert!(error.contains("telemetry.otlp_endpoint"));
     assert!(!error.contains(&std::env::var("PATH")?));
 }
@@ -765,7 +765,7 @@ fn telemetry_string_values_resolve_environment_references_once() {
             "{MINIMAL}\n[telemetry]\nservice_name = 'env:PATH'\nresource_attributes = {{ custom = 'env:PATH' }}"
         ),
     );
-    let config = Config::load(&file.0)?;
+    let config = ValidatedConfig::load(&file.0)?;
     assert_eq!(config.telemetry.service_name, std::env::var("PATH")?);
     assert_eq!(
         config.telemetry.resource_attributes["custom"],
@@ -799,15 +799,15 @@ fn environment_references_resolve_once_in_every_string_position() {
         assert_one_test_passed(&output);
         return;
     }
-    let config = Config::load_str(&format!(
+    let config = ValidatedConfig::load_str(&format!(
         "{MINIMAL}[telemetry]\nservice_name = 'env:{NESTED}'\n[auth]\nenabled = true\njwks_url = 'https://issuer.example/keys'\naudiences = ['env:{ELEMENT}', 'literal']\n"
     ))?;
     assert_eq!(config.telemetry.service_name, format!("env:{TARGET}"));
     assert_eq!(
-        config.auth?.audiences?,
+        config.into_config().auth?.audiences?,
         vec!["xmtp.example.org".to_owned(), "literal".to_owned()]
     );
-    let error = Config::load_str(&format!(
+    let error = ValidatedConfig::load_str(&format!(
         "{MINIMAL}[telemetry]\nservice_name = 'env:{NOT_UNICODE}'\n"
     ))
     .unwrap_err();
@@ -819,7 +819,7 @@ fn environment_references_resolve_once_in_every_string_position() {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn inline_configuration_resolves_environment_references() {
-    let config = Config::load_str(&format!(
+    let config = ValidatedConfig::load_str(&format!(
         "{MINIMAL}\n[telemetry]\nresource_attributes = {{ path = 'env:PATH' }}\n"
     ))?;
     assert_eq!(
@@ -831,7 +831,7 @@ fn inline_configuration_resolves_environment_references() {
 #[xmtp_common::test(unwrap_try = true)]
 fn malformed_inline_configuration_omits_document_contents() {
     // Guard the unit variant: retaining a TOML parser error could expose input text.
-    let error = Config::load_str("secret-inline-sentinel = [").unwrap_err();
+    let error = ValidatedConfig::load_str("secret-inline-sentinel = [").unwrap_err();
     assert!(matches!(error, ConfigError::Parse));
     assert!(!format!("{error} {error:?}").contains("secret-inline-sentinel"));
 }
@@ -864,7 +864,7 @@ fn the_identifier_is_required_and_shaped() {
         config.server.identifier = Some(identifier.clone());
         assert!(
             matches!(
-                config.validate(),
+                config.clone().validate(),
                 Err(ConfigError::Invalid {
                     field: "server.identifier",
                     ..
@@ -876,7 +876,7 @@ fn the_identifier_is_required_and_shaped() {
     // The documented convention is accepted at the byte bound.
     let mut config: Config = toml::from_str(MINIMAL)?;
     config.server.identifier = Some("a".repeat(MAX_SERVER_IDENTIFIER_BYTES));
-    config.validate()?;
+    config.clone().validate()?;
 }
 
 /// An existing file that gained `[auth]` before this rule must state its
@@ -889,7 +889,7 @@ fn an_auth_section_must_state_whether_it_is_enabled() {
         "{MINIMAL}\n[auth]\njwks_url = 'https://issuer.example/keys'\n"
     ))?;
     assert!(matches!(
-        config.validate().unwrap_err(),
+        config.clone().validate().unwrap_err(),
         ConfigError::Invalid {
             field: "auth.enabled",
             ..
@@ -900,12 +900,11 @@ fn an_auth_section_must_state_whether_it_is_enabled() {
     let config: Config = toml::from_str(&format!(
         "{MINIMAL}\n[auth]\nenabled = false\naudiences = []\nissuers = []\n"
     ))?;
-    config.validate()?;
-    assert!(!config.auth.as_ref()?.is_enabled());
+    assert!(!config.validate()?.auth_enabled());
     // Ignoring a field is not the same as never reading it: environment
     // references resolve for the whole document before any section is
     // validated, so a missing variable in a disabled section still fails.
-    let error = Config::load_str(&format!(
+    let error = ValidatedConfig::load_str(&format!(
         "{MINIMAL}\n[auth]\nenabled = false\njwks_url = 'env:XMTP_AUTH_DISABLED_MISSING'\n"
     ))
     .unwrap_err();
@@ -924,7 +923,7 @@ fn the_minimum_client_version_is_optional_and_semantic() {
         config.server.min_libxmtp_version = Some(version.into());
         assert!(
             matches!(
-                config.validate(),
+                config.clone().validate(),
                 Err(ConfigError::Invalid {
                     field: "server.min_libxmtp_version",
                     ..
@@ -934,11 +933,11 @@ fn the_minimum_client_version_is_optional_and_semantic() {
         );
     }
     let config: Config = toml::from_str(MINIMAL)?;
-    config.validate()?;
+    config.clone().validate()?;
     assert!(config.server.min_libxmtp_version.is_none());
     let mut config: Config = toml::from_str(MINIMAL)?;
     config.server.min_libxmtp_version = Some("1.2.3-beta.1".into());
-    config.validate()?;
+    config.clone().validate()?;
 }
 
 /// The transport ceiling is fixed, so a budget above it would promise a client
@@ -952,12 +951,12 @@ fn request_and_response_budgets_stop_at_the_transport_ceiling() {
             "limits.max_request_bytes" => config.limits.max_request_bytes = MAX_TRANSPORT_BYTES,
             _ => config.limits.max_response_bytes = MAX_TRANSPORT_BYTES,
         }
-        config.validate()?;
+        config.clone().validate()?;
         match field {
             "limits.max_request_bytes" => config.limits.max_request_bytes += 1,
             _ => config.limits.max_response_bytes += 1,
         }
-        let error = config.validate().unwrap_err();
+        let error = config.clone().validate().unwrap_err();
         assert!(
             matches!(&error, ConfigError::Invalid { field: named, .. } if *named == field),
             "{field} must be named, got {error}"
@@ -970,16 +969,18 @@ fn request_and_response_budgets_stop_at_the_transport_ceiling() {
 // verifies: CONF-065, CONF-080
 #[xmtp_common::test(unwrap_try = true)]
 fn handles_min_name_length_defaults_and_range() {
-    let config = Config::load_str(MINIMAL)?;
+    let config = ValidatedConfig::load_str(MINIMAL)?;
     assert_eq!(config.handles.min_name_length, 3);
     for length in [1, 27] {
-        let config =
-            Config::load_str(&format!("{MINIMAL}\n[handles]\nmin_name_length = {length}"))?;
+        let config = ValidatedConfig::load_str(&format!(
+            "{MINIMAL}\n[handles]\nmin_name_length = {length}"
+        ))?;
         assert_eq!(config.handles.min_name_length, length);
     }
     for length in [0, 28] {
-        let error = Config::load_str(&format!("{MINIMAL}\n[handles]\nmin_name_length = {length}"))
-            .unwrap_err();
+        let error =
+            ValidatedConfig::load_str(&format!("{MINIMAL}\n[handles]\nmin_name_length = {length}"))
+                .unwrap_err();
         assert!(
             matches!(
                 error,
@@ -1294,14 +1295,14 @@ fn every_standard_check_in_the_field_table_refuses_a_failing_value() {
     );
 
     for auth in [AuthSource::JwksUrl, AuthSource::InlineKeys] {
-        Config::load_str(&toml::to_string(&full_document(auth))?)?;
+        ValidatedConfig::load_str(&toml::to_string(&full_document(auth))?)?;
     }
     for case in &cases {
         let mut document = full_document(case.auth);
         table_at(&mut document, case.table).insert(case.name.clone(), case.value.clone());
         let text = toml::to_string(&document)?;
         assert!(
-            Config::load_str(&text).is_err(),
+            ValidatedConfig::load_str(&text).is_err(),
             "{} = {} must fail {}",
             case.key,
             case.value,
@@ -1309,7 +1310,7 @@ fn every_standard_check_in_the_field_table_refuses_a_failing_value() {
         );
         if case.key.starts_with("auth.") {
             table_at(&mut document, "auth").insert("enabled".into(), false.into());
-            if let Err(error) = Config::load_str(&toml::to_string(&document)?) {
+            if let Err(error) = ValidatedConfig::load_str(&toml::to_string(&document)?) {
                 panic!(
                     "{} = {} must start while auth is disabled: {error}",
                     case.key, case.value
@@ -1327,11 +1328,11 @@ fn every_standard_check_in_the_field_table_refuses_a_failing_value() {
 fn minimal_configuration_uses_defaults() {
     const REQUIRED: &str =
         "[server]\nidentifier = 'org.xmtp.test'\n[database]\nurl = 'postgres://localhost/xmtp'\n";
-    let minimal = Config::load_str(REQUIRED)?;
-    let tables = Config::load_str(&format!(
+    let minimal = ValidatedConfig::load_str(REQUIRED)?;
+    let tables = ValidatedConfig::load_str(&format!(
         "{REQUIRED}[auth]\nenabled = false\n[push.http]\n[attachments]\nbase_url = 'https://files.example.org'\n[attachments.target.S3]\nendpoint = 'https://s3.example.org'\nregion = 'us-east-1'\nbucket = 'attachments'\n[attachments.target.S3.credentials]\nkind = 'web_identity'\n"
     ))?;
-    let mut tables_loaded = serde_json::to_value(&tables)?;
+    let mut tables_loaded = serde_json::to_value(&*tables)?;
     // The target applies its presign lifetime default when it signs.
     let Some(attachments::TargetConfig::S3(s3)) = tables
         .attachments
@@ -1342,7 +1343,7 @@ fn minimal_configuration_uses_defaults() {
     };
     tables_loaded["attachments"]["target"]["S3"]["presign_ttl_seconds"] =
         s3.presign_ttl_seconds().into();
-    let loaded = [serde_json::to_value(&minimal)?, tables_loaded];
+    let loaded = [serde_json::to_value(&*minimal)?, tables_loaded];
 
     let compiled = example::compiled_defaults();
     let rows = example::field_table();
@@ -1419,7 +1420,7 @@ fn is_spec_prefix(prefix: &str) -> bool {
 #[xmtp_common::test(unwrap_try = true)]
 fn chain_keys_must_be_eip155_chain_ids() {
     let load = |chain: &str| {
-        Config::load_str(&format!(
+        ValidatedConfig::load_str(&format!(
             "{MINIMAL}[chains]\n\"{chain}\" = 'https://rpc.example.org'\n"
         ))
     };

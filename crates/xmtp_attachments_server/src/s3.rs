@@ -25,10 +25,10 @@ use tokio::sync::Mutex;
 use url::Url;
 
 use xmtp_backend_config::{
-    ConfigError,
+    Validated,
     attachments::{
         AttachmentsConfig, CredentialsConfig, MAX_PRESIGN_TTL_SECONDS, MIN_PRESIGN_TTL_SECONDS,
-        S3Config, TargetConfig,
+        S3Config,
     },
 };
 
@@ -68,8 +68,6 @@ pub enum SignError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
-    #[error(transparent)]
-    Config(#[from] ConfigError),
     #[error("storage credentials provider could not be configured")]
     CredentialsProvider,
 }
@@ -83,14 +81,12 @@ pub trait StorageTarget: Send + Sync {
     ) -> Result<PresignedRequest, SignError>;
 }
 
-/// Create a target after validating all operator settings.
+/// Create the target of attachment settings that passed configuration
+/// validation. `ValidatedConfig::attachments` hands them out.
 pub async fn build_target(
-    config: &AttachmentsConfig,
+    config: Validated<'_, AttachmentsConfig>,
 ) -> Result<Arc<dyn StorageTarget>, BuildError> {
-    config.validate()?;
-    match &config.target {
-        TargetConfig::S3(s3) => Ok(Arc::new(S3Target::new(s3).await?)),
-    }
+    Ok(Arc::new(S3Target::new(config.s3()).await?))
 }
 
 /// S3-compatible presigner. It does not contact the target.
@@ -117,24 +113,24 @@ impl std::fmt::Debug for S3Target {
 }
 
 impl S3Target {
-    pub async fn new(config: &S3Config) -> Result<Self, BuildError> {
-        Self::build_with_clock(config, Arc::new(SystemTime::now)).await
+    /// Create a target from S3 settings that passed configuration validation.
+    pub async fn new(config: Validated<'_, S3Config>) -> Result<Self, BuildError> {
+        Self::build_with_clock(&config, Arc::new(SystemTime::now)).await
     }
 
     /// Create a target with a supplied clock for deterministic signing.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_with_clock(
-        config: &S3Config,
+        config: Validated<'_, S3Config>,
         clock: Arc<dyn Fn() -> SystemTime + Send + Sync>,
     ) -> Result<Self, BuildError> {
-        Self::build_with_clock(config, clock).await
+        Self::build_with_clock(&config, clock).await
     }
 
     async fn build_with_clock(
         config: &S3Config,
         clock: Arc<dyn Fn() -> SystemTime + Send + Sync>,
     ) -> Result<Self, BuildError> {
-        config.validate()?;
         let provider = provider_for(config).await?;
         Ok(Self::with_provider(config, provider, clock))
     }

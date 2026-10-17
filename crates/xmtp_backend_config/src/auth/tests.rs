@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    Config,
+    Config, ValidatedConfig,
     tests::{ES256_PUBLIC_KEY, api_key_value, es256_key},
 };
 
@@ -27,7 +27,7 @@ fn api_key(name: &str) -> (String, AuthConfig) {
     (value, config)
 }
 
-fn loaded(auth: &str) -> Result<Config, ConfigError> {
+fn loaded(auth: &str) -> Result<ValidatedConfig, ConfigError> {
     let path = std::env::temp_dir().join(format!(
         "auth-config-{}.toml",
         xmtp_common::rand_hexstring()
@@ -37,7 +37,7 @@ fn loaded(auth: &str) -> Result<Config, ConfigError> {
         format!("[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n{auth}"),
     )
     .unwrap();
-    let result = Config::load(&path);
+    let result = ValidatedConfig::load(&path);
     std::fs::remove_file(path).unwrap();
     result
 }
@@ -46,6 +46,7 @@ fn loaded(auth: &str) -> Result<Config, ConfigError> {
 fn absent_auth_and_timing_defaults_preserve_opt_in_behavior() {
     assert!(loaded("")?.auth.is_none());
     let auth = loaded("[auth]\nenabled = true\njwks_url = 'https://issuer.example/keys'")?
+        .into_config()
         .auth
         .unwrap();
     assert_eq!(
@@ -113,7 +114,10 @@ fn api_keys_load_alone_or_alongside_one_jwt_source() {
     ] {
         auth.api_keys.insert("Team.Bot".into(), value.clone());
         let config = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)?;
-        assert_eq!(config.auth.unwrap().api_keys["Team.Bot"], value);
+        assert_eq!(
+            config.into_config().auth.unwrap().api_keys["Team.Bot"],
+            value
+        );
     }
     for source in [
         "[auth]\nenabled = true",
@@ -254,7 +258,7 @@ fn api_key_environment_values_resolve_and_missing_variables_fail() {
     let config = loaded(&format!(
         "[auth]\nenabled = true\n[auth.api_keys]\nbot = 'env:{VARIABLE}'"
     ))?;
-    assert_eq!(config.auth.unwrap().api_keys["bot"], value);
+    assert_eq!(config.into_config().auth.unwrap().api_keys["bot"], value);
     let error = loaded(&format!(
         "[auth]\nenabled = true\n[auth.api_keys]\nbot = 'env:{VARIABLE}'\nmissing = 'env:{MISSING}'"
     ))
@@ -366,12 +370,12 @@ fn environment_values_resolve_in_both_auth_key_sources() {
         "[auth]\nenabled = true\nkeys = [{ kid = 'test', alg = 'ES256', public_key = 'env:XMTP_AUTH_TEST_KEY' }]",
     )?;
     assert_eq!(
-        config.auth.unwrap().keys.unwrap()[0].public_key,
+        config.into_config().auth.unwrap().keys.unwrap()[0].public_key,
         std::env::var("XMTP_AUTH_TEST_KEY")?
     );
     let config = loaded("[auth]\nenabled = true\njwks_url = 'env:XMTP_AUTH_TEST_URL'")?;
     assert_eq!(
-        config.auth.unwrap().jwks_url.unwrap(),
+        config.into_config().auth.unwrap().jwks_url.unwrap(),
         std::env::var("XMTP_AUTH_TEST_URL")?
     );
 }
@@ -431,7 +435,7 @@ fn resolved_key_values_are_absent_from_validation_errors() {
     // The backend's key parsing refuses a bad `public_key` without its value;
     // its tests cover that case.
     for (alg, reason) in [("BOGUS", "alg must be a supported asymmetric algorithm")] {
-        let error = Config::load_str(&format!(
+        let error = ValidatedConfig::load_str(&format!(
             "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n[auth]\nenabled = true\nkeys = [{{ kid = 'env:XMTP_KID_SECRET', alg = '{alg}', public_key = 'env:XMTP_KID_SECRET' }}]"
         )).unwrap_err();
         for message in [error.to_string(), format!("{error:?}")] {
@@ -470,7 +474,7 @@ fn resolved_key_values_are_absent_from_validation_errors() {
         ),
     ];
     for (field, document) in &refused {
-        let error = Config::load_str(document).unwrap_err();
+        let error = ValidatedConfig::load_str(document).unwrap_err();
         assert!(
             matches!(&error, ConfigError::Invalid { field: named, .. } if named == field),
             "{field}: {error}"
@@ -480,7 +484,7 @@ fn resolved_key_values_are_absent_from_validation_errors() {
         }
     }
     // Every secret key, written in the file, in a configuration that loads.
-    let config = Config::load_str(&format!(
+    let config = ValidatedConfig::load_str(&format!(
         "[server]\nidentifier = 'org.xmtp.test'\n\
          [telemetry]\notlp_endpoint = 'https://otel.example.org/{SENTINEL}'\n\
          [database]\nurl = 'postgres://xmtp:{SENTINEL}@localhost/xmtp'\nreplica_url = 'postgres://xmtp:{SENTINEL}@localhost/xmtp'\n\

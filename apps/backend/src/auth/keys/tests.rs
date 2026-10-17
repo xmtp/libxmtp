@@ -197,7 +197,7 @@ async fn startup_refuses_the_first_inline_key_that_does_not_parse() {
     config.auth = Some(auth);
     let error = xmtp_common::time::timeout(
         std::time::Duration::from_secs(10),
-        crate::server::initialize(config),
+        crate::server::initialize(config.validate()?),
     )
     .await
     .expect("initialize refuses before storage")

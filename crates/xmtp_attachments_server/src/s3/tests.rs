@@ -15,6 +15,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
+use xmtp_backend_config::{Config, ValidatedConfig, attachments::TargetConfig};
 
 const REFERENCE_TIME: u64 = 1_369_353_600; // 2013-05-24T00:00:00Z
 
@@ -31,6 +32,35 @@ fn config() -> S3Config {
         },
         presign_ttl_seconds: Some(900),
     }
+}
+
+/// A configuration that holds `s3` as its storage target and passed
+/// validation.
+fn validated(s3: S3Config) -> ValidatedConfig {
+    let mut config = Config::from_toml_str(
+        "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n",
+    )
+    .expect("the base configuration parses");
+    config.attachments = Some(AttachmentsConfig {
+        base_url: "https://files.example.org/attachments".into(),
+        max_upload_bytes: None,
+        retention_seconds: None,
+        target: TargetConfig::S3(s3),
+    });
+    config.validate().expect("the test settings are valid")
+}
+
+/// Build a target the way the backend does: validate a configuration that
+/// holds `s3`, then hand over its storage target section.
+async fn build(s3: S3Config) -> Result<S3Target, BuildError> {
+    let config = validated(s3);
+    S3Target::new(
+        config
+            .attachments()
+            .expect("the configuration offers attachments")
+            .s3(),
+    )
+    .await
 }
 
 fn fixed_clock() -> Arc<dyn Fn() -> SystemTime + Send + Sync> {
@@ -158,7 +188,7 @@ async fn assert_resolves_to(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = config();
     config.credentials = credentials;
-    let target = S3Target::new(&config).await?;
+    let target = build(config).await?;
     let signed = target.presign_put(&[1; 32], 1).await?;
     let url = Url::parse(&signed.url)?;
     let credential = url
@@ -209,7 +239,7 @@ fn every_credential_kind_builds() {
             let mut config = config();
             config.credentials = credentials;
             assert!(
-                S3Target::new(&config).await.is_ok(),
+                build(config.clone()).await.is_ok(),
                 "could not build {:?}",
                 config.credentials
             );
@@ -856,53 +886,5 @@ async fn debug_redacts_secrets() {
     assert_eq!(
         format!("{:?}", SignError::CredentialsUnavailable),
         "CredentialsUnavailable"
-    );
-}
-
-/// The key and reason of a construction that configuration validation refused.
-#[track_caller]
-fn refusal<T>(result: Result<T, BuildError>) -> (&'static str, &'static str) {
-    match result {
-        Err(BuildError::Config(ConfigError::Invalid { field, reason })) => (field, reason),
-        Err(other) => panic!("expected a configuration refusal, got {other}"),
-        Ok(_) => panic!("expected a configuration refusal, got a target"),
-    }
-}
-
-/// An endpoint that is not a URL is refused by its key, not unwrapped.
-#[xmtp_common::test(unwrap_try = true)]
-async fn an_endpoint_that_is_not_a_url_is_refused() {
-    let mut config = config();
-    config.endpoint = "not a url".into();
-    assert_eq!(
-        refusal(S3Target::new(&config).await),
-        ("attachments.target.S3.endpoint", "is not a URL as written")
-    );
-}
-
-/// The public constructors refuse settings that configuration validation
-/// refuses, whoever built them: plain HTTP to a host that is not loopback, and
-/// an attachments setting outside the target.
-#[xmtp_common::test(unwrap_try = true)]
-async fn constructors_refuse_settings_that_validation_refuses() {
-    let mut s3 = config();
-    s3.endpoint = "http://storage.example".into();
-    let expected = (
-        "attachments.target.S3.endpoint",
-        "must use HTTPS or HTTP on a loopback host",
-    );
-    assert_eq!(refusal(S3Target::new(&s3).await), expected);
-    let mut attachments = AttachmentsConfig {
-        base_url: "https://files.example.org/attachments".into(),
-        max_upload_bytes: None,
-        retention_seconds: None,
-        target: TargetConfig::S3(s3),
-    };
-    assert_eq!(refusal(build_target(&attachments).await), expected);
-    attachments.target = TargetConfig::S3(config());
-    attachments.base_url = "https://files.example.org/attachments/".into();
-    assert_eq!(
-        refusal(build_target(&attachments).await),
-        ("attachments.base_url", "has a trailing slash")
     );
 }

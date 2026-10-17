@@ -116,7 +116,7 @@ pub(super) fn resource_attributes(_: &mut SchemaGenerator) -> Schema {
 /// Reject whitespace and C0/C1 control characters, matching the runtime check.
 /// The runtime bound is in bytes; `maxLength` here counts characters, so a
 /// multi-byte identifier is checked exactly once, at startup.
-pub(super) fn identifier(_: &mut SchemaGenerator) -> Schema {
+pub(super) fn server_identifier(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"anyOf": [with_environment(json_schema!({
         "type": "string",
         "minLength": 1,

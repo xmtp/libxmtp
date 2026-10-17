@@ -1,7 +1,7 @@
 use crate::{
-    config::Config,
+    config::{Config, ValidatedConfig},
     db::Store,
-    test_support::{TestDatabase, TestServer},
+    test_support::{TestDatabase, TestServer, config_for},
 };
 use sqlx::Connection;
 use xmtp_common::time::{Duration, timeout};
@@ -12,8 +12,9 @@ const PRIMARY_READ_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
 #[xmtp_common::test(unwrap_try = true)]
 async fn primary_read_pool_does_not_wait_for_recovery() {
     let mut database = TestDatabase::new()?;
-    let mut config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    let mut config = config_for(database.url());
     config.database.replica_url = Some(database.url().to_owned());
+    let config = config.validate()?;
     let store = timeout(PRIMARY_READ_STARTUP_TIMEOUT, Store::connect(&config)).await??;
     assert!(
         !sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe("SELECT pg_is_in_recovery()"))
@@ -39,8 +40,9 @@ async fn cancelled_begin_returns_a_clean_connection() {
         return;
     };
     let database = TestDatabase::new()?;
-    let mut config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    let mut config = config_for(database.url());
     config.database.max_connections = 1;
+    let config = config.validate()?;
     let store = Store::connect(&config).await?;
     let mut connection = store.primary.acquire().await?;
     let pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
@@ -85,8 +87,9 @@ async fn cancelled_begin_returns_a_clean_connection() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn aborted_transaction_is_replaced_before_pool_reuse() {
     let database = TestDatabase::new()?;
-    let mut config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    let mut config = config_for(database.url());
     config.database.max_connections = 1;
+    let config = config.validate()?;
     let store = Store::connect(&config).await?;
     let mut connection = store.primary.acquire().await?;
     let pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
@@ -129,8 +132,7 @@ async fn startup_rejects_retention_that_overflows_the_database_clock() {
         crate::test_support::DEFAULT_TEST_IDENTIFIER
     ))?;
     config.retention.welcome_seconds = (i64::MAX / xmtp_common::NS_IN_SEC) as u64;
-    config.validate()?;
-    let error = crate::server::initialize(config)
+    let error = crate::server::initialize(config.validate()?)
         .await
         .err()
         .expect("startup expiry must fit");
@@ -149,7 +151,7 @@ async fn startup_rejects_retention_that_overflows_the_database_clock() {
 // verifies: CONF-091
 async fn startup_rejects_push_expiry_that_overflows_the_database_clock() {
     let database = TestDatabase::new()?;
-    let config = Config::load_str(&format!(
+    let config = ValidatedConfig::load_str(&format!(
         "[database]\nurl = {:?}\n[server]\nidentifier = {:?}\n[push]\nrecipient_ttl_seconds = 9223372036\n",
         database.url(),
         crate::test_support::DEFAULT_TEST_IDENTIFIER
@@ -171,7 +173,7 @@ async fn startup_rejects_push_expiry_that_overflows_the_database_clock() {
 // verifies: OPS-005
 async fn concurrent_initializers_apply_one_migration_on_an_empty_database() {
     let mut database = TestDatabase::new()?;
-    let config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    let config = config_for(database.url()).validate()?;
     let (left, right) = tokio::join!(Store::connect(&config), Store::connect(&config));
     let left = left?;
     let right = right?;
@@ -264,7 +266,7 @@ async fn insert_association(
 #[xmtp_common::test(unwrap_try = true)]
 async fn handle_index_allows_one_inbox_per_handle() {
     let mut database = TestDatabase::new()?;
-    let config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    let config = config_for(database.url()).validate()?;
     let store = Store::connect(&config).await?;
     let address = "0x1111111111111111111111111111111111111111";
 

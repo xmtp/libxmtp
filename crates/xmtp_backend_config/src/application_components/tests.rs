@@ -1,5 +1,5 @@
 use super::*;
-use crate::Config;
+use crate::ValidatedConfig;
 use xmtp_configuration::ApplicationComponentError;
 
 const MINIMAL: &str =
@@ -15,8 +15,8 @@ fn entry(component_id: u32, name: &str) -> String {
     )
 }
 
-fn load(entries: &[String]) -> Result<Config, ConfigError> {
-    Config::load_str(&format!("{MINIMAL}{}", entries.concat()))
+fn load(entries: &[String]) -> Result<ValidatedConfig, ConfigError> {
+    ValidatedConfig::load_str(&format!("{MINIMAL}{}", entries.concat()))
 }
 
 /// A definition no client could register, or one that makes an ID or name

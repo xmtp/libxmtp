@@ -1,6 +1,6 @@
 //! Backend configuration loaded from a TOML file.
 
-use std::{collections::BTreeMap, fs, net::SocketAddr, path::Path};
+use std::{collections::BTreeMap, fs, net::SocketAddr, num::NonZeroUsize, path::Path};
 
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,9 @@ pub mod handles;
 pub mod push;
 mod schema;
 mod telemetry;
+mod validated;
 pub use telemetry::{IDENTIFIER_ATTRIBUTE, TelemetryConfig};
+pub use validated::{Validated, ValidatedConfig};
 
 const SCHEMA_ID: &str =
     "https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json";
@@ -177,15 +179,17 @@ pub struct Config {
 }
 
 impl Config {
-    /// Load, resolve environment references, and validate one TOML file.
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
+    /// Read one TOML file and resolve its environment references. Nothing is
+    /// checked until `validate`.
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let contents = fs::read_to_string(path).map_err(ConfigError::Read)?;
-        Self::load_str(&contents)
+        Self::from_toml_str(&contents)
     }
 
-    /// Parse, resolve environment references, and validate one TOML document.
-    /// Errors omit document contents. This method cannot return `ConfigError::Read`.
-    pub fn load_str(contents: &str) -> Result<Self, ConfigError> {
+    /// Parse one TOML document and resolve its environment references.
+    /// Nothing is checked until `validate`. Errors omit document contents.
+    /// This method cannot return `ConfigError::Read`.
+    pub fn from_toml_str(contents: &str) -> Result<Self, ConfigError> {
         let mut value: toml::Value = toml::from_str(contents).map_err(|_| ConfigError::Parse)?;
         resolve_environment(&mut value)?;
         let config: Self = serde_path_to_error::deserialize(value).map_err(|error| {
@@ -198,12 +202,20 @@ impl Config {
                 ConfigError::Parse
             }
         })?;
-        config.validate()?;
         Ok(config)
     }
 
-    /// Validate scalar values and relationships between values.
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    /// Check every rule the document and the environment decide: scalar
+    /// values and the relationships between values. A `ValidatedConfig`
+    /// comes only from here.
+    pub fn validate(self) -> Result<ValidatedConfig, ConfigError> {
+        let scw_cache_entries = self.check()?;
+        Ok(ValidatedConfig::new(self, scw_cache_entries))
+    }
+
+    /// Every document check. Returns the checked values `ValidatedConfig`
+    /// keeps.
+    fn check(&self) -> Result<NonZeroUsize, ConfigError> {
         if let Some(attachments) = &self.attachments {
             attachments.validate()?;
         }
@@ -244,13 +256,13 @@ impl Config {
         self.streams.validate()?;
         self.retention.validate()?;
         self.push.validate()?;
-        self.validation.validate()?;
+        let scw_cache_entries = self.validation.validate()?;
         self.validate_chains()?;
         self.limits.validate()?;
         self.mls.validate()?;
         self.handles.validate()?;
         application_components::validate(&self.application_components)?;
-        Ok(())
+        Ok(scw_cache_entries)
     }
 
     /// Require chain keys that the SCW verifier can route and HTTP(S) RPC URLs.
@@ -378,11 +390,6 @@ fn non_empty_url(value: &str, field: &'static str, kind: UrlKind) -> Result<(), 
 }
 
 impl ServerConfig {
-    /// The identifier every client binds to. Only valid after validation.
-    pub fn identifier(&self) -> &str {
-        self.identifier.as_deref().unwrap_or_default()
-    }
-
     /// Require a numeric bind address and a positive shutdown budget, plus the
     /// deployment identity clients bind to.
     // implements: CONF-002, CONF-067
@@ -528,11 +535,12 @@ impl RetentionConfig {
 }
 
 impl ValidationConfig {
-    fn validate(&self) -> Result<(), ConfigError> {
-        positive(
-            self.max_scw_cache_entries,
+    /// The signature cache capacity, which must be greater than zero.
+    fn validate(&self) -> Result<NonZeroUsize, ConfigError> {
+        NonZeroUsize::new(self.max_scw_cache_entries).ok_or(invalid(
             "validation.max_scw_cache_entries",
-        )
+            "must be greater than zero",
+        ))
     }
 }
 
@@ -584,7 +592,7 @@ pub struct ServerConfig {
     /// Stable operator-chosen name for this deployment, by convention reverse
     /// DNS such as `org.xmtp.dev`. Clients bind to it on first connect, so it
     /// must never change once clients have connected. Required.
-    #[schemars(schema_with = "schema::identifier")]
+    #[schemars(schema_with = "schema::server_identifier")]
     pub identifier: Option<String>,
     /// Oldest libxmtp version this deployment accepts. Absent publishes no
     /// minimum. Prerelease tags are ignored when clients compare.

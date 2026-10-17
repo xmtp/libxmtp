@@ -202,7 +202,8 @@ spec:
 
 `startupProbe` allows 120 failures at 5 s intervals: about **600 s** for startup.
 Increase this budget if migrations need more time. In `apps/backend/src/main.rs`,
-`run` awaits `server::initialize(config)` before `TcpListener::bind`.
+`run` awaits `server::initialize(config)`, which takes the validated
+configuration, before `TcpListener::bind`.
 Initialization finishes primary database migrations before it returns. The RPC
 port cannot pass a probe until that work finishes. Kubernetes delays readiness
 and liveness probes until the startup probe succeeds.
