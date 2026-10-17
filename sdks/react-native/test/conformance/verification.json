@@ -635,10 +635,7 @@
               "i686-linux-android",
               "x86_64-linux-android"
             ],
-            "ios": [
-              "aarch64-apple-ios",
-              "aarch64-apple-ios-sim"
-            ]
+            "ios": ["aarch64-apple-ios", "aarch64-apple-ios-sim"]
           },
           "validation": "Production verifier checked all 295 assets, exports, licenses, native codegen and six native source/toolchain receipts. All 288 current v4w9 JS/runtime/adapter asset hashes match packed bytes, including the CPP input guard and React lifetime cleanup. The six current raw Rust payload receipts match the earlier unversioned admission; no independent cold-build or versioned-byte equivalence is claimed."
         },
@@ -738,9 +735,7 @@
                 "platform": "android",
                 "mode": "background",
                 "assertions": 1,
-                "phases": [
-                  "cold-background"
-                ],
+                "phases": ["cold-background"],
                 "runId": "714a4be90572d52788b3ab97",
                 "harness": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
                 "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
@@ -779,9 +774,7 @@
                 "platform": "android",
                 "mode": "background",
                 "assertions": 1,
-                "phases": [
-                  "cold-background"
-                ],
+                "phases": ["cold-background"],
                 "runId": "6a57ae43e6563fe4dec023c8",
                 "harness": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828",
                 "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
@@ -888,9 +881,7 @@
                 "platform": "ios",
                 "mode": "background",
                 "assertions": 1,
-                "phases": [
-                  "cold-background"
-                ],
+                "phases": ["cold-background"],
                 "runId": "b2476763328543b2e5dc3cb5",
                 "harness": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
                 "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
@@ -927,9 +918,7 @@
                 "platform": "ios",
                 "mode": "background",
                 "assertions": 1,
-                "phases": [
-                  "cold-background"
-                ],
+                "phases": ["cold-background"],
                 "runId": "3306de3a2e0c5d6418f96ab4",
                 "harness": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828",
                 "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
