@@ -24,8 +24,13 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use tokio::sync::Mutex;
 use url::Url;
 
-use crate::config::{MAX_PRESIGN_TTL_SECONDS, MIN_PRESIGN_TTL_SECONDS};
-use crate::{AttachmentsConfig, ConfigInvalid, CredentialsConfig, S3Config, TargetConfig};
+use xmtp_backend_config::{
+    ConfigError,
+    attachments::{
+        AttachmentsConfig, CredentialsConfig, MAX_PRESIGN_TTL_SECONDS, MIN_PRESIGN_TTL_SECONDS,
+        S3Config, TargetConfig,
+    },
+};
 
 /// The request that an attachment client sends to the storage target.
 #[derive(Clone)]
@@ -64,7 +69,7 @@ pub enum SignError {
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
     #[error(transparent)]
-    Config(#[from] ConfigInvalid),
+    Config(#[from] ConfigError),
     #[error("storage credentials provider could not be configured")]
     CredentialsProvider,
 }
@@ -78,11 +83,10 @@ pub trait StorageTarget: Send + Sync {
     ) -> Result<PresignedRequest, SignError>;
 }
 
-/// Create a target after validating all operator settings.
+/// Create a target from settings that passed configuration validation.
 pub async fn build_target(
     config: &AttachmentsConfig,
 ) -> Result<Arc<dyn StorageTarget>, BuildError> {
-    config.validate()?;
     match &config.target {
         TargetConfig::S3(s3) => Ok(Arc::new(S3Target::new(s3).await?)),
     }
@@ -129,7 +133,15 @@ impl S3Target {
         config: &S3Config,
         clock: Arc<dyn Fn() -> SystemTime + Send + Sync>,
     ) -> Result<Self, BuildError> {
-        config.validate()?;
+        // Validation guarantees a URL. Refuse settings that skipped it rather
+        // than panic when the target is built.
+        if Url::parse(&config.endpoint).is_err() {
+            return Err(ConfigError::Invalid {
+                field: "attachments.target.S3.endpoint",
+                reason: "must be an absolute URL",
+            }
+            .into());
+        }
         let provider = provider_for(config).await?;
         Ok(Self::with_provider(config, provider, clock))
     }

@@ -22,13 +22,16 @@ dev/nix-shell 'just backend schema'   # regenerate docs/schemas/backend-v1.json
   live object, belongs in the backend. A check that takes a runtime fact as an
   argument, such as `RetentionConfig::validate_at`, belongs here.
 - The normal dependencies stay light. Never add `xmtp_proto`, `xmtp_id`,
-  `xmtp_mls_common`, `xmtp_logging`, `xmtp_common`, `xmtp_cryptography`,
-  `openmls`, `jsonwebtoken`, a key crate, an `aws-*` crate, `tonic`, `sqlx`,
-  `tokio`, `reqwest`, or `xmtp-workspace-hack`. `xmtp_common` is a
-  dev-dependency for the test macro only.
+  `xmtp_mls_common`, `xmtp_logging`, `xmtp_attachments_server`, `xmtp_common`,
+  `xmtp_cryptography`, `openmls`, `jsonwebtoken`, a key crate, an `aws-*`
+  crate, `tonic`, `sqlx`, `tokio`, `reqwest`, or `xmtp-workspace-hack`.
+  `xmtp_common` is a dev-dependency for the test macro only. Subsystem crates
+  depend on this crate, never the reverse: `xmtp_attachments_server` builds its
+  storage target from `attachments`.
 - Doc comments on configuration types and fields are schema descriptions.
   Changing one changes `docs/schemas/backend-v1.json`; regenerate it with
-  `just backend schema` and commit both.
+  `just backend schema` and commit both. The file's key order comes from
+  schemars' `preserve_order` feature, and a test compares its exact text.
 - Refusals name the key and never include a value, because a value may come
   from the environment.
 

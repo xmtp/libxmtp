@@ -1,19 +1,20 @@
+//! Remote attachment storage settings. `xmtp_attachments_server` builds the
+//! storage target from them.
+
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use url::{Host, Url};
 use xmtp_configuration::{
-    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, MAX_ATTACHMENT_RETENTION_SECONDS,
-    MAX_ATTACHMENT_UPLOAD_BYTES, check_base_url, check_max_upload_bytes, check_retention_seconds,
+    AttachmentConfigurationError, BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
+    MAX_ATTACHMENT_RETENTION_SECONDS, MAX_ATTACHMENT_UPLOAD_BYTES, check_base_url,
+    check_max_upload_bytes, check_retention_seconds,
 };
+
+use super::{ConfigError, invalid, schema::with_environment};
 
 pub const DEFAULT_PRESIGN_TTL_SECONDS: u32 = 900;
 pub const MIN_PRESIGN_TTL_SECONDS: u32 = 300;
 pub const MAX_PRESIGN_TTL_SECONDS: u32 = 3600;
-
-/// Accept a literal value or an environment reference resolved before validation.
-fn with_environment(literal: Schema) -> Schema {
-    json_schema!({"anyOf": [literal, {"type": "string", "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"}]})
-}
 
 /// Match all text forms of the IPv6 loopback address, with or without `::`.
 fn ipv6_loopback_pattern() -> String {
@@ -154,11 +155,10 @@ impl AttachmentsConfig {
 
     /// Reject settings that cannot be published or enforced.
     // implements: ATCH-002, ATCH-003, ATCH-004
-    pub fn validate(&self) -> Result<(), ConfigInvalid> {
-        check_base_url(&self.base_url).map_err(ConfigInvalid::from_shared)?;
-        check_max_upload_bytes(self.upload_ceiling()).map_err(ConfigInvalid::from_shared)?;
-        check_retention_seconds(self.retention_seconds.unwrap_or_default())
-            .map_err(ConfigInvalid::from_shared)?;
+    pub(crate) fn validate(&self) -> Result<(), ConfigError> {
+        check_base_url(&self.base_url).map_err(shared)?;
+        check_max_upload_bytes(self.upload_ceiling()).map_err(shared)?;
+        check_retention_seconds(self.retention_seconds.unwrap_or_default()).map_err(shared)?;
         match &self.target {
             TargetConfig::S3(s3) => s3.validate(),
         }
@@ -222,7 +222,7 @@ impl S3Config {
             .unwrap_or(DEFAULT_PRESIGN_TTL_SECONDS)
     }
 
-    pub(crate) fn validate(&self) -> Result<(), ConfigInvalid> {
+    pub(crate) fn validate(&self) -> Result<(), ConfigError> {
         if self.endpoint.bytes().any(|byte| {
             !byte.is_ascii()
                 || byte.is_ascii_control()
@@ -233,16 +233,15 @@ impl S3Config {
                 .next()
                 .is_some_and(|host| host.contains('%'))
         }) {
-            return Err(ConfigInvalid::new(
+            return Err(invalid(
                 "attachments.target.S3.endpoint",
                 "is not a URL as written",
             ));
         }
-        let url = Url::parse(&self.endpoint).map_err(|_| {
-            ConfigInvalid::new("attachments.target.S3.endpoint", "must be an absolute URL")
-        })?;
+        let url = Url::parse(&self.endpoint)
+            .map_err(|_| invalid("attachments.target.S3.endpoint", "must be an absolute URL"))?;
         if has_noncanonical_ipv4_host(&self.endpoint, &url) {
-            return Err(ConfigInvalid::new(
+            return Err(invalid(
                 "attachments.target.S3.endpoint",
                 "is not a URL as written",
             ));
@@ -254,7 +253,7 @@ impl S3Config {
             || !url.username().is_empty()
             || url.password().is_some()
         {
-            return Err(ConfigInvalid::new(
+            return Err(invalid(
                 "attachments.target.S3.endpoint",
                 "invalid HTTP endpoint",
             ));
@@ -262,14 +261,14 @@ impl S3Config {
         // The shared URL check owns the loopback rule for HTTP. Check only the
         // origin here so S3 endpoints can retain a path prefix.
         check_base_url(&url.origin().ascii_serialization()).map_err(|_| {
-            ConfigInvalid::new(
+            invalid(
                 "attachments.target.S3.endpoint",
                 "must use HTTPS or HTTP on a loopback host",
             )
         })?;
         // implements: ATCH-081
         if self.region.is_empty() || self.region.chars().any(char::is_whitespace) {
-            return Err(ConfigInvalid::new(
+            return Err(invalid(
                 "attachments.target.S3.region",
                 "must name a region",
             ));
@@ -280,7 +279,7 @@ impl S3Config {
             || self.bucket == "."
             || self.bucket == ".."
         {
-            return Err(ConfigInvalid::new(
+            return Err(invalid(
                 "attachments.target.S3.bucket",
                 "must name one bucket",
             ));
@@ -296,7 +295,7 @@ impl S3Config {
                 .split('/')
                 .any(|part| part == "." || part == "..")
         {
-            return Err(ConfigInvalid::new(
+            return Err(invalid(
                 "attachments.target.S3.key_prefix",
                 "contains an unsafe path character",
             ));
@@ -305,7 +304,7 @@ impl S3Config {
         if !(MIN_PRESIGN_TTL_SECONDS..=MAX_PRESIGN_TTL_SECONDS)
             .contains(&self.presign_ttl_seconds())
         {
-            return Err(ConfigInvalid::new(
+            return Err(invalid(
                 "attachments.target.S3.presign_ttl_seconds",
                 "outside 300..=3600",
             ));
@@ -315,7 +314,7 @@ impl S3Config {
 }
 
 /// Credential source for signing. Debug never prints its fields.
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CredentialsConfig {
     Static {
@@ -377,11 +376,101 @@ impl std::fmt::Debug for CredentialsConfig {
     }
 }
 
+/// Decode through `StrictCredentials`, so a kind that takes no keys refuses
+/// every key but `kind`. Serde drops the other keys of a unit variant of an
+/// internally tagged enum, even with `deny_unknown_fields`.
+// implements: CONF-083
+impl<'de> Deserialize<'de> for CredentialsConfig {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        StrictCredentials::deserialize(deserializer).map(Into::into)
+    }
+}
+
+/// `CredentialsConfig` as decoded. Each kind that takes no keys is a struct
+/// variant with no fields, so serde refuses an extra key next to its tag.
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum StrictCredentials {
+    Static {
+        access_key_id: String,
+        secret_access_key: String,
+        session_token: Option<String>,
+    },
+    DefaultChain {},
+    Environment {},
+    Profile {
+        name: String,
+    },
+    Sso {
+        account_id: String,
+        region: String,
+        role_name: String,
+        start_url: String,
+        session_name: Option<String>,
+    },
+    Process {
+        command: String,
+    },
+    WebIdentity {},
+    Container {},
+    Instance {},
+    AssumeRole {
+        role_arn: String,
+        external_id: Option<String>,
+        session_name: Option<String>,
+    },
+}
+
+impl From<StrictCredentials> for CredentialsConfig {
+    fn from(credentials: StrictCredentials) -> Self {
+        match credentials {
+            StrictCredentials::Static {
+                access_key_id,
+                secret_access_key,
+                session_token,
+            } => Self::Static {
+                access_key_id,
+                secret_access_key,
+                session_token,
+            },
+            StrictCredentials::DefaultChain {} => Self::DefaultChain,
+            StrictCredentials::Environment {} => Self::Environment,
+            StrictCredentials::Profile { name } => Self::Profile { name },
+            StrictCredentials::Sso {
+                account_id,
+                region,
+                role_name,
+                start_url,
+                session_name,
+            } => Self::Sso {
+                account_id,
+                region,
+                role_name,
+                start_url,
+                session_name,
+            },
+            StrictCredentials::Process { command } => Self::Process { command },
+            StrictCredentials::WebIdentity {} => Self::WebIdentity,
+            StrictCredentials::Container {} => Self::Container,
+            StrictCredentials::Instance {} => Self::Instance,
+            StrictCredentials::AssumeRole {
+                role_arn,
+                external_id,
+                session_name,
+            } => Self::AssumeRole {
+                role_arn,
+                external_id,
+                session_name,
+            },
+        }
+    }
+}
+
 impl CredentialsConfig {
-    fn validate(&self) -> Result<(), ConfigInvalid> {
+    fn validate(&self) -> Result<(), ConfigError> {
         let required = |field: &'static str, value: &str| {
             if value.is_empty() {
-                Err(ConfigInvalid::new(field, "must not be empty"))
+                Err(invalid(field, "must not be empty"))
             } else {
                 Ok(())
             }
@@ -425,28 +514,15 @@ impl CredentialsConfig {
     }
 }
 
-/// A non-secret startup error that names the failed config key.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error("{field}: {reason}")]
-pub struct ConfigInvalid {
-    pub field: &'static str,
-    pub reason: &'static str,
-}
-
-impl ConfigInvalid {
-    fn new(field: &'static str, reason: &'static str) -> Self {
-        Self { field, reason }
-    }
-
-    fn from_shared(error: xmtp_configuration::AttachmentConfigurationError) -> Self {
-        let field = match error.field() {
-            "base_url" => "attachments.base_url",
-            "max_upload_bytes" => "attachments.max_upload_bytes",
-            "retention_seconds" => "attachments.retention_seconds",
-            _ => unreachable!("shared attachment configuration field"),
-        };
-        Self::new(field, error.reason())
-    }
+/// Name the key of a shared attachment rule's refusal.
+fn shared(error: AttachmentConfigurationError) -> ConfigError {
+    let field = match error.field() {
+        "base_url" => "attachments.base_url",
+        "max_upload_bytes" => "attachments.max_upload_bytes",
+        "retention_seconds" => "attachments.retention_seconds",
+        _ => unreachable!("shared attachment configuration field"),
+    };
+    invalid(field, error.reason())
 }
 
 #[cfg(test)]

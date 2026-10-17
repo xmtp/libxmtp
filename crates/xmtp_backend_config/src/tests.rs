@@ -278,6 +278,89 @@ fn unknown_keys_are_refused_in_every_table() {
     }
 }
 
+/// A credential kind refuses every key it does not take: any key next to a
+/// kind that takes none, such as `access_key_id` next to `kind = "instance"`,
+/// and a key of another kind, such as `role_arn` next to `kind = "static"`.
+// verifies: CONF-083
+#[xmtp_common::test(unwrap_try = true)]
+fn credential_kinds_refuse_the_keys_they_do_not_take() {
+    let schema = serde_json::to_value(Config::schema())?;
+    let kinds: Vec<(String, BTreeSet<String>)> = schema["$defs"]["CredentialsConfig"]["oneOf"]
+        .as_array()?
+        .iter()
+        .map(|variant| {
+            let properties = variant["properties"]
+                .as_object()
+                .expect("each credential kind lists its keys");
+            let kind = properties["kind"]["const"]
+                .as_str()
+                .expect("each credential kind names itself")
+                .to_owned();
+            let keys = properties
+                .keys()
+                .filter(|key| *key != "kind")
+                .cloned()
+                .collect();
+            (kind, keys)
+        })
+        .collect();
+    let every_key: BTreeSet<String> = kinds
+        .iter()
+        .flat_map(|(_, keys)| keys.iter().cloned())
+        .collect();
+    let load = |credentials: &toml::Table| {
+        let mut document = full_document(AuthSource::JwksUrl);
+        table_at(&mut document, "attachments.target.S3")
+            .insert("credentials".into(), credentials.clone().into());
+        Config::load_str(&toml::to_string(&document).expect("the document is TOML"))
+    };
+    let with_keys = |kind: &str, keys: &[&str]| {
+        let mut credentials = toml::Table::new();
+        credentials.insert("kind".into(), kind.into());
+        for key in keys {
+            credentials.insert((*key).into(), "value".into());
+        }
+        credentials
+    };
+    // The refusal names the credentials table, not the extra key, until
+    // refusals name their key (https://github.com/xmtp/libxmtp/issues/4587).
+    // Changing this field is deliberate.
+    let assert_refused = |result: Result<Config, ConfigError>, case: &str| match result {
+        Err(ConfigError::Invalid { field, .. }) => {
+            assert_eq!(field, "attachments.target.S3.credentials", "{case}");
+        }
+        other => panic!("{case} must be refused naming its table, got {other:?}"),
+    };
+    for (kind, keys) in [
+        ("instance", vec!["access_key_id"]),
+        (
+            "static",
+            vec!["access_key_id", "secret_access_key", "role_arn"],
+        ),
+        ("assume_role", vec!["role_arn", "access_key_id"]),
+    ] {
+        assert_refused(
+            load(&with_keys(kind, &keys)),
+            &format!("{keys:?} with kind = {kind}"),
+        );
+    }
+    let mut refused = 0;
+    for (kind, keys) in &kinds {
+        let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
+        let credentials = with_keys(kind, &keys);
+        if let Err(error) = load(&credentials) {
+            panic!("kind = {kind} with its own keys must load: {error}");
+        }
+        for other in every_key.iter().filter(|key| !keys.contains(&key.as_str())) {
+            let mut extra = credentials.clone();
+            extra.insert(other.clone(), "value".into());
+            assert_refused(load(&extra), &format!("{other} with kind = {kind}"));
+            refused += 1;
+        }
+    }
+    assert!(refused > 100, "only {refused} keys were refused");
+}
+
 /// Where `full_document` takes its JWT keys from.
 #[derive(Clone, Copy)]
 enum AuthSource {
@@ -492,11 +575,17 @@ fn debug_output_redacts_urls() {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn published_schema_matches_generated_artifact() {
+    const PUBLISHED: &str = include_str!("../../../docs/schemas/backend-v1.json");
     let generated = serde_json::to_value(Config::schema())?;
-    let published: serde_json::Value =
-        serde_json::from_str(include_str!("../../../docs/schemas/backend-v1.json"))?;
+    let published: serde_json::Value = serde_json::from_str(PUBLISHED)?;
     assert_eq!(generated, published);
     assert_eq!(generated["$id"], SCHEMA_ID);
+    // Value equality ignores key order. The file is what `just backend schema`
+    // writes, so its text must match too.
+    assert_eq!(
+        format!("{}\n", serde_json::to_string_pretty(&Config::schema())?),
+        PUBLISHED
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -1244,7 +1333,7 @@ fn minimal_configuration_uses_defaults() {
     ))?;
     let mut tables_loaded = serde_json::to_value(&tables)?;
     // The target applies its presign lifetime default when it signs.
-    let Some(xmtp_attachments_server::TargetConfig::S3(s3)) = tables
+    let Some(attachments::TargetConfig::S3(s3)) = tables
         .attachments
         .as_ref()
         .map(|attachments| &attachments.target)

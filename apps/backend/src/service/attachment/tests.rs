@@ -1,3 +1,4 @@
+use crate::config::attachments::{AttachmentsConfig, CredentialsConfig, S3Config, TargetConfig};
 use crate::{
     api,
     test_support::{TestResult, TestServer, auth::api_key},
@@ -10,10 +11,7 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tonic::{Code, Request};
-use xmtp_attachments_server::{
-    AttachmentsConfig, CredentialsConfig, PresignedRequest, S3Config, S3Target, SignError,
-    StorageTarget, TargetConfig,
-};
+use xmtp_attachments_server::{PresignedRequest, S3Target, SignError, StorageTarget};
 
 struct FailingTarget;
 

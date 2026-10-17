@@ -858,3 +858,19 @@ async fn debug_redacts_secrets() {
         "CredentialsUnavailable"
     );
 }
+
+/// A target is built from validated settings. An endpoint that is not a URL
+/// can only come from settings that skipped validation, and is refused by its
+/// key instead of panicking.
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_endpoint_that_is_not_a_url_is_refused() {
+    let mut config = config();
+    config.endpoint = "not a url".into();
+    assert!(matches!(
+        S3Target::new(&config).await,
+        Err(BuildError::Config(ConfigError::Invalid {
+            field: "attachments.target.S3.endpoint",
+            ..
+        }))
+    ));
+}

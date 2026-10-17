@@ -1,5 +1,19 @@
 use super::*;
 
+/// The key and reason of a refusal that names one configuration key.
+struct Refusal {
+    field: &'static str,
+    reason: &'static str,
+}
+
+#[track_caller]
+fn refusal(result: Result<(), ConfigError>) -> Refusal {
+    match result {
+        Err(ConfigError::Invalid { field, reason }) => Refusal { field, reason },
+        other => panic!("expected a refusal naming one key, got {other:?}"),
+    }
+}
+
 fn config() -> AttachmentsConfig {
     AttachmentsConfig {
         base_url: "https://attachments.example.com/objects".into(),
@@ -18,7 +32,7 @@ fn config() -> AttachmentsConfig {
 
 // verifies: ATCH-002, ATCH-071
 #[xmtp_common::test(unwrap_try = true)]
-async fn url_validation() {
+fn url_validation() {
     let mut config = config();
     for value in [
         "https://example.com/files",
@@ -50,7 +64,7 @@ async fn url_validation() {
         "HTTPS://example.com/files",
     ] {
         config.base_url = value.into();
-        assert_eq!(config.validate().unwrap_err().field, "attachments.base_url");
+        assert_eq!(refusal(config.validate()).field, "attachments.base_url");
     }
 
     // The storage endpoint uses the same URL guard after the public URL is reset.
@@ -100,7 +114,7 @@ async fn url_validation() {
         let TargetConfig::S3(s3) = &mut config.target;
         s3.endpoint = endpoint.into();
         assert_eq!(
-            config.validate().unwrap_err().field,
+            refusal(config.validate()).field,
             "attachments.target.S3.endpoint",
             "{endpoint:?}"
         );
@@ -109,7 +123,7 @@ async fn url_validation() {
 
 // verifies: ATCH-003, ATCH-004, ATCH-075, ATCH-081, ATCH-083
 #[xmtp_common::test(unwrap_try = true)]
-async fn validation_bounds() {
+fn validation_bounds() {
     let mut config = config();
     assert!(config.validate().is_ok());
     for value in [0, xmtp_configuration::MAX_ATTACHMENT_RETENTION_SECONDS] {
@@ -118,7 +132,7 @@ async fn validation_bounds() {
     }
     config.retention_seconds = Some(xmtp_configuration::MAX_ATTACHMENT_RETENTION_SECONDS + 1);
     assert_eq!(
-        config.validate().unwrap_err().field,
+        refusal(config.validate()).field,
         "attachments.retention_seconds"
     );
 
@@ -135,7 +149,7 @@ async fn validation_bounds() {
         let TargetConfig::S3(s3) = &mut config.target;
         s3.presign_ttl_seconds = Some(value);
         assert_eq!(
-            config.validate().unwrap_err().field,
+            refusal(config.validate()).field,
             "attachments.target.S3.presign_ttl_seconds",
             "{value}"
         );
@@ -156,7 +170,7 @@ async fn validation_bounds() {
         let TargetConfig::S3(s3) = &mut config.target;
         s3.key_prefix = value.into();
         assert_eq!(
-            config.validate().unwrap_err().field,
+            refusal(config.validate()).field,
             "attachments.target.S3.key_prefix"
         );
     }
@@ -175,7 +189,7 @@ async fn validation_bounds() {
         let TargetConfig::S3(s3) = &mut config.target;
         s3.region = region.into();
         assert_eq!(
-            config.validate().unwrap_err().field,
+            refusal(config.validate()).field,
             "attachments.target.S3.region",
             "{region:?}"
         );
@@ -188,7 +202,7 @@ async fn validation_bounds() {
         let TargetConfig::S3(s3) = &mut config.target;
         s3.bucket = bucket.into();
         assert_eq!(
-            config.validate().unwrap_err().field,
+            refusal(config.validate()).field,
             "attachments.target.S3.bucket",
             "{bucket:?}"
         );
@@ -208,7 +222,7 @@ async fn validation_bounds() {
     for value in [0, xmtp_configuration::MAX_ATTACHMENT_UPLOAD_BYTES + 1] {
         config.max_upload_bytes = Some(value);
         assert_eq!(
-            config.validate().unwrap_err().field,
+            refusal(config.validate()).field,
             "attachments.max_upload_bytes"
         );
     }
@@ -216,7 +230,7 @@ async fn validation_bounds() {
 
 // verifies: ATCH-073, CONF-065
 #[xmtp_common::test(unwrap_try = true)]
-async fn empty_required_credential_fields_name_the_key() {
+fn empty_required_credential_fields_name_the_key() {
     let mut settings = config();
     for (credentials, field) in [
         (
@@ -288,7 +302,7 @@ async fn empty_required_credential_fields_name_the_key() {
     ] {
         let TargetConfig::S3(s3) = &mut settings.target;
         s3.credentials = credentials;
-        let error = settings.validate().unwrap_err();
+        let error = refusal(settings.validate());
         assert_eq!(
             error.field,
             format!("attachments.target.S3.credentials.{field}"),
