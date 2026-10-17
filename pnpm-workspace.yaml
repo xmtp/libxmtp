@@ -46,7 +46,7 @@ overrides:
   playwright-core: 1.61.1
 
 catalog:
-  "@playwright/test": "1.61.1"
+  "@playwright/test": "1.64.0"
   "@testing-library/dom": "^10.4.1"
   "@vitest/browser": "^4.1.10"
   "@vitest/browser-playwright": "^4.1.10"
