@@ -83,10 +83,11 @@ pub trait StorageTarget: Send + Sync {
     ) -> Result<PresignedRequest, SignError>;
 }
 
-/// Create a target from settings that passed configuration validation.
+/// Create a target after validating all operator settings.
 pub async fn build_target(
     config: &AttachmentsConfig,
 ) -> Result<Arc<dyn StorageTarget>, BuildError> {
+    config.validate()?;
     match &config.target {
         TargetConfig::S3(s3) => Ok(Arc::new(S3Target::new(s3).await?)),
     }
@@ -133,15 +134,7 @@ impl S3Target {
         config: &S3Config,
         clock: Arc<dyn Fn() -> SystemTime + Send + Sync>,
     ) -> Result<Self, BuildError> {
-        // Validation guarantees a URL. Refuse settings that skipped it rather
-        // than panic when the target is built.
-        if Url::parse(&config.endpoint).is_err() {
-            return Err(ConfigError::Invalid {
-                field: "attachments.target.S3.endpoint",
-                reason: "must be an absolute URL",
-            }
-            .into());
-        }
+        config.validate()?;
         let provider = provider_for(config).await?;
         Ok(Self::with_provider(config, provider, clock))
     }

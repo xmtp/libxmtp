@@ -154,8 +154,9 @@ impl AttachmentsConfig {
     }
 
     /// Reject settings that cannot be published or enforced.
+    /// Building a storage target calls it too.
     // implements: ATCH-002, ATCH-003, ATCH-004
-    pub(crate) fn validate(&self) -> Result<(), ConfigError> {
+    pub fn validate(&self) -> Result<(), ConfigError> {
         check_base_url(&self.base_url).map_err(shared)?;
         check_max_upload_bytes(self.upload_ceiling()).map_err(shared)?;
         check_retention_seconds(self.retention_seconds.unwrap_or_default()).map_err(shared)?;
@@ -222,7 +223,8 @@ impl S3Config {
             .unwrap_or(DEFAULT_PRESIGN_TTL_SECONDS)
     }
 
-    pub(crate) fn validate(&self) -> Result<(), ConfigError> {
+    /// Reject target settings that cannot be signed for. Building a target calls it.
+    pub fn validate(&self) -> Result<(), ConfigError> {
         if self.endpoint.bytes().any(|byte| {
             !byte.is_ascii()
                 || byte.is_ascii_control()
