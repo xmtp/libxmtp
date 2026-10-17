@@ -390,7 +390,6 @@
         "sdks/ios/ios.just",
         "sdks/js.just",
         "sdks/react-native/scripts/test-installed",
-        "sdks/react-native/test/consumers/*/android/gradlew",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
       "labels": []

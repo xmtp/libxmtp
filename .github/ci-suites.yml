@@ -383,7 +383,6 @@ suites:
       - "sdks/browser/test/platform/object-store/with-object-store"
       - "sdks/android/android.just"
       - "sdks/react-native/scripts/test-installed"
-      - "sdks/react-native/test/consumers/*/android/gradlew"
       - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
       # test_script_lint.py reads the shellcheck exclusions.
       - "nix/fmt.nix"
