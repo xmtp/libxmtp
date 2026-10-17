@@ -18,6 +18,7 @@ stdenvNoCC.mkDerivation {
     inherit target;
     profile = "release";
     features = "";
+    toolchain = (import ./sdk-native-toolchain.nix) compilation;
   };
   passAsFile = [ "receipt" ];
   installPhase = ''

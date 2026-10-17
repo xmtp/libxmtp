@@ -1,6 +1,6 @@
 # libxmtp
 
-Rust workspace. MLS messaging. SDKs: `sdks/{agent,android,browser,ios,node}`.
+Rust workspace. MLS messaging. SDKs: `sdks/{agent,android,browser,ios,node,react-native}`.
 
 ## Read first
 

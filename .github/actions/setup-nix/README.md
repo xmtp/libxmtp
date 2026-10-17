@@ -11,6 +11,12 @@ kernel out-of-memory record, or when a measurement shows the job slower with
 `Out of memory: Killed process` or `oom-kill` when the job ends, also after a
 failure, and adds a warning when it finds one. On macOS, check memory pressure.
 
+The Darwin installer additionally admits only
+`/Applications/Xcode_27.0.app/Contents` for RN consumer derivations that
+explicitly request that pinned Xcode. It preserves Nix's default host paths;
+it does not mount Xcode into other derivations or disable their sandbox.
+Keep this path aligned with `lib.reactNativeXcode`.
+
 The Nix store is not persisted between jobs. Each job substitutes from Cachix
 and cache.nixos.org, and Nix checks the signature of every path it adds.
 

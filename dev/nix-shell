@@ -49,6 +49,7 @@ key_paths=(
   flake.lock
   package.json
   webdriver.json
+  sdks/react-native/test/consumers/native-toolchain.json
   dev/nix-shell
 )
 fingerprint="$(

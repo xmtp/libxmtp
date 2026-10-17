@@ -137,7 +137,7 @@ path_groups:
     - "nix/package/libffi-zig-cross.site"
     - "nix/package/node.nix"
     - "nix/node-packages.nix"
-    - "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix"
+    - "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix"
     - "nix/sdk-platforms.json"
     - "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix"
     - "nix/lib/packages/napi-rs-cli/**"
@@ -180,8 +180,19 @@ path_groups:
     # The iOS/default shell inherits pnpm and WASM tools from the Rust shell.
     - "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix"
     - "nix/services/**"
+  react_native:
+    - "sdks/react-native/**"
+    - "nix/react-native-*"
+    - "nix/package/react-native-*"
+    - "nix/lib/{react-native-env,sdk-native-toolchain}.nix"
+    - "nix/shells/react-native.nix"
+    - "nix/lib/ios-env.nix"
+    - "nix/lib/android-*"
+    - "nix/android-packages.nix"
+    - "nix/shells/android{,-ci}.nix"
+    - "nix/ci-sets.nix"
   js_packages:
-    - "sdks/{node,browser,agent}/**"
+    - "sdks/{node,browser,agent,react-native}/**"
     - "apps/{cli,web-chat,docs}/**"
 
 products:
@@ -370,6 +381,8 @@ suites:
       - "**/dev/**"
       - "sdks/browser/test/platform/object-store/with-object-store"
       - "sdks/android/android.just"
+      - "sdks/react-native/scripts/test-installed"
+      - "sdks/react-native/test/consumers/*/android/gradlew"
       - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
       # test_script_lint.py reads the shellcheck exclusions.
       - "nix/fmt.nix"
@@ -677,3 +690,19 @@ suites:
       - "apps/example-ios/**"
       - path_group: example_ios_nix
       - pr_label: "iOS"
+
+  test_react_native:
+    phase: test
+    workflow: test-react-native.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: cachix-pr
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - path_group: sdk_core
+      - path_group: js_workspace
+      - path_group: react_native
+      - path_group: native_backend
+      - path_group: docker_backend

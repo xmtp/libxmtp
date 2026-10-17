@@ -1,0 +1,91 @@
+{
+  "name": "@xmtp/react-native-sdk",
+  "version": "8.0.0",
+  "description": "XMTP native messaging SDK for React Native",
+  "homepage": "https://github.com/xmtp/libxmtp",
+  "bugs": {
+    "url": "https://github.com/xmtp/libxmtp/issues"
+  },
+  "license": "MIT",
+  "author": "XMTP Labs <eng@xmtp.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xmtp/libxmtp.git",
+    "directory": "sdks/react-native"
+  },
+  "files": [
+    "dist",
+    "android",
+    "ios",
+    "cpp",
+    "*.podspec",
+    "react-native.config.cjs",
+    "sdk-contract.json",
+    "README.md",
+    "src/specs"
+  ],
+  "type": "module",
+  "main": "./dist/entry.js",
+  "module": "./dist/entry.js",
+  "types": "./dist/entry.d.ts",
+  "react-native": "./dist/entry.js",
+  "exports": {
+    ".": {
+      "types": "./dist/entry.d.ts",
+      "react-native": "./dist/entry.js",
+      "import": "./dist/entry.js",
+      "default": "./dist/entry.js"
+    },
+    "./package.json": "./package.json",
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "react-native": "./dist/react/index.js",
+      "import": "./dist/react/index.js",
+      "default": "./dist/react/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "../../dev/js/sdk-package react-native",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src scripts test",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "test": "vitest run --config test/react/vitest.config.ts"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:node22",
+    "@types/react": "19.3.0",
+    "@types/react-test-renderer": "19.1.0",
+    "react": "19.3.0",
+    "react-native": "0.88.0",
+    "react-test-renderer": "19.3.0",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "19.3.0",
+    "react-native": "0.88.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "codegenConfig": {
+    "name": "XmtpReactNativeSpec",
+    "type": "modules",
+    "jsSrcsDir": "src/specs",
+    "android": {
+      "javaPackageName": "org.xmtp.reactnative"
+    },
+    "ios": {
+      "modulesProvider": {
+        "XmtpReactNative": "XmtpReactNative"
+      }
+    }
+  }
+}

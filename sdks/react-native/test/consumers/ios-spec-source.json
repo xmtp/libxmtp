@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "files": {
+    ".url": "https://cdn.cocoapods.org/",
+    "CocoaPods-version.yml": "---\nmin: 1.0.0\nlast: 1.16.1\nprefix_lengths:\n- 1\n- 1\n- 1\n"
+  }
+}

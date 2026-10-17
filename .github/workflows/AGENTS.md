@@ -226,3 +226,24 @@ Keep credentials out of global `AWS_*` settings and Nix derivations.
 `just test dev` tests CI selection, result gates, summaries, the backend
 selector, and write policy without keys, a compiler daemon, or cloud access.
 See the setup action's README for settings.
+
+`test-react-native.yml` owns the RN producer, exchange, canonical package,
+and installed bare/Expo consumer gates on both platforms. It has no privileged
+writer environment. Forks use the same-run exports when no PR cache token is
+available. Select it through the `react_native` and shared SDK path groups.
+The Linux consumer job also runs the portable package, controller, React, and
+native-helper contracts before its installed-app journeys.
+
+Once GitHub registers the workflow, `gh workflow run test-react-native.yml --ref REF`
+runs only the RN gates. Platform jobs retain `target/react-native-results/*.json`
+in `react-native-proof-PLATFORM`; release jobs use
+`react-native-release-proof-PLATFORM`. Do not upload peer logs with these reports.
+The test and release consumer builds retain 100 Nix failure lines so CocoaPods
+hook exceptions remain visible before their Ruby stack traces.
+
+Post-merge produces the sibling base under Xcode 26.3, switches only RN work
+to the exact `lib.reactNativeXcode` pin, exports completed host components,
+assembles once on Linux, and builds both consumer bundles. Its final `build`
+jobs wait for these phases before building, pushing, and pinning dev/release.
+Docs wait for the completed empty-store closure check. Keep every RN stage
+member in the dev/release product declarations in `nix/ci-sets.nix`.

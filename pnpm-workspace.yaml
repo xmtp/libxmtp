@@ -2,6 +2,7 @@ packages:
   - sdks/node
   - sdks/browser
   - sdks/agent
+  - sdks/react-native
   - apps/cli
   - apps/web-chat
   - apps/docs
@@ -32,6 +33,17 @@ verifyDepsBeforeRun: warn
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
   - "@xmtp/*"
+  # The approved RN baseline was released inside the normal delay window.
+  - "react-native@0.88.0"
+  - "@react-native/asset-utils@0.88.0"
+  - "@react-native/codegen@0.88.0"
+  - "@react-native/community-cli-plugin@0.88.0"
+  - "@react-native/debugger-frontend@0.88.0"
+  - "@react-native/debugger-shell@0.88.0"
+  - "@react-native/dev-middleware@0.88.0"
+  - "@react-native/gradle-plugin@0.88.0"
+  - "@react-native/normalize-colors@0.88.0"
+  - "@react-native/virtualized-lists@0.88.0"
 
 allowBuilds:
   esbuild: true

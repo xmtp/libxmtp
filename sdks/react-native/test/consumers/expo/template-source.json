@@ -1,0 +1,20 @@
+{
+  "package": "expo-template-bare-minimum",
+  "version": "58.0.23",
+  "url": "https://registry.npmjs.org/expo-template-bare-minimum/-/expo-template-bare-minimum-58.0.23.tgz",
+  "integrity": "sha512-4c8L9nYw9acWFVmtIpxPYmlmoYFJlf69XzWhfHTynn/HAbYo+U2gitG6jF3CPUozT62B3lSMHgvTN8tVlNO3cw==",
+  "changes": [
+    "Consumer identifiers",
+    "Hermes and New Architecture",
+    "Native launch URL and local test transport",
+    "Shared installed-package assertion entry point"
+  ],
+  "testSigningKey": {
+    "file": "android/app/fixture-signing-key",
+    "sha256": "221e0a3106aa4c3ccc154e0a418b55020b3f9ea6e84f92e8749cd9e2f39f5e58",
+    "source": "Unmodified public Android debug.keystore in both exact published template archives",
+    "purpose": "Public test-only fixture signing; never a production signing key",
+    "alias": "androiddebugkey",
+    "password": "android"
+  }
+}

@@ -8,6 +8,7 @@
   xmtp-pnpm,
   nodejs_26,
   python311,
+  just,
   watchexec,
   pkg-config,
   playwright-driver,
@@ -37,6 +38,7 @@ mkShell {
     xmtp-pnpm
     nodejs_26
     python311
+    just
     watchexec
   ]
   ++ lib.optionals stdenv.isDarwin [

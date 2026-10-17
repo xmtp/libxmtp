@@ -4,12 +4,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 target="${1:-}"
+product=""
 case "$target" in
-  node|browser) ;;
-  *) echo "usage: $0 node|browser" >&2; exit 2 ;;
+  node|browser|react-native) ;;
+  *) echo "usage: $0 node|browser|react-native" >&2; exit 2 ;;
 esac
 
 cd "$ROOT"
+# RN declarations use the lightweight Nix JS product by default. A caller
+# editing the generator can still request the release-profile cargo route.
+if [[ "$target" == react-native ]]; then
+  export XMTP_SDK_BUILD="${XMTP_SDK_BUILD:-nix}"
+fi
 # This helper stages what it generates. Another generated tree goes straight to
 # crates/xmtp_sdk/dev/stage-package.mjs.
 if [[ -n "${XMTP_SDK_GENERATED_DIR:-}" ]]; then
@@ -18,17 +24,33 @@ if [[ -n "${XMTP_SDK_GENERATED_DIR:-}" ]]; then
 fi
 if [[ "${XMTP_SDK_BUILD:-cargo}" == nix ]]; then
   # The Nix route copies built trees, so it needs no Rust shell.
-  crates/xmtp_sdk/dev/generate --targets "$target"
+  if [[ "$target" == react-native ]]; then
+    mkdir -p target/sdk-packages
+    nix build --out-link target/sdk-react-native-js.nix .#xmtp-sdk-react-native-js
+    product="$(realpath target/sdk-react-native-js.nix)"
+  else
+    crates/xmtp_sdk/dev/generate --targets "$target"
+  fi
 else
-  NIX_DEVSHELL=rust "$ROOT/dev/nix-shell" "just sdk generate $target"
+  if [[ "$target" == react-native ]]; then
+    NIX_DEVSHELL=rust "$ROOT/dev/nix-shell" "just sdk generate $target --profile release"
+  else
+    NIX_DEVSHELL=rust "$ROOT/dev/nix-shell" "just sdk generate $target"
+  fi
 fi
-node crates/xmtp_sdk/dev/stage-package.mjs "$target" --public
+if [[ "$target" != react-native || "${XMTP_SDK_BUILD:-cargo}" != nix ]]; then
+  node crates/xmtp_sdk/dev/stage-package.mjs "$target" --public
+fi
 
-product="${XMTP_SDK_PACKAGES_DIR:-${ROOT}/target/sdk-packages}/${target}"
+product="${product:-${XMTP_SDK_PACKAGES_DIR:-${ROOT}/target/sdk-packages}/${target}}"
 destination="${ROOT}/sdks/${target}/dist"
 temporary="$(mktemp -d "${ROOT}/sdks/${target}/.sdk-dist-XXXXXX")"
 trap 'rm -rf "$temporary"' EXIT
-cp -RL "$product/." "$temporary/"
+if [[ "$target" == react-native ]]; then
+  cp -RL "$product/dist/." "$temporary/"
+else
+  cp -RL "$product/." "$temporary/"
+fi
 chmod -R u+w "$temporary"
 if [[ -e "$destination" ]]; then
   chmod -R u+w "$destination"

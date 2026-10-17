@@ -1,0 +1,55 @@
+{
+  "name": "XmtpReactNative",
+  "version": "8.0.0",
+  "summary": "XMTP native SDK for React Native",
+  "homepage": "https://github.com/xmtp/libxmtp",
+  "license": {
+    "type": "MIT"
+  },
+  "authors": {
+    "XMTP": "https://xmtp.org"
+  },
+  "source": {
+    "git": "https://github.com/xmtp/libxmtp.git",
+    "tag": "react-native-sdk-8.0.0"
+  },
+  "platforms": {
+    "ios": "15.1"
+  },
+  "source_files": ["ios/**/*.{h,mm}", "cpp/**/*.{h,hpp,cpp}"],
+  "private_header_files": "cpp/**/*.{h,hpp}",
+  "vendored_frameworks": "ios/XmtpSdkFFI.xcframework",
+  "libraries": ["c++", "resolv"],
+  "frameworks": ["Security", "SystemConfiguration"],
+  "pod_target_xcconfig": {
+    "CLANG_CXX_LANGUAGE_STANDARD": "c++20",
+    "HEADER_SEARCH_PATHS": "$(inherited) \"${PODS_TARGET_SRCROOT}/cpp\" \"${PODS_TARGET_SRCROOT}/cpp/generated\" \"${PODS_TARGET_SRCROOT}/cpp/runtime\" \"$(PODS_ROOT)/Headers/Private/Yoga\" \"$(PODS_ROOT)/ReactNativeDependencies/Headers\"",
+    "OTHER_CPLUSPLUSFLAGS": "$(inherited) -DRCT_NEW_ARCH_ENABLED=1 ",
+    "OTHER_SWIFT_FLAGS": "$(inherited) -DRCT_NEW_ARCH_ENABLED"
+  },
+  "compiler_flags": "-DRCT_NEW_ARCH_ENABLED=1",
+  "dependencies": {
+    "React-Core": [],
+    "React-RCTFabric": [],
+    "ReactCodegen": [],
+    "RCTRequired": [],
+    "RCTTypeSafety": [],
+    "React-bridging": [],
+    "ReactCommon/turbomodule/core": [],
+    "React-NativeModulesApple": [],
+    "Yoga": [],
+    "React-Fabric": [],
+    "React-graphics": [],
+    "React-utils": [],
+    "React-featureflags": [],
+    "React-debug": [],
+    "React-ImageManager": [],
+    "React-rendererdebug": [],
+    "React-jsi": [],
+    "React-renderercss": [],
+    "React-cxxstableapi": [],
+    "hermes-engine": [],
+    "ReactNativeDependencies": [],
+    "React-Core-prebuilt": []
+  }
+}

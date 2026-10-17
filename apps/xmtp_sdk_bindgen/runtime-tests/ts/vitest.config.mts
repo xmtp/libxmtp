@@ -16,6 +16,7 @@ export default {
       "apps/xmtp_sdk_bindgen/runtime-tests/ts/public-objects.test.ts",
       "apps/xmtp_sdk_bindgen/runtime-tests/ts/codec-policy.test.ts",
       "apps/xmtp_sdk_bindgen/runtime-tests/ts/reader-consumer.test.ts",
+      "apps/xmtp_sdk_bindgen/runtime-tests/ts/client-construction.test.mjs",
       // Generator helper strings, read from the bindgen Rust source.
       "apps/xmtp_sdk_bindgen/runtime-tests/ts/callback-rejection.test.mjs",
       "apps/xmtp_sdk_bindgen/runtime-tests/ts/credential-record.test.mjs",
