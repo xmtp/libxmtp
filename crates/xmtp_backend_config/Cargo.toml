@@ -1,0 +1,33 @@
+[package]
+name = "xmtp_backend_config"
+description = "Backend configuration file: types, defaults, and checks"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+clap = ["dep:clap"]
+
+[dependencies]
+clap = { workspace = true, optional = true }
+http.workspace = true
+prost.workspace = true
+# The published schema lists properties in declaration order.
+schemars = { workspace = true, features = ["preserve_order"] }
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_path_to_error.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+url.workspace = true
+xmtp_configuration.workspace = true
+
+[dev-dependencies]
+jsonschema = { version = "0.55", default-features = false }
+xmtp_common = { workspace = true, features = ["test-utils"] }

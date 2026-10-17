@@ -1,11 +1,11 @@
 use serde_json::{Value, json};
 
-use crate::config::Config;
+use crate::Config;
 
 /// Use the published artifact and standard format assertions, as a schema consumer does.
 fn validator() -> jsonschema::Validator {
     let schema: Value =
-        serde_json::from_str(include_str!("../../../../../docs/schemas/backend-v1.json"))
+        serde_json::from_str(include_str!("../../../../docs/schemas/backend-v1.json"))
             .expect("published schema");
     jsonschema::options()
         .should_validate_formats(true)
@@ -41,11 +41,10 @@ fn published_schema_checks_logging_levels_and_switch() {
 #[xmtp_common::test(unwrap_try = true)]
 fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
     let validator = validator();
-    let example: toml::Value =
-        toml::from_str(include_str!("../../../../../dev/backend/local.toml"))?;
+    let example: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local.toml"))?;
     let example = serde_json::to_value(example)?;
     assert!(validator.is_valid(&example));
-    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
     assert!(validator.is_valid(&serde_json::to_value(s3)?));
     for section in [
         "",
@@ -73,7 +72,7 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
 #[xmtp_common::test(unwrap_try = true)]
 fn published_schema_bounds_attachment_settings() {
     let validator = validator();
-    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
     let baseline = serde_json::to_value(s3)?;
     for (upload_bytes, accepted) in [
         (0_u64, false),
@@ -148,9 +147,9 @@ fn published_schema_bounds_attachment_settings() {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn local_s3_config_only_adds_attachments() {
-    let base: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local.toml"))?;
+    let base: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local.toml"))?;
     let mut s3: toml::Value =
-        toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+        toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
     let removed = s3
         .as_table_mut()
         .expect("S3 config is a table")
@@ -161,18 +160,18 @@ fn local_s3_config_only_adds_attachments() {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn local_config_loads_without_attachment_settings() {
-    let base = include_str!("../../../../../dev/backend/local.toml");
+    let base = include_str!("../../../../dev/backend/local.toml");
     assert!(!base.contains("XMTP_S3_"));
     assert!(load_dev_config(base)?.attachments.is_none());
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 fn compose_config_loads_attachment_settings() {
-    let s3 = include_str!("../../../../../dev/backend/local-s3.toml");
+    let s3 = include_str!("../../../../dev/backend/local-s3.toml");
     assert!(load_dev_config(s3)?.attachments.is_some());
 }
 
-fn load_dev_config(contents: &str) -> Result<Config, crate::config::ConfigError> {
+fn load_dev_config(contents: &str) -> Result<Config, crate::ConfigError> {
     let contents = contents
         .replace("env:XMTP_DATABASE_URL", "postgres://localhost/xmtp")
         .replace("env:XMTP_REPLICA_URL", "postgres://localhost/xmtp")
@@ -319,7 +318,7 @@ fn published_schema_requires_provider_credentials_and_names_valid_environments()
 #[xmtp_common::test(unwrap_try = true)]
 fn published_schema_requires_nonempty_signing_credential_fields() {
     let validator = validator();
-    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
     let baseline = serde_json::to_value(s3)?;
     for (field, mut credentials) in [
         (
@@ -485,9 +484,7 @@ fn published_schema_checks_urls_chain_keys_and_environment_references() {
         "eip155:1\n",
     ] {
         let instance = json!({"database": {"url": "postgres://localhost/xmtp"}, "chains": {chain: "https://rpc.example"}});
-        let runtime = xmtp_id::associations::AccountId::new(chain.to_owned(), "0x0".to_owned())
-            .get_chain_id_u64()
-            .is_ok();
+        let runtime = xmtp_configuration::parse_eip155_chain_id(chain).is_ok();
         assert_eq!(validator.is_valid(&instance), runtime, "{chain:?}");
     }
     assert!(validator.is_valid(&json!({"database": {"url": "env:DB", "replica_url": null}})));
@@ -496,7 +493,7 @@ fn published_schema_checks_urls_chain_keys_and_environment_references() {
 #[xmtp_common::test(unwrap_try = true)]
 fn published_schema_checks_attachment_urls_and_environment_references() {
     let validator = validator();
-    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
     let baseline = serde_json::to_value(s3)?;
 
     for (field, accepted, rejected) in [
@@ -578,7 +575,7 @@ fn published_schema_checks_attachment_urls_and_environment_references() {
     }
 
     let schema: Value =
-        serde_json::from_str(include_str!("../../../../../docs/schemas/backend-v1.json"))?;
+        serde_json::from_str(include_str!("../../../../docs/schemas/backend-v1.json"))?;
     assert_eq!(
         schema["$defs"]["S3Config"]["properties"]["key_prefix"]["default"],
         json!("")
@@ -588,7 +585,7 @@ fn published_schema_checks_attachment_urls_and_environment_references() {
 #[xmtp_common::test(unwrap_try = true)]
 fn published_attachment_endpoint_schema_agrees_with_runtime_vectors() {
     let validator = validator();
-    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
     let mut baseline = serde_json::to_value(s3)?;
     baseline["attachments"]["base_url"] = json!("https://files.example.com/a");
     for endpoint in [
@@ -617,7 +614,7 @@ fn published_attachment_endpoint_schema_agrees_with_runtime_vectors() {
     ] {
         let mut instance = baseline.clone();
         instance["attachments"]["target"]["S3"]["endpoint"] = json!(endpoint);
-        let settings: xmtp_attachments_server::AttachmentsConfig =
+        let settings: crate::attachments::AttachmentsConfig =
             serde_json::from_value(instance["attachments"].clone())?;
         // AttachmentsConfig::validate calls S3Config::validate for this target.
         assert_eq!(
@@ -641,7 +638,7 @@ fn published_attachment_endpoint_schema_agrees_with_runtime_vectors() {
     ] {
         let mut instance = baseline.clone();
         instance["attachments"]["target"]["S3"]["endpoint"] = json!(endpoint);
-        let settings: xmtp_attachments_server::AttachmentsConfig =
+        let settings: crate::attachments::AttachmentsConfig =
             serde_json::from_value(instance["attachments"].clone())?;
         assert_eq!(
             settings.validate().is_ok(),
@@ -662,7 +659,7 @@ fn published_attachment_endpoint_schema_agrees_with_runtime_vectors() {
 #[xmtp_common::test(unwrap_try = true)]
 fn published_attachment_base_url_schema_agrees_with_runtime_vectors() {
     let validator = validator();
-    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
     let baseline = serde_json::to_value(s3)?;
     for value in [
         "https://example.com/attachments",

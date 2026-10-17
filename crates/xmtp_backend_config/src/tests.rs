@@ -35,8 +35,7 @@ fn logging_defaults_and_overrides_are_typed() {
         let config: Config = toml::from_str(&format!(
             "{MINIMAL}log_level = '{level}'\nrequest_logger = false"
         ))?;
-        let shared: xmtp_logging::Level = config.server.log_level.into();
-        assert_eq!(shared.as_str(), level);
+        assert_eq!(serde_json::to_value(config.server.log_level)?, level);
         assert!(!config.server.request_logger);
     }
     assert!(toml::from_str::<Config>(&format!("{MINIMAL}log_level = 'verbose'")).is_err());
@@ -46,7 +45,34 @@ fn logging_defaults_and_overrides_are_typed() {
 /// with its own header.
 const MINIMAL: &str =
     "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n";
-const IDENTIFIER: &str = "org.xmtp.test";
+/// A fixed P-256 SubjectPublicKeyInfo. Loading does not parse keys; the
+/// backend parses them when it builds authentication.
+pub(crate) const ES256_PUBLIC_KEY: &str = "-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEt5TVksIMVkHivH+8X8T6Rt3CNAR4
+Y4jKNSug4VqB9WEBD0qCol4jSgmE2PfkHlcIoahWI5HWPIS9+hyCDkm8Rg==
+-----END PUBLIC KEY-----
+";
+/// The PKCS#8 private key of `ES256_PUBLIC_KEY`.
+pub(crate) const ES256_PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgL38+Kb0CcfB3yZi4
+ckz/j8b8rFvzsU9Qg0esse3Y2CmhRANCAAS3lNWSwgxWQeK8f7xfxPpG3cI0BHhj
+iMo1K6DhWoH1YQEPSoKiXiNKCYTY9+QeVwihqFYjkdY8hL36HIIOSbxG
+-----END PRIVATE KEY-----
+";
+
+/// One inline key with the fixed ES256 public key.
+pub(crate) fn es256_key(kid: &str) -> auth::AuthKeyConfig {
+    auth::AuthKeyConfig {
+        kid: kid.to_owned(),
+        alg: "ES256".into(),
+        public_key: ES256_PUBLIC_KEY.into(),
+    }
+}
+
+/// A fresh printable API key value of at least 32 bytes.
+pub(crate) fn api_key_value() -> String {
+    xmtp_common::rand_hexstring()
+}
 const RESPONSE_TEST_ENVELOPE_BYTES: usize = 1_000_000;
 const RESPONSE_TEST_REQUEST_BYTES: usize = 2_000_000;
 
@@ -193,14 +219,8 @@ fn push_expiry_is_checked_at_both_duration_and_clock_boundaries() {
         config.push.expires_at(0)?,
         MAX_RETENTION_SECONDS as i64 * NS_IN_SEC
     );
-    assert!(matches!(
-        config.push.expires_at(NS_IN_SEC),
-        Err(crate::error::Error::PushExpiryOverflow)
-    ));
-    assert!(matches!(
-        config.push.expires_at(-1),
-        Err(crate::error::Error::PushExpiryOverflow)
-    ));
+    assert_eq!(config.push.expires_at(NS_IN_SEC), None);
+    assert_eq!(config.push.expires_at(-1), None);
     let error = Config::load_str(&format!(
         "{MINIMAL}\n[push]\nrecipient_ttl_seconds = {}",
         MAX_RETENTION_SECONDS + 1
@@ -256,6 +276,89 @@ fn unknown_keys_are_refused_in_every_table() {
             "an unlisted key in [{table}] with auth enabled = {enabled} must be refused"
         );
     }
+}
+
+/// A credential kind refuses every key it does not take: any key next to a
+/// kind that takes none, such as `access_key_id` next to `kind = "instance"`,
+/// and a key of another kind, such as `role_arn` next to `kind = "static"`.
+// verifies: CONF-083
+#[xmtp_common::test(unwrap_try = true)]
+fn credential_kinds_refuse_the_keys_they_do_not_take() {
+    let schema = serde_json::to_value(Config::schema())?;
+    let kinds: Vec<(String, BTreeSet<String>)> = schema["$defs"]["CredentialsConfig"]["oneOf"]
+        .as_array()?
+        .iter()
+        .map(|variant| {
+            let properties = variant["properties"]
+                .as_object()
+                .expect("each credential kind lists its keys");
+            let kind = properties["kind"]["const"]
+                .as_str()
+                .expect("each credential kind names itself")
+                .to_owned();
+            let keys = properties
+                .keys()
+                .filter(|key| *key != "kind")
+                .cloned()
+                .collect();
+            (kind, keys)
+        })
+        .collect();
+    let every_key: BTreeSet<String> = kinds
+        .iter()
+        .flat_map(|(_, keys)| keys.iter().cloned())
+        .collect();
+    let load = |credentials: &toml::Table| {
+        let mut document = full_document(AuthSource::JwksUrl);
+        table_at(&mut document, "attachments.target.S3")
+            .insert("credentials".into(), credentials.clone().into());
+        Config::load_str(&toml::to_string(&document).expect("the document is TOML"))
+    };
+    let with_keys = |kind: &str, keys: &[&str]| {
+        let mut credentials = toml::Table::new();
+        credentials.insert("kind".into(), kind.into());
+        for key in keys {
+            credentials.insert((*key).into(), "value".into());
+        }
+        credentials
+    };
+    // The refusal names the credentials table, not the extra key, until
+    // refusals name their key (https://github.com/xmtp/libxmtp/issues/4587).
+    // Changing this field is deliberate.
+    let assert_refused = |result: Result<Config, ConfigError>, case: &str| match result {
+        Err(ConfigError::Invalid { field, .. }) => {
+            assert_eq!(field, "attachments.target.S3.credentials", "{case}");
+        }
+        other => panic!("{case} must be refused naming its table, got {other:?}"),
+    };
+    for (kind, keys) in [
+        ("instance", vec!["access_key_id"]),
+        (
+            "static",
+            vec!["access_key_id", "secret_access_key", "role_arn"],
+        ),
+        ("assume_role", vec!["role_arn", "access_key_id"]),
+    ] {
+        assert_refused(
+            load(&with_keys(kind, &keys)),
+            &format!("{keys:?} with kind = {kind}"),
+        );
+    }
+    let mut refused = 0;
+    for (kind, keys) in &kinds {
+        let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
+        let credentials = with_keys(kind, &keys);
+        if let Err(error) = load(&credentials) {
+            panic!("kind = {kind} with its own keys must load: {error}");
+        }
+        for other in every_key.iter().filter(|key| !keys.contains(&key.as_str())) {
+            let mut extra = credentials.clone();
+            extra.insert(other.clone(), "value".into());
+            assert_refused(load(&extra), &format!("{other} with kind = {kind}"));
+            refused += 1;
+        }
+    }
+    assert!(refused > 100, "only {refused} keys were refused");
 }
 
 /// Where `full_document` takes its JWT keys from.
@@ -330,12 +433,7 @@ in_dms = false
         let mut key = toml::Table::new();
         key.insert("kid".into(), "test".into());
         key.insert("alg".into(), "ES256".into());
-        key.insert(
-            "public_key".into(),
-            crate::test_support::auth::TestKey::es256()
-                .public_key
-                .into(),
-        );
+        key.insert("public_key".into(), ES256_PUBLIC_KEY.into());
         auth.insert("keys".into(), vec![toml::Value::Table(key)].into());
     }
     document
@@ -364,59 +462,6 @@ fn table_at<'a>(document: &'a mut toml::Table, path: &str) -> &'a mut toml::Tabl
         .unwrap_or_else(|| panic!("{name} on {path} is not a table"));
     }
     table
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-fn framing_bound_covers_maximum_metadata_and_nested_messages() {
-    use crate::api;
-    use prost::Message;
-
-    const STORED_TOPIC_BYTES: usize = 128;
-    const HASH_BYTES: usize = 32;
-    let meta = api::EnvelopeMeta {
-        cursor: Some(api::Cursor {
-            sequence_id: u64::MAX,
-        }),
-        server_ns: u64::MAX,
-        message_hash: Some(api::MessageHash {
-            hash: Some(api::message_hash::Hash::Sha256(vec![0; HASH_BYTES])),
-        }),
-        topic: Some(api::Topic {
-            topic: vec![0; STORED_TOPIC_BYTES],
-        }),
-        expiry_ns: u64::MAX,
-        is_commit_or_proposal: true,
-    };
-    assert_eq!(meta.encoded_len(), MAX_METADATA_BYTES);
-    for size in [
-        0,
-        127,
-        128,
-        16_383,
-        16_384,
-        BACKEND_DEFAULT_MAX_ENVELOPE_BYTES,
-    ] {
-        let envelope = api::ClientEnvelope {
-            payload: Some(api::client_envelope::Payload::GroupMessage(
-                api::GroupMessage {
-                    data: vec![0; size],
-                    ..Default::default()
-                },
-            )),
-        };
-        let bound = envelope.encoded_len() + ENVELOPE_METADATA_AND_FRAMING_BYTES;
-        let response = api::SubscribeResponse {
-            response: Some(api::subscribe_response::Response::Messages(
-                api::subscribe_response::Messages {
-                    envelopes: vec![api::ServerEnvelope {
-                        meta: Some(meta.clone()),
-                        envelope: Some(envelope),
-                    }],
-                },
-            )),
-        };
-        assert!(response.encoded_len() + GRPC_HEADER_BYTES <= bound);
-    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -530,11 +575,17 @@ fn debug_output_redacts_urls() {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn published_schema_matches_generated_artifact() {
+    const PUBLISHED: &str = include_str!("../../../docs/schemas/backend-v1.json");
     let generated = serde_json::to_value(Config::schema())?;
-    let published: serde_json::Value =
-        serde_json::from_str(include_str!("../../../../docs/schemas/backend-v1.json"))?;
+    let published: serde_json::Value = serde_json::from_str(PUBLISHED)?;
     assert_eq!(generated, published);
     assert_eq!(generated["$id"], SCHEMA_ID);
+    // Value equality ignores key order. The file is what `just backend schema`
+    // writes, so its text must match too.
+    assert_eq!(
+        format!("{}\n", serde_json::to_string_pretty(&Config::schema())?),
+        PUBLISHED
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -576,7 +627,7 @@ fn finite_retention_must_fit_the_authoritative_database_clock() {
 #[xmtp_common::test(unwrap_try = true)]
 fn configurable_deadlines_follow_the_host_monotonic_clock_range() {
     for milliseconds in [1, 60_000, u64::MAX] {
-        let representable = xmtp_common::time::Instant::now()
+        let representable = std::time::Instant::now()
             .checked_add(std::time::Duration::from_millis(milliseconds))
             .is_some();
         assert_eq!(
@@ -630,43 +681,32 @@ fn write_config(name: &str, source: &str) -> ConfigFile {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-fn telemetry_defaults_endpoint_precedence_and_export_options() {
+fn telemetry_defaults_and_endpoint_precedence() {
     let config: Config = toml::from_str(MINIMAL)?;
     assert_eq!(config.telemetry.metrics_listen, "0.0.0.0:9464");
     assert_eq!(config.server.log_format, LogFormat::Text);
-    assert!(
+    assert_eq!(config.telemetry.service_name, "xmtp-backend");
+    assert!(!config.telemetry.otlp_logs);
+    assert!(config.telemetry.otlp_endpoint(None)?.is_none());
+    assert_eq!(
         config
             .telemetry
-            .with_endpoint_fallback(IDENTIFIER, None)?
-            .is_none()
+            .otlp_endpoint(Some("http://tempo:4317".into()))?
+            .as_deref(),
+        Some("http://tempo:4317")
     );
-    let fallback = config
-        .telemetry
-        .with_endpoint_fallback(IDENTIFIER, Some("http://tempo:4317".into()))?
-        .unwrap();
-    assert_eq!(fallback.endpoint.as_deref(), Some("http://tempo:4317"));
-    assert_eq!(fallback.service_name.as_deref(), Some("xmtp-backend"));
-    assert!(!fallback.logs);
     let config: Config = toml::from_str(&format!(
         "{MINIMAL}log_format = 'json'\n[telemetry]\nmetrics_listen = ''\notlp_endpoint = 'http://collector:4317'\notlp_logs = true\nservice_name = 'custom'\nsample_ratio = 0.25\nresource_attributes = {{ 'deployment.environment' = 'test' }}"
     ))?;
     config.validate()?;
     assert_eq!(config.server.log_format, LogFormat::Json);
-    let logging = config
-        .telemetry
-        .with_endpoint_fallback(IDENTIFIER, Some("malformed-fallback-secret".into()))?
-        .unwrap();
-    assert_eq!(logging.endpoint.as_deref(), Some("http://collector:4317"));
-    assert_eq!(logging.service_name.as_deref(), Some("custom"));
-    assert!(logging.logs);
-    assert_eq!(logging.sample_ratio, 0.25);
-    // The identifier is added to every export, alongside whatever the operator set.
+    // The configured endpoint wins over the environment fallback.
     assert_eq!(
-        logging.resource_attributes,
-        vec![
-            ("deployment.environment".into(), "test".into()),
-            ("xmtp.backend.identifier".into(), IDENTIFIER.into())
-        ]
+        config
+            .telemetry
+            .otlp_endpoint(Some("malformed-fallback-secret".into()))?
+            .as_deref(),
+        Some("http://collector:4317")
     );
 }
 
@@ -696,7 +736,7 @@ fn telemetry_rejects_unknown_reserved_and_invalid_values_without_endpoint_conten
         config.telemetry.otlp_endpoint = None;
         let error = config
             .telemetry
-            .with_endpoint_fallback(IDENTIFIER, Some(endpoint.into()))
+            .otlp_endpoint(Some(endpoint.into()))
             .unwrap_err()
             .to_string();
         assert!(error.contains("OTEL_EXPORTER_OTLP_ENDPOINT"));
@@ -812,10 +852,10 @@ fn the_identifier_is_required_and_shaped() {
     ));
     for identifier in [
         String::new(),
-        "a".repeat(MAX_IDENTIFIER_BYTES + 1),
+        "a".repeat(MAX_SERVER_IDENTIFIER_BYTES + 1),
         // A single multi-byte character can also push a short name over the
         // byte bound, which is what the rule counts.
-        "é".repeat(MAX_IDENTIFIER_BYTES / 2 + 1),
+        "é".repeat(MAX_SERVER_IDENTIFIER_BYTES / 2 + 1),
         "org.xmtp has a space".into(),
         "org.xmtp\u{0}dev".into(),
         "org.xmtp\ndev".into(),
@@ -835,7 +875,7 @@ fn the_identifier_is_required_and_shaped() {
     }
     // The documented convention is accepted at the byte bound.
     let mut config: Config = toml::from_str(MINIMAL)?;
-    config.server.identifier = Some("a".repeat(MAX_IDENTIFIER_BYTES));
+    config.server.identifier = Some("a".repeat(MAX_SERVER_IDENTIFIER_BYTES));
     config.validate()?;
 }
 
@@ -856,16 +896,12 @@ fn an_auth_section_must_state_whether_it_is_enabled() {
         }
     ));
     // Disabled auth ignores every other field, including ones that would fail
-    // their own checks, and publishes an empty summary.
+    // their own checks. The backend publishes an empty summary for it.
     let config: Config = toml::from_str(&format!(
         "{MINIMAL}\n[auth]\nenabled = false\naudiences = []\nissuers = []\n"
     ))?;
     config.validate()?;
     assert!(!config.auth.as_ref()?.is_enabled());
-    assert_eq!(
-        config.configuration_response(&[]).auth,
-        Some(api::AuthConfiguration::default())
-    );
     // Ignoring a field is not the same as never reading it: environment
     // references resolve for the whole document before any section is
     // validated, so a missing variable in a disabled section still fails.
@@ -899,19 +935,10 @@ fn the_minimum_client_version_is_optional_and_semantic() {
     }
     let config: Config = toml::from_str(MINIMAL)?;
     config.validate()?;
-    assert!(
-        config
-            .configuration_response(&[])
-            .min_libxmtp_version
-            .is_empty()
-    );
+    assert!(config.server.min_libxmtp_version.is_none());
     let mut config: Config = toml::from_str(MINIMAL)?;
     config.server.min_libxmtp_version = Some("1.2.3-beta.1".into());
     config.validate()?;
-    assert_eq!(
-        config.configuration_response(&[]).min_libxmtp_version,
-        "1.2.3-beta.1"
-    );
 }
 
 /// The transport ceiling is fixed, so a budget above it would promise a client
@@ -936,36 +963,6 @@ fn request_and_response_budgets_stop_at_the_transport_ceiling() {
             "{field} must be named, got {error}"
         );
     }
-}
-
-/// The auth lists, the key list, and the chain list have no individual bound,
-/// so the assembled response is what is measured.
-#[xmtp_common::test(unwrap_try = true)]
-// verifies: CONF-009
-fn an_oversized_published_response_stops_startup() {
-    let mut config: Config = toml::from_str(MINIMAL)?;
-    let chains = |config: &mut Config, count: u64| {
-        config.chains = (0..count)
-            .map(|index| (format!("eip155:{index}"), "https://rpc.example".into()))
-            .collect();
-    };
-    chains(&mut config, 1_000);
-    config.validate()?;
-    chains(&mut config, 10_000);
-    let error = config.validate().unwrap_err();
-    assert!(matches!(
-        &error,
-        ConfigError::Invalid {
-            field: "configuration response",
-            ..
-        }
-    ));
-    // The bound is on the encoded response, not on any one list.
-    assert!(
-        prost::Message::encoded_len(&config.configuration_response(&[]))
-            > MAX_CONFIGURATION_RESPONSE_BYTES,
-        "the fixture must exceed the bound"
-    );
 }
 
 /// An absent minimum name length takes the default of 3. The two ends of the
@@ -1184,7 +1181,7 @@ fn failing_values() -> Vec<FailingValue> {
             "'https://user:password@s3.example.org'",
         ),
     ];
-    let api_keys: toml::Table = (0..=crate::config::auth::MAX_API_KEYS)
+    let api_keys: toml::Table = (0..=crate::auth::MAX_API_KEYS)
         .map(|index| (format!("bot-{index}"), format!("{index:0>32}").into()))
         .collect();
     cases.push(FailingValue {
@@ -1336,7 +1333,7 @@ fn minimal_configuration_uses_defaults() {
     ))?;
     let mut tables_loaded = serde_json::to_value(&tables)?;
     // The target applies its presign lifetime default when it signs.
-    let Some(xmtp_attachments_server::TargetConfig::S3(s3)) = tables
+    let Some(attachments::TargetConfig::S3(s3)) = tables
         .attachments
         .as_ref()
         .map(|attachments| &attachments.target)

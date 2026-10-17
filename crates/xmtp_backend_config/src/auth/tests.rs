@@ -1,11 +1,37 @@
 use super::*;
 use crate::{
-    config::Config,
-    test_support::auth::{TestKey, api_key, api_key_value},
+    Config,
+    tests::{ES256_PUBLIC_KEY, api_key_value, es256_key},
 };
 
+/// A key id that no refusal may contain.
+const KID: &str = "key-id-sentinel";
+
+/// An enabled section with one inline ES256 key.
+fn inline_auth() -> AuthConfig {
+    AuthConfig {
+        enabled: Some(true),
+        keys: Some(vec![es256_key(KID)]),
+        ..AuthConfig::default()
+    }
+}
+
+/// An enabled section with one named API key and no JWT key source.
+fn api_key(name: &str) -> (String, AuthConfig) {
+    let value = api_key_value();
+    let config = AuthConfig {
+        enabled: Some(true),
+        api_keys: [(name.to_owned(), value.clone())].into(),
+        ..AuthConfig::default()
+    };
+    (value, config)
+}
+
 fn loaded(auth: &str) -> Result<Config, ConfigError> {
-    let path = std::env::temp_dir().join(format!("auth-config-{}.toml", uuid::Uuid::new_v4()));
+    let path = std::env::temp_dir().join(format!(
+        "auth-config-{}.toml",
+        xmtp_common::rand_hexstring()
+    ));
     std::fs::write(
         &path,
         format!("[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n{auth}"),
@@ -76,10 +102,9 @@ fn key_sources_and_claim_lists_are_validated_at_load() {
 #[xmtp_common::test(unwrap_try = true)]
 fn api_keys_load_alone_or_alongside_one_jwt_source() {
     let (value, config) = api_key("Team.Bot");
-    assert_eq!(value.len(), 43);
     for mut auth in [
         config,
-        TestKey::es256().auth_config(),
+        inline_auth(),
         AuthConfig {
             enabled: Some(true),
             jwks_url: Some("https://issuer.example/keys".into()),
@@ -98,7 +123,7 @@ fn api_keys_load_alone_or_alongside_one_jwt_source() {
         assert!(error.contains("auth"), "{error}");
         assert!(error.contains("set api_keys, jwks_url, or keys"), "{error}");
     }
-    let mut auth = TestKey::es256().auth_config();
+    let mut auth = inline_auth();
     auth.jwks_url = Some("https://issuer.example/keys".into());
     auth.api_keys.insert("bot".into(), value.clone());
     let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)
@@ -214,7 +239,7 @@ fn api_key_environment_values_resolve_and_missing_variables_fail() {
     const VARIABLE: &str = "XMTP_API_KEY_CONFIG_VALUE";
     const MISSING: &str = "XMTP_API_KEY_CONFIG_MISSING";
     if std::env::var_os(CHILD).is_none() {
-        let output = crate::config::tests::child_test(
+        let output = crate::tests::child_test(
             module_path!(),
             "api_key_environment_values_resolve_and_missing_variables_fail",
         )
@@ -222,7 +247,7 @@ fn api_key_environment_values_resolve_and_missing_variables_fail() {
         .env(VARIABLE, api_key_value())
         .env_remove(MISSING)
         .output()?;
-        crate::config::tests::assert_one_test_passed(&output);
+        crate::tests::assert_one_test_passed(&output);
         return;
     }
     let value = std::env::var(VARIABLE)?;
@@ -240,44 +265,32 @@ fn api_key_environment_values_resolve_and_missing_variables_fail() {
     }
 }
 
+/// Loading checks only the algorithm name. The backend parses the key for that
+/// algorithm when it builds authentication.
 #[xmtp_common::test(unwrap_try = true)]
-fn keys_are_parsed_as_spki_for_the_exact_algorithm_at_load() {
-    for key in [
-        TestKey::es256(),
-        TestKey::es384(),
-        TestKey::eddsa(),
-        TestKey::rsa(),
-    ] {
-        key.auth_config().validate()?;
+fn unsupported_key_algorithms_are_refused_at_load() {
+    for alg in ["RS256", "RS384", "RS512", "ES256", "ES384", "EdDSA"] {
+        let mut config = inline_auth();
+        config.keys.as_mut().unwrap()[0].alg = alg.into();
+        config.validate()?;
+        assert_eq!(SigningAlgorithm::from_name(alg)?.name(), alg);
     }
-    let key = TestKey::es256();
-    for alg in [
-        "none", "HS256", "HS384", "HS512", "PS256", "ES384", "EdDSA", "RS256",
-    ] {
-        let mut config = key.auth_config();
+    for alg in ["none", "HS256", "HS384", "HS512", "PS256", "es256", ""] {
+        let mut config = inline_auth();
         config.keys.as_mut().unwrap()[0].alg = alg.into();
         let error = config.validate().unwrap_err().to_string();
         assert!(error.contains("auth.keys[0]"));
-        assert!(!error.contains(&key.kid));
-        assert!(!error.contains(&key.public_key));
+        assert!(error.contains("alg must be a supported asymmetric algorithm"));
+        assert!(!error.contains(KID));
+        assert!(!error.contains(ES256_PUBLIC_KEY));
+        assert!(SigningAlgorithm::from_name(alg).is_none());
     }
-    let mut key = key.config();
-    key.public_key = "private-key-sentinel".into();
-    let source = format!(
-        "[auth]\nenabled = true\nkeys = [{}]",
-        toml::Value::try_from(&key)?
-    );
-    let error = loaded(&source).unwrap_err().to_string();
-    assert!(error.contains("auth.keys[0]"));
-    assert!(!error.contains(&key.kid));
-    assert!(!error.contains("private-key-sentinel"));
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 fn missing_duplicate_and_overlong_key_ids_fail_with_entry_context() {
-    let key = TestKey::es256();
     for kid in [String::new(), "a".repeat(MAX_KID_BYTES + 1)] {
-        let mut config = key.auth_config();
+        let mut config = inline_auth();
         config.keys.as_mut().unwrap()[0].kid = kid;
         assert!(
             config
@@ -287,8 +300,8 @@ fn missing_duplicate_and_overlong_key_ids_fail_with_entry_context() {
                 .contains("auth.keys[0]")
         );
     }
-    let mut config = key.auth_config();
-    config.keys.as_mut().unwrap().push(key.config());
+    let mut config = inline_auth();
+    config.keys.as_mut().unwrap().push(es256_key(KID));
     assert!(
         config
             .validate()
@@ -327,7 +340,7 @@ fn jwks_transport_and_debug_do_not_disclose_the_url_or_key() {
         let config = loaded(&format!("[auth]\nenabled = true\njwks_url = '{url}'"))?;
         assert!(!format!("{config:?}").contains("secret"));
     }
-    let config = TestKey::es256().auth_config();
+    let config = inline_auth();
     let debug = format!("{config:?}");
     assert!(!debug.contains("PUBLIC KEY"));
     assert!(!debug.contains(&config.keys.as_ref().unwrap()[0].kid));
@@ -338,16 +351,15 @@ fn jwks_transport_and_debug_do_not_disclose_the_url_or_key() {
 fn environment_values_resolve_in_both_auth_key_sources() {
     const CHILD: &str = "XMTP_AUTH_CONFIG_CHILD";
     if std::env::var_os(CHILD).is_none() {
-        let key = TestKey::es256();
-        let output = crate::config::tests::child_test(
+        let output = crate::tests::child_test(
             module_path!(),
             "environment_values_resolve_in_both_auth_key_sources",
         )
         .env(CHILD, "1")
-        .env("XMTP_AUTH_TEST_KEY", key.public_key)
+        .env("XMTP_AUTH_TEST_KEY", ES256_PUBLIC_KEY)
         .env("XMTP_AUTH_TEST_URL", "https://issuer.example/keys")
         .output()?;
-        crate::config::tests::assert_one_test_passed(&output);
+        crate::tests::assert_one_test_passed(&output);
         return;
     }
     let config = loaded(
@@ -406,20 +418,19 @@ fn resolved_key_values_are_absent_from_validation_errors() {
     const CHILD: &str = "XMTP_AUTH_REDACTION_CHILD";
     const SENTINEL: &str = "SENTINEL-SECRET-abc123";
     if std::env::var_os(CHILD).is_none() {
-        let output = crate::config::tests::child_test(
+        let output = crate::tests::child_test(
             module_path!(),
             "resolved_key_values_are_absent_from_validation_errors",
         )
         .env(CHILD, "1")
         .env("XMTP_KID_SECRET", SENTINEL)
         .output()?;
-        crate::config::tests::assert_one_test_passed(&output);
+        crate::tests::assert_one_test_passed(&output);
         return;
     }
-    for (alg, reason) in [
-        ("BOGUS", "alg must be a supported asymmetric algorithm"),
-        ("ES256", "public_key must be SubjectPublicKeyInfo for alg"),
-    ] {
+    // The backend's key parsing refuses a bad `public_key` without its value;
+    // its tests cover that case.
+    for (alg, reason) in [("BOGUS", "alg must be a supported asymmetric algorithm")] {
         let error = Config::load_str(&format!(
             "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n[auth]\nenabled = true\nkeys = [{{ kid = 'env:XMTP_KID_SECRET', alg = '{alg}', public_key = 'env:XMTP_KID_SECRET' }}]"
         )).unwrap_err();

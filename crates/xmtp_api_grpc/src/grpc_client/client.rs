@@ -23,7 +23,7 @@ use tonic::{
 };
 use url::Url;
 use xmtp_common::Retry;
-use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
+use xmtp_configuration::MAX_TRANSPORT_BYTES;
 use xmtp_proto::{
     api::{ApiClientError, BytesStream, Client, IsConnectedCheck},
     api_client::{ApiBuilder, NetConnectConfig},
@@ -300,8 +300,8 @@ impl ApiBuilder for ClientBuilder {
         let channel = crate::GrpcService::new(host, self.limit)?;
         Ok(GrpcClient {
             inner: tonic::client::Grpc::new(channel)
-                .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
-                .max_encoding_message_size(GRPC_PAYLOAD_LIMIT),
+                .max_decoding_message_size(MAX_TRANSPORT_BYTES)
+                .max_encoding_message_size(MAX_TRANSPORT_BYTES),
             host: host_str,
             app_version: self
                 .app_version

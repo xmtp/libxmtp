@@ -17,7 +17,6 @@ test-utils = [
   "dep:rcgen",
   "dep:tokio-rustls",
   "dep:tonic-prost",
-  "dep:jsonschema",
   "xmtp_common/test-utils",
   "xmtp_id/test-utils",
   "xmtp_logging/test-utils",
@@ -53,7 +52,6 @@ hyper-util = { workspace = true, features = [
   "http2",
   "tokio",
 ] }
-jsonschema = { version = "0.55", default-features = false, optional = true }
 jsonwebtoken = { version = "10", default-features = false, features = [
   "rust_crypto",
   "use_pem",
@@ -75,11 +73,8 @@ reqwest.workspace = true
 ring = "0.17.14"
 rsa = { version = "0.9", features = ["pem"] }
 rustls.workspace = true
-schemars.workspace = true
-semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_path_to_error.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 subtle.workspace = true
@@ -101,6 +96,7 @@ tracing.workspace = true
 url.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 xmtp_attachments_server.workspace = true
+xmtp_backend_config = { workspace = true, features = ["clap"] }
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
@@ -116,7 +112,6 @@ h2 = "0.4"
 http.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["server", "http1", "http2"] }
-jsonschema = { version = "0.55", default-features = false }
 rcgen = { version = "0.14.10", default-features = false, features = [
   "ring",
   "pem",

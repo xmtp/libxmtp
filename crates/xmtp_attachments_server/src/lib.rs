@@ -1,7 +1,6 @@
-//! Configuration and signing for an attachment storage target.
+//! Signing for an attachment storage target. The settings are
+//! `xmtp_backend_config::attachments`, validated before a target is built.
 
-mod config;
 mod s3;
 
-pub use config::{AttachmentsConfig, ConfigInvalid, CredentialsConfig, S3Config, TargetConfig};
 pub use s3::{BuildError, PresignedRequest, S3Target, SignError, StorageTarget, build_target};

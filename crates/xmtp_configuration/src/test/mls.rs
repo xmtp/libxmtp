@@ -1,6 +1,6 @@
 //! Test-Specific configuration values
 
-use xmtp_common::NS_IN_SEC;
+use crate::ns::NS_IN_SEC;
 
 pub const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_SEC; // 1 Second
 

@@ -1,15 +1,17 @@
 //! Optional caller authentication settings. Key values and URLs stay out of diagnostics.
 use super::{ConfigError, invalid, schema};
-use jsonwebtoken::Algorithm;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
-use xmtp_common::time::{Duration, Instant};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::{Duration, Instant},
+};
 
 pub const MAX_KID_BYTES: usize = 256;
 pub(crate) const MAX_API_KEYS: usize = 256;
 pub(crate) const MIN_API_KEY_BYTES: usize = 32;
-// Equals crate::auth::verify::MAX_TOKEN_BYTES: a longer key could never be presented.
+// Equals the backend's bearer token limit (`MAX_TOKEN_BYTES` in its
+// `auth::verify`): a longer key could never be presented.
 pub(crate) const MAX_API_KEY_BYTES: usize = 8192;
 const MAX_API_KEY_NAME_BYTES: usize = 64;
 pub const MAX_LEEWAY_SECONDS: u64 = 300;
@@ -179,10 +181,10 @@ impl AuthConfig {
                     "kid must be non-empty, unique, and at most 256 bytes",
                 ));
             }
-            let alg = algorithm(&key.alg)
+            // The backend parses each key for its algorithm when it builds
+            // authentication at startup.
+            SigningAlgorithm::from_name(&key.alg)
                 .ok_or_else(|| error("alg must be a supported asymmetric algorithm"))?;
-            crate::auth::keys::parse_public_key(&key.public_key, alg)
-                .map_err(|_| error("public_key must be SubjectPublicKeyInfo for alg"))?;
         }
         if self.leeway_seconds > MAX_LEEWAY_SECONDS {
             return Err(invalid("auth.leeway_seconds", "must not exceed 300"));
@@ -236,37 +238,50 @@ impl std::fmt::Debug for AuthConfig {
     }
 }
 
-/// The published name of a loaded key's algorithm. The inverse of `algorithm`,
-/// so a JWKS key set is announced with the same spelling an operator would
-/// write inline.
-pub(crate) fn algorithm_name(algorithm: Algorithm) -> &'static str {
-    match algorithm {
-        Algorithm::RS256 => "RS256",
-        Algorithm::RS384 => "RS384",
-        Algorithm::RS512 => "RS512",
-        Algorithm::ES256 => "ES256",
-        Algorithm::ES384 => "ES384",
-        Algorithm::EdDSA => "EdDSA",
-        // Every other algorithm is rejected before a key is built.
-        _ => "",
-    }
+/// The asymmetric JWT signing algorithms a key may use, named as JOSE names
+/// them (RFC 7518).
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SigningAlgorithm {
+    RS256,
+    RS384,
+    RS512,
+    ES256,
+    ES384,
+    EdDSA,
 }
 
-pub(crate) fn algorithm(name: &str) -> Option<Algorithm> {
-    match name {
-        "RS256" => Some(Algorithm::RS256),
-        "RS384" => Some(Algorithm::RS384),
-        "RS512" => Some(Algorithm::RS512),
-        "ES256" => Some(Algorithm::ES256),
-        "ES384" => Some(Algorithm::ES384),
-        "EdDSA" => Some(Algorithm::EdDSA),
-        _ => None,
+impl SigningAlgorithm {
+    /// The algorithm with this `alg` name, or `None` for any other name.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "RS256" => Some(Self::RS256),
+            "RS384" => Some(Self::RS384),
+            "RS512" => Some(Self::RS512),
+            "ES256" => Some(Self::ES256),
+            "ES384" => Some(Self::ES384),
+            "EdDSA" => Some(Self::EdDSA),
+            _ => None,
+        }
+    }
+
+    /// The `alg` name. The inverse of `from_name`, so a JWKS key set is
+    /// announced with the same spelling an operator would write inline.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::RS256 => "RS256",
+            Self::RS384 => "RS384",
+            Self::RS512 => "RS512",
+            Self::ES256 => "ES256",
+            Self::ES384 => "ES384",
+            Self::EdDSA => "EdDSA",
+        }
     }
 }
 
 /// Parse the key source without including its value in errors.
 /// Plain HTTP is limited to literal loopback addresses and localhost.
-pub(crate) fn parse_jwks_url(value: &str) -> Result<url::Url, ConfigError> {
+pub fn parse_jwks_url(value: &str) -> Result<url::Url, ConfigError> {
     let error = || invalid("auth.jwks_url", "must be HTTPS or HTTP on a loopback host");
     let url = url::Url::parse(value).map_err(|_| error())?;
     if url.host().is_none()
@@ -277,7 +292,8 @@ pub(crate) fn parse_jwks_url(value: &str) -> Result<url::Url, ConfigError> {
     Ok(url)
 }
 
-pub(crate) fn is_loopback(url: &url::Url) -> bool {
+/// Whether the URL's host is `localhost` or a loopback address.
+pub fn is_loopback(url: &url::Url) -> bool {
     match url.host() {
         Some(url::Host::Domain("localhost")) => true,
         Some(url::Host::Ipv4(ip)) => ip.is_loopback(),

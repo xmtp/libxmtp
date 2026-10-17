@@ -12337,6 +12337,7 @@ dependencies = [
  "clap",
  "clap_builder",
  "const-hex",
+ "const-oid 0.10.2",
  "crossbeam-utils",
  "crypto-common 0.1.7",
  "crypto-common 0.2.2",
@@ -12410,6 +12411,7 @@ dependencies = [
  "rustls-pki-types",
  "rustls-webpki",
  "sec1",
+ "security-framework-sys",
  "serde",
  "serde_core",
  "serde_json",
@@ -12638,16 +12640,14 @@ dependencies = [
  "base64 0.23.0",
  "const-hex",
  "http",
- "schemars 1.2.1",
- "serde",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
  "url",
  "xmtp-workspace-hack",
+ "xmtp_backend_config",
  "xmtp_common",
- "xmtp_configuration",
 ]
 
 [[package]]
@@ -12672,7 +12672,6 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
- "jsonschema",
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
@@ -12688,11 +12687,8 @@ dependencies = [
  "ring",
  "rsa",
  "rustls",
- "schemars 1.2.1",
- "semver 1.0.28",
  "serde",
  "serde_json",
- "serde_path_to_error",
  "sha2 0.10.9",
  "sqlx",
  "subtle",
@@ -12712,6 +12708,7 @@ dependencies = [
  "url",
  "uuid",
  "xmtp_attachments_server",
+ "xmtp_backend_config",
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_cryptography",
@@ -12721,6 +12718,26 @@ dependencies = [
  "xmtp_mls_validation",
  "xmtp_proto",
  "xmtp_push_types",
+]
+
+[[package]]
+name = "xmtp_backend_config"
+version = "1.12.0-dev"
+dependencies = [
+ "clap",
+ "http",
+ "jsonschema",
+ "prost",
+ "schemars 1.2.1",
+ "semver 1.0.28",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "thiserror 2.0.19",
+ "toml 1.1.3+spec-1.1.0",
+ "url",
+ "xmtp_common",
+ "xmtp_configuration",
 ]
 
 [[package]]
@@ -12767,11 +12784,9 @@ dependencies = [
 name = "xmtp_configuration"
 version = "1.12.0-dev"
 dependencies = [
- "openmls",
  "semver 1.0.28",
  "thiserror 2.0.19",
  "xmtp_common",
- "xmtp_cryptography",
 ]
 
 [[package]]

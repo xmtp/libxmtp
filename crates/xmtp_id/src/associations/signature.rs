@@ -3,6 +3,7 @@ use sha2::{Digest as _, Sha512};
 use std::array::TryFromSliceError;
 use thiserror::Error;
 use xmtp_common::{ErrorCode, RetryableError};
+use xmtp_configuration::{Eip155ChainIdError, parse_eip155_chain_id};
 use xmtp_cryptography::{
     CredentialSign, CredentialVerify, SignerError, SigningContextProvider,
     XmtpInstallationCredential,
@@ -221,15 +222,10 @@ impl AccountId {
     /// The chain id of an `eip155` account, whose reference must be the
     /// chain id in canonical decimal form: no sign, no leading zero.
     pub fn get_chain_id_u64(&self) -> Result<u64, AccountIdError> {
-        let reference = self
-            .chain_id
-            .strip_prefix("eip155:")
-            .ok_or(AccountIdError::MissingEip155Prefix)?;
-        reference
-            .parse::<u64>()
-            .ok()
-            .filter(|chain_id| chain_id.to_string() == reference)
-            .ok_or(AccountIdError::InvalidChainId)
+        parse_eip155_chain_id(&self.chain_id).map_err(|error| match error {
+            Eip155ChainIdError::MissingPrefix => AccountIdError::MissingEip155Prefix,
+            Eip155ChainIdError::NotCanonical => AccountIdError::InvalidChainId,
+        })
     }
 
     /// The chain id of an `eip155` account id in the only verifiable form:

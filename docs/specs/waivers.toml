@@ -441,14 +441,7 @@ id = "CONF-065"
 kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/4587"
-reason = "Some refusals do not name the key: every typed-decoding failure outside attachments.target.S3.credentials, such as an unknown key, a missing required key, or a value of the wrong type, is reported as invalid TOML with no key; a failed environment reference names the variable but not the key, and an empty reference name names neither; and the publishing and retention range checks, a value of the wrong type in attachments.target.S3.credentials or an unlisted key under a credential kind with fields, and some auth, telemetry, chain, and application component checks name only the table or the list entry."
-
-[[waiver]]
-id = "CONF-083"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4588"
-reason = "A storage credential kind that takes no keys (default_chain, environment, web_identity, container, instance) accepts and ignores extra keys such as access_key_id. Every other table refuses an unlisted key (unknown_keys_are_refused_in_every_table)."
+reason = "Some refusals do not name the key: every typed-decoding failure outside attachments.target.S3.credentials, such as an unknown key, a missing required key, or a value of the wrong type, is reported as invalid TOML with no key; a failed environment reference names the variable but not the key, and an empty reference name names neither; and the publishing and retention range checks, a value of the wrong type in attachments.target.S3.credentials or an unlisted key under any credential kind, and some auth, telemetry, chain, and application component checks name only the table or the list entry."
 
 [[waiver]]
 id = "CONF-085"

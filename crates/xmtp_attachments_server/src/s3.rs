@@ -24,8 +24,13 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use tokio::sync::Mutex;
 use url::Url;
 
-use crate::config::{MAX_PRESIGN_TTL_SECONDS, MIN_PRESIGN_TTL_SECONDS};
-use crate::{AttachmentsConfig, ConfigInvalid, CredentialsConfig, S3Config, TargetConfig};
+use xmtp_backend_config::{
+    ConfigError,
+    attachments::{
+        AttachmentsConfig, CredentialsConfig, MAX_PRESIGN_TTL_SECONDS, MIN_PRESIGN_TTL_SECONDS,
+        S3Config, TargetConfig,
+    },
+};
 
 /// The request that an attachment client sends to the storage target.
 #[derive(Clone)]
@@ -64,7 +69,7 @@ pub enum SignError {
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
     #[error(transparent)]
-    Config(#[from] ConfigInvalid),
+    Config(#[from] ConfigError),
     #[error("storage credentials provider could not be configured")]
     CredentialsProvider,
 }
