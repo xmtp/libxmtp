@@ -51,7 +51,11 @@ export async function receivePushHint(
   const groupId = Array.from(topic.subarray(1), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
-  const conversation = await client.conversations.getById(groupId);
+  let conversation = await client.conversations.getById(groupId);
+  if (!conversation) {
+    await client.conversations.sync();
+    conversation = await client.conversations.getById(groupId);
+  }
   if (!conversation) throw new Error("Conversation is not available yet");
   await conversation.sync();
   const messages = await conversation.messages();
