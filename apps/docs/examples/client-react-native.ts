@@ -29,6 +29,7 @@ export async function buildClient(
 
 export async function createAuthenticatedClient(
   signer: Signer,
+  dbEncryptionKey: Uint8Array,
   fetchToken: () => Promise<{ token: string; expiresAtSeconds: bigint }>,
 ) {
   // #region auth
@@ -42,7 +43,7 @@ export async function createAuthenticatedClient(
         },
       },
     },
-    storage: { location: "default" },
+    storage: { location: "default", encryptionKey: dbEncryptionKey },
   });
   // #endregion auth
   return client;

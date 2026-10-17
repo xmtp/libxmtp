@@ -113,6 +113,10 @@ let metadata = try await client.archives().metadataFromFile(
 
 ## Import an archive
 
+Only import archives from a trusted source. The archive key authenticates the
+archive, but import does not verify message provenance or sender membership.
+Anyone with the key can forge history under another sender.
+
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
