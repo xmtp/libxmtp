@@ -14,7 +14,7 @@ This feature includes three operations:
 - `metadataFromBytes` reads metadata before import. Native SDKs also expose `metadataFromFile`.
 - `importFromBytes` imports an archive into the current installation. Native SDKs also expose `importFromFile`.
 
-Browser uses in-memory `Uint8Array` data. Node, Kotlin, and Swift also support file paths. Supply a key of exactly 32 bytes. Other key lengths fail. Store the key separately from the archive.
+Browser uses in-memory `Uint8Array` data. Node, React Native, Kotlin, and Swift also support file paths. Supply a key of exactly 32 bytes. Other key lengths fail. Store the key separately from the archive.
 
 ## Create an archive
 
@@ -31,6 +31,13 @@ The options can limit the time range and include messages, consent records, or b
 <TabItem label="Node">
 
 ```ts source="backups-node.ts" region="create"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="backups-react-native.ts" region="create"
 
 ```
 
@@ -61,7 +68,7 @@ try await client.archives().exportToFile(
 
 ## Read metadata
 
-`ArchiveMetadata` contains `backupVersion`, `elements`, `exportedAt`, `start`, and `end`. The time fields use the SDK `Timestamp` type. Browser reads metadata from bytes. Node, Kotlin, and Swift can read it from bytes or a file path. Both methods require the encryption key.
+`ArchiveMetadata` contains `backupVersion`, `elements`, `exportedAt`, `start`, and `end`. The time fields use the SDK `Timestamp` type. Browser reads metadata from bytes. Node, React Native, Kotlin, and Swift can read it from bytes or a file path. Both methods require the encryption key.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -73,6 +80,13 @@ try await client.archives().exportToFile(
 </TabItem><TabItem label="Node">
 
 ```ts source="backups-node.ts" region="metadata"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="backups-react-native.ts" region="metadata"
 
 ```
 
@@ -99,6 +113,11 @@ let metadata = try await client.archives().metadataFromFile(
 
 ## Import an archive
 
+Only import archives from a trusted source. Import does not verify message
+provenance or sender membership, and anyone with the key can forge history under
+another sender. Legacy repeated-nonce archives have weakened confidentiality and
+authentication; importing them cannot restore those guarantees.
+
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
@@ -110,6 +129,13 @@ let metadata = try await client.archives().metadataFromFile(
 <TabItem label="Node">
 
 ```ts source="backups-node.ts" region="import"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="backups-react-native.ts" region="import"
 
 ```
 
@@ -135,3 +161,11 @@ The archive import is **additive**, not destructive: existing messages are prese
 ## Handle inactive conversations
 
 Sending to or syncing an imported inactive conversation fails with an inactive-group error. Show its history as read-only. An active member must add this installation. After the SDK processes a valid Welcome, the conversation can become active.
+
+## React Native files and keys
+
+Use app-accessible native paths for file archives. The app owns file selection,
+sharing, permissions, and key persistence. Keep archive keys separate from the
+archive. Archive import does not adopt a legacy database or restore its
+installation secrets. For pre-8.0.0 storage, follow the [React Native upgrade
+guide](/get-started/migrate-to-self-hosted/react-native-sdk-upgrade-guide/).

@@ -9,13 +9,14 @@ import { sdkEntry } from "../scripts/sdk-entry.mjs";
 test("SDK entries support each isolated cutover graph", () => {
   const root = mkdtempSync(join(tmpdir(), "xmtp-docs-entries-"));
   try {
-    for (const generated of ["node", "browser"]) {
-      for (const sdk of ["node", "browser"]) {
+    for (const generated of ["node", "browser", "react-native"]) {
+      for (const sdk of ["node", "browser", "react-native"]) {
         const packageRoot = join(root, sdk);
         mkdirSync(packageRoot, { recursive: true });
         writeFileSync(
           join(packageRoot, "package.json"),
           JSON.stringify({
+            exports: { "./react": { types: "./dist/react/index.d.ts" } },
             scripts: {
               build:
                 sdk === generated
@@ -23,6 +24,14 @@ test("SDK entries support each isolated cutover graph", () => {
                   : "tsdown",
             },
           }),
+        );
+        assert.equal(
+          sdkEntry(packageRoot, false, "./react"),
+          join(packageRoot, "dist/react/index.d.ts"),
+        );
+        assert.throws(
+          () => sdkEntry(packageRoot, false, "./private"),
+          /SDK declaration export is missing/,
         );
         assert.equal(
           sdkEntry(packageRoot),

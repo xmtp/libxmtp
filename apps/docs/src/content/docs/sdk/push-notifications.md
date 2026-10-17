@@ -3,7 +3,7 @@ title: Push notifications
 ---
 
 The XMTP backend sends push notifications through APNs, FCM, or an HTTPS webhook.
-The Android, iOS, and Node SDKs register a recipient for the local database and keep subscriptions
+The Android, iOS, Node, and React Native SDKs register a recipient for the local database and keep subscriptions
 current. The Browser SDK and WASM binding do not expose this API.
 
 Ask the backend operator which channels are configured. See
@@ -73,6 +73,15 @@ func configurePush(client: SDKClient, conversation: Conversation, token: String)
 }
 ```
 
+### React Native
+
+The app requests OS permission and obtains an APNs or FCM token. It passes the
+token to the SDK; it must call enable again when that token changes.
+
+```ts source="push-notifications-react-native.ts" region="configure"
+
+```
+
 ### Node
 
 ```ts source="push-notifications-node.ts" region="configure"
@@ -88,7 +97,7 @@ notification work when it opens the same local database.
 
 `NotificationConfig.channel` is required. The variants are `Apns`, `Fcm`, and
 `Http` on Kotlin; `.apns`, `.fcm`, and `.http` on Swift; and objects with `kind`
-equal to `"apns"`, `"fcm"`, or `"http"` on Node.
+equal to `"apns"`, `"fcm"`, or `"http"` on Node and React Native.
 
 APNs and FCM need a `token`. HTTP needs an HTTPS `url` and a `signingKey` of 16 to 64 bytes.
 Use a random 32-byte key. The receiver must keep the same signing key to verify requests.
@@ -124,9 +133,9 @@ must still suppress its own messages when it displays notifications.
 
 Local state is `Disabled`, `Enabled`, or `Failed(error)` on Kotlin; `.disabled`,
 `.enabled`, or `.failed(error)` on Swift; and a union with `kind` set to
-`"disabled"`, `"enabled"`, or `"failed"` on Node. Failed state contains a
+`"disabled"`, `"enabled"`, or `"failed"` on Node and React Native. Failed state contains a
 `NotificationFailure` enum value. Kotlin uses values such as
-`CHANNEL_NOT_CONFIGURED`, Swift uses `.channelNotConfigured`, and Node uses
+`CHANNEL_NOT_CONFIGURED`, Swift uses `.channelNotConfigured`, and Node and React Native use
 `"channelNotConfigured"`.
 
 Terminal failures are permission denied, invalid argument, out of range,
@@ -135,7 +144,7 @@ public error variants and codes: `PermissionDenied`, `InvalidArgument`,
 `OutOfRange`, `Unimplemented`, and `ChannelNotConfigured`.
 These failures stop notification work. Correct the cause and call `enableNotifications`
 again. `TaskRunnerDisabled` rejects enable without storing a config. Keep the task runner enabled if the app uses notifications. Configure it through
-`ClientOptions.workers`; Node names this worker kind `"taskRunner"`.
+`ClientOptions.workers`; Node and React Native name this worker kind `"taskRunner"`.
 
 Other registration failures leave the local state enabled so the task can retry.
 `ResourceExhausted` waits for a change to the desired subscriptions before it
@@ -208,6 +217,70 @@ signature verification, display deduplication, OS scheduling, or user-interface
 updates. A welcome can reveal an existing DM, so it need not produce an alert.
 Push delivery can be delayed, dropped, or repeated. Normal message sync remains
 the source of message state.
+
+### React Native foreground or permitted background JavaScript
+
+When an OS integration has started a live JavaScript runtime, use the same
+sync APIs as other native clients. Supply a strict standard-base64 decoder
+from your app; the SDK does not require Node `Buffer` in React Native. This
+example validates the decoded topic and keeps the sequence as a `bigint`:
+
+```ts source="push-notifications-react-native.ts" region="receive"
+
+```
+
+The app must arrange the native APNs or FCM handler before any foreground UI
+mounts. Route app-process work through a supported Hermes runtime, including
+the app's headless background integration when available, then call the React
+Native SDK. Do not initialize a second Swift or Kotlin SDK runtime in that same
+process. Persist the validated hint if JavaScript cannot run, then sync when the
+OS next permits execution. A push does not authorize a new installation: reopen
+the correct current database and use the existing installation. Do not create a
+new signing key in a background handler.
+
+On Android, complete the provider callback within its budget. Longer work needs
+the app's supported background scheduling integration. On iOS, enable the
+required push entitlement and background remote-notification mode in the app
+target. Finish the OS completion handler even on timeout or SDK failure.
+Neither system guarantees delivery or JavaScript execution after suspension or
+termination.
+
+### iOS notification extensions
+
+A notification extension is a separate native process. Metro and the app's
+React context do not provide a JavaScript runtime inside it. Do not call React
+hooks or assume the app TurboModule exists in the extension.
+
+The React Native npm product provides the app TurboModule. It does not expose a
+Swift or Kotlin client facade for a native extension or a handler that runs
+without JavaScript. Link the [Swift package](/get-started/install/#swift-package)
+into the separate iOS extension process. The native SDK in that process owns
+its own client and runtime. A native-only main-app or Android cold-start path
+that mixes a sibling SDK with the React Native runtime is not a verified
+integration. Use the app's supported Hermes/headless runtime for those handlers.
+
+An iOS extension that decrypts messages also needs an App Group container for
+shared current storage and a keychain access group for the saved database key. The app owns these entitlements and access
+policies. Close one database owner before another process opens the same files;
+do not open the app's active database concurrently from an extension. Within the separate iOS extension process, use this order:
+
+1. Read the saved public identity, database location, and key from app-owned
+   storage. Use the native SDK's `build` operation to reopen the current
+   installation without generating or registering a new identity.
+2. Validate the hint, then run `catchUpToLive` with a timeout inside the remaining
+   OS budget. Check the summary's `completed` and `failed` values. An incomplete
+   result needs later foreground or scheduled processing.
+3. Read the conversation and messages from local storage. Apply consent,
+   sender, and display-deduplication rules.
+4. Await `end()` to release the client, then complete the native callback.
+
+For an iOS extension, invoke its content handler after releasing the client. Always
+provide a fallback when its time budget expires. The silent APNs payload above
+does not by itself request a notification service extension; alert and extension
+routing must be configured by the app's native notification integration.
+
+See [React Native and Expo](/get-started/react-native/) for native setup and
+[Create a client](/sdk/client/) for storage ownership.
 
 ## DM stitching
 

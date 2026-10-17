@@ -24,11 +24,14 @@ export function exampleConfig() {
         getNewLine: () => "\n",
       }),
     );
-  for (const sdk of ["node", "browser"]) {
+  for (const sdk of ["node", "browser", "react-native"]) {
     parsed.options.paths[`@xmtp/${sdk}-sdk`] = [
       sdkEntry(resolve(docsRoot, "../../sdks", sdk)),
     ];
   }
+  parsed.options.paths["@xmtp/react-native-sdk/react"] = [
+    sdkEntry(resolve(docsRoot, "../../sdks/react-native"), false, "./react"),
+  ];
   return parsed;
 }
 

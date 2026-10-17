@@ -6,7 +6,7 @@ Actions let a sender present choices. An intent carries the recipient's selected
 
 ## Actions
 
-Type ID: `coinbase.com/actions:1.0`. The payload is JSON-encoded `Actions`. Its fallback contains the description, a numbered action list, and an instruction to reply with a number. `shouldPush` defaults to `true` on Browser, Node, Kotlin, and Swift.
+Type ID: `coinbase.com/actions:1.0`. The payload is JSON-encoded `Actions`. Its fallback contains the description, a numbered action list, and an instruction to reply with a number. `shouldPush` defaults to `true` on Browser, Node, React Native, Kotlin, and Swift.
 
 The encoder requires 1 to 10 actions and unique action IDs. Each action has an `id`, a label, an optional image URL, and an optional `style`. The style is `primary`, `secondary`, or `danger`. Both the message and each action can have an expiry. The codec preserves expiry values. Your app must check expiry before it accepts a selection.
 
@@ -27,7 +27,7 @@ The encoder requires 1 to 10 actions and unique action IDs. Each action has an `
 
 ## Intents
 
-Type ID: `coinbase.com/intent:1.0`. The payload is JSON-encoded `Intent` with an ID, action ID, and optional metadata. The encoder limits serialized metadata to 10 KiB. Its fallback names the selected action. `shouldPush` defaults to `true` on Browser, Node, Kotlin, and Swift.
+Type ID: `coinbase.com/intent:1.0`. The payload is JSON-encoded `Intent` with an ID, action ID, and optional metadata. The encoder limits serialized metadata to 10 KiB. Its fallback names the selected action. `shouldPush` defaults to `true` on Browser, Node, React Native, Kotlin, and Swift.
 
 | Intent field | Meaning                                        |
 | ------------ | ---------------------------------------------- |

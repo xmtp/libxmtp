@@ -2,6 +2,8 @@ export const SEARCH_CASES = [
   ["quickstart", "/get-started/quickstart/"],
   ["build an agent", "/agents/quickstart/"],
   ["consent", "/sdk/consent/"],
+  ["react native", "/get-started/react-native/"],
+  ["expo", "/get-started/react-native/"],
   ["push notifications", "/sdk/push-notifications/"],
   ["content type", "/content-types/overview/"],
   ["group chat", "/sdk/conversations/"],

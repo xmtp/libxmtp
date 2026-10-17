@@ -33,7 +33,7 @@ Sending a message sets the conversation to `allowed` from any prior state, inclu
 
 ## Consent API
 
-| Task             | Browser, Node                                  | Kotlin, Swift                                                   |
+| Task             | Browser, Node, React Native                    | Kotlin, Swift                                                   |
 | ---------------- | ---------------------------------------------- | --------------------------------------------------------------- |
 | Read group       | `(await group.state()).common.consentState`    | `group.state().common.consentState` with suspend or `try await` |
 | Read DM          | `(await dm.state()).consentState`              | `dm.state().consentState` with suspend or `try await`           |
@@ -71,6 +71,13 @@ entity in one transaction. Device sync publishes preference changes separately.
 
 ```
 
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="consent-react-native.ts" region="stream"
+
+```
+
 </TabItem><TabItem label="Kotlin">
 
 ```kotlin
@@ -103,6 +110,6 @@ for try await event in try await client.events(filter) {
 
 ## See who added the user
 
-Groups and DMs expose `addedByInboxId` and `creatorInboxId` as properties on Browser and Node. Kotlin and Swift expose `addedByInboxId()` and `creatorInboxId()` methods. Both values can be absent, for example after restoration. Do not treat a creator field alone as proof that the creator added the user.
+Groups and DMs expose `addedByInboxId` and `creatorInboxId` as properties on Browser, Node, and React Native. Kotlin and Swift expose `addedByInboxId()` and `creatorInboxId()` methods. Both values can be absent, for example after restoration. Do not treat a creator field alone as proof that the creator added the user.
 
 Use [client events](/sdk/events/) to react to local consent changes. Event listeners do not apply consent filters.
