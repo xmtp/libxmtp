@@ -103,13 +103,13 @@ metrics = "0.24.6"
 metrics-exporter-prometheus = "0.18.3"
 metrics-util = "0.20.4"
 rustix = { version = "1.1.4", features = ["fs"] }
-ubrn_bindgen = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "ac44bb3bf53aa4360dda933faacedf35370588ec", features = [
+ubrn_bindgen = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf", features = [
   "wasm",
 ] }
-ubrn_common = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "ac44bb3bf53aa4360dda933faacedf35370588ec", features = [
+ubrn_common = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf", features = [
   "wasm",
 ] }
-uniffi-runtime-wasm = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "ac44bb3bf53aa4360dda933faacedf35370588ec" }
+uniffi-runtime-wasm = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf" }
 # must stay on this version for compatibility with sha2 and ed25519_dalek
 hkdf = "0.12.4"
 hpke-rs = { version = "0.6", features = ["hazmat", "serialization", "libcrux"] }
@@ -354,4 +354,4 @@ uninlined_format_args = "allow"
 [workspace.metadata.xmtp-sdk-fork]
 # Cargo.lock pins all three packages to this commit, and the `ubrn-src` flake
 # input names it too. Nix evaluation checks both (nix/lib/packages/ubrn.nix).
-rev = "ac44bb3bf53aa4360dda933faacedf35370588ec"
+rev = "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf"

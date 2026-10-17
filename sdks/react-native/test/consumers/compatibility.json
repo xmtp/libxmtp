@@ -1,0 +1,301 @@
+{
+  "schema": 1,
+  "rows": [
+    {
+      "consumer": "bare",
+      "reactNative": "0.79.7",
+      "platform": "android",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.79.7",
+      "platform": "ios",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.80.3",
+      "platform": "android",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.80.3",
+      "platform": "ios",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.81.6",
+      "platform": "android",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.81.6",
+      "platform": "ios",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.82.1",
+      "platform": "android",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.82.1",
+      "platform": "ios",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.83.10",
+      "platform": "android",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.83.10",
+      "platform": "ios",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.84.1",
+      "platform": "android",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.84.1",
+      "platform": "ios",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.85.3",
+      "platform": "android",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.85.3",
+      "platform": "ios",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.86.3",
+      "platform": "android",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.86.3",
+      "platform": "ios",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.87.1",
+      "platform": "android",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.87.1",
+      "platform": "ios",
+      "required": false,
+      "status": "skipped",
+      "reason": "Candidate has no pinned installed-package consumer proof; unsupported"
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.88.0",
+      "platform": "android",
+      "required": true,
+      "status": "verified",
+      "reason": "Actual canonical installed Hermes main and background reports passed",
+      "react": "19.3.0",
+      "evidence": {
+        "run": 39015049549,
+        "head": "766b3ba616be004635d603b52dd10e35d111911c",
+        "job": 117347023814,
+        "artifactId": 12094474496,
+        "artifactDigest": "sha256:f0aecd2494ee16fc09fc4847429b98253b2d56c421f5174fc3f3d7cbdddc3a31",
+        "packageSha256": "42809cb37e11991b416b5618c9fc469aa8d9c556faadb1774372a4551c54f157",
+        "harnessSha256": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+        "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
+        "applicationOutput": "/nix/store/fcwk6dfa3w193wvd99pmhpa0nh0savn9-react-native-consumer-android-bare-8.0.0",
+        "reports": [
+          {
+            "file": "bare-android.json",
+            "sha256": "b206952565137098bd048e59a6527521171729f24af5503c12099fb626926285",
+            "runId": "96175acf432b0326cb1d50a0",
+            "mode": "conformance",
+            "assertions": 29
+          },
+          {
+            "file": "bare-android-background.json",
+            "sha256": "5da0ac4d70fa32460b6ad287c44d11ea9d3dc68be6efbabca48e68c11702a91d",
+            "runId": "f90d16cb111aa8ee24ea0625",
+            "mode": "background",
+            "assertions": 1
+          }
+        ],
+        "apkSha256": "7b0d792bea29f1706b6a6469b84a435532b84227d9fe9818ac4004d6ff2860d3"
+      }
+    },
+    {
+      "consumer": "bare",
+      "reactNative": "0.88.0",
+      "platform": "ios",
+      "required": true,
+      "status": "verified",
+      "reason": "Actual canonical installed Hermes main and background reports passed",
+      "react": "19.3.0",
+      "evidence": {
+        "run": 39015049549,
+        "head": "766b3ba616be004635d603b52dd10e35d111911c",
+        "job": 117347023904,
+        "artifactId": 12095251196,
+        "artifactDigest": "sha256:e7bdcba40d05a42e03239ac6fe3a955f3723740443453416d1770f93e8b9a573",
+        "packageSha256": "42809cb37e11991b416b5618c9fc469aa8d9c556faadb1774372a4551c54f157",
+        "harnessSha256": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+        "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
+        "applicationOutput": "/nix/store/s52bq4315z68bqmn7hk5qpsf69g2mmb0-react-native-consumer-ios-bare-8.0.0",
+        "reports": [
+          {
+            "file": "bare-ios.json",
+            "sha256": "09c2743d725aec1e168add6918b089899f9a0c020d38837927ea2cd28fe780e5",
+            "runId": "7aaf9119ea5e92fc3d9d642d",
+            "mode": "conformance",
+            "assertions": 29
+          },
+          {
+            "file": "bare-ios-background.json",
+            "sha256": "f7fc9281502095d5304a842c21a5bd94f347b1a3cde7a6276f2b99848424bc62",
+            "runId": "b9677a469aa2f8de30449ac0",
+            "mode": "background",
+            "assertions": 1
+          }
+        ],
+        "applicationContentSha256": "f38145aa5990c23223e1caae1d50874bc4799ed1b5bb51cd2296a0b0d0401ee3",
+        "narHash": "sha256-s1TCZjGBvsDeyl/ojY45iw4pxnIuJqCi6FxatHYWQJs="
+      }
+    },
+    {
+      "consumer": "expo",
+      "expo": "58.0.14",
+      "reactNative": "0.88.0",
+      "platform": "android",
+      "required": true,
+      "status": "verified",
+      "reason": "Actual canonical installed Hermes main and background reports passed",
+      "react": "19.3.0",
+      "evidence": {
+        "run": 39015049549,
+        "head": "766b3ba616be004635d603b52dd10e35d111911c",
+        "job": 117347023814,
+        "artifactId": 12094474496,
+        "artifactDigest": "sha256:f0aecd2494ee16fc09fc4847429b98253b2d56c421f5174fc3f3d7cbdddc3a31",
+        "packageSha256": "42809cb37e11991b416b5618c9fc469aa8d9c556faadb1774372a4551c54f157",
+        "harnessSha256": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828",
+        "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
+        "applicationOutput": "/nix/store/fx9d18hkyn8hhqimlw4b8v8lxnchmifw-react-native-consumer-android-expo-8.0.0",
+        "reports": [
+          {
+            "file": "expo-android.json",
+            "sha256": "15423524a3c97006b7cb18c2726824f383bb830ec3a887315c9ca8872b3e5430",
+            "runId": "f629bb9537fd01ea9c992e44",
+            "mode": "conformance",
+            "assertions": 29
+          },
+          {
+            "file": "expo-android-background.json",
+            "sha256": "523c2b22e1f04e6385a021483adf93b96b662c9ee28a629c5db089072cf0c36a",
+            "runId": "1d4274ad14c71c003987f000",
+            "mode": "background",
+            "assertions": 1
+          }
+        ],
+        "apkSha256": "7f389dc4a96ceec4d79cd06dd952ec438c61b41e7dcc5d4d837beaf6661f8e08"
+      }
+    },
+    {
+      "consumer": "expo",
+      "expo": "58.0.14",
+      "reactNative": "0.88.0",
+      "platform": "ios",
+      "required": true,
+      "status": "verified",
+      "reason": "Actual canonical installed Hermes main and background reports passed",
+      "react": "19.3.0",
+      "evidence": {
+        "run": 39015049549,
+        "head": "766b3ba616be004635d603b52dd10e35d111911c",
+        "job": 117347023904,
+        "artifactId": 12095251196,
+        "artifactDigest": "sha256:e7bdcba40d05a42e03239ac6fe3a955f3723740443453416d1770f93e8b9a573",
+        "packageSha256": "42809cb37e11991b416b5618c9fc469aa8d9c556faadb1774372a4551c54f157",
+        "harnessSha256": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828",
+        "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
+        "applicationOutput": "/nix/store/p5f700da8lsw96xjyc19cm1p036ynm24-react-native-consumer-ios-expo-8.0.0",
+        "reports": [
+          {
+            "file": "expo-ios.json",
+            "sha256": "6630910c8bd2f783d4ce5e236c10dca4375ab932a512eb2e31f3926a69a7ea4a",
+            "runId": "d54c83c531514a1c59c95b9d",
+            "mode": "conformance",
+            "assertions": 29
+          },
+          {
+            "file": "expo-ios-background.json",
+            "sha256": "ef45fa7cb06c2e3007eb17b93e97daad85641f3d2fce14660870573d9967af93",
+            "runId": "ed93752f59000b8815677c4a",
+            "mode": "background",
+            "assertions": 1
+          }
+        ],
+        "applicationContentSha256": "7564487b0a065b49c5ddd00b768bd6729fc96cf2885eb8a8563ade494033f7bf",
+        "narHash": "sha256-x6G5WhLTYJEJCL/G+Kw1n2L82kHWll8QK+DN356WaJ0="
+      }
+    }
+  ]
+}

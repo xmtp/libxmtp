@@ -18,7 +18,147 @@ concurrency:
   group: post-merge-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  rn-components:
+    name: RN components (${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: blacksmith-16vcpu-ubuntu-2404
+          - system: aarch64-darwin
+            runner: warp-macos-26-arm64-12x
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    environment: kache-s3-writer
+    env:
+      SYSTEM: ${{ matrix.system }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        if: runner.os == 'macOS'
+        with:
+          xcode-version: "26.3"
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: trusted
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          github-token: ${{ github.token }}
+      - name: Build the reused Rust base before selecting RN Xcode
+        run: nix build --no-link ".#ciStages.$SYSTEM.base" ".#ciStages.$SYSTEM.native-base"
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        if: runner.os == 'macOS'
+        with:
+          xcode-version: "27.0"
+      - name: Verify the RN Xcode pin
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test "$(xcode-select -p)" = "$(nix eval --raw .#lib.reactNativeXcode.developerDir)"
+          test "$(xcodebuild -version)" = $'Xcode 27.0\nBuild version 27A266a'
+      - name: Build and export completed components
+        run: |
+          nix build --no-link ".#ciStages.$SYSTEM.components"
+          dev/nix-shell --shell js 'python3.11 nix/react-native-exchange.py export --system "$SYSTEM" --stage components --directory target/rn-exchange/components'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rn-components-${{ matrix.system }}
+          path: target/rn-exchange/components
+          if-no-files-found: error
+          retention-days: 2
+      - name: Finish component cache uploads
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          jq -r '.roots[]' target/rn-exchange/components/manifest.json > "$RUNNER_TEMP/rn-roots"
+          while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-roots"
+
+  rn-package:
+    name: Assemble the canonical RN package
+    needs: rn-components
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    environment: kache-s3-writer
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: trusted
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: rn-components-*
+          path: target/rn-exchange
+      - name: Import both completed producers and assemble once
+        run: |
+          dev/nix-shell --shell js 'python3.11 nix/react-native-exchange.py import --system x86_64-linux --stage components --directory target/rn-exchange/rn-components-x86_64-linux'
+          dev/nix-shell --shell js 'python3.11 nix/react-native-exchange.py import --system aarch64-darwin --stage components --directory target/rn-exchange/rn-components-aarch64-darwin'
+          nix build --no-link .#xmtp-sdk-react-native-package
+          dev/nix-shell --shell js 'python3.11 nix/react-native-exchange.py export --system x86_64-linux --stage package --directory target/rn-exchange/package'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rn-package
+          path: target/rn-exchange/package
+          if-no-files-found: error
+          retention-days: 2
+      - name: Finish package cache upload
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: cachix push xmtp "$(jq -r '.roots["xmtp-sdk-react-native-package"]' target/rn-exchange/package/manifest.json)"
+
+  rn-consumers:
+    name: RN installed consumers (${{ matrix.platform }})
+    needs: rn-package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            system: x86_64-linux
+            runner: blacksmith-16vcpu-ubuntu-2404
+          - platform: ios
+            system: aarch64-darwin
+            runner: warp-macos-26-arm64-12x
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    environment: kache-s3-writer
+    env:
+      PLATFORM: ${{ matrix.platform }}
+      SYSTEM: ${{ matrix.system }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        if: runner.os == 'macOS'
+        with:
+          xcode-version: "27.0"
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: trusted
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: rn-package
+          path: target/rn-exchange/package
+      - name: Import the same canonical tarball and build offline consumers
+        run: |
+          dev/nix-shell --shell js 'python3.11 nix/react-native-exchange.py import --system x86_64-linux --stage package --directory target/rn-exchange/package'
+          consumer_build=(nix build --no-link ".#ciStages.$SYSTEM.consumers")
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            consumer_build+=(--option sandbox relaxed)
+          fi
+          "${consumer_build[@]}"
+          echo "XMTP_RN_PACKAGE_DIR=$(jq -r '.roots["xmtp-sdk-react-native-package"]' target/rn-exchange/package/manifest.json)" >> "$GITHUB_ENV"
+          echo "XMTP_RN_CONSUMER_BUNDLES=$(nix eval --raw ".#react-native-consumer-$PLATFORM.outPath")" >> "$GITHUB_ENV"
+      - name: Finish consumer cache uploads
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: cachix push xmtp "$(nix eval --raw ".#ciStages.$SYSTEM.consumers.outPath")"
+
   build:
+    needs: [rn-components, rn-package, rn-consumers]
     name: Build (${{ matrix.system }})
     strategy:
       fail-fast: false
@@ -51,7 +191,15 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
       - name: Build the warm sets
-        run: nix build --keep-going --no-link ".#ciSets.$SYSTEM.dev" ".#ciSets.$SYSTEM.release"
+        run: |
+          if [[ "$SYSTEM" == aarch64-darwin ]]; then
+            # Require the already-pushed app closure without allowing any builder.
+            # Keep it rooted while the aggregate retains its existing build mode.
+            nix build --max-jobs 0 --option builders "" \
+              --option always-allow-substitutes true \
+              --out-link "$RUNNER_TEMP/rn-consumer-inputs" .#react-native-consumer-ios
+          fi
+          nix build --keep-going --no-link ".#ciSets.$SYSTEM.dev" ".#ciSets.$SYSTEM.release"
       # The Cachix daemon pushes each path that this job builds. `cachix push`
       # pushes every closure path that Cachix reports missing, also paths that
       # this job substituted; `xmtp` reports a path of its upstream
@@ -133,6 +281,8 @@ jobs:
           while read -r drv; do
             drvs+=("$drv")
           done < "$RUNNER_TEMP/drvs.txt"
+          # RN lock-only stores and native download farms are explicit set
+          # members, so their fixed-output closures are checked above too.
           # Crane sets CRANE_BUILD_DEPS_ONLY on each dependency layer.
           nix derivation show --store "$store" -r "${drvs[@]}" |
             jq -r '(.derivations // .) | to_entries[]
@@ -147,7 +297,7 @@ jobs:
           while read -r layer; do
             paths+=("$layer^out")
           done < "$RUNNER_TEMP/dependency-layers.txt"
-          echo "Checking ${#paths[@]} set members and dependency layers"
+          echo "Checking ${#paths[@]} set members, fixed-output inputs, and dependency layers"
           # The dry run exits 0 also when a path cannot substitute, and has no
           # machine-readable form (--json lists the requested paths only).
           nix build --dry-run --store "$store" --option always-allow-substitutes true \
@@ -190,13 +340,12 @@ jobs:
           echo "Every set member and dependency layer substitutes ($fetched paths)."
 
   # Pages content comes only from trusted trunk pushes. docs builds the site
-  # and the Swift and Kotlin references after the warm build, so they
-  # substitute its outputs; a failed build only makes them build on a miss, so
-  # it does not hold back the deploy.
+  # and native references after every warm member and dependency substitutes.
+  # A failed warm, upload, pin, or closure gate holds back deployment.
   docs:
     name: Docs
-    needs: build
-    if: ${{ !cancelled() }}
+    needs: closure
+    if: ${{ !cancelled() && needs.closure.result == 'success' }}
     uses: ./.github/workflows/deploy-docs.yml
     with:
       deploy: true

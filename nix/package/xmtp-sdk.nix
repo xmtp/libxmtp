@@ -134,8 +134,17 @@ let
         }
       )
     );
-  iosTargets = mkIosTargets xmtp.iosEnv.xcode.key;
-  iosTargetsLocal = mkIosTargets "local";
+  wrapIos =
+    targets:
+    lib.mapAttrs (
+      target: compilation:
+      (import ../lib/sdk-provenance.nix { inherit stdenvNoCC; }) {
+        inherit compilation target;
+        inherit (sources) provenance;
+      }
+    ) targets;
+  iosTargets = wrapIos (mkIosTargets xmtp.iosEnv.xcode.key);
+  iosTargetsLocal = wrapIos (mkIosTargets "local");
   ubrn = xmtp.ubrn;
   # Renders bind the host library product (`xmtp-sdk-libs`), the same bytes
   # that packages and receipts name.
@@ -144,13 +153,22 @@ let
     swift = "swift";
     kotlin = "kotlin";
     typescript-napi = "node";
+    typescript-react-native = "react-native";
     typescript-wasm = "browser-worker";
     typescript-pure = "browser-pure";
   };
   # The runtime and configuration a render reads: its `sdkProvenance.render` key.
-  renderLanguage = language: if lib.hasPrefix "typescript-" language then "typescript" else language;
+  renderLanguage =
+    language:
+    if language == "typescript-react-native" then
+      "react-native"
+    else if lib.hasPrefix "typescript-" language then
+      "typescript"
+    else
+      language;
   # The @ubjs runtimes that each TypeScript tree imports.
   runtimeLinks = {
+    typescript-react-native = [ "core" ];
     typescript-napi = [
       "core"
       "node"
@@ -208,6 +226,7 @@ let
     swift = mkProductRender "swift" nativeLibrary "";
     kotlin = mkProductRender "kotlin" nativeLibrary "";
     typescript-napi = mkProductRender "typescript-napi" nativeLibrary "";
+    typescript-react-native = mkProductRender "typescript-react-native" nativeLibrary "";
     typescript-wasm = mkProductRender "typescript-wasm" "${wasm}/lib/xmtp_sdk.wasm" "";
     typescript-pure = mkProductRender "typescript-pure" "${pureWasm}/lib/xmtp_sdk.wasm" "pure-only";
   };
@@ -255,11 +274,12 @@ let
   generatedSwift = mkGenerated "-swift" [ "swift" ];
   generatedKotlin = mkGenerated "-kotlin" [ "kotlin" ];
   generatedNode = mkGenerated "-node" [ "typescript-napi" ];
+  generatedReactNative = mkGenerated "-react-native" [ "typescript-react-native" ];
   generatedBrowser = mkGenerated "-browser" [
     "typescript-wasm"
     "typescript-pure"
   ];
-  generated = mkGenerated "" (builtins.attrNames renders);
+  generated = mkGenerated "" (lib.remove "typescript-react-native" (builtins.attrNames renders));
 in
 {
   libs = native;
@@ -271,6 +291,7 @@ in
     generatedSwift
     generatedKotlin
     generatedNode
+    generatedReactNative
     generatedBrowser
     panicFixture
     codecFixture

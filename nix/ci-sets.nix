@@ -34,9 +34,45 @@ let
       { pkgs, self', ... }:
       let
         p = self'.packages;
+        rnDev = {
+          inherit (p)
+            react-native-js-tools
+            react-native-js-tools-deps
+            react-native-consumer-deps-bare
+            react-native-consumer-deps-expo
+            ubjs-react-native
+            xmtp-sdk-generated-react-native
+            xmtp-sdk-react-native-js
+            ;
+        }
+        // lib.optionalAttrs pkgs.stdenv.isLinux {
+          inherit (p)
+            xmtp-sdk-react-native-android-fast
+            react-native-consumer-android
+            react-native-consumer-native-deps-android
+            ;
+        }
+        // lib.optionalAttrs pkgs.stdenv.isDarwin {
+          inherit (p)
+            xmtp-sdk-react-native-ios-simulator
+            react-native-consumer-ios
+            react-native-consumer-native-deps-ios
+            ;
+        };
+        rnRelease =
+          if pkgs.stdenv.isLinux then
+            {
+              inherit (p) xmtp-sdk-react-native-android xmtp-sdk-react-native-package;
+            }
+          else
+            {
+              inherit (p) xmtp-sdk-react-native-ios;
+            };
       in
-      {
-        dev = mkSet pkgs "dev" (
+      rec {
+        dev = mkSet pkgs "dev" (baseDev.passthru.members // rnDev);
+        release = mkSet pkgs "release" (baseRelease.passthru.members // rnRelease);
+        baseDev = mkSet pkgs "base-dev" (
           shells self'
           // {
             inherit (p)
@@ -55,7 +91,7 @@ let
         );
         # The arm64 Node pairs are cross outputs of this system; release
         # substitutes them (build-sdk-node-platforms.yml).
-        release = mkSet pkgs "release" {
+        baseRelease = mkSet pkgs "base-release" {
           inherit (p)
             xmtp-sdk-node-linux-x64-gnu
             xmtp-sdk-node-linux-x64-musl
@@ -66,12 +102,13 @@ let
             example-android-apk
             ;
         };
-        # For the JavaScript suites and the docs site: the Node and browser
-        # trees and the browser platform fixtures.
+        # For the JavaScript suites and docs: Node/browser trees, lightweight
+        # RN JS/types, and browser fixtures. Mobile components stay separate.
         sdk_js = mkSet pkgs "sdk_js" {
           inherit (p)
             xmtp-sdk-generated-node
             xmtp-sdk-generated-browser
+            xmtp-sdk-react-native-js
             xmtp-sdk-wasm-fixture-panic
             xmtp-sdk-pure-fixture-codec
             ;
@@ -91,9 +128,45 @@ let
       { pkgs, self', ... }:
       let
         p = self'.packages;
+        rnDev = {
+          inherit (p)
+            react-native-js-tools
+            react-native-js-tools-deps
+            react-native-consumer-deps-bare
+            react-native-consumer-deps-expo
+            ubjs-react-native
+            xmtp-sdk-generated-react-native
+            xmtp-sdk-react-native-js
+            ;
+        }
+        // lib.optionalAttrs pkgs.stdenv.isLinux {
+          inherit (p)
+            xmtp-sdk-react-native-android-fast
+            react-native-consumer-android
+            react-native-consumer-native-deps-android
+            ;
+        }
+        // lib.optionalAttrs pkgs.stdenv.isDarwin {
+          inherit (p)
+            xmtp-sdk-react-native-ios-simulator
+            react-native-consumer-ios
+            react-native-consumer-native-deps-ios
+            ;
+        };
+        rnRelease =
+          if pkgs.stdenv.isLinux then
+            {
+              inherit (p) xmtp-sdk-react-native-android xmtp-sdk-react-native-package;
+            }
+          else
+            {
+              inherit (p) xmtp-sdk-react-native-ios;
+            };
       in
-      {
-        dev = mkSet pkgs "dev" (
+      rec {
+        dev = mkSet pkgs "dev" (baseDev.passthru.members // rnDev);
+        release = mkSet pkgs "release" (baseRelease.passthru.members // rnRelease);
+        baseDev = mkSet pkgs "base-dev" (
           shells self'
           // {
             inherit (p)
@@ -106,7 +179,7 @@ let
               ;
           }
         );
-        release = mkSet pkgs "release" {
+        baseRelease = mkSet pkgs "base-release" {
           inherit (p)
             ios-xcframeworks
             xmtp-sdk-node-darwin-arm64
@@ -116,5 +189,66 @@ let
   };
 in
 {
-  flake.ciSets = lib.mapAttrs (system: set: withSystem system set) sets;
+  flake.ciSets = lib.mapAttrs (
+    system: set:
+    withSystem system (
+      args:
+      builtins.removeAttrs (set args) [
+        "baseDev"
+        "baseRelease"
+      ]
+    )
+  ) sets;
+  flake.ciStages = lib.mapAttrs (
+    system: set:
+    withSystem system (
+      args:
+      let
+        products = set args;
+        allMembers = products.dev.passthru.members // products.release.passthru.members;
+        rnMembers = lib.filterAttrs (
+          name: _:
+          lib.hasPrefix "xmtp-sdk-react-native-" name
+          || name == "react-native-js-tools"
+          || name == "react-native-js-tools-deps"
+          || name == "ubjs-react-native"
+          || name == "xmtp-sdk-generated-react-native"
+        ) allMembers;
+      in
+      {
+        base = mkSet args.pkgs "base" (
+          products.baseDev.passthru.members // products.baseRelease.passthru.members
+        );
+        native-base = mkSet args.pkgs "rn-native-base" (
+          {
+            inherit (args.self'.packages) xmtp-sdk-libs xmtp-sdk-bindgen;
+          }
+          // (
+            if system == "aarch64-darwin" then
+              {
+                inherit (args.self'.packages) xmtp-sdk-ios-device xmtp-sdk-ios-simulator;
+              }
+            else
+              lib.listToAttrs (
+                map (target: {
+                  name = "xmtp-sdk-android-${target.abi}";
+                  value = args.self'.packages.${"xmtp-sdk-android-${target.abi}"};
+                }) args.pkgs.xmtp.sdkPlatforms.android
+              )
+          )
+        );
+        components = mkSet args.pkgs "rn-components" (
+          builtins.removeAttrs rnMembers [ "xmtp-sdk-react-native-package" ]
+        );
+        consumers = mkSet args.pkgs "rn-consumers" (
+          lib.filterAttrs (name: _: lib.hasPrefix "react-native-consumer-" name) allMembers
+        );
+        package = mkSet args.pkgs "rn-package" (
+          lib.optionalAttrs (system == "x86_64-linux") {
+            inherit (allMembers) xmtp-sdk-react-native-package;
+          }
+        );
+      }
+    )
+  ) sets;
 }

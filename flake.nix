@@ -32,7 +32,7 @@
     # The bindgen fork. Its revision must equal Cargo.toml
     # [workspace.metadata.xmtp-sdk-fork]; `nix/lib/packages/ubrn.nix` checks it.
     ubrn-src = {
-      url = "github:neekolas/uniffi-bindgen-react-native/ac44bb3bf53aa4360dda933faacedf35370588ec";
+      url = "github:neekolas/uniffi-bindgen-react-native/7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf";
       flake = false;
     };
   };
@@ -54,6 +54,7 @@
         ./nix/fmt.nix
         ./nix/node-packages.nix
         ./nix/android-packages.nix
+        ./nix/react-native-packages.nix
         ./nix/apps.nix
         ./nix/services
       ];
@@ -105,6 +106,8 @@
               android = pkgs.callPackage ./nix/shells/android.nix { };
               js = pkgs.callPackage ./nix/js.nix { };
               js-node = pkgs.callPackage ./nix/js-node.nix { };
+              react-native = pkgs.callPackage ./nix/shells/react-native.nix { };
+              react-native-local = pkgs.callPackage ./nix/shells/react-native.nix { local = true; };
               docs = pkgs.callPackage ./nix/docs.nix { };
               # Old names: `wasm` is the Rust core, `ios` the default shell.
               wasm = rustShell;
@@ -127,10 +130,12 @@
             xmtp-sdk-generated-swift = sdk.generatedSwift;
             xmtp-sdk-generated-kotlin = sdk.generatedKotlin;
             xmtp-sdk-generated-node = sdk.generatedNode;
+            xmtp-sdk-generated-react-native = sdk.generatedReactNative;
             xmtp-sdk-generated-browser = sdk.generatedBrowser;
             xmtp-sdk-wasm-fixture-panic = sdk.panicFixture;
             xmtp-sdk-pure-fixture-codec = sdk.codecFixture;
             ubjs-core = pkgs.xmtp.ubrn.core;
+            ubjs-react-native = pkgs.xmtp.ubrn.reactNative;
             ubjs-node = pkgs.xmtp.ubrn.node;
             ubjs-wasm = pkgs.xmtp.ubrn.wasm;
             inherit (pkgs)

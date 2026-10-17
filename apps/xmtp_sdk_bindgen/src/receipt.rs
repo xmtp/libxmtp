@@ -9,11 +9,46 @@
 
 use std::{collections::BTreeMap, fmt::Write as _, fs};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use sha2::{Digest, Sha256};
 
 pub(crate) const NAME: &str = "sdk-contract.json";
+
+/// Embed the lock at compilation. A stale executable must report its own fork,
+/// even when it renders inside a checkout whose dependency pin has changed.
+pub(crate) fn compiled_fork_revision() -> Result<String> {
+    fork_revision(include_str!("../../../Cargo.lock"))
+}
+
+fn fork_revision(lock: &str) -> Result<String> {
+    let lock: toml::Value = toml::from_str(lock)?;
+    let packages = lock
+        .get("package")
+        .and_then(toml::Value::as_array)
+        .context("compiled Cargo.lock has no packages")?;
+    let matches = packages
+        .iter()
+        .filter(|package| package.get("name").and_then(toml::Value::as_str) == Some("ubrn_bindgen"))
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        bail!("compiled Cargo.lock needs one ubrn_bindgen package");
+    }
+    let source = matches[0]
+        .get("source")
+        .and_then(toml::Value::as_str)
+        .context("compiled ubrn_bindgen must have a Git source")?;
+    let (repository, revision) = source
+        .rsplit_once('#')
+        .context("compiled ubrn_bindgen has no resolved revision")?;
+    if !repository.starts_with("git+")
+        || revision.len() != 40
+        || !revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        bail!("compiled ubrn_bindgen revision is not a Git commit");
+    }
+    Ok(revision.to_owned())
+}
 
 /// The library a tree binds, as its build recorded it.
 pub(crate) struct Artifact<'a> {
@@ -25,6 +60,7 @@ pub(crate) struct Artifact<'a> {
     pub features: &'a str,
     pub profile: &'a str,
     pub target: &'a str,
+    pub fork_revision: Option<&'a str>,
 }
 
 enum Json {
@@ -55,7 +91,7 @@ pub(crate) fn write(out: &Utf8Path, artifact: &Artifact) -> Result<()> {
         "{:x}",
         Sha256::digest(python_json(&Json::Object(roles)).as_bytes())
     );
-    let record = Json::Object(vec![
+    let mut fields = vec![
         ("contract".into(), Json::Text(contract)),
         ("generator".into(), text(artifact.generator)),
         (
@@ -81,7 +117,11 @@ pub(crate) fn write(out: &Utf8Path, artifact: &Artifact) -> Result<()> {
                     .collect(),
             ),
         ),
-    ]);
+    ];
+    if let Some(revision) = artifact.fork_revision {
+        fields.push(("forkRevision".into(), text(revision)));
+    }
+    let record = Json::Object(fields);
     let mut body = String::new();
     pretty(&record, 0, &mut body);
     body.push('\n');
@@ -210,6 +250,19 @@ mod tests {
             ["index.ts", "runtime/public/client.ts"]
         );
         assert_eq!(files["index.ts"], format!("{:x}", Sha256::digest(b"index")));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn fork_receipt_uses_resolved_commit_and_rejects_ambiguous_or_unpinned_input() {
+        let revision = "1234567890123456789012345678901234567890";
+        let source = format!(
+            "[[package]]\nname = \"ubrn_bindgen\"\nsource = \"git+https://example.test/fork?rev=branch#{revision}\"\n"
+        );
+        assert_eq!(fork_revision(&source)?, revision);
+        assert!(fork_revision(&source.repeat(2)).is_err());
+        assert!(fork_revision(&source.replace(revision, "main")).is_err());
+        assert!(fork_revision(&source.replace("git+", "registry+")).is_err());
+        assert_eq!(compiled_fork_revision()?.len(), 40);
     }
 
     // `nix/check-sdk-products.py` recomputes the contract with `json.dumps`.

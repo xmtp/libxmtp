@@ -4,7 +4,8 @@ Run commands from the repository root in the Nix shell. Run
 `dev/nix-shell 'just backend status'` to find this worktree's backend ports.
 
 - `dev/nix-shell 'just sdk generate'` builds the SDK libraries and writes Swift, Kotlin, Node,
-  worker WASM, and pure browser WASM bindings to `target/sdk-generated/`.
+  React Native, worker WASM, and pure browser WASM bindings to
+  `target/sdk-generated/`.
   `XMTP_SDK_BUILD` picks the route: `cargo` (the default; debug unless
   `--profile release`) or `nix`, which copies the release-profile
   `.#xmtp-sdk-generated-<target>` trees (out-links in `target/sdk-generated.nix`).
@@ -23,8 +24,11 @@ Run commands from the repository root in the Nix shell. Run
   libraries abort on panic where debug ones unwind. In
   each TypeScript tree, `index.ts` is the package root: the public layer that
   the projection generates. The stock UniFFI root is the private `binding.ts`.
-  The Node public layer imports it to load the native binding; otherwise only
-  the worker and transport tests import it.
+  The Node and React Native public layers import it to load their native
+  binding; otherwise only the worker and transport tests import it. React
+  Native renders into `typescript-react-native` and keeps its raw binding
+  private. Its package uses the pinned fork runtime and prebuilt Rust libraries,
+  rather than the Node runtime.
 - `dev/nix-shell 'just sdk check-package-scripts'` runs every `dev/test_*.py`
   (unittest discovery) and every `dev/test-*.mjs` (`node --test`); a new test
   file runs without a recipe edit. The packaging suites share the fixture and
@@ -173,6 +177,16 @@ metadata markers, so a routine export needs no generator edit:
 
 `apps/xmtp_sdk_bindgen/README.md` lists the markers and the areas that stay
 hand-maintained.
+
+## React Native package preparation
+
+Use `dev/nix-shell 'just react-native check'` for JS/types without mobile
+builds. Native component producers run on Linux (Android) and Darwin (iOS).
+Exchange their completed closures before assembling the canonical npm tarball
+on Linux. Both installed consumer hosts must import and test that same tarball.
+The commands and host requirements are in `sdks/react-native/AGENTS.md`.
+A generated declaration check does not prove Hermes loading, native lifecycle,
+or package completeness.
 
 ## Matched package preparation
 
