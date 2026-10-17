@@ -4,6 +4,7 @@ export enum Sdk {
   BrowserSdk = "browser-sdk",
   NodeSdk = "node-sdk",
   AgentSdk = "agent-sdk",
+  ReactNativeSdk = "react-native-sdk",
   Cli = "cli",
   Libxmtp = "libxmtp",
 }

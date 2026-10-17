@@ -40,7 +40,7 @@ jobs:
           # The libxmtp hub tag (release.yml) is v<version>.
           case "$SDK" in
             libxmtp) TAG_REF="refs/tags/v${VERSION}" ;;
-            ios|android|node-sdk|browser-sdk|agent-sdk|cli) TAG_REF="refs/tags/${SDK}-${VERSION}" ;;
+            ios|android|node-sdk|browser-sdk|agent-sdk|react-native-sdk|cli) TAG_REF="refs/tags/${SDK}-${VERSION}" ;;
             *) exit 1 ;;
           esac
           if ! [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
