@@ -68,7 +68,7 @@ on:
           - "major"
         default: "none"
       react-native-sdk-bump:
-        description: "CLI version bump"
+        description: "React Native SDK version bump"
         required: false
         type: choice
         options:
