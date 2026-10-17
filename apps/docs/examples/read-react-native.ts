@@ -13,19 +13,18 @@ export async function readMessages(conversation: Conversation) {
 
 export async function paginateMessages(group: Group) {
   // #region pagination
-  const firstPage = await group.messages({
+  const firstPage = await group.messageHistoryPage({
     limit: 20,
-    sortBy: "insertedAt",
     direction: "descending",
   });
-  const secondPage = await group.messages({
-    limit: 20,
-    sortBy: "insertedAt",
-    direction: "descending",
-    insertedBefore: firstPage.at(-1)?.insertedAt,
-  });
+  if (!firstPage.hasMore || !firstPage.lastPosition) return [];
+  // Keep the SDK position unchanged; it also covers unreadable rows.
+  const secondPage = await group.messageHistoryPage(
+    { limit: 20, direction: "descending" },
+    firstPage.lastPosition,
+  );
   // #endregion pagination
-  return secondPage;
+  return secondPage.messages;
 }
 
 export async function listConversations(client: Client) {

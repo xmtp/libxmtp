@@ -82,7 +82,13 @@ backend separately.
 
 Supply a separate 32-byte archive key and an output path in app-accessible
 storage. Keep the archive key separate from the archive file. Do not overwrite
-the source with the output. See [Backups](/sdk/backups/) and the
+the source with the output.
+
+Only import archives from a trusted source. The archive key authenticates the
+archive, but import does not verify message provenance or sender membership.
+Anyone with the key can forge history under another sender.
+
+See [Backups](/sdk/backups/) and the
 [migration overview](/get-started/migrate-to-self-hosted/#keeping-history) for conversion errors,
 archive limits, and restoration behavior.
 

@@ -63,7 +63,7 @@ Read the message's `content` value and handle its content kind. For a reply, als
 
 ### Paginate messages
 
-By default, messages are sorted by `sentAt`. A message can arrive after a newer message. Use `insertedAt` to paginate the local history by insertion time on all five platform SDKs.
+By default, messages are sorted by `sentAt`. A message can arrive after a newer message. The timestamp-filter examples below use `insertedAt` for local insertion order. The React Native example uses `messageHistoryPage` to paginate Published history by sent time and local delivery order with an opaque position.
 
 A timestamp-only cursor can skip messages that have the same timestamp at a page boundary. For recent history followed by live delivery, use a [message history snapshot and delivery cursor](/sdk/stream/). A snapshot is a bounded recent tail. To replay all retained delivery history, start an independent reader at `client.conversations.beginningDeliveryCursor()` in each SDK.
 
