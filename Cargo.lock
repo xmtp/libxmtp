@@ -12642,16 +12642,14 @@ dependencies = [
  "base64 0.23.0",
  "const-hex",
  "http",
- "schemars 1.2.1",
- "serde",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
  "url",
  "xmtp-workspace-hack",
+ "xmtp_backend_config",
  "xmtp_common",
- "xmtp_configuration",
 ]
 
 [[package]]
@@ -12740,7 +12738,6 @@ dependencies = [
  "thiserror 2.0.19",
  "toml 1.1.3+spec-1.1.0",
  "url",
- "xmtp_attachments_server",
  "xmtp_common",
  "xmtp_configuration",
 ]

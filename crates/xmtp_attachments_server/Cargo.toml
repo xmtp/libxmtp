@@ -22,14 +22,12 @@ aws-smithy-http-client.workspace = true
 base64.workspace = true
 hex.workspace = true
 http.workspace = true
-schemars.workspace = true
-serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
 xmtp-workspace-hack.workspace = true
-xmtp_configuration.workspace = true
+xmtp_backend_config.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

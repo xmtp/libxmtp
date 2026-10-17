@@ -614,7 +614,7 @@ fn published_attachment_endpoint_schema_agrees_with_runtime_vectors() {
     ] {
         let mut instance = baseline.clone();
         instance["attachments"]["target"]["S3"]["endpoint"] = json!(endpoint);
-        let settings: xmtp_attachments_server::AttachmentsConfig =
+        let settings: crate::attachments::AttachmentsConfig =
             serde_json::from_value(instance["attachments"].clone())?;
         // AttachmentsConfig::validate calls S3Config::validate for this target.
         assert_eq!(
@@ -638,7 +638,7 @@ fn published_attachment_endpoint_schema_agrees_with_runtime_vectors() {
     ] {
         let mut instance = baseline.clone();
         instance["attachments"]["target"]["S3"]["endpoint"] = json!(endpoint);
-        let settings: xmtp_attachments_server::AttachmentsConfig =
+        let settings: crate::attachments::AttachmentsConfig =
             serde_json::from_value(instance["attachments"].clone())?;
         assert_eq!(
             settings.validate().is_ok(),

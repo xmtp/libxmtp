@@ -22,6 +22,7 @@ use xmtp_configuration::{
 };
 
 pub mod application_components;
+pub mod attachments;
 pub mod auth;
 pub mod handles;
 pub mod push;
@@ -142,7 +143,7 @@ fn resolve_env(value: &str) -> Result<String, EnvironmentError> {
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attachments: Option<xmtp_attachments_server::AttachmentsConfig>,
+    pub attachments: Option<attachments::AttachmentsConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<auth::AuthConfig>,
     #[serde(default)]
@@ -204,12 +205,7 @@ impl Config {
     /// Validate scalar values and relationships between values.
     pub fn validate(&self) -> Result<(), ConfigError> {
         if let Some(attachments) = &self.attachments {
-            attachments
-                .validate()
-                .map_err(|error| ConfigError::Invalid {
-                    field: error.field,
-                    reason: error.reason,
-                })?;
+            attachments.validate()?;
         }
         if let Some(auth) = &self.auth {
             auth.validate()?;
