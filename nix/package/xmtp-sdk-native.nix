@@ -83,6 +83,13 @@ let
         remove-references-to -t ${stdenv.cc} $out/lib/libxmtp_sdk.so $out/lib/libxmtp_sdk.a
       '';
     }
+    # The strip hook rebuilds archive indexes. LLVM ranlib's deterministic
+    # default keeps the build user's UID out of the index header.
+    // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
+      preFixup = ''
+        export RANLIB=${buildPackages.llvmPackages.llvm}/bin/llvm-ranlib
+      '';
+    }
     # Reject the NDK wrapper and the paths it wraps: the unwrapped toolchain,
     # the bintools wrapper, and bionic. All are in the wrapper's closure, which
     # this build already needs, so the guard adds no fetch.

@@ -49,6 +49,8 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   paths shift rustc inline assembly span metadata, which ThinLTO hashes into
   native symbol suffixes. Keep this workaround scoped to Apple SDK builds;
   removing it needs independent native archive and dylib byte comparisons.
+  Final Apple SDK fixup uses LLVM ranlib: cctools ranlib records the build
+  user's UID when Nix rebuilds stripped archive indexes.
 - Backend builds restore only the shared dependency sources over the dummy workspace. Include migrations, SQL query files, and `apps/backend/.sqlx` metadata. Add each new shared dependency to the restored crate list. Build with `SQLX_OFFLINE=true`; no database is allowed during the build.
 - The Rust shell provides sqlx-cli. Keep its version aligned with the backend SQLx dependency.
 - SDK compiler sources use a dummy workspace and restore the selected local
