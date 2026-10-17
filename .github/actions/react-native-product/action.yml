@@ -83,6 +83,7 @@ runs:
         case "$RN_CACHE_MODE" in read|ci|trusted) ;; *) exit 1 ;; esac
         case "$RN_SYSTEM" in x86_64-linux|aarch64-darwin) ;; *) exit 1 ;; esac
         exchange() { dev/nix-shell --shell js --command python3.11 nix/react-native-exchange.py "$@"; }
+        # Bash 3.2 treats an empty array as unset under nounset.
         version_args=()
         if [[ -n "$RN_PACKAGE_VERSION" ]]; then version_args=(--version "$RN_PACKAGE_VERSION"); fi
         case "$RN_STAGE" in
@@ -99,7 +100,7 @@ runs:
                 exchange import --system "$producer" --stage components --directory "target/rn-exchange/$RN_ARTIFACT_PREFIX-components-$producer"
               done
             else
-              exchange import --system x86_64-linux --stage package --directory target/rn-exchange/package "${version_args[@]}"
+              exchange import --system x86_64-linux --stage package --directory target/rn-exchange/package ${version_args[@]+"${version_args[@]}"}
             fi
             build=(nix build --option log-lines 100 --no-link --json)
             if [[ "$RUNNER_OS" == macOS ]]; then build+=(--option sandbox relaxed); fi
@@ -120,7 +121,7 @@ runs:
             product=$("${build[@]}" 2> >(tee "$RUNNER_TEMP/rn-build.log" >&2) | jq -er '.[0].outputs.out')
             echo "RN_BUILD_SECONDS=$((SECONDS - build_started))" >> "$GITHUB_ENV"
             if [[ "$RN_STAGE" == package ]]; then
-              exchange export --system x86_64-linux --stage package --directory target/rn-exchange/package "${version_args[@]}"
+              exchange export --system x86_64-linux --stage package --directory target/rn-exchange/package ${version_args[@]+"${version_args[@]}"}
               manifest=target/rn-exchange/package/manifest.json
             else
               manifest=target/rn-exchange/package/manifest.json

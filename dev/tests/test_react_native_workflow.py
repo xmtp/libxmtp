@@ -149,6 +149,7 @@ else:
                     ["x86_64-linux", "aarch64-darwin"],
                 )
                 for args in exchanges[2:]:
+                    self.assertNotIn("", args)
                     self.assertEqual(args[args.index("--stage") + 1], "package")
                     self.assertEqual(
                         args[args.index("--version") + 1]
@@ -177,7 +178,7 @@ else:
 
     def run_stage(self, directory, env, stage):
         result = subprocess.run(
-            ["bash", "-euc", COMMAND],
+            ["/bin/bash", "-euc", COMMAND],
             cwd=directory,
             env=env | {"RN_STAGE": stage},
             capture_output=True,
@@ -199,7 +200,7 @@ else:
             wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
             wrapper.chmod(0o755)
             result = subprocess.run(
-                ["bash", "-euc", COMMAND],
+                ["/bin/bash", "-euc", COMMAND],
                 cwd=directory,
                 env=os.environ
                 | {
