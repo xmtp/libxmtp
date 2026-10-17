@@ -44,7 +44,7 @@ let
     + lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global "
     + "cargo ${
       if isGnu then "zigbuild" else "build"
-    } --release --locked -p xmtp_sdk --lib --target ${buildTarget}";
+    } --release --locked${lib.optionalString stdenv.hostPlatform.isDarwin " ${xmtp.iosEnv.nativeCargoArgs}"} -p xmtp_sdk --lib --target ${buildTarget}";
   compilation = rust.buildPackage (
     xmtp.base.commonArgs
     // special

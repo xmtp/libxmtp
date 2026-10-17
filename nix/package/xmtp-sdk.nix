@@ -98,7 +98,7 @@ let
           envSetup = xmtp.iosEnv.envSetup target;
           command = ''
             ${envSetup}
-            cargo build --release --locked -p xmtp_sdk --lib --target ${target}
+            cargo build --release --locked ${xmtp.iosEnv.nativeCargoArgs} -p xmtp_sdk --lib --target ${target}
           '';
         in
         xmtp.base.assertNativeEnv {

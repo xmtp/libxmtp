@@ -139,6 +139,12 @@ let
           macos && (attrs.MACOSX_DEPLOYMENT_TARGET or null) != "11.0"
         ) "${phase} MACOSX_DEPLOYMENT_TARGET is not 11.0"
         ++ lib.optional (
+          macos
+          && !lib.hasInfix xmtp.iosEnv.nativeCargoArgs (
+            attrs.buildPhaseCargoCommand or (attrs.buildPhase or "")
+          )
+        ) "${phase} Cargo command does not set the Apple xmtp_db codegen profile"
+        ++ lib.optional (
           ios
           && !lib.hasInfix ''export IPHONEOS_DEPLOYMENT_TARGET="14"'' (
             attrs.buildPhaseCargoCommand or (attrs.buildPhase or "")

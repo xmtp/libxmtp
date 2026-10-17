@@ -44,6 +44,11 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   features differ. Before two consumers share a layer, compare
   `cargo tree -e normal,build --prefix none --format '{p}|{f}'` for each `-p`
   list alone and together.
+- Apple SDK builds use one codegen unit for `xmtp_db` through the same Cargo
+  package profile in dependency and final builds. Its generated migration
+  paths shift rustc inline assembly span metadata, which ThinLTO hashes into
+  native symbol suffixes. Keep this workaround scoped to Apple SDK builds;
+  removing it needs independent native archive and dylib byte comparisons.
 - Backend builds restore only the shared dependency sources over the dummy workspace. Include migrations, SQL query files, and `apps/backend/.sqlx` metadata. Add each new shared dependency to the restored crate list. Build with `SQLX_OFFLINE=true`; no database is allowed during the build.
 - The Rust shell provides sqlx-cli. Keep its version aligned with the backend SQLx dependency.
 - SDK compiler sources use a dummy workspace and restore the selected local

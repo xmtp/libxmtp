@@ -99,6 +99,12 @@ let
       export RUSTC_WRAPPER=${nativeTools.rustc}
     '';
 
+  # Diesel's absolute SQL include literals shift rustc's inline-assembly span
+  # locations with the build-root length. ThinLTO hashes that metadata into
+  # xmtp_db's promoted symbols. One codegen unit avoids those unstable suffixes
+  # in the shipped native code without changing other crates or Rust flags.
+  nativeCargoArgs = "--config profile.release.package.xmtp_db.codegen-units=1";
+
   # Shell snippet that sets all Xcode-derived environment variables for a specific
   # cross-compilation target. Must run as shell code because:
   #   1. Local outputs resolve their Xcode dynamically
@@ -233,5 +239,6 @@ in
     envSetup
     envSetupAll
     nativeBuildEnv
+    nativeCargoArgs
     ;
 }
