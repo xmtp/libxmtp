@@ -154,18 +154,13 @@ void ClientOwners::completed(uint64_t future, uint64_t pointer, int8_t status) {
 }
 
 void ClientOwners::track(uint64_t pointer) {
-  std::unique_lock lock(mutex_);
-  if (clients_.find(pointer) != clients_.end())
-    return;
-  const auto clone = retainClient(pointer);
-  if (clone == 0)
-    throw std::runtime_error("XMTP Client owner could not be retained");
-  if (stopped_) {
-    lock.unlock();
-    closeClient(clone);
+  std::lock_guard lock(mutex_);
+  if (stopped_)
     throw std::runtime_error("XMTP runtime was invalidated");
-  }
-  clients_.emplace(pointer, clone);
+  // Native completion retains the Client before JS can adopt it. A JS handle
+  // can confirm that ownership, but cannot authorize a raw UniFFI clone.
+  if (clients_.find(pointer) == clients_.end())
+    throw std::runtime_error("XMTP Client was not retained by native completion");
 }
 
 void ClientOwners::untrack(uint64_t pointer) {

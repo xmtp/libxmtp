@@ -3,9 +3,10 @@
 Run commands from the repository root in the Nix shell. Run
 `dev/nix-shell 'just backend status'` to find this worktree's backend ports.
 
-- `dev/nix-shell 'just sdk generate'` builds the SDK libraries and writes Swift, Kotlin, Node,
-  React Native, worker WASM, and pure browser WASM bindings to
-  `target/sdk-generated/`.
+- `dev/nix-shell 'just sdk generate'` builds the SDK libraries and writes Swift,
+  Kotlin, Node, worker WASM, and pure browser WASM bindings to
+  `target/sdk-generated/`. Generate React Native with
+  `dev/nix-shell 'just sdk generate react-native'`.
   `XMTP_SDK_BUILD` picks the route: `cargo` (the default; debug unless
   `--profile release`) or `nix`, which copies the release-profile
   `.#xmtp-sdk-generated-<target>` trees (out-links in `target/sdk-generated.nix`).

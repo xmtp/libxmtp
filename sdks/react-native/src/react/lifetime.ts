@@ -57,7 +57,6 @@ export class ClientLifetime {
   private readonly listeners = new Set<() => void>();
   private readonly owners = new Map<Client, Owner>();
   private readonly ended = new WeakSet<Client>();
-  private readonly constructors = new Set<Promise<void>>();
   private generation = 0;
   private active = false;
   private attempt?: Attempt;
@@ -139,9 +138,7 @@ export class ClientLifetime {
     const attempt = { generation: this.generation, promise, resolve, reject };
     this.attempt = attempt;
     this.publish({ ...this.snapshot, error: null, isLoading: true });
-    const task = this.create(attempt, options);
-    this.constructors.add(task);
-    void task.then(() => this.constructors.delete(task));
+    this.background(this.create(attempt, options));
     return promise;
   }
 

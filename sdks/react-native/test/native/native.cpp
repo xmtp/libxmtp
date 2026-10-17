@@ -103,6 +103,35 @@ uniffi_xmtp_sdk_fn_func_sdk_discard_unreturned_client(uint64_t pointer) {
 }
 int main() {
   using namespace xmtp::reactnative;
+  const auto rejectTrack = [](ClientOwners &owner, uint64_t pointer) {
+    int cloneCount, releaseCount, closeCount;
+    {
+      std::lock_guard lock(mutex);
+      cloneCount = clones[pointer];
+      releaseCount = released[pointer];
+      closeCount = closed[pointer];
+    }
+    bool rejected = false;
+    try {
+      owner.track(pointer);
+    } catch (const std::runtime_error &) {
+      rejected = true;
+    }
+    {
+      std::lock_guard lock(mutex);
+      require(clones[pointer] == cloneCount &&
+                  released[pointer] == releaseCount &&
+                  closed[pointer] == closeCount,
+              "unregistered Client handle reached the native ABI");
+    }
+    require(rejected, "unregistered Client handle was accepted");
+  };
+  {
+    ClientOwners owner;
+    rejectTrack(owner, 1); // A JS BigInt is not native completion authority.
+    owner.stop();
+    rejectTrack(owner, 2);
+  }
   deferLifecycle = true;
   require(seedLifecycle(false), "background lifecycle seed failed");
   {
@@ -166,6 +195,7 @@ int main() {
     owner.completed(13, 103, 0);
     owner.track(103);
     owner.untrack(103); // Successful public end releases the retained Arc only.
+    rejectTrack(owner, 103); // Removed ownership cannot authorize another track.
     owner.stop();
     owner.started(14);
     owner.freed(14);
