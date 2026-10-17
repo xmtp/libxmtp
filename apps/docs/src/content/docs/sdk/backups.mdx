@@ -113,9 +113,10 @@ let metadata = try await client.archives().metadataFromFile(
 
 ## Import an archive
 
-Only import archives from a trusted source. The archive key authenticates the
-archive, but import does not verify message provenance or sender membership.
-Anyone with the key can forge history under another sender.
+Only import archives from a trusted source. Import does not verify message
+provenance or sender membership, and anyone with the key can forge history under
+another sender. Legacy repeated-nonce archives have weakened confidentiality and
+authentication; importing them cannot restore those guarantees.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">

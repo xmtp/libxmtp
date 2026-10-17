@@ -12,7 +12,9 @@ export async function connectMessaging(
     backend: { url: backendUrl },
     storage: { location: "default", encryptionKey: databaseKey },
   });
-  const messages = await client.conversations.streamAllMessages();
+  const messages = await client.conversations.streamAllMessages({
+    consentStates: ["allowed"],
+  });
   const receiving = messages.onValue(async (message) => {
     if (message.content.kind === "text") {
       await onText(message.content.value);

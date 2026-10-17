@@ -84,9 +84,10 @@ Supply a separate 32-byte archive key and an output path in app-accessible
 storage. Keep the archive key separate from the archive file. Do not overwrite
 the source with the output.
 
-Only import archives from a trusted source. The archive key authenticates the
-archive, but import does not verify message provenance or sender membership.
-Anyone with the key can forge history under another sender.
+Only import archives from a trusted source. Import does not verify message
+provenance or sender membership, and anyone with the key can forge history under
+another sender. Legacy repeated-nonce archives have weakened confidentiality and
+authentication; importing them cannot restore those guarantees.
 
 See [Backups](/sdk/backups/) and the
 [migration overview](/get-started/migrate-to-self-hosted/#keeping-history) for conversion errors,
