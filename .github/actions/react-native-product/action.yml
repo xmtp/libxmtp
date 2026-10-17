@@ -48,10 +48,15 @@ runs:
         test "$(xcode-select -p)" = "$PIN_DIRECTORY"
         test "$(xcodebuild -version)" = "$(printf 'Xcode %s\nBuild version %s' "$PIN_VERSION" "$PIN_BUILD")"
     - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-      if: inputs.stage != 'components'
+      if: inputs.stage == 'package'
       with:
-        pattern: ${{ inputs.artifact-prefix }}-${{ inputs.stage == 'package' && 'components-*' || 'package-closure' }}
+        pattern: ${{ inputs.artifact-prefix }}-components-*
         path: target/rn-exchange
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      if: inputs.stage == 'consumers'
+      with:
+        name: ${{ inputs.artifact-prefix }}-package-closure
+        path: target/rn-exchange/package
     - name: Record the initial product identities
       if: inputs.stage != 'package'
       id: before
@@ -94,7 +99,7 @@ runs:
                 exchange import --system "$producer" --stage components --directory "target/rn-exchange/$RN_ARTIFACT_PREFIX-components-$producer"
               done
             else
-              exchange import --system x86_64-linux --stage package --directory "target/rn-exchange/$RN_ARTIFACT_PREFIX-package-closure" "${version_args[@]}"
+              exchange import --system x86_64-linux --stage package --directory target/rn-exchange/package "${version_args[@]}"
             fi
             build=(nix build --option log-lines 100 --no-link --json)
             if [[ "$RUNNER_OS" == macOS ]]; then build+=(--option sandbox relaxed); fi
@@ -118,7 +123,7 @@ runs:
               exchange export --system x86_64-linux --stage package --directory target/rn-exchange/package "${version_args[@]}"
               manifest=target/rn-exchange/package/manifest.json
             else
-              manifest="target/rn-exchange/$RN_ARTIFACT_PREFIX-package-closure/manifest.json"
+              manifest=target/rn-exchange/package/manifest.json
               if [[ -z "$RN_PACKAGE_VERSION" ]]; then
                 platform=$([[ "$RN_SYSTEM" == x86_64-linux ]] && echo android || echo ios)
                 product=$(nix eval --raw ".#react-native-consumer-$platform.outPath")

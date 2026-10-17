@@ -1,8 +1,10 @@
 """Exercise RN product handoffs through the production composite command."""
 
+import fnmatch
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -19,6 +21,43 @@ COMMAND = next(
     for step in ACTION["runs"]["steps"]
     if step.get("name") == "Build and exchange the declared products"
 )
+
+
+def download_package(directory, archive):
+    """Apply the downloader's single-artifact extraction contract to its inputs."""
+
+    def expression(raw):
+        raw = raw.replace("inputs.stage", repr("consumers"))
+        raw = raw.replace("inputs.artifact-prefix", repr("same-run"))
+        return eval(
+            raw.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}, {}
+        )
+
+    artifacts = {"same-run-package-closure": archive}
+    for step in ACTION["runs"]["steps"]:
+        if not step.get("uses", "").startswith("actions/download-artifact@"):
+            continue
+        if not expression(step["if"]):
+            continue
+        inputs = {
+            key: re.sub(
+                r"\$\{\{\s*(.*?)\s*\}\}", lambda match: expression(match[1]), raw
+            )
+            for key, raw in step["with"].items()
+        }
+        pattern = inputs.get("name", inputs.get("pattern", "*"))
+        selected = {
+            name: path
+            for name, path in artifacts.items()
+            if fnmatch.fnmatchcase(name, pattern)
+        }
+        assert selected, pattern
+        for name, path in selected.items():
+            # v8 extracts a single match directly into `path`, even with pattern.
+            destination = directory / inputs["path"]
+            if len(selected) > 1:
+                destination /= name
+            shutil.copytree(path, destination)
 
 
 class ReactNativeProductTests(unittest.TestCase):
@@ -89,10 +128,10 @@ else:
                     path.mkdir(parents=True)
                     (path / "manifest.json").write_text("{}")
                 self.run_stage(directory, env, "package")
-                shutil.copytree(
-                    directory / "target/rn-exchange/package",
-                    directory / "target/rn-exchange/same-run-package-closure",
-                )
+                archive = directory / "uploaded-package"
+                shutil.copytree(directory / "target/rn-exchange/package", archive)
+                shutil.rmtree(directory / "target/rn-exchange")
+                download_package(directory, archive)
                 self.run_stage(directory, env, "consumers")
                 events = [
                     json.loads(line)

@@ -55,8 +55,16 @@ if phase == "before":
           let f = builtins.getFlake ("git+file://" + toString ./.);
           in { native = f.lib.xcode; rn = f.lib.reactNativeXcode; }
         """)
-        receipt["xcode"]["globalDeveloperDir"] = output("xcode-select", "-p")
-        receipt["xcode"]["version"] = output("xcodebuild", "-version")
+        receipt["xcode"]["processDeveloperDir"] = os.environ.get("DEVELOPER_DIR")
+        receipt["xcode"]["globalDeveloperDir"] = output(
+            "/usr/bin/env", "-u", "DEVELOPER_DIR", "/usr/bin/xcode-select", "-p"
+        )
+        receipt["xcode"]["version"] = output(
+            "/usr/bin/env",
+            "DEVELOPER_DIR=" + receipt["xcode"]["globalDeveloperDir"],
+            "/usr/bin/xcodebuild",
+            "-version",
+        )
     paths = [root["outputPath"] for root in roots.values()]
     command = ["nix-store", "--check-validity", "--print-invalid"]
     invalid = set(output(*command, *paths).splitlines())
