@@ -79,49 +79,93 @@
     "currentCanonical": {
       "status": "passed",
       "run": {
-        "id": 39022250312,
-        "head": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
-        "url": "https://github.com/xmtp/libxmtp/actions/runs/39022250312"
+        "id": 39076448106,
+        "head": "ff6c41e0c2659f5d9c5618cb6e45c1f30628d155",
+        "url": "https://github.com/xmtp/libxmtp/actions/runs/39076448106",
+        "conclusion": "success"
       },
-      "packageSha256": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+      "packageSha256": "23653334dfacf38f701e603a09ff83b228313d98f861e61021347ceaefd71d85",
       "identity": {
-        "source": "af9e6b20d5b863a485f5cf90c3d1c14ce612d0e33a906711936cbd65206a6bf1",
-        "generator": "d8c25a72cb53f6c0856a5e5954415d619f75f2539549496e1f381d77097dee95",
-        "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
-        "productContract": "0df9250fc3a51480e4749b0f98ef1c0e821fb6a475799ac15d235ea72c3b10ab"
+        "source": "3e2796a550763d6291a556ee54453e5cf72561b2e8518125e4fc197bec4444b5",
+        "generator": "98f3d9033778cf255367bd6421bf4658de62e6aa258d0880138b7bf34408f936",
+        "forkRevision": "c4ae748b187807e6da4f9c841ad83838be7f12f2",
+        "productContract": "d7a6168ca650dc8459d7dbf0e373e7686da68d328cf49f6981e64c42dc4c7dfe"
       },
-      "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
-      "harnesses": {
-        "bare": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
-        "expo": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828"
-      },
-      "phases": [
-        "foundation",
-        "features",
-        "migration",
-        "advanced",
-        "runtime-reload",
-        "react"
-      ],
       "assertionsPerMain": 29,
       "assertionsPerBackground": 1,
       "freshUniqueRunIds": 8,
       "pairedProof": {
-        "path": "/private/tmp/xmtp-rn-hosted-39022250312-paired-proof.json",
-        "sha256": "8b5918449af38648800dae2891ee7dbdf05c24cadb6ae43adfd62be1717b6a98"
+        "path": "/private/tmp/xmtp-rn-cleanup-ff6c41e0c2/stable-runtime-index.json",
+        "sha256": "af874840b85dff9e4063f898d3cae8f91b52a435e69430143a63c415d24a51ee"
       },
-      "limits": [
-        "Simulator/emulator execution only; no physical-device execution is claimed.",
-        "Background proof covers fresh React/SDK initialization in actual OS background and same-process foreground. It does not prove APNs delivery or system-triggered cold process wake.",
-        "The two-second shutdown/reload observation is bounded evidence, not a native callback drain barrier.",
-        "Raw report assertions do not provide per-step event logs or timings.",
-        "Release-versioned runtime and post-merge warm-cache admission remain separate gates.",
-        "No positive SCW or passkey wallet integration is claimed.",
-        "Canonical release app execution is separate from any native C++ ASan harness; it is not an instrumented-app claim."
-      ],
-      "reportAndAppIdentities": "verification.json nativeRuntime records both current artifacts, all eight report hashes/run IDs, new signed app content and toolchains."
+      "reportAndAppIdentities": "verification.json nativeRuntime and the four required compatibility.json rows bind the public platform artifacts, all eight current report hashes/run IDs, exact app content and toolchains.",
+      "limitsReference": "verification.json nativeRuntime.limits"
     },
-    "sensitivityScope": "Historical native seed/storage, copied DEX, Node and C++ counter mutations retain their recorded production bytes and transport scope. Current positive installed gates are fresh. Metadata-only changes do not imply rerunning unchanged native mutations."
+    "sensitivityScope": "Historical native seed/storage, copied DEX, Node and C++ counter mutations retain their recorded bytes, fork labels and transport scope. Fresh installed baselines for the c4ae748b fork do not extend those historical mutation proofs.",
+    "historicalCanonical39022250312": {
+      "sourceCommit": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
+      "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+      "scope": "Historical 390222/v4w9 installed proof; its current labels describe that product.",
+      "proof": {
+        "status": "passed",
+        "run": {
+          "id": 39022250312,
+          "head": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/39022250312"
+        },
+        "packageSha256": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+        "identity": {
+          "source": "af9e6b20d5b863a485f5cf90c3d1c14ce612d0e33a906711936cbd65206a6bf1",
+          "generator": "d8c25a72cb53f6c0856a5e5954415d619f75f2539549496e1f381d77097dee95",
+          "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+          "productContract": "0df9250fc3a51480e4749b0f98ef1c0e821fb6a475799ac15d235ea72c3b10ab"
+        },
+        "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
+        "harnesses": {
+          "bare": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+          "expo": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828"
+        },
+        "phases": [
+          "foundation",
+          "features",
+          "migration",
+          "advanced",
+          "runtime-reload",
+          "react"
+        ],
+        "assertionsPerMain": 29,
+        "assertionsPerBackground": 1,
+        "freshUniqueRunIds": 8,
+        "pairedProof": {
+          "path": "/private/tmp/xmtp-rn-hosted-39022250312-paired-proof.json",
+          "sha256": "8b5918449af38648800dae2891ee7dbdf05c24cadb6ae43adfd62be1717b6a98"
+        },
+        "limits": [
+          "Simulator/emulator execution only; no physical-device execution is claimed.",
+          "Background proof covers fresh React/SDK initialization in actual OS background and same-process foreground. It does not prove APNs delivery or system-triggered cold process wake.",
+          "The two-second shutdown/reload observation is bounded evidence, not a native callback drain barrier.",
+          "Raw report assertions do not provide per-step event logs or timings.",
+          "Release-versioned runtime and post-merge warm-cache admission remain separate gates.",
+          "No positive SCW or passkey wallet integration is claimed.",
+          "Canonical release app execution is separate from any native C++ ASan harness; it is not an instrumented-app claim."
+        ],
+        "reportAndAppIdentities": "verification.json nativeRuntime records both current artifacts, all eight report hashes/run IDs, new signed app content and toolchains."
+      }
+    },
+    "currentVersioned": {
+      "status": "passed",
+      "run": {
+        "id": 39076636069,
+        "head": "ff6c41e0c2659f5d9c5618cb6e45c1f30628d155",
+        "url": "https://github.com/xmtp/libxmtp/actions/runs/39076636069",
+        "conclusion": "success"
+      },
+      "version": "8.0.0-dev.ff6c41e",
+      "packageSha256": "0778562b9ccd1418d324fc42a0ca2fd3adcdc7352b9ed0e29c1f69def92a2cbb",
+      "assertions": 120,
+      "freshUniqueRunIds": 8,
+      "proof": "verification.json versionedPreview"
+    }
   },
   "siblingScenarioMechanics": {
     "status": "passed",
@@ -334,6 +378,10 @@
     ],
     "generatedRNTypecheck": "passed",
     "focusedOxlint": "passed",
-    "currentCanonicalProof": "/private/tmp/xmtp-rn-hosted-39022250312-paired-proof.json"
-  }
+    "currentCanonicalProof": "/private/tmp/xmtp-rn-cleanup-ff6c41e0c2/stable-runtime-index.json",
+    "historicalCanonicalProof": "/private/tmp/xmtp-rn-hosted-39022250312-paired-proof.json",
+    "currentVersionedProof": "/private/tmp/xmtp-rn-cleanup-ff6c41e0c2/versioned-runtime-index.json",
+    "historicalSensitivityScope": "The recorded HTTP regression and mutation commands retain their historical execution scope. Current positive reload execution is proved by the fresh stable and versioned installed reports."
+  },
+  "historicalMechanicsScope": "Sibling Node mechanics, isolated native callback/ASan checks, exploratory types and their mutations retain the original inputs and transports recorded below. The current fork is covered by the separate fresh installed baseline records."
 }
