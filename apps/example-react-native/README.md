@@ -5,13 +5,18 @@ A React Native example for iOS 26 and later and Android, built with Expo
 SwiftUI example in [`apps/example-ios`](../example-ios). The supported
 development targets are the iOS simulator and the Android emulator.
 
-This is the scaffold. Later changes add the screens.
+It covers joining a server, choosing and changing a handle, Chats, Message
+requests and Settings. The conversation, New message, Details and file
+screens are placeholders for now.
 
 ## Code structure
 
 - `app/` holds the expo-router routes. Each route renders a feature screen.
 - `src/core/` holds pure TypeScript values and policies, tested with `node --test`.
-- `src/platform/` wraps Expo modules and the local module in `modules/messenger-platform` (launch environment, file protection, backup exclusion, navigation subtitle).
+- `src/platform/` wraps Expo modules and the local module in `modules/messenger-platform` (launch environment, file protection, backup exclusion, navigation subtitle, row context menus).
+- `src/session/` runs the SDK client, the profile index and the stream readers.
+- `src/ui/` is the design system, measured against the iOS example.
+- `src/features/<feature>/` holds each screen with its store and its copy.
 - `ios/` and `android/` are committed native projects from the Expo bare template, edited by hand.
 
 ## Run locally
