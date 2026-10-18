@@ -55,6 +55,13 @@ jobs:
       contents: read
     secrets:
       CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+  lint_example_react_native:
+    if: contains(fromJSON(inputs.suites), 'lint_example_react_native')
+    uses: ./.github/workflows/lint-example-react-native.yml
+    permissions:
+      contents: read
+    secrets:
+      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
   required:
     name: Require selected suites
     if: always()
@@ -69,6 +76,7 @@ jobs:
     - lint_ios
     - lint_deny
     - lint_example_ios
+    - lint_example_react_native
     steps:
     - name: Check that every selected suite passed
       env:

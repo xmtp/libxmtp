@@ -93,6 +93,9 @@ build the products themselves.
 - `lint-example-ios.yml` owns example app lint. `test-example-ios.yml` owns
   the Debug and Push builds, unit tests, simulator journeys, and Nix launch.
   Keep both registered in `.github/ci-suites.yml`.
+- `lint-example-react-native.yml` owns the React Native example's typecheck,
+  Oxlint, Oxfmt and unit tests (`just example-react-native check` against the
+  JS-only SDK product). It runs on drafts. Native builds are local.
 - Benchmark workloads require an explicit command or a `workflow_dispatch`
   workflow. Do not include them in normal test suites or generated CI suites.
   `benchmark-example-android.yml` owns the manual Messenger benchmark.
