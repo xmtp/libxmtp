@@ -113,12 +113,26 @@ test("staging hands the copy to the SDK, removes it, and saves a waiting draft",
   const h = harness();
   const draft = await staged(h);
   assert.deepEqual(h.gateway.created, [
-    { path: "/temp/attachment-staging/notes.txt", filename: "notes.txt" },
+    {
+      path: "/temp/attachment-staging/notes.txt",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+    },
   ]);
-  assert.deepEqual(h.removed, ["/temp/attachment-staging/notes.txt"]);
+  // An extension outside the table takes the picker's MIME type.
+  await h.store.stage(
+    "/temp/attachment-staging/raw",
+    "raw.dng",
+    "image/x-adobe-dng",
+  );
+  assert.equal(h.gateway.created[1]?.mimeType, "image/x-adobe-dng");
+  assert.deepEqual(h.removed, [
+    "/temp/attachment-staging/notes.txt",
+    "/temp/attachment-staging/raw",
+  ]);
   assert.equal(draft.phase, "waiting");
   assert.equal(draft.conversationId, CONVERSATION);
-  assert.deepEqual(h.drafts.all(), [draft]);
+  assert.deepEqual(h.drafts.all()[0], draft);
 });
 
 test("a failed create still removes the staged copy and shows the error", async () => {
@@ -240,6 +254,66 @@ test("discarding during the upload keeps the send from queuing", async () => {
   assert.equal(h.conversation.queued.length, 0);
   assert.equal(h.gateway.discarded.length, 1);
   assert.deepEqual(h.drafts.all(), []);
+});
+
+/** Holds the next uploads until `gate` resolves. */
+function holdUploads(h: ReturnType<typeof harness>) {
+  const gate = deferred();
+  const upload = h.gateway.upload.bind(h.gateway);
+  h.gateway.upload = async (file) => {
+    await gate.promise;
+    return upload(file);
+  };
+  return gate;
+}
+
+test("a reload while the upload runs keeps it uploading, and its failure shows", async () => {
+  const h = harness();
+  const draft = await staged(h);
+  const gate = holdUploads(h);
+  const sending = h.store.send(draft.id);
+  // The chat regains focus, then a full load runs, during the upload.
+  h.store.reloadDrafts();
+  assert.equal(h.store.getState().drafts[0]?.phase, "uploading");
+  await h.store.load();
+  assert.equal(h.store.getState().drafts[0]?.phase, "uploading");
+  assert.equal(h.drafts.all()[0]?.phase, "uploading");
+  h.gateway.uploadError = attachmentError(false);
+  gate.resolve();
+  await sending;
+  assert.deepEqual(
+    [h.drafts.all()[0]?.phase, h.drafts.all()[0]?.retryable],
+    ["failed", false],
+  );
+  assert.equal(h.store.getState().drafts[0]?.phase, "failed");
+});
+
+test("a discard whose SDK delete fails still keeps the running send from queuing", async () => {
+  const h = harness();
+  const draft = await staged(h);
+  const gate = holdUploads(h);
+  h.gateway.discard = () => Promise.reject(attachmentError(true));
+  const sending = h.store.send(draft.id);
+  await h.store.discard(draft.id);
+  gate.resolve();
+  await sending;
+  assert.equal(h.conversation.queued.length, 0);
+  // The draft stays for another try.
+  assert.equal(h.drafts.all()[0]?.id, draft.id);
+});
+
+test("a discarded file the SDK still lists is not imported again", async () => {
+  const h = harness();
+  const draft = await staged(h);
+  // The SDK deleted its copy, but its pending list still names the file.
+  h.gateway.discard = (file) => {
+    h.gateway.discarded.push(file);
+    return Promise.resolve();
+  };
+  await h.store.discard(draft.id);
+  await h.store.load();
+  assert.deepEqual(h.drafts.all(), []);
+  assert.deepEqual(h.store.getState().drafts, []);
 });
 
 test("load imports SDK pending uploads as unassigned drafts and resets interrupted uploads", async () => {

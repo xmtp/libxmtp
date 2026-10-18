@@ -30,10 +30,11 @@ export class StagingTooLargeError extends Error {
   }
 }
 
-/** A file the user picked: a `file://` URI the app can read, and its name. */
+/** A file the user picked: a `file://` URI the app can read, its name and type. */
 export interface PickedFile {
   readonly uri: string;
   readonly name: string;
+  readonly mimeType?: string;
 }
 
 const UUID = /^[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}$/u;
@@ -128,7 +129,11 @@ export async function pickPhoto(): Promise<PickedFile | undefined> {
   });
   const asset = result.canceled ? undefined : result.assets[0];
   if (asset === undefined) return undefined;
-  return { uri: asset.uri, name: photoName(asset.fileName, asset.mimeType) };
+  return {
+    uri: asset.uri,
+    name: photoName(asset.fileName, asset.mimeType),
+    ...(asset.mimeType === undefined ? {} : { mimeType: asset.mimeType }),
+  };
 }
 
 /** "Files": any one document, or undefined when cancelled. */
@@ -140,7 +145,11 @@ export async function pickFile(): Promise<PickedFile | undefined> {
   });
   const asset = result.canceled ? undefined : result.assets[0];
   if (asset === undefined) return undefined;
-  return { uri: asset.uri, name: asset.name };
+  return {
+    uri: asset.uri,
+    name: asset.name,
+    ...(asset.mimeType === undefined ? {} : { mimeType: asset.mimeType }),
+  };
 }
 
 /** Copies a verified file to `<exports>/<uuid>/<name>` for Open or Save. */

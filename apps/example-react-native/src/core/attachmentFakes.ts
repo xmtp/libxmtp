@@ -67,7 +67,7 @@ export class FakeGateway implements AttachmentGateway {
   limit: bigint | undefined = 1_000_000n;
   /** SDK-held uploads that are not complete. */
   pendingFiles: RemoteAttachment[] = [];
-  created: { path: string; filename: string }[] = [];
+  created: { path: string; filename: string; mimeType: string }[] = [];
   uploads: RemoteAttachment[] = [];
   downloads: RemoteAttachment[] = [];
   discarded: RemoteAttachment[] = [];
@@ -82,8 +82,12 @@ export class FakeGateway implements AttachmentGateway {
     return this.limit;
   }
 
-  create(path: string, filename: string): Promise<RemoteAttachment> {
-    this.created.push({ path, filename });
+  create(
+    path: string,
+    filename: string,
+    mimeType: string,
+  ): Promise<RemoteAttachment> {
+    this.created.push({ path, filename, mimeType });
     if (this.createError !== undefined) return Promise.reject(this.createError);
     const file = remoteFile(filename);
     this.pendingFiles.push(file);

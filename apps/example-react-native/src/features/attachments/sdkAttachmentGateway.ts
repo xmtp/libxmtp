@@ -13,7 +13,6 @@ import {
   type FilePhase,
   type VerifiedFile,
   attachmentFailure,
-  mimeTypeFor,
   operationFailed,
 } from "@/core/attachments.ts";
 import type { AttachmentGateway } from "@/core/attachmentStore.ts";
@@ -77,7 +76,11 @@ export class SdkAttachmentGateway implements AttachmentGateway {
     }
   }
 
-  create(path: string, filename: string): Promise<RemoteAttachment> {
+  create(
+    path: string,
+    filename: string,
+    mimeType: string,
+  ): Promise<RemoteAttachment> {
     return mapped(
       async () =>
         (
@@ -85,7 +88,7 @@ export class SdkAttachmentGateway implements AttachmentGateway {
             kind: "path",
             path,
             filename,
-            mimeType: mimeTypeFor(filename),
+            mimeType,
           })
         ).remoteAttachment,
     );

@@ -59,7 +59,7 @@ async function stagePicked(
       attachmentServices(session).staging,
       limit,
     );
-    await store.stage(path, picked.name);
+    await store.stage(path, picked.name, picked.mimeType);
   } catch (error) {
     store.showError(failures.copy(error));
   } finally {
@@ -157,7 +157,7 @@ export function StagedAttachments({
   // Recovery may have discarded or assigned drafts while the chat was covered.
   useFocusEffect(
     useCallback(() => {
-      if (store.getState().loaded) void store.load();
+      if (store.getState().loaded) store.reloadDrafts();
     }, [store]),
   );
   const drafts = state.drafts.filter(

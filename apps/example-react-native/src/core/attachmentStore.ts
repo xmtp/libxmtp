@@ -21,6 +21,7 @@ import {
   VerifiedFileCache,
   AttachmentCopy,
   defaultCard,
+  mimeTypeFor,
   sameDraft,
   sameFile,
 } from "./attachments.ts";
@@ -36,7 +37,11 @@ export interface AttachmentGateway {
   /** The server's upload limit, or undefined when it offers no attachments. */
   capability(): bigint | undefined;
   /** Encrypts a staged file into the SDK's store (`attachments.create`). */
-  create(path: string, filename: string): Promise<RemoteAttachment>;
+  create(
+    path: string,
+    filename: string,
+    mimeType: string,
+  ): Promise<RemoteAttachment>;
   /** Uploads the SDK still holds (`attachments.listPending`). */
   pending(): Promise<RemoteAttachment[]>;
   /** Uploads and returns the final status phase. Throws `AttachmentError`. */
@@ -152,6 +157,19 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     }
   }
 
+  /**
+   * Re-reads the saved drafts only (`reloadDrafts`): no SDK import and no
+   * reset of interrupted uploads, so a running send keeps its phase. The chat
+   * calls it on focus, after recovery may have discarded or assigned a draft.
+   */
+  reloadDrafts(): void {
+    try {
+      this.#reloadDrafts();
+    } catch (error) {
+      this.#handleFailure(error, { kind: "other" });
+    }
+  }
+
   #reloadDrafts(): void {
     const drafts = this.#ports.drafts.all();
     this.#apply((state) => ({ ...state, drafts }));
@@ -191,7 +209,10 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
       await this.#reconcileAccepted(saved);
       if (!this.#ports.acceptsSession()) return;
       const current = drafts.all().map((draft) => {
-        if (draft.phase !== "uploading") return draft;
+        // An upload this store is still running was not interrupted.
+        if (draft.phase !== "uploading" || this.#activeSends.has(draft.id)) {
+          return draft;
+        }
         const waiting: FileDraft = { ...draft, phase: "waiting" };
         drafts.save(waiting);
         return waiting;
@@ -210,8 +231,15 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     }
   }
 
-  /** Hands a staged copy to the SDK and saves it as a draft of this chat. */
-  async stage(path: string, filename: string): Promise<void> {
+  /**
+   * Hands a staged copy to the SDK and saves it as a draft of this chat. The
+   * MIME type comes from the name, else the picker's type (`pickerType`).
+   */
+  async stage(
+    path: string,
+    filename: string,
+    pickerType?: string,
+  ): Promise<void> {
     try {
       try {
         if (
@@ -221,7 +249,11 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
         ) {
           throw new SendError("stale");
         }
-        const file = await this.#ports.gateway.create(path, filename);
+        const file = await this.#ports.gateway.create(
+          path,
+          filename,
+          mimeTypeFor(filename, pickerType),
+        );
         if (!this.#ports.admit()) return;
         const draft: FileDraft = {
           id: this.#ports.newId(),
