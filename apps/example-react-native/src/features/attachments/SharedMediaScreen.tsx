@@ -278,8 +278,10 @@ const styles = StyleSheet.create({
   grid: { flex: 1, gap: GRID_SPACING },
   gridRow: { alignItems: "center", flexDirection: "row", gap: GRID_SPACING },
   mediaCard: { alignItems: "flex-start", gap: 8 },
-  // An HStack: both texts shrink and wrap in place; the line never wraps.
+  // An HStack: the line never wraps, and a text wraps in place. SwiftUI
+  // breaks a text only between words, so the one-word sender keeps its
+  // width and the date wraps; Yoga would shrink both and split the handle.
   byline: { alignItems: "center", flexDirection: "row", gap: 8 },
   date: { flexShrink: 1 },
-  sender: { flexShrink: 1 },
+  sender: { flexShrink: 0, maxWidth: "100%" },
 });
