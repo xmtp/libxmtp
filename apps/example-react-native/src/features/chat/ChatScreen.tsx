@@ -23,7 +23,7 @@ import { ChatHeader } from "@/features/chat/ChatHeader";
 import { ChatRuntime } from "@/features/chat/chatRuntime";
 import { Composer } from "@/features/chat/Composer";
 import { chatCopy } from "@/features/chat/copy";
-import { MessageList } from "@/features/chat/MessageList";
+import { MessageList, scrollToLatest } from "@/features/chat/MessageList";
 import { RequestBar } from "@/features/chat/RequestBar";
 import { type ActiveSession, useActiveSession } from "@/session";
 import { useColors } from "@/ui/colors";
@@ -212,9 +212,7 @@ function ChatSessionScreen({
             style={styles.jump}
             onPress={() => {
               void runtime.timeline.newest();
-              void listRef.current?.scrollToEnd({
-                animated: !motion.reduceMotion,
-              });
+              scrollToLatest(listRef.current, !motion.reduceMotion);
             }}
           />
         ) : null}

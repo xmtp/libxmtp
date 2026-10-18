@@ -122,7 +122,15 @@ export function MessageList({
     [conversationId],
   );
 
-  // A restored reading position scrolls its row to the center.
+  // Visibility before the initial scroll finished (rows at the top of the
+  // page) must not become the reading anchor: hold it until `onReady`.
+  const ready = useRef(false);
+  const pendingVisible = useRef<readonly string[]>([]);
+  const onVisibleRef = useRef(onVisible);
+  onVisibleRef.current = onVisible;
+
+  // A restored reading position scrolls its row to the center, then reports
+  // what is visible: a list that did not move reports no change itself.
   const targetIndex =
     state.target === undefined
       ? -1
@@ -133,11 +141,15 @@ export function MessageList({
   useEffect(() => {
     // Once per new target.
     if (state.targetRevision === 0 || targetRef.current < 0) return;
-    void listRef.current?.scrollToIndex({
-      index: targetRef.current,
-      viewPosition: 0.5,
-      animated: false,
-    });
+    void listRef.current
+      ?.scrollToIndex({
+        index: targetRef.current,
+        viewPosition: 0.5,
+        animated: false,
+      })
+      .then(() => {
+        if (ready.current) onVisibleRef.current(pendingVisible.current);
+      });
   }, [state.targetRevision, listRef]);
 
   // New last row while following: scroll to it (`proxy.scrollTo("latest")`).
@@ -149,13 +161,9 @@ export function MessageList({
     if (previousLast.current === lastId) return;
     previousLast.current = lastId;
     if (!followRef.current) return;
-    void listRef.current?.scrollToEnd({ animated: !reduceMotion });
+    scrollToLatest(listRef.current, !reduceMotion);
   }, [lastId, listRef, reduceMotion]);
 
-  // Visibility before the initial scroll finished (rows at the top of the
-  // page) must not become the reading anchor: hold it until `onReady`.
-  const ready = useRef(false);
-  const pendingVisible = useRef<readonly string[]>([]);
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken<ChatMessage>[] }) => {
       const ids = viewableItems
@@ -243,8 +251,17 @@ function PageButtons({ state }: { readonly state: TimelineState }) {
 
 const styles = StyleSheet.create({
   list: { flex: 1 },
-  content: { paddingBottom: 16, paddingHorizontal: 16 },
+  // LazyVStack spacing 10 + the 1 pt "latest" sentinel + 16 pt padding.
+  content: { paddingBottom: 27, paddingHorizontal: 16 },
   spaced: { paddingTop: 10 },
   separator: { paddingBottom: 22, paddingTop: 12 },
   pageButtons: { alignItems: "center", gap: 10 },
 });
+
+/** `proxy.scrollTo("latest", anchor: .bottom)`: the end of the list. */
+export function scrollToLatest(
+  list: LegendListRef | null,
+  animated: boolean,
+): void {
+  void list?.scrollToEnd({ animated });
+}
