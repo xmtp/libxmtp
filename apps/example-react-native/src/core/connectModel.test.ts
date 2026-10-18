@@ -263,3 +263,21 @@ test("an address change clears the token and the token requirement", async () =>
   assert.equal(h.model.getState().token, "");
   assert.equal(h.model.getState().requiresToken, false);
 });
+
+test("Connect appearing again keeps the address and server name and clears the token (one ConnectStore per app)", async () => {
+  const h = harness();
+  h.answers = [true, true];
+  h.model.appear();
+  h.model.setAddress("https://other.example.com");
+  h.model.setServerName("Local box");
+  await settle();
+  h.model.setToken("fixture-token");
+  // Sign out or Delete local data: the screen closes and opens again.
+  h.model.dispose();
+  h.model.appear();
+  const state = h.model.getState();
+  assert.equal(state.address, "https://other.example.com");
+  assert.equal(state.serverName, "Local box");
+  assert.equal(state.token, "");
+  assert.equal(state.joining, false);
+});

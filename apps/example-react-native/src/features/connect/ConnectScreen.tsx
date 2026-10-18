@@ -19,15 +19,13 @@ import Animated, {
 import { connectToAddress } from "@/core/backendUrl.ts";
 import { canJoin } from "@/core/connectModel.ts";
 import {
+  connectModel,
   continueReset,
-  createConnectModel,
-  DEFAULT_BACKEND_URL,
   deleteLocalData,
   retryRestore,
 } from "@/features/connect/connectStore";
 import { connectCopy } from "@/features/connect/copy";
 import { Logo } from "@/features/connect/Logo";
-import { launchEnvironment } from "@/platform/messengerPlatform";
 import { useSessionState } from "@/session";
 import { ActionFooter } from "@/ui/ActionFooter";
 import { useColors } from "@/ui/colors";
@@ -51,9 +49,7 @@ export function ConnectScreen() {
   const palette = useColors();
   const session = useSessionState();
   const motion = useMotion();
-  const [model] = useState(() =>
-    createConnectModel(launchEnvironment().backendUrl ?? DEFAULT_BACKEND_URL),
-  );
+  const model = connectModel();
   useEffect(() => {
     model.appear();
     return () => {
