@@ -9,7 +9,11 @@ import type {
 
 export type { GlassMenuButtonProps, GlassMenuItem };
 
-/** Android: an icon button that lists the items in an alert. */
+/**
+ * Android: an icon button that lists the items in an alert. An Android alert
+ * shows at most three buttons, so Cancel is left out when the items fill them;
+ * a tap outside or Back still dismisses it (`cancelable`).
+ */
 export function GlassMenuButton({
   systemImage,
   accessibilityLabel,
@@ -25,10 +29,18 @@ export function GlassMenuButton({
       testID={testID}
       style={style}
       onPress={() => {
-        Alert.alert(accessibilityLabel, undefined, [
-          ...items.map((item) => ({ text: item.title, onPress: item.onPress })),
-          { text: commonCopy.cancel, style: "cancel" as const },
-        ]);
+        const buttons = items.map((item) => ({
+          text: item.title,
+          onPress: item.onPress,
+        }));
+        Alert.alert(
+          accessibilityLabel,
+          undefined,
+          buttons.length >= 3
+            ? buttons
+            : [...buttons, { text: commonCopy.cancel, style: "cancel" }],
+          { cancelable: true },
+        );
       }}
     />
   );
