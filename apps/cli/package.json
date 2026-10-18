@@ -60,10 +60,10 @@
   },
   "dependencies": {
     "@oclif/core": "^4.8.0",
-    "@oclif/plugin-autocomplete": "^3.2.40",
-    "@oclif/plugin-help": "^6.2.37",
+    "@oclif/plugin-autocomplete": "^4.0.4",
+    "@oclif/plugin-help": "^7.0.4",
     "@oclif/plugin-not-found": "^3.2.74",
-    "@oclif/plugin-warn-if-update-available": "^3.1.55",
+    "@oclif/plugin-warn-if-update-available": "^4.0.3",
     "@xmtp/node-sdk": "workspace:*",
     "viem": "catalog:"
   },
