@@ -38,6 +38,11 @@ interface RowExtra {
 
 const viewability = { itemVisiblePercentThreshold: 50 } as const;
 
+/** Re-centering waits for a burst of row size changes to end. */
+const SETTLE_DELAY_MS = 50;
+/** How long after a restore row size changes still re-center its row. */
+const SETTLE_WINDOW_MS = 1000;
+
 /**
  * The bottom-anchored timeline (`ChatContentView` ScrollView): the older and
  * pending page buttons on top, a date separator above the first row and at
@@ -138,24 +143,47 @@ export function MessageList({
   const initialTarget = useRef(targetIndex);
   const targetRef = useRef(targetIndex);
   targetRef.current = targetIndex;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  // Bubbles inside the SwiftUI context menu take their size a layout after
+  // the list placed them, which pushes the centered row down. Until the rows
+  // settle (or the user scrolls), center the row again after size changes,
+  // and report what is visible only once it is centered.
+  const followRef = useRef(state.atNewest);
+  followRef.current = state.atNewest;
+  const settleId = useRef(state.target);
+  // Before `onReady` the window has not started (Infinity); 0 when settled.
+  const settleUntil = useRef(initialTarget.current < 0 ? 0 : Infinity);
+  const settleTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const center = useCallback(() => {
+    clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(() => {
+      const index = messagesRef.current.findIndex(
+        (row) => row.id === settleId.current,
+      );
+      // Jump to latest or a scroll ended the restore.
+      if (index < 0 || followRef.current || settleUntil.current === 0) return;
+      void listRef.current
+        ?.scrollToIndex({ index, viewPosition: 0.5, animated: false })
+        .then(() => {
+          if (ready.current) onVisibleRef.current(pendingVisible.current);
+        });
+    }, SETTLE_DELAY_MS);
+  }, [listRef]);
+  useEffect(() => () => clearTimeout(settleTimer.current), []);
   useEffect(() => {
     // Once per new target.
     if (state.targetRevision === 0 || targetRef.current < 0) return;
-    void listRef.current
-      ?.scrollToIndex({
-        index: targetRef.current,
-        viewPosition: 0.5,
-        animated: false,
-      })
-      .then(() => {
-        if (ready.current) onVisibleRef.current(pendingVisible.current);
-      });
-  }, [state.targetRevision, listRef]);
+    settleId.current = messagesRef.current[targetRef.current]?.id;
+    settleUntil.current = Date.now() + SETTLE_WINDOW_MS;
+    center();
+  }, [state.targetRevision, center]);
+  const onItemSizeChanged = useCallback(() => {
+    if (Date.now() < settleUntil.current) center();
+  }, [center]);
 
   // New last row while following: scroll to it (`proxy.scrollTo("latest")`).
   const lastId = messages.at(-1)?.id;
-  const followRef = useRef(state.atNewest);
-  followRef.current = state.atNewest;
   const previousLast = useRef(lastId);
   useEffect(() => {
     if (previousLast.current === lastId) return;
@@ -171,14 +199,19 @@ export function MessageList({
         .sort((left, right) => left.index - right.index)
         .map((token) => token.item.id);
       pendingVisible.current = ids;
-      if (ready.current) onVisible(ids);
+      if (ready.current && Date.now() >= settleUntil.current) onVisible(ids);
     },
     [onVisible],
   );
   const onReady = useCallback(() => {
     ready.current = true;
+    if (settleUntil.current === Infinity) {
+      settleUntil.current = Date.now() + SETTLE_WINDOW_MS;
+      center();
+      return;
+    }
     onVisible(pendingVisible.current);
-  }, [onVisible]);
+  }, [center, onVisible]);
 
   return (
     <LegendList
@@ -206,6 +239,10 @@ export function MessageList({
       viewabilityConfig={viewability}
       onViewableItemsChanged={onViewableItemsChanged}
       onReady={onReady}
+      onItemSizeChanged={onItemSizeChanged}
+      onScrollBeginDrag={() => {
+        settleUntil.current = 0;
+      }}
       onLayout={() => {
         // A list that grows (Jump to latest hides) stays at the latest row.
         if (followRef.current && ready.current) {
