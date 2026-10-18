@@ -8,7 +8,7 @@ import {
   sessionController,
   startSession,
 } from "@/session/runtime";
-import { useStore } from "@/session/useStore";
+import { useStore } from "@/ui/useStore";
 
 /**
  * Starts the session (storage, restore, app lifecycle) and provides the open

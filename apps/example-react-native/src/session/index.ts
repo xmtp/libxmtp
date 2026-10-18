@@ -21,4 +21,4 @@ export {
   isIdentityNotFound,
   probeBackend,
 } from "@/session/sdkClients";
-export { useStore } from "@/session/useStore";
+export { useStore } from "@/ui/useStore";
