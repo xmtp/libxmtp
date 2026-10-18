@@ -1,0 +1,43 @@
+/**
+ * New message strings (`Features/NewConversation/NewConversation.xcstrings`,
+ * `NewConversationView.swift`). Store copy lives in `@/core/newConversation.ts`.
+ */
+export const newConversationCopy = {
+  newMessage: "New message",
+  newGroup: "New group",
+  step1: "Step 1 of 2",
+  step2: "Step 2 of 2",
+  cancel: "Cancel",
+  next: "Next",
+  back: "Back",
+  create: "Create",
+  conversationType: "Conversation type",
+  directMessage: "Direct message",
+  group: "Group",
+  to: "To:",
+  remove: (label: string) => "Remove " + label,
+  inputPlaceholder: "Handle, Ethereum address, or inbox ID",
+  add: "Add",
+  groupHint: "Separate multiple people with commas.",
+  dmHint: "Enter one handle, Ethereum address, or inbox ID.",
+  limitHint: (maximum: number) =>
+    "A handle can start with @. Up to " +
+    String(Math.max(0, maximum)) +
+    " members, including you.",
+  peopleHeader: "People from your chats",
+  peopleSaved: "Saved on this device",
+  retry: "Retry",
+  makeItYours: "Make it your group",
+  groupName: "Group name",
+  groupDescription: "Description (optional)",
+  groupFallbackName: "Group",
+  members: (count: number) => "Members · " + String(count),
+  you: "You",
+  changePeople: "Change people",
+  permissionsHeader: "Group permissions",
+  allMembers: "All members",
+  allMembersDetail: "Members can update group details and add people.",
+  adminsOnly: "Admins only",
+  adminsOnlyDetail: "Only admins can update group details and add people.",
+  permissionsFooter: "You can change this later in the group details.",
+} as const;

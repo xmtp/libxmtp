@@ -129,6 +129,8 @@ export interface RowSeparatorProps {
 export interface FormSectionProps {
   /** Sentence-case header (`Section { } header: { Text(...) }`). */
   header?: string;
+  /** Trailing header content (New message "Saved on this device"). */
+  headerTrailing?: ReactNode;
   /** Footnote text under the section. */
   footer?: ReactNode;
   children?: ReactNode;
@@ -151,6 +153,7 @@ function separatorInsetOf(child: ReactNode): number {
 /** One inset-grouped section: header, rows with separators, footer. */
 export function FormSection({
   header,
+  headerTrailing,
   footer,
   children,
   plain = false,
@@ -179,7 +182,7 @@ export function FormSection({
         },
         style,
       ]}>
-      {header === undefined ? null : (
+      {header === undefined ? null : headerTrailing === undefined ? (
         <Text
           variant="headline"
           color="secondaryLabel"
@@ -187,6 +190,17 @@ export function FormSection({
           style={styles.header}>
           {header}
         </Text>
+      ) : (
+        <View style={[styles.header, styles.headerRow]}>
+          <Text
+            variant="headline"
+            color="secondaryLabel"
+            accessibilityRole="header"
+            style={styles.headerTitle}>
+            {header}
+          </Text>
+          {headerTrailing}
+        </View>
       )}
       <View
         style={[
@@ -319,6 +333,8 @@ export function FormRow({
 const styles = StyleSheet.create({
   section: { paddingHorizontal: form.margin },
   header: { marginBottom: headerGap, marginHorizontal: form.rowInset },
+  headerRow: { alignItems: "center", flexDirection: "row", gap: 8 },
+  headerTitle: { flex: 1 },
   card: {
     borderCurve: "continuous",
     borderRadius: form.sectionRadius,
