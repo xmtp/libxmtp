@@ -292,6 +292,16 @@ export interface TextFieldRowProps extends TextInputProps, RowSeparatorProps {
   ref?: Ref<ComponentRef<typeof TextInput>>;
 }
 
+/**
+ * Single-line fields truncate a long placeholder at the tail, like UIKit.
+ * Fabric reuses native text input views, and a reused multiline view (the
+ * chat composer) leaves the placeholder label word-wrapping: it clips at a
+ * word with no ellipsis ("…, or inbox"). A tail line break mode resets it.
+ * React Native skips the update when a reused view's text attributes differ
+ * only in this mode, so every single-line body field sets it.
+ */
+export const singleLineBreakMode = "tail";
+
 /** A `TextField` row in body text with the system placeholder color. */
 export function TextFieldRow({ style, ref, ...props }: TextFieldRowProps) {
   const palette = useColors();
@@ -301,6 +311,8 @@ export function TextFieldRow({ style, ref, ...props }: TextFieldRowProps) {
         ref={ref}
         placeholderTextColor={palette.placeholderText}
         selectionColor={palette.tint}
+        // See `singleLineBreakMode`.
+        lineBreakModeIOS={singleLineBreakMode}
         {...props}
         style={[fontOf("body"), styles.field, { color: palette.label }, style]}
       />

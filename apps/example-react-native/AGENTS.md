@@ -86,6 +86,10 @@ package of a merged revision whose SDK content matches:
   list) use `PopoverConfirmation`. SwiftUI `.alert`s use `AlertDialog`, so
   Cancel and default buttons take the app tint; React Native's
   `showAlert` (UIAlertController) draws them in the label color.
+- A single-line `TextInput` in body text sets
+  `lineBreakModeIOS={singleLineBreakMode}` (`TextFieldRow` does): Fabric
+  reuses native text input views, and a reused multiline view leaves a long
+  placeholder clipped at a word with no ellipsis.
 - Text that wraps uses `WrappedText` (SwiftUI's wrapped line height once
   it wraps) or `BubbleText` in message bubbles. Inside a List or Form keep
   the default; elsewhere (scroll views, cards) pass `leading="standard"`.

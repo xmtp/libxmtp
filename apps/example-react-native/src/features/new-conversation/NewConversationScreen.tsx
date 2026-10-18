@@ -18,6 +18,7 @@ import {
 import { useScrollEdge } from "@/features/new-conversation/scrollEdge";
 import { useColors } from "@/ui/colors";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
+import { singleLineBreakMode } from "@/ui/FormRows";
 import { GlassButton } from "@/ui/GlassButton";
 import { SegmentedPicker } from "@/ui/SegmentedPicker";
 import { Text } from "@/ui/Text";
@@ -162,6 +163,7 @@ function ChoosePeople({
             autoCorrect={false}
             spellCheck={false}
             numberOfLines={1}
+            lineBreakModeIOS={singleLineBreakMode}
             style={[fontOf("body"), styles.input, { color: palette.label }]}
           />
           <GlassButton
