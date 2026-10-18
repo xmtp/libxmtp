@@ -78,7 +78,9 @@ measured against the iOS example's screenshots on an iOS 27 iPhone 17 Pro.
 - List rows with a long-press menu use `ContextMenu` (a UIKit context menu
   in `modules/messenger-platform`; Android renders the children only).
   Confirmations that SwiftUI shows as popovers (`.confirmationDialog` on a
-  list) use `PopoverConfirmation`; alerts and other dialogs use `dialogs.ts`.
+  list) use `PopoverConfirmation`. SwiftUI `.alert`s use `AlertDialog`, so
+  Cancel and default buttons take the app tint; React Native's
+  `showAlert` (UIAlertController) draws them in the label color.
 - Text that wraps uses `WrappedText` (SwiftUI's wrapped line height once
   it wraps) or `BubbleText` in message bubbles. Inside a List or Form keep
   the default; elsewhere (scroll views, cards) pass `leading="standard"`.

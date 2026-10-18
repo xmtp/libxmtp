@@ -19,6 +19,7 @@ import { handleCopy } from "@/features/handles/copy";
 import { useHandleModel } from "@/features/handles/useHandleModel";
 import { type ActiveSession, useActiveSession } from "@/session";
 import { ActionFooter } from "@/ui/ActionFooter";
+import { AlertDialog } from "@/ui/AlertDialog";
 import { useColors } from "@/ui/colors";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
 import { TextFieldRow } from "@/ui/FormRows";
@@ -42,7 +43,7 @@ export function ChangeHandleScreen() {
 
 function ChangeHandle({ session }: { readonly session: ActiveSession }) {
   const palette = useColors();
-  const { model, state } = useHandleModel(session, "change");
+  const { model, state, confirmation } = useHandleModel(session, "change");
   const editable = isEditable(state);
   // The form scrolls under the footer, like `.safeAreaInset(edge: .bottom)`.
   const [footerHeight, setFooterHeight] = useState(0);
@@ -227,6 +228,7 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
           />
         </ActionFooter>
       </View>
+      <AlertDialog {...confirmation} />
     </View>
   );
 }

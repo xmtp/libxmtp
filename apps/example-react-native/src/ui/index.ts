@@ -10,6 +10,11 @@ export {
   useReduceTransparency,
 } from "@/ui/accessibility";
 export { ActionFooter, type ActionFooterProps } from "@/ui/ActionFooter";
+export {
+  AlertDialog,
+  type AlertDialogProps,
+  type AlertDialogRequest,
+} from "@/ui/AlertDialog";
 export { Avatar, type AvatarProps } from "@/ui/Avatar";
 export {
   Bubble,

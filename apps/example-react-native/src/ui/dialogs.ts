@@ -8,7 +8,10 @@ export interface AlertButton {
   onPress?: () => void;
 }
 
-/** A system alert (SwiftUI `.alert`): UIAlertController on iOS. */
+/**
+ * A system alert: UIAlertController on iOS, which draws Cancel and default
+ * buttons in the label color. `AlertDialog` matches SwiftUI's tinted ones.
+ */
 export function showAlert(
   title: string,
   message?: string,
