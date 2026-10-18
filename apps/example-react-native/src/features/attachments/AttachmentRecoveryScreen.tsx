@@ -3,42 +3,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { type FileDraft, AttachmentCopy } from "@/core/attachments.ts";
-import { conversationTitle } from "@/core/titles.ts";
 import { createAttachmentStore } from "@/features/attachments/attachmentServices";
 import { recoveryCopy } from "@/features/attachments/copy";
-import { chatServices } from "@/features/chat/chatServices";
+import { RecoveryChatsStore } from "@/features/attachments/recoveryChatsStore";
 import { type ActiveSession, useActiveSession } from "@/session";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
 import { GlassButton } from "@/ui/GlassButton";
 import { Symbol } from "@/ui/Symbol";
 import { Text } from "@/ui/Text";
 import { useStore } from "@/ui/useStore";
-
-interface ChatChoice {
-  readonly id: string;
-  readonly title: string;
-}
-
-/** The allowed chats (the first 50), for "Assign to <chat>". */
-async function chatChoices(session: ActiveSession): Promise<ChatChoice[]> {
-  const { queries } = chatServices(session);
-  const conversations = await session.client.conversations.list({
-    consentStates: ["allowed"],
-    limit: 50,
-  });
-  return Promise.all(
-    conversations.map(async (conversation) => {
-      const record = await queries.conversation(conversation.id);
-      return {
-        id: conversation.id,
-        title: conversationTitle(
-          record,
-          session.preferences.alias(conversation.id),
-        ),
-      };
-    }),
-  );
-}
 
 function draftStatus(draft: FileDraft): string {
   if (draft.phase === "unknown") return recoveryCopy.unknown;
@@ -65,9 +38,11 @@ function RecoveryList({ session }: { readonly session: ActiveSession }) {
       allowed: () => false,
     }),
   );
+  const [choices] = useState(
+    () => new RecoveryChatsStore(session, () => mounted.current),
+  );
   const state = useStore(store);
-  const [chats, setChats] = useState<readonly ChatChoice[]>([]);
-  const [failure, setFailure] = useState<string>();
+  const { chats } = useStore(choices);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -83,16 +58,8 @@ function RecoveryList({ session }: { readonly session: ActiveSession }) {
     (draft) => draft.conversationId === undefined,
   );
   useEffect(() => {
-    if (!needsChats) return;
-    chatChoices(session).then(
-      (choices) => {
-        if (mounted.current && session.isCurrent()) setChats(choices);
-      },
-      () => {
-        if (mounted.current) setFailure(recoveryCopy.loadFailed);
-      },
-    );
-  }, [needsChats, session]);
+    if (needsChats) void choices.load();
+  }, [needsChats, choices]);
 
   return (
     <FormScreen testID="attachment-recovery">
@@ -161,18 +128,11 @@ function RecoveryList({ session }: { readonly session: ActiveSession }) {
           </FormRow>
         </FormSection>
       ) : null}
-      {state.error === undefined && failure === undefined ? null : (
+      {state.error === undefined ? null : (
         <FormSection>
-          {state.error === undefined ? null : (
-            <FormRow>
-              <Text color="systemRed">{state.error}</Text>
-            </FormRow>
-          )}
-          {failure === undefined ? null : (
-            <FormRow>
-              <Text>{failure}</Text>
-            </FormRow>
-          )}
+          <FormRow>
+            <Text color="systemRed">{state.error}</Text>
+          </FormRow>
         </FormSection>
       )}
     </FormScreen>
