@@ -75,7 +75,8 @@ const symbolBoxRatio = 1.18;
  * multiples: `box` sizes the glyph, `width` and `height` its layout box.
  * Measured on iOS 27: a body `doc.on.doc` row is 53.7 pt (not 52), a
  * large-title `bubble.left.and.bubble.right` is 49 x 38 pt, and a title3
- * `person.badge.plus` makes the Details shortcut tile 70.3 pt tall.
+ * `person.badge.plus` makes the Details shortcut tile 70.3 pt tall, and a
+ * title3 `tray` is 23 pt wide in a 28.8 pt frame.
  * `layout` keeps a larger glyph from growing its row: the glyph overhangs a
  * layout box of that height, like the body-size `rectangle.portrait.and.
  * arrow.right` (19.3 x 18 pt) and `trash` (16 x 18.7 pt) Settings rows,
@@ -92,6 +93,8 @@ const symbolMetrics: Partial<
   trash: { box: 1.29, layout: 1.18 },
   "bubble.left.and.bubble.right": { box: 1.5, width: 1.5, height: 1.32 },
   "person.badge.plus": { box: 1.18, height: 1.25 },
+  // A title3 `tray` is 23 pt wide; the Chats requests text starts 56.8 pt in.
+  tray: { box: 1.32, width: 1.44, height: 1.18 },
 };
 
 export interface SymbolProps {

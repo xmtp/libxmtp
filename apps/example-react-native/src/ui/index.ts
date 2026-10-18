@@ -30,6 +30,11 @@ export {
   type ConnectionBannerProps,
 } from "@/ui/ConnectionBanner";
 export {
+  ContextMenu,
+  type ContextMenuItem,
+  type ContextMenuProps,
+} from "@/ui/ContextMenu";
+export {
   ContentUnavailable,
   type ContentUnavailableProps,
 } from "@/ui/ContentUnavailable";
@@ -96,6 +101,11 @@ export {
   type PlaceholderScreenProps,
 } from "@/ui/PlaceholderScreen";
 export { PlainListRow, type PlainListRowProps } from "@/ui/PlainListRow";
+export {
+  PopoverConfirmation,
+  type PopoverConfirmationProps,
+  type PopoverConfirmationRequest,
+} from "@/ui/PopoverConfirmation";
 export {
   type SegmentedOption,
   SegmentedPicker,

@@ -54,5 +54,12 @@ public final class MessengerPlatformModule: Module {
                 view.largeSubtitle = largeSubtitle
             }
         }
+
+        View(ContextMenuView.self) {
+            Events("onSelect")
+            Prop("items") { (view, items: [ContextMenuItem]) in
+                view.items = items
+            }
+        }
     }
 }

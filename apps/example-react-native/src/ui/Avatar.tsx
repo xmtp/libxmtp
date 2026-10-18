@@ -1,5 +1,11 @@
 import { useMemo } from "react";
-import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
+import {
+  type LayoutChangeEvent,
+  type StyleProp,
+  StyleSheet,
+  View,
+  type ViewStyle,
+} from "react-native";
 
 import { avatarPaletteIndex } from "@/core/avatar.ts";
 import { useBodyScale } from "@/ui/accessibility";
@@ -17,6 +23,11 @@ export interface AvatarProps {
   monospaced?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
+  /**
+   * The initials' frame inside the circle. A SwiftUI list row starts its
+   * separator at the first text, which is the avatar's initials.
+   */
+  onLabelLayout?: (event: LayoutChangeEvent) => void;
 }
 
 /**
@@ -31,6 +42,7 @@ export function Avatar({
   monospaced = false,
   style,
   testID,
+  onLabelLayout,
 }: AvatarProps) {
   const fontScale = useBodyScale();
   const colors = useMemo(() => avatarPalette[avatarPaletteIndex(seed)], [seed]);
@@ -54,7 +66,8 @@ export function Avatar({
         variant="headline"
         monospaced={monospaced}
         color={colors.foreground}
-        numberOfLines={1}>
+        numberOfLines={1}
+        onLayout={onLabelLayout}>
         {label}
       </Text>
     </View>
