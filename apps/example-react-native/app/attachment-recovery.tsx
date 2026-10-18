@@ -1,11 +1,5 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { AttachmentRecoveryScreen } from "@/features/attachments/AttachmentRecoveryScreen";
 
 export default function AttachmentRecoveryRoute() {
-  return (
-    <PlaceholderScreen
-      title={routeTitles.attachmentRecovery}
-      route="attachment-recovery"
-    />
-  );
+  return <AttachmentRecoveryScreen />;
 }
