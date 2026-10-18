@@ -293,16 +293,19 @@ const styles = StyleSheet.create({
   previewStacked: { alignItems: "stretch", flexDirection: "column" },
   details: { alignItems: "center", flexDirection: "row", gap: 10 },
   detailsInline: { flex: 1 },
+  // The symbol is not clipped: at accessibility sizes it outgrows the box, as in SwiftUI.
   icon: {
     alignItems: "center",
-    borderCurve: "continuous",
-    borderRadius: 10,
     height: 44,
     justifyContent: "center",
-    overflow: "hidden",
     width: 44,
   },
-  iconFill: { ...StyleSheet.absoluteFill, opacity: 0.1 },
+  iconFill: {
+    ...StyleSheet.absoluteFill,
+    borderCurve: "continuous",
+    borderRadius: 10,
+    opacity: 0.1,
+  },
   text: { flexShrink: 1, gap: 3 },
   actions: { alignItems: "center", flexDirection: "row", gap: 8 },
   actionsStacked: { alignSelf: "flex-end" },
