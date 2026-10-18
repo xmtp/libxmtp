@@ -83,6 +83,7 @@ function AddMemberForm({
         title={detailsCopy.add}
         placement="right"
         prominent
+        confirmation
         disabled={state.recipient === undefined || state.busy}
         onPress={() => {
           submitted.current = true;

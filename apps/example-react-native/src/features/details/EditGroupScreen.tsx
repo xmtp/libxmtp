@@ -59,6 +59,7 @@ function EditGroupForm({
         title={detailsCopy.save}
         placement="right"
         prominent
+        confirmation
         onPress={() => {
           store.send({
             kind: "mutate",

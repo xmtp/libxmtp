@@ -30,16 +30,23 @@ export function ToolbarTextButton({
  * direct `Stack.Toolbar.*` children.
  */
 export function toolbarTextItem(
-  { title, prominent = false, disabled = false, onPress }: ToolbarTextItemProps,
+  {
+    title,
+    prominent = false,
+    confirmation = false,
+    disabled = false,
+    onPress,
+  }: ToolbarTextItemProps,
   palette: Palette,
 ) {
+  const weight = confirmation ? ({ fontWeight: "600" } as const) : {};
   // SwiftUI draws the prominent title in black in dark mode.
   const style = prominent
     ? ({
         variant: "prominent",
-        style: { color: palette.onTintToolbar },
+        style: { color: palette.onTintToolbar, ...weight },
       } as const)
-    : {};
+    : { style: weight };
   return (
     <Stack.Toolbar.Button
       key={title}

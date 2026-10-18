@@ -30,7 +30,13 @@ export function ToolbarTextButton({
  * iOS signature; labels take palette names here.
  */
 export function toolbarTextItem(
-  { title, prominent = false, disabled = false, onPress }: ToolbarTextItemProps,
+  {
+    title,
+    prominent = false,
+    confirmation = false,
+    disabled = false,
+    onPress,
+  }: ToolbarTextItemProps,
   _palette?: Palette,
 ) {
   return (
@@ -44,7 +50,7 @@ export function toolbarTextItem(
         style={styles.button}
         onPress={onPress}>
         <Text
-          variant={prominent ? "headline" : "body"}
+          variant={prominent || confirmation ? "headline" : "body"}
           color={disabled ? "tertiaryLabel" : "tint"}>
           {title}
         </Text>
