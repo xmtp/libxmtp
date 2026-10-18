@@ -1,6 +1,3 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { ConnectScreen } from "@/features/connect/ConnectScreen";
 
-export default function ConnectRoute() {
-  return <PlaceholderScreen title={routeTitles.connect} route="connect" />;
-}
+export default ConnectScreen;
