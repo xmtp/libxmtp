@@ -5,7 +5,7 @@ import {
   type Theme,
 } from "expo-router/react-navigation";
 import { useMemo } from "react";
-import { useColorScheme } from "react-native";
+import { Platform, useColorScheme } from "react-native";
 
 import { useColors } from "@/ui/colors";
 
@@ -43,7 +43,21 @@ export const stackScreenOptions = {
 export function useStackScreenOptions(): NativeStackNavigationOptions {
   const palette = useColors();
   return useMemo(
-    () => ({ ...stackScreenOptions, headerTintColor: palette.label }),
+    () => ({
+      ...stackScreenOptions,
+      headerTintColor: palette.label,
+      ...(Platform.OS === "ios" ? systemTitleFonts : {}),
+    }),
     [palette],
   );
 }
+
+/**
+ * Under a Liquid Glass bar the header tint also becomes the title color, and
+ * any title color makes react-native-screens draw the large and inline titles
+ * in fixed 34 and 17 pt bold fonts that ignore Dynamic Type. An explicitly
+ * unset color leaves both titles to the system, like SwiftUI.
+ */
+const systemTitleFonts = {
+  headerTitleStyle: { color: undefined },
+} as const satisfies NativeStackNavigationOptions;
