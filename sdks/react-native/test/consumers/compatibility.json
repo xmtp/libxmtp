@@ -151,35 +151,38 @@
       "platform": "android",
       "required": true,
       "status": "verified",
-      "reason": "Actual canonical installed Hermes main and background reports passed",
+      "reason": "Fresh exact canonical installed Hermes main and background reports passed",
       "react": "19.3.0",
       "evidence": {
-        "run": 39022250312,
-        "head": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
-        "job": 117368042796,
-        "artifactId": 12097264971,
-        "artifactDigest": "sha256:29a6ec147a7d8974a0a0d855f23d1c2b9126d3f4bdbaf9bf5e3eef851b532380",
-        "packageSha256": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
-        "harnessSha256": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+        "run": 39076448106,
+        "head": "ff6c41e0c2659f5d9c5618cb6e45c1f30628d155",
+        "job": 117527511099,
+        "artifactId": 12117499368,
+        "artifactDigest": "sha256:3d180475f03bf4d1557e874a119c3de3d878ecfe3af9955d72e373e1a6cc3f21",
+        "artifactUrl": "https://github.com/xmtp/libxmtp/actions/runs/39076448106/artifacts/12117499368",
+        "packageSha256": "23653334dfacf38f701e603a09ff83b228313d98f861e61021347ceaefd71d85",
+        "source": "3e2796a550763d6291a556ee54453e5cf72561b2e8518125e4fc197bec4444b5",
+        "forkRevision": "c4ae748b187807e6da4f9c841ad83838be7f12f2",
+        "harnessSha256": "e2259f6135ee739e4f75dbe137258671b457491c49c364332ea35f2c4c0a5461",
         "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
-        "applicationOutput": "/nix/store/2sb5gfwb2izjcnnalbqph5v6k18yy2zb-react-native-consumer-android-bare-8.0.0",
+        "applicationId": "com.xmtp.consumer.bare",
         "reports": [
           {
             "file": "bare-android.json",
-            "sha256": "cf12e0c456ee617819ab7a4615bf876368b049a09b05fa68bb1e69e1cf357ca5",
-            "runId": "110ab6df8eceedac4688a6f0",
+            "sha256": "db5884529565929ca6ec8fde8e1df026c1cbd112d30468a68c1fd012dc507a55",
+            "runId": "b33f3c6716de9525aaf06866",
             "mode": "conformance",
             "assertions": 29
           },
           {
             "file": "bare-android-background.json",
-            "sha256": "dee18cfe8d7b71671ea2ce83ea62167badc737bac73ac258fbc6271bd61422ef",
-            "runId": "714a4be90572d52788b3ab97",
+            "sha256": "efa90a899e66f5627ac695dfd947e5a5c77bdf384559d10c5577a35fc982863e",
+            "runId": "6f5ada5c3e5498ee13934a69",
             "mode": "background",
             "assertions": 1
           }
         ],
-        "apkSha256": "c005adb253c4e6d2a2a961deda4b123a5a57988b469adc3b6a63f342f59830fb"
+        "apkSha256": "5d13a2c2b36d73bb75f341eb0258b1fc48fad3c587bd3f27ccf1924c2ff69d4c"
       }
     },
     {
@@ -188,36 +191,40 @@
       "platform": "ios",
       "required": true,
       "status": "verified",
-      "reason": "Actual canonical installed Hermes main and background reports passed",
+      "reason": "Fresh exact canonical installed Hermes main and background reports passed",
       "react": "19.3.0",
       "evidence": {
-        "run": 39022250312,
-        "head": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
-        "job": 117368042821,
-        "artifactId": 12097736954,
-        "artifactDigest": "sha256:09504444bc51e09e4e1d19af83a37131e00bedd5efd6bd9f61415e3db2580104",
-        "packageSha256": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
-        "harnessSha256": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+        "run": 39076448106,
+        "head": "ff6c41e0c2659f5d9c5618cb6e45c1f30628d155",
+        "job": 117527510970,
+        "artifactId": 12117893317,
+        "artifactDigest": "sha256:551388eea98a97b5328ec552bb20ef813f5ea82d94c66c13efdfd81f3713262e",
+        "artifactUrl": "https://github.com/xmtp/libxmtp/actions/runs/39076448106/artifacts/12117893317",
+        "packageSha256": "23653334dfacf38f701e603a09ff83b228313d98f861e61021347ceaefd71d85",
+        "source": "3e2796a550763d6291a556ee54453e5cf72561b2e8518125e4fc197bec4444b5",
+        "forkRevision": "c4ae748b187807e6da4f9c841ad83838be7f12f2",
+        "harnessSha256": "e2259f6135ee739e4f75dbe137258671b457491c49c364332ea35f2c4c0a5461",
         "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
-        "applicationOutput": "/nix/store/cpcam2g8dgjkd46pmrz8qy4g1giq3yi9-react-native-consumer-ios-bare-8.0.0",
+        "applicationId": "org.reactjs.native.example.XmtpConsumerBare",
         "reports": [
           {
             "file": "bare-ios.json",
-            "sha256": "235b30fd42eec6f066ea790dd10c04f15851416dee6f9e4a1cc6bfc60634b18b",
-            "runId": "d8e7c52a0b8ef3c1501ef0ad",
+            "sha256": "e7b0bca1d86d1f99eaaf5cc0c76afc9ded2bfcd8b8e898b71cd127374699c7db",
+            "runId": "7545e95cba221cad47d749f5",
             "mode": "conformance",
             "assertions": 29
           },
           {
             "file": "bare-ios-background.json",
-            "sha256": "e9f6ec630a75d294b668ab6dff09b9cdb49f9a8aaaa0c5f8654aa30cffbe302b",
-            "runId": "b2476763328543b2e5dc3cb5",
+            "sha256": "c0a3746a9b416067c92129e0e005188befdbf6a5d4d4933a03ccaa76412fe60f",
+            "runId": "4c00767324d8f9de21bf638b",
             "mode": "background",
             "assertions": 1
           }
         ],
-        "applicationContentSha256": "9245f8da23dbcfad07f726da139e97a5785f4e91d19170391c75038f8f23d8c6",
-        "narHash": "sha256-wEAq5EmmJUzdG87kCu8wufWDP3L6q79Ncfp3AnhYFcQ="
+        "applicationContentSha256": "26938feb735d1f5fff7e41a991a5f28ef79b6cf86fd0fe41501df15c5c4720d7",
+        "xcodeMode": "canonical",
+        "xcodeIdentity": "Xcode 27.0 (27A266a) at /Applications/Xcode_27.0.app/Contents/Developer"
       }
     },
     {
@@ -227,35 +234,38 @@
       "platform": "android",
       "required": true,
       "status": "verified",
-      "reason": "Actual canonical installed Hermes main and background reports passed",
+      "reason": "Fresh exact canonical installed Hermes main and background reports passed",
       "react": "19.3.0",
       "evidence": {
-        "run": 39022250312,
-        "head": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
-        "job": 117368042796,
-        "artifactId": 12097264971,
-        "artifactDigest": "sha256:29a6ec147a7d8974a0a0d855f23d1c2b9126d3f4bdbaf9bf5e3eef851b532380",
-        "packageSha256": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
-        "harnessSha256": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828",
+        "run": 39076448106,
+        "head": "ff6c41e0c2659f5d9c5618cb6e45c1f30628d155",
+        "job": 117527511099,
+        "artifactId": 12117499368,
+        "artifactDigest": "sha256:3d180475f03bf4d1557e874a119c3de3d878ecfe3af9955d72e373e1a6cc3f21",
+        "artifactUrl": "https://github.com/xmtp/libxmtp/actions/runs/39076448106/artifacts/12117499368",
+        "packageSha256": "23653334dfacf38f701e603a09ff83b228313d98f861e61021347ceaefd71d85",
+        "source": "3e2796a550763d6291a556ee54453e5cf72561b2e8518125e4fc197bec4444b5",
+        "forkRevision": "c4ae748b187807e6da4f9c841ad83838be7f12f2",
+        "harnessSha256": "1e4049d2dfb83cce5f33b77f350c3d54511560f8d39c47470288ebe4bf38d91f",
         "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
-        "applicationOutput": "/nix/store/r72i8z3flpkq0097243slfl7fjz2j197-react-native-consumer-android-expo-8.0.0",
+        "applicationId": "com.xmtp.consumer.expo",
         "reports": [
           {
             "file": "expo-android.json",
-            "sha256": "022fee68c89f3fc529ae1266bf8865c97800ee462ad7c75a5f22d089871e6558",
-            "runId": "4bca2d07163a55a6e58d8915",
+            "sha256": "d0e69189b9b79b3aaabc2807b3bc8136db4af46aab516f4be42783c1e1a56c30",
+            "runId": "6e10e0ff71e5276a81b8e539",
             "mode": "conformance",
             "assertions": 29
           },
           {
             "file": "expo-android-background.json",
-            "sha256": "cb9b6b226203de355f2db28b1ca5a9d2c2740c58333d4f4496b5414c98e6722b",
-            "runId": "6a57ae43e6563fe4dec023c8",
+            "sha256": "ce92c524216d72eeef14da2fa697b424cbcc47a4c4a9b7fcdc5f577f75a7f2fc",
+            "runId": "234c2e4ddac970263444898a",
             "mode": "background",
             "assertions": 1
           }
         ],
-        "apkSha256": "56b4dd6ff995a79f14655e80e8b55e53ca97166274b108ce7be33231b95858d7"
+        "apkSha256": "cd6024ff922a8c070a348bd23fc6e3130754e131df764955ee76e80aa83bbacb"
       }
     },
     {
@@ -265,36 +275,40 @@
       "platform": "ios",
       "required": true,
       "status": "verified",
-      "reason": "Actual canonical installed Hermes main and background reports passed",
+      "reason": "Fresh exact canonical installed Hermes main and background reports passed",
       "react": "19.3.0",
       "evidence": {
-        "run": 39022250312,
-        "head": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
-        "job": 117368042821,
-        "artifactId": 12097736954,
-        "artifactDigest": "sha256:09504444bc51e09e4e1d19af83a37131e00bedd5efd6bd9f61415e3db2580104",
-        "packageSha256": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
-        "harnessSha256": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828",
+        "run": 39076448106,
+        "head": "ff6c41e0c2659f5d9c5618cb6e45c1f30628d155",
+        "job": 117527510970,
+        "artifactId": 12117893317,
+        "artifactDigest": "sha256:551388eea98a97b5328ec552bb20ef813f5ea82d94c66c13efdfd81f3713262e",
+        "artifactUrl": "https://github.com/xmtp/libxmtp/actions/runs/39076448106/artifacts/12117893317",
+        "packageSha256": "23653334dfacf38f701e603a09ff83b228313d98f861e61021347ceaefd71d85",
+        "source": "3e2796a550763d6291a556ee54453e5cf72561b2e8518125e4fc197bec4444b5",
+        "forkRevision": "c4ae748b187807e6da4f9c841ad83838be7f12f2",
+        "harnessSha256": "1e4049d2dfb83cce5f33b77f350c3d54511560f8d39c47470288ebe4bf38d91f",
         "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
-        "applicationOutput": "/nix/store/8vwj8ab6j12qfcjmmgv9a17f3mzl7q05-react-native-consumer-ios-expo-8.0.0",
+        "applicationId": "org.name.XmtpConsumerExpo",
         "reports": [
           {
             "file": "expo-ios.json",
-            "sha256": "1e4c64b511bfdaded6fe0ccc7a060dc3891b9e88bf286279cbb2227a3ba621b6",
-            "runId": "2c09ccb481b3331c8833506c",
+            "sha256": "5dd5749bae0f4f0baa150bf2bbbc08935e3a706b591face73c3c81ace77cdee8",
+            "runId": "d442688c95d990c21a37d592",
             "mode": "conformance",
             "assertions": 29
           },
           {
             "file": "expo-ios-background.json",
-            "sha256": "c4571d74c9e90d3ad67759d5c86a7e6b5fbaf7cd7543e914931396669ffda563",
-            "runId": "3306de3a2e0c5d6418f96ab4",
+            "sha256": "7f95aa8b831df964e358edb99e269e4f4015139a13934c63e4049e8da20eda5c",
+            "runId": "06e9016ac9acb4aa565b3275",
             "mode": "background",
             "assertions": 1
           }
         ],
-        "applicationContentSha256": "eb5047ef3eb8936f6bd96fc3ad43bda2d8b6d15e1a70e879208c2ea173a3d52f",
-        "narHash": "sha256-qvuoqGrsqGNSbsclEPii2X56qhQN47f/DEPXihdttms="
+        "applicationContentSha256": "6fa6322dcd1ebe8d36e9dbac8f69f0325866fe47f9dadd43241369f9f086d189",
+        "xcodeMode": "canonical",
+        "xcodeIdentity": "Xcode 27.0 (27A266a) at /Applications/Xcode_27.0.app/Contents/Developer"
       }
     }
   ]

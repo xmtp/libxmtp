@@ -33,6 +33,10 @@ on:
         required: false
         type: string
         description: "RC number (required for rc releases)"
+      source-sha:
+        description: Fixed source commit resolved by the release caller
+        required: false
+        type: string
       ref:
         required: false
         type: string
@@ -68,7 +72,7 @@ jobs:
   check-push-permissions:
     uses: ./.github/workflows/check-release-push.yml
     with:
-      ref: ${{ inputs.ref || github.ref }}
+      ref: ${{ inputs.source-sha || inputs.ref || github.ref }}
       dry-run: ${{ inputs.dry-run }}
     secrets: inherit
 

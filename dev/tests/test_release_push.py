@@ -13,6 +13,8 @@ import threading
 import unittest
 from urllib.parse import urlsplit
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/push-release-tag.yml"
 
@@ -50,6 +52,89 @@ def git_runner(env, cwd=None, strip=True):
 
 
 class ReleasePushTest(unittest.TestCase):
+    def test_release_source_stays_fixed_when_the_requested_branch_moves(self):
+        def jobs(name):
+            path = ROOT / f".github/workflows/{name}.yml"
+            return yaml.safe_load(path.read_text())["jobs"]
+
+        def expand(raw, values):
+            keys = raw.removeprefix("${{ ").removesuffix(" }}").split(" || ")
+            return next(filter(None, (values.get(key) for key in keys)), "")
+
+        release, plan = jobs("release"), jobs("release-gate-plan")
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            env = os.environ | {
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": os.devnull,
+            }
+            git = git_runner(env, directory)
+            git("init", "--initial-branch=main")
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.com")
+            git("config", "commit.gpgSign", "false")
+            git("commit", "--allow-empty", "-m", "original")
+            original = git("rev-parse", "HEAD")
+            output = directory / "output"
+
+            def resolve(name, workflow):
+                output.write_text("")
+                source = ROOT / f".github/workflows/{workflow}.yml"
+                subprocess.run(
+                    ["bash", "-euc", script(name, source)],
+                    cwd=directory,
+                    env=env | {"GITHUB_OUTPUT": str(output)},
+                    check=True,
+                )
+                return dict(
+                    line.split("=", 1) for line in output.read_text().splitlines()
+                )["sha"]
+
+            def checkout(job, values):
+                step = next(
+                    s
+                    for s in job["steps"]
+                    if s.get("uses", "").startswith("actions/checkout@")
+                )
+                git("checkout", "--detach", expand(step["with"]["ref"], values))
+                self.assertEqual(git("rev-parse", "HEAD"), original)
+
+            frozen = resolve("Resolve release source", "release")
+            self.assertEqual(frozen, original)
+            git("commit", "--allow-empty", "-m", "branch advanced")
+            self.assertNotEqual(git("rev-parse", "main"), original)
+            values = {
+                "needs.validate.outputs.source-sha": frozen,
+                "needs.validate.outputs.ref": "main",
+            }
+            plan_ref = expand(release["plan"]["with"]["ref"], values)
+            checkout(plan["gate"], {"inputs.ref": plan_ref})
+            gate_sha = resolve("Resolve exact SHA", "release-gate-plan")
+            checkout(
+                plan["pending"],
+                {"inputs.ref": plan_ref, "needs.gate.outputs.sha": gate_sha},
+            )
+            rn = {
+                "inputs." + key: expand(raw, values)
+                for key, raw in release["release-react-native-sdk"]["with"].items()
+                if isinstance(raw, str)
+            }
+            source = jobs("release-react-native-sdk")["check-push-permissions"]["with"][
+                "ref"
+            ]
+            git("checkout", "--detach", expand(source, rn))
+            self.assertEqual(git("rev-parse", "HEAD"), original)
+            checkout(release["hub"], values)
+            # Every sibling receives the same snapshot while keeping its requested
+            # ref. The existing CLI test below proves dev classification for each SDK.
+            for name, job in release.items():
+                if name.startswith("release-"):
+                    with self.subTest(caller=name):
+                        self.assertEqual(
+                            expand(job["with"]["source-sha"], values), frozen
+                        )
+                        self.assertEqual(expand(job["with"]["ref"], values), "main")
+
     def test_production_version_scripts_keep_requested_ref_classification(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -32,7 +32,7 @@
     # The bindgen fork. Its revision must equal Cargo.toml
     # [workspace.metadata.xmtp-sdk-fork]; `nix/lib/packages/ubrn.nix` checks it.
     ubrn-src = {
-      url = "github:neekolas/uniffi-bindgen-react-native/7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf";
+      url = "github:neekolas/uniffi-bindgen-react-native/c4ae748b187807e6da4f9c841ad83838be7f12f2";
       flake = false;
     };
   };

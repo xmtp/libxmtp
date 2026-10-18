@@ -1,0 +1,14 @@
+# The fork emits RN ownership hooks and native declarations from UniFFI metadata.
+[bindings.typescript]
+strictTypeChecking = true
+
+[bindings.cpp]
+includes = ["../XmtpRuntime.h"]
+emitFfiHeader = true
+
+[bindings.cpp.nativeObject]
+object = "Client"
+futureStarted = "xmtp::reactnative::Runtime::clientFutureStarted"
+futureCompleted = "xmtp::reactnative::Runtime::clientFutureCompleted"
+futureFreed = "xmtp::reactnative::Runtime::clientFutureFreed"
+discard = "xmtp::reactnative::closeClient"

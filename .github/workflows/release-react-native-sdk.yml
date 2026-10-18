@@ -11,6 +11,10 @@ on:
         required: false
         type: string
         description: "RC number (required for rc releases)"
+      source-sha:
+        description: Fixed source commit resolved by the release caller
+        required: false
+        type: string
       ref:
         required: true
         type: string
@@ -41,7 +45,7 @@ jobs:
   check-push-permissions:
     uses: ./.github/workflows/check-release-push.yml
     with:
-      ref: ${{ inputs.ref }}
+      ref: ${{ inputs.source-sha || inputs.ref }}
       dry-run: ${{ inputs.dry-run }}
     secrets: inherit
 
@@ -92,11 +96,19 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Computed version: $VERSION"
 
-  android:
+  components:
+    name: RN components (${{ matrix.system }})
     needs: [setup, check-push-permissions]
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    env:
-      NIX_DEVSHELL: js
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: blacksmith-16vcpu-ubuntu-2404
+          - system: aarch64-darwin
+            runner: warp-macos-26-arm64-12x
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -105,62 +117,20 @@ jobs:
         with:
           cache-mode: "read"
           github-token: ${{ github.token }}
-      - name: Build Linux Android and JavaScript components
-        run: nix build --no-link .#ciStages.x86_64-linux.components
-      - name: Export completed Android components
-        run: dev/nix-shell 'python3.11 nix/react-native-exchange.py export --system x86_64-linux --stage components --directory target/rn-release/android'
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - uses: ./.github/actions/react-native-product
         with:
-          name: react-native-release-android
-          path: target/rn-release/android
-          if-no-files-found: error
-          retention-days: 1
-
-  ios:
-    needs: [setup, check-push-permissions]
-    runs-on: warp-macos-26-arm64-12x
-    env:
-      NIX_DEVSHELL: js
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      - uses: ./.github/actions/setup-nix
-        with:
+          stage: components
+          system: ${{ matrix.system }}
+          source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
+          package-version: ${{ needs.setup.outputs.version }}
+          artifact-prefix: react-native-release
           cache-mode: "read"
-          github-token: ${{ github.token }}
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        with:
-          xcode-version: "26.3"
-      - name: Build reused native slices with the sibling Apple pin
-        run: nix build --no-link .#ciStages.aarch64-darwin.native-base
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        with:
-          xcode-version: "27.0"
-      - name: Check the exact RN Apple toolchain
-        run: |
-          set -euo pipefail
-          expected_dir=$(nix eval --raw .#lib.reactNativeXcode.developerDir)
-          expected_version=$(nix eval --raw .#lib.reactNativeXcode.version)
-          expected_build=$(nix eval --raw .#lib.reactNativeXcode.build)
-          test "$(xcode-select -p)" = "$expected_dir"
-          test "$(xcodebuild -version)" = "$(printf 'Xcode %s\nBuild version %s' "$expected_version" "$expected_build")"
-      - name: Build Darwin iOS components with the RN Apple pin
-        run: nix build --no-link .#ciStages.aarch64-darwin.components
-      - name: Export completed iOS components
-        run: dev/nix-shell 'python3.11 nix/react-native-exchange.py export --system aarch64-darwin --stage components --directory target/rn-release/ios'
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: react-native-release-ios
-          path: target/rn-release/ios
-          if-no-files-found: error
-          retention-days: 1
 
   build:
-    needs: [setup, android, ios, check-push-permissions]
+    name: Assemble the canonical RN package
+    needs: [setup, components, check-push-permissions]
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    env:
-      NIX_DEVSHELL: js
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -169,43 +139,23 @@ jobs:
         with:
           cache-mode: "read"
           github-token: ${{ github.token }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: ./.github/actions/react-native-product
         with:
-          name: react-native-release-android
-          path: target/rn-release/android
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: react-native-release-ios
-          path: target/rn-release/ios
-      - name: Import matched platform closures
-        run: |
-          dev/nix-shell 'python3.11 nix/react-native-exchange.py import --system x86_64-linux --stage components --directory target/rn-release/android'
-          dev/nix-shell 'python3.11 nix/react-native-exchange.py import --system aarch64-darwin --stage components --directory target/rn-release/ios'
-      - name: Assemble and check the canonical release tarball
+          stage: package
+          system: x86_64-linux
+          source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
+          package-version: ${{ needs.setup.outputs.version }}
+          artifact-prefix: react-native-release
+          cache-mode: "read"
+      - name: Retain the exact checked release tarball
         env:
-          XMTP_RN_PACKAGE_VERSION: ${{ needs.setup.outputs.version }}
+          VERSION: ${{ needs.setup.outputs.version }}
         run: |
-          set -euo pipefail
-          product=$(nix build --no-link --json --impure --expr \
-            '(builtins.getFlake ("git+file://" + toString ./.)).legacyPackages.x86_64-linux.reactNative.mkPackage { version = builtins.getEnv "XMTP_RN_PACKAGE_VERSION"; }' \
-            | jq -r '.[0].outputs.out')
           mkdir -p target/sdk-packages/react-native-release
-          cp -RL "$product/." target/sdk-packages/react-native-release/
-          source=$(nix eval --raw .#sdkProvenance.source)
-          dev/nix-shell "python3.11 sdks/react-native/scripts/package.py verify-package target/sdk-packages/react-native-release/xmtp-react-native-sdk-${XMTP_RN_PACKAGE_VERSION}.tgz --version '$XMTP_RN_PACKAGE_VERSION' --source '$source'"
-      - name: Export the exact checked release package closure
-        env:
-          XMTP_RN_PACKAGE_VERSION: ${{ needs.setup.outputs.version }}
-        run: |
-          # The inner Nix shell expands the version environment variable.
-          # shellcheck disable=SC2016
-          dev/nix-shell 'python3.11 nix/react-native-exchange.py export --system x86_64-linux --stage package --directory target/rn-release/checked-package --version "$XMTP_RN_PACKAGE_VERSION"'
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: react-native-release-package-closure
-          path: target/rn-release/checked-package
-          if-no-files-found: error
-          retention-days: 1
+          cp -RL "$XMTP_RN_PACKAGE_DIR/." target/sdk-packages/react-native-release/
+          dev/nix-shell --shell js --command python3.11 sdks/react-native/scripts/package.py verify-package \
+            "target/sdk-packages/react-native-release/xmtp-react-native-sdk-$VERSION.tgz" \
+            --version "$VERSION" --source "$XMTP_RN_EXPECTED_SOURCE"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: react-native-release-package
@@ -215,7 +165,7 @@ jobs:
           retention-days: 1
 
   consumers:
-    name: Verify the release tarball on ${{ matrix.platform }}
+    name: RN installed consumers (${{ matrix.platform }})
     needs: [setup, build, check-push-permissions]
     strategy:
       fail-fast: false
@@ -224,18 +174,14 @@ jobs:
           - platform: android
             system: x86_64-linux
             runner: blacksmith-16vcpu-ubuntu-2404
-            shell: android
           - platform: ios
             system: aarch64-darwin
             runner: warp-macos-26-arm64-12x
-            shell: ios
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     env:
-      NIX_DEVSHELL: ${{ matrix.shell }}
-      XMTP_RN_CONSUMER_SYSTEM: ${{ matrix.system }}
-      XMTP_RN_EXPECTED_VERSION: ${{ needs.setup.outputs.version }}
       XMTP_SDK_BUILD: nix
+      NIX_DEVSHELL: ${{ matrix.platform == 'android' && 'android' || 'ios' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -244,83 +190,22 @@ jobs:
         with:
           cache-mode: "read"
           github-token: ${{ github.token }}
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        if: runner.os == 'macOS'
-        with:
-          xcode-version: "26.3"
       - uses: ./.github/actions/setup-js
         with:
           cache-mode: "read"
           filter: "@xmtp/node-sdk..."
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
-      - name: Stage the independent Node peer SDK
-        run: |
-          dev/nix-shell --shell js 'dev/js/sdk-package node'
-          echo "XMTP_NODE_SDK_DIR=$PWD/target/sdk-packages/node" >> "$GITHUB_ENV"
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-        if: runner.os == 'macOS'
+      - uses: ./.github/actions/react-native-product
         with:
-          xcode-version: "27.0"
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+          stage: consumers
+          system: ${{ matrix.system }}
+          source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
+          package-version: ${{ needs.setup.outputs.version }}
+          artifact-prefix: react-native-release
+          cache-mode: "read"
+      - uses: ./.github/actions/react-native-conformance
         with:
-          name: react-native-release-package-closure
-          path: target/rn-release/checked-package
-      - name: Import the final versioned tarball and build its consumers
-        env:
-          XMTP_RN_PACKAGE_VERSION: ${{ needs.setup.outputs.version }}
-        run: |
-          set -euo pipefail
-          # The inner Nix shell expands the version; Nix expands its own attribute expression.
-          # shellcheck disable=SC2016
-          dev/nix-shell 'python3.11 nix/react-native-exchange.py import --system x86_64-linux --stage package --directory target/rn-release/checked-package --version "$XMTP_RN_PACKAGE_VERSION"'
-          # CocoaPods hook exceptions precede long Ruby traces; retain bounded failure context.
-          consumer_build=(nix build --option log-lines 100 --no-link --json --impure)
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            consumer_build+=(--option sandbox relaxed)
-          fi
-          # shellcheck disable=SC2016
-          bundles=$("${consumer_build[@]}" --expr '
-            let flake = builtins.getFlake ("git+file://" + toString ./.);
-                package = flake.legacyPackages.x86_64-linux.reactNative.mkPackage {
-                  version = builtins.getEnv "XMTP_RN_PACKAGE_VERSION";
-                };
-            in flake.legacyPackages.${builtins.getEnv "XMTP_RN_CONSUMER_SYSTEM"}.reactNative.mkConsumers { inherit package; }' \
-            | jq -r '.[0].outputs.out')
-          {
-            echo "XMTP_RN_CONSUMER_BUNDLES=$bundles"
-            echo "XMTP_RN_PACKAGE_DIR=$(jq -r '.roots["xmtp-sdk-react-native-package"]' target/rn-release/checked-package/manifest.json)"
-            echo "XMTP_RN_EXPECTED_SOURCE=$(nix eval --raw .#sdkProvenance.source)"
-          } >> "$GITHUB_ENV"
-      - name: Enable Android hardware acceleration
-        if: runner.os == 'Linux'
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: Execute fresh Android installed-package proofs
-        if: runner.os == 'Linux'
-        env:
-          NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/react-native-release-emulator
-          NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096
-        run: dev/nix-shell 'run-test-emulator -- just backend ci just react-native test-conformance android'
-      - name: Boot an available iOS simulator
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          device=$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.state == "Shutdown" and (.name | startswith("iPhone")))][0].udid')
-          xcrun simctl boot "$device" --arch=arm64
-          xcrun simctl bootstatus "$device" -b
-          echo "XMTP_RN_DEVICE=$device" >> "$GITHUB_ENV"
-      - name: Execute fresh iOS installed-package proofs
-        if: runner.os == 'macOS'
-        run: dev/nix-shell 'just backend ci just react-native test-conformance ios'
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: always()
-        with:
-          name: react-native-release-proof-${{ matrix.platform }}
-          path: target/react-native-results/*.json
-          if-no-files-found: ignore
-          retention-days: 7
+          platform: ${{ matrix.platform }}
+          artifact-prefix: react-native-release
 
   publish:
     needs: [setup, build, consumers, check-push-permissions]

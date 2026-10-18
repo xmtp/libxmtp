@@ -214,10 +214,37 @@ class MessengerScreensInstrumentedTest {
         val graph = graphRule.graph
         for (heldDelete in listOf(false, true)) {
             val nativeId =
-                request.sendText(
-                    if (heldDelete) "Held deletion fixture" else "Held publication fixture",
-                    SendOptions(optimistic = !heldDelete),
-                )
+                if (heldDelete) {
+                    request.sendText("Held deletion fixture")
+                } else {
+                    // A fresh optimistic send can publish before the retry reaches beforePublish.
+                    // Local envelope rejection leaves a terminal failed row for the retry instead.
+                    val envelopeLimit =
+                        owner.client
+                            .serverConfiguration()
+                            .limits.maxEnvelopeBytes
+                    assertTrue("Retry fixture requires an envelope limit at most 1 MiB", envelopeLimit <= 1_048_576uL)
+                    val id =
+                        request.send(
+                            EncodedContent(
+                                ContentTypeId("example.org", "held-publication", 1u, 0u),
+                                emptyMap(),
+                                "Held publication fixture",
+                                ByteArray(envelopeLimit.toInt() + 1),
+                            ),
+                            SendOptions(optimistic = true),
+                        )
+                    assertNotNull(
+                        "Oversized fixture publication must fail",
+                        runCatching { request.publishMessage(id) }.exceptionOrNull(),
+                    )
+                    assertEquals(
+                        "Retry fixture must have a terminal native failure",
+                        DeliveryStatus.FAILED,
+                        checkNotNull(owner.client.conversations.getMessageById(id)).deliveryStatus,
+                    )
+                    id
+                }
             val nativeEntered = CompletableDeferred<Unit>()
             val releaseNative = CompletableDeferred<Unit>()
             val actionFinished = CompletableDeferred<Unit>()
@@ -247,6 +274,12 @@ class MessengerScreensInstrumentedTest {
                 }
             }
             try {
+                assertNotEquals(
+                    "Held native write starts without an action failure",
+                    "chat-action",
+                    graph.chat.state.value.failure
+                        ?.code,
+                )
                 compose.runOnIdle {
                     graph.chat.dispatch(
                         if (heldDelete) ChatAction.DeleteMessage(nativeId) else ChatAction.RetrySend(nativeId),
@@ -257,6 +290,12 @@ class MessengerScreensInstrumentedTest {
                 request.updateConsentState(revokedConsent)
                 releaseNative.complete(Unit)
                 withTimeout(30_000) { actionFinished.await() }
+                assertNotEquals(
+                    "Held retry or deletion must stop before native execution",
+                    "chat-action",
+                    graph.chat.state.value.failure
+                        ?.code,
+                )
                 assertEquals(
                     "Held retry or deletion must preserve revoked native consent",
                     revokedConsent,

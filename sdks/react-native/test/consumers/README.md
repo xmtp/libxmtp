@@ -33,9 +33,26 @@ then performs a separate fresh-install cold-background launch and asks the OS to
 foreground that same runtime. Both reports must pass. A build alone is not an
 installed runtime proof.
 
-`build.py` accepts an exact tarball and fresh work/output directories. It freezes
-the base dependencies before adding that tarball offline. Native builders supply
-`PNPM_STORE_DIR` and the following replay inputs:
+The fixture directories contain locks and native overrides. They are not complete
+native projects. The cached `react-native-consumer-template-bare` and
+`react-native-consumer-template-expo` Nix outputs fetch the published archives at
+the URL and SHA512 in `template-source.json`. `prepare-template.py` renames the
+native identifiers and public signing key, formats JSON, and applies the small
+`native.patch` project additions. `build.py` copies this scaffold into its fresh
+work directory, then applies the retained native overrides and test hooks. It
+never runs Expo prebuild. Generated projects belong under `target/` or a temporary
+directory, which are already ignored. Gradle launchers are omitted because native
+builds require the declared Nix Gradle executable.
+
+`build.py` accepts an exact tarball and fresh work/output directories. Nix builders
+supply `XMTP_RN_TEMPLATE`; the local route realizes the same Nix output before
+preparing its work directory. The harness hash covers the template pin,
+preparation script, project patch, native overrides, and retained locks. It does
+not hash generated staging directories.
+
+The package install retains the frozen external dependency graph while adding
+the verified local SDK tarball. Native builders supply `PNPM_STORE_DIR` and the
+following replay inputs:
 
 - iOS: `XMTP_RN_IOS_DOWNLOADS` contains the paths in `ios-downloads.json`. Every
   archive is checked against its declared SHA256. The private curl adapter rejects

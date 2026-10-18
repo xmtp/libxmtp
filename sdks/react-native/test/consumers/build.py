@@ -88,6 +88,7 @@ def harness_identity(consumer):
             inputs[path.relative_to(HERE.parent).as_posix()] = path
     for path in [
         HERE / "build.py",
+        HERE / "prepare-template.py",
         HERE / "App.tsx",
         *(HERE.parent / "conformance").glob("*.ts"),
     ]:
@@ -302,10 +303,30 @@ def check_types(work):
 def prepare(consumer, package, work, offline):
     if work.exists():
         raise ValueError(f"clean consumer work directory already exists: {work}")
+    template = os.environ.get("XMTP_RN_TEMPLATE")
+    if not template:
+        template = subprocess.check_output(
+            [
+                "nix",
+                "build",
+                "--no-link",
+                "--print-out-paths",
+                str(HERE.parents[3]) + "#react-native-consumer-template-" + consumer,
+            ],
+            cwd=HERE.parents[3],
+            text=True,
+        ).strip()
+    shutil.copytree(Path(template).resolve(strict=True), work)
+    work.chmod(work.stat().st_mode | 0o200)
+    for path in work.rglob("*"):
+        path.chmod(path.stat().st_mode | 0o200)
     shutil.copytree(
         HERE / consumer,
         work,
-        ignore=shutil.ignore_patterns("node_modules", "build", "Pods", "DerivedData"),
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns(
+            *IGNORED_INPUTS, ".xcode.env.local", "native.patch"
+        ),
     )
     signing = json.loads((work / "template-source.json").read_text())["testSigningKey"]
     if (

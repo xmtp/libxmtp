@@ -4,7 +4,6 @@ mod callback_results;
 mod client_statics;
 mod format;
 mod forwarding;
-mod jsi_clients;
 mod kotlin_callbacks;
 mod kotlin_records;
 mod local_signing_key;
@@ -255,7 +254,11 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
             let ts_config = config
                 .parent()
                 .context("global config has no parent directory")?
-                .join("typescript.toml");
+                .join(if is_jsi {
+                    "react-native.toml"
+                } else {
+                    "typescript.toml"
+                });
             let scratch = tempfile::tempdir()?;
             let scratch_path = Utf8Path::from_path(scratch.path())
                 .context("bindgen scratch directory is not UTF-8")?;
@@ -307,22 +310,6 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
                 fs::write(
                     out.join("index.ts"),
                     "export * from './xmtp_sdk';\nimport xmtpSdk from './xmtp_sdk';\nxmtpSdk.initialize();\n",
-                )?;
-                let cpp = fs::read_to_string(abi_out.join("xmtp_sdk.cpp"))?;
-                fs::write(
-                    abi_out.join("xmtp_sdk.cpp"),
-                    jsi_clients::rewrite(&cpp, &metadata)?,
-                )?;
-                let declarations = cpp
-                    .split_once("extern \"C\" {")
-                    .and_then(|(_, rest)| rest.split_once("\n}\n"))
-                    .map(|(body, _)| body)
-                    .context("JSI output has no native ABI declarations")?;
-                fs::write(
-                    abi_out.join("xmtp_sdk_ffi.hpp"),
-                    format!(
-                        "#pragma once\n#include \"xmtp_sdk.hpp\"\n#include \"UniffiJsiTypes.h\"\nextern \"C\" {{{declarations}\n}}\n"
-                    ),
                 )?;
             }
             let binding = out.join("xmtp_sdk.ts");

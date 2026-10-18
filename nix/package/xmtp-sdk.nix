@@ -98,7 +98,7 @@ let
           envSetup = xmtp.iosEnv.envSetup target;
           command = ''
             ${envSetup}
-            cargo build --release --locked -p xmtp_sdk --lib --target ${target}
+            cargo build --release --locked ${xmtp.iosEnv.nativeCargoArgs} -p xmtp_sdk --lib --target ${target}
           '';
         in
         xmtp.base.assertNativeEnv {
@@ -124,6 +124,11 @@ let
                 }
               );
               buildPhaseCargoCommand = command;
+              # cctools ranlib records the build UID when the strip hook
+              # rebuilds the index. LLVM ranlib uses deterministic headers.
+              preFixup = ''
+                export RANLIB=${pkgs.buildPackages.llvmPackages.llvm}/bin/llvm-ranlib
+              '';
               installPhaseCommand = ''
                 mkdir -p $out/lib
                 cp target/${target}/release/libxmtp_sdk.a $out/lib/

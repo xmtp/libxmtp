@@ -4,7 +4,6 @@ import twoslash from "expressive-code-twoslash";
 import ts from "typescript";
 
 import { exampleRegions } from "./example-regions.mjs";
-import { sdkEntry } from "./sdk-entry.mjs";
 
 export const docsRoot = resolve(import.meta.dirname, "..");
 export const configPath = resolve(docsRoot, "examples.tsconfig.json");
@@ -24,14 +23,6 @@ export function exampleConfig() {
         getNewLine: () => "\n",
       }),
     );
-  for (const sdk of ["node", "browser", "react-native"]) {
-    parsed.options.paths[`@xmtp/${sdk}-sdk`] = [
-      sdkEntry(resolve(docsRoot, "../../sdks", sdk)),
-    ];
-  }
-  parsed.options.paths["@xmtp/react-native-sdk/react"] = [
-    sdkEntry(resolve(docsRoot, "../../sdks/react-native"), false, "./react"),
-  ];
   return parsed;
 }
 

@@ -29,49 +29,56 @@ let
       passthru = { inherit members; };
     };
 
+  rnDev =
+    pkgs: p:
+    {
+      inherit (p)
+        react-native-js-tools
+        react-native-js-tools-deps
+        react-native-consumer-deps-bare
+        react-native-consumer-deps-expo
+        react-native-consumer-template-bare
+        react-native-consumer-template-expo
+        ubjs-react-native
+        xmtp-sdk-generated-react-native
+        xmtp-sdk-react-native-js
+        ;
+    }
+    // lib.optionalAttrs pkgs.stdenv.isLinux {
+      inherit (p)
+        xmtp-sdk-react-native-android-fast
+        react-native-consumer-android
+        react-native-consumer-native-deps-android
+        ;
+    }
+    // lib.optionalAttrs pkgs.stdenv.isDarwin {
+      inherit (p)
+        xmtp-sdk-react-native-ios-simulator
+        react-native-consumer-ios
+        react-native-consumer-native-deps-ios
+        ;
+    };
+
+  rnRelease =
+    pkgs: p:
+    if pkgs.stdenv.isLinux then
+      {
+        inherit (p) xmtp-sdk-react-native-android xmtp-sdk-react-native-package;
+      }
+    else
+      {
+        inherit (p) xmtp-sdk-react-native-ios;
+      };
+
   sets = {
     x86_64-linux =
       { pkgs, self', ... }:
       let
         p = self'.packages;
-        rnDev = {
-          inherit (p)
-            react-native-js-tools
-            react-native-js-tools-deps
-            react-native-consumer-deps-bare
-            react-native-consumer-deps-expo
-            ubjs-react-native
-            xmtp-sdk-generated-react-native
-            xmtp-sdk-react-native-js
-            ;
-        }
-        // lib.optionalAttrs pkgs.stdenv.isLinux {
-          inherit (p)
-            xmtp-sdk-react-native-android-fast
-            react-native-consumer-android
-            react-native-consumer-native-deps-android
-            ;
-        }
-        // lib.optionalAttrs pkgs.stdenv.isDarwin {
-          inherit (p)
-            xmtp-sdk-react-native-ios-simulator
-            react-native-consumer-ios
-            react-native-consumer-native-deps-ios
-            ;
-        };
-        rnRelease =
-          if pkgs.stdenv.isLinux then
-            {
-              inherit (p) xmtp-sdk-react-native-android xmtp-sdk-react-native-package;
-            }
-          else
-            {
-              inherit (p) xmtp-sdk-react-native-ios;
-            };
       in
       rec {
-        dev = mkSet pkgs "dev" (baseDev.passthru.members // rnDev);
-        release = mkSet pkgs "release" (baseRelease.passthru.members // rnRelease);
+        dev = mkSet pkgs "dev" (baseDev.passthru.members // rnDev pkgs p);
+        release = mkSet pkgs "release" (baseRelease.passthru.members // rnRelease pkgs p);
         baseDev = mkSet pkgs "base-dev" (
           shells self'
           // {
@@ -128,44 +135,10 @@ let
       { pkgs, self', ... }:
       let
         p = self'.packages;
-        rnDev = {
-          inherit (p)
-            react-native-js-tools
-            react-native-js-tools-deps
-            react-native-consumer-deps-bare
-            react-native-consumer-deps-expo
-            ubjs-react-native
-            xmtp-sdk-generated-react-native
-            xmtp-sdk-react-native-js
-            ;
-        }
-        // lib.optionalAttrs pkgs.stdenv.isLinux {
-          inherit (p)
-            xmtp-sdk-react-native-android-fast
-            react-native-consumer-android
-            react-native-consumer-native-deps-android
-            ;
-        }
-        // lib.optionalAttrs pkgs.stdenv.isDarwin {
-          inherit (p)
-            xmtp-sdk-react-native-ios-simulator
-            react-native-consumer-ios
-            react-native-consumer-native-deps-ios
-            ;
-        };
-        rnRelease =
-          if pkgs.stdenv.isLinux then
-            {
-              inherit (p) xmtp-sdk-react-native-android xmtp-sdk-react-native-package;
-            }
-          else
-            {
-              inherit (p) xmtp-sdk-react-native-ios;
-            };
       in
       rec {
-        dev = mkSet pkgs "dev" (baseDev.passthru.members // rnDev);
-        release = mkSet pkgs "release" (baseRelease.passthru.members // rnRelease);
+        dev = mkSet pkgs "dev" (baseDev.passthru.members // rnDev pkgs p);
+        release = mkSet pkgs "release" (baseRelease.passthru.members // rnRelease pkgs p);
         baseDev = mkSet pkgs "base-dev" (
           shells self'
           // {

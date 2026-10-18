@@ -4,12 +4,6 @@ root := justfile_directory()
 
 set shell := ["../../dev/nix-shell"]
 
-# Stage the selected local SDK products before docs package tasks.
-sdk-products:
-    ../../dev/js/sdk-package node
-    ../../dev/js/sdk-package browser
-    XMTP_SDK_BUILD=nix ../../dev/js/sdk-package react-native
-
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:
     PLAYWRIGHT_SKIP_BROWSER_GC=1 pnpm --filter @xmtp/docs exec playwright install chromium
@@ -17,10 +11,10 @@ browsers:
 dev:
     pnpm --filter @xmtp/docs run dev
 
-build: sdk-products
+build:
     cd {{ root }} && XMTP_SDK_BUILD=nix pnpm -r --filter '@xmtp/docs...' run build
 
-check-examples: sdk-products
+check-examples:
     cd {{ root }} && XMTP_SDK_BUILD=nix pnpm -r --filter '@xmtp/docs...' run check:examples
 
 check-agent-docs:
@@ -36,8 +30,9 @@ test:
 test-browser:
     pnpm --filter @xmtp/docs run test:browser
 
-typecheck: sdk-products
-    cd {{ root }} && XMTP_SDK_BUILD=nix pnpm -r --filter '@xmtp/docs...' run typecheck
+typecheck:
+    cd {{ root }} && XMTP_SDK_BUILD=nix pnpm -r --filter '@xmtp/docs^...' run build
+    cd {{ root }} && XMTP_SDK_BUILD=nix pnpm --filter @xmtp/docs run typecheck
 
 compose:
     node scripts/compose.mjs
