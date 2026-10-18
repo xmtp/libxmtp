@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { AppState, StyleSheet, View } from "react-native";
+import { AppState, Platform, StyleSheet, View } from "react-native";
 import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -168,7 +168,10 @@ function ChatSessionScreen({
           { backgroundColor: palette.systemBackground },
           columnStyle,
         ]}>
-        {banner ? <View style={{ height: headerHeight }} /> : null}
+        {banner && Platform.OS === "ios" ? (
+          // The screen starts under the translucent iOS bar; Android's is opaque.
+          <View style={{ height: headerHeight }} />
+        ) : null}
         {state.window.notice === undefined ? null : (
           <Text
             variant="caption"

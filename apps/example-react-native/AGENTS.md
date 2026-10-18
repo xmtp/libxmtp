@@ -96,6 +96,11 @@ package of a merged revision whose SDK content matches:
 - The session machine and stream hub live in `src/core` behind ports, so `node --test` covers them; `src/session` wires the device and the SDK.
 - Fast Refresh keeps the running session: reload the app after editing `src/session` or the core modules it uses. Running `install` (or `build-android`) under a live Metro removes the SDK package briefly; relaunch the app afterwards.
 - `app/dev/session-probe.tsx` (Debug only) drives the session: `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/session-probe?action=connect&url=http%3A%2F%2F127.0.0.1%3A5150"`. Other actions: `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`, `handles`, `contend`, `allowRequests` (accepts every message request); add `&n=<new value>` to repeat one.
+- `app/dev/chat-probe.tsx` (Debug only) acts on the open chat, then returns to it: `xmtp-messenger-rn:///dev/chat-probe?action=<action>&c=<conversation>&m=<message>&n=<new value>`. Actions: `failNextSend` (the next send fails after it may have queued: Send outcome unknown), `failPublish` and `allowPublish` (publishing fails until allowed: the message stays Sending), `reply`, `retry`, `edit`, `delete`, `react` (`&e=<emoji>`). Without `m`, `retry` and `edit` use the newest own unpublished row.
+
+## Chat
+
+The chat stores are pure TypeScript in `src/core` (`chatTimeline.ts`, `chatComposer.ts`, `messageActions.ts`, with `chatHistory.ts` and `chatMessages.ts`) and are tested against the in-memory conversation in `chatFakes.ts`. `src/features/chat/chatRuntime.ts` wires them to the SDK (`sdkChatQueries.ts`), the send journal and the stream hub; views call its actions (`startReply`, `cancelReply`, `retry`, `edit`, `react`, `requestDelete`, `deleteMessage`, `copyText`, `submit`). A new content kind adds a `ChatContent` case, its SDK mapping in `chatContent` and a renderer in `MessageContent.tsx`. `MessageBubbleWrapper.tsx` (bubble interactions) and `ComposerSlots.tsx` (attach menu, staged attachments) are slots for later features.
 
 ## Native projects
 
