@@ -420,3 +420,13 @@ test("the server minimum is used only inside 1-27", () => {
   account.minimum = 40;
   assert.equal(model(account).model.getState().minimum, 3);
 });
+
+test("load reopens a disposed model (a React effect runs again after its cleanup)", async () => {
+  const account = new FakeAccount();
+  const { model: store } = model(account);
+  store.dispose();
+  await store.load();
+  assert.equal(store.getState().loading, false);
+  store.changeInput("abc");
+  assert.equal(store.getState().input, "abc");
+});

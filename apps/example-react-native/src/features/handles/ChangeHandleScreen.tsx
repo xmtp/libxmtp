@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import { abbreviatedDate } from "@/core/dates.ts";
@@ -22,9 +23,11 @@ import { useColors } from "@/ui/colors";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
 import { TextFieldRow } from "@/ui/FormRows";
 import { GlassButton } from "@/ui/GlassButton";
+import { splitHandle } from "@/ui/handleParts.ts";
 import { HandleText } from "@/ui/Identity";
 import { Symbol } from "@/ui/Symbol";
-import { Text } from "@/ui/Text";
+import { Span, Text } from "@/ui/Text";
+import { WrappedText } from "@/ui/WrappedText";
 
 /**
  * Change handle, pushed from Settings (`HandleView.swift`, mode `.change`):
@@ -41,6 +44,8 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
   const palette = useColors();
   const { model, state } = useHandleModel(session, "change");
   const editable = isEditable(state);
+  // The form scrolls under the footer, like `.safeAreaInset(edge: .bottom)`.
+  const [footerHeight, setFooterHeight] = useState(0);
   const status = state.status;
   const pick = statusPick(status);
   return (
@@ -49,9 +54,11 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
         styles.screen,
         { backgroundColor: palette.systemGroupedBackground },
       ]}>
-      <FormScreen>
+      <FormScreen bottomInset={footerHeight}>
         {state.current === undefined ? null : (
-          <FormSection header={handleCopy.currentHandle}>
+          <FormSection
+            header={handleCopy.currentHandle}
+            style={styles.firstHeader}>
             <FormRow>
               <HandleText handle={state.current} />
             </FormRow>
@@ -64,7 +71,9 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
             )}
           </FormSection>
         )}
-        <FormSection header={handleCopy.newHandle}>
+        <FormSection
+          header={handleCopy.newHandle}
+          style={state.current === undefined ? styles.firstHeader : undefined}>
           <TextFieldRow
             value={state.input}
             onChangeText={(text) => {
@@ -79,13 +88,13 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
           />
           <FormRow>
             {state.problem === undefined ? (
-              <Text color="themeSecondaryLabel" style={styles.flex}>
+              <WrappedText color="themeSecondaryLabel" style={styles.flex}>
                 {handleHint(state.minimum)}
-              </Text>
+              </WrappedText>
             ) : (
-              <Text color="systemRed" style={styles.flex}>
+              <WrappedText color="systemRed" style={styles.flex}>
                 {handleProblemCopy(state.problem, state.input, state.minimum)}
-              </Text>
+              </WrappedText>
             )}
           </FormRow>
           {status.kind === "checking" || state.loading ? (
@@ -95,9 +104,9 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
           ) : null}
           {status.kind === "suggestions" ? (
             <FormRow>
-              <Text variant="subheadline" style={styles.flex}>
+              <WrappedText variant="subheadline" style={styles.flex}>
                 {handleCopy.taken(status.input)}
-              </Text>
+              </WrappedText>
             </FormRow>
           ) : null}
           {status.kind === "available" ? (
@@ -114,7 +123,7 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
               onPress={() => {
                 model.select(handle);
               }}>
-              <HandleText handle={handle} style={styles.flex} />
+              <TintedHandle handle={handle} />
               {pick === handle ? (
                 <Symbol name="checkmark" color="tint" />
               ) : null}
@@ -130,9 +139,9 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
           ) : null}
           {status.kind === "noneFree" ? (
             <FormRow>
-              <Text style={styles.flex}>
+              <WrappedText style={styles.flex}>
                 {handleCopy.noneFree(status.input)}
-              </Text>
+              </WrappedText>
             </FormRow>
           ) : null}
           {status.kind === "noneFree" ? (
@@ -145,9 +154,9 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
           ) : null}
           {state.notice === undefined ? null : (
             <FormRow>
-              <Text color="systemRed" style={styles.flex}>
+              <WrappedText color="systemRed" style={styles.flex}>
                 {handleNoticeCopy(state.notice)}
-              </Text>
+              </WrappedText>
             </FormRow>
           )}
           {state.notice?.kind !== "skipFailed" &&
@@ -163,7 +172,9 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
         {state.others.length === 0 ? null : (
           <FormSection header={handleCopy.otherHandles}>
             <FormRow>
-              <Text style={styles.flex}>{handleCopy.otherHandlesDetail}</Text>
+              <WrappedText style={styles.flex}>
+                {handleCopy.otherHandlesDetail}
+              </WrappedText>
             </FormRow>
             {state.others.map((handle) => (
               <FormRow key={handle}>
@@ -187,25 +198,47 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
         )}
         <FormSection>
           <FormRow>
-            <Text style={styles.flex}>{handleCopy.changeFootnote}</Text>
+            <WrappedText style={styles.flex}>
+              {handleCopy.changeFootnote}
+            </WrappedText>
           </FormRow>
         </FormSection>
       </FormScreen>
-      <ActionFooter>
-        <GlassButton
-          variant="glassProminent"
-          size="large"
-          font="body"
-          fullWidth
-          title={primaryButtonTitle("change", state)}
-          disabled={!canClaim(state) && !canCheck(state)}
-          onPress={() => {
-            if (canClaim(state)) model.claim();
-            else model.check();
-          }}
-        />
-      </ActionFooter>
+      <View
+        style={styles.footer}
+        onLayout={(event) => {
+          setFooterHeight(event.nativeEvent.layout.height);
+        }}>
+        <ActionFooter>
+          <GlassButton
+            variant="glassProminent"
+            size="large"
+            font="body"
+            fullWidth
+            title={primaryButtonTitle("change", state)}
+            disabled={!canClaim(state) && !canCheck(state)}
+            onPress={() => {
+              if (canClaim(state)) model.claim();
+              else model.check();
+            }}
+          />
+        </ActionFooter>
+      </View>
     </View>
+  );
+}
+
+/**
+ * A handle inside a Form button label: the tint replaces the primary color,
+ * so the name is tinted and the `#code` is the tint at the secondary level.
+ */
+function TintedHandle({ handle }: { readonly handle: string }) {
+  const { name, code } = splitHandle(handle);
+  return (
+    <Text style={styles.flex} accessibilityLabel={handle}>
+      <Span color="tint">{name}</Span>
+      {code === "" ? null : <Span color="tintSecondary">{code}</Span>}
+    </Text>
   );
 }
 
@@ -228,6 +261,10 @@ function LinkRow({
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  footer: { bottom: 0, left: 0, position: "absolute", right: 0 },
+  // Measured on reference 24: the first header sits 10 pt under the large
+  // title here (the form kit's first-header default is 8.7).
+  firstHeader: { paddingTop: 10 },
   flex: { flex: 1 },
   dim: { opacity: 0.4 },
 });

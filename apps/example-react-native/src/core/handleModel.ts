@@ -146,9 +146,13 @@ export class HandleModel extends Store<HandleState> {
     return this.#attempt;
   }
 
-  /** Reads the own handles. In choose mode an existing handle finishes. */
+  /**
+   * Reads the own handles. In choose mode an existing handle finishes. It
+   * reopens a disposed model, because React runs a mount effect again after
+   * its cleanup (Fast Refresh, Strict Mode).
+   */
   async load(): Promise<void> {
-    if (this.#closed) return;
+    this.#closed = false;
     this.#loadAttempt += 1;
     const number = this.#loadAttempt;
     const admitted = () => number === this.#loadAttempt && this.#admitted();

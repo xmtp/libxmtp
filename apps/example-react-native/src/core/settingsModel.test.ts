@@ -80,3 +80,13 @@ test("results after the screen closes are dropped", async () => {
   await running;
   assert.equal(model.getState().error, undefined);
 });
+
+test("appear reopens a disposed model", async () => {
+  const model = new SettingsModel(
+    ports({ signOut: () => Promise.reject(new Error("no")) }),
+  );
+  model.dispose();
+  model.appear();
+  await model.signOut();
+  assert.equal(model.getState().error, "Cannot sign out. Try again.");
+});

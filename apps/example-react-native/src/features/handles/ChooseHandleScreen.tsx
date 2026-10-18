@@ -39,6 +39,7 @@ import { Symbol } from "@/ui/Symbol";
 import { Text } from "@/ui/Text";
 import { radii, sizes } from "@/ui/tokens";
 import { fontOf } from "@/ui/typography";
+import { WrappedText } from "@/ui/WrappedText";
 
 /**
  * Choose a handle after the first join (`HandleView.swift`, mode `.choose`):
@@ -97,12 +98,12 @@ function ChooseHandle({ session }: { readonly session: ActiveSession }) {
                 style={styles.heroTitle}>
                 {handleCopy.heroTitle}
               </Text>
-              <Text
+              <WrappedText
                 variant="callout"
                 color="themeSecondaryLabel"
                 align="center">
                 {handleCopy.heroSubtitle}
-              </Text>
+              </WrappedText>
             </View>
           </View>
           <View>
@@ -138,13 +139,13 @@ function ChooseHandle({ session }: { readonly session: ActiveSession }) {
             />
             <View style={styles.hint}>
               {state.problem === undefined ? (
-                <Text variant="footnote" color="themeSecondaryLabel">
+                <WrappedText variant="footnote" color="themeSecondaryLabel">
                   {handleHint(state.minimum)}
-                </Text>
+                </WrappedText>
               ) : (
-                <Text variant="footnote" color="systemRed">
+                <WrappedText variant="footnote" color="systemRed">
                   {handleProblemCopy(state.problem, state.input, state.minimum)}
-                </Text>
+                </WrappedText>
               )}
             </View>
             {state.loading ||
@@ -214,9 +215,11 @@ function Feedback({
       ) : null}
       {status.kind === "suggestions" ? (
         <>
-          <Text variant="subheadline" style={styles.feedback}>
+          <WrappedText
+            variant="subheadline"
+            style={[styles.feedback, styles.inset]}>
             {handleCopy.taken(status.input)}
-          </Text>
+          </WrappedText>
           <View
             style={[
               styles.feedback,
@@ -239,10 +242,7 @@ function Feedback({
                   {pick === handle ? <Symbol name="checkmark" /> : null}
                 </Pressable>
                 <View
-                  style={[
-                    styles.divider,
-                    { backgroundColor: palette.separator },
-                  ]}
+                  style={[styles.divider, { backgroundColor: palette.divider }]}
                 />
               </View>
             ))}
@@ -268,9 +268,11 @@ function Feedback({
       ) : null}
       {status.kind === "noneFree" ? (
         <>
-          <Text variant="subheadline" style={[styles.feedback, styles.inset]}>
+          <WrappedText
+            variant="subheadline"
+            style={[styles.feedback, styles.inset]}>
             {handleCopy.noneFree(status.input)}
-          </Text>
+          </WrappedText>
           <LinkButton
             title={handleCopy.lookAgain}
             onPress={() => {
@@ -282,12 +284,12 @@ function Feedback({
       ) : null}
       {state.notice === undefined ? null : (
         <>
-          <Text
+          <WrappedText
             variant="subheadline"
             color="systemRed"
             style={[styles.feedback, styles.inset]}>
             {handleNoticeCopy(state.notice)}
-          </Text>
+          </WrappedText>
           {canRetryNotice(state.notice) ? (
             <LinkButton
               title={handleCopy.retry}

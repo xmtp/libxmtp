@@ -39,6 +39,7 @@ import { Text } from "@/ui/Text";
 import { radii, sizes } from "@/ui/tokens";
 import { fontOf } from "@/ui/typography";
 import { useStore } from "@/ui/useStore";
+import { WrappedText } from "@/ui/WrappedText";
 
 /**
  * Join a server (`ConnectView.swift`): the hero, the server card with a
@@ -201,7 +202,7 @@ export function ConnectScreen() {
                         textStyle="subheadline"
                         color={statusColor}
                       />
-                      <Text
+                      <WrappedText
                         testID="connect-status"
                         variant="subheadline"
                         color={statusColor}
@@ -210,7 +211,7 @@ export function ConnectScreen() {
                           (state.ready
                             ? connectCopy.ready
                             : connectCopy.enterAddress)}
-                      </Text>
+                      </WrappedText>
                     </>
                   )}
                   {state.checking ? <View style={styles.flex} /> : null}
@@ -220,6 +221,8 @@ export function ConnectScreen() {
                   state.error !== undefined ? (
                     <GlassButton
                       title={connectCopy.retry}
+                      font="subheadline"
+                      labelColor="systemRed"
                       testID="retry-server-check"
                       onPress={() => {
                         Keyboard.dismiss();
@@ -470,7 +473,7 @@ function FieldInput(props: TextInputProps) {
 function Divider() {
   const palette = useColors();
   return (
-    <View style={[styles.divider, { backgroundColor: palette.separator }]} />
+    <View style={[styles.divider, { backgroundColor: palette.divider }]} />
   );
 }
 
@@ -489,8 +492,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   field: { gap: 4, paddingHorizontal: 16, paddingVertical: 10 },
-  // Android's TextInput adds its own padding; SwiftUI's TextField has none.
-  input: { margin: 0, padding: 0 },
+  // Android's TextInput adds its own padding. SwiftUI's TextField line is
+  // about 2 pt taller than React Native's, with the text 1 pt lower.
+  input: { margin: 0, paddingBottom: 0.7, paddingHorizontal: 0, paddingTop: 1 },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
   status: {
     alignItems: "center",
@@ -531,7 +535,8 @@ const styles = StyleSheet.create({
   toggle: {
     alignItems: "center",
     flexDirection: "row",
-    minHeight: sizes.minimumHitTarget,
+    // `.frame(minHeight: 44)` inside `.padding(.vertical, 4)`.
+    minHeight: sizes.minimumHitTarget + 8,
     paddingHorizontal: 16,
     paddingVertical: 4,
   },

@@ -66,6 +66,11 @@ export class SettingsModel extends Store<SettingsState> {
     }
   }
 
+  /** The screen appeared (again, after a React effect cleanup). */
+  appear(): void {
+    this.#disposed = false;
+  }
+
   dispose(): void {
     this.#disposed = true;
   }

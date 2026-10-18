@@ -110,9 +110,13 @@ export class ConnectModel extends Store<ConnectState> {
     this.#sleep = ports.sleep ?? abortableSleep;
   }
 
-  /** The screen appeared: clears the token and probes quietly. */
+  /**
+   * The screen appeared: clears the token and probes quietly. It reopens a
+   * disposed model, because React runs a mount effect again after its cleanup
+   * (Fast Refresh, Strict Mode).
+   */
   appear(): void {
-    if (this.#disposed) return;
+    this.#disposed = false;
     this.#hasAttemptedJoin = false;
     this.setState((state) => ({ ...state, joining: false, token: "" }));
     this.#scheduleProbe(false);

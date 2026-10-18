@@ -13,12 +13,13 @@ import {
   controlSize,
   disabled as disabledModifier,
   font,
+  foregroundStyle,
   labelStyle,
   type ViewModifier,
 } from "@expo/ui/swift-ui/modifiers";
 import { StyleSheet } from "react-native";
 
-import { useColors } from "@/ui/colors";
+import { resolveColor, useColors } from "@/ui/colors";
 import type {
   GlassButtonProps,
   GlassIconButtonProps,
@@ -41,6 +42,7 @@ export function GlassButton({
   fullWidth = false,
   disabled = false,
   loading = false,
+  labelColor,
   testID,
   accessibilityLabel,
   style,
@@ -51,10 +53,12 @@ export function GlassButton({
     controlSize(size),
     disabledModifier(disabled),
   ];
+  const label = resolveColor(palette, labelColor);
+  if (label !== undefined) modifiers.push(foregroundStyle(label));
   if (accessibilityLabel !== undefined) {
     modifiers.push(accessibilityLabelModifier(accessibilityLabel));
   }
-  const label = (
+  const text = (
     <Text modifiers={[font({ textStyle: labelFont })]}>{title}</Text>
   );
   const centered = fullWidth || loading;
@@ -76,7 +80,7 @@ export function GlassButton({
           <HStack spacing={8}>
             {fullWidth ? <Spacer /> : null}
             {loading ? <ProgressView /> : null}
-            {label}
+            {text}
             {fullWidth ? <Spacer /> : null}
           </HStack>
         ) : undefined}

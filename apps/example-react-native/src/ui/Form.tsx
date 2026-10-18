@@ -20,6 +20,7 @@ import {
 import { useColors } from "@/ui/colors";
 import { Text } from "@/ui/Text";
 import { form } from "@/ui/tokens";
+import { WrappedText } from "@/ui/WrappedText";
 
 /**
  * An iOS 26 inset-grouped list (`Form`, `List(.insetGrouped)`) drawn in React
@@ -215,9 +216,12 @@ export function FormSection({
         ))}
       </View>
       {footer === undefined ? null : typeof footer === "string" ? (
-        <Text variant="footnote" color="secondaryLabel" style={styles.footer}>
+        <WrappedText
+          variant="footnote"
+          color="secondaryLabel"
+          style={styles.footer}>
           {footer}
-        </Text>
+        </WrappedText>
       ) : (
         <View style={styles.footer}>{footer}</View>
       )}

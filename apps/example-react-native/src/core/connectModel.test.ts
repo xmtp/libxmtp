@@ -240,3 +240,14 @@ test("an invalid address does not probe", async () => {
   assert.equal(h.probes, 0);
   assert.equal(h.model.getState().checking, false);
 });
+
+test("appear reopens a disposed model (a React effect runs again after its cleanup)", async () => {
+  const h = harness();
+  h.model.appear();
+  h.model.dispose();
+  h.model.appear();
+  await settle();
+  assert.equal(h.model.getState().ready, true);
+  h.model.setAddress("https://other.example.com");
+  assert.equal(h.model.getState().address, "https://other.example.com");
+});

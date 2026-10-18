@@ -1,5 +1,6 @@
 import type { StyleProp, ViewStyle } from "react-native";
 
+import type { ColorInput } from "@/ui/colors";
 import type { SymbolName } from "@/ui/Symbol";
 
 export interface GlassButtonProps {
@@ -19,7 +20,12 @@ export interface GlassButtonProps {
   /** `.controlSize(.large)` for footer buttons. Default `regular`. */
   size?: "regular" | "large";
   /** The label font. Default `headline` for large, `body` otherwise. */
-  font?: "body" | "headline";
+  font?: "body" | "headline" | "subheadline";
+  /**
+   * The label color of a `glass` button when a parent sets
+   * `.foregroundStyle` (Connect's red status Retry). Default the tint.
+   */
+  labelColor?: ColorInput;
   systemImage?: SymbolName;
   /** Stretches to the container width with a centered label. */
   fullWidth?: boolean;

@@ -42,6 +42,7 @@ const profileSeparatorInset = 41.5;
 function Settings({ session }: { readonly session: ActiveSession }) {
   const [model] = useState(createSettingsModel);
   useEffect(() => {
+    model.appear();
     session.refreshOwnHandles().catch(() => {});
     return () => {
       model.dispose();

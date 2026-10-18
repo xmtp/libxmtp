@@ -1,6 +1,6 @@
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
-import { useColors } from "@/ui/colors";
+import { resolveColor, useColors } from "@/ui/colors";
 import type {
   GlassButtonProps,
   GlassIconButtonProps,
@@ -25,13 +25,16 @@ export function GlassButton({
   fullWidth = false,
   disabled = false,
   loading = false,
+  labelColor,
   testID,
   accessibilityLabel,
   style,
 }: GlassButtonProps) {
   const palette = useColors();
   const prominent = variant === "glassProminent";
-  const foreground = prominent ? palette.onTint : palette.tint;
+  const foreground = prominent
+    ? palette.onTint
+    : (resolveColor(palette, labelColor) ?? palette.tint);
   return (
     <Pressable
       onPress={onPress}

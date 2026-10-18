@@ -32,6 +32,8 @@ const pairs = {
   // Tints at fixed opacity (SwiftUI `Theme.tint.opacity(x)` and hierarchical styles).
   /** `.tertiary` on a tinted row (Settings chevrons): tint at 25 percent. */
   tintTertiary: { light: "rgba(52,84,188,0.25)", dark: "rgba(67,97,209,0.3)" },
+  /** `.secondary` on a tinted row (a `#code` in a Form button): tint at 50 percent. */
+  tintSecondary: { light: "rgba(52,84,188,0.5)", dark: "rgba(67,97,209,0.5)" },
   /** Recipient chips, staged attachment icon tile: tint at 10 percent. */
   tintFill10: { light: "rgba(52,84,188,0.1)", dark: "rgba(67,97,209,0.1)" },
   /** iPad sidebar selection: tint at 12 percent. */
@@ -123,6 +125,11 @@ const pairs = {
   systemGray: { light: "#8E8E93", dark: "#8E8E93", ios: "systemGray" },
   /** Text and icons on tint-filled surfaces. */
   onTint: { light: "#FFFFFF", dark: "#FFFFFF" },
+  /**
+   * SwiftUI `Divider()` outside a list, drawn one pixel thick. Measured on
+   * iOS 27: #C6C6C8 on white, #3E3E41 on #1C1C1E (darker than `separator`).
+   */
+  divider: { light: "rgba(60,60,67,0.29)", dark: "rgba(84,84,88,0.6)" },
 } as const satisfies Record<string, Pair>;
 
 export type ColorName = keyof typeof pairs;
