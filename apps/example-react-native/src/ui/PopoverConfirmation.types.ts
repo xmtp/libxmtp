@@ -13,7 +13,12 @@ export interface PopoverConfirmationRequest {
 export interface PopoverConfirmationProps {
   /** The dialog to show, or undefined for none. */
   request: PopoverConfirmationRequest | undefined;
-  /** The dialog closed without the action (background tap, Cancel). */
+  /**
+   * The dialog closed: after the action, a background tap or Cancel. Clear
+   * the request here, but do not cancel work: on iOS this can arrive before
+   * the action's `onConfirm`, so `onConfirm` must act on the request it was
+   * shown with, not on state that this callback clears.
+   */
   onDismiss: () => void;
   /**
    * The frame the dialog points at. SwiftUI anchors a list's
