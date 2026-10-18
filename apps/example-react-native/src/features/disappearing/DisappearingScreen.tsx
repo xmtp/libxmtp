@@ -98,7 +98,7 @@ function DisappearingBody({
   };
 
   return (
-    <FormScreen automaticallyAdjustKeyboardInsets>
+    <FormScreen avoidsKeyboard>
       <Stack.Screen options={{ title: disappearingCopy.title }} />
       <FormSection
         header={disappearingCopy.messageDuration}
