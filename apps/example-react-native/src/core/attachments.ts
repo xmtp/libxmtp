@@ -241,7 +241,10 @@ export function fileExtension(name: string): string {
   return dot <= 0 ? "" : base.slice(dot + 1).toLowerCase();
 }
 
-/** Type descriptions and MIME types of common extensions (UTType values). */
+/**
+ * Type descriptions and MIME types of common extensions: UTType
+ * `localizedDescription` and `preferredMIMEType`, read on the iOS 27 simulator.
+ */
 const fileTypes: Partial<
   Record<string, { readonly description: string; readonly mime: string }>
 > = {
@@ -249,16 +252,71 @@ const fileTypes: Partial<
   jpeg: { description: "JPEG image", mime: "image/jpeg" },
   png: { description: "PNG image", mime: "image/png" },
   gif: { description: "GIF image", mime: "image/gif" },
-  heic: { description: "HEIC image", mime: "image/heic" },
-  webp: { description: "WebP image", mime: "image/webp" },
+  heic: { description: "HEIF Image", mime: "image/heic" },
+  heif: { description: "HEIF Image", mime: "image/heif" },
+  webp: { description: "WebP Image", mime: "image/webp" },
+  tif: { description: "TIFF image", mime: "image/tiff" },
+  tiff: { description: "TIFF image", mime: "image/tiff" },
+  bmp: { description: "Windows BMP image", mime: "image/bmp" },
+  svg: { description: "SVG image", mime: "image/svg+xml" },
   mov: { description: "QuickTime movie", mime: "video/quicktime" },
   mp4: { description: "MPEG-4 movie", mime: "video/mp4" },
-  pdf: { description: "PDF document", mime: "application/pdf" },
-  txt: { description: "Plain Text", mime: "text/plain" },
-  json: { description: "JSON", mime: "application/json" },
-  zip: { description: "ZIP archive", mime: "application/zip" },
-  csv: { description: "CSV document", mime: "text/csv" },
+  m4v: { description: "Apple MPEG-4 movie", mime: "video/x-m4v" },
   mp3: { description: "MP3 audio", mime: "audio/mpeg" },
+  m4a: { description: "Apple MPEG-4 audio", mime: "audio/x-m4a" },
+  wav: { description: "Waveform audio", mime: "audio/vnd.wave" },
+  aac: { description: "AAC audio", mime: "audio/aac" },
+  pdf: { description: "PDF document", mime: "application/pdf" },
+  txt: { description: "text", mime: "text/plain" },
+  md: { description: "Markdown", mime: "text/markdown" },
+  rtf: { description: "rich text (RTF)", mime: "text/rtf" },
+  html: { description: "HTML text", mime: "text/html" },
+  json: { description: "JSON", mime: "application/json" },
+  xml: { description: "XML text", mime: "application/xml" },
+  yaml: { description: "YAML", mime: "application/x-yaml" },
+  csv: { description: "comma-separated values", mime: "text/csv" },
+  ics: { description: "ICS File", mime: "text/calendar" },
+  vcf: { description: "electronic business card", mime: "text/vcard" },
+  zip: { description: "Zip archive", mime: "application/zip" },
+  gz: { description: "GZip archive", mime: "application/x-gzip" },
+  tar: { description: "tar archive", mime: "application/x-tar" },
+  "7z": { description: "7-Zip archive", mime: "application/x-7z-compressed" },
+  doc: {
+    description: "Microsoft Word 97-2004 document",
+    mime: "application/msword",
+  },
+  docx: {
+    description: "Office Open XML word processing document",
+    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  },
+  xls: {
+    description: "Microsoft Excel 97-2004 worksheet",
+    mime: "application/vnd.ms-excel",
+  },
+  xlsx: {
+    description: "Office Open XML spreadsheet",
+    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  },
+  ppt: {
+    description: "Microsoft PowerPoint 97-2004 presentation",
+    mime: "application/vnd.ms-powerpoint",
+  },
+  pptx: {
+    description: "Office Open XML presentation",
+    mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  },
+  key: {
+    description: "Keynote document",
+    mime: "application/x-iwork-keynote-sffkey",
+  },
+  pages: {
+    description: "Pages document",
+    mime: "application/x-iwork-pages-sffpages",
+  },
+  numbers: {
+    description: "Numbers document",
+    mime: "application/x-iwork-numbers-sffnumbers",
+  },
 };
 
 /** The staged preview's type line ("JPEG image"; "File" when unknown). */

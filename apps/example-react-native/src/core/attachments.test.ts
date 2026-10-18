@@ -12,6 +12,7 @@ import {
   cardStatus,
   draftMetadata,
   exceedsLimit,
+  fileTypeDescription,
   isVisualFile,
   mimeTypeFor,
   parseDraft,
@@ -102,6 +103,28 @@ test("names, types and the staging limit", () => {
     retryable: true,
   };
   assert.equal(draftMetadata(draft), "JPEG image · 212 KB");
+});
+
+test("type lines and MIME types read like UTType", () => {
+  // UTType values on the iOS 27 simulator.
+  assert.equal(fileTypeDescription("l6-proof.txt"), "text");
+  assert.equal(fileTypeDescription("IMG_0001.HEIC"), "HEIF Image");
+  assert.equal(fileTypeDescription("sticker.webp"), "WebP Image");
+  assert.equal(fileTypeDescription("photos.zip"), "Zip archive");
+  assert.equal(fileTypeDescription("budget.csv"), "comma-separated values");
+  assert.equal(
+    fileTypeDescription("Report.docx"),
+    "Office Open XML word processing document",
+  );
+  assert.equal(fileTypeDescription("scan.tiff"), "TIFF image");
+  assert.equal(fileTypeDescription("notes.unknownext"), "File");
+  assert.equal(mimeTypeFor("scan.tif"), "image/tiff");
+  assert.equal(mimeTypeFor("voice.m4a"), "audio/x-m4a");
+  // The picker's type covers extensions outside the table.
+  assert.equal(
+    mimeTypeFor("raw.dng", "image/x-adobe-dng"),
+    "image/x-adobe-dng",
+  );
 });
 
 test("a saved draft round-trips with its key bytes", () => {
