@@ -20,20 +20,26 @@ import { type ChatServices, chatServices } from "@/features/chat/chatServices";
 import { RequestBarStore } from "@/features/chat/requestBarStore";
 import type { ActiveSession } from "@/session";
 
-/** The most recently attached runtime of each open chat. */
-const mounted = new Map<string, ChatRuntime>();
+/**
+ * The attached runtimes of each open chat, in attach order. A conversation
+ * can be open twice: Settings › Send needs review › View chat pushes it again
+ * over the chat that opened Settings.
+ */
+const mounted = new Map<string, readonly ChatRuntime[]>();
 
 /**
  * The open chat of `conversationId` in the current session, if it is mounted
- * (the chat stays mounted behind its sheets and pushed screens). Sheets such
- * as Reactions and the emoji picker can act through it.
+ * (the chat stays mounted behind its sheets and pushed screens). When it is
+ * open twice, the most recently attached one. Sheets such as Reactions and
+ * the emoji picker can act through it.
  */
 export function mountedChat(
   conversationId: string,
   session: ActiveSession,
 ): ChatRuntime | undefined {
-  const runtime = mounted.get(conversationId);
-  return runtime?.session === session ? runtime : undefined;
+  return (mounted.get(conversationId) ?? [])
+    .filter((runtime) => runtime.session === session)
+    .at(-1);
 }
 
 export class ChatRuntime {
@@ -149,18 +155,23 @@ export class ChatRuntime {
    * detached runtime ignores every result, so a remount attaches again.
    */
   attach(): () => void {
+    const { conversationId } = this;
     this.#attached += 1;
     if (this.#attached === 1) this.#start();
-    mounted.set(this.conversationId, this);
+    mounted.set(conversationId, [...(mounted.get(conversationId) ?? []), this]);
     let detached = false;
     return () => {
       if (detached) return;
       detached = true;
       this.#attached -= 1;
       if (this.#attached === 0) this.#stop();
-      if (mounted.get(this.conversationId) === this) {
-        mounted.delete(this.conversationId);
-      }
+      // Drop this attachment only: a copy of the chat lower in the stack
+      // stays reachable through `mountedChat`.
+      const runtimes = mounted.get(conversationId) ?? [];
+      const index = runtimes.lastIndexOf(this);
+      const rest = runtimes.filter((_, position) => position !== index);
+      if (rest.length === 0) mounted.delete(conversationId);
+      else mounted.set(conversationId, rest);
     };
   }
 
