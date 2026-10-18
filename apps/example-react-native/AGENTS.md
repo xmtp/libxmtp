@@ -80,7 +80,8 @@ measured against the iOS example's screenshots on an iOS 27 iPhone 17 Pro.
   Confirmations that SwiftUI shows as popovers (`.confirmationDialog` on a
   list) use `PopoverConfirmation`; alerts and other dialogs use `dialogs.ts`.
 - Text that wraps uses `WrappedText` (SwiftUI's wrapped line height once
-  it wraps) or `BubbleText` in message bubbles.
+  it wraps) or `BubbleText` in message bubbles. Inside a List or Form keep
+  the default; elsewhere (scroll views, cards) pass `leading="standard"`.
 - The Debug gallery shows every component and replicas of reference screens:
   `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/gallery?section=components"`
   (sections: `components`, `settings`, `details`, `chats`, `chat`, `connect`).

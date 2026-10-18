@@ -1,5 +1,5 @@
 import { Stack } from "expo-router";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -29,9 +29,12 @@ import { Logo } from "@/features/connect/Logo";
 import { useSessionState } from "@/session";
 import { ActionFooter } from "@/ui/ActionFooter";
 import { useColors } from "@/ui/colors";
-import { showConfirmation } from "@/ui/dialogs";
 import { GlassButton } from "@/ui/GlassButton";
 import { useMotion } from "@/ui/motion";
+import {
+  PopoverConfirmation,
+  type PopoverConfirmationRequest,
+} from "@/ui/PopoverConfirmation";
 import { Symbol } from "@/ui/Symbol";
 import { Text } from "@/ui/Text";
 import { radii, sizes } from "@/ui/tokens";
@@ -58,6 +61,21 @@ export function ConnectScreen() {
   }, [model]);
   const state = useStore(model);
   const [advanced, setAdvanced] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  // One object per presentation: the Android alert shows again for a new one.
+  const resetConfirmation = useMemo<PopoverConfirmationRequest | undefined>(
+    () =>
+      confirmingReset
+        ? {
+            title: connectCopy.deleteLocalDataTitle,
+            message: connectCopy.deleteLocalDataMessage,
+            confirm: connectCopy.deleteLocalData,
+            destructive: true,
+            onConfirm: deleteLocalData,
+          }
+        : undefined,
+    [confirmingReset],
+  );
   const recovering =
     session.kind === "resetIncomplete" || session.kind === "restoreFailed";
   const requiresToken = state.requiresToken;
@@ -128,13 +146,7 @@ export function ConnectScreen() {
                 role="destructive"
                 title={connectCopy.deleteLocalData}
                 onPress={() => {
-                  showConfirmation({
-                    hiddenTitle: connectCopy.deleteLocalDataTitle,
-                    message: connectCopy.deleteLocalDataMessage,
-                    confirm: connectCopy.deleteLocalData,
-                    destructive: true,
-                    onConfirm: deleteLocalData,
-                  });
+                  setConfirmingReset(true);
                 }}
               />
             </View>
@@ -321,6 +333,13 @@ export function ConnectScreen() {
           />
         </ActionFooter>
       )}
+      {/* ConnectView puts `.confirmationDialog` on the whole scroll view. */}
+      <PopoverConfirmation
+        request={resetConfirmation}
+        onDismiss={() => {
+          setConfirmingReset(false);
+        }}
+      />
     </View>
   );
 }
