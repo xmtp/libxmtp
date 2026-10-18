@@ -1,0 +1,73 @@
+# React Native example
+
+Run from the repository root. Recipes select the `react-native-local` Nix
+shell, which uses the selected Xcode. The canonical `react-native` shell
+requires `/Applications/Xcode_27.0.app`. On Linux the two are the same.
+
+- `dev/nix-shell 'just example-react-native check'` typechecks, lints, checks formatting and runs the unit tests. It links the JS-only SDK when no SDK is linked. CI runs it on every push, drafts included.
+- `dev/nix-shell 'just example-react-native format'` formats the JS, TS and JSON sources.
+- `dev/nix-shell 'just example-react-native sdk'` links and verifies the native SDK package. `sdk-js` links the JS-only product.
+- `dev/nix-shell 'just example-react-native install'` installs JS dependencies from the lockfile and the pods.
+- `dev/nix-shell 'just example-react-native metro'` starts Metro on `XMTP_RN_METRO_PORT` (default 8081).
+- `dev/nix-shell 'just example-react-native build-ios'` builds the simulator app into `.build/DerivedData`. `CONFIGURATION=Release` embeds the Hermes bundle and needs no Metro.
+- `dev/nix-shell 'just example-react-native start-ios'` builds, installs and launches on `XMTP_RN_SIMULATOR` (UDID or name; default the first iPhone). Append `--headless` to keep Simulator.app closed.
+- `dev/nix-shell 'just example-react-native build-android'` builds the APK with the Nix Gradle.
+- `dev/nix-shell 'just example-react-native start-android'` builds and runs on a scoped API 34 emulator from the `android` shell. Append `--headless`, or `--screenshot FILE` to save the first screen and stop.
+
+## Parallel checkouts
+
+A Debug build loads JS from the Metro port it was built with: `build-ios`
+stamps `XMTP_RN_METRO_PORT` into Info.plist (`RCT_METRO_PORT`), and
+`build-android` sets `reactNativeDevServerPort`. Give each checkout its own
+port and simulator, and start its Metro before `start-ios`:
+
+```bash
+XMTP_RN_METRO_PORT=8092 dev/nix-shell 'just example-react-native metro'
+XMTP_RN_SIMULATOR=<udid> XMTP_RN_METRO_PORT=8092 dev/nix-shell 'just example-react-native start-ios --headless'
+```
+
+`start-ios` refuses a Metro that serves another checkout's app.
+
+## Launch environment
+
+JS cannot read the process environment. `src/platform/messengerPlatform.ts`
+reads `XMTP_BACKEND_URL`, `XMTP_ALLOW_PRIVATE_ATTACHMENTS` and
+`XMTP_UI_TEST_ATTACHMENT` through the local module: on iOS from
+`SIMCTL_CHILD_<NAME>` at `simctl launch`, on Android from `am start --es`
+extras. The start recipes pass this worktree's backend unless
+`XMTP_BACKEND_URL` is set. Private attachment access needs exactly `1`.
+Android reaches the host backend and object store with `adb reverse`; set
+`XMTP_S3_PORT` when the backend belongs to another worktree.
+
+## SDK
+
+`package.json` depends on `file:./.build/sdk/package`, a gitignored link to a
+Nix product. pnpm never refreshes a directory dependency, so `install`
+removes `node_modules/@xmtp/react-native-sdk` first. The native package is an
+x86_64-linux output that needs Xcode 26.3: a Mac only substitutes it from
+Cachix. When this checkout's SDK identity is not cached (for example after a
+root `Cargo.toml` edit, which the identity covers), `sdk` fails fast. Use the
+package of a merged revision whose SDK content matches:
+`XMTP_RN_SDK_REV=<rev> dev/nix-shell 'just example-react-native sdk'`.
+
+## Code
+
+- `app/` holds expo-router route files only. Each reads params and renders a feature screen. No platform suffixes in `app/`.
+- `src/core/` is pure TypeScript with no React, React Native, Expo or SDK runtime imports (type-only SDK imports are fine). Its files import each other with explicit `.ts` extensions, and `node --test` runs `src/**/*.test.ts` directly.
+- `src/platform/` wraps Expo modules and the local module `modules/messenger-platform` (Swift and Kotlin, autolinked from `./modules`).
+- `src/ui/<Name>.ios.tsx` holds native iOS leaves; `src/ui/<Name>.tsx` is the plain React Native version for Android.
+- Import app code through the `@/` alias (`src/`). Oxlint rejects relative parent imports in `src/`.
+- Keep copy in each feature's `copy.ts` or `src/copy/`. `testID` and `accessibilityLabel` values mirror the iOS example's accessibility identifiers and labels.
+- Hermes has no `crypto.getRandomValues`, `TextDecoder` or `Buffer`. Pass native paths, never `file://` URIs, to the SDK. 64-bit SDK values are `bigint`; persist them as decimal strings.
+
+## Native projects
+
+`ios/` and `android/` are committed and edited by hand; nothing runs
+`expo prebuild`, so `app.json` plugins and `expo-build-properties` do nothing.
+After adding a native dependency, run `install` and commit `ios/Podfile.lock`
+and the project changes. Do not add `expo-sqlite` (the SDK links its own
+SQLCipher) or `expo-dev-client`. Android keystores are never committed;
+builds sign with AGP's default debug keystore.
+
+Prove each new test fails under a named behavioral mutation, then restore it
+and show it passes. Record the mutation in the change description.
