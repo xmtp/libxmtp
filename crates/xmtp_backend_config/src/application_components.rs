@@ -9,11 +9,12 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use xmtp_configuration::{
-    ApplicationComponentDefinition, ComponentPermissions, MAX_APPLICATION_COMPONENT_NAME_BYTES,
-    MetadataPolicy, WELL_KNOWN_COMPONENT_NAMES, validate_application_components,
+    ApplicationComponentDefinition, ApplicationComponentError, ComponentPermissions,
+    MAX_APPLICATION_COMPONENT_NAME_BYTES, MetadataPolicy, WELL_KNOWN_COMPONENT_NAMES,
+    validate_application_components,
 };
 
-use super::ConfigError;
+use super::{ConfigError, Step, key_path};
 
 /// One application component. Every key is required; there are no defaults,
 /// because a published definition should not change once conversations use it.
@@ -90,20 +91,51 @@ impl From<&ApplicationComponentConfig> for ApplicationComponentDefinition {
 /// Apply the rules a client also applies, then refuse a well-known name. A
 /// client accepts that clash, because a later release may add a well-known
 /// name that a deployment already uses; a new deployment cannot start with one.
-/// Errors name the entry by its position in the file, never by its contents.
+/// Errors name the key by the entry's position in the file, never by the
+/// entry's contents.
 // implements: CONF-078
 pub(super) fn validate(components: &[ApplicationComponentConfig]) -> Result<(), ConfigError> {
     let definitions: Vec<ApplicationComponentDefinition> =
         components.iter().map(Into::into).collect();
-    validate_application_components(&definitions)
-        .map_err(|(index, reason)| ConfigError::ApplicationComponent { index, reason })?;
+    validate_application_components(&definitions).map_err(|(index, reason)| {
+        ConfigError::ApplicationComponent {
+            field: key(index, reason_key(reason)),
+            reason,
+        }
+    })?;
     match components.iter().position(|component| {
         WELL_KNOWN_COMPONENT_NAMES
             .iter()
             .any(|&(_, name)| name == component.name)
     }) {
-        Some(index) => Err(ConfigError::WellKnownComponentName { index }),
+        Some(index) => Err(ConfigError::WellKnownComponentName {
+            field: key(index, "name"),
+        }),
         None => Ok(()),
+    }
+}
+
+/// The key of entry `index` named `name`.
+fn key(index: usize, name: &str) -> String {
+    key_path(
+        &key_path("application_components", Step::Entry(index)),
+        Step::Key(name),
+    )
+}
+
+/// The key a refusal names. A rule that relates two keys names the first;
+/// its reason names both.
+fn reason_key(reason: ApplicationComponentError) -> &'static str {
+    match reason {
+        ApplicationComponentError::ComponentId | ApplicationComponentError::DuplicateId => {
+            "component_id"
+        }
+        ApplicationComponentError::Name | ApplicationComponentError::DuplicateName => "name",
+        // A decoded entry always has a supported type and all three
+        // policies, so these two cannot fail here.
+        ApplicationComponentError::ComponentType => "component_type",
+        ApplicationComponentError::Permissions => "insert_policy",
+        ApplicationComponentError::Conversations => "in_groups",
     }
 }
 

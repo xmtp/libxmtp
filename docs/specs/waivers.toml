@@ -437,13 +437,6 @@ issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
 reason = "Restored conversations report an unknown creator until validated activation, including when the archive supplied a creator. Legacy getters use empty text; the new SDK uses its optional unknown value. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
-id = "CONF-065"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4587"
-reason = "Some refusals do not name the key: every typed-decoding failure outside attachments.target.S3.credentials, such as an unknown key, a missing required key, or a value of the wrong type, is reported as invalid TOML with no key; a failed environment reference names the variable but not the key, and an empty reference name names neither; and the publishing and retention range checks, a value of the wrong type in attachments.target.S3.credentials or an unlisted key under any credential kind, and some auth, telemetry, chain, and application component checks name only the table or the list entry."
-
-[[waiver]]
 id = "CONF-085"
 kind = "gap"
 owner = "backend"
@@ -460,4 +453,4 @@ id = "CONF-087"
 kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/4606"
-reason = "Two Type gaps remain. A table with fixed keys, including an entry of auth.keys or application_components, accepts an array and decodes it by position, such as limits = [] or database = ['postgres://localhost/xmtp']; a table whose keys the operator chooses refuses one. A key whose value is one of a fixed list of strings (server.log_level, server.log_format, and the type and policies of application_components[]) accepts a one-key table, such as server.log_level = { debug = {} }. attachments.target refuses an array, attachments.target.S3.credentials accepts one and reads its first element as kind, and attachments.target.S3.credentials.kind refuses a table. The bounds and the standard checks hold: every_standard_check_in_the_field_table_refuses_a_failing_value proves them."
+reason = "Two Type gaps remain. A table with fixed keys, including an entry of auth.keys or application_components, accepts an array and decodes it by position, such as limits = [] or database = ['postgres://localhost/xmtp']; a table whose keys the operator chooses refuses one. A key whose value is one of a fixed list of strings (server.log_level, server.log_format, and the type and policies of application_components[]) accepts a one-key table, such as server.log_level = { debug = {} }. attachments.target and attachments.target.S3.credentials refuse an array, and attachments.target.S3.credentials.kind refuses a table. The bounds and the standard checks hold: every_standard_check_in_the_field_table_refuses_a_failing_value proves them."

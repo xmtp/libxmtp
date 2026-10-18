@@ -338,7 +338,7 @@ async fn an_unparsable_inline_key_stops_startup_before_binding() {
     assert!(!process.child.wait()?.success());
     let output = process.output();
     assert!(
-        output.contains("auth.keys[1]")
+        output.contains("auth.keys[1].public_key")
             && output.contains("public_key must be SubjectPublicKeyInfo for alg"),
         "{output}"
     );

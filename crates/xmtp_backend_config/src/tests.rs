@@ -26,6 +26,18 @@ pub(crate) fn assert_one_test_passed(output: &std::process::Output) {
     );
 }
 
+/// Require that `result` is an `Invalid` refusal naming `field`, and return
+/// the refusal.
+#[track_caller]
+pub(crate) fn assert_invalid<T>(result: Result<T, ConfigError>, field: &str) -> ConfigError {
+    let Err(error) = result else {
+        panic!("{field} must be refused");
+    };
+    assert!(matches!(error, ConfigError::Invalid { .. }), "{error}");
+    assert_eq!(error.field(), Some(field), "{error}");
+    error
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 fn logging_defaults_and_overrides_are_typed() {
     let config: Config = toml::from_str(MINIMAL)?;
@@ -85,18 +97,35 @@ fn invalid_attachment_credential_sources_name_the_key() {
          region = 'us-east-1'\nbucket = 'attachments'\n\
          [attachments.target.S3.credentials]\n"
     );
-    for (fields, expected_key) in [
-        ("kind = 'unknown'", "attachments.target.S3.credentials.kind"),
-        ("kind = 'profile'", "attachments.target.S3.credentials.name"),
+    for (fields, expected_key, expected_reason) in [
+        (
+            "kind = 'unknown'",
+            "attachments.target.S3.credentials.kind",
+            "is not one of the allowed values",
+        ),
+        (
+            "kind = 'profile'",
+            "attachments.target.S3.credentials.name",
+            "is required",
+        ),
         (
             "kind = 'profile'\nname = ''",
             "attachments.target.S3.credentials.name",
+            "must not be empty",
+        ),
+        (
+            "kind = 'profile'\nname = 3",
+            "attachments.target.S3.credentials.name",
+            "has the wrong type or value",
         ),
     ] {
-        let error = ValidatedConfig::load_str(&format!("{source}{fields}\n")).unwrap_err();
+        let error = assert_invalid(
+            ValidatedConfig::load_str(&format!("{source}{fields}\n")),
+            expected_key,
+        );
         assert!(
-            matches!(&error, ConfigError::Invalid { field, .. } if *field == expected_key),
-            "{error}"
+            matches!(error, ConfigError::Invalid { reason, .. } if reason == expected_reason),
+            "{fields}: {error}"
         );
         assert!(error.to_string().contains(expected_key));
     }
@@ -173,10 +202,9 @@ fn push_invalid_values_name_the_configuration_key() {
         ),
         ("[limits]\nmax_push_topics = 0", "limits.max_push_topics"),
     ] {
-        let error = ValidatedConfig::load_str(&format!("{MINIMAL}\n{extra}")).unwrap_err();
-        assert!(
-            matches!(error, ConfigError::Invalid { field: actual, .. } if actual == field),
-            "{error}"
+        assert_invalid(
+            ValidatedConfig::load_str(&format!("{MINIMAL}\n{extra}")),
+            field,
         );
     }
     for domain in [
@@ -193,17 +221,12 @@ fn push_invalid_values_name_the_configuration_key() {
         "-example.org",
         "example-.org",
     ] {
-        let error = ValidatedConfig::load_str(&format!(
-            "{MINIMAL}\n[push.http]\nallowed_domains = ['{domain}']"
-        ))
-        .unwrap_err();
-        assert!(matches!(
-            error,
-            ConfigError::Invalid {
-                field: "push.http.allowed_domains",
-                ..
-            }
-        ));
+        assert_invalid(
+            ValidatedConfig::load_str(&format!(
+                "{MINIMAL}\n[push.http]\nallowed_domains = ['{domain}']"
+            )),
+            "push.http.allowed_domains",
+        );
     }
     ValidatedConfig::load_str(&format!(
         "{MINIMAL}\n[push]\nrecipient_ttl_seconds = 86400\nmax_attempts = 10\n[push.http]\nallowed_domains = ['hooks.example.com', '*.EXAMPLE.org']"
@@ -221,18 +244,13 @@ fn push_expiry_is_checked_at_both_duration_and_clock_boundaries() {
     );
     assert_eq!(config.push.expires_at(NS_IN_SEC), None);
     assert_eq!(config.push.expires_at(-1), None);
-    let error = ValidatedConfig::load_str(&format!(
-        "{MINIMAL}\n[push]\nrecipient_ttl_seconds = {}",
-        MAX_RETENTION_SECONDS + 1
-    ))
-    .unwrap_err();
-    assert!(matches!(
-        error,
-        ConfigError::Invalid {
-            field: "push.recipient_ttl_seconds",
-            ..
-        }
-    ));
+    assert_invalid(
+        ValidatedConfig::load_str(&format!(
+            "{MINIMAL}\n[push]\nrecipient_ttl_seconds = {}",
+            MAX_RETENTION_SECONDS + 1
+        )),
+        "push.recipient_ttl_seconds",
+    );
 }
 
 /// A key that the field table does not list is refused in every table with
@@ -271,9 +289,17 @@ fn unknown_keys_are_refused_in_every_table() {
         let mut document = base.clone();
         table_at(&mut document, "auth").insert("enabled".into(), enabled.into());
         table_at(&mut document, table).insert("unlisted_key".into(), true.into());
+        let field = match table {
+            "" => "unlisted_key".to_owned(),
+            table => format!("{}.unlisted_key", table.replace("[]", "[0]")),
+        };
+        let error = assert_invalid(
+            ValidatedConfig::load_str(&toml::to_string(&document)?),
+            &field,
+        );
         assert!(
-            ValidatedConfig::load_str(&toml::to_string(&document)?).is_err(),
-            "an unlisted key in [{table}] with auth enabled = {enabled} must be refused"
+            matches!(error, ConfigError::Invalid { reason, .. } if reason == "is not a configuration key"),
+            "an unlisted key in [{table}] with auth enabled = {enabled}: {error}"
         );
     }
 }
@@ -322,27 +348,31 @@ fn credential_kinds_refuse_the_keys_they_do_not_take() {
         }
         credentials
     };
-    // The refusal names the credentials table, not the extra key, until
-    // refusals name their key (https://github.com/xmtp/libxmtp/issues/4587).
-    // Changing this field is deliberate.
-    let assert_refused = |result: Result<ValidatedConfig, ConfigError>, case: &str| match result {
-        Err(ConfigError::Invalid { field, .. }) => {
-            assert_eq!(field, "attachments.target.S3.credentials", "{case}");
-        }
-        other => panic!("{case} must be refused naming its table, got {other:?}"),
+    // The refusal names the extra key.
+    let assert_refused = |result: Result<ValidatedConfig, ConfigError>, extra: &str| {
+        let error = assert_invalid(
+            result,
+            &format!("attachments.target.S3.credentials.{extra}"),
+        );
+        assert!(
+            matches!(error, ConfigError::Invalid { reason, .. } if reason == "is not a configuration key"),
+            "{error}"
+        );
     };
-    for (kind, keys) in [
-        ("instance", vec!["access_key_id"]),
+    for (kind, keys, extra) in [
+        ("instance", vec!["access_key_id"], "access_key_id"),
         (
             "static",
             vec!["access_key_id", "secret_access_key", "role_arn"],
+            "role_arn",
         ),
-        ("assume_role", vec!["role_arn", "access_key_id"]),
+        (
+            "assume_role",
+            vec!["role_arn", "access_key_id"],
+            "access_key_id",
+        ),
     ] {
-        assert_refused(
-            load(&with_keys(kind, &keys)),
-            &format!("{keys:?} with kind = {kind}"),
-        );
+        assert_refused(load(&with_keys(kind, &keys)), extra);
     }
     let mut refused = 0;
     for (kind, keys) in &kinds {
@@ -354,7 +384,7 @@ fn credential_kinds_refuse_the_keys_they_do_not_take() {
         for other in every_key.iter().filter(|key| !keys.contains(&key.as_str())) {
             let mut extra = credentials.clone();
             extra.insert(other.clone(), "value".into());
-            assert_refused(load(&extra), &format!("{other} with kind = {kind}"));
+            assert_refused(load(&extra), other);
             refused += 1;
         }
     }
@@ -470,13 +500,10 @@ fn every_cross_field_relationship_is_rejected() {
     let mut config: Config = toml::from_str(MINIMAL)?;
 
     config.publishing.max_publish_duration_ms = config.database.max_statement_timeout_ms;
-    assert!(matches!(
+    assert_invalid(
         config.clone().validate(),
-        Err(ConfigError::Invalid {
-            field: "publishing.max_publish_duration_ms",
-            ..
-        })
-    ));
+        "publishing.max_publish_duration_ms",
+    );
     // Each relation holds at its boundary.
     config.publishing.max_publish_duration_ms = config.database.max_statement_timeout_ms + 1;
     config.clone().validate()?;
@@ -485,55 +512,25 @@ fn every_cross_field_relationship_is_rejected() {
     config.clone().validate()?;
     config = toml::from_str(MINIMAL)?;
     config.limits.max_query_limit = config.limits.default_query_limit - 1;
-    assert!(matches!(
-        config.clone().validate(),
-        Err(ConfigError::Invalid {
-            field: "limits.max_query_limit",
-            ..
-        })
-    ));
+    assert_invalid(config.clone().validate(), "limits.max_query_limit");
     config = toml::from_str(MINIMAL)?;
     config.limits.max_envelope_bytes = config.limits.max_request_bytes + 1;
-    assert!(matches!(
-        config.clone().validate(),
-        Err(ConfigError::Invalid {
-            field: "limits.max_envelope_bytes",
-            ..
-        })
-    ));
+    assert_invalid(config.clone().validate(), "limits.max_envelope_bytes");
     config = toml::from_str(MINIMAL)?;
     config.limits.max_envelope_bytes = RESPONSE_TEST_ENVELOPE_BYTES;
     config.limits.max_request_bytes = RESPONSE_TEST_REQUEST_BYTES;
     config.limits.max_response_bytes = RESPONSE_TEST_ENVELOPE_BYTES;
-    assert!(matches!(
-        config.clone().validate(),
-        Err(ConfigError::Invalid {
-            field: "limits.max_envelope_bytes",
-            ..
-        })
-    ));
+    assert_invalid(config.clone().validate(), "limits.max_envelope_bytes");
     config = toml::from_str(MINIMAL)?;
     config.limits.max_update_adds = config.limits.max_stream_topics + 1;
-    assert!(matches!(
-        config.clone().validate(),
-        Err(ConfigError::Invalid {
-            field: "limits.max_update_adds",
-            ..
-        })
-    ));
+    assert_invalid(config.clone().validate(), "limits.max_update_adds");
     config = toml::from_str(MINIMAL)?;
     config.limits.max_envelope_bytes = DELIVERY_FRAME_BYTES - ENVELOPE_METADATA_AND_FRAMING_BYTES;
     config.limits.max_request_bytes = DELIVERY_FRAME_BYTES;
     config.limits.max_response_bytes = DELIVERY_FRAME_BYTES;
     config.clone().validate()?;
     config.limits.max_envelope_bytes = DELIVERY_FRAME_BYTES;
-    assert!(matches!(
-        config.clone().validate(),
-        Err(ConfigError::Invalid {
-            field: "limits.max_envelope_bytes",
-            ..
-        })
-    ));
+    assert_invalid(config.clone().validate(), "limits.max_envelope_bytes");
 }
 
 // verifies: CONF-084
@@ -609,9 +606,7 @@ fn finite_retention_must_fit_the_authoritative_database_clock() {
             "retention.welcome_seconds" => invalid.welcome_seconds += 1,
             _ => invalid.key_package_seconds += 1,
         }
-        assert!(
-            matches!(invalid.validate_at(DATABASE_NS), Err(ConfigError::Invalid { field: actual, .. }) if actual == field)
-        );
+        assert_invalid(invalid.validate_at(DATABASE_NS), field);
     }
 }
 
@@ -703,9 +698,10 @@ fn telemetry_rejects_unknown_reserved_and_invalid_values_without_endpoint_conten
         let config: Config = toml::from_str(&format!(
             "{MINIMAL}\n[telemetry.resource_attributes]\n'{key}' = 'override'"
         ))?;
-        let error = config.clone().validate().unwrap_err().to_string();
-        assert!(error.contains("telemetry.resource_attributes"));
-        assert!(error.contains(key));
+        assert_invalid(
+            config.clone().validate(),
+            &format!("telemetry.resource_attributes.\"{key}\""),
+        );
     }
     for endpoint in [
         "secret-invalid",
@@ -797,9 +793,10 @@ fn environment_references_resolve_once_in_every_string_position() {
     ))
     .unwrap_err();
     assert!(
-        matches!(&error, ConfigError::Environment { name } if name == NOT_UNICODE),
+        matches!(&error, ConfigError::Environment { name, .. } if name == NOT_UNICODE),
         "{error}"
     );
+    assert_eq!(error.field(), Some("telemetry.service_name"), "{error}");
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -827,14 +824,7 @@ fn malformed_inline_configuration_omits_document_contents() {
 // verifies: CONF-002
 fn the_identifier_is_required_and_shaped() {
     let missing: Config = toml::from_str("[database]\nurl = 'postgres://localhost/xmtp'\n")?;
-    let error = missing.validate().unwrap_err();
-    assert!(matches!(
-        error,
-        ConfigError::Invalid {
-            field: "server.identifier",
-            ..
-        }
-    ));
+    assert_invalid(missing.validate(), "server.identifier");
     for identifier in [
         String::new(),
         "a".repeat(MAX_SERVER_IDENTIFIER_BYTES + 1),
@@ -847,16 +837,7 @@ fn the_identifier_is_required_and_shaped() {
     ] {
         let mut config: Config = toml::from_str(MINIMAL)?;
         config.server.identifier = Some(identifier.clone());
-        assert!(
-            matches!(
-                config.clone().validate(),
-                Err(ConfigError::Invalid {
-                    field: "server.identifier",
-                    ..
-                })
-            ),
-            "{identifier:?} must be rejected"
-        );
+        assert_invalid(config.clone().validate(), "server.identifier");
     }
     // The documented convention is accepted at the byte bound.
     let mut config: Config = toml::from_str(MINIMAL)?;
@@ -873,13 +854,7 @@ fn an_auth_section_must_state_whether_it_is_enabled() {
     let config: Config = toml::from_str(&format!(
         "{MINIMAL}\n[auth]\njwks_url = 'https://issuer.example/keys'\n"
     ))?;
-    assert!(matches!(
-        config.clone().validate().unwrap_err(),
-        ConfigError::Invalid {
-            field: "auth.enabled",
-            ..
-        }
-    ));
+    assert_invalid(config.clone().validate(), "auth.enabled");
     // Disabled auth ignores every other field, including ones that would fail
     // their own checks. The backend publishes an empty summary for it.
     let config: Config = toml::from_str(&format!(
@@ -894,8 +869,10 @@ fn an_auth_section_must_state_whether_it_is_enabled() {
     ))
     .unwrap_err();
     assert!(
-        matches!(&error, ConfigError::Environment { name } if name == "XMTP_AUTH_DISABLED_MISSING")
+        matches!(&error, ConfigError::Environment { name, .. } if name == "XMTP_AUTH_DISABLED_MISSING"),
+        "{error}"
     );
+    assert_eq!(error.field(), Some("auth.jwks_url"), "{error}");
 }
 
 /// An operator states a minimum client version as a semantic version, or
@@ -906,16 +883,7 @@ fn the_minimum_client_version_is_optional_and_semantic() {
     for version in ["1", "1.2", "v1.2.3", "latest", "1.2.3.4", ""] {
         let mut config: Config = toml::from_str(MINIMAL)?;
         config.server.min_libxmtp_version = Some(version.into());
-        assert!(
-            matches!(
-                config.clone().validate(),
-                Err(ConfigError::Invalid {
-                    field: "server.min_libxmtp_version",
-                    ..
-                })
-            ),
-            "{version:?} must be rejected"
-        );
+        assert_invalid(config.clone().validate(), "server.min_libxmtp_version");
     }
     let config: Config = toml::from_str(MINIMAL)?;
     config.clone().validate()?;
@@ -941,11 +909,7 @@ fn request_and_response_budgets_stop_at_the_transport_ceiling() {
             "limits.max_request_bytes" => config.limits.max_request_bytes += 1,
             _ => config.limits.max_response_bytes += 1,
         }
-        let error = config.clone().validate().unwrap_err();
-        assert!(
-            matches!(&error, ConfigError::Invalid { field: named, .. } if *named == field),
-            "{field} must be named, got {error}"
-        );
+        assert_invalid(config.clone().validate(), field);
     }
 }
 
@@ -963,18 +927,9 @@ fn handles_min_name_length_defaults_and_range() {
         assert_eq!(config.handles.min_name_length, length);
     }
     for length in [0, 28] {
-        let error =
-            ValidatedConfig::load_str(&format!("{MINIMAL}\n[handles]\nmin_name_length = {length}"))
-                .unwrap_err();
-        assert!(
-            matches!(
-                error,
-                ConfigError::Invalid {
-                    field: "handles.min_name_length",
-                    ..
-                }
-            ),
-            "{length}: {error}"
+        assert_invalid(
+            ValidatedConfig::load_str(&format!("{MINIMAL}\n[handles]\nmin_name_length = {length}")),
+            "handles.min_name_length",
         );
     }
 }
@@ -1011,6 +966,8 @@ struct FailingValue {
     table: &'static str,
     name: String,
     value: toml::Value,
+    /// The key that the refusal names.
+    field: String,
 }
 
 fn failing(key: &'static str, check: &'static str, text: &str) -> FailingValue {
@@ -1022,20 +979,24 @@ fn failing(key: &'static str, check: &'static str, text: &str) -> FailingValue {
         table,
         name: name.to_owned(),
         value: literal(text),
+        field: key.to_owned(),
     }
 }
 
-/// A value for a key the operator chooses, set in `table`.
+/// A value for the key `name` in `table`, for a row whose key has a position
+/// in it, such as `auth.keys[].kid`. The refusal names `field`.
 fn failing_name(
     key: &'static str,
     check: &'static str,
     table: &'static str,
     name: &str,
     text: &str,
+    field: &str,
 ) -> FailingValue {
     FailingValue {
         table,
         name: name.to_owned(),
+        field: field.to_owned(),
         ..failing(key, check, text)
     }
 }
@@ -1100,6 +1061,7 @@ fn failing_values() -> Vec<FailingValue> {
             "chains",
             "eip155:1",
             "'ftp://rpc.example.org'",
+            "chains.\"eip155:1\"",
         ),
         failing(
             "auth.jwks_url",
@@ -1113,6 +1075,7 @@ fn failing_values() -> Vec<FailingValue> {
             "auth.keys[]",
             "kid",
             "''",
+            "auth.keys[0].kid",
         )),
         with_inline_keys(failing_name(
             "auth.keys[].kid",
@@ -1120,6 +1083,7 @@ fn failing_values() -> Vec<FailingValue> {
             "auth.keys[]",
             "kid",
             &format!("'{}'", "k".repeat(257)),
+            "auth.keys[0].kid",
         )),
         with_inline_keys(failing_name(
             "auth.keys[].alg",
@@ -1127,6 +1091,7 @@ fn failing_values() -> Vec<FailingValue> {
             "auth.keys[]",
             "alg",
             "'HS256'",
+            "auth.keys[0].alg",
         )),
         failing_name(
             "auth.api_keys.<name>",
@@ -1134,6 +1099,7 @@ fn failing_values() -> Vec<FailingValue> {
             "auth.api_keys",
             "-bot",
             "'fedcba9876543210fedcba9876543210'",
+            "auth.api_keys.-bot",
         ),
         failing("auth.audiences", "non-empty", "[]"),
         failing("auth.issuers", "non-empty", "[]"),
@@ -1175,6 +1141,7 @@ fn failing_values() -> Vec<FailingValue> {
             "telemetry.resource_attributes",
             name,
             "'reserved'",
+            &format!("telemetry.resource_attributes.\"{name}\""),
         ));
     }
     // Both bounds of the published count limits and the capped timers.
@@ -1239,19 +1206,22 @@ fn failing_values() -> Vec<FailingValue> {
         "application_components[].update_policy",
         "application_components[].delete_policy",
     ] {
+        let name = key.rsplit_once('.').expect("a key below the root").1;
         cases.push(failing_name(
             key,
             "one of: allow, deny, allow_if_admin, allow_if_super_admin, allow_if_self_or_non_member",
             "application_components[]",
-            key.rsplit_once('.').expect("a key below the root").1,
+            name,
             "'maybe'",
+            &format!("application_components[0].{name}"),
         ));
     }
     cases
 }
 
-/// Every standard check the field table names refuses a value that fails it.
-/// Inside a disabled `[auth]` table, the same values start.
+/// Every standard check the field table names refuses a value that fails it,
+/// and the refusal names the key. Inside a disabled `[auth]` table, the same
+/// values start.
 // verifies: CONF-087, CONF-066
 #[xmtp_common::test(unwrap_try = true)]
 fn every_standard_check_in_the_field_table_refuses_a_failing_value() {
@@ -1280,13 +1250,17 @@ fn every_standard_check_in_the_field_table_refuses_a_failing_value() {
         let mut document = full_document(case.auth);
         table_at(&mut document, case.table).insert(case.name.clone(), case.value.clone());
         let text = toml::to_string(&document)?;
-        assert!(
-            ValidatedConfig::load_str(&text).is_err(),
-            "{} = {} must fail {}",
-            case.key,
-            case.value,
-            case.check
-        );
+        match ValidatedConfig::load_str(&text) {
+            Err(error) => assert_eq!(
+                error.field(),
+                Some(case.field.as_str()),
+                "{} = {} must fail {} naming its key: {error}",
+                case.key,
+                case.value,
+                case.check
+            ),
+            Ok(_) => panic!("{} = {} must fail {}", case.key, case.value, case.check),
+        }
         if case.key.starts_with("auth.") {
             table_at(&mut document, "auth").insert("enabled".into(), false.into());
             if let Err(error) = ValidatedConfig::load_str(&toml::to_string(&document)?) {
@@ -1409,20 +1383,354 @@ fn chain_keys_must_be_eip155_chain_ids() {
         "eip155:18446744073709551616",
         "cosmos:cosmoshub-4",
     ] {
-        let error = load(chain).unwrap_err();
-        assert!(
-            matches!(
-                error,
-                ConfigError::Invalid {
-                    field: "chains",
-                    ..
-                }
-            ),
-            "{chain}: {error}"
-        );
+        assert_invalid(load(chain), &format!("chains.\"{chain}\""));
     }
     for chain in ["eip155:0", "eip155:1", "eip155:18446744073709551615"] {
         let config = load(chain)?;
         assert!(config.chains.contains_key(chain), "{chain}");
     }
+}
+
+/// A refusal caused by one key or value names that key as a TOML dotted key,
+/// with a fixed reason, and never the value. A typed-decoding refusal has one
+/// of four reasons, chosen by the decoder's message, so a decoder update that
+/// changes those messages fails here.
+// verifies: CONF-065
+#[xmtp_common::test(unwrap_try = true)]
+fn every_refusal_names_its_key() {
+    const MISSING: &str = "XMTP_CONFIG_REFUSAL_MISSING_7C2D";
+    const REQUIRED_SERVER: &str = "[server]\nidentifier = 'org.xmtp.test'\n";
+    let s3 = |table: &str, credentials: &str| {
+        format!(
+            "{MINIMAL}[attachments]\nbase_url = 'https://files.example.org'\n\
+             [attachments.target.S3]\nendpoint = 'https://s3.example.org'\n\
+             region = 'us-east-1'\nbucket = 'attachments'\n{table}\
+             [attachments.target.S3.credentials]\n{credentials}\n"
+        )
+    };
+    let s3_line = |line: &str| {
+        format!(
+            "{MINIMAL}[attachments]\nbase_url = 'https://files.example.org'\n\
+             [attachments.target.S3]\nendpoint = 'https://s3.example.org'\n\
+             region = 'us-east-1'\nbucket = 'attachments'\n{line}\n"
+        )
+    };
+    let component = |id: u32, name: &str, in_groups: bool| {
+        format!(
+            "[[application_components]]\ncomponent_id = {id}\nname = '{name}'\n\
+             component_type = 'string'\ninsert_policy = 'allow'\nupdate_policy = 'allow'\n\
+             delete_policy = 'allow'\nin_groups = {in_groups}\nin_dms = false\n"
+        )
+    };
+    let auth = |keys: &str| format!("{MINIMAL}[auth]\nenabled = true\n{keys}\n");
+    let key =
+        |kid: &str, alg: &str| format!("{{ kid = '{kid}', alg = '{alg}', public_key = 'k' }}");
+    let cases: Vec<(String, &str, String)> = vec![
+        // Typed decoding, one case for each of the four reasons.
+        (
+            format!("{MINIMAL}[limits]\nmax_query_limit = 'many'\n"),
+            "limits.max_query_limit",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!("{MINIMAL}unlisted = true\n"),
+            "server.unlisted",
+            "is not a configuration key".into(),
+        ),
+        (
+            format!("{REQUIRED_SERVER}[database]\n"),
+            "database.url",
+            "is required".into(),
+        ),
+        (
+            format!("{MINIMAL}log_level = 'verbose'\n"),
+            "server.log_level",
+            "is not one of the allowed values".into(),
+        ),
+        // Decoding paths through a quoted key, an array entry, and an enum variant.
+        (
+            format!("\"odd key\" = 1\n{MINIMAL}"),
+            "\"odd key\"",
+            "is not a configuration key".into(),
+        ),
+        (
+            format!("{MINIMAL}[auth]\nenabled = false\naudiences = ['a', 3]\n"),
+            "auth.audiences[1]",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!("{MINIMAL}{}", component(0x1_C000, "a", true)),
+            "application_components[0].component_id",
+            "has the wrong type or value".into(),
+        ),
+        (
+            s3("unlisted = 1\n", "kind = 'web_identity'"),
+            "attachments.target.S3.unlisted",
+            "is not a configuration key".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}[attachments]\nbase_url = 'https://files.example.org'\n\
+                 [attachments.target.GCS]\nbucket = 'attachments'\n"
+            ),
+            "attachments.target.GCS",
+            "is not a configuration key".into(),
+        ),
+        // A table or a string written in another shape.
+        (
+            format!(
+                "{MINIMAL}[attachments]\nbase_url = 'https://files.example.org'\n\
+                 [[attachments.target]]\nendpoint = 'https://s3.example.org'\n\
+                 region = 'us-east-1'\nbucket = 'attachments'\n\
+                 credentials = {{ kind = 'instance' }}\n"
+            ),
+            "attachments.target",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}[attachments]\nbase_url = 'https://files.example.org'\n\
+                 target = [{{ endpoint = 'https://s3.example.org', region = 'us-east-1', \
+                 bucket = 'attachments', credentials = {{ kind = 'instance' }} }}]\n"
+            ),
+            "attachments.target",
+            "has the wrong type or value".into(),
+        ),
+        (
+            s3_line("credentials = ['instance']"),
+            "attachments.target.S3.credentials",
+            "has the wrong type or value".into(),
+        ),
+        (
+            s3_line("credentials = { kind = { instance = {} } }"),
+            "attachments.target.S3.credentials.kind",
+            "has the wrong type or value".into(),
+        ),
+        (
+            s3_line(
+                "credentials = { kind = { static = [] }, access_key_id = 'a', secret_access_key = 's' }",
+            ),
+            "attachments.target.S3.credentials.kind",
+            "has the wrong type or value".into(),
+        ),
+        (
+            s3_line("credentials = ['bogus']"),
+            "attachments.target.S3.credentials",
+            "has the wrong type or value".into(),
+        ),
+        // A date or a time, which no key takes.
+        (
+            "[server]\nidentifier = 1979-05-27\n[database]\nurl = 'postgres://localhost/xmtp'\n"
+                .into(),
+            "server.identifier",
+            "has the wrong type or value".into(),
+        ),
+        (
+            s3("", "kind = 'profile'\nname = 07:32:00"),
+            "attachments.target.S3.credentials.name",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!("{MINIMAL}[auth]\nenabled = false\naudiences = [1979-05-27]\n"),
+            "auth.audiences[0]",
+            "has the wrong type or value".into(),
+        ),
+        // A key that holds a backtick, which the decoder's message also uses.
+        (
+            format!("\"a`b\" = 1\n{MINIMAL}"),
+            "\"a`b\"",
+            "is not a configuration key".into(),
+        ),
+        (
+            format!("{MINIMAL}[streams]\n\"x`y\" = 1\n"),
+            "streams.\"x`y\"",
+            "is not a configuration key".into(),
+        ),
+        (
+            s3("", "kind = 'instance'\n\"q`r\" = 1"),
+            "attachments.target.S3.credentials.\"q`r\"",
+            "is not a configuration key".into(),
+        ),
+        // A credential key that the kind does not take, or requires.
+        (
+            s3(
+                "",
+                "kind = 'static'\naccess_key_id = 'a'\nsecret_access_key = 's'\nrole_arn = 'r'",
+            ),
+            "attachments.target.S3.credentials.role_arn",
+            "is not a configuration key".into(),
+        ),
+        (
+            s3("", "kind = 'profile'"),
+            "attachments.target.S3.credentials.name",
+            "is required".into(),
+        ),
+        // Environment references name the key and the variable.
+        (
+            format!("{REQUIRED_SERVER}[database]\nurl = 'env:{MISSING}'\n"),
+            "database.url",
+            format!("environment variable {MISSING} is not available"),
+        ),
+        (
+            format!("{REQUIRED_SERVER}[database]\nurl = 'env:'\n"),
+            "database.url",
+            "environment variable name is empty".into(),
+        ),
+        (
+            format!("{MINIMAL}[auth]\nenabled = false\naudiences = ['a', 'env:{MISSING}']\n"),
+            "auth.audiences[1]",
+            format!("environment variable {MISSING} is not available"),
+        ),
+        (
+            format!(
+                "{MINIMAL}[telemetry.resource_attributes]\n\"deployment.environment\" = 'env:{MISSING}'\n"
+            ),
+            "telemetry.resource_attributes.\"deployment.environment\"",
+            format!("environment variable {MISSING} is not available"),
+        ),
+        // A key the operator chooses.
+        (
+            format!("{MINIMAL}[chains]\n\"cosmos:hub\" = 'https://rpc.example.org'\n"),
+            "chains.\"cosmos:hub\"",
+            "keys must be EIP-155 CAIP-2 chain ids".into(),
+        ),
+        (
+            format!("{MINIMAL}[chains]\n\"eip155:1\" = 'ftp://rpc.example.org'\n"),
+            "chains.\"eip155:1\"",
+            "must be a non-empty URL".into(),
+        ),
+        (
+            format!("{MINIMAL}[telemetry.resource_attributes]\n\"service.name\" = 'x'\n"),
+            "telemetry.resource_attributes.\"service.name\"",
+            "service.name, service.version, and xmtp.backend.identifier are reserved".into(),
+        ),
+        (
+            auth("[auth.api_keys]\n\"ci.bot\" = 'short'"),
+            "auth.api_keys.\"ci.bot\"",
+            "value must be 32 to 8192 bytes".into(),
+        ),
+        // A rule that relates two keys names one; its reason names the other.
+        (
+            auth(""),
+            "auth.enabled",
+            "set api_keys, jwks_url, or keys".into(),
+        ),
+        (
+            auth(&format!(
+                "jwks_url = 'https://issuer.example/keys'\nkeys = [{}]",
+                key("a", "ES256")
+            )),
+            "auth.keys",
+            "must not be set together with auth.jwks_url".into(),
+        ),
+        (
+            auth("jwks_url = 'http://issuer.example/keys'"),
+            "auth.jwks_url",
+            "must be HTTPS or HTTP on a loopback host".into(),
+        ),
+        (
+            auth(&format!("keys = [{}]", key("a", "HS256"))),
+            "auth.keys[0].alg",
+            "alg must be a supported asymmetric algorithm".into(),
+        ),
+        (
+            auth(&format!(
+                "keys = [{}, {}]",
+                key("a", "ES256"),
+                key("a", "ES256")
+            )),
+            "auth.keys[1].kid",
+            "kid must be non-empty, unique, and at most 256 bytes".into(),
+        ),
+        // A check that once named only its table.
+        (
+            format!(
+                "{MINIMAL}[retention]\nwelcome_seconds = {}\n",
+                MAX_RETENTION_SECONDS + 1
+            ),
+            "retention.welcome_seconds",
+            "duration is too large for nanosecond expiry arithmetic".into(),
+        ),
+        (
+            format!("{MINIMAL}[publishing]\nmax_barrier_wait_ms = 2147483648\n"),
+            "publishing.max_barrier_wait_ms",
+            "exceeds the Postgres timeout range".into(),
+        ),
+        // Each application component key.
+        (
+            format!("{MINIMAL}{}", component(0xBFFF, "a", true)),
+            "application_components[0].component_id",
+            "component_id must be in 0xC000-0xFEFF".into(),
+        ),
+        (
+            format!("{MINIMAL}{}", component(0xC000, "", true)),
+            "application_components[0].name",
+            "name must be 1 to 100 UTF-8 bytes".into(),
+        ),
+        (
+            format!("{MINIMAL}{}", component(0xC000, "a", false)),
+            "application_components[0].in_groups",
+            "in_groups or in_dms must be true".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}{}{}",
+                component(0xC000, "a", true),
+                component(0xC000, "b", true)
+            ),
+            "application_components[1].component_id",
+            "component_id repeats an earlier definition".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}{}{}",
+                component(0xC000, "a", true),
+                component(0xC001, "a", true)
+            ),
+            "application_components[1].name",
+            "name repeats an earlier definition".into(),
+        ),
+        (
+            format!("{MINIMAL}{}", component(0xC000, "USER_DISPLAY_NAME", true)),
+            "application_components[0].name",
+            "name must not equal a well-known component name".into(),
+        ),
+    ];
+    let loaded: Vec<&str> = cases
+        .iter()
+        .filter(|(document, ..)| ValidatedConfig::load_str(document).is_ok())
+        .map(|(_, field, _)| *field)
+        .collect();
+    assert!(loaded.is_empty(), "these must be refused: {loaded:?}");
+    for (document, field, reason) in &cases {
+        let error = ValidatedConfig::load_str(document).unwrap_err();
+        assert_eq!(error.field(), Some(*field), "{document}");
+        assert_eq!(
+            error.to_string(),
+            format!("configuration is invalid: {field} ({reason})"),
+            "{document}"
+        );
+    }
+}
+
+/// A key name parses back, as a TOML dotted key, to the name it was built
+/// from. Only a name that is not a bare key is quoted. An array entry is `[N]`.
+#[xmtp_common::test(unwrap_try = true)]
+fn key_paths_are_toml_dotted_keys() {
+    for (name, bare) in [
+        ("plain_Name-1", true),
+        ("eip155:1", false),
+        ("service.name", false),
+        ("", false),
+        ("ébot", false),
+        ("quote\"back\\slash", false),
+        ("line\nbreak\ttab\u{7f}", false),
+    ] {
+        let path = key_path("table", Step::Key(name));
+        assert_eq!(path == format!("table.{name}"), bare, "{path}");
+        let document: toml::Table = toml::from_str(&format!("{path} = 1"))?;
+        assert_eq!(document["table"][name].as_integer(), Some(1), "{path}");
+    }
+    assert_eq!(key_path("auth.keys", Step::Entry(3)), "auth.keys[3]");
+    assert_eq!(key_path("", Step::Key("server")), "server");
 }

@@ -109,7 +109,7 @@ fn validation(alg: Algorithm, config: &AuthConfig) -> Validation {
 }
 
 /// Parse every inline key for its algorithm. The first key that does not parse
-/// is refused by its position in `auth.keys`; the error never holds the key.
+/// is refused by its key under `auth.keys[N]`; the error never holds the key.
 pub(crate) fn inline(config: &AuthConfig) -> Result<Vec<VerifyingKey>, ConfigError> {
     config
         .keys
@@ -117,17 +117,21 @@ pub(crate) fn inline(config: &AuthConfig) -> Result<Vec<VerifyingKey>, ConfigErr
         .flatten()
         .enumerate()
         .map(|(index, entry)| {
-            let error = |reason| ConfigError::Auth {
-                field: format!("auth.keys[{index}]"),
+            let error = |key, reason| ConfigError::Auth {
+                field: format!("auth.keys[{index}].{key}"),
                 reason,
             };
             let alg = algorithm(&entry.alg)
-                .ok_or_else(|| error("alg must be a supported asymmetric algorithm"))?;
+                .ok_or_else(|| error("alg", "alg must be a supported asymmetric algorithm"))?;
             Ok(VerifyingKey {
                 kid: Some(entry.kid.clone()),
                 alg,
-                key: parse_public_key(&entry.public_key, alg)
-                    .map_err(|_| error("public_key must be SubjectPublicKeyInfo for alg"))?,
+                key: parse_public_key(&entry.public_key, alg).map_err(|_| {
+                    error(
+                        "public_key",
+                        "public_key must be SubjectPublicKeyInfo for alg",
+                    )
+                })?,
                 validation: validation(alg, config),
             })
         })

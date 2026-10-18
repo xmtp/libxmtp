@@ -2,7 +2,7 @@ use super::*;
 
 /// The key and reason of a refusal that names one configuration key.
 struct Refusal {
-    field: &'static str,
+    field: String,
     reason: &'static str,
 }
 

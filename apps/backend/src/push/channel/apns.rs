@@ -49,7 +49,7 @@ impl ApnsSender {
     /// Validate the signing key at startup. Endpoints cannot be set by config.
     pub fn new(config: &ApnsConfig) -> Result<Self, ConfigError> {
         let invalid = || ConfigError::Invalid {
-            field: "push.apns.key",
+            field: "push.apns.key".into(),
             reason: "must be a PKCS#8 ES256 private key",
         };
         let key = EncodingKey::from_ec_pem(config.key.as_deref().unwrap_or_default().as_bytes())
@@ -72,7 +72,7 @@ impl ApnsSender {
                 rustls::crypto::ring::default_provider(),
             ))
             .map_err(|_| ConfigError::Invalid {
-                field: "push.apns",
+                field: "push.apns".into(),
                 reason: "TLS initialization failed",
             })?
             .https_only()

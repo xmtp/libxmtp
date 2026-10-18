@@ -40,7 +40,7 @@ mod tests;
 /// cache is created with the configured non-zero capacity, and cryptography is
 /// installed before any chain-RPC client is built. Auth keys load before storage:
 /// an inline key that does not parse returns `ConfigError::Auth` naming its
-/// entry, and an exhausted JWKS startup fetch returns a host-only error. The
+/// key under `auth.keys[N]`, and an exhausted JWKS startup fetch returns a host-only error. The
 /// published configuration is then built and its size checked, also before
 /// storage, so every refusal comes before the caller binds a listener.
 pub async fn initialize(
@@ -77,8 +77,8 @@ pub async fn initialize(
     config
         .push
         .expires_at(store.clock_ns().await?)
-        .ok_or(crate::config::ConfigError::Invalid {
-            field: "push.recipient_ttl_seconds",
+        .ok_or_else(|| crate::config::ConfigError::Invalid {
+            field: "push.recipient_ttl_seconds".into(),
             reason: "expiry cannot be represented at the database clock",
         })?;
     let streams =

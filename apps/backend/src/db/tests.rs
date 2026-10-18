@@ -136,13 +136,12 @@ async fn startup_rejects_retention_that_overflows_the_database_clock() {
         .await
         .err()
         .expect("startup expiry must fit");
-    assert!(matches!(
-        error.downcast_ref::<crate::config::ConfigError>(),
-        Some(crate::config::ConfigError::Invalid {
-            field: "retention.welcome_seconds",
-            ..
-        })
-    ));
+    let error = error.downcast_ref::<crate::config::ConfigError>()?;
+    assert!(
+        matches!(error, crate::config::ConfigError::Invalid { .. }),
+        "{error}"
+    );
+    assert_eq!(error.field(), Some("retention.welcome_seconds"), "{error}");
 }
 
 /// A push expiry that passes the load check but overflows at the store's
@@ -160,13 +159,12 @@ async fn startup_rejects_push_expiry_that_overflows_the_database_clock() {
         .await
         .err()
         .expect("startup push expiry must fit");
-    assert!(matches!(
-        error.downcast_ref::<crate::config::ConfigError>(),
-        Some(crate::config::ConfigError::Invalid {
-            field: "push.recipient_ttl_seconds",
-            ..
-        })
-    ));
+    let error = error.downcast_ref::<crate::config::ConfigError>()?;
+    assert!(
+        matches!(error, crate::config::ConfigError::Invalid { .. }),
+        "{error}"
+    );
+    assert_eq!(error.field(), Some("push.recipient_ttl_seconds"), "{error}");
 }
 
 #[xmtp_common::test(unwrap_try = true)]

@@ -206,16 +206,9 @@ async fn an_oversized_published_response_stops_startup() {
         "the fixture must exceed the bound"
     );
     let error = initialize_without_storage(config).await.err()?;
-    assert!(
-        matches!(
-            error.downcast_ref::<ConfigError>(),
-            Some(ConfigError::Invalid {
-                field: "configuration response",
-                ..
-            })
-        ),
-        "{error}"
-    );
+    let error = error.downcast_ref::<ConfigError>()?;
+    assert!(matches!(error, ConfigError::Invalid { .. }), "{error}");
+    assert_eq!(error.field(), Some("configuration response"), "{error}");
 }
 
 /// The catalogue is part of the public answer, so it counts toward the size
@@ -232,14 +225,7 @@ async fn the_catalogue_counts_toward_the_published_size_bound() {
     let error = initialize_without_storage(load(&entries(600))?)
         .await
         .err()?;
-    assert!(
-        matches!(
-            error.downcast_ref::<ConfigError>(),
-            Some(ConfigError::Invalid {
-                field: "configuration response",
-                ..
-            })
-        ),
-        "{error}"
-    );
+    let error = error.downcast_ref::<ConfigError>()?;
+    assert!(matches!(error, ConfigError::Invalid { .. }), "{error}");
+    assert_eq!(error.field(), Some("configuration response"), "{error}");
 }

@@ -144,7 +144,7 @@ fn application_components(
 pub(crate) fn check_size(response: &api::GetConfigurationResponse) -> Result<(), ConfigError> {
     if prost::Message::encoded_len(response) > MAX_CONFIGURATION_RESPONSE_BYTES {
         return Err(ConfigError::Invalid {
-            field: "configuration response",
+            field: "configuration response".into(),
             reason: "must not exceed 64 KiB once encoded",
         });
     }

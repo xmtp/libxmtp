@@ -123,38 +123,45 @@ fn api_keys_load_alone_or_alongside_one_jwt_source() {
         "[auth]\nenabled = true",
         "[auth]\nenabled = true\n[auth.api_keys]",
     ] {
-        let error = loaded(source).unwrap_err().to_string();
-        assert!(error.contains("auth"), "{error}");
-        assert!(error.contains("set api_keys, jwks_url, or keys"), "{error}");
+        let error = loaded(source).unwrap_err();
+        assert_eq!(error.field(), Some("auth.enabled"), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains("set api_keys, jwks_url, or keys"),
+            "{error}"
+        );
     }
     let mut auth = inline_auth();
     auth.jwks_url = Some("https://issuer.example/keys".into());
     auth.api_keys.insert("bot".into(), value.clone());
-    let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("auth.jwks_url/auth.keys"), "{error}");
-    assert!(error.contains("set exactly one key source"), "{error}");
+    let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?).unwrap_err();
+    assert_eq!(error.field(), Some("auth.keys"), "{error}");
+    assert!(
+        error
+            .to_string()
+            .contains("must not be set together with auth.jwks_url"),
+        "{error}"
+    );
     auth.jwks_url = None;
     auth.keys = Some(Vec::new());
-    let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("auth.keys"), "{error}");
-    assert!(error.contains("must not be empty"), "{error}");
+    let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?).unwrap_err();
+    assert_eq!(error.field(), Some("auth.keys"), "{error}");
+    assert!(error.to_string().contains("must not be empty"), "{error}");
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 fn api_key_names_and_values_are_validated_without_disclosing_values() {
     let value = api_key_value();
-    for name in [
-        "",
-        "-bot",
-        ".bot",
-        &"a".repeat(65),
-        "team bot",
-        "team/bot",
-        "ébot",
+    let long = "a".repeat(65);
+    for (name, field) in [
+        ("", "auth.api_keys.\"\"".to_owned()),
+        ("-bot", "auth.api_keys.-bot".to_owned()),
+        (".bot", "auth.api_keys.\".bot\"".to_owned()),
+        (&long, format!("auth.api_keys.{long}")),
+        ("team bot", "auth.api_keys.\"team bot\"".to_owned()),
+        ("team/bot", "auth.api_keys.\"team/bot\"".to_owned()),
+        ("ébot", "auth.api_keys.\"ébot\"".to_owned()),
     ] {
         let auth = AuthConfig {
             enabled: Some(true),
@@ -162,9 +169,8 @@ fn api_key_names_and_values_are_validated_without_disclosing_values() {
             ..AuthConfig::default()
         };
         let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?).unwrap_err();
-        assert!(
-            matches!(&error, ConfigError::Auth { field, .. } if field == &format!("auth.api_keys.{name}"))
-        );
+        assert!(matches!(&error, ConfigError::Auth { .. }), "{error}");
+        assert_eq!(error.field(), Some(field.as_str()), "{error}");
         for message in [error.to_string(), format!("{error:?}")] {
             assert!(message.contains(name), "{message}");
             assert!(!message.contains(&value), "{message}");
@@ -282,8 +288,9 @@ fn unsupported_key_algorithms_are_refused_at_load() {
     for alg in ["none", "HS256", "HS384", "HS512", "PS256", "es256", ""] {
         let mut config = inline_auth();
         config.keys.as_mut().unwrap()[0].alg = alg.into();
-        let error = config.validate().unwrap_err().to_string();
-        assert!(error.contains("auth.keys[0]"));
+        let error = config.validate().unwrap_err();
+        assert_eq!(error.field(), Some("auth.keys[0].alg"), "{error}");
+        let error = error.to_string();
         assert!(error.contains("alg must be a supported asymmetric algorithm"));
         assert!(!error.contains(KID));
         assert!(!error.contains(ES256_PUBLIC_KEY));
@@ -296,29 +303,22 @@ fn missing_duplicate_and_overlong_key_ids_fail_with_entry_context() {
     for kid in [String::new(), "a".repeat(MAX_KID_BYTES + 1)] {
         let mut config = inline_auth();
         config.keys.as_mut().unwrap()[0].kid = kid;
-        assert!(
-            config
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("auth.keys[0]")
+        assert_eq!(
+            config.validate().unwrap_err().field(),
+            Some("auth.keys[0].kid")
         );
     }
     let mut config = inline_auth();
     config.keys.as_mut().unwrap().push(es256_key(KID));
-    assert!(
-        config
-            .validate()
-            .unwrap_err()
-            .to_string()
-            .contains("auth.keys[1]")
+    assert_eq!(
+        config.validate().unwrap_err().field(),
+        Some("auth.keys[1].kid")
     );
     let error =
         loaded("[auth]\nenabled = true\nkeys = [{ alg = 'ES256', public_key = 'sentinel' }]")
-            .unwrap_err()
-            .to_string();
-    assert!(error.contains("auth.keys[0]"));
-    assert!(!error.contains("sentinel"));
+            .unwrap_err();
+    assert_eq!(error.field(), Some("auth.keys[0].kid"), "{error}");
+    assert!(!error.to_string().contains("sentinel"));
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -329,11 +329,9 @@ fn jwks_transport_and_debug_do_not_disclose_the_url_or_key() {
         "file:///secret",
         "http://127.0.0.1.example/secret",
     ] {
-        let error = loaded(&format!("[auth]\nenabled = true\njwks_url = '{url}'"))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("auth.jwks_url"));
-        assert!(!error.contains(url));
+        let error = loaded(&format!("[auth]\nenabled = true\njwks_url = '{url}'")).unwrap_err();
+        assert_eq!(error.field(), Some("auth.jwks_url"), "{error}");
+        assert!(!error.to_string().contains(url));
     }
     for url in [
         "https://issuer.example/secret",
@@ -438,9 +436,9 @@ fn resolved_key_values_are_absent_from_validation_errors() {
         let error = ValidatedConfig::load_str(&format!(
             "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n[auth]\nenabled = true\nkeys = [{{ kid = 'env:XMTP_KID_SECRET', alg = '{alg}', public_key = 'env:XMTP_KID_SECRET' }}]"
         )).unwrap_err();
+        assert_eq!(error.field(), Some("auth.keys[0].alg"), "{error}");
         for message in [error.to_string(), format!("{error:?}")] {
             assert!(!message.contains(SENTINEL), "{message}");
-            assert!(message.contains("auth.keys[0]"), "{message}");
             assert!(message.contains(reason), "{message}");
         }
     }
@@ -463,7 +461,7 @@ fn resolved_key_values_are_absent_from_validation_errors() {
             format!("{REQUIRED}[telemetry]\notlp_endpoint = {reference}\n"),
         ),
         (
-            "chains",
+            "chains.\"eip155:1\"",
             format!("{REQUIRED}[chains]\n\"eip155:1\" = {reference}\n"),
         ),
         (
@@ -475,10 +473,8 @@ fn resolved_key_values_are_absent_from_validation_errors() {
     ];
     for (field, document) in &refused {
         let error = ValidatedConfig::load_str(document).unwrap_err();
-        assert!(
-            matches!(&error, ConfigError::Invalid { field: named, .. } if named == field),
-            "{field}: {error}"
-        );
+        assert!(matches!(&error, ConfigError::Invalid { .. }), "{error}");
+        assert_eq!(error.field(), Some(*field), "{error}");
         for message in [error.to_string(), format!("{error:?}")] {
             assert!(!message.contains(SENTINEL), "{message}");
         }

@@ -1,4 +1,4 @@
-use super::{ConfigError, UrlKind, invalid, non_empty_url};
+use super::{ConfigError, Step, UrlKind, invalid, key_path, non_empty_url};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, net::SocketAddr};
@@ -65,7 +65,7 @@ impl TelemetryConfig {
         for key in ["service.name", "service.version", IDENTIFIER_ATTRIBUTE] {
             if self.resource_attributes.contains_key(key) {
                 return Err(invalid(
-                    "telemetry.resource_attributes",
+                    key_path("telemetry.resource_attributes", Step::Key(key)),
                     "service.name, service.version, and xmtp.backend.identifier are reserved",
                 ));
             }
@@ -106,7 +106,7 @@ impl TelemetryConfig {
     }
 }
 
-fn validate_endpoint(endpoint: &str, field: &'static str) -> Result<(), ConfigError> {
+fn validate_endpoint(endpoint: &str, field: &str) -> Result<(), ConfigError> {
     non_empty_url(endpoint, field, UrlKind::Http)?;
     let uri = endpoint
         .parse::<http::Uri>()

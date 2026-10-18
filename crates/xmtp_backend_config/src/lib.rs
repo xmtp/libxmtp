@@ -73,21 +73,32 @@ pub enum ConfigError {
     #[error("configuration is not valid TOML")]
     Parse,
     #[error("configuration is invalid: {field} ({reason})")]
-    Invalid {
-        field: &'static str,
-        reason: &'static str,
-    },
-    #[error("environment variable {name} is not available")]
-    Environment { name: String },
-    #[error("configuration is invalid: application_components[{index}] ({reason})")]
+    Invalid { field: String, reason: &'static str },
+    #[error("configuration is invalid: {field} (environment variable {name} is not available)")]
+    Environment { field: String, name: String },
+    #[error("configuration is invalid: {field} ({reason})")]
     ApplicationComponent {
-        index: usize,
+        field: String,
         reason: xmtp_configuration::ApplicationComponentError,
     },
-    #[error(
-        "configuration is invalid: application_components[{index}] (name must not equal a well-known component name)"
-    )]
-    WellKnownComponentName { index: usize },
+    #[error("configuration is invalid: {field} (name must not equal a well-known component name)")]
+    WellKnownComponentName { field: String },
+}
+
+impl ConfigError {
+    /// The key the refusal names, as a TOML dotted key. A duplicate API key
+    /// value names both keys, in sorted order and joined by `/`:
+    /// `auth.api_keys.<a>/<b>`. `Read` and `Parse` name none.
+    pub fn field(&self) -> Option<&str> {
+        match self {
+            Self::Read(_) | Self::Parse => None,
+            Self::Auth { field, .. }
+            | Self::Invalid { field, .. }
+            | Self::Environment { field, .. }
+            | Self::ApplicationComponent { field, .. }
+            | Self::WellKnownComponentName { field } => Some(field),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -98,33 +109,99 @@ enum EnvironmentError {
     EmptyName,
 }
 
-/// Name credential shape errors without showing values from the config file.
-fn credential_deserialize_key(
-    error: &serde_path_to_error::Error<toml::de::Error>,
-) -> Option<&'static str> {
-    const CREDENTIALS: &str = "attachments.target.S3.credentials";
-    if !error.path().to_string().starts_with(CREDENTIALS) {
-        return None;
+/// One step below a key: a key name, or the position of an array entry.
+#[derive(Clone, Copy)]
+pub(crate) enum Step<'a> {
+    Key(&'a str),
+    Entry(usize),
+}
+
+/// The key `parent` then `step`, written as a TOML dotted key. A key name
+/// that is not a bare key (`A-Za-z0-9_-`) is quoted, and an array entry is
+/// `[N]`: `chains."eip155:1"`, `auth.keys[0]`. Every refusal that names a key
+/// from the document builds it here.
+pub(crate) fn key_path(parent: &str, step: Step<'_>) -> String {
+    use std::fmt::Write;
+    let mut path = parent.to_owned();
+    match step {
+        Step::Entry(index) => {
+            let _ = write!(path, "[{index}]");
+        }
+        Step::Key(name) => {
+            if !path.is_empty() {
+                path.push('.');
+            }
+            let bare = !name.is_empty()
+                && name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'));
+            if bare {
+                path.push_str(name);
+            } else {
+                path.push('"');
+                for character in name.chars() {
+                    match character {
+                        '"' => path.push_str("\\\""),
+                        '\\' => path.push_str("\\\\"),
+                        character if character.is_control() => {
+                            let _ = write!(path, "\\u{:04X}", u32::from(character));
+                        }
+                        character => path.push(character),
+                    }
+                }
+                path.push('"');
+            }
+        }
     }
-    let field = match error.inner().message() {
-        message if message.starts_with("unknown variant") => {
-            "attachments.target.S3.credentials.kind"
-        }
-        "missing field `kind`" => "attachments.target.S3.credentials.kind",
-        "missing field `access_key_id`" => "attachments.target.S3.credentials.access_key_id",
-        "missing field `secret_access_key`" => {
-            "attachments.target.S3.credentials.secret_access_key"
-        }
-        "missing field `name`" => "attachments.target.S3.credentials.name",
-        "missing field `account_id`" => "attachments.target.S3.credentials.account_id",
-        "missing field `region`" => "attachments.target.S3.credentials.region",
-        "missing field `role_name`" => "attachments.target.S3.credentials.role_name",
-        "missing field `start_url`" => "attachments.target.S3.credentials.start_url",
-        "missing field `command`" => "attachments.target.S3.credentials.command",
-        "missing field `role_arn`" => "attachments.target.S3.credentials.role_arn",
-        _ => CREDENTIALS,
+    path
+}
+
+/// Name the key of a typed-decoding error, with a fixed reason chosen by how
+/// its message starts. The message is never shown, because it can hold the
+/// value.
+fn decode_error(error: &serde_path_to_error::Error<toml::de::Error>) -> ConfigError {
+    use serde_path_to_error::Segment;
+    let mut field = String::new();
+    for segment in error.path() {
+        let step = match segment {
+            Segment::Seq { index } => Step::Entry(*index),
+            Segment::Map { key } | Segment::Enum { variant: key } => Step::Key(key),
+            // A key that is not a string. A TOML document has none.
+            Segment::Unknown => break,
+        };
+        field = key_path(&field, step);
+    }
+    let message = error.inner().message();
+    let named = |prefix: &str| {
+        message
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.split('`').next())
     };
-    Some(field)
+    let reason = if let Some(name) = named("unknown field `") {
+        // The path already ends at a key that the derived decoder refuses, and
+        // the message names that whole key, which may itself hold a backtick.
+        // The path ends at the table when a whole-table check refuses the
+        // key, as a credential kind does for a key it does not take; those
+        // names have no backtick.
+        let at_key = matches!(
+            error.path().iter().next_back(),
+            Some(Segment::Map { key }) if message
+                .strip_prefix(&format!("unknown field `{key}`"))
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(','))
+        );
+        if !at_key {
+            field = key_path(&field, Step::Key(name));
+        }
+        "is not a configuration key"
+    } else if let Some(name) = named("missing field `") {
+        field = key_path(&field, Step::Key(name));
+        "is required"
+    } else if message.starts_with("unknown variant") {
+        "is not one of the allowed values"
+    } else {
+        "has the wrong type or value"
+    };
+    ConfigError::Invalid { field, reason }
 }
 
 /// Resolve one environment reference. Do not expand references in the resolved value.
@@ -191,18 +268,8 @@ impl Config {
     /// This method cannot return `ConfigError::Read`.
     pub fn from_toml_str(contents: &str) -> Result<Self, ConfigError> {
         let mut value: toml::Value = toml::from_str(contents).map_err(|_| ConfigError::Parse)?;
-        resolve_environment(&mut value)?;
-        let config: Self = serde_path_to_error::deserialize(value).map_err(|error| {
-            if let Some(field) = credential_deserialize_key(&error) {
-                ConfigError::Invalid {
-                    field,
-                    reason: "invalid credential source",
-                }
-            } else {
-                ConfigError::Parse
-            }
-        })?;
-        Ok(config)
+        resolve_environment(&mut value, "")?;
+        serde_path_to_error::deserialize(value).map_err(|error| decode_error(&error))
     }
 
     /// Check every rule the document and the environment decide: scalar
@@ -262,10 +329,11 @@ impl Config {
     /// Require chain keys that the SCW verifier can route and HTTP(S) RPC URLs.
     fn validate_chains(&self) -> Result<(), ConfigError> {
         for (chain, url) in &self.chains {
+            let field = key_path("chains", Step::Key(chain));
             if parse_eip155_chain_id(chain).is_err() {
-                return Err(invalid("chains", "keys must be EIP-155 CAIP-2 chain ids"));
+                return Err(invalid(field, "keys must be EIP-155 CAIP-2 chain ids"));
             }
-            non_empty_url(url, "chains", UrlKind::Http)?;
+            non_empty_url(url, &field, UrlKind::Http)?;
         }
         Ok(())
     }
@@ -306,37 +374,40 @@ impl std::fmt::Debug for Config {
     }
 }
 
-/// Attach the configuration field to an environment error without including its value.
-/// Resolve string references once, before typed decoding, including string enums.
-/// Resolved values are never included in errors and are not recursively expanded.
-fn resolve_environment(value: &mut toml::Value) -> Result<(), ConfigError> {
+/// Resolve string references once, before typed decoding, including string
+/// enums, and refuse a date or a time. An error names the key at `path` and
+/// the variable, never a value. Resolved values are not recursively expanded.
+fn resolve_environment(value: &mut toml::Value, path: &str) -> Result<(), ConfigError> {
     match value {
         toml::Value::String(text) => {
             *text = resolve_env(text).map_err(|error| match error {
-                EnvironmentError::Missing { name } => ConfigError::Environment { name },
-                EnvironmentError::EmptyName => invalid(
-                    "environment reference",
-                    "environment variable name is empty",
-                ),
+                EnvironmentError::Missing { name } => ConfigError::Environment {
+                    field: path.to_owned(),
+                    name,
+                },
+                EnvironmentError::EmptyName => invalid(path, "environment variable name is empty"),
             })?;
         }
         toml::Value::Array(values) => {
-            for value in values {
-                resolve_environment(value)?;
+            for (index, value) in values.iter_mut().enumerate() {
+                resolve_environment(value, &key_path(path, Step::Entry(index)))?;
             }
         }
         toml::Value::Table(values) => {
-            for (_, value) in values.iter_mut() {
-                resolve_environment(value)?;
+            for (name, value) in values.iter_mut() {
+                resolve_environment(value, &key_path(path, Step::Key(name)))?;
             }
         }
+        // No key takes a date or a time, and the decoder would read one as
+        // text, so a string key would accept it.
+        toml::Value::Datetime(_) => return Err(invalid(path, "has the wrong type or value")),
         _ => {}
     }
     Ok(())
 }
 
 /// A timer without a fixed maximum must still fit the host's monotonic clock.
-fn validate_deadline(milliseconds: u64, field: &'static str) -> Result<(), ConfigError> {
+fn validate_deadline(milliseconds: u64, field: &str) -> Result<(), ConfigError> {
     if std::time::Instant::now()
         .checked_add(std::time::Duration::from_millis(milliseconds))
         .is_none()
@@ -349,15 +420,18 @@ fn validate_deadline(milliseconds: u64, field: &'static str) -> Result<(), Confi
     Ok(())
 }
 
-fn invalid(field: &'static str, reason: &'static str) -> ConfigError {
-    ConfigError::Invalid { field, reason }
+fn invalid(field: impl Into<String>, reason: &'static str) -> ConfigError {
+    ConfigError::Invalid {
+        field: field.into(),
+        reason,
+    }
 }
 
 /// The maximum of a published count limit and of a timer with a fixed bound:
 /// the largest unsigned 32-bit integer.
 pub(crate) const MAX_U32_KEY: u64 = u32::MAX as u64;
 
-fn at_most_u32(value: u64, field: &'static str) -> Result<(), ConfigError> {
+fn at_most_u32(value: u64, field: &str) -> Result<(), ConfigError> {
     if value > MAX_U32_KEY {
         Err(invalid(field, "must not exceed 4294967295"))
     } else {
@@ -365,7 +439,7 @@ fn at_most_u32(value: u64, field: &'static str) -> Result<(), ConfigError> {
     }
 }
 
-fn positive<T>(value: T, field: &'static str) -> Result<(), ConfigError>
+fn positive<T>(value: T, field: &str) -> Result<(), ConfigError>
 where
     T: PartialEq + PartialOrd + Default,
 {
@@ -383,7 +457,7 @@ enum UrlKind {
 }
 
 /// Check a resolved URL and its allowed scheme without including the URL in errors.
-fn non_empty_url(value: &str, field: &'static str, kind: UrlKind) -> Result<(), ConfigError> {
+fn non_empty_url(value: &str, field: &str, kind: UrlKind) -> Result<(), ConfigError> {
     let valid_scheme = match kind {
         UrlKind::Postgres => value.starts_with("postgres://") || value.starts_with("postgresql://"),
         UrlKind::Http => value.starts_with("http://") || value.starts_with("https://"),
@@ -453,10 +527,16 @@ impl PublishingConfig {
     /// Keep transaction and barrier timeouts in the Postgres range.
     /// The transaction budget must exceed a single statement budget.
     fn validate(&self, statement_timeout_ms: u64) -> Result<(), ConfigError> {
-        if self.max_publish_duration_ms > MAX_DATABASE_TIMEOUT_MS
-            || self.max_barrier_wait_ms > MAX_DATABASE_TIMEOUT_MS
-        {
-            return Err(invalid("publishing", "exceeds the Postgres timeout range"));
+        for (field, milliseconds) in [
+            (
+                "publishing.max_publish_duration_ms",
+                self.max_publish_duration_ms,
+            ),
+            ("publishing.max_barrier_wait_ms", self.max_barrier_wait_ms),
+        ] {
+            if milliseconds > MAX_DATABASE_TIMEOUT_MS {
+                return Err(invalid(field, "exceeds the Postgres timeout range"));
+            }
         }
         if self.max_publish_duration_ms <= statement_timeout_ms {
             return Err(invalid(
@@ -494,14 +574,7 @@ impl RetentionConfig {
     /// Check finite expiry against the primary database's startup clock. The
     /// insert still checks arithmetic after later clock changes or time advances.
     pub fn validate_at(&self, database_ns: i64) -> Result<(), ConfigError> {
-        for (field, seconds) in [
-            (
-                "retention.group_message_seconds",
-                self.group_message_seconds,
-            ),
-            ("retention.welcome_seconds", self.welcome_seconds),
-            ("retention.key_package_seconds", self.key_package_seconds),
-        ] {
+        for (field, seconds) in self.periods() {
             let expiry = i64::try_from(seconds)
                 .ok()
                 .and_then(|seconds| seconds.checked_mul(NS_IN_SEC))
@@ -518,22 +591,28 @@ impl RetentionConfig {
 
     /// Keep positive retention periods representable in nanosecond expiry arithmetic.
     fn validate(&self) -> Result<(), ConfigError> {
-        positive(
-            self.group_message_seconds,
-            "retention.group_message_seconds",
-        )?;
-        positive(self.welcome_seconds, "retention.welcome_seconds")?;
-        positive(self.key_package_seconds, "retention.key_package_seconds")?;
-        if self.group_message_seconds > MAX_RETENTION_SECONDS
-            || self.welcome_seconds > MAX_RETENTION_SECONDS
-            || self.key_package_seconds > MAX_RETENTION_SECONDS
-        {
-            return Err(invalid(
-                "retention",
-                "duration is too large for nanosecond expiry arithmetic",
-            ));
+        for (field, seconds) in self.periods() {
+            positive(seconds, field)?;
+            if seconds > MAX_RETENTION_SECONDS {
+                return Err(invalid(
+                    field,
+                    "duration is too large for nanosecond expiry arithmetic",
+                ));
+            }
         }
         Ok(())
+    }
+
+    /// Each retention period with its key.
+    fn periods(&self) -> [(&'static str, u64); 3] {
+        [
+            (
+                "retention.group_message_seconds",
+                self.group_message_seconds,
+            ),
+            ("retention.welcome_seconds", self.welcome_seconds),
+            ("retention.key_package_seconds", self.key_package_seconds),
+        ]
     }
 }
 
@@ -816,12 +895,6 @@ impl LimitsConfig {
         positive(self.max_query_topics, "limits.max_query_topics")?;
         positive(self.default_query_limit, "limits.default_query_limit")?;
         positive(self.max_query_limit, "limits.max_query_limit")?;
-        if self.max_query_limit < self.default_query_limit {
-            return Err(invalid(
-                "limits.max_query_limit",
-                "must be at least limits.default_query_limit",
-            ));
-        }
         positive(
             self.max_newest_metadata_topics,
             "limits.max_newest_metadata_topics",
@@ -845,12 +918,6 @@ impl LimitsConfig {
         positive(self.max_update_adds, "limits.max_update_adds")?;
         positive(self.max_update_removes, "limits.max_update_removes")?;
         positive(self.max_stream_topics, "limits.max_stream_topics")?;
-        if self.max_update_adds > self.max_stream_topics {
-            return Err(invalid(
-                "limits.max_update_adds",
-                "must not exceed limits.max_stream_topics",
-            ));
-        }
         positive(self.max_static_topics, "limits.max_static_topics")?;
         positive(self.max_lookup_identifiers, "limits.max_lookup_identifiers")?;
         positive(self.max_scw_signatures, "limits.max_scw_signatures")?;
@@ -892,6 +959,20 @@ impl LimitsConfig {
             ("limits.max_identity_entries", self.max_identity_entries),
         ] {
             at_most_u32(value as u64, field)?;
+        }
+        // The relations come after each key's own checks, so a value outside
+        // its own range is refused under its own key.
+        if self.max_query_limit < self.default_query_limit {
+            return Err(invalid(
+                "limits.max_query_limit",
+                "must be at least limits.default_query_limit",
+            ));
+        }
+        if self.max_update_adds > self.max_stream_topics {
+            return Err(invalid(
+                "limits.max_update_adds",
+                "must not exceed limits.max_stream_topics",
+            ));
         }
         Ok(())
     }
