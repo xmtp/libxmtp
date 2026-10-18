@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { memo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Platform, Pressable, StyleSheet, View } from "react-native";
 import ReanimatedSwipeable, {
   type SwipeableMethods,
@@ -66,7 +66,7 @@ function showAndroidMenu(title: string, actions: readonly RowAction[]): void {
  * A conversation row that opens its chat, with trailing swipe actions and a
  * long-press context menu (a native UIKit menu on iOS, an alert on Android).
  */
-export const ConversationListRow = memo(function ConversationListRow({
+export function ConversationListRow({
   row,
   menu,
   swipe,
@@ -191,7 +191,7 @@ export const ConversationListRow = memo(function ConversationListRow({
       />
     </View>
   );
-});
+}
 
 const styles = StyleSheet.create({
   // `.padding(.vertical, 5)` inside the 15 pt list row inset.

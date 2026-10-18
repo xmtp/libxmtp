@@ -75,6 +75,10 @@ measured against the iOS example's screenshots on an iOS 27 iPhone 17 Pro.
   title collapses.
 - `Stack.Toolbar.Button` icons go through `useToolbarIcon()`, because Android
   needs an image. `NavigationSubtitle` sets the iOS navigation subtitle.
+- List rows with a long-press menu use `ContextMenu` (a UIKit context menu
+  in `modules/messenger-platform`; Android renders the children only).
+  Confirmations that SwiftUI shows as popovers (`.confirmationDialog` on a
+  list) use `PopoverConfirmation`; alerts and other dialogs use `dialogs.ts`.
 - The Debug gallery shows every component and replicas of reference screens:
   `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/gallery?section=components"`
   (sections: `components`, `settings`, `details`, `chats`, `chat`, `connect`).
@@ -93,7 +97,8 @@ measured against the iOS example's screenshots on an iOS 27 iPhone 17 Pro.
 `ios/` and `android/` are committed and edited by hand; nothing runs
 `expo prebuild`, so `app.json` plugins and `expo-build-properties` do nothing.
 After adding a native dependency, run `install` and commit `ios/Podfile.lock`
-and the project changes. Do not add `expo-sqlite` (the SDK links its own
+and the project changes. A new Swift file in `modules/messenger-platform`
+also needs `install` before the next build, so the Pods project lists it. Do not add `expo-sqlite` (the SDK links its own
 SQLCipher) or `expo-dev-client`. Android keystores are never committed;
 builds sign with AGP's default debug keystore.
 
