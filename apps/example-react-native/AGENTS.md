@@ -121,6 +121,13 @@ The request bar takes its Accept, Delete request and Block decisions from the sa
 
 `features/new-conversation` is a page sheet with its own stack: step 1 (`index`) and the review (`review`) share one `NewConversationStore` (`src/core/newConversation.ts`, recipient resolution and its tests) that `NewConversationSheet` owns in the sheet's layout (`useNewConversation()`). Create closes the sheet and pushes the new chat. `useScrollEdge()` (`scrollEdge.ts`) gives a form in a sheet SwiftUI's top edge: none at rest, the hard edge once content is under the bar. A static `scrollEdgeEffects: { top: "hard" }` draws the edge at rest too.
 
+## Attachments
+
+The upload drafts and downloads are one pure store, `src/core/attachmentStore.ts` (with `attachments.ts` for models, copy, failure mapping and the saved drafts, and `sharedMedia.ts`), tested against `attachmentFakes.ts`. `src/features/attachments` wires it to the SDK (`sdkAttachmentGateway.ts`) and the send journal: a send uploads first, then queues `sendRemoteAttachment` with the draft ID as the journal ID. Each open chat has one store (`chatAttachments.ts`), shared by the composer slots and the file cards in `MessageContent.tsx`. Picked files are copied into `<profile>/temp/attachment-staging/<uuid>` within the server limit and removed after `attachments.create`; Open and Save copy a verified file to `<profile>/exports/<uuid>/`, which the session removes when it ends. Image previews use a memory-only cache, so decrypted files stay in protected storage. Attachment recovery (`/attachment-recovery`, opened from Settings › Developer tools and from a staged file's "Review send") and Media and files (`/shared-media/<conversation>`, opened from Details) live in the same folder.
+
+- `app/dev/attachment-probe.tsx` (Debug only): `xmtp-messenger-rn:///dev/attachment-probe?action=<action>&n=<new value>`. Actions: `limit` (`&bytes=<n>`: the upload limit a chat reads when it opens, for the "File exceeds the server upload limit" check), `clearLimit`, `holdUploads` (uploads wait, so the app can be stopped mid-upload) and `releaseUploads`.
+- Launch with `XMTP_ALLOW_PRIVATE_ATTACHMENTS=1` for the local object store, and with `XMTP_UI_TEST_ATTACHMENT=<name>:<base64>` (Debug, at most 64 KiB) for the attach menu's "Test file".
+
 ## Native projects
 
 `ios/` and `android/` are committed and edited by hand; nothing runs
