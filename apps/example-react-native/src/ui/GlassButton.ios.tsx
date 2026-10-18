@@ -120,6 +120,7 @@ export function GlassIconButton({
   onPress,
   variant = "glass",
   size = "regular",
+  shape = "circle",
   disabled = false,
   testID,
   style,
@@ -134,7 +135,7 @@ export function GlassIconButton({
         testID={testID}
         modifiers={[
           labelStyle("iconOnly"),
-          buttonBorderShape("circle"),
+          ...(shape === "circle" ? [buttonBorderShape("circle")] : []),
           buttonStyle(variant),
           controlSize(size),
           disabledModifier(disabled),

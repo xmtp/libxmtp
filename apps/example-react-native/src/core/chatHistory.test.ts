@@ -244,3 +244,16 @@ test("read markers need foreground, current, newest page and newest row", () => 
   );
   assert.equal(readMarker(window([])), undefined);
 });
+
+test("a row published since the pending read shows once", () => {
+  const sent = textMessage(9);
+  const stale: ChatMessage = { ...sent, delivery: "queued" };
+  assert.deepEqual(
+    ids(timelineMessages(window([sent, textMessage(8)]), [stale])),
+    ["m0008", "m0009"],
+  );
+  assert.equal(
+    timelineMessages(window([sent]), [stale]).at(-1)?.delivery,
+    "published",
+  );
+});

@@ -143,6 +143,8 @@ function sdkPosition(position: HistoryPosition | undefined) {
 export const chatDebug = {
   /** The next queue call throws an SDK-like error: the outcome is unknown. */
   failNextQueue: false,
+  /** Publishing fails (the message stays unpublished) until this is false. */
+  failPublish: false,
 };
 
 export class SdkChatQueries implements ChatQueries {
@@ -298,6 +300,9 @@ export class SdkChatQueries implements ChatQueries {
   }
 
   async publish(conversationId: string, messageId: string): Promise<void> {
+    if (__DEV__ && chatDebug.failPublish) {
+      throw new Error("Debug: publishing is off.");
+    }
     await (await this.#get(conversationId)).publishMessage(messageId);
   }
 

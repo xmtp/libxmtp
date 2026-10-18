@@ -446,7 +446,7 @@ export function anchorTarget(
 
 /**
  * The rows the chat shows, oldest first: published rows, then pending
- * (unpublished or failed) rows, both without reactions.
+ * (unpublished or failed) rows, both without reactions, each ID once.
  */
 export function timelineMessages(
   window: HistoryWindow,
@@ -455,8 +455,10 @@ export function timelineMessages(
   const published = window.rows
     .filter((row) => row.content.kind !== "reaction")
     .reverse();
+  // A row published since the pending page was read shows once, as published.
+  const shown = new Set(published.map((row) => row.id));
   const queued = pending
-    .filter((row) => row.content.kind !== "reaction")
+    .filter((row) => row.content.kind !== "reaction" && !shown.has(row.id))
     .reverse();
   return published.concat(queued);
 }

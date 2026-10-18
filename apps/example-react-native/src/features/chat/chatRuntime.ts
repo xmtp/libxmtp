@@ -20,6 +20,22 @@ import { type ChatServices, chatServices } from "@/features/chat/chatServices";
 import { RequestBarStore } from "@/features/chat/requestBarStore";
 import type { ActiveSession } from "@/session";
 
+/** The most recently attached runtime of each open chat. */
+const mounted = new Map<string, ChatRuntime>();
+
+/**
+ * The open chat of `conversationId` in the current session, if it is mounted
+ * (the chat stays mounted behind its sheets and pushed screens). Sheets such
+ * as Reactions and the emoji picker can act through it.
+ */
+export function mountedChat(
+  conversationId: string,
+  session: ActiveSession,
+): ChatRuntime | undefined {
+  const runtime = mounted.get(conversationId);
+  return runtime?.session === session ? runtime : undefined;
+}
+
 export class ChatRuntime {
   readonly conversationId: string;
   readonly session: ActiveSession;
@@ -135,12 +151,16 @@ export class ChatRuntime {
   attach(): () => void {
     this.#attached += 1;
     if (this.#attached === 1) this.#start();
+    mounted.set(this.conversationId, this);
     let detached = false;
     return () => {
       if (detached) return;
       detached = true;
       this.#attached -= 1;
       if (this.#attached === 0) this.#stop();
+      if (mounted.get(this.conversationId) === this) {
+        mounted.delete(this.conversationId);
+      }
     };
   }
 
@@ -269,4 +289,29 @@ export class ChatRuntime {
     const row = this.message(messageId);
     if (row !== undefined) this.actions.deleteMessage(row);
   }
+}
+
+/**
+ * A message action store for a screen over the chat (the Reactions sheet,
+ * the emoji picker): `load(messageId)`, then `react(message, emoji)`. Its
+ * changes refresh the chat of `conversationId` when it is mounted.
+ */
+export function createMessageActions(
+  session: ActiveSession,
+  conversationId: string,
+  admit: () => boolean,
+): MessageActions {
+  const services = chatServices(session);
+  return new MessageActions({
+    queries: services.queries,
+    coordinator: services.coordinator,
+    own: session.inboxId,
+    admit: () => admit() && session.isCurrent(),
+    changed: async () => {
+      await mountedChat(conversationId, session)?.timeline.refresh();
+    },
+    newId: services.newId,
+    now: services.now,
+    run: services.run,
+  });
 }

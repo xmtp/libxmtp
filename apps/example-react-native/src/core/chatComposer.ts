@@ -185,11 +185,16 @@ export class ChatComposer extends Store<ComposerState> {
         drafts.save(id, saved);
       }
       const draft = saved;
-      this.setState((state) => ({
-        ...state,
-        draft,
-        unknown: composerOutcomeUnknown(references, id),
-      }));
+      const unknown = composerOutcomeUnknown(references, id);
+      this.setState((state) => {
+        // The chat stays mounted while Settings clears the outcome (iOS
+        // rebuilds it): drop the lock's message with the lock.
+        if (!unknown && state.error === ComposerCopy.outcomeUnknown) {
+          const { error: _error, ...rest } = state;
+          return { ...rest, draft, unknown };
+        }
+        return { ...state, draft, unknown };
+      });
     } catch {
       this.setState((state) => ({
         ...state,

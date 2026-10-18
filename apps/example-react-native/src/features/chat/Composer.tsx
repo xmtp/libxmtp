@@ -54,6 +54,7 @@ export function Composer() {
         <GlassButton
           title={chatCopy.reviewSend}
           testID="composer.review-send"
+          style={styles.centered}
           onPress={() => {
             router.push("/settings");
           }}
@@ -74,6 +75,7 @@ export function Composer() {
           </Text>
           <GlassIconButton
             systemImage="xmark"
+            shape="capsule"
             accessibilityLabel={chatCopy.cancelReply}
             testID="composer.cancel-reply"
             onPress={() => {
@@ -108,6 +110,7 @@ export function Composer() {
           <GlassIconButton
             systemImage="arrow.up"
             variant="glassProminent"
+            shape="capsule"
             accessibilityLabel={chatCopy.sendMessage}
             testID="send-message"
             disabled={!enabled}
@@ -123,6 +126,7 @@ export function Composer() {
 
 const styles = StyleSheet.create({
   composer: { gap: 8, padding: 12 },
+  centered: { alignSelf: "center" },
   reply: { alignItems: "center", flexDirection: "row", gap: 8 },
   replyText: { flex: 1 },
   input: { alignItems: "flex-end", flexDirection: "row", gap: 10 },

@@ -7,6 +7,7 @@ import {
   ComposerCopy,
   composerEnabled,
   editDraft,
+  releaseDraft,
 } from "./chatComposer.ts";
 import {
   CONVERSATION,
@@ -306,4 +307,24 @@ test("a closed composer ignores the send result", async () => {
   await h.composer.wait();
   await settle();
   assert.equal(h.composer.getState().sending, true);
+});
+
+test("Settings clearing the outcome unlocks the open composer on reload", async () => {
+  const h = harness();
+  h.queries.queueError = new Error("SDK failed after it may have queued");
+  h.composer.edit("hello");
+  h.composer.submit();
+  await h.composer.wait();
+  assert.equal(h.composer.getState().error, ComposerCopy.outcomeUnknown);
+  // Settings › Send needs review › Clear saved send status.
+  h.journal.remove("request-1");
+  const saved = h.drafts.load(CONVERSATION);
+  assert.ok(saved !== undefined);
+  h.drafts.save(CONVERSATION, releaseDraft(saved));
+  h.composer.reload();
+  const state = h.composer.getState();
+  assert.equal(state.unknown, false);
+  assert.equal(state.error, undefined);
+  assert.equal(composerEnabled(state), true);
+  assert.equal(state.draft.text, "hello");
 });

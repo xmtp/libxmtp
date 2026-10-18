@@ -82,6 +82,7 @@ export function GlassIconButton({
   onPress,
   variant = "glass",
   size = "regular",
+  shape = "circle",
   disabled = false,
   testID,
   style,
@@ -89,6 +90,8 @@ export function GlassIconButton({
   const palette = useColors();
   const prominent = variant === "glassProminent";
   const dimension = size === "large" ? 48 : 44;
+  const width = shape === "capsule" ? 42 : dimension;
+  const height = shape === "capsule" ? 32 : dimension;
   return (
     <Pressable
       onPress={onPress}
@@ -100,8 +103,8 @@ export function GlassIconButton({
       style={({ pressed }) => [
         styles.circle,
         {
-          width: dimension,
-          height: dimension,
+          width,
+          height,
           backgroundColor: prominent
             ? palette.tint
             : palette.tertiarySystemFill,

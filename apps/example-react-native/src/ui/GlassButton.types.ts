@@ -58,6 +58,12 @@ export interface GlassIconButtonProps {
   variant?: "glass" | "glassProminent";
   /** `regular` is a 44 pt circle (toolbar size); `large` is the 48 pt composer size. */
   size?: "regular" | "large";
+  /**
+   * `circle` (`.buttonBorderShape(.circle)`, default), or `capsule`: the
+   * glass styles' own shape with no border shape, about 42 x 32 pt (the
+   * composer's Send and Cancel reply).
+   */
+  shape?: "circle" | "capsule";
   disabled?: boolean;
   testID?: string;
   style?: StyleProp<ViewStyle>;

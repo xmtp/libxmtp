@@ -1,5 +1,6 @@
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { Stack, router, useIsFocused } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import {
   type ComponentRef,
   useCallback,
@@ -135,6 +136,10 @@ function ChatSessionScreen({
     conversation?.kind === "group" ? conversation.memberCount : undefined;
   const isRequest = conversation?.consent === "unknown";
   const showsJump = !state.atNewest || !state.window.atNewest;
+  // The notice and error rows sit between the navigation bar and the list
+  // (the list then no longer scrolls under the bar).
+  const banner = state.window.notice !== undefined || state.error !== undefined;
+  const headerHeight = useHeaderHeight();
 
   return (
     <ChatContext value={context}>
@@ -163,6 +168,7 @@ function ChatSessionScreen({
           { backgroundColor: palette.systemBackground },
           columnStyle,
         ]}>
+        {banner ? <View style={{ height: headerHeight }} /> : null}
         {state.window.notice === undefined ? null : (
           <Text
             variant="caption"
@@ -189,7 +195,12 @@ function ChatSessionScreen({
           </View>
         )}
         {state.loaded ? (
-          <MessageList state={state} listRef={listRef} onVisible={report} />
+          <MessageList
+            state={state}
+            listRef={listRef}
+            onVisible={report}
+            underHeader={!banner}
+          />
         ) : (
           <View style={styles.screen} />
         )}

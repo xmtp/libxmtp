@@ -23,6 +23,8 @@ export interface MessageListProps {
   readonly listRef: RefObject<LegendListRef | null>;
   /** The visible row IDs changed (oldest first). */
   readonly onVisible: (ids: readonly string[]) => void;
+  /** The list starts under the navigation bar (no notice or error row above it). */
+  readonly underHeader: boolean;
 }
 
 interface RowExtra {
@@ -41,7 +43,12 @@ const viewability = { itemVisiblePercentThreshold: 50 } as const;
  * pending page buttons on top, a date separator above the first row and at
  * each new day, rows 10 pt apart, 16 pt side and bottom padding.
  */
-export function MessageList({ state, listRef, onVisible }: MessageListProps) {
+export function MessageList({
+  state,
+  listRef,
+  onVisible,
+  underHeader,
+}: MessageListProps) {
   const { runtime, conversationId } = useChatContext();
   const reduceMotion = useReducedMotion();
   const identities = useStore(runtime.session.identities);
@@ -173,7 +180,7 @@ export function MessageList({ state, listRef, onVisible }: MessageListProps) {
       extraData={extra}
       keyExtractor={(row) => row.id}
       renderItem={renderItem}
-      estimatedItemSize={64}
+      estimatedItemSize={48}
       alignItemsAtEnd
       {...(initialTarget.current >= 0
         ? {
@@ -186,7 +193,7 @@ export function MessageList({ state, listRef, onVisible }: MessageListProps) {
       maintainScrollAtEnd={{ on: { layout: true, itemLayout: true } }}
       maintainVisibleContentPosition
       recycleItems={false}
-      contentInsetAdjustmentBehavior="automatic"
+      contentInsetAdjustmentBehavior={underHeader ? "automatic" : "never"}
       contentContainerStyle={styles.content}
       viewabilityConfig={viewability}
       onViewableItemsChanged={onViewableItemsChanged}
