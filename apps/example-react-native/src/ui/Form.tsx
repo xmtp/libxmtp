@@ -21,6 +21,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { type ColorInput, resolveColor, useColors } from "@/ui/colors";
 import { Text } from "@/ui/Text";
 import { form } from "@/ui/tokens";
+import { ToolbarTextButton } from "@/ui/ToolbarTextButton";
 import { WrappedText } from "@/ui/WrappedText";
 
 /**
@@ -52,13 +53,14 @@ const footerTop = 7.9;
 
 /**
  * Children of a route that render no view. `FormScreen` skips them when it
- * looks for the first section.
+ * looks for the first section. `ToolbarTextButton` renders a `Stack.Toolbar`.
  */
 const nonVisual = new Set<unknown>([
   Stack.Screen,
   Stack.Toolbar,
   Stack.SearchBar,
   Stack.Title,
+  ToolbarTextButton,
 ]);
 
 function isSectionCandidate(child: ReactNode): boolean {
