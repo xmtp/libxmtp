@@ -79,6 +79,14 @@ measured against the iOS example's screenshots on an iOS 27 iPhone 17 Pro.
   `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/gallery?section=components"`
   (sections: `components`, `settings`, `details`, `chats`, `chat`, `connect`).
 
+## Session
+
+- Screens use `@/session`: `useSessionState()`, `useActiveSession()` and the `sessionController` actions (`connect`, `retryRestore`, `signOut`, `deleteLocalData`, `continueReset`, `setAppearance`). `SessionProvider` starts the session and lends the open client to the SDK's `XmtpProvider`.
+- An `ActiveSession` carries the client, `preferences`, `streams` (the one default message reader, plus conversation and event readers), `identities` and `ownHandles`. Register session-owned work in `session.scope`; sign out cancels and awaits it before `client.end()`. Drop async results unless `session.isCurrent()`.
+- The session machine and stream hub live in `src/core` behind ports, so `node --test` covers them; `src/session` wires the device and the SDK.
+- Fast Refresh keeps the running session: reload the app after editing `src/session` or the core modules it uses. Running `install` (or `build-android`) under a live Metro removes the SDK package briefly; relaunch the app afterwards.
+- `app/dev/session-probe.tsx` (Debug only) drives the session: `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/session-probe?action=connect&url=http%3A%2F%2F127.0.0.1%3A5150"`. Other actions: `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`, `handles`, `contend`; add `&n=<new value>` to repeat one.
+
 ## Native projects
 
 `ios/` and `android/` are committed and edited by hand; nothing runs

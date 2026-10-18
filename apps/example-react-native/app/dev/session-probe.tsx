@@ -62,6 +62,7 @@ function SessionDetails({
   log: (line: string) => void;
 }) {
   const connection = useStore(session.streams.connection);
+  const scheme = useColorScheme();
   const handles = useStore(session.ownHandles);
   // The provider borrows the session client; it must be this session's.
   const provided = useXmtp().client;
@@ -124,7 +125,9 @@ function SessionDetails({
             ? "is the session client"
             : "differs"}
       </Text>
-      <Text style={styles.heading} testID="probe-message-count">
+      <Text
+        style={[styles.heading, { color: scheme === "dark" ? "#fff" : "#000" }]}
+        testID="probe-message-count">
         messages received {String(count)}
       </Text>
       {messages.map((line, index) => (
@@ -245,6 +248,14 @@ function SessionProbeScreen() {
   useEffect(() => {
     void run("start", () => startSession());
   }, [run]);
+
+  useEffect(() => {
+    log(
+      session === undefined
+        ? `session ${state.kind}`
+        : `session active inbox ${session.inboxId} generation ${String(session.generation)}`,
+    );
+  }, [log, session, state.kind]);
 
   useEffect(() => {
     const action = params.action;
