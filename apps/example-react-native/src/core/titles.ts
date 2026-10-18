@@ -123,12 +123,20 @@ export function memberInitial(inboxId: string, handle?: string): string {
     .toUpperCase();
 }
 
-/** A handle split for display: the name, then `#code` (or empty), without a leading `@`. */
+/** The handle without one leading `@` (`HandleText.normalized`). */
+export function stripAt(handle: string): string {
+  return handle.startsWith("@") ? handle.slice(1) : handle;
+}
+
+/**
+ * A handle split once at the first `#` for display: the name, then the
+ * `#code` suffix (empty when there is none). One leading `@` is dropped first.
+ */
 export function splitHandle(handle: string): {
   readonly name: string;
   readonly code: string;
 } {
-  const value = handle.startsWith("@") ? handle.slice(1) : handle;
+  const value = stripAt(handle);
   const index = value.indexOf("#");
   return index < 0
     ? { name: value, code: "" }

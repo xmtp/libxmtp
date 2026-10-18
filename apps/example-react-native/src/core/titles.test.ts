@@ -12,6 +12,7 @@ import {
   rowMatches,
   shortInboxId,
   splitHandle,
+  stripAt,
 } from "./titles.ts";
 
 const dm = {
@@ -112,7 +113,20 @@ test("handles split into name and code without a leading @", () => {
     name: "marco",
     code: "#0412",
   });
+  assert.deepEqual(splitHandle("lena#2207"), { name: "lena", code: "#2207" });
   assert.deepEqual(splitHandle("nick"), { name: "nick", code: "" });
+  assert.deepEqual(splitHandle(""), { name: "", code: "" });
+});
+
+test("handles split only at the first #", () => {
+  assert.deepEqual(splitHandle("a#b#c"), { name: "a", code: "#b#c" });
+});
+
+test("a handle's spoken label drops exactly one leading @", () => {
+  assert.equal(stripAt("@nick"), "nick");
+  assert.equal(stripAt("@@nick"), "@nick");
+  assert.equal(stripAt("nick"), "nick");
+  assert.deepEqual(splitHandle("@@nick"), { name: "@nick", code: "" });
 });
 
 test("search matches title, handle, preview or ID ignoring case", () => {

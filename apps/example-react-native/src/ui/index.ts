@@ -89,7 +89,6 @@ export {
   IdentityText,
   type IdentityTextProps,
 } from "@/ui/Identity";
-export { normalizeHandle, splitHandle } from "@/ui/handleParts.ts";
 export {
   type Motion,
   reducedTiming,

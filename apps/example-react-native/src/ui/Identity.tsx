@@ -1,4 +1,4 @@
-import { normalizeHandle, splitHandle } from "@/ui/handleParts.ts";
+import { splitHandle, stripAt } from "@/core/titles.ts";
 import { Span, Text, type TextProps } from "@/ui/Text";
 
 type TextLikeProps = Omit<TextProps, "children" | "accessibilityLabel">;
@@ -14,7 +14,7 @@ export interface HandleTextProps extends TextLikeProps {
 export function HandleText({ handle, ...props }: HandleTextProps) {
   const { name, code } = splitHandle(handle);
   return (
-    <Text {...props} accessibilityLabel={normalizeHandle(handle)}>
+    <Text {...props} accessibilityLabel={stripAt(handle)}>
       <Span color="label">{name}</Span>
       {code === "" ? null : <Span color="secondaryLabel">{code}</Span>}
     </Text>

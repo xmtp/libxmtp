@@ -15,6 +15,7 @@ import {
   statusPick,
   visibleSuggestions,
 } from "@/core/handles.ts";
+import { splitHandle } from "@/core/titles.ts";
 import { handleCopy } from "@/features/handles/copy";
 import { useHandleModel } from "@/features/handles/useHandleModel";
 import { type ActiveSession, useActiveSession } from "@/session";
@@ -24,7 +25,6 @@ import { useColors } from "@/ui/colors";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
 import { TextFieldRow } from "@/ui/FormRows";
 import { GlassButton } from "@/ui/GlassButton";
-import { splitHandle } from "@/ui/handleParts.ts";
 import { HandleText } from "@/ui/Identity";
 import { Symbol } from "@/ui/Symbol";
 import { Span, Text } from "@/ui/Text";
