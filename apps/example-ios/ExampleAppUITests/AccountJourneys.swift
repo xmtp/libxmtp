@@ -101,11 +101,22 @@ import XCTest
 	func testJoinRestoreAndSignOutKeepsAccount() {
 		let app = launch(); join(app, claim: true, checkDefault: true)
 		let original = inbox(app)
+		// Kill the app soon after it leaves the foreground, as a swipe in the app switcher does. A lease left by the
+		// killed process would still have most of its 30 seconds at relaunch.
+		XCUIDevice.shared.press(.home)
+		RunLoop.current.run(until: Date().addingTimeInterval(1))
 		app.terminate()
 		// The reset hook applies only to the first launch of this journey.
 		app.launchArguments.removeAll { $0 == "-reset-all-data" }
 		app.launch()
 		XCTAssertTrue(app.navigationBars["Chats"].waitForExistence(timeout: 30))
+		// A consumer lease left by the killed process fails the reader until it expires.
+		let disconnected = app.staticTexts["Disconnected. Retrying…"]
+		let deadline = Date().addingTimeInterval(10)
+		while Date() < deadline {
+			XCTAssertFalse(disconnected.exists, "The message reader failed after relaunch")
+			RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+		}
 		XCTAssertEqual(inbox(app), original)
 		revealButton("Sign out", in: app).tap()
 		confirm("Sign out?", button: "Sign out", in: app)

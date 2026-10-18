@@ -29,6 +29,10 @@ import SwiftUI
 	var error: String?
 	var appearance: String
 	private var bound: SessionKey?
+	private var sceneActive = true
+	private var messageSource: (key: SessionKey, readers: SessionReaders)?
+	private var messageRun: Task<Void, Never>?
+	private var stoppingMessageReader: Task<Void, Never>?
 	init() throws {
 		files = try ProfileFiles()
 		session = SessionController(fence: fence, secrets: secrets, files: files, factory: factory)
@@ -93,7 +97,7 @@ import SwiftUI
 		bound = nil; conversations = nil; requestConversations = nil; requests = nil
 		handles = nil; newConversation = nil; preferences = nil; identityDirectory = nil; messageObservers
 			.removeAll(); messageDeletionObservers.removeAll()
-		currentHandle = nil; otherHandles = []
+		currentHandle = nil; otherHandles = []; messageSource = nil; messageRun = nil
 		routes.replace(.connect)
 	}
 
@@ -162,14 +166,46 @@ import SwiftUI
 		})
 		let ownedConversations = conversations
 		session.scope.add { [weak self] in
-			while !Task.isCancelled, self?.fence.accepts(info.key) == true {
-				do { try await readers.run(); break } catch is CancellationError { break } catch {
-					guard let self, fence.accepts(info.key) else { break }
-					conversations?.send(.connection("Disconnected. Retrying…"))
-					do { try await Task.sleep(for: .seconds(1)) } catch { break }
-				}
-			}
+			await self?.retrying(info.key) { try await readers.runUpdates() }
+			// Close the stores only after the message reader can no longer project into them.
+			await self?.messageRun?.value
 			await ownedConversations?.close()
+		}
+		// The previous session's scope already cancelled and awaited its message reader.
+		messageSource = (info.key, readers); messageRun = nil
+		runMessageReader()
+	}
+
+	/// The default message reader runs only while a scene is active. Closing it releases its consumer lease. A process
+	/// that iOS suspends, or that the user kills from the app switcher, would otherwise keep the lease, and the next
+	/// launch's reader fails with ConsumerOwned until the lease expires.
+	func setSceneActive(_ active: Bool) async {
+		sceneActive = active
+		guard active else { await pauseMessageReader(); return }
+		await stoppingMessageReader?.value
+		runMessageReader()
+	}
+
+	private func runMessageReader() {
+		guard sceneActive, messageRun == nil, let (key, readers) = messageSource, fence.accepts(key) else { return }
+		messageRun = session.scope.add { [weak self] in
+			await self?.retrying(key) { try await readers.runMessages() }
+		}
+	}
+
+	private func pauseMessageReader() async {
+		guard let run = messageRun else { await stoppingMessageReader?.value; return }
+		messageRun = nil; stoppingMessageReader = run
+		run.cancel(); await run.value
+	}
+
+	private func retrying(_ key: SessionKey, _ read: @escaping @Sendable () async throws -> Void) async {
+		while !Task.isCancelled, fence.accepts(key) {
+			do { try await read(); break } catch is CancellationError { break } catch {
+				guard fence.accepts(key) else { break }
+				conversations?.send(.connection("Disconnected. Retrying…"))
+				do { try await Task.sleep(for: .seconds(1)) } catch { break }
+			}
 		}
 	}
 

@@ -63,6 +63,8 @@ internal class MessengerViewModel(
 
     fun foreground(value: Boolean) = graph.foreground(value)
 
+    fun visible(value: Boolean) = graph.visible(value)
+
     fun dispatch(action: MessengerAction) {
         when (action) {
             is MessengerAction.ConnectFeature -> {
