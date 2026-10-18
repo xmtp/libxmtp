@@ -18,7 +18,7 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
-import { useColors } from "@/ui/colors";
+import { type ColorInput, resolveColor, useColors } from "@/ui/colors";
 import { Text } from "@/ui/Text";
 import { form } from "@/ui/tokens";
 import { WrappedText } from "@/ui/WrappedText";
@@ -66,6 +66,8 @@ function isSectionCandidate(child: ReactNode): boolean {
 }
 
 const FirstSectionContext = createContext(false);
+/** The section card color that `FormScreen` sets for its sections. */
+const CardColorContext = createContext<ColorInput | undefined>(undefined);
 
 export interface FormScreenProps extends ScrollViewProps {
   children?: ReactNode;
@@ -83,6 +85,12 @@ export interface FormScreenProps extends ScrollViewProps {
    * resting form 70 pt under a sheet's bar.
    */
   avoidsKeyboard?: boolean;
+  /**
+   * Section card color. Default `secondarySystemGroupedBackground`. A sheet
+   * at a partial detent shows glass behind translucent cards
+   * (`tertiarySystemFill`).
+   */
+  cardColor?: ColorInput;
 }
 
 /**
@@ -95,6 +103,7 @@ export function FormScreen({
   children,
   bottomInset = 0,
   avoidsKeyboard = false,
+  cardColor,
   style,
   contentContainerStyle,
   ...props
@@ -114,17 +123,19 @@ export function FormScreen({
         { paddingBottom: bottomInset },
         contentContainerStyle,
       ]}>
-      {sections.map((section, index) => (
-        <FirstSectionContext
-          key={
-            isValidElement(section) && section.key !== null
-              ? section.key
-              : index
-          }
-          value={index === firstIndex}>
-          {section}
-        </FirstSectionContext>
-      ))}
+      <CardColorContext value={cardColor}>
+        {sections.map((section, index) => (
+          <FirstSectionContext
+            key={
+              isValidElement(section) && section.key !== null
+                ? section.key
+                : index
+            }
+            value={index === firstIndex}>
+            {section}
+          </FirstSectionContext>
+        ))}
+      </CardColorContext>
     </Scroll>
   );
 }
@@ -179,6 +190,7 @@ export function FormSection({
 }: FormSectionProps) {
   const palette = useColors();
   const first = use(FirstSectionContext);
+  const cardColor = use(CardColorContext);
   const rows = Children.toArray(children);
   const top =
     header === undefined
@@ -225,7 +237,11 @@ export function FormSection({
             ? undefined
             : [
                 styles.card,
-                { backgroundColor: palette.secondarySystemGroupedBackground },
+                {
+                  backgroundColor:
+                    resolveColor(palette, cardColor) ??
+                    palette.secondarySystemGroupedBackground,
+                },
               ],
         ]}>
         {rows.map((row, index) => (

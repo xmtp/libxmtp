@@ -32,7 +32,7 @@ const pairs = {
   // Tints at fixed opacity (the tint in SwiftUI hierarchical styles).
   /** `.tertiary` on a tinted row (Settings chevrons): tint at 25 percent. */
   tintTertiary: { light: "rgba(52,84,188,0.25)", dark: "rgba(67,97,209,0.3)" },
-  /** `.secondary` on a tinted row (a `#code` in a Form button): tint at 50 percent. */
+  /** `.secondary` on a tinted row (a `#code` in a Form button, Details row values): tint at 50 percent. */
   tintSecondary: { light: "rgba(52,84,188,0.5)", dark: "rgba(67,97,209,0.5)" },
   /** Recipient chips, staged attachment icon tile: tint at 10 percent. */
   tintFill10: { light: "rgba(52,84,188,0.1)", dark: "rgba(67,97,209,0.1)" },
