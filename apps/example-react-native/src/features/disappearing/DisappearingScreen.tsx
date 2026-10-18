@@ -155,5 +155,6 @@ function DisappearingBody({
 }
 
 const styles = StyleSheet.create({
-  buttonRow: { paddingVertical: 11 },
+  // A glass button row in a List: 14.3 pt above and 13.3 pt below the glass (iOS 27).
+  buttonRow: { paddingVertical: 15 },
 });

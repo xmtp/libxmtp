@@ -479,7 +479,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { justifyContent: "center" },
   multiline: { paddingBottom: 15, paddingTop: 15 },
-  buttons: { gap: 8, paddingVertical: 11 },
+  // A glass button row in a List: 14.3 pt above and 13.3 pt below the glass (iOS 27).
+  buttons: { gap: 8, paddingVertical: 15 },
   member: { paddingVertical: 19 },
   memberText: { flex: 1, gap: 5 },
 });
