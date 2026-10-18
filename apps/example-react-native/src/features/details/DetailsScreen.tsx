@@ -19,6 +19,7 @@ import {
 import {
   DetailsErrorSection,
   DetailsNavigationRow,
+  MediaRow,
   MemberIdentityRow,
   ShortcutTile,
 } from "@/features/details/DetailsRows";
@@ -207,11 +208,8 @@ function DetailsBody({
         store={store}
       />
       <FormSection header={detailsCopy.sharedMedia}>
-        <ButtonRow
+        <MediaRow
           title={detailsCopy.mediaAndFiles}
-          systemImage="photo"
-          iconStyle="label"
-          iconSize={photoIconSize}
           onPress={() => {
             push("/shared-media/[conversationId]");
           }}
@@ -432,9 +430,6 @@ function MembersSection({
     </FormSection>
   );
 }
-
-/** The list `Label` draws `photo` 24 x 19 pt (measured on iOS 27). */
-const photoIconSize = 29;
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 16 },
