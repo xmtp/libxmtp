@@ -1,3 +1,3 @@
-import { ChatsPlaceholderScreen } from "@/features/chats/ChatsPlaceholderScreen";
+import { ChatsScreen } from "@/features/chats/ChatsScreen";
 
-export default ChatsPlaceholderScreen;
+export default ChatsScreen;

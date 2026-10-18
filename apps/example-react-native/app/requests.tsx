@@ -1,6 +1,3 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { RequestsScreen } from "@/features/requests/RequestsScreen";
 
-export default function RequestsRoute() {
-  return <PlaceholderScreen title={routeTitles.requests} route="requests" />;
-}
+export default RequestsScreen;
