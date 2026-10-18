@@ -118,6 +118,10 @@ export default function RootLayout() {
                   name="dev/session-probe"
                   options={inline(routeTitles.sessionProbe)}
                 />
+                <Stack.Screen
+                  name="dev/chat-probe"
+                  options={inline(routeTitles.chatProbe)}
+                />
               </Stack.Protected>
             </Stack>
           </SessionProvider>

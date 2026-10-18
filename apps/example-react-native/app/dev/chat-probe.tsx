@@ -6,9 +6,8 @@
 // allowed again), `reply`, `retry`, `edit`, `delete`, `react` (`&e=<emoji>`).
 // The probe runs the action on the mounted chat, then goes back to it.
 
-import { Stack, router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef } from "react";
-import { Text } from "react-native";
 
 import { mountedChat } from "@/features/chat/chatRuntime";
 import { chatDebug } from "@/features/chat/sdkChatQueries";
@@ -78,10 +77,7 @@ export default function ChatProbe() {
     if (router.canGoBack()) router.back();
   }, [params.action, params.c, params.e, params.m, params.n, session]);
 
-  return (
-    <>
-      <Stack.Screen options={{ title: "Chat probe" }} />
-      <Text>{__DEV__ ? "Chat probe" : "Debug builds only."}</Text>
-    </>
-  );
+  // The root layout registers this route for Debug builds only, with its
+  // title. The probe goes back as soon as its action ran.
+  return null;
 }
