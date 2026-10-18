@@ -117,6 +117,14 @@ const pairs = {
     dark: "rgba(118,118,128,0.18)",
     ios: "quaternarySystemFill",
   },
+  /**
+   * A `List` row on a sheet's glass (Reactions): measured on iOS 27 as
+   * tertiary fill in light and quaternary fill in dark mode.
+   */
+  sheetRowFill: {
+    light: "rgba(118,118,128,0.12)",
+    dark: "rgba(118,118,128,0.18)",
+  },
   /** Row highlight while pressed (UITableViewCell selection). */
   rowHighlight: { light: "#D1D1D6", dark: "#3A3A3C", ios: "systemGray4" },
   /** A swiped plain-list row that keeps the default row background. */
