@@ -155,7 +155,7 @@ function SharedMediaList({
   );
 
   return (
-    <FormScreen testID="shared-media">
+    <FormScreen testID="shared-media" contentContainerStyle={styles.inlineTop}>
       <FormSection>
         <FormRow>
           <Text color="secondaryLabel">{sharedMediaCopy.intro}</Text>
@@ -224,7 +224,7 @@ function MediaCard({
   return (
     <View style={styles.mediaCard} testID={`media.${row.id}`}>
       <View style={styles.byline}>
-        <Text variant="caption" color="secondaryLabel">
+        <Text variant="caption" color="secondaryLabel" style={styles.sender}>
           {sender}
         </Text>
         <Text variant="caption" color="secondaryLabel" style={styles.date}>
@@ -248,9 +248,13 @@ function MediaCard({
 }
 
 const styles = StyleSheet.create({
-  grid: { gap: GRID_SPACING },
+  // An inline-title list starts 35 pt below the bar (the kit measures large titles).
+  inlineTop: { paddingTop: 35 },
+  grid: { flex: 1, gap: GRID_SPACING },
   gridRow: { alignItems: "center", flexDirection: "row", gap: GRID_SPACING },
   mediaCard: { alignItems: "flex-start", gap: 8 },
-  byline: { flexDirection: "row", flexWrap: "wrap", columnGap: 8 },
+  // An HStack: both texts shrink and wrap in place; the line never wraps.
+  byline: { alignItems: "center", flexDirection: "row", gap: 8 },
   date: { flexShrink: 1 },
+  sender: { flexShrink: 1 },
 });

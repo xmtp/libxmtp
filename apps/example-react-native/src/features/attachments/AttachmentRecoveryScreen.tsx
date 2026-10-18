@@ -103,7 +103,7 @@ function RecoveryList({ session }: { readonly session: ActiveSession }) {
       </FormSection>
       {state.drafts.map((draft) => (
         <FormSection key={draft.id} testID={`recovery.${draft.id}`}>
-          <FormRow separatorInset={56}>
+          <FormRow separatorInset={52}>
             <View style={styles.label}>
               <View style={styles.labelIcon}>
                 <Symbol name="doc" color="tint" />
@@ -180,8 +180,8 @@ function RecoveryList({ session }: { readonly session: ActiveSession }) {
 }
 
 const styles = StyleSheet.create({
-  label: { alignItems: "center", flexDirection: "row" },
-  // SwiftUI list labels put the icon in a 40 pt column.
-  labelIcon: { alignItems: "center", width: 40, marginLeft: -4 },
+  // Like a plain NavigationRow: a 24 pt icon column, then 12 pt to the title.
+  label: { alignItems: "center", flexDirection: "row", gap: 12 },
+  labelIcon: { alignItems: "center", minWidth: 24 },
   labelText: { flexShrink: 1 },
 });

@@ -38,6 +38,22 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Debug-only hooks for checks the shared backend cannot produce on demand
+ * (`dev/attachment-probe` sets them): a smaller upload limit, and uploads
+ * that wait until released, so the app can be stopped mid-upload.
+ */
+export const attachmentDebug: {
+  limit: bigint | undefined;
+  holdUploads: boolean;
+} = { limit: undefined, holdUploads: false };
+
+async function heldUpload(): Promise<void> {
+  while (__DEV__ && attachmentDebug.holdUploads) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 export class SdkAttachmentGateway implements AttachmentGateway {
   readonly #client: Client;
 
@@ -48,7 +64,13 @@ export class SdkAttachmentGateway implements AttachmentGateway {
   capability(): bigint | undefined {
     try {
       if (!this.#client.attachments.offered) return undefined;
-      return this.#client.serverConfiguration.attachments?.maxUploadBytes;
+      const limit =
+        this.#client.serverConfiguration.attachments?.maxUploadBytes;
+      return __DEV__ &&
+        limit !== undefined &&
+        attachmentDebug.limit !== undefined
+        ? attachmentDebug.limit
+        : limit;
     } catch {
       // An offline open may have no server configuration.
       return undefined;
@@ -80,6 +102,7 @@ export class SdkAttachmentGateway implements AttachmentGateway {
   upload(file: RemoteAttachment): Promise<FilePhase> {
     return mapped(async () => {
       const pending = await this.#client.attachments.pending(file);
+      await heldUpload();
       await pending.upload();
       const status = await pending.status();
       switch (status.kind) {

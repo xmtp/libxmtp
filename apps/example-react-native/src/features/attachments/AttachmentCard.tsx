@@ -242,32 +242,49 @@ function takeExport(ref: { current: string | undefined }): boolean {
 /** A verified image, fit within 236 x 220 pt with 12 pt corners. */
 function Preview({ path }: { readonly path: string }) {
   const [size, setSize] = useState<{ width: number; height: number }>();
+  // The card's content width (236 pt in a bubble, less in a grid column).
+  const [available, setAvailable] = useState(PREVIEW_WIDTH);
   const aspect =
     size === undefined || size.height === 0
       ? undefined
       : size.width / size.height;
   const width =
-    aspect === undefined ? 0 : Math.min(PREVIEW_WIDTH, PREVIEW_HEIGHT * aspect);
+    aspect === undefined ? 0 : Math.min(available, PREVIEW_HEIGHT * aspect);
   return (
-    <Image
-      source={{ uri: pathToUri(path) }}
-      contentFit="contain"
-      accessible={false}
-      onLoad={(event) => {
-        setSize({ width: event.source.width, height: event.source.height });
-      }}
-      style={[
-        styles.preview,
-        aspect === undefined
-          ? styles.previewLoading
-          : { width, height: width / aspect },
-      ]}
-    />
+    <View
+      style={styles.previewFrame}
+      onLayout={(event) => {
+        setAvailable(event.nativeEvent.layout.width);
+      }}>
+      <Image
+        source={{ uri: pathToUri(path) }}
+        contentFit="contain"
+        // Decrypted files never leave protected storage: no disk cache copy.
+        cachePolicy="memory"
+        accessible={false}
+        onLoad={(event) => {
+          setSize({ width: event.source.width, height: event.source.height });
+        }}
+        style={[
+          styles.preview,
+          aspect === undefined
+            ? styles.previewLoading
+            : { width, height: width / aspect },
+        ]}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { alignItems: "flex-start", gap: 8, maxWidth: 260, padding: 12 },
+  // `.frame(maxWidth: 260)` fills up to 260 pt when the parent offers more.
+  card: {
+    alignItems: "flex-start",
+    gap: 8,
+    maxWidth: "100%",
+    padding: 12,
+    width: 260,
+  },
   label: { alignItems: "center", flexDirection: "row", gap: 8 },
   name: { flexShrink: 1 },
   meta: { alignItems: "center", flexDirection: "row", gap: 8 },
@@ -276,5 +293,6 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   spinner: { alignSelf: "flex-start" },
   preview: { borderCurve: "continuous", borderRadius: 12, overflow: "hidden" },
-  previewLoading: { height: 1, width: PREVIEW_WIDTH },
+  previewFrame: { alignSelf: "stretch" },
+  previewLoading: { height: 1, width: 1 },
 });

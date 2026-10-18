@@ -78,6 +78,7 @@ async function stageTestFile(
   if (limit === undefined || separator <= 0) return;
   const name = value.slice(0, separator);
   const safeName = name.slice(name.lastIndexOf("/") + 1);
+  store.showError(undefined);
   try {
     const path = stageBase64(
       value.slice(separator + 1),
