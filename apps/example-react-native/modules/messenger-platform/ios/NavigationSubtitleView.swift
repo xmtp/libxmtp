@@ -34,6 +34,15 @@ public final class NavigationSubtitleView: ExpoView {
 
     private func apply() {
         guard window != nil, let controller = hostingViewController() else { return }
+        // A pushed or replaced screen lays out its large title during the
+        // transition. A subtitle that changes then leaves the large title
+        // collapsed, so apply it once the transition ends.
+        if let coordinator = controller.transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+                self?.apply()
+            }
+            return
+        }
         let item = controller.navigationItem
         if let previous = appliedItem, previous !== item {
             previous.subtitle = nil
