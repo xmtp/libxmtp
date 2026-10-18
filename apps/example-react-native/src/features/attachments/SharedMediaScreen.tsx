@@ -6,7 +6,7 @@ import type { AttachmentStore } from "@/core/attachmentStore.ts";
 import { type ChatMessage, messageDate } from "@/core/chatMessages.ts";
 import { messageDateTime } from "@/core/dates.ts";
 import { SharedMediaStore, mediaSections } from "@/core/sharedMedia.ts";
-import { shortInboxId, stripAt } from "@/core/titles.ts";
+import { splitHandle, stripAt } from "@/core/titles.ts";
 import { AttachmentCard } from "@/features/attachments/AttachmentCard";
 import {
   consentAllowed,
@@ -18,7 +18,8 @@ import { chatServices } from "@/features/chat/chatServices";
 import { type ActiveSession, useActiveSession } from "@/session";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
 import { GlassButton } from "@/ui/GlassButton";
-import { Text } from "@/ui/Text";
+import { IdentityText } from "@/ui/Identity";
+import { Span, Text } from "@/ui/Text";
 import { useStore } from "@/ui/useStore";
 
 /** `GridItem(.adaptive(minimum: 140))` with 12 pt spacing. */
@@ -129,13 +130,6 @@ function SharedMediaList({
     }
   };
 
-  const sender = (inboxId: string): string => {
-    const handle = identities.get(inboxId)?.handle;
-    return handle === undefined || handle === ""
-      ? shortInboxId(inboxId)
-      : stripAt(handle);
-  };
-
   const { visual, files: others } = mediaSections(state.rows);
   const grid = gridColumns(gridWidth);
   const gridRows: ChatMessage[][] = [];
@@ -147,7 +141,7 @@ function SharedMediaList({
       row={row}
       store={files}
       allowed={state.allowed}
-      sender={sender(row.sender)}
+      handle={identities.get(row.sender)?.handle}
       onViewInChat={() => {
         viewInChat(row);
       }}
@@ -182,13 +176,11 @@ function SharedMediaList({
           </View>
         </FormRow>
       </FormSection>
-      {others.length === 0 ? null : (
-        <FormSection header={sharedMediaCopy.files}>
-          {others.map((row) => (
-            <FormRow key={row.id}>{card(row)}</FormRow>
-          ))}
-        </FormSection>
-      )}
+      <FormSection header={sharedMediaCopy.files}>
+        {others.map((row) => (
+          <FormRow key={row.id}>{card(row)}</FormRow>
+        ))}
+      </FormSection>
       {state.error === undefined && failure === undefined ? null : (
         <FormSection>
           <FormRow>
@@ -211,22 +203,20 @@ function MediaCard({
   row,
   store,
   allowed,
-  sender,
+  handle,
   onViewInChat,
 }: {
   readonly row: ChatMessage;
   readonly store: AttachmentStore;
   readonly allowed: boolean;
-  readonly sender: string;
+  readonly handle: string | undefined;
   readonly onViewInChat: () => void;
 }) {
   if (row.content.kind !== "attachment") return null;
   return (
     <View style={styles.mediaCard} testID={`media.${row.id}`}>
       <View style={styles.byline}>
-        <Text variant="caption" color="secondaryLabel" style={styles.sender}>
-          {sender}
-        </Text>
+        <SenderText inboxId={row.sender} handle={handle} />
         <Text variant="caption" color="secondaryLabel" style={styles.date}>
           {messageDateTime(messageDate(row))}
         </Text>
@@ -244,6 +234,41 @@ function MediaCard({
         onPress={onViewInChat}
       />
     </View>
+  );
+}
+
+/**
+ * The byline's `IdentityText` under the row's `.foregroundStyle(.secondary)`:
+ * a handle's name takes the secondary color and its `#code` the tertiary one
+ * (seen in the native capture); an inbox ID prefix stays monospaced.
+ */
+function SenderText({
+  inboxId,
+  handle,
+}: {
+  readonly inboxId: string;
+  readonly handle: string | undefined;
+}) {
+  if (handle === undefined || handle === "") {
+    return (
+      <IdentityText
+        inboxId={inboxId}
+        variant="caption"
+        color="secondaryLabel"
+        style={styles.sender}
+      />
+    );
+  }
+  const { name, code } = splitHandle(handle);
+  return (
+    <Text
+      variant="caption"
+      color="secondaryLabel"
+      accessibilityLabel={stripAt(handle)}
+      style={styles.sender}>
+      {name}
+      {code === "" ? null : <Span color="tertiaryLabel">{code}</Span>}
+    </Text>
   );
 }
 
