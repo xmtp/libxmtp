@@ -2,8 +2,9 @@
 // sign out, delete local data and stream hub delivery. Open it with
 // `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/session-probe"`.
 // Query parameters run an action: `?action=connect&url=…&token=…&name=…`,
-// `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe` or
-// `handles`; add `&n=<anything new>` to run the same action again.
+// `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`,
+// `contend`, `allowRequests` or `handles`; add `&n=<anything new>` to run the
+// same action again.
 
 import type { Message } from "@xmtp/react-native-sdk";
 import { useXmtp } from "@xmtp/react-native-sdk/react";
@@ -24,7 +25,6 @@ import { errorMessage } from "@/core/sessionError.ts";
 import type { SessionEvent } from "@/core/streamHub.ts";
 import { launchEnvironment } from "@/platform/messengerPlatform";
 import {
-  SessionProvider,
   probeBackend,
   sessionController,
   startSession,
@@ -139,16 +139,8 @@ function SessionDetails({
   );
 }
 
-/** The probe inside `SessionProvider`, so the borrowed `XmtpProvider` runs too. */
+/** The probe. The root layout's `SessionProvider` lends the client to `XmtpProvider`. */
 export default function SessionProbe() {
-  return (
-    <SessionProvider>
-      <SessionProbeScreen />
-    </SessionProvider>
-  );
-}
-
-function SessionProbeScreen() {
   const scheme = useColorScheme();
   const state = useSessionState();
   const session = useActiveSession();
@@ -230,6 +222,20 @@ function SessionProbeScreen() {
             await streams.setForeground(true);
             await new Promise((resolve) => setTimeout(resolve, 15_000));
             await rival.end();
+          });
+        case "allowRequests":
+          // Accepts every message request (consent unknown → allowed), for
+          // checks that need allowed conversations before Requests exists.
+          return run("allowRequests", async () => {
+            const current = sessionController.getState();
+            if (current.kind !== "active") throw new Error("No open session");
+            const requests = await current.session.client.conversations.list({
+              consentStates: ["unknown"],
+            });
+            for (const conversation of requests) {
+              await conversation.updateConsentState("allowed");
+            }
+            return requests.length;
           });
         case "handles":
           return run("initialRoute", async () => {

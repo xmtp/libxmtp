@@ -36,6 +36,8 @@ export const routeTitles = {
   attachmentRecovery: "Attachment recovery",
   /** Not an iOS route: the Debug design gallery. */
   gallery: "Design gallery",
+  /** Not an iOS route: the Debug session probe. */
+  sessionProbe: "Session probe",
   /** Not an iOS route: the edit-group and add-member sheets. */
   editGroup: "Edit group",
   addMember: "Add member",

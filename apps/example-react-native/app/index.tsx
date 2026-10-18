@@ -1,5 +1,4 @@
-import { Redirect } from "expo-router";
+import { StartupScreen } from "@/features/startup/StartupScreen";
 
-export default function Index() {
-  return <Redirect href="/chats" />;
-}
+/** The startup gate: `SessionRouter` replaces it once the session state is known. */
+export default StartupScreen;
