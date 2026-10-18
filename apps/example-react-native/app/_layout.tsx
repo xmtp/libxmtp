@@ -153,6 +153,8 @@ const reducedMotionSheet = {
   ...pageSheet,
   animation: "none",
   gestureEnabled: false,
+  // `presentationBackground(.clear)`: the faded content is the whole sheet.
+  contentStyle: { backgroundColor: "transparent" },
 } as const;
 
 /**

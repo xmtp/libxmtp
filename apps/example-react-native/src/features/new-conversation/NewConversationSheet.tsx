@@ -11,6 +11,7 @@ import {
 } from "react";
 import { StyleSheet } from "react-native";
 import Animated, {
+  ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -22,6 +23,10 @@ import { type ActiveSession, useActiveSession } from "@/session";
 import { useReducedMotion } from "@/ui/accessibility";
 import { useColors } from "@/ui/colors";
 import { reducedTiming } from "@/ui/motion";
+
+// Reanimated skips animations under Reduce Motion unless told not to; this
+// cross-fade is the Reduce Motion presentation itself.
+const fadeTiming = { ...reducedTiming, reduceMotion: ReduceMotion.Never };
 
 interface SheetContext {
   readonly store: NewConversationStore;
@@ -74,7 +79,7 @@ function SheetBody({
   useEffect(() => {
     if (!reduceMotion) return;
     opacity.value = 0;
-    opacity.value = withTiming(1, reducedTiming);
+    opacity.value = withTiming(1, fadeTiming);
   }, [reduceMotion, opacity]);
 
   const dismiss = useCallback(
@@ -91,7 +96,7 @@ function SheetBody({
         return;
       }
       // Like `ReducedMotionSheet`: fade out, then dismiss without animation.
-      opacity.value = withTiming(0, reducedTiming);
+      opacity.value = withTiming(0, fadeTiming);
       setTimeout(leave, reducedTiming.duration);
     },
     [navigation, opacity, reduceMotion],
