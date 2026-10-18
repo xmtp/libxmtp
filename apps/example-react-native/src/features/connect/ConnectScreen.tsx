@@ -4,12 +4,12 @@ import {
   ActivityIndicator,
   Keyboard,
   Pressable,
-  ScrollView,
   StyleSheet,
   TextInput,
   type TextInputProps,
   View,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Animated, {
   LinearTransition,
   useAnimatedStyle,
@@ -82,9 +82,12 @@ export function ConnectScreen() {
         { backgroundColor: palette.systemGroupedBackground },
       ]}>
       <Stack.Screen options={{ headerShown: false }} />
-      <ScrollView
+      <KeyboardAwareScrollView
         contentInsetAdjustmentBehavior="automatic"
-        automaticallyAdjustKeyboardInsets
+        bottomOffset={footerClearance}
+        // A spacer (not an inset) makes room for the keyboard, so when the
+        // keyboard hides the scroll view clamps back to the top like SwiftUI.
+        mode="layout"
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.content}>
@@ -301,7 +304,7 @@ export function ConnectScreen() {
             </Animated.View>
           )}
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
       {recovering ? null : (
         <ActionFooter>
           <GlassButton
@@ -476,6 +479,12 @@ function Divider() {
     <View style={[styles.divider, { backgroundColor: palette.divider }]} />
   );
 }
+
+/**
+ * Space kept between a focused field and the keyboard: the footer rides above
+ * the keyboard (`ActionFooter`), so the field stays above the footer too.
+ */
+const footerClearance = 90;
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },

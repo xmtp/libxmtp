@@ -2,11 +2,11 @@ import { Stack } from "expo-router";
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
 import {
   type HandleModel,
@@ -64,9 +64,12 @@ function ChooseHandle({ session }: { readonly session: ActiveSession }) {
         { backgroundColor: palette.systemGroupedBackground },
       ]}>
       <Stack.Screen options={{ headerShown: false }} />
-      <ScrollView
+      <KeyboardAwareScrollView
         contentInsetAdjustmentBehavior="automatic"
-        automaticallyAdjustKeyboardInsets
+        bottomOffset={footerClearance}
+        // A spacer (not an inset) makes room for the keyboard, so when the
+        // keyboard hides the scroll view clamps back to the top like SwiftUI.
+        mode="layout"
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.content}>
@@ -161,7 +164,7 @@ function ChooseHandle({ session }: { readonly session: ActiveSession }) {
             </Text>
           </View>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
       <ActionFooter>
         <GlassButton
           variant="glassProminent"
@@ -328,6 +331,12 @@ function LinkButton({
     </Pressable>
   );
 }
+
+/**
+ * Space kept between a focused field and the keyboard: the footer rides above
+ * the keyboard (`ActionFooter`), so the field stays above the footer too.
+ */
+const footerClearance = 90;
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
