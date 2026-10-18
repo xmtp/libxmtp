@@ -68,7 +68,7 @@
     "viem": "catalog:"
   },
   "devDependencies": {
-    "@oclif/plugin-legacy": "^2.0.27",
+    "@oclif/plugin-legacy": "^3.1.0",
     "@types/node": "catalog:node26",
     "execa": "^9.6.1",
     "oclif": "^4.22.70",
