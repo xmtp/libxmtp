@@ -1,4 +1,10 @@
-import { type ComponentRef, type ReactNode, useEffect, useRef } from "react";
+import {
+  type ComponentRef,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import {
   type AccessibilityActionEvent,
   StyleSheet,
@@ -32,7 +38,6 @@ import { flightState } from "@/features/chat/interactions/flight";
 import { MessageContextMenu } from "@/features/chat/interactions/MessageContextMenu";
 import { haptics } from "@/ui/haptics";
 import { reducedTiming } from "@/ui/motion";
-import { useStore } from "@/ui/useStore";
 
 export interface MessageInteractionsProps {
   readonly row: ChatMessage;
@@ -56,14 +61,30 @@ export function MessageInteractions({
 }: MessageInteractionsProps) {
   const { runtime, conversationId } = useChatContext();
   const flights = flightState(runtime);
-  const isGroup = useStore(runtime.timeline).conversation?.kind === "group";
+  const rowId = row.id;
+  // Primitive reads, so a timeline or flight change re-renders only the rows
+  // it affects.
+  const { timeline } = runtime;
+  const readGroup = () => timeline.getState().conversation?.kind === "group";
+  const isGroup = useSyncExternalStore(
+    timeline.subscribe,
+    readGroup,
+    readGroup,
+  );
   const maxWidth = bubbleMaxWidth(
     useWindowDimensions().width,
     !mine && isGroup,
   );
-  const flight = useStore(flights.flight);
+  const readMode = () => {
+    const value = flights.flight.getState();
+    return value?.id === rowId ? value.mode : undefined;
+  };
+  const mode = useSyncExternalStore(
+    flights.flight.subscribe,
+    readMode,
+    readMode,
+  );
   const own = runtime.own;
-  const rowId = row.id;
 
   // The flight measures this view: the bubble's bounds (badges overlap it).
   const bubbleRef = useRef<ComponentRef<typeof View>>(null);
@@ -73,8 +94,8 @@ export function MessageInteractions({
     return flights.register(rowId, view);
   }, [flights, rowId]);
 
-  const flying = flight?.id === rowId && flight.mode === "fly";
-  const fading = flight?.id === rowId && flight.mode === "fade";
+  const flying = mode === "fly";
+  const fading = mode === "fade";
   // Reduce Motion: the sent row fades in (`.opacity` transition, 0.2 s).
   const opacity = useSharedValue(fading ? 0 : 1);
   useEffect(() => {
