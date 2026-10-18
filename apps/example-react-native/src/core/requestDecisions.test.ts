@@ -164,3 +164,19 @@ test("a dialog's action still runs when its dismissal arrived first", () => {
   h.store.confirm(shown);
   assert.deepEqual(h.dismissed, ["c4"]);
 });
+
+test("a dialog confirmed after its store closed does nothing", () => {
+  const h = harness();
+  h.store.requestDelete("c5");
+  const shown = h.store.getState().confirmation;
+  h.store.dispose();
+  h.store.confirm(shown);
+  assert.deepEqual(h.dismissed, []);
+  assert.deepEqual(h.outcomes, []);
+  const blocked = harness();
+  blocked.store.requestBlock("c6");
+  const block = blocked.store.getState().confirmation;
+  blocked.flags.current = false;
+  blocked.store.confirm(block);
+  assert.deepEqual(blocked.writes, []);
+});

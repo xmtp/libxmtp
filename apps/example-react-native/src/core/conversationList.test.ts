@@ -10,6 +10,7 @@ import {
   type ConversationQueries,
   type ConversationRecord,
   LOAD_FAILED,
+  conversationRowLabel,
   filterRows,
   previewText,
 } from "./conversationList.ts";
@@ -376,4 +377,178 @@ test("filterRows returns every row for an empty search", () => {
     filterRows(rows, "NICK").map((row) => row.id),
     ["b"],
   );
+});
+
+/** Lets every pending promise callback run. */
+const flush = () =>
+  new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+
+/** Detail reads that finish only when the test says so, numbered by call. */
+class HeldDetails {
+  readonly base: FakeQueries;
+  readonly held: (() => void)[] = [];
+  calls = 0;
+  running = 0;
+  peak = 0;
+
+  constructor(base: FakeQueries) {
+    this.base = base;
+  }
+
+  readonly queries: ConversationQueries = {
+    list: (consent, limit) => this.base.list(consent, limit),
+    details: (record) => {
+      this.calls += 1;
+      const name = `${record.id} v${String(this.calls)}`;
+      this.running += 1;
+      this.peak = Math.max(this.peak, this.running);
+      return new Promise((resolve) => {
+        this.held.push(() => {
+          this.running -= 1;
+          resolve({ ...record, name });
+        });
+      });
+    },
+  };
+
+  /** Finishes the oldest held read. */
+  async release(): Promise<void> {
+    this.held.shift()?.();
+    await flush();
+  }
+
+  /** Finishes the newest held read. */
+  async releaseNewest(): Promise<void> {
+    this.held.pop()?.();
+    await flush();
+  }
+
+  async releaseAll(): Promise<void> {
+    while (this.held.length > 0) await this.release();
+  }
+}
+
+test("a superseded list read cannot replace a newer one (supersededLoadResultIsRejected)", async () => {
+  const queries = new FakeQueries({ allowed: 2 });
+  let resolveFirst: (records: readonly ConversationRecord[]) => void = () => {};
+  let allowedReads = 0;
+  const slow: ConversationQueries = {
+    list: (consent, limit) => {
+      if (consent === "allowed" && ++allowedReads === 1) {
+        return new Promise((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return queries.list(consent, limit);
+    },
+    details: (record, marker) => queries.details(record, marker),
+  };
+  const list = store("allowed", slow);
+  const first = list.refresh();
+  await list.refresh();
+  resolveFirst([group("old-a"), group("old-b"), group("old-c")]);
+  await first;
+  assert.deepEqual(
+    list.getState().rows.map((row) => row.id),
+    ["0", "1"],
+  );
+});
+
+for (const end of ["closed", "session ended"] as const) {
+  test(`details that arrive after the store ${end} are dropped`, async () => {
+    let current = true;
+    const held = new HeldDetails(new FakeQueries({ allowed: 1 }));
+    const list = store(
+      "allowed",
+      held.queries,
+      new FakePreferences(),
+      () => current,
+    );
+    list.load();
+    await flush();
+    assert.equal(held.held.length, 1);
+    if (end === "closed") list.dispose();
+    else current = false;
+    await held.release();
+    assert.equal(list.getState().rows[0]?.title, "Group");
+  });
+}
+
+test("details from an earlier load's window cannot overwrite the newer window's", async () => {
+  const held = new HeldDetails(new FakeQueries({ allowed: 1 }));
+  const list = store("allowed", held.queries);
+  list.load();
+  await flush();
+  // A stream update reloads while the first read (v1) still runs: the new
+  // window reads the row again (v2), and v2 finishes first.
+  list.load();
+  await flush();
+  assert.equal(held.calls, 2);
+  await held.releaseNewest();
+  assert.equal(list.getState().rows[0]?.title, "0 v2");
+  await held.release();
+  await list.whenIdle();
+  assert.equal(list.getState().rows[0]?.title, "0 v2");
+});
+
+test("detail reads stay at four at once across reloads (one AsyncLimiter)", async () => {
+  const held = new HeldDetails(new FakeQueries({ allowed: 20 }));
+  const list = store("allowed", held.queries);
+  list.load();
+  await flush();
+  assert.equal(held.running, 4);
+  list.load();
+  await flush();
+  list.load();
+  await flush();
+  assert.equal(held.peak, 4);
+  await held.releaseAll();
+  await list.whenIdle();
+  assert.equal(held.peak, 4);
+  assert.equal(list.getState().rows[19]?.title?.startsWith("19 v"), true);
+});
+
+test("loading more while a load runs reads nothing extra", async () => {
+  const queries = new FakeQueries({ allowed: 120 });
+  const list = store("allowed", queries);
+  list.load();
+  list.loadMore();
+  await list.whenIdle();
+  assert.deepEqual(
+    queries.lists.filter((read) => read.consent === "allowed"),
+    [{ consent: "allowed", limit: 50 }],
+  );
+  assert.equal(list.getState().rows.length, 50);
+});
+
+test("row labels follow the SwiftUI button label that the reference flows select", () => {
+  const at = new Date(2026, 9, 18, 13, 5);
+  const dm = {
+    id: "d",
+    record: {
+      ...group("d"),
+      kind: "dm" as const,
+      peerHandle: "lena#0935",
+      preview: "See you",
+      unread: 3,
+      lastActivity: at,
+    },
+    title: "@lena#0935",
+    initials: "L",
+  };
+  assert.equal(
+    conversationRowLabel(dm),
+    "@, lena#0935, 1:05\u202fPM, See you, 3",
+  );
+  const read = { ...dm, record: { ...dm.record, unread: 0, preview: "" } };
+  assert.equal(conversationRowLabel(read), "@, lena#0935, 1:05\u202fPM");
+  const weekend = {
+    id: "g",
+    record: { ...group("g"), name: "Weekend plans" },
+    title: "Weekend plans",
+    initials: "WP",
+  };
+  assert.equal(conversationRowLabel(weekend), "Weekend plans");
 });

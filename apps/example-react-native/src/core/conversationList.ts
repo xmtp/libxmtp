@@ -15,6 +15,7 @@
 
 import type { MessageBody, MessageContent } from "@xmtp/react-native-sdk";
 
+import { timeOfDay } from "./dates.ts";
 import {
   CONVERSATION_PAGE_SIZE,
   REQUEST_COUNT_LIMIT,
@@ -28,6 +29,7 @@ import {
   conversationTitle,
   logicalKey,
   rowMatches,
+  splitHandle,
   type TitleSource,
 } from "./titles.ts";
 
@@ -142,6 +144,27 @@ export function previewText(
   }
 }
 
+/**
+ * The row's combined accessibility label, like SwiftUI's button label:
+ * `@, lena, 1:30 AM, There you go, 26` (groups: `Weekend plans, 1:30 AM, …`).
+ * Reference flows select rows by it.
+ */
+export function conversationRowLabel(row: ConversationRow): string {
+  const parts: string[] = [];
+  if (row.title.startsWith("@")) {
+    const { name, code } = splitHandle(row.title);
+    parts.push("@", name + code);
+  } else {
+    parts.push(row.title);
+  }
+  if (row.record.lastActivity !== undefined) {
+    parts.push(timeOfDay(row.record.lastActivity));
+  }
+  if (row.record.preview !== "") parts.push(row.record.preview);
+  if (row.record.unread > 0) parts.push(String(row.record.unread));
+  return parts.join(", ");
+}
+
 /** Rows that match `search` (title, peer handle, preview or ID), all rows when empty. */
 export function filterRows(
   rows: readonly ConversationRow[],
@@ -176,6 +199,7 @@ export class ConversationListStore extends Store<ConversationListState> {
   #queue: string[] = [];
   readonly #queued = new Set<string>();
   readonly #hydrated = new Set<string>();
+  /** Detail reads running, from any window (at most `concurrency`). */
   #active = 0;
   #disposed = false;
   #idleWaiters: (() => void)[] = [];
@@ -409,11 +433,11 @@ export class ConversationListStore extends Store<ConversationListState> {
     }
   }
 
+  /** Starts a new detail window. Running reads finish but no longer apply. */
   #resetHydration(): void {
     this.#windowRevision += 1;
     this.#queue = [];
     this.#queued.clear();
-    this.#active = 0;
   }
 
   #enqueue(id: string): void {
@@ -456,19 +480,17 @@ export class ConversationListStore extends Store<ConversationListState> {
       const id = this.#queue.shift();
       if (id === undefined) break;
       this.#active += 1;
-      void this.#hydrate(id, this.#windowRevision, this.#loadRevision);
+      void this.#hydrate(id, this.#windowRevision);
     }
   }
 
-  async #hydrate(
-    id: string,
-    windowRevision: number,
-    loadRevision: number,
-  ): Promise<void> {
+  /**
+   * Reads one row's details. Every load and search starts a new window
+   * revision, so a result applies only to the window that asked for it.
+   */
+  async #hydrate(id: string, windowRevision: number): Promise<void> {
     const current = () =>
-      this.#open() &&
-      windowRevision === this.#windowRevision &&
-      loadRevision === this.#loadRevision;
+      this.#open() && windowRevision === this.#windowRevision;
     try {
       const row = this.getState().rows.find((entry) => entry.id === id);
       if (row === undefined || !current()) return;
@@ -490,11 +512,10 @@ export class ConversationListStore extends Store<ConversationListState> {
     } catch {
       // Keep the row as it is; the next load reads it again.
     } finally {
-      if (windowRevision === this.#windowRevision) {
-        this.#queued.delete(id);
-        this.#active -= 1;
-        this.#pump();
-      }
+      if (windowRevision === this.#windowRevision) this.#queued.delete(id);
+      // Stale reads still hold a slot: one limit covers every window.
+      this.#active -= 1;
+      this.#pump();
       this.#releaseIdle();
     }
   }
