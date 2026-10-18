@@ -1,11 +1,10 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { useLocalSearchParams } from "expo-router";
+
+import { PermissionsScreen } from "@/features/permissions/PermissionsScreen";
 
 export default function PermissionsRoute() {
-  return (
-    <PlaceholderScreen
-      title={routeTitles.permissions}
-      route="permissions/[conversationId]"
-    />
-  );
+  const { conversationId } = useLocalSearchParams<{
+    conversationId: string;
+  }>();
+  return <PermissionsScreen conversationId={conversationId} />;
 }
