@@ -8,8 +8,12 @@ import {
   settle,
   textMessage,
 } from "./chatFakes.ts";
-import { type ReadingAnchor, TranscriptCache } from "./chatHistory.ts";
-import type { ConversationRecord } from "./chatMessages.ts";
+import {
+  type ReadingAnchor,
+  TimelineCopy,
+  TranscriptCache,
+} from "./chatHistory.ts";
+import type { ChatMessage, ConversationRecord } from "./chatMessages.ts";
 import { ChatTimeline } from "./chatTimeline.ts";
 
 interface Harness {
@@ -49,7 +53,7 @@ function harness(
   return Object.assign(result, { timeline });
 }
 
-const visibleIds = (h: Harness, from: number, to: number) =>
+const visibleIds = (h: Harness, from: number, to?: number) =>
   h.timeline
     .getState()
     .messages.slice(from, to)
@@ -263,4 +267,133 @@ test("a cached window shows at once when the chat reopens", async () => {
   const second = harness(new FakeConversation(5), { cache });
   assert.equal(second.timeline.getState().loaded, true);
   assert.equal(second.timeline.getState().messages.length, 5);
+});
+
+test("repeated visibility of the same reading position changes nothing", async () => {
+  const h = harness(new FakeConversation(10));
+  await h.timeline.load();
+  h.timeline.visible(visibleIds(h, 2, 6), foreground);
+  const before = h.timeline.getState();
+  let changes = 0;
+  h.timeline.subscribe(() => {
+    changes += 1;
+  });
+  // Same topmost row, newest row still hidden: scrolling frames re-render nothing.
+  h.timeline.visible(visibleIds(h, 2, 6), foreground);
+  h.timeline.visible(visibleIds(h, 2, 7), foreground);
+  assert.equal(changes, 0);
+  assert.equal(h.timeline.getState(), before);
+  h.timeline.visible(visibleIds(h, 3, 10), foreground);
+  assert.equal(changes, 1);
+  assert.equal(h.timeline.getState().anchorId, "m0004");
+  assert.equal(h.timeline.getState().atNewest, true);
+});
+
+test("Jump to latest drops a pending restore, so the newest rows report again", async () => {
+  const h = harness(new FakeConversation(135), { anchor: anchorOf(40) });
+  await h.timeline.load();
+  assert.equal(h.timeline.getState().target, "m0040");
+  await h.timeline.newest();
+  const state = h.timeline.getState();
+  assert.equal(state.target, undefined);
+  assert.equal(state.atNewest, true);
+  assert.equal(state.window.atNewest, true);
+  h.timeline.visible(visibleIds(h, -5), foreground);
+  assert.deepEqual(h.saved.at(-1), anchorOf(131));
+  assert.equal(h.marks.length, 1);
+  assert.equal(h.marks[0]?.marker, textMessage(135).insertedAtNs);
+});
+
+test("a refresh while following stays at the newest row when the anchor was deleted", async () => {
+  const queries = new FakeConversation(10);
+  const h = harness(queries);
+  await h.timeline.load();
+  h.timeline.visible(visibleIds(h, 4, 10), foreground);
+  assert.equal(h.timeline.getState().anchorId, "m0005");
+  assert.equal(h.timeline.getState().atNewest, true);
+  queries.redact("m0005");
+  queries.published.push(textMessage(11));
+  await h.timeline.refresh();
+  const state = h.timeline.getState();
+  assert.equal(state.anchorId, "m0006");
+  assert.equal(state.target, undefined);
+  assert.equal(state.atNewest, true);
+  assert.equal(state.messages.at(-1)?.id, "m0011");
+});
+
+test("a deleted message loses its reactions, on screen and in the cache", async () => {
+  const queries = new FakeConversation(5);
+  const reacted: ChatMessage = {
+    ...textMessage(5),
+    reactions: [
+      {
+        sender: OWN,
+        emoji: "👍",
+        schema: "unicode",
+        added: true,
+        sentAtNs: 6n,
+      },
+    ],
+  };
+  queries.published[4] = reacted;
+  const cache = new TranscriptCache();
+  const h = harness(queries, { cache });
+  await h.timeline.load();
+  assert.equal(h.timeline.getState().messages.at(-1)?.reactions.length, 1);
+  h.timeline.messageDeleted("m0005");
+  const row = h.timeline.getState().messages.at(-1);
+  assert.deepEqual(row?.content, { kind: "deleted" });
+  assert.deepEqual(row?.reactions, []);
+  const cached = cache.get(CONVERSATION)?.rows.find((r) => r.id === "m0005");
+  assert.deepEqual(cached?.content, { kind: "deleted" });
+  assert.deepEqual(cached?.reactions, []);
+});
+
+test("unreadable history rows show the Load more notice", async () => {
+  const queries = new FakeConversation(10);
+  queries.unreadable.add("m0007");
+  const h = harness(queries);
+  await h.timeline.load();
+  const state = h.timeline.getState();
+  assert.equal(state.window.notice, TimelineCopy.historySkipped);
+  assert.equal(state.messages.length, 9);
+  assert.equal(state.error, undefined);
+});
+
+/** `count` failed own rows sent after every published one. */
+function failedRows(count: number): ChatMessage[] {
+  const rows: ChatMessage[] = [];
+  for (let n = 1; n <= count; n += 1) {
+    rows.push({
+      ...textMessage(1000 + n, { sender: OWN }),
+      delivery: "failed",
+    });
+  }
+  return rows;
+}
+
+test("unreadable pending rows ask to load more, or to refresh on the last page", async () => {
+  const more = new FakeConversation(3);
+  more.unpublished.push(...failedRows(60));
+  more.unreadable.add("m1060");
+  const first = harness(more);
+  await first.timeline.load();
+  assert.equal(first.timeline.getState().morePending, true);
+  assert.equal(
+    first.timeline.getState().error,
+    TimelineCopy.pendingSkippedMore,
+  );
+
+  const last = new FakeConversation(3);
+  last.unpublished.push(...failedRows(3));
+  last.unreadable.add("m1002");
+  const second = harness(last);
+  await second.timeline.load();
+  const state = second.timeline.getState();
+  assert.equal(state.morePending, false);
+  assert.equal(state.error, TimelineCopy.pendingSkippedRefresh);
+  assert.deepEqual(
+    state.messages.slice(-2).map((row) => row.id),
+    ["m1001", "m1003"],
+  );
 });

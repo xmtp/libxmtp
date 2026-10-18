@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { CONVERSATION, FakeConversation, textMessage } from "./chatFakes.ts";
 import {
   type HistoryWindow,
+  TimelineCopy,
   TranscriptCache,
   anchorTarget,
   aroundWindow,
@@ -139,14 +140,55 @@ test("a refresh replaces the overlap and keeps older history", () => {
   assert.equal(merged.hasOlder, false);
 });
 
-test("a deleted cached message cannot render its old body", () => {
+test("a deleted cached message cannot render its old body or reactions", () => {
   const cache = new TranscriptCache();
-  const row = { ...textMessage(1), reactions: [] };
+  const row: ChatMessage = {
+    ...textMessage(1),
+    reactions: [
+      {
+        sender: "bob",
+        emoji: "❤️",
+        schema: "unicode",
+        added: true,
+        sentAtNs: 2n,
+      },
+    ],
+  };
   cache.put(CONVERSATION, window([row]));
   cache.markDeleted(CONVERSATION, row.id);
   assert.deepEqual(cache.get(CONVERSATION)?.rows[0]?.content, {
     kind: "deleted",
   });
+  assert.deepEqual(cache.get(CONVERSATION)?.rows[0]?.reactions, []);
+});
+
+test("a refresh of the newest page keeps an older window off the newest end", () => {
+  const cache = new TranscriptCache();
+  // A restored window around an anchor, not at the newest end.
+  cache.put(
+    CONVERSATION,
+    window(newestFirst(110, 11), { atNewest: false, hasOlder: true }),
+  );
+  const merged = cache.refresh(
+    CONVERSATION,
+    window(newestFirst(135, 86), { hasOlder: true }),
+  );
+  // Rows newer than the window stay out, so it still is not at the newest end.
+  assert.equal(merged.rows[0]?.id, "m0110");
+  assert.equal(merged.rows.length, 100);
+  assert.equal(merged.atNewest, false);
+  assert.equal(merged.first?.cursor, "m0110");
+});
+
+test("a page of unreadable rows is skipped and counted", async () => {
+  const queries = new FakeConversation(120);
+  for (let n = 71; n <= 120; n += 1) queries.unreadable.add(textMessage(n).id);
+  const newest = await olderWindow(queries, CONVERSATION);
+  assert.equal(newest.rows[0]?.id, "m0070");
+  assert.equal(newest.rows.length, 50);
+  assert.equal(newest.atNewest, true);
+  assert.equal(newest.notice, TimelineCopy.historySkipped);
+  assert.equal(queries.historyCalls, 2);
 });
 
 const anchorOf = (n: number) => {

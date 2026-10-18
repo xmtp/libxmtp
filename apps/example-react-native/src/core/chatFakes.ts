@@ -71,6 +71,12 @@ export class FakeConversation implements ChatQueries {
   historyError: Error | undefined;
   /** Holds history reads until released. */
   gate: Promise<void> | undefined;
+  /**
+   * IDs of stored messages that cannot be decoded. Pages leave them out and
+   * count them in `skipped`; the page positions still cover them, like the
+   * SDK's `skippedCount`.
+   */
+  readonly unreadable = new Set<string>();
   #next = 10_000;
   readonly #deletionTargets = new Map<string, string>();
 
@@ -107,15 +113,16 @@ export class FakeConversation implements ChatQueries {
       return true;
     });
     const ordered = ascending ? inRange : [...inRange].reverse();
-    const rows = ordered.slice(0, 50);
+    const page = ordered.slice(0, 50);
+    const rows = page.filter((row) => !this.unreadable.has(row.id));
+    const first = page[0]?.position;
+    const last = page.at(-1)?.position;
     return {
       rows,
-      ...(rows[0]?.position === undefined ? {} : { first: rows[0].position }),
-      ...(rows.at(-1)?.position === undefined
-        ? {}
-        : { last: rows.at(-1)?.position }),
+      ...(first === undefined ? {} : { first }),
+      ...(last === undefined ? {} : { last }),
       hasMore: ordered.length > 50,
-      skipped: 0,
+      skipped: page.length - rows.length,
     };
   }
 
@@ -123,15 +130,16 @@ export class FakeConversation implements ChatQueries {
     const ordered = [...this.unpublished]
       .reverse()
       .filter((row) => before === undefined || row.sentAtNs < before.sentAtNs);
-    const rows = ordered.slice(0, 50);
-    const last = rows.at(-1);
+    const page = ordered.slice(0, 50);
+    const rows = page.filter((row) => !this.unreadable.has(row.id));
+    const last = page.at(-1);
     return Promise.resolve({
       rows,
       ...(last === undefined
         ? {}
         : { last: { sentAtNs: last.sentAtNs, cursor: last.id } }),
       hasMore: ordered.length > 50,
-      skipped: 0,
+      skipped: page.length - rows.length,
     });
   }
 
