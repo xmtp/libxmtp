@@ -1,6 +1,12 @@
 import type { LegendListRef } from "@legendapp/list/react-native";
-import { Stack, router, useIsFocused } from "expo-router";
-import { useHeaderHeight } from "expo-router/react-navigation";
+import {
+  Stack,
+  router,
+  useIsFocused,
+  useNavigation,
+  useRoute,
+} from "expo-router";
+import { CommonActions, useHeaderHeight } from "expo-router/react-navigation";
 import {
   type ComponentRef,
   useCallback,
@@ -14,6 +20,7 @@ import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { TimelineCopy } from "@/core/chatHistory.ts";
+import type { DecisionOutcome } from "@/core/requestDecisions.ts";
 import { conversationInitials, conversationTitle } from "@/core/titles.ts";
 import {
   ChatContext,
@@ -26,6 +33,7 @@ import { chatCopy } from "@/features/chat/copy";
 import { ChatInteractionsLayer } from "@/features/chat/interactions/ChatInteractionsLayer";
 import { MessageList, scrollToLatest } from "@/features/chat/MessageList";
 import { RequestBar } from "@/features/chat/RequestBar";
+import { useRequestDecisions } from "@/features/chats/useConversationStores";
 import { type ActiveSession, useActiveSession } from "@/session";
 import { useColors } from "@/ui/colors";
 import { GlassButton } from "@/ui/GlassButton";
@@ -65,7 +73,6 @@ function ChatSessionScreen({
   const [runtime] = useState(() => new ChatRuntime(session, conversationId));
   useEffect(() => runtime.attach(), [runtime]);
   const state = useStore(runtime.timeline);
-  const requestState = useStore(runtime.requests);
   const listRef = useRef<LegendListRef>(null);
   const composerRef = useRef<ComponentRef<typeof View>>(null);
   const [context] = useState<ChatContextValue>(() => ({
@@ -106,10 +113,34 @@ function ChatSessionScreen({
     report(lastVisible.current);
   }, [focused, report, runtime]);
 
-  // Delete request and Block leave the chat for Chats.
-  useEffect(() => {
-    if (requestState.left && router.canDismiss()) router.dismissAll();
-  }, [requestState.left]);
+  // The request bar's decisions (`RequestsStore`). Accept leaves Chats below
+  // the chat (`setPath([.chat(id)])`); Delete request and Block return to
+  // Chats (`replace(.chats)`). Both only while the chat is on top.
+  const navigation = useNavigation();
+  const routeKey = useRoute().key;
+  const onOutcome = useCallback(
+    (outcome: DecisionOutcome) => {
+      if (outcome.kind === "openChat") void runtime.timeline.refresh();
+      if (!navigation.isFocused()) return;
+      if (outcome.kind === "chats") {
+        router.dismissTo("/chats");
+        return;
+      }
+      const stack = navigation.getState();
+      if (stack === undefined) return;
+      const index = stack.routes.findIndex((route) => route.key === routeKey);
+      if (index <= 1) return;
+      // Drops the screens between Chats and this chat (Requests, Settings)
+      // and keeps this chat mounted.
+      const routes = [stack.routes[0], stack.routes[index]];
+      navigation.dispatch({
+        ...CommonActions.reset({ ...stack, routes, index: 1 }),
+        target: stack.key,
+      });
+    },
+    [navigation, routeKey, runtime],
+  );
+  const decisions = useRequestDecisions(session, onOutcome);
 
   // The bottom bar sits on the keyboard, else above the home indicator.
   const insets = useSafeAreaInsets();
@@ -223,7 +254,7 @@ function ChatSessionScreen({
         ) : null}
         {isRequest ? (
           <Animated.View entering={motion.entering} exiting={motion.exiting}>
-            <RequestBar />
+            <RequestBar decisions={decisions} />
           </Animated.View>
         ) : (
           <Composer />

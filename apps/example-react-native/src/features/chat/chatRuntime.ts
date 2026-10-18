@@ -17,7 +17,6 @@ import { MessageActions } from "@/core/messageActions.ts";
 import { ValueStore } from "@/core/store.ts";
 import { logicalKey } from "@/core/titles.ts";
 import { type ChatServices, chatServices } from "@/features/chat/chatServices";
-import { RequestBarStore } from "@/features/chat/requestBarStore";
 import type { ActiveSession } from "@/session";
 
 /**
@@ -50,8 +49,6 @@ export class ChatRuntime {
   readonly composer: ChatComposer;
   /** Retry, react and delete for rows of this chat. */
   readonly actions: MessageActions;
-  /** Accept, Delete request and Block while the conversation is a request. */
-  readonly requests: RequestBarStore;
   /**
    * The last text the user submitted, with an increasing count, for the send
    * flight: when the newest row is own with this text, it flies from the
@@ -127,12 +124,6 @@ export class ChatRuntime {
       now: services.now,
       run: services.run,
     });
-    this.requests = new RequestBarStore(
-      session,
-      conversationId,
-      admit,
-      refresh,
-    );
   }
 
   /** The own inbox ID. */
