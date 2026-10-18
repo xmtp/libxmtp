@@ -32,7 +32,8 @@ test("the data module matches the iOS example's emoji-search.tsv", () => {
     "../../../example-ios/ExampleApp/Features/Chat/emoji-search.tsv",
     import.meta.url,
   );
-  if (!existsSync(source)) return;
+  // A moved or renamed iOS file must fail here, not turn the guard off.
+  assert.ok(existsSync(source), `missing ${source.pathname}`);
   assert.equal(emojiSearchTsv, readFileSync(source, "utf8"));
 });
 

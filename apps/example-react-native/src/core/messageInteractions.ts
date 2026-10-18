@@ -40,7 +40,8 @@ export type MessageMenuItem =
  * The context-menu items for `row` (`ChatMessages.swift` `menu(_:)`): Copy
  * always; Reply and React when allowed and not deleted; then, for own rows
  * when allowed, Delete once published, else Retry and Edit. Like iOS, Delete
- * also shows on an own deleted row (its confirmation then does nothing).
+ * also shows on an own deleted row, where tapping it does nothing
+ * (`requestDelete` rejects deleted rows, so no confirmation appears).
  */
 export function menuItems(
   row: ChatMessage,
@@ -72,11 +73,6 @@ export function accessibilityItems(
     items.push("delete");
   }
   return items;
-}
-
-/** The quick reactions show only when the conversation is allowed. */
-export function showsQuickReactions(allowed: boolean): boolean {
-  return allowed;
 }
 
 /** A swipe arms at 48 pt. */
