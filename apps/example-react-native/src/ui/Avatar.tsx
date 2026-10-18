@@ -21,6 +21,11 @@ export interface AvatarProps {
   size?: number;
   /** `.headline.monospaced()`, for inbox ID initials. */
   monospaced?: boolean;
+  /**
+   * Grow with Dynamic Type (default). False keeps the default size, like
+   * items in the navigation bar (the chat header).
+   */
+  scalesWithText?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
   /**
@@ -40,11 +45,13 @@ export function Avatar({
   label,
   size = 44,
   monospaced = false,
+  scalesWithText = true,
   style,
   testID,
   onLabelLayout,
 }: AvatarProps) {
-  const fontScale = useBodyScale();
+  const bodyScale = useBodyScale();
+  const fontScale = scalesWithText ? bodyScale : 1;
   const colors = useMemo(() => avatarPalette[avatarPaletteIndex(seed)], [seed]);
   const diameter = size * fontScale;
   return (
@@ -67,7 +74,8 @@ export function Avatar({
         monospaced={monospaced}
         color={colors.foreground}
         numberOfLines={1}
-        onLayout={onLabelLayout}>
+        onLayout={onLabelLayout}
+        {...(scalesWithText ? {} : { maxFontSizeMultiplier: 1 })}>
         {label}
       </Text>
     </View>

@@ -206,6 +206,12 @@ export function MessageList({
       viewabilityConfig={viewability}
       onViewableItemsChanged={onViewableItemsChanged}
       onReady={onReady}
+      onLayout={() => {
+        // A list that grows (Jump to latest hides) stays at the latest row.
+        if (followRef.current && ready.current) {
+          scrollToLatest(listRef.current, false);
+        }
+      }}
       ListHeaderComponent={
         hasHeader ? <PageButtons state={state} /> : undefined
       }

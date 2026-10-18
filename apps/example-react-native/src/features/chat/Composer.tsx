@@ -9,16 +9,31 @@ import {
   StagedAttachments,
 } from "@/features/chat/ComposerSlots";
 import { chatCopy } from "@/features/chat/copy";
+import { useBodyScale } from "@/ui/accessibility";
 import { useColors } from "@/ui/colors";
 import { GlassButton, GlassIconButton } from "@/ui/GlassButton";
 import { GlassSurface } from "@/ui/GlassSurface";
 import { Text } from "@/ui/Text";
-import { fontOf } from "@/ui/typography";
 import { useStore } from "@/ui/useStore";
 
-/** One body line (22 pt) plus the field's 11 pt vertical padding. */
-const LINE_HEIGHT = 22;
+/** The field's 11 pt vertical padding around 1 to 5 body lines. */
 const FIELD_PADDING = 11;
+
+/**
+ * The field's text metrics at a body scale: SwiftUI's body size (17 pt, 53 pt
+ * at AX5) with one line 5 pt taller than the font (22 pt at the default
+ * size). React Native would scale a text input by its own, larger factor.
+ */
+function fieldMetrics(bodyScale: number) {
+  const fontSize = Math.round(17 * bodyScale);
+  const lineHeight = fontSize + 5;
+  return {
+    fontSize,
+    lineHeight,
+    minHeight: lineHeight + FIELD_PADDING * 2,
+    maxHeight: lineHeight * 5 + FIELD_PADDING * 2,
+  };
+}
 
 /**
  * The composer (`ChatComposer.swift`): staged attachments, the error line,
@@ -29,6 +44,7 @@ const FIELD_PADDING = 11;
 export function Composer() {
   const { runtime, conversationId, composerRef } = useChatContext();
   const palette = useColors();
+  const bodyScale = useBodyScale();
   const state = useStore(runtime.composer);
   const timeline = useStore(runtime.timeline);
   const allowed = timeline.conversation?.consent === "allowed";
@@ -99,9 +115,10 @@ export function Composer() {
             placeholder={chatCopy.messagePlaceholder}
             placeholderTextColor={palette.placeholderText}
             selectionColor={palette.tint}
+            allowFontScaling={false}
             style={[
-              fontOf("body"),
               styles.text,
+              fieldMetrics(bodyScale),
               { color: enabled ? palette.label : palette.tertiaryLabel },
             ]}
           />
@@ -132,9 +149,6 @@ const styles = StyleSheet.create({
   input: { alignItems: "flex-end", flexDirection: "row", gap: 10 },
   field: { flex: 1 },
   text: {
-    lineHeight: LINE_HEIGHT,
-    maxHeight: LINE_HEIGHT * 5 + FIELD_PADDING * 2,
-    minHeight: LINE_HEIGHT + FIELD_PADDING * 2,
     paddingBottom: FIELD_PADDING,
     paddingHorizontal: 14,
     paddingTop: FIELD_PADDING,

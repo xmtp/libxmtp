@@ -18,7 +18,8 @@ export interface ChatHeaderProps {
 /**
  * The principal toolbar item (`ChatHeader.swift`): a 30 pt avatar above the
  * caption-semibold title, "· N members" for groups and a chevron. Opens
- * Details. One accessibility element (`chat.details`).
+ * Details. One accessibility element (`chat.details`). Navigation bar items
+ * keep their default size at every text size.
  */
 export function ChatHeader({
   conversationId,
@@ -36,19 +37,26 @@ export function ChatHeader({
       accessibilityLabel={count === undefined ? title : `${title}, ${count}`}
       onPress={onPress}
       style={styles.header}>
-      <Avatar seed={conversationId} label={initials} size={30} />
+      <Avatar
+        seed={conversationId}
+        label={initials}
+        size={30}
+        scalesWithText={false}
+      />
       <View style={styles.title}>
         <ConversationTitle
           title={title}
           variant="caption"
           weight="semibold"
           numberOfLines={1}
+          maxFontSizeMultiplier={1}
           style={styles.titleText}
         />
         {count === undefined ? null : (
           <Text
             variant="caption"
             color="themeSecondaryLabel"
+            maxFontSizeMultiplier={1}
             testID="chat.member-count">
             {count}
           </Text>
@@ -58,6 +66,7 @@ export function ChatHeader({
           textStyle="caption2"
           weight="semibold"
           color="themeSecondaryLabel"
+          scalesWithText={false}
         />
       </View>
     </Pressable>
