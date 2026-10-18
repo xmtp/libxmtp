@@ -179,6 +179,9 @@ stdenvNoCC.mkDerivation (
             export XMTP_RN_GRADLE_REPLAY=1
             flags=()
             concatTo flags gradleFlags gradleFlagsArray
+            # R8 runs in the Gradle build JVM, and the templates' 2 GiB heap
+            # runs out. Use the 4 GiB heap of the repository's other Android builds.
+            flags+=("-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m")
             export XMTP_RN_GRADLE_FLAGS_JSON=$(python3.11 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "''${flags[@]}")
           ''}
           package=$(find ${package} -maxdepth 1 -type f -name '*.tgz')
