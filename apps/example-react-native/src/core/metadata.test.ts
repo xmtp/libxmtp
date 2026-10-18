@@ -83,6 +83,25 @@ test("a serialized collection includes its outer prefix", () => {
   });
 });
 
+test("the outer prefix decides a payload at the limit", () => {
+  const full = Array.from({ length: 7 }, (_, index) => ({
+    key: index.toString(16).padStart(2, "0"),
+    value: "ff".repeat(8192),
+  }));
+  // 7 x 8196 + (2 + 8156 + 2) = 65532 bytes: with its 4 byte prefix, 65536.
+  checkCollection(
+    [...full, { key: "07", value: "ff".repeat(8156) }],
+    "byteMap",
+  );
+  // 65536 bytes fits the entry check but not the outer prefix.
+  rejects("collectionLimit", () => {
+    checkCollection(
+      [...full, { key: "07", value: "ff".repeat(8160) }],
+      "byteMap",
+    );
+  });
+});
+
 test("a changed policy or an immutable field blocks writes", () => {
   const old = field({ policy: "Admins" });
   rejects("changed", () => {

@@ -63,6 +63,8 @@ class FakeQueries implements GroupQueries {
   activeLoads = 0;
   maximumActiveLoads = 0;
   holdLoads: Gate | undefined;
+  /** Lookups that wait for a gate, by input. */
+  resolveGates = new Map<string, Gate>();
 
   async load(): Promise<ConversationDetails> {
     this.loads += 1;
@@ -95,11 +97,10 @@ class FakeQueries implements GroupQueries {
     }
   }
 
-  resolve(input: string): Promise<DetailsMember> {
-    if (this.recipientError !== undefined) {
-      return Promise.reject(this.recipientError);
-    }
-    return Promise.resolve({ id: input, otherHandles: [], role: "member" });
+  async resolve(input: string): Promise<DetailsMember> {
+    if (this.recipientError !== undefined) throw this.recipientError;
+    await this.resolveGates.get(input)?.wait();
+    return { id: input, otherHandles: [], role: "member" };
   }
 
   mutate(mutation: DetailsMutation): Promise<void> {
@@ -184,7 +185,13 @@ for (const role of ["member", "admin"] as const) {
     await finish(store);
     const details = store.getState().details;
     assert.equal(store.canChangePermissionPreset, false);
+    let notified = 0;
+    const stop = store.subscribe(() => {
+      notified += 1;
+    });
     store.send({ kind: "preset", adminOnly: true });
+    stop();
+    assert.equal(notified, 0);
     assert.equal(store.getState().busy, false);
     await finish(store);
     assert.deepEqual(fake.writes, []);
@@ -381,6 +388,22 @@ test("a recipient preview shows the newest input only", async () => {
   store.resolvePreview("  ");
   assert.equal(store.getState().recipient, undefined);
   assert.equal(debounce.waiters.length, 0);
+});
+
+test("a slow older lookup cannot replace a newer one", async () => {
+  const fake = new FakeQueries();
+  const slow = new Gate();
+  fake.resolveGates.set("first", slow);
+  const store = makeStore(fake);
+  store.resolvePreview("first");
+  await tick();
+  store.resolvePreview("second");
+  await eventually(() => store.getState().recipient !== undefined);
+  assert.equal(store.getState().recipient?.id, "second");
+  slow.releaseAll();
+  await tick();
+  await tick();
+  assert.equal(store.getState().recipient?.id, "second");
 });
 
 test("a recipient preview failure shows its copy", async () => {
