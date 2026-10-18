@@ -74,7 +74,9 @@ package of a merged revision whose SDK content matches:
   `FormRows.tsx`; make `FormScreen` the route's first view so the large
   title collapses.
 - `Stack.Toolbar.Button` icons go through `useToolbarIcon()`, because Android
-  needs an image. `NavigationSubtitle` sets the iOS navigation subtitle.
+  needs an image. A titled toolbar button (Next, Create) is
+  `ToolbarTextButton`: Android draws no titled `Stack.Toolbar.Button`.
+  `NavigationSubtitle` sets the iOS navigation subtitle.
 - List rows with a long-press menu use `ContextMenu` (a UIKit context menu
   in `modules/messenger-platform`; Android renders the children only).
   Confirmations that SwiftUI shows as popovers (`.confirmationDialog` on a

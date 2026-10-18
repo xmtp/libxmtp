@@ -25,6 +25,7 @@ import { Symbol } from "@/ui/Symbol";
 import { Text } from "@/ui/Text";
 import { avatarSizes } from "@/ui/tokens";
 import { useToolbarIcon } from "@/ui/toolbarIcon";
+import { ToolbarTextButton } from "@/ui/ToolbarTextButton";
 import { fontOf } from "@/ui/typography";
 import { useStore } from "@/ui/useStore";
 
@@ -82,19 +83,15 @@ function Review({
           }}
         />
       </Stack.Toolbar>
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          variant="prominent"
-          tintColor={palette.tint}
-          accessibilityLabel={copy.create}
-          style={{ color: palette.onTintToolbar }}
-          disabled={closing || !canContinue(state)}
-          onPress={() => {
-            store.create();
-          }}>
-          {copy.create}
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
+      <ToolbarTextButton
+        title={copy.create}
+        placement="right"
+        prominent
+        disabled={closing || !canContinue(state)}
+        onPress={() => {
+          store.create();
+        }}
+      />
       {state.group ? (
         <View style={styles.header}>
           <Avatar

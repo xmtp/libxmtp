@@ -22,6 +22,7 @@ import { GlassButton } from "@/ui/GlassButton";
 import { SegmentedPicker } from "@/ui/SegmentedPicker";
 import { Text } from "@/ui/Text";
 import { useToolbarIcon } from "@/ui/toolbarIcon";
+import { ToolbarTextButton } from "@/ui/ToolbarTextButton";
 import { fontOf } from "@/ui/typography";
 import { useStore } from "@/ui/useStore";
 
@@ -95,19 +96,15 @@ function ChoosePeople({
           onPress={close}
         />
       </Stack.Toolbar>
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          variant="prominent"
-          tintColor={palette.tint}
-          accessibilityLabel={copy.next}
-          style={{ color: palette.onTintToolbar }}
-          disabled={closing || !canContinue(state)}
-          onPress={() => {
-            store.next();
-          }}>
-          {copy.next}
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
+      <ToolbarTextButton
+        title={copy.next}
+        placement="right"
+        prominent
+        disabled={closing || !canContinue(state)}
+        onPress={() => {
+          store.next();
+        }}
+      />
       <View style={styles.picker}>
         <SegmentedPicker<Kind>
           options={kinds}
