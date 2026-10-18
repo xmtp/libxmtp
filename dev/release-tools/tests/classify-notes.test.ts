@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { describe, it, expect } from "vitest";
 
 import {
@@ -5,6 +8,21 @@ import {
   isEmptyScaffold,
   classifyNoteFiles,
 } from "../src/lib/classify-notes";
+
+it("includes the prepared first RN release notes in release review", () => {
+  const filePath = "docs/release-notes/react-native-sdk/8.0.0.md";
+  const content = fs.readFileSync(path.resolve("../..", filePath), "utf-8");
+  const result = classifyNoteFiles([{ path: filePath, content }]);
+  expect(result.content).toEqual([
+    {
+      sdk: "react-native-sdk",
+      filePath,
+      previousReleaseVersion: null,
+      previousReleaseTag: "ab835be6eb757da8ce435d652e9cdd0253499e3f",
+    },
+  ]);
+  expect(result.empty).toEqual([]);
+});
 
 describe("parseFrontmatter", () => {
   it("parses valid frontmatter", () => {

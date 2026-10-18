@@ -60,6 +60,7 @@ class ReleasePushTest(unittest.TestCase):
                 "sdks/node/package.json",
                 "sdks/browser/package.json",
                 "sdks/agent/package.json",
+                "sdks/react-native/package.json",
                 "apps/cli/package.json",
             ]:
                 manifest = root / path
@@ -102,6 +103,7 @@ class ReleasePushTest(unittest.TestCase):
                 "node-sdk",
                 "browser-sdk",
                 "agent-sdk",
+                "react-native-sdk",
                 "cli",
             ]:
                 workflow = ROOT / f".github/workflows/release-{sdk}.yml"
@@ -111,11 +113,14 @@ class ReleasePushTest(unittest.TestCase):
                     .split("      - ", 1)[0]
                 )
                 ref_expression = re.search(r"(?m)^\s+REF: (.+)$", version_step).group(1)
-                for requested, release_type in [
+                cases = [
                     ("main", "dev"),
                     ("refs/heads/main", "dev"),
                     ("release/8.0.0", "rc"),
-                ]:
+                ]
+                if sdk == "react-native-sdk":
+                    cases.append(("main", "nightly"))
+                for requested, release_type in cases:
                     with self.subTest(
                         sdk=sdk, requested=requested, release_type=release_type
                     ):
@@ -128,6 +133,10 @@ class ReleasePushTest(unittest.TestCase):
                             "inputs.pending-version": "8.0.0",
                             "inputs.pending-kind": "patch",
                         }
+
+                        if release_type == "nightly":
+                            values["inputs.pending-version"] = "1.12.0"
+                            values["inputs.pending-kind"] = "minor"
 
                         def expand(text):
                             return re.sub(
@@ -166,6 +175,8 @@ class ReleasePushTest(unittest.TestCase):
                         expected = (
                             f"8.0.0-pre.{timestamp}.dev.{short}"
                             if release_type == "dev"
+                            else f"8.1.0-pre.{timestamp}.nightly.{short}"
+                            if release_type == "nightly"
                             else "8.0.0-rc1"
                         )
                         self.assertEqual(actual, expected)
@@ -298,7 +309,7 @@ class ReleasePushTest(unittest.TestCase):
     def test_bundle_push_retains_commit_without_persisting_token(self):
         # libxmtp is the nightly hub tag of release.yml.
         # One SDK of each release shape: SwiftPM tag, npm tag, and the hub tag.
-        for sdk in ["ios", "node-sdk", "libxmtp"]:
+        for sdk in ["ios", "node-sdk", "react-native-sdk", "libxmtp"]:
             with self.subTest(sdk=sdk):
                 self.bundle_push(sdk)
 
@@ -504,7 +515,15 @@ class ReleasePushTest(unittest.TestCase):
                 )
 
     def test_rejects_a_release_commit_that_changes_workflows(self):
-        for sdk in ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+        for sdk in [
+            "ios",
+            "android",
+            "node-sdk",
+            "browser-sdk",
+            "agent-sdk",
+            "react-native-sdk",
+            "cli",
+        ]:
             with self.subTest(sdk=sdk), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 temporary = root / "runner"
@@ -797,10 +816,15 @@ class ReleasePushTest(unittest.TestCase):
         self.assertIn("if: ${{ inputs.dry-run != true }}", push)
         self.assertIn("needs: [publish, check-push-permissions]", push)
         self.assertIn("uses: ./.github/workflows/push-release-tag.yml", push)
+        # The direct input also blocks Slack if validation exits without outputs.
+        release = (ROOT / ".github/workflows/release.yml").read_text()
+        notify = release.split("  notify:\n", 1)[1].split("    steps:\n", 1)[0]
+        self.assertIn("inputs.dry-run != true", notify)
+        self.assertIn("needs.validate.outputs.dry-run != 'true'", notify)
 
     def test_npm_callers_fix_source_before_setup_and_build(self):
         source = "${{ needs.check-push-permissions.outputs.source-sha }}"
-        for name in ["node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+        for name in ["node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk", "cli"]:
             with self.subTest(caller=name):
                 text = (ROOT / f".github/workflows/release-{name}.yml").read_text()
                 jobs = re.split(

@@ -51,6 +51,16 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     manifest: createPackageJsonManifestProvider("sdks/agent/package.json"),
     versionTrack: "independent",
   },
+  [Sdk.ReactNativeSdk]: {
+    name: "React Native",
+    manifestPath: "sdks/react-native/package.json",
+    tagPrefix: "react-native-sdk-",
+    artifactTagSuffix: "",
+    manifest: createPackageJsonManifestProvider(
+      "sdks/react-native/package.json",
+    ),
+    versionTrack: "independent",
+  },
   [Sdk.Cli]: {
     name: "CLI",
     manifestPath: "apps/cli/package.json",
