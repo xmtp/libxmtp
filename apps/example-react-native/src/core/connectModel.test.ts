@@ -251,3 +251,15 @@ test("appear reopens a disposed model (a React effect runs again after its clean
   h.model.setAddress("https://other.example.com");
   assert.equal(h.model.getState().address, "https://other.example.com");
 });
+
+test("an address change clears the token and the token requirement", async () => {
+  const h = harness();
+  h.answers = [true];
+  h.model.appear();
+  await settle();
+  h.model.setToken("fixture-token");
+  assert.equal(h.model.getState().requiresToken, true);
+  h.model.setAddress("https://other.example.com");
+  assert.equal(h.model.getState().token, "");
+  assert.equal(h.model.getState().requiresToken, false);
+});
