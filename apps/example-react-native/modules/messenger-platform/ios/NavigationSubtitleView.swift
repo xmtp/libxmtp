@@ -18,6 +18,11 @@ public final class NavigationSubtitleView: ExpoView {
     public required init(appContext: AppContext? = nil) {
         super.init(appContext: appContext)
         isUserInteractionEnabled = false
+        // The large subtitle's font follows Dynamic Type.
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
+            (self: Self, _: UITraitCollection) in
+            self.apply()
+        }
     }
 
     override public func didMoveToWindow() {
@@ -45,19 +50,42 @@ public final class NavigationSubtitleView: ExpoView {
         }
         let item = controller.navigationItem
         if let previous = appliedItem, previous !== item {
-            previous.subtitle = nil
-            previous.largeSubtitle = nil
+            Self.clear(previous)
         }
         item.subtitle = subtitle
         // A nil large subtitle shows `subtitle` under the large title.
         item.largeSubtitle = largeSubtitle
+        item.largeAttributedSubtitle = (largeSubtitle ?? subtitle).map { largeStyle($0) }
         appliedItem = item
     }
 
+    /// The text under the large title in UIKit's default large subtitle style
+    /// (Caption 2, medium weight, secondary label), measured in the SwiftUI
+    /// app. react-native-screens gives each screen its own bar appearances,
+    /// and with those UIKit draws the subtitle under the large title in the
+    /// inline subtitle style (Caption 1, regular) instead.
+    private func largeStyle(_ text: String) -> AttributedString {
+        let caption = UIFont.preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection)
+        let medium = caption.fontDescriptor.addingAttributes([
+            .traits: [UIFontDescriptor.TraitKey.weight: UIFont.Weight.medium],
+        ])
+        var attributes = AttributeContainer()
+        attributes.uiKit.font = UIFont(descriptor: medium, size: 0)
+        attributes.uiKit.foregroundColor = UIColor.secondaryLabel
+        return AttributedString(text, attributes: attributes)
+    }
+
     private func clear() {
-        appliedItem?.subtitle = nil
-        appliedItem?.largeSubtitle = nil
+        if let item = appliedItem {
+            Self.clear(item)
+        }
         appliedItem = nil
+    }
+
+    private static func clear(_ item: UINavigationItem) {
+        item.subtitle = nil
+        item.largeSubtitle = nil
+        item.largeAttributedSubtitle = nil
     }
 
     /// The first view controller up the responder chain: the screen's controller.
