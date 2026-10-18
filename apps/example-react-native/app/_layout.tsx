@@ -97,8 +97,14 @@ export default function RootLayout() {
                 options={formSheet([0.7, 1], accessibilitySize ? 1 : 0)}
               />
               <Stack.Screen name="add-member" options={formSheet([0.5, 1])} />
-              <Stack.Screen name="reactions" options={formSheet([0.5, 1])} />
-              <Stack.Screen name="emoji-picker" options={formSheet([0.5, 1])} />
+              <Stack.Screen
+                name="reactions"
+                options={formSheet([mediumDetent, 1])}
+              />
+              <Stack.Screen
+                name="emoji-picker"
+                options={formSheet([mediumDetent, 1])}
+              />
               <Stack.Protected guard={__DEV__}>
                 <Stack.Screen
                   name="dev/gallery"
@@ -124,6 +130,12 @@ function large(title: string) {
 function inline(title: string) {
   return { title, headerLargeTitleEnabled: false } as const;
 }
+
+/**
+ * SwiftUI `.medium`: 459 of the 813 pt a large sheet has on a 402 x 874 pt
+ * iPhone (measured on iOS 27). Fractions here are of the large height.
+ */
+const mediumDetent = 0.565;
 
 /** SwiftUI's default sheet: a page sheet at the large detent. */
 const pageSheet = { presentation: "modal", headerShown: false } as const;

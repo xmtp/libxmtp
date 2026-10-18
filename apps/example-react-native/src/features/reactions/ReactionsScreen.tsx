@@ -209,9 +209,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
-    minHeight: 63,
+    // SwiftUI list rows: 15 pt above and below the 36 pt avatar.
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 15,
   },
   identity: { flex: 1 },
   // List separators start at the row text (16 + 36 + 8).
