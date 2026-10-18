@@ -1,27 +1,33 @@
 # XMTP SDKs
 
-The instructions below apply to the JavaScript SDKs in `node`, `browser`, and
-`agent`. See `android/AGENTS.md` and `ios/AGENTS.md` for the native SDKs.
+The instructions below apply to the TypeScript SDKs in `node`, `browser`,
+`agent`, and `react-native`. See `android/AGENTS.md` and `ios/AGENTS.md` for
+the Kotlin and Swift SDKs. React Native also has native host rules in
+`react-native/AGENTS.md`.
 
 The JavaScript SDKs use the root pnpm workspace. Node and Browser use the
-generated Rust SDK product. Agent uses Node. Published package names
-stay `@xmtp/node-sdk`, `@xmtp/browser-sdk`, and `@xmtp/agent-sdk`.
+generated Rust SDK product. React Native uses the same public TypeScript
+projection over a JSI native binding. Agent uses Node. Published package names
+are `@xmtp/node-sdk`, `@xmtp/browser-sdk`, `@xmtp/agent-sdk`, and
+`@xmtp/react-native-sdk`.
 
 ## Commands
 
 ```bash
-just install-js                        # install the root pnpm workspace once
-just js sdk-products                    # stage Node and Browser products
-just js sdk-products node               # stage the generated Node product
-just js sdk-products browser            # stage the generated Browser product
-just js check-node                       # typecheck Node and agent SDKs
-just js check-notification-surface       # published Node types; Browser/WASM absence
-just js lint-node                      # lint Node and agent SDKs
-just js build-node                       # build Node and agent SDKs
-just js check                           # typecheck all
-just js build
-just js lint                            # oxlint
-just js test                            # needs `just backend up`
+dev/nix-shell 'just install-js' # install the root pnpm workspace once
+dev/nix-shell 'just js sdk-products' # stage Node, Browser, and React Native JS/types
+dev/nix-shell 'just js sdk-products node' # stage the generated Node product
+dev/nix-shell 'just js sdk-products browser' # stage the generated Browser product
+dev/nix-shell 'just js sdk-products react-native' # stage RN JS/types without mobile binaries
+dev/nix-shell 'just react-native check' # build and check React Native JS/types
+dev/nix-shell 'just js check-node' # typecheck Node and agent SDKs
+dev/nix-shell 'just js check-notification-surface' # published Node types; Browser/WASM absence
+dev/nix-shell 'just js lint-node' # lint Node and agent SDKs
+dev/nix-shell 'just js build-node' # build Node and agent SDKs
+dev/nix-shell 'just js check' # typecheck all
+dev/nix-shell 'just js build'
+dev/nix-shell 'just js lint' # oxlint
+dev/nix-shell 'just js test' # needs `just backend up`
 ```
 
 ## Shared SDK rules
@@ -38,10 +44,17 @@ Native streams stay open during retryable network faults and resume in order.
 
 SDK recipes stage the selected SDK products before package tasks. The public
 product is `target/sdk-packages/<target>`. Local imports use a full copy in
-`sdks/<target>/dist`, with the pinned runtime assets. Source package builds
-(`dev/js/sdk-package`) run `just sdk generate <target>` before staging; with
-`XMTP_SDK_BUILD=nix` they copy the release-profile Nix trees instead, as CI and
-release do. The helper refuses `XMTP_SDK_GENERATED_DIR`: it stages only what it
+`sdks/<target>/dist`, with the pinned runtime assets. React Native JS/types
+can be staged without mobile binaries. Its installed consumer proofs use the
+canonical tarball assembled from the Linux and Darwin native components; see
+`react-native/AGENTS.md`. Source package builds
+(`dev/js/sdk-package`) run `just sdk generate <target>` before Node/Browser
+staging; with `XMTP_SDK_BUILD=nix` they copy the release-profile Nix trees
+instead, as CI and release do. React Native defaults to its lightweight Nix
+JS/types product; `XMTP_SDK_BUILD=cargo` explicitly selects local release-profile
+generation. Shared typecheck, build, and full lint stage all three products.
+Node-only and notification-surface checks keep their narrower inputs. The helper
+refuses `XMTP_SDK_GENERATED_DIR`: it stages only what it
 generated. Do not use
 `--parallel` or `--no-sort`; they can bypass task dependencies. See the
 `writing-typescript` skill for the root pnpm workspace and formatting.

@@ -434,7 +434,13 @@ S3_INPUTS = (
 
 # Jobs that select the writer environment only for its trusted Cachix token,
 # not for Kache. CacheModeWiringTests checks when each one is trusted.
-TRUSTED_CACHIX_WRITERS = {"post-merge.yml / build", "push-backend.yml / publish"}
+TRUSTED_CACHIX_WRITERS = {
+    "post-merge.yml / build",
+    "post-merge.yml / rn-components",
+    "post-merge.yml / rn-package",
+    "post-merge.yml / rn-consumers",
+    "push-backend.yml / publish",
+}
 
 # Jobs that run cargo outside Nix, with their Kache scope. A job leaves this
 # list only when it stops running cargo outside Nix, so dropping Kache from a
@@ -463,6 +469,71 @@ def action_step(name):
 
 
 class SetupNixTests(unittest.TestCase):
+    def test_darwin_installer_admits_only_the_pinned_rn_apple_host_inputs(self):
+        nix = shutil.which("nix")
+        developer = subprocess.check_output(
+            [nix, "eval", "--raw", ".#lib.reactNativeXcode.developerDir"],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+        expected = str(Path(developer).parent)
+        with tempfile.TemporaryDirectory(prefix="xmtp nix host deps ") as folder:
+            folder = Path(folder)
+            system = folder / "system"
+            system.mkdir()
+            (system / "nix.conf").write_text(
+                "allowed-impure-host-deps = /xmtp-test-inherited-host-dependency\n"
+            )
+            config = folder / "user.conf"
+            config.write_text("")
+            env = os.environ | {
+                "NIX_CONF_DIR": str(system),
+                "NIX_USER_CONF_FILES": str(config),
+                "NIX_CONFIG": "",
+            }
+
+            def paths():
+                return set(
+                    subprocess.check_output(
+                        [
+                            nix,
+                            "--extra-experimental-features",
+                            "nix-command",
+                            "config",
+                            "show",
+                            "allowed-impure-host-deps",
+                        ],
+                        env=env,
+                        text=True,
+                    ).split()
+                )
+
+            defaults = paths()
+            self.assertIn("/xmtp-test-inherited-host-dependency", defaults)
+            config.write_text(
+                action_step("Install Nix (macOS)")["with"]["extra_nix_config"]
+            )
+            self.assertEqual(
+                paths(),
+                defaults
+                | {
+                    expected,
+                    "/usr/bin/xcrun",
+                    "/usr/bin/ditto",
+                    "/usr/bin/env",
+                    "/usr/bin/touch",
+                    "/Library/Preferences/com.apple.dt.Xcode.plist",
+                    "/usr/share/firmlinks",
+                    "/Library/Developer/PrivateFrameworks/CoreSimulator.framework",
+                    "/Library/Developer/PrivateFrameworks/DVTDownloads.framework",
+                    "/Library/Developer/PrivateFrameworks/ROCKit.framework",
+                    "/Library/Developer/PrivateFrameworks/CoreDevice.framework",
+                    "/Library/Developer/PrivateFrameworks/CoreDeviceUtilities.framework",
+                    "/Library/Apple/System/Library/PrivateFrameworks/MobileDevice.framework",
+                    "/Library/Apple/System/Library/PrivateFrameworks/Mercury.framework",
+                },
+            )
+
     def test_action_installs_the_nix_kache_version(self):
         # Two Kache versions in one job share the local cache directory and
         # the S3 manifests, so the action installs the shell's version.
@@ -914,6 +985,7 @@ CI_ENTRIES = {
     "deploy-docs.yml",
     "lint-deny.yml",
     "test-backend.yml",
+    "test-react-native.yml",
 }
 
 

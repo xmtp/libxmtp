@@ -1,0 +1,614 @@
+{
+  "schema": 1,
+  "publicTypes": {
+    "status": "passed",
+    "input": "Actual immutable current CPP/React Nix product /nix/store/v4w9a84jxx9ryvcrg3dqvh5z2r8ixpqh-xmtp-sdk-react-native-js-8.0.0; configured strict root and /react declarations plus four independent public probes",
+    "identity": {
+      "productContract": "0df9250fc3a51480e4749b0f98ef1c0e821fb6a475799ac15d235ea72c3b10ab",
+      "javascriptToolchain": "typescript-7.0.2-es2020-esnext-define-v1",
+      "source": "af9e6b20d5b863a485f5cf90c3d1c14ce612d0e33a906711936cbd65206a6bf1",
+      "generator": "d8c25a72cb53f6c0856a5e5954415d619f75f2539549496e1f381d77097dee95",
+      "profile": "release",
+      "features": "",
+      "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+      "renderContract": "9ef79690033417e2678650f923f3c546305dc7e49b234e29e09698ec8d40948c",
+      "runtimeContract": "8b65fd8fa2187e2f61d79876687084f5a2990638f42bd4d015df167081ea078f"
+    },
+    "probes": [
+      "type-tests/publicSurface.ts",
+      "type-tests/notifications.ts",
+      "type-tests/serverConfiguration.ts",
+      "type-tests/streamOptions.ts"
+    ],
+    "command": [
+      "node",
+      "/private/tmp/xmtp-rn-final-fork-js-strict/app/node_modules/typescript/bin/tsc",
+      "--project",
+      "/private/tmp/xmtp-rn-late-js-strict-98_vd5kq/app/type-tests/tsconfig.json"
+    ],
+    "mutation": {
+      "change": "Remove Client export only in an isolated current immutable product declaration copy",
+      "observed": "All four public probes reject the missing Client export (exit 1)",
+      "restore": "Original bytes restored; configured strict graph and all probes pass (exit 0)",
+      "scope": "Actual current v4w9 product, separate from historical 077x/f6cr proof scopes",
+      "proof": "/private/tmp/xmtp-rn-late-repair-proof/xmtp-rn-late-repair-js-proof.json",
+      "missingClientExit": 1,
+      "restoredExit": 0
+    },
+    "libraryValidation": "Configured ES2022, DOM and DOM.Iterable graph passes with skipLibCheck:false. Of 80 declarations, 79 are unchanged; the only change removes the unused private constructors field. Whole-package ambient-library preflights remain outside this success claim.",
+    "proof": "/private/tmp/xmtp-rn-late-repair-proof/xmtp-rn-late-repair-js-proof.json",
+    "strictDeclarations": "Root and /react declarations with skipLibCheck:false, plus all four independent public type probes",
+    "baselineExit": 0,
+    "ambientLibraryLimit": "Successful configured lib set only; prior failed ambient-lib preflights are not converted into a success claim.",
+    "priorNonPassingPreflights": {
+      "receipt": "/private/tmp/xmtp-rn-react-constructors-cleanup/proof.json",
+      "receiptSha256": "9fba2dafbe9779249b08d2624371a3f02c1ec84a7d2f398f206690f6103a5e70",
+      "cases": [
+        {
+          "scope": "Whole package forced skipLibCheck:false, including RN native codegen plus DOM/Node globals",
+          "result": "Failed on upstream duplicate global and RN declaration conflicts; retained honestly, not a strict React pass",
+          "log": "/private/tmp/xmtp-rn-react-constructors-cleanup/strict-typecheck.log"
+        },
+        {
+          "scope": "Initial scratch strict config inherited ambient type entries relative to /private/tmp",
+          "result": "Stopped on missing ambient node/react/vitest type entries before checking sources; final explicit types=[] strict graph passes",
+          "log": "/private/tmp/xmtp-rn-react-constructors-cleanup/strict-react-config-path-preflight.log"
+        },
+        {
+          "scope": "Initial Just ownership invocation selected default Cargo Node staging",
+          "result": "Stopped only own process tree; final documented XMTP_SDK_BUILD=nix invocation stages immutable Node product and passes",
+          "log": "/private/tmp/xmtp-rn-react-constructors-cleanup/provider-tests-cargo-preflight-stopped.log"
+        }
+      ],
+      "rerun": false
+    },
+    "reactSourceStrict": {
+      "exit": 0,
+      "config": "/private/tmp/xmtp-rn-react-constructors-cleanup/tsconfig.react-strict.json",
+      "configSha256": "368651b4e78541b06468013d0dd0166a6916cb5911dfbc915d68fa0f105e6bf5",
+      "command": [
+        "node",
+        "/private/tmp/xmtp-rn-final-fork-js-strict/app/node_modules/typescript/bin/tsc",
+        "--project",
+        "/private/tmp/xmtp-rn-react-constructors-cleanup/tsconfig.react-strict.json"
+      ],
+      "scope": "Current React helper sources and existing provider test only; excludes native codegen/whole-package ambient graph."
+    }
+  },
+  "canonicalPackageAdmission": {
+    "status": "passed",
+    "scope": "Current canonical package assembly and signature admission. Installed execution is recorded separately under nativeRuntime.",
+    "run": {
+      "id": 39022250312,
+      "head": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
+      "url": "https://github.com/xmtp/libxmtp/actions/runs/39022250312"
+    },
+    "jobs": [
+      {
+        "databaseId": 117366260787,
+        "name": "Test suites / test_react_native / RN components (aarch64-darwin)",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 117366260847,
+        "name": "Test suites / test_react_native / RN components (x86_64-linux)",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 117367022873,
+        "name": "Test suites / test_react_native / Assemble the canonical RN package",
+        "conclusion": "success"
+      }
+    ],
+    "package": {
+      "name": "@xmtp/react-native-sdk",
+      "version": "8.0.0",
+      "tarball": "/nix/store/jjm8i235mf6swqv3zv6pm581zpij4xgd-xmtp-sdk-react-native-package-8.0.0/xmtp-react-native-sdk-8.0.0.tgz",
+      "sha256": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+      "bytes": 128290194
+    },
+    "identity": {
+      "source": "af9e6b20d5b863a485f5cf90c3d1c14ce612d0e33a906711936cbd65206a6bf1",
+      "generator": "d8c25a72cb53f6c0856a5e5954415d619f75f2539549496e1f381d77097dee95",
+      "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+      "productContract": "0df9250fc3a51480e4749b0f98ef1c0e821fb6a475799ac15d235ea72c3b10ab"
+    },
+    "inventory": {
+      "assets": 295,
+      "matchedCurrentJsRuntimeAdapterAssets": 288,
+      "nativeSlices": {
+        "android": [
+          "aarch64-linux-android",
+          "armv7-linux-androideabi",
+          "i686-linux-android",
+          "x86_64-linux-android"
+        ],
+        "ios": ["aarch64-apple-ios", "aarch64-apple-ios-sim"]
+      },
+      "validation": "Production verifier checked all 295 assets, exports, licenses, native codegen and six native source/toolchain receipts. All 288 current v4w9 JS/runtime/adapter asset hashes match packed bytes, including the CPP input guard and React lifetime cleanup. The six current raw Rust payload receipts match the earlier unversioned admission; no independent cold-build or versioned-byte equivalence is claimed."
+    },
+    "signedClosure": {
+      "paths": 1,
+      "root": "/nix/store/jjm8i235mf6swqv3zv6pm581zpij4xgd-xmtp-sdk-react-native-package-8.0.0",
+      "narHash": "sha256-GInDz5WXeRV/WoyRBIk2awkYEbxCKAUa/FrALCT8NZU=",
+      "references": [],
+      "validation": "Unchanged production exchange importer verified the declared root, export inventory, fresh ephemeral signature and imported NAR hash; no compiler closure or persistent trust change."
+    },
+    "artifact": {
+      "id": 12097123585,
+      "name": "rn-package",
+      "size_in_bytes": 205709944,
+      "digest": "sha256:1594b828b91ca7862dbb36c78839cf1946b65a8059079b20681a543d6634e8e1",
+      "url": "https://github.com/xmtp/libxmtp/actions/runs/39022250312/artifacts/12097123585"
+    },
+    "proof": {
+      "admission": "/private/tmp/xmtp-rn-canonical-39022250312-admission.json",
+      "importLog": "/private/tmp/xmtp-rn-canonical-39022250312-import.log",
+      "transportManifest": "/private/tmp/xmtp-rn-canonical-39022250312/manifest.json",
+      "strictTypes": "/private/tmp/xmtp-rn-late-repair-proof/xmtp-rn-late-repair-js-proof.json",
+      "cacheReuse": "/private/tmp/xmtp-rn-cache-39022250312-summary.json"
+    }
+  },
+  "nativeRuntime": {
+    "status": "passed",
+    "run": {
+      "id": 39022250312,
+      "head": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
+      "url": "https://github.com/xmtp/libxmtp/actions/runs/39022250312"
+    },
+    "packageSha256": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+    "identity": {
+      "source": "af9e6b20d5b863a485f5cf90c3d1c14ce612d0e33a906711936cbd65206a6bf1",
+      "generator": "d8c25a72cb53f6c0856a5e5954415d619f75f2539549496e1f381d77097dee95",
+      "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+      "productContract": "0df9250fc3a51480e4749b0f98ef1c0e821fb6a475799ac15d235ea72c3b10ab"
+    },
+    "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
+    "harnesses": {
+      "bare": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+      "expo": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828"
+    },
+    "phases": [
+      "foundation",
+      "features",
+      "migration",
+      "advanced",
+      "runtime-reload",
+      "react"
+    ],
+    "assertionsPerMain": 29,
+    "assertionsPerBackground": 1,
+    "freshUniqueRunIds": 8,
+    "platforms": {
+      "android": {
+        "job": 117368042796,
+        "artifact": {
+          "id": 12097264971,
+          "digest": "sha256:29a6ec147a7d8974a0a0d855f23d1c2b9126d3f4bdbaf9bf5e3eef851b532380",
+          "bytes": 6664,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/39022250312/artifacts/12097264971"
+        },
+        "proof": {
+          "path": "/private/tmp/xmtp-rn-hosted-39022250312-android-proof.json",
+          "sha256": "64766a1fd1e056ca27e38516815f2f1ef45dd896663e0f223812bbe829a0517c"
+        },
+        "reports": [
+          {
+            "file": "bare-android.json",
+            "sha256": "cf12e0c456ee617819ab7a4615bf876368b049a09b05fa68bb1e69e1cf357ca5",
+            "status": "passed",
+            "platform": "android",
+            "mode": "conformance",
+            "assertions": 29,
+            "phases": [
+              "foundation",
+              "features",
+              "migration",
+              "advanced",
+              "runtime-reload",
+              "react"
+            ],
+            "runId": "110ab6df8eceedac4688a6f0",
+            "harness": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+            "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+            "installedApkSha256": null,
+            "previousPID": null,
+            "backgroundPID": null,
+            "foregroundPID": null
+          },
+          {
+            "file": "bare-android-background.json",
+            "sha256": "dee18cfe8d7b71671ea2ce83ea62167badc737bac73ac258fbc6271bd61422ef",
+            "status": "passed",
+            "platform": "android",
+            "mode": "background",
+            "assertions": 1,
+            "phases": ["cold-background"],
+            "runId": "714a4be90572d52788b3ab97",
+            "harness": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+            "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+            "installedApkSha256": "c005adb253c4e6d2a2a961deda4b123a5a57988b469adc3b6a63f342f59830fb",
+            "previousPID": 2457,
+            "backgroundPID": 2626,
+            "foregroundPID": 2626
+          },
+          {
+            "file": "expo-android.json",
+            "sha256": "022fee68c89f3fc529ae1266bf8865c97800ee462ad7c75a5f22d089871e6558",
+            "status": "passed",
+            "platform": "android",
+            "mode": "conformance",
+            "assertions": 29,
+            "phases": [
+              "foundation",
+              "features",
+              "migration",
+              "advanced",
+              "runtime-reload",
+              "react"
+            ],
+            "runId": "4bca2d07163a55a6e58d8915",
+            "harness": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828",
+            "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+            "installedApkSha256": null,
+            "previousPID": null,
+            "backgroundPID": null,
+            "foregroundPID": null
+          },
+          {
+            "file": "expo-android-background.json",
+            "sha256": "cb9b6b226203de355f2db28b1ca5a9d2c2740c58333d4f4496b5414c98e6722b",
+            "status": "passed",
+            "platform": "android",
+            "mode": "background",
+            "assertions": 1,
+            "phases": ["cold-background"],
+            "runId": "6a57ae43e6563fe4dec023c8",
+            "harness": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828",
+            "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+            "installedApkSha256": "56b4dd6ff995a79f14655e80e8b55e53ca97166274b108ce7be33231b95858d7",
+            "previousPID": 2731,
+            "backgroundPID": 2877,
+            "foregroundPID": 2877
+          }
+        ],
+        "applications": {
+          "bare": {
+            "output": "/nix/store/2sb5gfwb2izjcnnalbqph5v6k18yy2zb-react-native-consumer-android-bare-8.0.0",
+            "receiptSha256": "3be1b418507aa850de974320919e8831606c67ebd3aee52d6dd2172ae1724bbb",
+            "apkSha256": "c005adb253c4e6d2a2a961deda4b123a5a57988b469adc3b6a63f342f59830fb",
+            "androidToolchain": {
+              "compiler": {
+                "derivationHash": "6b2c7cb876adef4e9c2eaafb781a6ef9b2ed13172e5f8facb3f570fbebaa3a20",
+                "javaVersion": "17.0.20+8"
+              },
+              "gradle": {
+                "derivationHash": "08f438e9df53cb2a98044df12dda8336ceb0ae6e8b3060f2ceb9679297a97f82",
+                "version": "9.4.1"
+              },
+              "policy": {
+                "autoDetect": false,
+                "autoDownload": false
+              },
+              "runtime": {
+                "derivationHash": "0319ce946b60b721aeccee66dddf291350bc68cbd50c75f97cd237cf89235f90",
+                "javaVersion": "21.0.12+2"
+              },
+              "schema": 1
+            },
+            "packagedAbiCount": 4,
+            "canonicalNativeBytes": "Matched after exact pinned NDK strip; all bridge DT_NEEDED entries use libxmtp_sdk.so basename. See platform proof."
+          },
+          "expo": {
+            "output": "/nix/store/r72i8z3flpkq0097243slfl7fjz2j197-react-native-consumer-android-expo-8.0.0",
+            "receiptSha256": "3deb347b7f85cf5559fff4e159d60840a9ae680f7c9f4ed54c7d45bbea516dab",
+            "apkSha256": "56b4dd6ff995a79f14655e80e8b55e53ca97166274b108ce7be33231b95858d7",
+            "androidToolchain": {
+              "compiler": {
+                "derivationHash": "6b2c7cb876adef4e9c2eaafb781a6ef9b2ed13172e5f8facb3f570fbebaa3a20",
+                "javaVersion": "17.0.20+8"
+              },
+              "gradle": {
+                "derivationHash": "08f438e9df53cb2a98044df12dda8336ceb0ae6e8b3060f2ceb9679297a97f82",
+                "version": "9.4.1"
+              },
+              "policy": {
+                "autoDetect": false,
+                "autoDownload": false
+              },
+              "runtime": {
+                "derivationHash": "0319ce946b60b721aeccee66dddf291350bc68cbd50c75f97cd237cf89235f90",
+                "javaVersion": "21.0.12+2"
+              },
+              "schema": 1
+            },
+            "packagedAbiCount": 4,
+            "canonicalNativeBytes": "Matched after exact pinned NDK strip; all bridge DT_NEEDED entries use libxmtp_sdk.so basename. See platform proof."
+          }
+        }
+      },
+      "ios": {
+        "job": 117368042821,
+        "artifact": {
+          "id": 12097736954,
+          "digest": "sha256:09504444bc51e09e4e1d19af83a37131e00bedd5efd6bd9f61415e3db2580104",
+          "bytes": 6012,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/39022250312/artifacts/12097736954"
+        },
+        "proof": {
+          "path": "/private/tmp/xmtp-rn-hosted-39022250312-ios-proof.json",
+          "sha256": "14cb372db28384aa789978d365b73fef6152ecf7310afd42f5f0273e812590da"
+        },
+        "reports": [
+          {
+            "file": "bare-ios.json",
+            "sha256": "235b30fd42eec6f066ea790dd10c04f15851416dee6f9e4a1cc6bfc60634b18b",
+            "status": "passed",
+            "platform": "ios",
+            "mode": "conformance",
+            "assertions": 29,
+            "phases": [
+              "foundation",
+              "features",
+              "migration",
+              "advanced",
+              "runtime-reload",
+              "react"
+            ],
+            "runId": "d8e7c52a0b8ef3c1501ef0ad",
+            "harness": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+            "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+            "applicationContentSha256": "9245f8da23dbcfad07f726da139e97a5785f4e91d19170391c75038f8f23d8c6",
+            "backgroundPID": null,
+            "foregroundPID": null
+          },
+          {
+            "file": "bare-ios-background.json",
+            "sha256": "e9f6ec630a75d294b668ab6dff09b9cdb49f9a8aaaa0c5f8654aa30cffbe302b",
+            "status": "passed",
+            "platform": "ios",
+            "mode": "background",
+            "assertions": 1,
+            "phases": ["cold-background"],
+            "runId": "b2476763328543b2e5dc3cb5",
+            "harness": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+            "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+            "applicationContentSha256": "9245f8da23dbcfad07f726da139e97a5785f4e91d19170391c75038f8f23d8c6",
+            "backgroundPID": 12679,
+            "foregroundPID": 12679
+          },
+          {
+            "file": "expo-ios.json",
+            "sha256": "1e4c64b511bfdaded6fe0ccc7a060dc3891b9e88bf286279cbb2227a3ba621b6",
+            "status": "passed",
+            "platform": "ios",
+            "mode": "conformance",
+            "assertions": 29,
+            "phases": [
+              "foundation",
+              "features",
+              "migration",
+              "advanced",
+              "runtime-reload",
+              "react"
+            ],
+            "runId": "2c09ccb481b3331c8833506c",
+            "harness": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828",
+            "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+            "applicationContentSha256": "eb5047ef3eb8936f6bd96fc3ad43bda2d8b6d15e1a70e879208c2ea173a3d52f",
+            "backgroundPID": null,
+            "foregroundPID": null
+          },
+          {
+            "file": "expo-ios-background.json",
+            "sha256": "c4571d74c9e90d3ad67759d5c86a7e6b5fbaf7cd7543e914931396669ffda563",
+            "status": "passed",
+            "platform": "ios",
+            "mode": "background",
+            "assertions": 1,
+            "phases": ["cold-background"],
+            "runId": "3306de3a2e0c5d6418f96ab4",
+            "harness": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828",
+            "package": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+            "applicationContentSha256": "eb5047ef3eb8936f6bd96fc3ad43bda2d8b6d15e1a70e879208c2ea173a3d52f",
+            "backgroundPID": 13384,
+            "foregroundPID": 13384
+          }
+        ],
+        "applications": {
+          "bare": {
+            "output": "/nix/store/cpcam2g8dgjkd46pmrz8qy4g1giq3yi9-react-native-consumer-ios-bare-8.0.0",
+            "receiptSha256": "5dff7925bcd9c085353d05b24fbb8df1e12e91ed56f88ef8ed6f04eff9a5b339",
+            "narHash": "sha256-wEAq5EmmJUzdG87kCu8wufWDP3L6q79Ncfp3AnhYFcQ=",
+            "applicationContentSha256": "9245f8da23dbcfad07f726da139e97a5785f4e91d19170391c75038f8f23d8c6",
+            "appInventorySha256": "d67e486e2d5f2a407018c060097e0306b175851069431c4c17a431d2e93572b7",
+            "appInventoryEntries": 187,
+            "xcodeMode": "canonical",
+            "xcodeIdentity": "Xcode 27.0 (27A266a) at /Applications/Xcode_27.0.app/Contents/Developer"
+          },
+          "expo": {
+            "output": "/nix/store/8vwj8ab6j12qfcjmmgv9a17f3mzl7q05-react-native-consumer-ios-expo-8.0.0",
+            "receiptSha256": "29fd1047e1377b888cb3efc19d26e225974967e9d184b7efb6fc176407adc408",
+            "narHash": "sha256-qvuoqGrsqGNSbsclEPii2X56qhQN47f/DEPXihdttms=",
+            "applicationContentSha256": "eb5047ef3eb8936f6bd96fc3ad43bda2d8b6d15e1a70e879208c2ea173a3d52f",
+            "appInventorySha256": "fc7c860e10e2c3048a4059aba614b17dcb76607b60a26dcef81504b04b04ae17",
+            "appInventoryEntries": 200,
+            "xcodeMode": "canonical",
+            "xcodeIdentity": "Xcode 27.0 (27A266a) at /Applications/Xcode_27.0.app/Contents/Developer"
+          }
+        }
+      }
+    },
+    "pairedProof": {
+      "path": "/private/tmp/xmtp-rn-hosted-39022250312-paired-proof.json",
+      "sha256": "8b5918449af38648800dae2891ee7dbdf05c24cadb6ae43adfd62be1717b6a98"
+    },
+    "limits": [
+      "Simulator/emulator execution only; no physical-device execution is claimed.",
+      "Background proof covers fresh React/SDK initialization in actual OS background and same-process foreground. It does not prove APNs delivery or system-triggered cold process wake.",
+      "The two-second shutdown/reload observation is bounded evidence, not a native callback drain barrier.",
+      "Raw report assertions do not provide per-step event logs or timings.",
+      "Release-versioned runtime and post-merge warm-cache admission remain separate gates.",
+      "No positive SCW or passkey wallet integration is claimed.",
+      "Canonical release app execution is separate from any native C++ ASan harness; it is not an instrumented-app claim."
+    ]
+  },
+  "nativeDependencyResolution": {
+    "android": {
+      "status": "passed",
+      "method": "Actual pinned Gradle9.4.1 release configurations through recorded immutable TLS download proxy; SHA256 verification metadata and compressed nixpkgs dependency manifests committed for bare and Expo",
+      "limitation": "Both locked offline APKs and installed Hermes journeys passed in the recorded current run. Runtime exercised a 64-bit emulator; four ABI link/package checks are separate evidence."
+    },
+    "ios": {
+      "status": "passed",
+      "command": "pod install --deployment --no-repo-update",
+      "isolation": "Fresh copied dependency tree, empty CocoaPods home/cache, sandbox-exec deny network-outbound",
+      "consumers": {
+        "bare": 87,
+        "expo": 105
+      },
+      "inputs": "Only the six SHA256-declared React Native/Hermes archives and pinned local Podspecs; committed Podfile.lock unchanged",
+      "limitation": "Both locked offline app builds and installed Hermes journeys passed in the recorded current run. Simulator execution does not prove physical-device execution.",
+      "mutation": "Genuine admitted archive accepted; undeclared URL and cloned real archive one-byte mutation rejected; original input unchanged"
+    }
+  },
+  "nativeSources": {
+    "androidFixtureHooks": {
+      "status": "passed",
+      "command": "gradle --no-daemon --offline :app:compileReleaseKotlin -x :app:createBundleReleaseJsAndAssets",
+      "inputs": "Exact actual RN0.88 installed dependency tree and genuine provisional SDK source",
+      "scope": "Actual reload/background/migration/raw-root/read-file Kotlin helpers, generated private TurboModule spec, SDK Java implementation, and app registrations compile. Generated autolinking calls XmtpReactNativeSpec_ModuleProvider. Excludes JS bundle, JNI/link/package/runtime."
+    },
+    "iosFixtureHooks": {
+      "status": "passed",
+      "scope": "Private reload/migration/raw-root/read-file ObjC++ helpers compile arm64 iOS15.1-simulator against genuine RN0.88 headers. Selected local Xcode27.0 build27A266a /Applications/Xcode.app; no link/runtime/canonical proof."
+    }
+  },
+  "regressionChecks": {
+    "resultAdmission": {
+      "status": "passed",
+      "evidence": "Real staged Node peer/backend5450: current controller rejects old eight-label/background bypass, temporary weaker guard accepts, restored controller rejects. Driver independently rejects wrong mode, missing ordered phases, stale harness hash. Controller guard proof only."
+    },
+    "sharedLaunchClaim": {
+      "status": "passed",
+      "evidence": "Actual compiled launch.ts rejects same-runtime UI replay; removing claimed guard permits replay; restored source passes. Current native foreground/background journeys also passed on all four installed consumers."
+    },
+    "releaseHttp": {
+      "status": "passed",
+      "evidence": "Both canonical Android release apps completed real HTTP peer/backend/attachment journeys in the current hosted run. The fixture-only HTTP allowance was exercised; production SDK transport policy is unchanged."
+    },
+    "defaultStorageOracle": {
+      "status": "passed",
+      "evidence": "All four current canonical consumers passed the independent raw OS-root database and attachment path assertions. Separate native path mutations detect the same assertion; their original package/app/harness identities remain historical.",
+      "historicalAndroidBytecodeSensitivity": {
+        "proof": "/private/tmp/xmtp-rn-android-storage-runtime-current-7/paired-canonical-android-proof.json",
+        "sha256": "c6665520d5f7dc0cb33dcb20c34b40f0fc5e6981660b5699659aeef8a859844d",
+        "scope": "Prior 261b/aeac package. Same-length production DEX default suffix mutation failed the independent OS-root assertion; exact cc1fd342 canonical APK restoration passed the full 29-assertion journey. This is compiled bytecode mutation, not source recompilation."
+      },
+      "historicalIOSNativeSensitivity": "See advanced-verification.json installedHermes.historicalBareIOS.nativeStorageSensitivity; actual old e3ef/b338 native source mutation and exact-source restore."
+    }
+  },
+  "migrationBoundary": {
+    "status": "passed",
+    "positive": "Exact prior embedded mobile-source public-FFI database and independent records/hashes/sidecar ledger",
+    "negative": "Explicit copied-and-mutated future inventory fixture; exact MigrationUnsupportedSchema instanceof/details.code, distinct wrong-key error, no output and source/sidecar preservation",
+    "hostNegativeProof": "Actual staged Node/native Rust converter proof remains in the legacy negative ledger. Current bare/Expo Hermes migration phases passed on both OSes, including exact unsupported-schema versus wrong-key errors, independent expected records, and source/sidecar preservation."
+  },
+  "historicalExecution": {
+    "localIOS": {
+      "proof": "/private/tmp/xmtp-rn-current-canonical-local-ios-l6o3boza/paired-ios-proof.json",
+      "sha256": "0c9d6958e13597d13741a116577b156730fd059fefd8ce2fde34f6b84a2c8cc2",
+      "scope": "Prior 261b/aeac package with local /Applications/Xcode.app identity. Separate from current hosted canonical Xcode evidence."
+    },
+    "hostedAdmissionFailure617": {
+      "proof": "/private/tmp/xmtp-rn-hosted-39010376815-ios-baseline-failure.json",
+      "scope": "Built both apps; old Python archive caller failed before SDK execution."
+    },
+    "hostedInstallerFailure87d": {
+      "proof": "/private/tmp/xmtp-rn-hosted-39012486506-ios-installer-failure.json",
+      "scope": "Built both apps and admitted package; immutable app installation failed before SDK execution. Actual A/B and content-preserving staging correction are separately recorded."
+    },
+    "hostedCanonical39015049549": {
+      "run": {
+        "id": 39015049549,
+        "head": "766b3ba616be004635d603b52dd10e35d111911c",
+        "url": "https://github.com/xmtp/libxmtp/actions/runs/39015049549"
+      },
+      "packageSha256": "42809cb37e11991b416b5618c9fc469aa8d9c556faadb1774372a4551c54f157",
+      "identity": {
+        "source": "af9e6b20d5b863a485f5cf90c3d1c14ce612d0e33a906711936cbd65206a6bf1",
+        "generator": "d8c25a72cb53f6c0856a5e5954415d619f75f2539549496e1f381d77097dee95",
+        "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+        "productContract": "cc07083baea14212832c6cda6f112cb1ed4ea4bb31a95bbf1b34e9ef1c730723"
+      },
+      "pairedProof": {
+        "path": "/private/tmp/xmtp-rn-hosted-39015049549-paired-proof.json",
+        "sha256": "a3b7840ca08645f380bf3ce9790c388eac432dc0f92b54da6fa7c56bcd8ab6f0"
+      },
+      "scope": "Historical f6cr/7g8 product and its actual eight hosted reports before the CPP/React change; not current product execution.",
+      "publicTypes": {
+        "status": "passed",
+        "input": "Matched immutable corrected-tag Nix JS/types product /nix/store/f6crzjl52phl7sa43npig9h4873zmcmz-xmtp-sdk-react-native-js-8.0.0; strict root and /react declarations plus four independent public probes",
+        "identity": {
+          "productContract": "cc07083baea14212832c6cda6f112cb1ed4ea4bb31a95bbf1b34e9ef1c730723",
+          "javascriptToolchain": "typescript-7.0.2-es2020-esnext-define-v1",
+          "source": "af9e6b20d5b863a485f5cf90c3d1c14ce612d0e33a906711936cbd65206a6bf1",
+          "generator": "d8c25a72cb53f6c0856a5e5954415d619f75f2539549496e1f381d77097dee95",
+          "profile": "release",
+          "features": "",
+          "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+          "renderContract": "9ef79690033417e2678650f923f3c546305dc7e49b234e29e09698ec8d40948c",
+          "runtimeContract": "8b65fd8fa2187e2f61d79876687084f5a2990638f42bd4d015df167081ea078f"
+        },
+        "probes": [
+          "type-tests/publicSurface.ts",
+          "type-tests/notifications.ts",
+          "type-tests/serverConfiguration.ts",
+          "type-tests/streamOptions.ts"
+        ],
+        "command": [
+          "node",
+          "/private/tmp/xmtp-rn-final-fork-js-strict/app/node_modules/typescript/bin/tsc",
+          "--project",
+          "/private/tmp/xmtp-rn-release-tag-js-strict/app/type-tests/tsconfig.json"
+        ],
+        "mutation": {
+          "change": "Remove Client export only in a temporary copy of the matched immutable product index.d.ts",
+          "observed": "Strict declaration graph rejected missing Client in all four independent public type probes (exit 1)",
+          "restore": "Original bytes restored; strict declaration graph and all four probes pass (exit 0)",
+          "scope": "Historical 077x product sensitivity. The current product retains all 80 declaration bytes unchanged.",
+          "proof": "/private/tmp/xmtp-rn-soname-js-strict/proof.json",
+          "missingClientExit": 1,
+          "restoredExit": 0
+        },
+        "libraryValidation": "Historical f6cr configured strict graph passed. All 80 f6cr declarations matched the preceding 077x product. That proof and its historical mutation scope do not claim current v4w9 execution; current types and runtime evidence are recorded at the top level.",
+        "proof": "/private/tmp/xmtp-rn-release-tag-js-strict/proof.json",
+        "strictDeclarations": "Root and /react declarations with skipLibCheck:false, plus all four independent public type probes",
+        "baselineExit": 0
+      }
+    },
+    "versionedPreview39017082412": {
+      "run": 39017082412,
+      "head": "98b5be904396a4ba74117fd3bcf7683cc1baad17",
+      "version": "8.0.0-dev.98b5be9",
+      "tarballSha256": "a18c6d8262e210fde03ff3b92b71b859e9ffdd75f73347138a9774249a5d8734",
+      "identity": {
+        "productContract": "cc07083baea14212832c6cda6f112cb1ed4ea4bb31a95bbf1b34e9ef1c730723",
+        "javascriptToolchain": "typescript-7.0.2-es2020-esnext-define-v1",
+        "source": "af9e6b20d5b863a485f5cf90c3d1c14ce612d0e33a906711936cbd65206a6bf1",
+        "generator": "d8c25a72cb53f6c0856a5e5954415d619f75f2539549496e1f381d77097dee95",
+        "profile": "release",
+        "features": "",
+        "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+        "renderContract": "9ef79690033417e2678650f923f3c546305dc7e49b234e29e09698ec8d40948c",
+        "runtimeContract": "8b65fd8fa2187e2f61d79876687084f5a2990638f42bd4d015df167081ea078f"
+      },
+      "proof": {
+        "path": "/private/tmp/xmtp-rn-release-39017082412.json",
+        "sha256": "45a67f0a1c2967c48cf5b4dc1460a7dc4d085d70f35214f48a1f29f91ed24dd6"
+      },
+      "reportIndex": "/private/tmp/xmtp-rn-release-39017082412-report-index.json",
+      "scope": "Historical versioned preview of the preceding f6cr product. Cold iOS native archive bytes differ from retained unversioned baseline; this preview rebuilt and exercised exact current versioned tarball; no old-app or full binary/semantic identity reuse claim."
+    }
+  }
+}

@@ -29,6 +29,11 @@ let
       (root + /apps/xmtp_sdk_bindgen/runtime/kotlin)
       (root + /apps/xmtp_sdk_bindgen/runtime/android)
     ];
+    # RN shares the public TypeScript projection but has its own host runtime.
+    # Keep this subtree out of the sibling TypeScript render identity.
+    react-native = runtimeInputs.typescript ++ [
+      (lib.fileset.maybeMissing (root + /apps/xmtp_sdk_bindgen/runtime/react-native))
+    ];
     typescript = [
       (root + /apps/xmtp_sdk_bindgen/runtime/ts)
       (root + /apps/xmtp_sdk_bindgen/typescript.toml)
@@ -45,7 +50,14 @@ let
           (root + /apps/xmtp_sdk_bindgen/uniffi-global.toml)
           (root + /crates/xmtp_sdk/uniffi.toml)
         ]
-        ++ runtimeInputs.${if lib.hasPrefix "typescript-" language then "typescript" else language}
+        ++ runtimeInputs.${
+          if language == "typescript-react-native" then
+            "react-native"
+          else if lib.hasPrefix "typescript-" language then
+            "typescript"
+          else
+            language
+        }
       );
     };
   # The stock Swift/Kotlin renderer still asks Cargo for workspace metadata.
@@ -81,7 +93,7 @@ let
     # A generated tree is the bindgen's output over its own language's runtime
     # and configuration. Its receipt records this identity, so a runtime edit
     # changes only the trees of that language.
-    render = lib.genAttrs [ "swift" "kotlin" "typescript" ] (
+    render = lib.genAttrs [ "swift" "kotlin" "typescript" "react-native" ] (
       language:
       identity [
         bindgenInputs

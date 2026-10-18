@@ -80,5 +80,56 @@ class DryRunParserTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class ReactNativeProducerTests(unittest.TestCase):
+    def test_cached_aggregate_still_realizes_raw_slices_before_components(self):
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/post-merge.yml").read_text()
+        )
+        steps = workflow["jobs"]["rn-components"]["steps"]
+        base = next(
+            step["run"]
+            for step in steps
+            if step.get("name", "").startswith("Build the reused Rust base")
+        )
+        components = next(
+            step["run"]
+            for step in steps
+            if step.get("name") == "Build and export completed components"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            (directory / "bin").mkdir()
+            (directory / "dev").mkdir()
+            nix = directory / "bin/nix"
+            nix.write_text("""#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    *native-base) touch "$RN_RAW_SLICES" ;;
+    *components) test -f "$RN_RAW_SLICES" || exit 41 ;;
+  esac
+done
+""")
+            nix.chmod(0o755)
+            wrapper = directory / "dev/nix-shell"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            env = os.environ | {
+                "PATH": str(directory / "bin") + os.pathsep + os.environ["PATH"],
+                "SYSTEM": "aarch64-darwin",
+                "RN_RAW_SLICES": str(directory / "raw-slices"),
+            }
+            # The cached base aggregate does not restore intermediate raw
+            # slices. Building components after switching Xcode needs them.
+            for command in (base, components):
+                result = subprocess.run(
+                    ["bash", "-euc", command],
+                    cwd=directory,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

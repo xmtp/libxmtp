@@ -6,6 +6,8 @@
   stdenv,
   buildNpmPackage,
   callPackage,
+  runCommand,
+  python311,
   xmtp,
   src,
 }:
@@ -60,6 +62,34 @@ let
       ln -s ${core}/lib/node_modules/@ubjs/core node_modules/@ubjs/core
     '';
   };
+  # RN uses the fork's core TypeScript package and JSI C++ headers. There is
+  # no separately published RN runtime in the fork. Keep the exact shipped
+  # assets in one product; the stager checks this manifest before vendoring.
+  reactNative =
+    runCommand "ubjs-react-native-${rev}"
+      {
+        nativeBuildInputs = [ python311 ];
+        passthru = {
+          runtimeRevision = rev;
+        };
+      }
+      ''
+        mkdir -p "$out/core" "$out/cpp/includes"
+        cp -RL ${core}/lib/node_modules/@ubjs/core/. "$out/core/"
+        cp -R ${src}/cpp/includes/. "$out/cpp/includes/"
+        cp ${src}/LICENSE "$out/LICENSE"
+        python3 - "$out" ${lib.escapeShellArg rev} <<'PYTHON'
+        import hashlib, json, pathlib, sys
+        root = pathlib.Path(sys.argv[1])
+        assets = {
+            file.relative_to(root).as_posix(): hashlib.sha256(file.read_bytes()).hexdigest()
+            for file in sorted(root.rglob("*")) if file.is_file()
+        }
+        (root / "runtime-provenance.json").write_text(json.dumps({
+            "schema": 1, "forkRevision": sys.argv[2], "assets": assets,
+        }, sort_keys=True) + "\n")
+        PYTHON
+      '';
   # The host addon is the Crane build that the host Node SDK pair also uses.
   nodeAddon = callPackage ../../package/xmtp-sdk-node-runtime.nix {
     ubrnSrc = src;
@@ -88,5 +118,6 @@ in
     core
     node
     wasm
+    reactNative
     ;
 }

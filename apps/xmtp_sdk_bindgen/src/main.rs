@@ -4,6 +4,7 @@ mod callback_results;
 mod client_statics;
 mod format;
 mod forwarding;
+mod jsi_clients;
 mod kotlin_callbacks;
 mod kotlin_records;
 mod local_signing_key;
@@ -77,6 +78,7 @@ enum Target {
     Swift,
     Kotlin,
     Node,
+    ReactNative,
     BrowserWorker,
     BrowserPure,
 }
@@ -86,6 +88,7 @@ enum Language {
     Swift,
     Kotlin,
     TypescriptNapi,
+    TypescriptJsi,
     TypescriptWasm,
 }
 
@@ -111,6 +114,7 @@ fn main() -> Result<()> {
                 Target::Swift => (Language::Swift, false, "native"),
                 Target::Kotlin => (Language::Kotlin, false, "native"),
                 Target::Node => (Language::TypescriptNapi, false, "native"),
+                Target::ReactNative => (Language::TypescriptJsi, false, "native"),
                 Target::BrowserWorker => (Language::TypescriptWasm, false, "wasm"),
                 Target::BrowserPure => (Language::TypescriptWasm, true, "pure"),
             };
@@ -124,8 +128,11 @@ fn main() -> Result<()> {
                     let name = lib.file_name().context("library has no file name")?;
                     fs::copy(&lib, out.join(name))?;
                 }
-                Target::Swift | Target::Kotlin => {}
+                Target::Swift | Target::Kotlin | Target::ReactNative => {}
             }
+            let fork_revision = matches!(target, Target::ReactNative)
+                .then(receipt::compiled_fork_revision)
+                .transpose()?;
             receipt::write(
                 &out,
                 &receipt::Artifact {
@@ -136,6 +143,7 @@ fn main() -> Result<()> {
                     features: &features,
                     profile: &profile,
                     target: &rust_target,
+                    fork_revision: fork_revision.as_deref(),
                 },
             )
         }
@@ -226,8 +234,9 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
                 )?;
             }
         }
-        Language::TypescriptNapi | Language::TypescriptWasm => {
+        Language::TypescriptNapi | Language::TypescriptJsi | Language::TypescriptWasm => {
             let is_wasm = matches!(language, Language::TypescriptWasm);
+            let is_jsi = matches!(language, Language::TypescriptJsi);
             if is_wasm != wasm_metadata::looks_like_wasm(&fs::read(lib)?) {
                 bail!(
                     "{}: library format does not match the TypeScript target",
@@ -236,6 +245,8 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
             }
             let flavor = if is_wasm {
                 AbiFlavor::Wasm2
+            } else if is_jsi {
+                AbiFlavor::Jsi
             } else {
                 AbiFlavor::Napi
             };
@@ -266,12 +277,17 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
             let scoped_config = scratch_path.join("typescript.toml");
             fs::write(&scoped_config, toml::to_string(&ts_value)?)?;
             let source = SourceArgs::library(&lib.to_owned()).with_config(Some(scoped_config));
+            let abi_out = if is_jsi {
+                out.join("jsi")
+            } else {
+                scratch_path.join("abi")
+            };
             let mut args = BindingsArgs::new(
                 SwitchArgs { flavor },
                 source,
-                OutputArgs::new(out, &scratch_path.join("abi"), true),
+                OutputArgs::new(out, &abi_out, true),
             );
-            if !is_wasm {
+            if !is_wasm && !is_jsi {
                 args = args.with_lib_resolution(LibResolution::Colocated);
             }
             // The fork asks cargo for a manifest even when the source is a library.
@@ -285,6 +301,30 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
             fs::write(manifest_dir.join("src/lib.rs"), "")?;
             let manifest = manifest_dir.join("Cargo.toml");
             args.run(Some(&manifest))?;
+            if is_jsi {
+                // The JSI backend renders module files, while the application
+                // normally supplies its initializer. Keep this root private.
+                fs::write(
+                    out.join("index.ts"),
+                    "export * from './xmtp_sdk';\nimport xmtpSdk from './xmtp_sdk';\nxmtpSdk.initialize();\n",
+                )?;
+                let cpp = fs::read_to_string(abi_out.join("xmtp_sdk.cpp"))?;
+                fs::write(
+                    abi_out.join("xmtp_sdk.cpp"),
+                    jsi_clients::rewrite(&cpp, &metadata)?,
+                )?;
+                let declarations = cpp
+                    .split_once("extern \"C\" {")
+                    .and_then(|(_, rest)| rest.split_once("\n}\n"))
+                    .map(|(body, _)| body)
+                    .context("JSI output has no native ABI declarations")?;
+                fs::write(
+                    abi_out.join("xmtp_sdk_ffi.hpp"),
+                    format!(
+                        "#pragma once\n#include \"xmtp_sdk.hpp\"\n#include \"UniffiJsiTypes.h\"\nextern \"C\" {{{declarations}\n}}\n"
+                    ),
+                )?;
+            }
             let binding = out.join("xmtp_sdk.ts");
             strip_doc_markers(&binding)?;
             if !pure_only {
@@ -302,6 +342,9 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
             }
             let index = out.join("index.ts");
             let mut source = fs::read_to_string(&index)?;
+            if is_jsi {
+                source.insert_str(0, "import \"./runtime/native-module\";\n");
+            }
             if pure_only {
                 source.push_str("\nlet pureLoading: Promise<void> | undefined;\nexport function initPureWasm(wasm: URL = new URL('./xmtp_sdk.wasm', import.meta.url)): Promise<void> { pureLoading ??= uniffiInitAsync(wasm); return pureLoading; }\nexport { TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime/codecs';\n");
                 source.push_str("export { Timestamp } from './runtime';\n");
@@ -319,7 +362,7 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
             // The Node root names each binding export instead of a star
             // re-export, so internal names such as `sdkLogSinkHandoff` stay
             // out of it.
-            if matches!(language, Language::TypescriptNapi) {
+            if matches!(language, Language::TypescriptNapi | Language::TypescriptJsi) {
                 let exports = public_node_exports(&fs::read_to_string(&binding)?, &source);
                 source = source.replace("export * from './xmtp_sdk';", &exports);
             }
@@ -342,7 +385,7 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
     let runtime_name = match language {
         Language::Swift => "swift",
         Language::Kotlin => "kotlin",
-        Language::TypescriptNapi | Language::TypescriptWasm => "ts",
+        Language::TypescriptNapi | Language::TypescriptJsi | Language::TypescriptWasm => "ts",
     };
     let runtime = config
         .parent()
@@ -392,6 +435,16 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
                 .join("android");
             copy_tree(android.as_std_path(), out.join("android").as_std_path())?;
         }
+        if matches!(language, Language::TypescriptJsi) {
+            let native_runtime = runtime
+                .parent()
+                .context("runtime has no parent")?
+                .join("react-native");
+            copy_tree(
+                native_runtime.as_std_path(),
+                out.join("runtime").as_std_path(),
+            )?;
+        }
         if matches!(language, Language::TypescriptWasm) {
             fs::copy(
                 runtime.join("worker-index.ts"),
@@ -416,12 +469,12 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
     if !pure_only
         && matches!(
             language,
-            Language::TypescriptNapi | Language::TypescriptWasm
+            Language::TypescriptNapi | Language::TypescriptJsi | Language::TypescriptWasm
         )
     {
         forwarding::generate_typescript(&metadata, out)?;
         message_fields::generate_typescript(&metadata, out)?;
-        let target = if matches!(language, Language::TypescriptNapi) {
+        let target = if matches!(language, Language::TypescriptNapi | Language::TypescriptJsi) {
             public_projection::Target::Node
         } else {
             // The browser target module uses the worker proxies. The browser
@@ -435,6 +488,14 @@ fn generate(lib: &Utf8Path, language: Language, out: &Utf8Path, pure_only: bool)
             public_projection::Target::Browser
         };
         public_projection::generate(&metadata, &streams, out, target)?;
+        if matches!(language, Language::TypescriptJsi) {
+            // The public projection imports raw binding values directly. Its
+            // root must also run the private native installer and UniFFI
+            // initializer before a caller can use any public function.
+            let index = out.join("index.ts");
+            let public = fs::read_to_string(&index)?;
+            fs::write(&index, format!("import \"./binding\";\n{public}"))?;
+        }
     }
     if pure_only {
         public_projection::generate(&metadata, &streams, out, public_projection::Target::Pure)?;

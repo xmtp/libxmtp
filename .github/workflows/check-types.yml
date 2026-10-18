@@ -3,8 +3,8 @@ name: Check JavaScript types and full lint
   workflow_call:
 env:
   NIX_DEVSHELL: js
-  # JS jobs test the release-profile Nix products (products_sdk_js), not a
-  # cargo debug build.
+  # Stage release-profile Nix products before workspace types and full lint.
+  # React Native needs only its JS/types output, without mobile components.
   XMTP_SDK_BUILD: nix
 jobs:
   check:
@@ -21,8 +21,8 @@ jobs:
     - uses: ./.github/actions/setup-js
       with:
         cache-mode: ci
-    - name: Prepare SDK declarations
-      run: just js sdk-products
+    - name: Prepare Node, Browser, and React Native declarations
+      run: just js sdk-products all
     - name: Typecheck JavaScript workspace
       run: dev/nix-shell 'pnpm -r run typecheck'
     - name: Full Oxlint rules

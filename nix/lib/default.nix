@@ -147,6 +147,7 @@ in
     # The Xcode of the CI and release iOS outputs; sdks/ios/dev/bindings
     # compares it with the selected Xcode.
     inherit (import ./ios-env.nix { inherit lib; }) xcode;
+    reactNativeXcode = (import ./react-native-env.nix { inherit lib; }).xcode;
 
     # Build cross pkgsets sharing one host pkgset across all targets.
     mkCrossPkgs =

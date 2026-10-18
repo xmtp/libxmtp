@@ -36,6 +36,14 @@ const output = resolve(
 );
 const target = process.argv[2];
 const publicPackage = process.argv.includes("--public");
+if (target === "react-native") {
+  execFileSync(
+    process.execPath,
+    [join(root, "sdks/react-native/scripts/stage-package.mjs")],
+    { cwd: root, stdio: "inherit" },
+  );
+  process.exit(0);
+}
 const platformDirectory = process.env.XMTP_SDK_NODE_PLATFORMS_DIR;
 if (platformDirectory && (target !== "node" || !publicPackage))
   throw new Error("Node platform assembly requires a public Node product");
