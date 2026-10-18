@@ -11,6 +11,7 @@ import {
 import { getDocumentAsync } from "expo-document-picker";
 import { File, Paths } from "expo-file-system";
 import { launchImageLibraryAsync } from "expo-image-picker";
+import { Platform } from "react-native";
 
 import { exceedsLimit, photoName, safeFileName } from "@/core/attachments.ts";
 import { isInside, joinPath, pathToUri, uriToPath } from "@/core/paths.ts";
@@ -111,11 +112,27 @@ export function removeAbandonedStaging(directory: string): void {
   }
 }
 
-/** Removes a picker's own cache copy (only inside the app's cache directory). */
+/** The iOS document picker's own copy: `<container>/tmp/<bundle>-Inbox/…`. */
+function isPickerInboxCopy(path: string): boolean {
+  const container = uriToPath(Paths.document.uri).replace(
+    /\/Documents\/?$/u,
+    "",
+  );
+  const tmp = joinPath(container, "tmp");
+  if (!isInside(path, tmp)) return false;
+  return (path.slice(tmp.length + 1).split("/")[0] ?? "").endsWith("-Inbox");
+}
+
+/**
+ * Removes a picker's own copy: one inside the app's cache directory, or the
+ * iOS document picker's Inbox copy.
+ */
 export function removePickerCopy(uri: string): void {
   try {
     const path = uriToPath(uri);
-    if (isInside(path, uriToPath(Paths.cache.uri))) removePath(path);
+    if (isInside(path, uriToPath(Paths.cache.uri)) || isPickerInboxCopy(path)) {
+      removePath(path);
+    }
   } catch (error) {
     console.warn("Cannot remove a picked file's cache copy", error);
   }
@@ -136,11 +153,16 @@ export async function pickPhoto(): Promise<PickedFile | undefined> {
   };
 }
 
-/** "Files": any one document, or undefined when cancelled. */
+/**
+ * "Files": any one document, or undefined when cancelled. On iOS the system
+ * already copies the file into the app's tmp Inbox, so the picker does not
+ * copy it again into the unprotected cache before the size check; staging
+ * reads that copy, and the copy is removed afterwards.
+ */
 export async function pickFile(): Promise<PickedFile | undefined> {
   const result = await getDocumentAsync({
     type: "*/*",
-    copyToCacheDirectory: true,
+    copyToCacheDirectory: Platform.OS !== "ios",
     multiple: false,
   });
   const asset = result.canceled ? undefined : result.assets[0];
