@@ -7,18 +7,20 @@ import { symbolNames, type SymbolName } from "@/ui/Symbol";
 /** The icon for `Stack.Toolbar.Button`: SF Symbol name or image source. */
 export type ToolbarIcon = SymbolName | ImageSourcePropType;
 
+/** A transparent 1 x 1 PNG, shown on Android until the Material icon renders. */
+const blankIcon: ImageSourcePropType = {
+  uri: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+};
+
 /**
  * A `Stack.Toolbar.Button` icon. iOS takes the SF Symbol name; Android needs
- * an image, so this renders the matching Material Symbol (undefined until it
- * is ready).
+ * an image, so this renders the matching Material Symbol (blank until ready).
  */
 export function useToolbarIcon(
   name: SymbolName,
   color = "#000000",
-): ToolbarIcon | undefined {
-  const [source, setSource] = useState<ImageSourcePropType | undefined>(
-    undefined,
-  );
+): ToolbarIcon {
+  const [source, setSource] = useState<ImageSourcePropType>(blankIcon);
   useEffect(() => {
     if (Platform.OS !== "android") return;
     let current = true;

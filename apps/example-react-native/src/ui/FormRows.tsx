@@ -158,7 +158,12 @@ export function ButtonRow({
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityHint={accessibilityHint}>
       {systemImage === undefined ? null : (
-        <View style={[styles.actionIcon, { width: iconWidth }]}>
+        <View
+          style={[
+            styles.actionIcon,
+            { width: iconWidth },
+            iconStyle === "label" ? styles.labelIcon : undefined,
+          ]}>
           <Symbol
             name={systemImage}
             color={iconColor ?? tint}
@@ -380,6 +385,8 @@ const styles = StyleSheet.create({
   flexText: { flex: 1 },
   iconColumn: { alignItems: "center", minWidth: form.iconColumn },
   actionIcon: { alignItems: "center" },
+  // A list `Label` icon does not make the row taller than one line.
+  labelIcon: { height: 20, justifyContent: "center", overflow: "visible" },
   tile: {
     alignItems: "center",
     borderCurve: "continuous",
