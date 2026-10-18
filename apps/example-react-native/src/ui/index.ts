@@ -141,4 +141,6 @@ export { type ToolbarIcon, useToolbarIcon } from "@/ui/toolbarIcon";
 export {
   ToolbarTextButton,
   type ToolbarTextButtonProps,
+  type ToolbarTextItemProps,
+  toolbarTextItem,
 } from "@/ui/ToolbarTextButton";

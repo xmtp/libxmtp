@@ -34,6 +34,7 @@ import { GlassButton, GlassIconButton } from "@/ui/GlassButton";
 import { IdentityText } from "@/ui/Identity";
 import { Text } from "@/ui/Text";
 import { useToolbarIcon } from "@/ui/toolbarIcon";
+import { toolbarTextItem } from "@/ui/ToolbarTextButton";
 import { useStore } from "@/ui/useStore";
 
 export interface MetadataScreenProps {
@@ -141,17 +142,19 @@ function MetadataBody({
         }}
       />
       <Stack.Toolbar placement="right">
-        {own ? (
-          <Stack.Toolbar.Button
-            variant="prominent"
-            tintColor={palette.tint}
-            disabled={state.busy || changes.size === 0}
-            onPress={() => {
-              if (changes.size > 0) send({ kind: "own", changes });
-            }}>
-            {metadataCopy.save}
-          </Stack.Toolbar.Button>
-        ) : null}
+        {own
+          ? toolbarTextItem(
+              {
+                title: metadataCopy.save,
+                prominent: true,
+                disabled: state.busy || changes.size === 0,
+                onPress: () => {
+                  if (changes.size > 0) send({ kind: "own", changes });
+                },
+              },
+              palette,
+            )
+          : null}
         <Stack.Toolbar.Button
           icon={reloadIcon}
           tintColor={palette.tint}

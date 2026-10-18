@@ -10,10 +10,10 @@ import {
 import { useSharedDetailsStore } from "@/features/details/detailsStores";
 import { useSheetFormProps } from "@/features/details/sheetDetent";
 import { type ActiveSession, useActiveSession } from "@/session";
-import { useColors } from "@/ui/colors";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
 import { TextFieldRow } from "@/ui/FormRows";
 import { Text } from "@/ui/Text";
+import { ToolbarTextButton } from "@/ui/ToolbarTextButton";
 import { useStore } from "@/ui/useStore";
 
 export interface AddMemberScreenProps {
@@ -44,7 +44,6 @@ function AddMemberForm({
   readonly session: ActiveSession;
   readonly conversationId: string;
 }) {
-  const palette = useColors();
   const form = useSheetFormProps();
   const store = useSharedDetailsStore(session, conversationId);
   const state = useStore(store);
@@ -73,27 +72,23 @@ function AddMemberForm({
   return (
     <FormScreen {...form} contentContainerStyle={styles.content}>
       <Stack.Screen options={{ title: detailsCopy.addMember }} />
-      <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button
-          tintColor={palette.tint}
-          onPress={() => {
-            router.back();
-          }}>
-          {detailsCopy.cancel}
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          variant="prominent"
-          tintColor={palette.tint}
-          disabled={state.recipient === undefined || state.busy}
-          onPress={() => {
-            submitted.current = true;
-            store.send({ kind: "mutate", mutation: { kind: "add", input } });
-          }}>
-          {detailsCopy.add}
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
+      <ToolbarTextButton
+        title={detailsCopy.cancel}
+        placement="left"
+        onPress={() => {
+          router.back();
+        }}
+      />
+      <ToolbarTextButton
+        title={detailsCopy.add}
+        placement="right"
+        prominent
+        disabled={state.recipient === undefined || state.busy}
+        onPress={() => {
+          submitted.current = true;
+          store.send({ kind: "mutate", mutation: { kind: "add", input } });
+        }}
+      />
       <FormSection footer={detailsCopy.addMemberFooter}>
         <TextFieldRow
           testID="member.recipient"

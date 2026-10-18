@@ -5,9 +5,9 @@ import { StyleSheet } from "react-native";
 import { detailsCopy } from "@/features/details/copy";
 import { useSharedDetailsStore } from "@/features/details/detailsStores";
 import { type ActiveSession, useActiveSession } from "@/session";
-import { useColors } from "@/ui/colors";
 import { FormScreen, FormSection } from "@/ui/Form";
 import { TextFieldRow } from "@/ui/FormRows";
+import { ToolbarTextButton } from "@/ui/ToolbarTextButton";
 
 export interface EditGroupScreenProps {
   readonly conversationId: string;
@@ -37,7 +37,6 @@ function EditGroupForm({
   readonly session: ActiveSession;
   readonly conversationId: string;
 }) {
-  const palette = useColors();
   const store = useSharedDetailsStore(session, conversationId);
   const [name, setName] = useState(
     () => store.getState().details?.record.name ?? "",
@@ -51,25 +50,23 @@ function EditGroupForm({
   return (
     <FormScreen>
       <Stack.Screen options={{ title: detailsCopy.editGroup }} />
-      <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button tintColor={palette.tint} onPress={close}>
-          {detailsCopy.cancel}
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          variant="prominent"
-          tintColor={palette.tint}
-          onPress={() => {
-            store.send({
-              kind: "mutate",
-              mutation: { kind: "edit", name, description },
-            });
-            close();
-          }}>
-          {detailsCopy.save}
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
+      <ToolbarTextButton
+        title={detailsCopy.cancel}
+        placement="left"
+        onPress={close}
+      />
+      <ToolbarTextButton
+        title={detailsCopy.save}
+        placement="right"
+        prominent
+        onPress={() => {
+          store.send({
+            kind: "mutate",
+            mutation: { kind: "edit", name, description },
+          });
+          close();
+        }}
+      />
       <FormSection>
         <TextFieldRow
           placeholder={detailsCopy.groupName}
