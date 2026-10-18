@@ -76,7 +76,7 @@ function ChoosePeople({
   return (
     // SwiftUI Forms inset their content above the keyboard.
     <FormScreen
-      automaticallyAdjustKeyboardInsets
+      avoidsKeyboard
       scrollEventThrottle={16}
       onScroll={edge.onScroll}>
       <Stack.Screen

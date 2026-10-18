@@ -59,7 +59,7 @@ function Review({
   const title = state.group ? copy.newGroup : copy.newMessage;
   return (
     <FormScreen
-      automaticallyAdjustKeyboardInsets
+      avoidsKeyboard
       scrollEventThrottle={16}
       onScroll={edge.onScroll}
       contentContainerStyle={styles.content}>

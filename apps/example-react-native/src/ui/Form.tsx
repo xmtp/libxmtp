@@ -16,6 +16,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
 import { useColors } from "@/ui/colors";
 import { Text } from "@/ui/Text";
@@ -73,6 +74,15 @@ export interface FormScreenProps extends ScrollViewProps {
    * right after the last footer (above the home indicator inset).
    */
   bottomInset?: number;
+  /**
+   * Makes room for the keyboard like a SwiftUI Form: a spacer under the last
+   * section grows with the keyboard, and only a field the keyboard would
+   * cover scrolls into view. Use it on forms with text fields instead of
+   * `automaticallyAdjustKeyboardInsets`, which clamps the offset to
+   * `contentInset` without the bar's inset: every keyboard change moved a
+   * resting form 70 pt under a sheet's bar.
+   */
+  avoidsKeyboard?: boolean;
 }
 
 /**
@@ -84,6 +94,7 @@ export interface FormScreenProps extends ScrollViewProps {
 export function FormScreen({
   children,
   bottomInset = 0,
+  avoidsKeyboard = false,
   style,
   contentContainerStyle,
   ...props
@@ -91,8 +102,9 @@ export function FormScreen({
   const palette = useColors();
   const sections = Children.toArray(children);
   const firstIndex = sections.findIndex(isSectionCandidate);
+  const Scroll = avoidsKeyboard ? KeyboardScrollView : ScrollView;
   return (
-    <ScrollView
+    <Scroll
       contentInsetAdjustmentBehavior="automatic"
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
@@ -113,8 +125,13 @@ export function FormScreen({
           {section}
         </FirstSectionContext>
       ))}
-    </ScrollView>
+    </Scroll>
   );
+}
+
+/** A spacer (not an inset) makes room for the keyboard. */
+function KeyboardScrollView(props: ScrollViewProps) {
+  return <KeyboardAwareScrollView mode="layout" {...props} />;
 }
 
 /** Props every row accepts so `FormSection` can draw its separator. */

@@ -72,7 +72,10 @@ package of a merged revision whose SDK content matches:
 - Buttons are `GlassButton` and `GlassIconButton` (native SwiftUI glass on
   iOS). Grouped screens use `FormScreen` + `FormSection` + the rows in
   `FormRows.tsx`; make `FormScreen` the route's first view so the large
-  title collapses.
+  title collapses. A form with text fields passes `avoidsKeyboard`, not
+  `automaticallyAdjustKeyboardInsets`: React Native clamps that offset
+  without the bar's inset, so any keyboard change moves a resting form
+  under the bar.
 - `Stack.Toolbar.Button` icons go through `useToolbarIcon()`, because Android
   needs an image. A titled toolbar button (Next, Create) is
   `ToolbarTextButton`: Android draws no titled `Stack.Toolbar.Button`.
