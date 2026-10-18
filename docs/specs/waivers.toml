@@ -459,5 +459,5 @@ reason = "A test can load only the files of releases that exist, so no test prov
 id = "CONF-087"
 kind = "gap"
 owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4590"
-reason = "The 13 published count limits accept values above 4294967295, and server.max_drain_duration_ms, streams.poll_interval_ms, streams.max_pong_wait_ms, and auth.jwks_max_stale_seconds are checked against the host clock instead of a maximum of 4294967295. The code still refuses a streams.max_pong_wait_ms that does not exceed streams.keepalive_interval_ms. Every other standard check refuses a failing value (every_standard_check_in_the_field_table_refuses_a_failing_value)."
+issue = "https://github.com/xmtp/libxmtp/issues/4606"
+reason = "Two Type gaps remain. A table with fixed keys, including an entry of auth.keys or application_components, accepts an array and decodes it by position, such as limits = [] or database = ['postgres://localhost/xmtp']; a table whose keys the operator chooses refuses one. A key whose value is one of a fixed list of strings (server.log_level, server.log_format, and the type and policies of application_components[]) accepts a one-key table, such as server.log_level = { debug = {} }. attachments.target refuses an array, attachments.target.S3.credentials accepts one and reads its first element as kind, and attachments.target.S3.credentials.kind refuses a table. The bounds and the standard checks hold: every_standard_check_in_the_field_table_refuses_a_failing_value proves them."

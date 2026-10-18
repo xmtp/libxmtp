@@ -4,7 +4,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 pub const MAX_KID_BYTES: usize = 256;
@@ -50,6 +50,7 @@ pub struct AuthConfig {
     #[schemars(range(min = MIN_JWKS_REFRESH_SECONDS))]
     pub jwks_refresh_seconds: u64,
     /// Must be at least the refresh interval plus the ten-second fetch timeout.
+    #[schemars(range(max = super::MAX_U32_KEY))]
     pub jwks_max_stale_seconds: u64,
 }
 
@@ -201,13 +202,10 @@ impl AuthConfig {
                 "must cover jwks_refresh_seconds plus its jitter plus 10",
             ));
         }
-        if Instant::now()
-            .checked_add(Duration::from_secs(self.jwks_max_stale_seconds))
-            .is_none()
-        {
+        if self.jwks_max_stale_seconds > super::MAX_U32_KEY {
             return Err(invalid(
                 "auth.jwks_max_stale_seconds",
-                "deadline cannot be represented on this host",
+                "must not exceed 4294967295",
             ));
         }
         Ok(())

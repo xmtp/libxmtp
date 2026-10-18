@@ -224,10 +224,6 @@ impl Config {
         }
         for (field, milliseconds) in [
             (
-                "server.max_drain_duration_ms",
-                self.server.max_drain_duration_ms,
-            ),
-            (
                 "database.max_statement_timeout_ms",
                 self.database.max_statement_timeout_ms,
             ),
@@ -239,12 +235,10 @@ impl Config {
                 "publishing.max_barrier_wait_ms",
                 self.publishing.max_barrier_wait_ms,
             ),
-            ("streams.poll_interval_ms", self.streams.poll_interval_ms),
             (
                 "streams.keepalive_interval_ms",
                 self.streams.keepalive_interval_ms,
             ),
-            ("streams.max_pong_wait_ms", self.streams.max_pong_wait_ms),
         ] {
             validate_deadline(milliseconds, field)?;
         }
@@ -341,7 +335,7 @@ fn resolve_environment(value: &mut toml::Value) -> Result<(), ConfigError> {
     Ok(())
 }
 
-/// Timer ranges depend on the host's monotonic clock, not an arbitrary duration cap.
+/// A timer without a fixed maximum must still fit the host's monotonic clock.
 fn validate_deadline(milliseconds: u64, field: &'static str) -> Result<(), ConfigError> {
     if std::time::Instant::now()
         .checked_add(std::time::Duration::from_millis(milliseconds))
@@ -357,6 +351,18 @@ fn validate_deadline(milliseconds: u64, field: &'static str) -> Result<(), Confi
 
 fn invalid(field: &'static str, reason: &'static str) -> ConfigError {
     ConfigError::Invalid { field, reason }
+}
+
+/// The maximum of a published count limit and of a timer with a fixed bound:
+/// the largest unsigned 32-bit integer.
+pub(crate) const MAX_U32_KEY: u64 = u32::MAX as u64;
+
+fn at_most_u32(value: u64, field: &'static str) -> Result<(), ConfigError> {
+    if value > MAX_U32_KEY {
+        Err(invalid(field, "must not exceed 4294967295"))
+    } else {
+        Ok(())
+    }
 }
 
 fn positive<T>(value: T, field: &'static str) -> Result<(), ConfigError>
@@ -417,7 +423,8 @@ impl ServerConfig {
         if self.listen.parse::<SocketAddr>().is_err() {
             return Err(invalid("server.listen", "must be a socket address"));
         }
-        positive(self.max_drain_duration_ms, "server.max_drain_duration_ms")
+        positive(self.max_drain_duration_ms, "server.max_drain_duration_ms")?;
+        at_most_u32(self.max_drain_duration_ms, "server.max_drain_duration_ms")
     }
 }
 
@@ -469,6 +476,7 @@ impl StreamsConfig {
     /// Check stream capacities and timing, including the advertised wire interval.
     fn validate(&self) -> Result<(), ConfigError> {
         positive(self.poll_interval_ms, "streams.poll_interval_ms")?;
+        at_most_u32(self.poll_interval_ms, "streams.poll_interval_ms")?;
         positive(self.max_gap_ranges, "streams.max_gap_ranges")?;
         positive(self.keepalive_interval_ms, "streams.keepalive_interval_ms")?;
         if self.keepalive_interval_ms > u32::MAX as u64 {
@@ -477,13 +485,8 @@ impl StreamsConfig {
                 "must fit the Started keepalive interval type",
             ));
         }
-        if self.max_pong_wait_ms <= self.keepalive_interval_ms {
-            return Err(invalid(
-                "streams.max_pong_wait_ms",
-                "must be greater than streams.keepalive_interval_ms",
-            ));
-        }
-        positive(self.max_pong_wait_ms, "streams.max_pong_wait_ms")
+        positive(self.max_pong_wait_ms, "streams.max_pong_wait_ms")?;
+        at_most_u32(self.max_pong_wait_ms, "streams.max_pong_wait_ms")
     }
 }
 
@@ -607,7 +610,7 @@ pub struct ServerConfig {
     pub log_format: LogFormat,
     /// Emit one summary when each gRPC response finishes or is cancelled.
     pub request_logger: bool,
-    #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_drain_duration_ms: u64,
 }
 
@@ -698,13 +701,13 @@ impl Default for PublishingConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct StreamsConfig {
-    #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub poll_interval_ms: u64,
     #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_gap_ranges: usize,
     #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
     pub keepalive_interval_ms: u64,
-    #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_pong_wait_ms: u64,
 }
 
@@ -761,17 +764,17 @@ pub struct LimitsConfig {
     /// Maximum stored topics for one push recipient.
     #[schemars(schema_with = "schema::positive_integer::<{ i32::MAX as u64 }>")]
     pub max_push_topics: i32,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_query_topics: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ i64::MAX as u64 - 1 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub default_query_limit: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ i64::MAX as u64 - 1 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_query_limit: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_newest_metadata_topics: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_newest_full_topics: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_publish_topics: usize,
     #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_envelope_bytes: usize,
@@ -779,19 +782,19 @@ pub struct LimitsConfig {
     pub max_request_bytes: usize,
     #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_response_bytes: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_update_adds: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_update_removes: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_stream_topics: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_static_topics: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_lookup_identifiers: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_scw_signatures: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_identity_entries: usize,
     #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
     pub max_http2_streams: usize,
@@ -817,12 +820,6 @@ impl LimitsConfig {
             return Err(invalid(
                 "limits.max_query_limit",
                 "must be at least limits.default_query_limit",
-            ));
-        }
-        if self.max_query_limit >= i64::MAX as usize {
-            return Err(invalid(
-                "limits.max_query_limit",
-                "must fit the database limit type",
             ));
         }
         positive(
@@ -874,7 +871,29 @@ impl LimitsConfig {
             self.max_ping_frames_per_second,
             "limits.max_ping_frames_per_second",
         )?;
-        positive(self.max_ping_burst, "limits.max_ping_burst")
+        positive(self.max_ping_burst, "limits.max_ping_burst")?;
+        // Each count is published as a 32-bit integer, so it must fit one.
+        for (field, value) in [
+            ("limits.max_query_topics", self.max_query_topics),
+            ("limits.default_query_limit", self.default_query_limit),
+            ("limits.max_query_limit", self.max_query_limit),
+            (
+                "limits.max_newest_metadata_topics",
+                self.max_newest_metadata_topics,
+            ),
+            ("limits.max_newest_full_topics", self.max_newest_full_topics),
+            ("limits.max_publish_topics", self.max_publish_topics),
+            ("limits.max_update_adds", self.max_update_adds),
+            ("limits.max_update_removes", self.max_update_removes),
+            ("limits.max_stream_topics", self.max_stream_topics),
+            ("limits.max_static_topics", self.max_static_topics),
+            ("limits.max_lookup_identifiers", self.max_lookup_identifiers),
+            ("limits.max_scw_signatures", self.max_scw_signatures),
+            ("limits.max_identity_entries", self.max_identity_entries),
+        ] {
+            at_most_u32(value as u64, field)?;
+        }
+        Ok(())
     }
 
     /// Reserve worst-case metadata and framing in each request and delivery budget.

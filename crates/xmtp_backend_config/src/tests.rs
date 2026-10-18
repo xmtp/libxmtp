@@ -484,15 +484,6 @@ fn every_cross_field_relationship_is_rejected() {
     config.limits.max_update_adds = config.limits.max_stream_topics;
     config.clone().validate()?;
     config = toml::from_str(MINIMAL)?;
-    config.streams.max_pong_wait_ms = config.streams.keepalive_interval_ms;
-    assert!(matches!(
-        config.clone().validate(),
-        Err(ConfigError::Invalid {
-            field: "streams.max_pong_wait_ms",
-            ..
-        })
-    ));
-    config = toml::from_str(MINIMAL)?;
     config.limits.max_query_limit = config.limits.default_query_limit - 1;
     assert!(matches!(
         config.clone().validate(),
@@ -624,8 +615,9 @@ fn finite_retention_must_fit_the_authoritative_database_clock() {
     }
 }
 
+/// A timer without a fixed maximum must fit the host's monotonic clock.
 #[xmtp_common::test(unwrap_try = true)]
-fn configurable_deadlines_follow_the_host_monotonic_clock_range() {
+fn uncapped_deadlines_follow_the_host_monotonic_clock_range() {
     for milliseconds in [1, 60_000, u64::MAX] {
         let representable = std::time::Instant::now()
             .checked_add(std::time::Duration::from_millis(milliseconds))
@@ -635,24 +627,17 @@ fn configurable_deadlines_follow_the_host_monotonic_clock_range() {
             representable
         );
     }
-    for field in [
-        "server.max_drain_duration_ms",
-        "streams.poll_interval_ms",
-        "streams.max_pong_wait_ms",
-    ] {
-        let mut config: Config = toml::from_str(MINIMAL)?;
-        match field {
-            "server.max_drain_duration_ms" => config.server.max_drain_duration_ms = u64::MAX,
-            "streams.poll_interval_ms" => config.streams.poll_interval_ms = u64::MAX,
-            _ => config.streams.max_pong_wait_ms = u64::MAX,
-        }
-        if validate_deadline(u64::MAX, field).is_err() {
-            assert!(
-                matches!(config.clone().validate(), Err(ConfigError::Invalid { field: actual, .. }) if actual == field)
-            );
-        } else {
-            config.clone().validate()?;
-        }
+}
+
+/// The Pong wait is bounded on its own. It may equal or fall below the
+/// keepalive interval: no relation ties the two.
+#[xmtp_common::test(unwrap_try = true)]
+fn the_pong_wait_need_not_exceed_the_keepalive_interval() {
+    for pong_wait_ms in [30_000, 1] {
+        let config = ValidatedConfig::load_str(&format!(
+            "{MINIMAL}[streams]\nkeepalive_interval_ms = 30000\nmax_pong_wait_ms = {pong_wait_ms}\n"
+        ))?;
+        assert_eq!(config.streams.max_pong_wait_ms, pong_wait_ms);
     }
 }
 
@@ -1065,12 +1050,6 @@ fn with_inline_keys(case: FailingValue) -> FailingValue {
 const COUNT: &str = "range 1..4294967295";
 const MAX_INT: &str = "range 1..2147483647";
 
-/// Rows whose standard check has no failing value that today's code refuses.
-/// The only value outside `range 0..4294967295` is above it, and the backend
-/// checks this key against the host clock instead until
-/// https://github.com/xmtp/libxmtp/issues/4590 is fixed.
-const REFUSED_LATER: &[(&str, &str)] = &[("auth.jwks_max_stale_seconds", "range 0..4294967295")];
-
 fn failing_values() -> Vec<FailingValue> {
     let mut cases = vec![
         failing("server.listen", "socket address", "'localhost:5050'"),
@@ -1198,8 +1177,7 @@ fn failing_values() -> Vec<FailingValue> {
             "'reserved'",
         ));
     }
-    // The upper bound of these keys is refused only after
-    // https://github.com/xmtp/libxmtp/issues/4590; their lower bound is here.
+    // Both bounds of the published count limits and the capped timers.
     for key in [
         "server.max_drain_duration_ms",
         "streams.poll_interval_ms",
@@ -1219,7 +1197,13 @@ fn failing_values() -> Vec<FailingValue> {
         "limits.max_identity_entries",
     ] {
         cases.push(failing(key, COUNT, "0"));
+        cases.push(failing(key, COUNT, "4294967296"));
     }
+    cases.push(failing(
+        "auth.jwks_max_stale_seconds",
+        "range 0..4294967295",
+        "4294967296",
+    ));
     for key in [
         "database.max_connections",
         "streams.keepalive_interval_ms",
@@ -1283,11 +1267,6 @@ fn every_standard_check_in_the_field_table_refuses_a_failing_value() {
     let covered: BTreeSet<(String, String)> = cases
         .iter()
         .map(|case| (case.key.to_owned(), case.check.to_owned()))
-        .chain(
-            REFUSED_LATER
-                .iter()
-                .map(|(key, check)| ((*key).to_owned(), (*check).to_owned())),
-        )
         .collect();
     assert_eq!(
         named, covered,
