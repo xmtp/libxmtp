@@ -76,11 +76,20 @@ const symbolBoxRatio = 1.18;
  * Measured on iOS 27: a body `doc.on.doc` row is 53.7 pt (not 52), a
  * large-title `bubble.left.and.bubble.right` is 49 x 38 pt, and a title3
  * `person.badge.plus` makes the Details shortcut tile 70.3 pt tall.
+ * `layout` keeps a larger glyph from growing its row: the glyph overhangs a
+ * layout box of that height, like the body-size `rectangle.portrait.and.
+ * arrow.right` (19.3 x 18 pt) and `trash` (16 x 18.7 pt) Settings rows,
+ * which stay 52 pt tall.
  */
 const symbolMetrics: Partial<
-  Record<SymbolName, { box: number; width?: number; height?: number }>
+  Record<
+    SymbolName,
+    { box: number; width?: number; height?: number; layout?: number }
+  >
 > = {
   "doc.on.doc": { box: 1.29, height: 1.39 },
+  "rectangle.portrait.and.arrow.right": { box: 1.38, layout: 1.18 },
+  trash: { box: 1.29, layout: 1.18 },
   "bubble.left.and.bubble.right": { box: 1.5, width: 1.5, height: 1.32 },
   "person.badge.plus": { box: 1.18, height: 1.25 },
 };
@@ -139,6 +148,13 @@ export function Symbol({
           : {
               width: fontSize * (metrics.width ?? metrics.box) * scale,
               height: fontSize * (metrics.height ?? metrics.box) * scale,
+              marginVertical:
+                metrics.layout === undefined
+                  ? 0
+                  : (fontSize *
+                      (metrics.layout - (metrics.height ?? metrics.box)) *
+                      scale) /
+                    2,
             },
         style,
       ]}
