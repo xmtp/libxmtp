@@ -112,7 +112,9 @@ export function EmojiPickerScreen({
 }: EmojiPickerScreenProps) {
   const session = useActiveSession();
   return (
-    <View style={styles.screen}>
+    // One non-collapsable root: react-native-screens gives a form sheet whose
+    // container holds a scroll view directly its own scroll-view layout.
+    <View style={styles.screen} collapsable={false}>
       <Stack.Screen options={{ title: EmojiCopy.title, headerShown: false }} />
       <View style={styles.header}>
         {/* A toolbar item: the bar's glass circle around a glass capsule. */}
@@ -326,7 +328,7 @@ const styles = StyleSheet.create({
   },
   // SwiftUI's one-line body field is 21 pt tall (41 pt with the padding).
   field: { flex: 1, height: 21, lineHeight: 21, padding: 0 },
-  list: { flex: 1, overflow: "hidden" },
+  list: { flex: 1 },
   content: { paddingBottom: 16, paddingHorizontal: 16 },
   first: { paddingTop: 0 },
   recentTitle: { paddingBottom: 20 },

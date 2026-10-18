@@ -80,9 +80,6 @@ function ReactionsContent({
   const state = useStore(actions);
   const identities = useStore(session.identities);
   const [selected, setSelected] = useState(emoji);
-  // The list mounts once the chips have their SwiftUI size: in a form sheet a
-  // scroll view laid out before that keeps its first, too-high frame.
-  const [chipsReady, setChipsReady] = useState(false);
   const row = state.message;
   const badges =
     row === undefined ? [] : reactionBadges(row.reactions, session.inboxId);
@@ -93,7 +90,9 @@ function ReactionsContent({
       : removableReaction(badges, selected, actions.allowed);
 
   return (
-    <View style={styles.screen}>
+    // One non-collapsable root: react-native-screens gives a form sheet whose
+    // container holds a scroll view directly its own scroll-view layout.
+    <View style={styles.screen} collapsable={false}>
       <View style={styles.header}>
         <View style={styles.balance}>
           <GlassIconButton
@@ -113,67 +112,60 @@ function ReactionsContent({
       </View>
       {row !== undefined ? (
         <>
-          <View
-            onLayout={(event) => {
-              if (event.nativeEvent.layout.height > 0) setChipsReady(true);
-            }}>
-            <ReactionChips
-              chips={[
-                { key: "", title: reactionsCopy.all(reactionTotal(badges)) },
-                ...badges.map((badge) => ({
-                  key: badge.emoji,
-                  title: `${badge.emoji} ${String(badge.count)}`,
-                })),
-              ]}
-              selected={selected}
-              onSelect={setSelected}
-            />
-          </View>
+          <ReactionChips
+            chips={[
+              { key: "", title: reactionsCopy.all(reactionTotal(badges)) },
+              ...badges.map((badge) => ({
+                key: badge.emoji,
+                title: `${badge.emoji} ${String(badge.count)}`,
+              })),
+            ]}
+            selected={selected}
+            onSelect={setSelected}
+          />
           <View style={styles.list}>
-            {chipsReady ? (
-              <ScrollView
-                contentInsetAdjustmentBehavior="never"
-                contentContainerStyle={styles.listContent}>
-                <View
-                  style={[
-                    styles.card,
-                    { backgroundColor: palette.sheetRowFill },
-                  ]}>
-                  {listRows.map((item, index) => {
-                    const handle = identities.get(item.sender)?.handle;
-                    return (
-                      <View
-                        key={`${item.emoji}:${item.sender}:${String(index)}`}
-                        style={styles.row}>
-                        <Avatar
-                          seed={item.sender}
-                          label={personInitials(
-                            handle ?? item.sender,
-                            handle === undefined,
-                          )}
-                          size={36}
+            <ScrollView
+              contentInsetAdjustmentBehavior="never"
+              contentContainerStyle={styles.listContent}>
+              <View
+                style={[
+                  styles.card,
+                  { backgroundColor: palette.sheetRowFill },
+                ]}>
+                {listRows.map((item, index) => {
+                  const handle = identities.get(item.sender)?.handle;
+                  return (
+                    <View
+                      key={`${item.emoji}:${item.sender}:${String(index)}`}
+                      style={styles.row}>
+                      <Avatar
+                        seed={item.sender}
+                        label={personInitials(
+                          handle ?? item.sender,
+                          handle === undefined,
+                        )}
+                        size={36}
+                      />
+                      <IdentityText
+                        inboxId={item.sender}
+                        handle={handle}
+                        style={styles.identity}
+                        numberOfLines={1}
+                      />
+                      <Text>{item.emoji}</Text>
+                      {index < listRows.length - 1 ? (
+                        <View
+                          style={[
+                            styles.separator,
+                            { backgroundColor: palette.separator },
+                          ]}
                         />
-                        <IdentityText
-                          inboxId={item.sender}
-                          handle={handle}
-                          style={styles.identity}
-                          numberOfLines={1}
-                        />
-                        <Text>{item.emoji}</Text>
-                        {index < listRows.length - 1 ? (
-                          <View
-                            style={[
-                              styles.separator,
-                              { backgroundColor: palette.separator },
-                            ]}
-                          />
-                        ) : null}
-                      </View>
-                    );
-                  })}
-                </View>
-              </ScrollView>
-            ) : null}
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            </ScrollView>
           </View>
           {removable === undefined ? null : (
             <View style={styles.remove}>
