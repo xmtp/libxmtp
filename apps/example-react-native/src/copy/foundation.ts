@@ -4,7 +4,6 @@
  */
 export const foundationCopy = {
   appName: "XMTP Messenger",
-  placeholder: "This screen is added in the next implementation stage.",
   cannotOpenAccount: "Cannot open account",
   cannotOpenApp: "Cannot open app",
   cannotOpenStorage: "Cannot open local account storage.",
