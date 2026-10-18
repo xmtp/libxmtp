@@ -258,6 +258,25 @@ export function checkUnchanged(
   if (!canWrite(now)) throw new MetadataRuleError("immutable");
 }
 
+/**
+ * The registry read just before a write must still define the field the
+ * loaded snapshot shows (shape, policy, editable, user field).
+ */
+export function checkLatest(
+  now: MetadataField,
+  descriptor: MetadataFieldDescriptor,
+): void {
+  const latest = metadataField(descriptor, undefined);
+  if (
+    latest.shape !== now.shape ||
+    latest.policy !== now.policy ||
+    latest.editable !== now.editable ||
+    latest.userField !== now.userField
+  ) {
+    throw new MetadataRuleError("changed");
+  }
+}
+
 /** `"<name> · 0xC101 · string"`. */
 export function fieldHeader(field: MetadataField): string {
   const id = field.id.toString(16).toUpperCase().padStart(4, "0");

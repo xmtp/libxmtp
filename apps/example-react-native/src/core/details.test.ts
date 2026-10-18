@@ -65,6 +65,8 @@ class FakeQueries implements GroupQueries {
   holdLoads: Gate | undefined;
   /** Lookups that wait for a gate, by input. */
   resolveGates = new Map<string, Gate>();
+  /** Lookups that fail (after their gate), by input. */
+  failingInputs = new Set<string>();
 
   async load(): Promise<ConversationDetails> {
     this.loads += 1;
@@ -100,6 +102,9 @@ class FakeQueries implements GroupQueries {
   async resolve(input: string): Promise<DetailsMember> {
     if (this.recipientError !== undefined) throw this.recipientError;
     await this.resolveGates.get(input)?.wait();
+    if (this.failingInputs.has(input)) {
+      throw new RecipientError("handleNotFound");
+    }
     return { id: input, otherHandles: [], role: "member" };
   }
 
@@ -413,4 +418,70 @@ test("a recipient preview failure shows its copy", async () => {
   store.resolvePreview("nobody");
   await eventually(() => store.getState().error !== undefined);
   assert.equal(store.getState().error, "No XMTP account has this handle.");
+});
+
+test("a settled poller restarts for the next pending action", async () => {
+  const ticks = new Gate();
+  const fake = new FakeQueries();
+  fake.members = [];
+  const store = makeStore(fake, { pause: ticks.wait });
+  store.send({ kind: "mutate", mutation: { kind: "add", input: "first" } });
+  await eventually(() => ticks.waiters.length === 1);
+  fake.members = [{ id: "first", otherHandles: [], role: "member" }];
+  ticks.releaseAll();
+  await eventually(() => store.getState().pendingMembers.size === 0);
+  await tick();
+  assert.equal(ticks.waiters.length, 0);
+  store.send({ kind: "mutate", mutation: { kind: "add", input: "second" } });
+  await eventually(() => ticks.waiters.length === 1);
+  assert.equal(store.getState().pendingMembers.has("second"), true);
+  store.dispose();
+  ticks.releaseAll();
+});
+
+test("a confirmed removal clears and ends polling", async () => {
+  const ticks = new Gate();
+  const fake = new FakeQueries();
+  const store = makeStore(fake, { pause: ticks.wait });
+  store.send({ kind: "mutate", mutation: { kind: "remove", id: "other" } });
+  await eventually(() => ticks.waiters.length === 1);
+  assert.equal(store.getState().pendingRemoval.has("other"), true);
+  fake.members = [{ id: "own", otherHandles: [], role: "superAdmin" }];
+  ticks.releaseAll();
+  await eventually(() => store.getState().pendingRemoval.size === 0);
+  await tick();
+  assert.equal(ticks.waiters.length, 0);
+});
+
+test("a slow older failed lookup cannot set the error", async () => {
+  const fake = new FakeQueries();
+  const slow = new Gate();
+  fake.resolveGates.set("first", slow);
+  fake.failingInputs.add("first");
+  const store = makeStore(fake);
+  store.resolvePreview("first");
+  await eventually(() => slow.waiters.length === 1);
+  store.resolvePreview("second");
+  await eventually(() => store.getState().recipient !== undefined);
+  slow.releaseAll();
+  await tick();
+  await tick();
+  assert.equal(store.getState().error, undefined);
+  assert.equal(store.getState().recipient?.id, "second");
+});
+
+test("losing admission while an add resolves writes nothing", async () => {
+  let valid = true;
+  const fake = new FakeQueries();
+  const lookup = new Gate();
+  fake.resolveGates.set("@sam", lookup);
+  const store = makeStore(fake, { admit: () => valid });
+  store.send({ kind: "mutate", mutation: { kind: "add", input: "@sam" } });
+  await eventually(() => lookup.waiters.length === 1);
+  valid = false;
+  lookup.releaseAll();
+  await tick();
+  await tick();
+  assert.deepEqual(fake.mutations, []);
+  assert.equal(store.getState().pendingMembers.size, 0);
 });

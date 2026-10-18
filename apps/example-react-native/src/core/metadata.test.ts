@@ -10,6 +10,7 @@ import {
   ABSENT,
   canWrite,
   checkCollection,
+  checkLatest,
   checkUnchanged,
   draftChanges,
   emptyDraft,
@@ -224,6 +225,38 @@ test("a descriptor maps to a field with its header, shape and value", () => {
   assert.equal(user.name, `Component ${String(0xc201)}`);
   assert.equal(user.shape, "userBytes");
   assert.equal(user.present, false);
+});
+
+test("a registry change after the load blocks the write", () => {
+  const descriptor: MetadataFieldDescriptor = {
+    field: { componentId: 0xc102, name: "Topic" },
+    componentType: { kind: "string" },
+    permissions: {
+      insert: base("allowIfAdmin"),
+      update: base("allowIfAdmin"),
+      delete: base("deny"),
+    },
+    isUserField: false,
+  };
+  const now = metadataField(
+    descriptor,
+    { kind: "scalar", value: { kind: "string", value: "MLS" } },
+    "admin",
+  );
+  checkLatest(now, descriptor);
+  const changes: MetadataFieldDescriptor[] = [
+    {
+      ...descriptor,
+      permissions: { ...descriptor.permissions, update: base("deny") },
+    },
+    { ...descriptor, componentType: { kind: "bytes" } },
+    { ...descriptor, isUserField: true },
+  ];
+  for (const latest of changes) {
+    rejects("changed", () => {
+      checkLatest(now, latest);
+    });
+  }
 });
 
 test("a failed edit reloads and shows the update error", async () => {

@@ -307,7 +307,6 @@ export class DetailsStore extends Store<DetailsState> {
     let added: DetailsMember | undefined;
     if (mutation.kind === "add") {
       added = await this.#queries.resolve(mutation.input);
-      if (!this.#admits()) throw new Dropped();
       resolved = { kind: "add", input: added.id };
     }
     if (!this.#admits()) throw new Dropped();

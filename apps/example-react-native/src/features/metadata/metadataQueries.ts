@@ -16,6 +16,7 @@ import {
   canonicalKey,
   canSet,
   checkCollection,
+  checkLatest,
   checkUnchanged,
   type FieldEntry,
   type FieldEntryAction,
@@ -181,6 +182,7 @@ export class SdkMetadataQueries implements MetadataQueries {
         throw new MetadataRuleError("changed");
       }
       checkUnchanged(old, now);
+      checkLatest(now, descriptor);
       return [now, descriptor.field];
     };
     switch (edit.kind) {
