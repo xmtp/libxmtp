@@ -47,7 +47,13 @@ function harness(
     () => true,
   );
   const removed: string[] = [];
-  const env = { admitted: true, allowed: true, authorized: true, changes: 0 };
+  const env: {
+    admitted: boolean;
+    allowed: boolean;
+    authorized: boolean;
+    changes: number;
+    authorize?: () => Promise<boolean>;
+  } = { admitted: true, allowed: true, authorized: true, changes: 0 };
   let next = 0;
   const conversationId =
     options.conversationId === null
@@ -61,7 +67,8 @@ function harness(
     admit: () => env.admitted,
     acceptsSession: () => true,
     allowed: () => env.allowed,
-    authorizeDownload: () => Promise.resolve(env.authorized),
+    authorizeDownload: () =>
+      env.authorize?.() ?? Promise.resolve(env.authorized),
     sendFile: (id, file) =>
       conversation.queue(id, { kind: "attachment", file }),
     published: async (id, messageId) => {
@@ -355,4 +362,22 @@ test("a closed conversation cannot download or send", async () => {
   await h.store.send(draft.id);
   assert.equal(h.gateway.downloads.length, 0);
   assert.equal(h.gateway.uploads.length, 0);
+});
+
+test("a second tap whose consent check ends after the first download does not download again", async () => {
+  const h = harness();
+  const file = remoteFile("report.pdf");
+  const late = deferred<boolean>();
+  let calls = 0;
+  h.env.authorize = () => {
+    calls += 1;
+    return calls === 1 ? Promise.resolve(true) : late.promise;
+  };
+  const first = h.store.download("m1", file);
+  const second = h.store.download("m1", file);
+  await first;
+  assert.equal(h.store.card("m1", file).phase, "verified");
+  late.resolve(true);
+  await second;
+  assert.equal(h.gateway.downloads.length, 1);
 });
