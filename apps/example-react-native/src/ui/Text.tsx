@@ -51,6 +51,8 @@ function useSpanStyle({
 /**
  * SwiftUI-styled text: a text style (default `body`) in `label` color. It
  * scales with Dynamic Type on iOS and keeps font scaling on with no maximum.
+ * Lines break with the standard strategy, like SwiftUI, which keeps a single
+ * word off the last line of a short paragraph.
  */
 export function Text({
   variant = "body",
@@ -66,6 +68,7 @@ export function Text({
   return (
     <NativeText
       dynamicTypeRamp={textStyles[variant].ramp}
+      lineBreakStrategyIOS="standard"
       {...props}
       style={[fontOf(variant), spanStyle, style]}
     />

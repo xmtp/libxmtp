@@ -38,6 +38,16 @@ export function fontOf(variant: TextVariant): TextStyle {
     : { fontSize: spec.fontSize, fontWeight: spec.fontWeight };
 }
 
+/**
+ * SwiftUI advances wrapped lines about 4 percent more than the font's
+ * natural line height (measured on iOS 27: body 21.17 pt, footnote 15.85 pt),
+ * while a single line keeps its natural height. React Native's `lineHeight`
+ * applies to every line, so set it only on text that has wrapped.
+ */
+export function wrappedLineHeight(variant: TextVariant): number {
+  return Math.round(textStyles[variant].fontSize * 124.5) / 100;
+}
+
 export const fontWeights = {
   regular: "400",
   medium: "500",

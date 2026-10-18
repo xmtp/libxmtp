@@ -1,13 +1,8 @@
 import { useMemo } from "react";
-import {
-  type StyleProp,
-  StyleSheet,
-  useWindowDimensions,
-  View,
-  type ViewStyle,
-} from "react-native";
+import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 
 import { avatarPaletteIndex } from "@/core/avatar.ts";
+import { useBodyScale } from "@/ui/accessibility";
 import { avatarPalette } from "@/ui/colors";
 import { Text } from "@/ui/Text";
 
@@ -37,7 +32,7 @@ export function Avatar({
   style,
   testID,
 }: AvatarProps) {
-  const { fontScale } = useWindowDimensions();
+  const fontScale = useBodyScale();
   const colors = useMemo(() => avatarPalette[avatarPaletteIndex(seed)], [seed]);
   const diameter = size * fontScale;
   return (

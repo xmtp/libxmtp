@@ -1,9 +1,17 @@
-import type { ReactNode } from "react";
-import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
+import { type ReactNode, useState } from "react";
+import {
+  type StyleProp,
+  StyleSheet,
+  type TextLayoutEvent,
+  useWindowDimensions,
+  View,
+  type ViewStyle,
+} from "react-native";
 import Svg, { Path } from "react-native-svg";
 
 import { useColors } from "@/ui/colors";
 import { Span, Text } from "@/ui/Text";
+import { wrappedLineHeight } from "@/ui/typography";
 
 export interface BubbleProps {
   isOutgoing: boolean;
@@ -75,7 +83,13 @@ export function Bubble({
   );
 }
 
-/** Message text in a bubble: body, white on outgoing, label on incoming. */
+/**
+ * Message text in a bubble: body, white on outgoing, label on incoming.
+ * Wrapped text in React Native fills the width it is offered; SwiftUI sizes
+ * it to its longest line and spaces its lines slightly wider. After the first
+ * layout this narrows wrapped text to its longest line and applies SwiftUI's
+ * wrapped line height.
+ */
 export function BubbleText({
   isOutgoing,
   children,
@@ -85,8 +99,34 @@ export function BubbleText({
   children?: ReactNode;
   italic?: boolean;
 }) {
+  const { width: windowWidth, fontScale } = useWindowDimensions();
+  // The narrowed width belongs to one text at one size; any change measures
+  // again at the full width.
+  const key =
+    typeof children === "string"
+      ? `${children}|${windowWidth}|${fontScale}`
+      : undefined;
+  const [measured, setMeasured] = useState<{ key: string; width: number }>();
+  const width =
+    key !== undefined && measured?.key === key ? measured.width : undefined;
+  const onTextLayout = (event: TextLayoutEvent) => {
+    const { lines } = event.nativeEvent;
+    if (key === undefined || lines.length < 2 || width !== undefined) return;
+    setMeasured({
+      key,
+      width: Math.ceil(Math.max(...lines.map((line) => line.width))),
+    });
+  };
   return (
-    <Text color={isOutgoing ? "onTint" : "label"} italic={italic}>
+    <Text
+      color={isOutgoing ? "onTint" : "label"}
+      italic={italic}
+      onTextLayout={onTextLayout}
+      style={
+        width === undefined
+          ? undefined
+          : { width, lineHeight: wrappedLineHeight("body") }
+      }>
       {children}
     </Text>
   );

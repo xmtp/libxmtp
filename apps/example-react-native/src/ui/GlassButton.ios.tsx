@@ -117,5 +117,6 @@ export function GlassIconButton({
 }
 
 const styles = StyleSheet.create({
-  fullWidth: { alignSelf: "stretch" },
+  // Fills the width in a row or a column parent.
+  fullWidth: { width: "100%" },
 });

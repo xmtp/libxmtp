@@ -1,6 +1,8 @@
 // The design system. iOS-only leaves live in `<Name>.ios.tsx` next to a plain
 // React Native `<Name>.tsx` with the same props (Android).
 export {
+  bodyScaleFor,
+  useBodyScale,
   useIncreasedContrast,
   useIsAccessibilitySize,
   useReducedMotion,
@@ -114,6 +116,7 @@ export {
   fontOf,
   textStyles,
   type TextVariant,
+  wrappedLineHeight,
 } from "@/ui/typography";
 export { type ReadableStore, useStore } from "@/ui/useStore";
 export { stackScreenOptions, useStackScreenOptions } from "@/ui/navigation";

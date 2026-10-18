@@ -117,7 +117,8 @@ const styles = StyleSheet.create({
   },
   regular: { minHeight: 36, paddingHorizontal: 14 },
   large: { minHeight: 52, paddingHorizontal: 20 },
-  fullWidth: { alignSelf: "stretch" },
+  // Fills the width in a row or a column parent.
+  fullWidth: { width: "100%" },
   circle: {
     alignItems: "center",
     borderRadius: 999,

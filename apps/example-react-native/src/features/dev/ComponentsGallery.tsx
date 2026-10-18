@@ -288,7 +288,7 @@ export function ComponentsGallery() {
         </View>
       </Block>
 
-      <View style={styles.bleed}>
+      <View>
         <FormSection header={galleryCopy.rows}>
           <NavigationRow
             title={galleryDetails.permissions}
@@ -448,8 +448,12 @@ export function ComponentsGallery() {
                 </BubbleText>
               </Bubble>
               <View style={styles.badges}>
-                <ReactionBadge emoji="👍" count={3} />
-                <ReactionBadge emoji="❤️" count={1} isSelected />
+                <View style={styles.badgeTarget}>
+                  <ReactionBadge emoji="👍" count={3} />
+                </View>
+                <View style={styles.badgeTarget}>
+                  <ReactionBadge emoji="❤️" count={1} isSelected />
+                </View>
               </View>
             </View>
           </View>
@@ -541,12 +545,19 @@ const styles = StyleSheet.create({
   bubbles: { borderRadius: 26, gap: 10, padding: 16 },
   incoming: { alignItems: "flex-start", paddingRight: 42, paddingVertical: 6 },
   outgoing: { alignItems: "flex-end", paddingLeft: 42 },
+  // `reactionBadges`: 44 pt targets at the top-trailing corner, 12 pt up.
   badges: {
     flexDirection: "row",
     gap: 2,
     position: "absolute",
     right: 0,
     top: -12,
+  },
+  badgeTarget: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    minWidth: 44,
   },
   motion: { gap: 12 },
   motionStage: { alignItems: "flex-start", height: 48 },

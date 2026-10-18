@@ -71,6 +71,7 @@ export function ChatsReplica() {
       </PlainListRow>
       <ContentUnavailable
         fill={false}
+        style={styles.empty}
         systemImage="bubble.left.and.bubble.right"
         title={copy.emptyTitle}
         description={copy.emptyDetail}>
@@ -88,6 +89,9 @@ export function ChatsReplica() {
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 24 },
-  requests: { paddingVertical: 13 },
+  // `.padding(.vertical, 8)` inside the 15 pt list row inset.
+  requests: { paddingVertical: 23 },
+  // The empty state is a list row: 16 pt side and 15 pt top row insets.
+  empty: { marginHorizontal: 16, marginTop: 15 },
   requestsText: { flex: 1, gap: 4 },
 });

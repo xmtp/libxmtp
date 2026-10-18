@@ -30,7 +30,8 @@ export interface PlainListRowProps {
 }
 
 /**
- * A row of a plain `List` (Chats, Requests): full width, 16 pt sides, a 1 pt
+ * A row of a plain `List` (Chats, Requests): full width, 16 pt sides, 15 pt
+ * top and bottom (add the row's own SwiftUI padding to `style`), a 1 pt
  * separator from `separatorInset` to 16 pt before the trailing edge, and the
  * system highlight while pressed.
  */
@@ -90,7 +91,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 12,
+    minHeight: 52,
     paddingHorizontal: 16,
+    paddingVertical: 15,
   },
   separator: { height: 1, position: "absolute", right: 16 },
   top: { top: 0 },

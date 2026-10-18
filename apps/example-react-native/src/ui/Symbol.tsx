@@ -1,10 +1,7 @@
 import { type SymbolWeight, SymbolView } from "expo-symbols";
-import {
-  type StyleProp,
-  useWindowDimensions,
-  type ViewStyle,
-} from "react-native";
+import { type StyleProp, type ViewStyle } from "react-native";
 
+import { useBodyScale } from "@/ui/accessibility";
 import { type ColorInput, resolveColor, useColors } from "@/ui/colors";
 import { textStyles, type TextVariant } from "@/ui/typography";
 
@@ -74,13 +71,16 @@ export type SymbolName = keyof typeof symbolNames;
 const symbolBoxRatio = 1.18;
 
 /**
- * Symbols whose SwiftUI layout box is taller than the default, as font-size
- * multiples (measured: a body `doc.on.doc` row is 53.7 pt, not 52).
+ * Symbols whose SwiftUI size differs from the square default, in font-size
+ * multiples: `box` sizes the glyph, `width` and `height` its layout box.
+ * Measured on iOS 27: a body `doc.on.doc` row is 53.7 pt (not 52), and a
+ * large-title `bubble.left.and.bubble.right` is 49 x 38 pt.
  */
-const tallSymbols: Partial<
-  Record<SymbolName, { box: number; height: number }>
+const symbolMetrics: Partial<
+  Record<SymbolName, { box: number; width?: number; height?: number }>
 > = {
   "doc.on.doc": { box: 1.29, height: 1.39 },
+  "bubble.left.and.bubble.right": { box: 1.5, width: 1.5, height: 1.17 },
 };
 
 export interface SymbolProps {
@@ -116,11 +116,11 @@ export function Symbol({
   testID,
 }: SymbolProps) {
   const palette = useColors();
-  const { fontScale } = useWindowDimensions();
+  const fontScale = useBodyScale();
   const fontSize = textStyles[textStyle].fontSize;
-  const tall = size === undefined ? tallSymbols[name] : undefined;
+  const metrics = size === undefined ? symbolMetrics[name] : undefined;
   const scale = scalesWithText ? fontScale : 1;
-  const box = size ?? fontSize * (tall?.box ?? symbolBoxRatio);
+  const box = size ?? fontSize * (metrics?.box ?? symbolBoxRatio);
   const points = box * scale;
   const resolvedWeight =
     weight ?? (textStyle === "headline" ? "semibold" : undefined);
@@ -132,9 +132,12 @@ export function Symbol({
       tintColor={resolveColor(palette, color)}
       resizeMode="scaleAspectFit"
       style={[
-        tall === undefined
+        metrics === undefined
           ? undefined
-          : { height: fontSize * tall.height * scale },
+          : {
+              width: fontSize * (metrics.width ?? metrics.box) * scale,
+              height: fontSize * (metrics.height ?? metrics.box) * scale,
+            },
         style,
       ]}
       testID={testID}

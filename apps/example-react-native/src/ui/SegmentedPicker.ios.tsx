@@ -61,5 +61,6 @@ export function SegmentedPicker<T extends string>({
 }
 
 const styles = StyleSheet.create({
-  host: { alignSelf: "stretch" },
+  // Fills the width in a row or a column parent.
+  host: { width: "100%" },
 });

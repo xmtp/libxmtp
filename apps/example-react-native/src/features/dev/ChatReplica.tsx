@@ -40,7 +40,9 @@ function Row({
           </Bubble>
           {reaction === undefined ? null : (
             <View style={styles.badges}>
-              <ReactionBadge emoji={reaction} count={1} />
+              <View style={styles.badgeTarget}>
+                <ReactionBadge emoji={reaction} count={1} />
+              </View>
             </View>
           )}
         </View>
@@ -122,12 +124,19 @@ const styles = StyleSheet.create({
   outgoing: { justifyContent: "flex-end", paddingLeft: 42 },
   reacted: { paddingVertical: 6 },
   column: { gap: 4 },
+  // `reactionBadges`: 44 pt targets at the top-trailing corner, 12 pt up.
   badges: {
     flexDirection: "row",
     gap: 2,
     position: "absolute",
     right: 0,
     top: -12,
+  },
+  badgeTarget: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    minWidth: 44,
   },
   reply: { gap: 6 },
   quote: { borderRadius: 8, padding: 8 },

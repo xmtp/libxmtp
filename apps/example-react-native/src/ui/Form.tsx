@@ -67,7 +67,10 @@ const FirstSectionContext = createContext(false);
 
 export interface FormScreenProps extends ScrollViewProps {
   children?: ReactNode;
-  /** Extra space after the last section. Default 24. */
+  /**
+   * Extra space after the last section. Default 0: SwiftUI ends the content
+   * right after the last footer (above the home indicator inset).
+   */
   bottomInset?: number;
 }
 
@@ -79,7 +82,7 @@ export interface FormScreenProps extends ScrollViewProps {
  */
 export function FormScreen({
   children,
-  bottomInset = 24,
+  bottomInset = 0,
   style,
   contentContainerStyle,
   ...props
@@ -186,10 +189,12 @@ export function FormSection({
       )}
       <View
         style={[
-          styles.card,
           plain
             ? undefined
-            : { backgroundColor: palette.secondarySystemGroupedBackground },
+            : [
+                styles.card,
+                { backgroundColor: palette.secondarySystemGroupedBackground },
+              ],
         ]}>
         {rows.map((row, index) => (
           <View key={isValidElement(row) && row.key !== null ? row.key : index}>

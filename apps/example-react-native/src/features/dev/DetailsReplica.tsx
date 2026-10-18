@@ -85,25 +85,27 @@ export function DetailsReplica() {
           {commonCopy.edit}
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
-      <View style={styles.header}>
-        <Avatar seed="lena" label="PD" size={96} />
-        <Text variant="title" weight="bold" align="center">
-          {copy.title}
-        </Text>
-        <Text variant="subheadline" color="secondaryLabel">
-          {copy.subtitle}
-        </Text>
-        <View style={styles.tiles}>
-          <ShortcutTile
-            title={galleryCopy.addMember}
-            systemImage="person.badge.plus"
-          />
-          <ShortcutTile
-            title={galleryCopy.disappearingShort}
-            systemImage="hourglass"
-          />
+      <FormSection plain>
+        <View style={styles.header}>
+          <Avatar seed="lena" label="PD" size={96} />
+          <Text variant="title" weight="bold" align="center">
+            {copy.title}
+          </Text>
+          <Text variant="subheadline" color="secondaryLabel">
+            {copy.subtitle}
+          </Text>
+          <View style={styles.tiles}>
+            <ShortcutTile
+              title={galleryCopy.addMember}
+              systemImage="person.badge.plus"
+            />
+            <ShortcutTile
+              title={galleryCopy.disappearingShort}
+              systemImage="hourglass"
+            />
+          </View>
         </View>
-      </View>
+      </FormSection>
       <FormSection header={copy.nameHeader} footer={copy.nameFooter}>
         <TextFieldRow
           placeholder={galleryCopy.localName}
@@ -123,6 +125,7 @@ export function DetailsReplica() {
           color="systemBlue"
           iconColor="tint"
           iconStyle="label"
+          iconSize={24}
           onPress={() => {}}
         />
         <MemberRow seed="lena" title={copy.memberA} role={copy.member} />
@@ -195,12 +198,7 @@ export function DetailsReplica() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-  },
+  header: { alignItems: "center", gap: 10 },
   tiles: { alignSelf: "stretch", flexDirection: "row", gap: 10, paddingTop: 6 },
   tileWrap: { flex: 1 },
   tile: {

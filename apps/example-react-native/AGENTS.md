@@ -60,6 +60,25 @@ package of a merged revision whose SDK content matches:
 - Keep copy in each feature's `copy.ts` or `src/copy/`. `testID` and `accessibilityLabel` values mirror the iOS example's accessibility identifiers and labels.
 - Hermes has no `crypto.getRandomValues`, `TextDecoder` or `Buffer`. Pass native paths, never `file://` URIs, to the SDK. 64-bit SDK values are `bigint`; persist them as decimal strings.
 
+## Design system
+
+`src/ui` mirrors `apps/example-ios/ExampleApp/DesignSystem`. Its metrics are
+measured against the iOS example's screenshots on an iOS 27 iPhone 17 Pro.
+
+- Colors come from `useColors()` or a palette name on `color` props; never
+  hard-code hex values in screens. Text uses `Text` variants (SwiftUI text
+  styles with Dynamic Type); icons use `Symbol` (SF Symbols, Material Symbols
+  on Android).
+- Buttons are `GlassButton` and `GlassIconButton` (native SwiftUI glass on
+  iOS). Grouped screens use `FormScreen` + `FormSection` + the rows in
+  `FormRows.tsx`; make `FormScreen` the route's first view so the large
+  title collapses.
+- `Stack.Toolbar.Button` icons go through `useToolbarIcon()`, because Android
+  needs an image. `NavigationSubtitle` sets the iOS navigation subtitle.
+- The Debug gallery shows every component and replicas of reference screens:
+  `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/gallery?section=components"`
+  (sections: `components`, `settings`, `details`, `chats`, `chat`, `connect`).
+
 ## Native projects
 
 `ios/` and `android/` are committed and edited by hand; nothing runs

@@ -118,6 +118,8 @@ export interface ButtonRowProps extends PressableRowProps {
   color?: ColorInput;
   /** Icon color when it differs from the text (Details "Add member"). */
   iconColor?: ColorInput;
+  /** Icon box in points (a list `Label` draws its symbol larger: about 24). */
+  iconSize?: number;
   /** A trailing chevron in the row color at 25 percent (Settings "Change handle"). */
   navigates?: boolean;
   /**
@@ -139,6 +141,7 @@ export function ButtonRow({
   navigates = false,
   iconStyle = "action",
   iconColor,
+  iconSize,
   onPress,
   disabled,
   testID,
@@ -156,7 +159,11 @@ export function ButtonRow({
       accessibilityHint={accessibilityHint}>
       {systemImage === undefined ? null : (
         <View style={[styles.actionIcon, { width: iconWidth }]}>
-          <Symbol name={systemImage} color={iconColor ?? tint} />
+          <Symbol
+            name={systemImage}
+            color={iconColor ?? tint}
+            size={iconSize}
+          />
         </View>
       )}
       <Text color={tint} style={styles.flexText}>

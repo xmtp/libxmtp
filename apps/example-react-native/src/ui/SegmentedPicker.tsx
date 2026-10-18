@@ -62,7 +62,7 @@ export function SegmentedPicker<T extends string>({
 
 const styles = StyleSheet.create({
   track: {
-    alignSelf: "stretch",
+    width: "100%",
     borderRadius: 999,
     flexDirection: "row",
     padding: 3,
