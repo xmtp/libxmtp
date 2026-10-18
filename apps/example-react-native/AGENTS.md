@@ -100,7 +100,7 @@ package of a merged revision whose SDK content matches:
 
 ## Chat
 
-The chat stores are pure TypeScript in `src/core` (`chatTimeline.ts`, `chatComposer.ts`, `messageActions.ts`, with `chatHistory.ts` and `chatMessages.ts`) and are tested against the in-memory conversation in `chatFakes.ts`. `src/features/chat/chatRuntime.ts` wires them to the SDK (`sdkChatQueries.ts`), the send journal and the stream hub; views call its actions (`startReply`, `cancelReply`, `retry`, `edit`, `react`, `requestDelete`, `deleteMessage`, `copyText`, `submit`). A new content kind adds a `ChatContent` case, its SDK mapping in `chatContent` and a renderer in `MessageContent.tsx`. `MessageBubbleWrapper.tsx` (bubble interactions) and `ComposerSlots.tsx` (attach menu, staged attachments) are slots for later features.
+The chat stores are pure TypeScript in `src/core` (`chatTimeline.ts`, `chatComposer.ts`, `messageActions.ts`, with `chatHistory.ts` and `chatMessages.ts`) and are tested against the in-memory conversation in `chatFakes.ts`. `src/features/chat/chatRuntime.ts` wires them to the SDK (`sdkChatQueries.ts`), the send journal and the stream hub; views call its actions (`startReply`, `cancelReply`, `retry`, `edit`, `react`, `requestDelete`, `deleteMessage`, `copyText`, `submit`). A new content kind adds a `ChatContent` case, its SDK mapping in `chatContent` and a renderer in `MessageContent.tsx`. `MessageBubbleWrapper.tsx` (bubble interactions) and `ComposerSlots.tsx` (attach menu, staged attachments) are slots for later features. Settings renders `<SendReviewSection session={session} />` (`src/features/settings/sendReviewSlot.tsx`) directly in its `FormScreen`; the section brings its own `FormSection` and reloads on focus.
 
 ## Native projects
 
