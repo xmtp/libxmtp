@@ -1,5 +1,5 @@
 import { Stack, router } from "expo-router";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import {
@@ -11,8 +11,7 @@ import {
   searchEmoji,
 } from "@/core/emojiCatalog.ts";
 import { emojiSearchTsv } from "@/core/emojiData.ts";
-import type { MessageActions } from "@/core/messageActions.ts";
-import { createMessageActions } from "@/features/chat/chatRuntime";
+import { useSheetMessageActions } from "@/features/chat/interactions/useSheetMessageActions";
 import { type ActiveSession, useActiveSession } from "@/session";
 import { useColors } from "@/ui/colors";
 import { GlassIconButton } from "@/ui/GlassButton";
@@ -150,33 +149,21 @@ export function EmojiPickerScreen({
   );
 }
 
-function useMessageActions(
-  session: ActiveSession,
-  conversationId: string,
-  messageId: string,
-): MessageActions {
-  const [mounted] = useState(() => ({ current: true }));
-  const [actions] = useState(() =>
-    createMessageActions(session, conversationId, () => mounted.current),
-  );
-  useEffect(() => {
-    mounted.current = true;
-    actions.load(messageId);
-    return () => {
-      mounted.current = false;
-    };
-  }, [actions, messageId, mounted]);
-  return actions;
-}
-
 function EmojiPickerContent({
   session,
   conversationId,
   messageId,
 }: EmojiPickerScreenProps & { readonly session: ActiveSession }) {
   const palette = useColors();
-  const actions = useMessageActions(session, conversationId, messageId);
+  const { actions, isMounted } = useSheetMessageActions(
+    session,
+    conversationId,
+    messageId,
+  );
   const state = useStore(actions);
+  // One choice at a time: a second tap while one publishes would toggle the
+  // same reaction again and close the sheet twice.
+  const choosing = useRef(false);
   const [search, setSearch] = useState("");
   const [failure, setFailure] = useState<string>();
   const entries = loadCatalog();
@@ -189,11 +176,15 @@ function EmojiPickerContent({
 
   const choose = (emoji: string) => {
     const row = state.message;
-    if (row === undefined || !actions.allowed) return;
+    if (row === undefined || !actions.allowed || choosing.current) return;
+    choosing.current = true;
     actions.react(row, emoji);
     void actions.wait().then(() => {
+      // Closed while the reaction published: the sheet is already gone.
+      if (!isMounted()) return;
       const error = actions.getState().error;
       if (error !== undefined) {
+        choosing.current = false;
         setFailure(error);
         return;
       }

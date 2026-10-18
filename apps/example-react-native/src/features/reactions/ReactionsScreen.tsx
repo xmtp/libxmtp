@@ -1,16 +1,15 @@
 import { Stack, router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
 
 import { personInitials } from "@/core/avatar.ts";
 import { reactionBadges } from "@/core/chatMessages.ts";
-import type { MessageActions } from "@/core/messageActions.ts";
 import {
   reactionRows,
   reactionTotal,
   removableReaction,
 } from "@/core/messageInteractions.ts";
-import { createMessageActions } from "@/features/chat/chatRuntime";
+import { useSheetMessageActions } from "@/features/chat/interactions/useSheetMessageActions";
 import { reactionsCopy } from "@/features/reactions/copy";
 import { ReactionChips } from "@/features/reactions/ReactionChips";
 import { RemoveReactionButton } from "@/features/reactions/RemoveReactionButton";
@@ -50,25 +49,6 @@ export function ReactionsScreen(props: ReactionsScreenProps) {
   );
 }
 
-function useMessageActions(
-  session: ActiveSession,
-  conversationId: string,
-  messageId: string,
-): MessageActions {
-  const [mounted] = useState(() => ({ current: true }));
-  const [actions] = useState(() =>
-    createMessageActions(session, conversationId, () => mounted.current),
-  );
-  useEffect(() => {
-    mounted.current = true;
-    actions.load(messageId);
-    return () => {
-      mounted.current = false;
-    };
-  }, [actions, messageId, mounted]);
-  return actions;
-}
-
 function ReactionsContent({
   session,
   conversationId,
@@ -76,7 +56,11 @@ function ReactionsContent({
   emoji,
 }: ReactionsScreenProps & { readonly session: ActiveSession }) {
   const palette = useColors();
-  const actions = useMessageActions(session, conversationId, messageId);
+  const { actions } = useSheetMessageActions(
+    session,
+    conversationId,
+    messageId,
+  );
   const state = useStore(actions);
   const identities = useStore(session.identities);
   const [selected, setSelected] = useState(emoji);
@@ -171,7 +155,6 @@ function ReactionsContent({
             <View style={styles.remove}>
               <RemoveReactionButton
                 title={reactionsCopy.removeMine}
-                disabled={state.busy}
                 onPress={() => {
                   actions.react(row, removable);
                 }}
