@@ -263,18 +263,18 @@ class FakeQueries implements NewConversationQueries {
   onPeople: () => void = () => {};
   createFailure: Error | undefined;
   resolveGate: Promise<void> | undefined;
+  peopleGate: Promise<void> | undefined;
 
   constructor(options: FakeOptions = {}) {
     this.options = options;
   }
 
-  people(): Promise<readonly Person[]> {
+  async people(): Promise<readonly Person[]> {
     this.calls.push("people");
     this.onPeople();
-    if (this.options.failPeople === true) {
-      return Promise.reject(new Error("unavailable"));
-    }
-    return Promise.resolve(this.options.people ?? []);
+    if (this.peopleGate !== undefined) await this.peopleGate;
+    if (this.options.failPeople === true) throw new Error("unavailable");
+    return this.options.people ?? [];
   }
 
   maximumMembers(): Promise<number> {
@@ -442,6 +442,68 @@ test("editing the input drops a resolution in flight", async () => {
   await settle();
   assert.deepEqual(store.getState().recipients, []);
   assert.equal(store.getState().input, "peer, other");
+});
+
+test("editing recipients does not cancel the initial people load (editingRecipientsDoesNotCancelInitialPeopleLoad)", async () => {
+  const peer: Person = { inboxId: "inbox-peer", handle: "person" };
+  const queries = new FakeQueries({ people: [peer] });
+  let open = () => {};
+  queries.peopleGate = new Promise((resolve) => {
+    open = resolve;
+  });
+  const { store } = makeStore(queries);
+  store.load();
+  await settle();
+  assert.deepEqual(queries.calls, ["people"]);
+  store.setGroup(true);
+  store.setInput("person");
+  store.toggle(peer);
+  store.remove(peer.inboxId);
+  open();
+  await settle();
+  const state = store.getState();
+  assert.equal(state.maximumMembers, 250);
+  assert.equal(state.loadingPeople, false);
+  assert.deepEqual(state.people, [peer]);
+  assert.equal(state.input, "person");
+  assert.equal(canContinue(state), true);
+});
+
+describe("choosing people drops a resolution in flight", () => {
+  const chosen: Person = { inboxId: "inbox-chosen", handle: "chosen" };
+  const edits = {
+    toggle: (store: NewConversationStore) => {
+      store.toggle(chosen);
+    },
+    remove: (store: NewConversationStore) => {
+      store.remove(chosen.inboxId);
+    },
+    setGroup: (store: NewConversationStore) => {
+      store.setGroup(true);
+    },
+  };
+  for (const [name, edit] of Object.entries(edits)) {
+    test(name, async () => {
+      const queries = new FakeQueries();
+      const { store } = makeStore(queries);
+      if (name === "remove") store.toggle(chosen);
+      let open = () => {};
+      queries.resolveGate = new Promise((resolve) => {
+        open = resolve;
+      });
+      store.setInput("peer");
+      store.add();
+      assert.equal(store.getState().busy, true);
+      await settle();
+      edit(store);
+      assert.equal(store.getState().busy, false);
+      open();
+      await settle();
+      const ids = store.getState().recipients.map((person) => person.inboxId);
+      assert.equal(ids.includes("inbox-peer"), false);
+      assert.equal(store.getState().input, "peer");
+    });
+  }
 });
 
 test("Add resolves every entry in order, skips duplicates, then clears the input", async () => {
