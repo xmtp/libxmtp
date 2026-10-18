@@ -1,6 +1,7 @@
 // The Settings store (ExampleCore/Settings/SettingsStore.swift): one device
-// action at a time, and the copy for a failed one. The alerts that confirm
-// the actions are system alerts, so the confirmation state stays in UIKit.
+// action at a time, and the copy for a failed one. The Settings screen keeps
+// the confirming alert's request (an `AlertDialog`) in its own state; this
+// model owns only `busy` and `error`.
 
 import { SessionCopy, errorMessage } from "./sessionError.ts";
 import type { Appearance } from "./sessionIndex.ts";
