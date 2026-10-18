@@ -125,12 +125,19 @@ async function settle(condition: () => boolean): Promise<void> {
   assert.ok(condition(), "condition not reached");
 }
 
-function hub(options: { foreground?: boolean; current?: () => boolean } = {}) {
+function hub(
+  options: {
+    foreground?: boolean;
+    current?: () => boolean;
+    healthyAfterMs?: number;
+  } = {},
+) {
   const source = new FakeSource();
   const sleeps: number[] = [];
   const streams = new StreamHub(source, {
     foreground: options.foreground ?? true,
     isCurrent: options.current ?? (() => true),
+    healthyAfterMs: options.healthyAfterMs ?? 60_000,
     sleep: (ms) => {
       sleeps.push(ms);
       return Promise.resolve();
@@ -237,14 +244,17 @@ test("a failed reader shows the retry banner and restarts after one second", asy
     assert.deepEqual(sleeps, [1000]);
     assert.ok(source.messageReaders.at(0)?.ended);
     assert.equal(banners.at(0), DISCONNECTED_RETRYING);
-    source.emitState("connecting");
+    // The new reader reports a state, but it has not delivered anything yet.
+    source.emitState("connected");
+    assert.equal(streams.connection.getState().banner, DISCONNECTED_RETRYING);
+    source.messageReader.push("m1");
+    await settle(() => streams.connection.getState().banner === undefined);
+    assert.equal(streams.connection.getState().state, "connected");
+    source.emitState("reconnecting");
     assert.equal(
       streams.connection.getState().banner,
-      "Connecting to your server…",
+      "Reconnecting to your server…",
     );
-    source.emitState("connected");
-    assert.equal(streams.connection.getState().banner, undefined);
-    assert.equal(streams.connection.getState().state, "connected");
     await streams.close();
   });
 });
@@ -263,7 +273,7 @@ test("a reader that cannot open retries too", async () => {
 
 test("an update reader failure keeps the banner until that reader reopens", async () => {
   await quiet(async () => {
-    const { source, streams } = hub();
+    const { source, streams } = hub({ healthyAfterMs: 5 });
     streams.start();
     await settle(
       () =>
@@ -458,4 +468,30 @@ test("banner copy for each connection state", () => {
   assert.equal(connectionBanner("failed"), "Cannot connect to your server.");
   assert.equal(connectionBanner("closed"), "Not connected to your server.");
   assert.equal(DISCONNECTED_RETRYING, "Disconnected. Retrying…");
+});
+
+test("a reader that reports connected and then fails at once keeps the retry banner (ConsumerOwned)", async () => {
+  await quiet(async () => {
+    const { source, streams, sleeps } = hub();
+    streams.start();
+    await settle(() => source.messageReaders.length === 1);
+    const banners = new Set<string | undefined>();
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      // Track the banner from the first failure on.
+      if (attempt === 2) {
+        streams.connection.subscribe(() => {
+          banners.add(streams.connection.getState().banner);
+        });
+      }
+      source.emitState("connected");
+      await settle(() => source.messageReader.nextCalls === 1);
+      source.messageReader.fail(new Error("ConsumerOwned"));
+      await settle(() => source.messageReaders.length === attempt + 1);
+    }
+    source.emitState("connected");
+    assert.deepEqual(sleeps, [1000, 1000, 1000]);
+    assert.equal(streams.connection.getState().banner, DISCONNECTED_RETRYING);
+    assert.ok(!banners.has(undefined));
+    await streams.close();
+  });
 });

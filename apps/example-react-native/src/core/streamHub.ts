@@ -118,6 +118,12 @@ export interface StreamHubOptions {
   /** False once the session ended or was replaced. */
   readonly isCurrent: () => boolean;
   readonly retryDelayMs?: number;
+  /**
+   * A restarted reader clears the retry banner once it delivers a value or
+   * stays open this long (default 2 s). A reader that reports `connected` and
+   * then fails at once (for example with `ConsumerOwned`) keeps the banner.
+   */
+  readonly healthyAfterMs?: number;
   /** Waits `ms` or until `signal` aborts (tests pass a fast fake). */
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
@@ -168,8 +174,8 @@ interface LaneOptions<T> {
   /** Opens a reader. `run` identifies this attempt for state callbacks. */
   readonly open: (run: symbol) => StreamReader<T> | Promise<StreamReader<T>>;
   readonly deliver: (value: T) => Promise<void>;
-  /** The reader opened (after `ready`). */
-  readonly opened: (run: symbol) => void;
+  /** The reader delivered a value or stayed open for `healthyAfterMs`. */
+  readonly healthy: (run: symbol) => void;
   readonly failed: (error: unknown) => void;
 }
 
@@ -237,16 +243,24 @@ class Lane<T> {
     const run = Symbol(this.#options.name);
     this.#run = run;
     let reader: StreamReader<T> | undefined;
+    let healthy = false;
+    let healthyTimer: ReturnType<typeof setTimeout> | undefined;
+    const markHealthy = (): void => {
+      if (healthy || this.#run !== run) return;
+      healthy = true;
+      this.#options.healthy(run);
+    };
     try {
       reader = await this.#options.open(run);
       this.#reader = reader;
       if (isAborted(signal)) return undefined;
       await reader.ready?.();
       if (isAborted(signal)) return undefined;
-      this.#options.opened(run);
+      healthyTimer = setTimeout(markHealthy, this.#hub.healthyAfterMs ?? 2000);
       for (;;) {
         const item = await reader.next();
         if (item.done || isAborted(signal)) break;
+        markHealthy();
         await this.#options.deliver(item.value);
       }
       // A reader that ends without an error is not restarted (iOS).
@@ -254,6 +268,7 @@ class Lane<T> {
     } catch (error) {
       return { error };
     } finally {
+      clearTimeout(healthyTimer);
       if (this.#run === run) this.#run = undefined;
       if (this.#reader === reader) this.#reader = undefined;
       if (reader !== undefined) await endQuietly(reader);
@@ -297,7 +312,7 @@ export class StreamHub<M, C> {
             this.#messageStateChanged(run, state);
           }),
         deliver: (message) => this.#deliver(this.#messageListeners, message),
-        opened: () => {
+        healthy: () => {
           this.#recovered("messages");
         },
         failed: (error) => {
@@ -312,7 +327,7 @@ export class StreamHub<M, C> {
         open: () => source.conversations(),
         deliver: (conversation) =>
           this.#deliver(this.#conversationListeners, conversation),
-        opened: () => {
+        healthy: () => {
           this.#recovered("conversations");
         },
         failed: (error) => {
@@ -331,7 +346,7 @@ export class StreamHub<M, C> {
             await this.#deliver(this.#eventListeners, mapped);
           }
         },
-        opened: () => {
+        healthy: () => {
           this.#recovered("events");
         },
         failed: (error) => {
@@ -431,7 +446,6 @@ export class StreamHub<M, C> {
       return;
     }
     this.#messageState = state;
-    this.#retrying.delete("messages");
     this.#publish();
   }
 

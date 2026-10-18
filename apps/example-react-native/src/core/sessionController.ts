@@ -92,6 +92,7 @@ export interface BindRequest<C> {
   readonly client: C;
   readonly key: SessionKey;
   readonly profile: ActiveProfile;
+  readonly paths: ProfilePaths;
   /** Session-owned work. The controller cancels and awaits it before `client.end()`. */
   readonly scope: SessionScope;
   readonly isCurrent: () => boolean;
@@ -561,6 +562,7 @@ export class SessionController<C extends SessionClient, S> extends Store<
         client: opened,
         key,
         profile: saved,
+        paths,
         scope,
         isCurrent: () => this.fence.accepts(key),
       });

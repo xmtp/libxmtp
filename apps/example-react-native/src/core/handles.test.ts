@@ -46,6 +46,9 @@ test("grammar edge cases", () => {
   assert.equal(handleProblem("Abc", 3), "invalidCharacters");
   assert.equal(handleProblem("_abc", 3), "startWithLetter");
   assert.equal(handleProblem("a".repeat(27), 3), undefined);
+  // Length checks run longest first: an over-long name is tooLong even when
+  // the minimum is higher still.
+  assert.equal(handleProblem("a".repeat(28), 30), "tooLong");
   assert.equal(handleProblem("ab", 3), "tooShort");
   assert.equal(handleProblem("a", 1), undefined);
   assert.equal(handleProblem("abc#", 3), "badCode");

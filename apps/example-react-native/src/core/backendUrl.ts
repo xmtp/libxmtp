@@ -97,12 +97,12 @@ export function normalizeBackendUrl(input: string): BackendUrl {
   ) {
     throw SessionError.message(SessionCopy.invalidUrl);
   }
+  // An empty port (`https://host:`) reads as 0, which is out of range.
   const port = parts.port === undefined ? undefined : Number(parts.port);
   if (
     parts.userInfo ||
     parts.query ||
     parts.fragment ||
-    parts.port === "" ||
     (port !== undefined && (port < 1 || port > 65535))
   ) {
     throw SessionError.message(SessionCopy.urlParts);

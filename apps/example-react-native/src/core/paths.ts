@@ -67,7 +67,15 @@ export function profilePaths(messengerRoot: string, id: string): ProfilePaths {
   };
 }
 
-/** The SQLite files of a database: the file, its `-wal` and its `-shm`. */
+/**
+ * The files of an SDK database: the file, its `-wal` and `-shm`, and the
+ * SQLCipher salt file the SDK writes beside it.
+ */
 export function databaseFiles(database: string): readonly string[] {
-  return [database, `${database}-wal`, `${database}-shm`];
+  return [
+    database,
+    `${database}-wal`,
+    `${database}-shm`,
+    `${database}.sqlcipher_salt`,
+  ];
 }

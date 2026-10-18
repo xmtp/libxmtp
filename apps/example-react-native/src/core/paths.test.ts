@@ -40,6 +40,7 @@ test("profile paths mirror the iOS layout", () => {
     paths.database,
     `${paths.database}-wal`,
     `${paths.database}-shm`,
+    `${paths.database}.sqlcipher_salt`,
   ]);
 });
 

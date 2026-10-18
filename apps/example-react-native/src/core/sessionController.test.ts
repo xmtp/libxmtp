@@ -511,13 +511,14 @@ test("an index read failure before reservation allows a retry (joinFailureBefore
 });
 
 test("a late open after a newer reservation ends its client and changes nothing", async () => {
-  const { factory, session } = controller();
+  const { files, factory, session } = controller();
   await session.start();
   factory.pause = true;
   const joining = session.connect({ url: "https://example.com", token: "" });
   await waitUntil(() => factory.pending !== undefined);
   session.fence.reserve();
   const before = session.getState();
+  const index = files.index;
   const late = new Client("late");
   factory.pending?.resolve(late);
   await assert.rejects(
@@ -527,6 +528,9 @@ test("a late open after a newer reservation ends its client and changes nothing"
   assert.ok(late.ended);
   assert.equal(session.getState(), before);
   assert.equal(session.client, undefined);
+  // A stale open never records its inbox or signs in.
+  assert.equal(files.index, index);
+  assert.ok(!files.index.signedIn);
 });
 
 test("a cancelled join ends a client that opens too late (canceledQueuedConnect)", async () => {
@@ -585,8 +589,11 @@ test("a failed connect with a missing secret retries with an explicit reservatio
 
 test("an established profile without its database cannot rejoin silently", async () => {
   const files = new Files();
+  // Its keys survive, so only the database check stops the open.
+  const secrets = new Secrets();
   const profile = savedProfile(files, "https://example.com");
-  const { factory, session } = controller({ files });
+  saveKeys(secrets, profile.id);
+  const { factory, session } = controller({ files, secrets });
   await assert.rejects(
     session.connect({ url: profile.url, token: "" }),
     (error: unknown) =>
