@@ -443,11 +443,18 @@ export class ChatTimeline extends Store<TimelineState> {
         ? undefined
         : state.window.rows.find((entry) => entry.id === id);
     if (row !== undefined && isDeleted(row.content)) return;
-    this.setState((current) => ({
-      ...current,
-      atNewest: newest,
-      ...(id === undefined ? {} : { anchorId: id }),
-    }));
+    // Scrolling reports visibility every frame: an unchanged position keeps
+    // the same state, so nothing re-renders.
+    this.setState((current) =>
+      current.atNewest === newest &&
+      (id === undefined || current.anchorId === id)
+        ? current
+        : {
+            ...current,
+            atNewest: newest,
+            ...(id === undefined ? {} : { anchorId: id }),
+          },
+    );
     try {
       if (row?.position !== undefined) {
         const anchor = { messageId: row.id, position: row.position };
