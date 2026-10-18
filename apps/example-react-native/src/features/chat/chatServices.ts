@@ -50,6 +50,13 @@ export function chatServices(session: ActiveSession): ChatServices {
     () => session.isCurrent(),
   );
   const cache = new TranscriptCache();
+  // Every deletion marks the cache, also for chats that are closed, so a
+  // reopened chat never shows a deleted body (AppGraph `projectEvent`).
+  const stopDeletions = session.streams.onEvent((event) => {
+    if (event.kind !== "messageDeleted" || !session.isCurrent()) return;
+    cache.markDeleted(event.conversationId, event.messageId);
+  });
+  session.scope.addCleanup(stopDeletions);
   session.scope.addFinalCleanup(() => {
     cache.clear();
   });
