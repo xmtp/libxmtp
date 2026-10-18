@@ -79,6 +79,9 @@ package of a merged revision whose SDK content matches:
 - `Stack.Toolbar.Button` icons go through `useToolbarIcon()`, because Android
   needs an image. A titled toolbar button (Next, Create) is
   `ToolbarTextButton`: Android draws no titled `Stack.Toolbar.Button`.
+  Pass `confirmation` for a SwiftUI `.confirmationAction` (semibold Save,
+  Add). A toolbar that also holds icons uses `toolbarTextItem()`, because
+  `Stack.Toolbar` reads only its direct `Stack.Toolbar.*` children on iOS.
   `NavigationSubtitle` sets the iOS navigation subtitle.
 - List rows with a long-press menu use `ContextMenu` (a UIKit context menu
   in `modules/messenger-platform`; Android renders the children only).
@@ -120,6 +123,10 @@ The request bar takes its Accept, Delete request and Block decisions from the sa
 ## New message
 
 `features/new-conversation` is a page sheet with its own stack: step 1 (`index`) and the review (`review`) share one `NewConversationStore` (`src/core/newConversation.ts`, recipient resolution and its tests) that `NewConversationSheet` owns in the sheet's layout (`useNewConversation()`). Create closes the sheet and pushes the new chat. `useScrollEdge()` (`scrollEdge.ts`) gives a form in a sheet SwiftUI's top edge: none at rest, the hard edge once content is under the bar. A static `scrollEdgeEffects: { top: "hard" }` draws the edge at rest too.
+
+## Details
+
+`src/core/details.ts` (`DetailsStore`: loads, ordered group writes, pending members and one poller) and `src/core/metadata.ts` (field rules and `MetadataStore`) are ported from the iOS stores and tested in `node --test`. `src/features/details/detailsStores.ts` gives Details, Edit group and Add member one shared store per conversation (`useSharedDetailsStore`), so errors and pending members show on Details after a sheet closes; Member, Permissions and Disappearing each own a store (`useOwnDetailsStore`). A sheet at a partial detent draws glass behind translucent cards: `useSheetFormProps()` (`sheetDetent.tsx`) returns the `FormScreen` props for the sheet's current detent. Block, Leave group and Remove from group confirm with `PopoverConfirmation` over the list, like SwiftUI.
 
 ## Attachments
 
