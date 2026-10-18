@@ -23,6 +23,7 @@ import { ChatHeader } from "@/features/chat/ChatHeader";
 import { ChatRuntime } from "@/features/chat/chatRuntime";
 import { Composer } from "@/features/chat/Composer";
 import { chatCopy } from "@/features/chat/copy";
+import { ChatInteractionsLayer } from "@/features/chat/interactions/ChatInteractionsLayer";
 import { MessageList, scrollToLatest } from "@/features/chat/MessageList";
 import { RequestBar } from "@/features/chat/RequestBar";
 import { type ActiveSession, useActiveSession } from "@/session";
@@ -228,6 +229,7 @@ function ChatSessionScreen({
           <Composer />
         )}
       </Animated.View>
+      <ChatInteractionsLayer />
     </ChatContext>
   );
 }

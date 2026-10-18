@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { ChatMessage } from "@/core/chatMessages.ts";
+import { MessageInteractions } from "@/features/chat/interactions/MessageInteractions";
 
 export interface MessageBubbleWrapperProps {
   readonly row: ChatMessage;
@@ -15,11 +16,9 @@ export interface MessageBubbleWrapperProps {
 /**
  * The interaction layer around one bubble (`ChatMessages.swift`
  * `messageBubble` modifiers): long-press context menu with the quick-reaction
- * preview, swipe to reply, VoiceOver actions, and hiding the bubble while its
- * send flight runs. The chat interactions lane replaces this pass-through;
- * actions are on `useChatContext().runtime` (`startReply`, `retry`, `edit`,
- * `react`, `requestDelete`, `deleteMessage`, `copyText`).
+ * preview, swipe to reply, and hiding the bubble while its send flight runs.
+ * See `features/chat/interactions`.
  */
-export function MessageBubbleWrapper({ children }: MessageBubbleWrapperProps) {
-  return children;
+export function MessageBubbleWrapper(props: MessageBubbleWrapperProps) {
+  return <MessageInteractions {...props} />;
 }

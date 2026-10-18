@@ -9,6 +9,7 @@ import {
   reactionBadges,
 } from "@/core/chatMessages.ts";
 import { chatCopy } from "@/features/chat/copy";
+import { MessageAccessibility } from "@/features/chat/interactions/MessageInteractions";
 import { MessageBubbleWrapper } from "@/features/chat/MessageBubbleWrapper";
 import { MessageContent } from "@/features/chat/MessageContent";
 import { Avatar } from "@/ui/Avatar";
@@ -101,9 +102,11 @@ export const MessageRow = memo(function MessageRow({
         ) : null}
         <MessageBubbleWrapper row={row} mine={mine} allowed={allowed}>
           <View>
-            <Bubble isOutgoing={mine}>
-              <MessageContent row={row} isOutgoing={mine} allowed={allowed} />
-            </Bubble>
+            <MessageAccessibility row={row} allowed={allowed}>
+              <Bubble isOutgoing={mine}>
+                <MessageContent row={row} isOutgoing={mine} allowed={allowed} />
+              </Bubble>
+            </MessageAccessibility>
             {badges.length === 0 ? null : (
               <ReactionBadges
                 badges={badges}
