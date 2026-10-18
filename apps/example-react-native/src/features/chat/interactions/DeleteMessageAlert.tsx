@@ -1,35 +1,49 @@
-import { useEffect } from "react";
+import { useMemo } from "react";
 
 import { commonCopy } from "@/copy/common";
 import { MessageMenuCopy } from "@/core/messageInteractions.ts";
-import type { DeleteMessageAlertProps } from "@/features/chat/interactions/DeleteMessageAlert.types";
-import { showAlert } from "@/ui/dialogs";
+import type { ChatRuntime } from "@/features/chat/chatRuntime";
+import { AlertDialog } from "@/ui/AlertDialog";
 import { useStore } from "@/ui/useStore";
 
 /**
- * "Delete message?" without SwiftUI (Android): a system alert. Android fills
- * its button slots in order (negative, then positive), so Cancel goes first.
+ * `.alert("Delete message?", isPresented: deleteTarget != nil)`, a SwiftUI
+ * alert on iOS, so its buttons take the app tint like the native one.
  */
-export function DeleteMessageAlert({ runtime }: DeleteMessageAlertProps) {
+export function DeleteMessageAlert({
+  runtime,
+}: {
+  readonly runtime: ChatRuntime;
+}) {
   const target = useStore(runtime.actions).deleteTarget;
-  useEffect(() => {
-    if (target === undefined) return;
-    showAlert(MessageMenuCopy.deleteTitle, MessageMenuCopy.deleteMessage, [
-      {
-        text: commonCopy.cancel,
-        style: "cancel",
-        onPress: () => {
-          runtime.actions.cancelDelete();
-        },
-      },
-      {
-        text: MessageMenuCopy.deleteConfirm,
-        style: "destructive",
-        onPress: () => {
-          runtime.actions.confirmDelete();
-        },
-      },
-    ]);
-  }, [runtime, target]);
-  return null;
+  const request = useMemo(
+    () =>
+      target === undefined
+        ? undefined
+        : {
+            title: MessageMenuCopy.deleteTitle,
+            message: MessageMenuCopy.deleteMessage,
+            buttons: [
+              {
+                text: MessageMenuCopy.deleteConfirm,
+                style: "destructive" as const,
+                // The dismissal may clear the target first: delete the row
+                // this alert showed.
+                onPress: () => {
+                  runtime.actions.deleteMessage(target);
+                },
+              },
+              { text: commonCopy.cancel, style: "cancel" as const },
+            ],
+          },
+    [runtime, target],
+  );
+  return (
+    <AlertDialog
+      request={request}
+      onDismiss={() => {
+        runtime.actions.cancelDelete();
+      }}
+    />
+  );
 }
