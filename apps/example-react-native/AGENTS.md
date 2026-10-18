@@ -104,6 +104,12 @@ The chat stores are pure TypeScript in `src/core` (`chatTimeline.ts`, `chatCompo
 
 The Reactions sheet (`features/reactions`) and the emoji picker (`features/emoji`, catalog in `src/core/emojiData.ts`, checked against the iOS `emoji-search.tsv`) draw their own headers. react-native-screens lays out a form sheet whose content root has a scroll view as a direct child as a scrolling sheet (warning "FormSheet with ScrollView expects at most 2 subviews"), and the list draws over the header: give the screen one `<View collapsable={false}>` root.
 
+The request bar takes its Accept, Delete request and Block decisions from the same `RequestDecisionsStore` as Message requests (`useRequestDecisions`). Accept leaves Chats below the open chat and keeps it mounted.
+
+## New message
+
+`features/new-conversation` is a page sheet with its own stack: step 1 (`index`) and the review (`review`) share one `NewConversationStore` (`src/core/newConversation.ts`, recipient resolution and its tests) that `NewConversationSheet` owns in the sheet's layout (`useNewConversation()`). Create closes the sheet and pushes the new chat. `useScrollEdge()` (`scrollEdge.ts`) gives a form in a sheet SwiftUI's top edge: none at rest, the hard edge once content is under the bar. A static `scrollEdgeEffects: { top: "hard" }` draws the edge at rest too.
+
 ## Native projects
 
 `ios/` and `android/` are committed and edited by hand; nothing runs
