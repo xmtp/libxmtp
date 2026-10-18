@@ -12,8 +12,6 @@ export default function NewConversationLayout() {
         screenOptions={{
           ...screenOptions,
           headerLargeTitleEnabled: false,
-          // A SwiftUI Form in a sheet shows the hard edge under its bar.
-          scrollEdgeEffects: { top: "hard" },
         }}
       />
     </NewConversationSheet>

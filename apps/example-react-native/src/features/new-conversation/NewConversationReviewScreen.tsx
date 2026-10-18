@@ -15,6 +15,7 @@ import {
   MemberRow,
   StepTitle,
 } from "@/features/new-conversation/parts";
+import { useScrollEdge } from "@/features/new-conversation/scrollEdge";
 import { Avatar } from "@/ui/Avatar";
 import { useColors } from "@/ui/colors";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
@@ -31,13 +32,20 @@ import { useStore } from "@/ui/useStore";
 export function NewConversationReviewScreen() {
   const sheet = useNewConversation();
   if (sheet === undefined) return null;
-  return <Review store={sheet.store} />;
+  return <Review store={sheet.store} closing={sheet.closing} />;
 }
 
-function Review({ store }: { readonly store: NewConversationStore }) {
+function Review({
+  store,
+  closing,
+}: {
+  readonly store: NewConversationStore;
+  readonly closing: boolean;
+}) {
   const palette = useColors();
   const state = useStore(store);
   const backIcon = useToolbarIcon("chevron.left");
+  const edge = useScrollEdge();
 
   // Leaving this screen (Back, Change people, a swipe) leaves the review.
   useEffect(
@@ -51,11 +59,16 @@ function Review({ store }: { readonly store: NewConversationStore }) {
   return (
     <FormScreen
       automaticallyAdjustKeyboardInsets
+      scrollEventThrottle={16}
+      onScroll={edge.onScroll}
       contentContainerStyle={styles.content}>
       <Stack.Screen
         options={{
+          ...edge.options,
           title,
           headerBackVisible: false,
+          // The hidden back button also turns off the interactive pop on iOS.
+          gestureEnabled: false,
           headerTitle: () => <StepTitle title={title} step={copy.step2} />,
         }}
       />
@@ -74,7 +87,8 @@ function Review({ store }: { readonly store: NewConversationStore }) {
           variant="prominent"
           tintColor={palette.tint}
           accessibilityLabel={copy.create}
-          disabled={!canContinue(state)}
+          style={{ color: palette.onTintToolbar }}
+          disabled={closing || !canContinue(state)}
           onPress={() => {
             store.create();
           }}>
@@ -170,6 +184,12 @@ function Review({ store }: { readonly store: NewConversationStore }) {
   );
 }
 
+/**
+ * The picker's checkmark: 14.7 pt wide, its right edge 20.3 pt inside the
+ * section (measured on iOS 27), smaller than a body symbol.
+ */
+const CHECKMARK_SIZE = 18.5;
+
 /** One choice of the inline "Group permissions" picker. */
 function PermissionRow({
   title,
@@ -196,9 +216,10 @@ function PermissionRow({
       {/* The picker keeps the checkmark column on every row. */}
       <Symbol
         name="checkmark"
+        size={CHECKMARK_SIZE}
         color="tint"
         weight="semibold"
-        style={selected ? undefined : styles.hidden}
+        style={[styles.checkmark, selected ? undefined : styles.hidden]}
       />
     </FormRow>
   );
@@ -219,5 +240,6 @@ const styles = StyleSheet.create({
     paddingTop: 15,
   },
   permissionText: { flex: 1, gap: 4 },
+  checkmark: { marginRight: 2.5 },
   hidden: { opacity: 0 },
 });

@@ -140,6 +140,8 @@ const pairs = {
    * iOS 27: #C6C6C8 on white, #3E3E41 on #1C1C1E (darker than `separator`).
    */
   divider: { light: "rgba(60,60,67,0.29)", dark: "rgba(84,84,88,0.6)" },
+  /** The title of a prominent toolbar button (SwiftUI picks black in dark mode). */
+  onTintToolbar: { light: "#FFFFFF", dark: "#000000" },
 } as const satisfies Record<string, Pair>;
 
 export type ColorName = keyof typeof pairs;

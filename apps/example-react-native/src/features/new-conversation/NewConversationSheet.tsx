@@ -9,10 +9,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { StyleSheet } from "react-native";
+import { AccessibilityInfo, StyleSheet } from "react-native";
 import Animated, {
   ReduceMotion,
   useAnimatedStyle,
+  useReducedMotion as useLaunchReducedMotion,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
@@ -20,7 +21,6 @@ import Animated, {
 import { NewConversationStore } from "@/core/newConversation.ts";
 import { newConversationQueries } from "@/features/new-conversation/sdkQueries";
 import { type ActiveSession, useActiveSession } from "@/session";
-import { useReducedMotion } from "@/ui/accessibility";
 import { useColors } from "@/ui/colors";
 import { reducedTiming } from "@/ui/motion";
 
@@ -32,6 +32,8 @@ interface SheetContext {
   readonly store: NewConversationStore;
   /** Closes the sheet (the xmark). */
   readonly close: () => void;
+  /** True while the Reduce Motion sheet fades out: the toolbar is disabled. */
+  readonly closing: boolean;
 }
 
 const Context = createContext<SheetContext | undefined>(undefined);
@@ -39,6 +41,37 @@ const Context = createContext<SheetContext | undefined>(undefined);
 /** The sheet's store and close action; undefined while no session is open. */
 export function useNewConversation(): SheetContext | undefined {
   return use(Context);
+}
+
+/**
+ * Reduce Motion, known on the first render. The shared `useReducedMotion()`
+ * starts false until its async read returns, which would show the faded
+ * content opaque for a frame; this starts from Reanimated's launch value and
+ * then follows the system setting.
+ */
+function useSheetReducedMotion(): boolean {
+  const atLaunch = useLaunchReducedMotion();
+  const [enabled, setEnabled] = useState(atLaunch);
+  useEffect(() => {
+    let current = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then(
+      (value) => {
+        if (current) setEnabled(value);
+      },
+      () => {},
+    );
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      (value) => {
+        setEnabled(value);
+      },
+    );
+    return () => {
+      current = false;
+      subscription.remove();
+    };
+  }, []);
+  return enabled;
 }
 
 /**
@@ -71,21 +104,23 @@ function SheetBody({
 }) {
   const navigation = useNavigation();
   const palette = useColors();
-  const reduceMotion = useReducedMotion();
-  const opacity = useSharedValue(1);
-  const closing = useRef(false);
+  const reduceMotion = useSheetReducedMotion();
+  // `ReducedMotionSheet.present` commits the sheet transparent, then fades in.
+  const opacity = useSharedValue(reduceMotion ? 0 : 1);
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // The first reduced-motion frame starts transparent, then fades in.
   useEffect(() => {
     if (!reduceMotion) return;
-    opacity.value = 0;
     opacity.value = withTiming(1, fadeTiming);
   }, [reduceMotion, opacity]);
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   const dismiss = useCallback(
     (then?: () => void) => {
-      if (closing.current) return;
-      closing.current = true;
+      if (closingRef.current) return;
+      closingRef.current = true;
       const leave = () => {
         // The layout is a screen of the root stack: this closes the sheet.
         navigation.goBack();
@@ -95,9 +130,11 @@ function SheetBody({
         leave();
         return;
       }
-      // Like `ReducedMotionSheet`: fade out, then dismiss without animation.
+      // Like `ReducedMotionSheet`: block input, fade out, then dismiss
+      // without animation.
+      setClosing(true);
       opacity.value = withTiming(0, fadeTiming);
-      setTimeout(leave, reducedTiming.duration);
+      timer.current = setTimeout(leave, reducedTiming.duration);
     },
     [navigation, opacity, reduceMotion],
   );
@@ -131,8 +168,9 @@ function SheetBody({
       close: () => {
         dismiss();
       },
+      closing,
     }),
-    [store, dismiss],
+    [store, dismiss, closing],
   );
   const fade = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
@@ -142,6 +180,9 @@ function SheetBody({
         children
       ) : (
         <Animated.View
+          pointerEvents={closing ? "none" : "auto"}
+          accessibilityElementsHidden={closing}
+          importantForAccessibility={closing ? "no-hide-descendants" : "auto"}
           style={[
             styles.fill,
             { backgroundColor: palette.systemGroupedBackground },

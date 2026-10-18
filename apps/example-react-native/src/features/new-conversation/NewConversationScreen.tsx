@@ -15,6 +15,7 @@ import {
   SelectablePersonRow,
   StepTitle,
 } from "@/features/new-conversation/parts";
+import { useScrollEdge } from "@/features/new-conversation/scrollEdge";
 import { useColors } from "@/ui/colors";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
 import { GlassButton } from "@/ui/GlassButton";
@@ -35,19 +36,28 @@ const kinds = [
 export function NewConversationScreen() {
   const sheet = useNewConversation();
   if (sheet === undefined) return null;
-  return <ChoosePeople store={sheet.store} close={sheet.close} />;
+  return (
+    <ChoosePeople
+      store={sheet.store}
+      close={sheet.close}
+      closing={sheet.closing}
+    />
+  );
 }
 
 function ChoosePeople({
   store,
   close,
+  closing,
 }: {
   readonly store: NewConversationStore;
   readonly close: () => void;
+  readonly closing: boolean;
 }) {
   const palette = useColors();
   const state = useStore(store);
   const closeIcon = useToolbarIcon("xmark");
+  const edge = useScrollEdge();
 
   // Next shows the review: push it inside the sheet's stack.
   const reviewShown = useRef(false);
@@ -64,9 +74,13 @@ function ChoosePeople({
 
   return (
     // SwiftUI Forms inset their content above the keyboard.
-    <FormScreen automaticallyAdjustKeyboardInsets>
+    <FormScreen
+      automaticallyAdjustKeyboardInsets
+      scrollEventThrottle={16}
+      onScroll={edge.onScroll}>
       <Stack.Screen
         options={{
+          ...edge.options,
           title: copy.newMessage,
           headerTitle: () => (
             <StepTitle title={copy.newMessage} step={copy.step1} />
@@ -86,7 +100,8 @@ function ChoosePeople({
           variant="prominent"
           tintColor={palette.tint}
           accessibilityLabel={copy.next}
-          disabled={!canContinue(state)}
+          style={{ color: palette.onTintToolbar }}
+          disabled={closing || !canContinue(state)}
           onPress={() => {
             store.next();
           }}>
@@ -123,9 +138,7 @@ function ChoosePeople({
           </View>
         }>
         <FormRow style={styles.flow}>
-          <Text color="themeSecondaryLabel" style={styles.to}>
-            {copy.to}
-          </Text>
+          <Text color="themeSecondaryLabel">{copy.to}</Text>
           {state.recipients.map((person) => (
             <RecipientChip
               key={person.inboxId}
@@ -196,7 +209,6 @@ const styles = StyleSheet.create({
   recipients: { paddingTop: 15.5 },
   people: { paddingTop: 31.9 },
   flow: { alignItems: "flex-start", flexWrap: "wrap", gap: 8 },
-  to: { paddingTop: 0 },
   footer: { gap: 6 },
   input: { flex: 1, paddingVertical: 0 },
 });
