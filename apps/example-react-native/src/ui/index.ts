@@ -5,6 +5,7 @@ export {
   useBodyScale,
   useIncreasedContrast,
   useIsAccessibilitySize,
+  useLargeTitleScale,
   useReducedMotion,
   useReduceTransparency,
 } from "@/ui/accessibility";
@@ -116,6 +117,7 @@ export {
   fontOf,
   textStyles,
   type TextVariant,
+  standardLineHeight,
   wrappedLineHeight,
 } from "@/ui/typography";
 export { type ReadableStore, useStore } from "@/ui/useStore";

@@ -48,6 +48,32 @@ export function wrappedLineHeight(variant: TextVariant): number {
   return Math.round(textStyles[variant].fontSize * 124.5) / 100;
 }
 
+/**
+ * The text styles' standard leading (Apple's type ramp: footnote 13/18,
+ * subheadline 15/20, callout 16/21). SwiftUI advances wrapped lines by it
+ * outside a List or Form (measured on iOS 27: the Connect footnote, the
+ * Connect status and the Choose handle subtitle), while Form and List rows
+ * use the tighter `wrappedLineHeight`.
+ */
+const standardLeading = {
+  largeTitle: 41,
+  title: 34,
+  title2: 28,
+  title3: 25,
+  headline: 22,
+  body: 22,
+  callout: 21,
+  subheadline: 20,
+  footnote: 18,
+  caption: 16,
+  caption2: 13,
+} as const satisfies Record<TextVariant, number>;
+
+/** The wrapped line height of `variant` outside a List or Form. */
+export function standardLineHeight(variant: TextVariant): number {
+  return standardLeading[variant];
+}
+
 export const fontWeights = {
   regular: "400",
   medium: "500",
