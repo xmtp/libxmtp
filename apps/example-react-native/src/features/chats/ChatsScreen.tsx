@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   RefreshControl,
   StyleSheet,
   View,
@@ -221,9 +222,12 @@ function ChatsList({ session }: { readonly session: ActiveSession }) {
           store.setSearch("");
         }}
       />
-      <Stack.Toolbar placement="bottom">
-        <Stack.Toolbar.SearchBarSlot />
-      </Stack.Toolbar>
+      {/* iOS 26 puts search in the bottom toolbar; Android keeps it in the header. */}
+      {Platform.OS === "ios" ? (
+        <Stack.Toolbar placement="bottom">
+          <Stack.Toolbar.SearchBarSlot />
+        </Stack.Toolbar>
+      ) : null}
       <PopoverConfirmation
         request={request}
         onDismiss={() => {
