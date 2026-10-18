@@ -105,7 +105,11 @@ export function Composer() {
         <GlassSurface cornerRadius={22} style={styles.field}>
           <TextInput
             testID="message-composer"
-            accessibilityLabel={chatCopy.messagePlaceholder}
+            // A multiline input reads its placeholder as the label while
+            // empty; an explicit label too would be read twice.
+            accessibilityLabel={
+              draft.text === "" ? undefined : chatCopy.messagePlaceholder
+            }
             value={draft.text}
             onChangeText={(text) => {
               runtime.composer.edit(text);

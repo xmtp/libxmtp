@@ -123,7 +123,11 @@ function Review({
                 store.setDescription(text);
               }}
               placeholder={copy.groupDescription}
-              accessibilityLabel={copy.groupDescription}
+              // A multiline input reads its placeholder as the label while
+              // empty; an explicit label too would be read twice.
+              accessibilityLabel={
+                state.description === "" ? undefined : copy.groupDescription
+              }
               placeholderTextColor={palette.placeholderText}
               selectionColor={palette.tint}
               multiline

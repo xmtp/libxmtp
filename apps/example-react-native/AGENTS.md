@@ -89,7 +89,9 @@ package of a merged revision whose SDK content matches:
 - A single-line `TextInput` in body text sets
   `lineBreakModeIOS={singleLineBreakMode}` (`TextFieldRow` does): Fabric
   reuses native text input views, and a reused multiline view leaves a long
-  placeholder clipped at a word with no ellipsis.
+  placeholder clipped at a word with no ellipsis. A multiline `TextInput`
+  reads its placeholder as its label while empty: set `accessibilityLabel`
+  only when it has text, or VoiceOver reads the label twice.
 - Text that wraps uses `WrappedText` (SwiftUI's wrapped line height once
   it wraps) or `BubbleText` in message bubbles. Inside a List or Form keep
   the default; elsewhere (scroll views, cards) pass `leading="standard"`.
