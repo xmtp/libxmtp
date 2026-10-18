@@ -258,13 +258,14 @@ function RequestsRow({
         router.push("/requests");
       }}
       style={styles.requests}>
-      <Symbol
-        name="tray"
-        textStyle="title3"
-        color="tint"
-        size={accessibilitySize ? 24 : undefined}
-        scalesWithText={!accessibilitySize}
-      />
+      {accessibilitySize ? (
+        // `.font(.system(size: 24))` at accessibility sizes: a 28 pt glyph.
+        <View style={styles.trayLarge}>
+          <Symbol name="tray" color="tint" size={32} scalesWithText={false} />
+        </View>
+      ) : (
+        <Symbol name="tray" textStyle="title3" color="tint" />
+      )}
       <View style={styles.requestsText}>
         <View
           style={
@@ -272,7 +273,11 @@ function RequestsRow({
               ? styles.requestsTitleStacked
               : styles.requestsTitle
           }>
-          <Text variant="headline">{chatsCopy.requests}</Text>
+          <Text
+            variant="headline"
+            numberOfLines={accessibilitySize ? 1 : undefined}>
+            {chatsCopy.requests}
+          </Text>
           {countText === undefined ? null : (
             <Text variant={accessibilitySize ? "caption" : "headline"}>
               {countText}
@@ -341,6 +346,7 @@ const styles = StyleSheet.create({
   // `.padding(.vertical, 8)` inside the 15 pt list row inset.
   requests: { paddingVertical: 23 },
   requestsText: { flex: 1, gap: 4 },
+  trayLarge: { alignItems: "center", width: 34 },
   requestsTitle: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
   requestsTitleStacked: { gap: 4 },
   // The empty state is a list row: 16 pt side and 15 pt top row insets.

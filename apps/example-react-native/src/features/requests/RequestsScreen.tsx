@@ -189,9 +189,9 @@ function RequestsList({ session }: { readonly session: ActiveSession }) {
                   : requestsCopy.emptyTitle}
               </Text>
               {state.loading || !state.loaded ? null : (
-                <Text color="secondaryLabel" align="center">
+                <WrappedText color="secondaryLabel" align="center">
                   {requestsCopy.emptyDetail}
-                </Text>
+                </WrappedText>
               )}
             </View>
           ) : (

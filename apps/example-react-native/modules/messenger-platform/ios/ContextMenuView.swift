@@ -17,6 +17,9 @@ public final class ContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
 
     public required init(appContext: AppContext? = nil) {
         super.init(appContext: appContext)
+        // A lifted preview is elevated, which turns `systemBackground` gray in
+        // dark mode. A SwiftUI list row keeps the page color.
+        traitOverrides.userInterfaceLevel = .base
         addInteraction(UIContextMenuInteraction(delegate: self))
     }
 

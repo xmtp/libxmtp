@@ -78,6 +78,10 @@ export const ConversationListRow = memo(function ConversationListRow({
   // so a lifted context-menu row never shows them behind it).
   const [open, setOpen] = useState(false);
   const [revealed, setRevealed] = useState(false);
+  // iOS 26 swipe buttons: as wide as the widest label plus 12 pt a side,
+  // 8 pt shorter than the row up to 80 pt, centered.
+  const [labelWidth, setLabelWidth] = useState(0);
+  const [rowHeight, setRowHeight] = useState(0);
   const [inset, onInitialsLayout] = useInitialsInset();
 
   const content = (
@@ -105,7 +109,10 @@ export const ConversationListRow = memo(function ConversationListRow({
   );
 
   return (
-    <View>
+    <View
+      onLayout={(event) => {
+        setRowHeight(event.nativeEvent.layout.height);
+      }}>
       <ReanimatedSwipeable
         ref={swipeable}
         friction={1}
@@ -140,10 +147,20 @@ export const ConversationListRow = memo(function ConversationListRow({
                 }}
                 style={({ pressed }) => [
                   styles.action,
-                  { backgroundColor: palette.tint },
+                  {
+                    backgroundColor: palette.tint,
+                    height: Math.min(80, Math.max(0, rowHeight - 8)),
+                    minWidth: labelWidth + 24,
+                  },
                   pressed ? styles.pressed : undefined,
                 ]}>
-                <Text variant="footnote" color="onTint">
+                <Text
+                  variant="footnote"
+                  color="onTint"
+                  onLayout={(event) => {
+                    const width = Math.ceil(event.nativeEvent.layout.width);
+                    setLabelWidth((current) => Math.max(current, width));
+                  }}>
                   {action.label}
                 </Text>
               </Pressable>
@@ -180,19 +197,16 @@ const styles = StyleSheet.create({
   // `.padding(.vertical, 5)` inside the 15 pt list row inset.
   row: { paddingVertical: 20 },
   actions: {
+    alignItems: "center",
     flexDirection: "row",
     gap: 10.5,
-    paddingBottom: 3.5,
-    paddingLeft: 10.5,
-    paddingRight: 10.5,
-    paddingTop: 5,
+    paddingHorizontal: 10.5,
   },
   action: {
     alignItems: "center",
     borderRadius: 18,
     justifyContent: "center",
-    minWidth: 57,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
   },
   pressed: { opacity: 0.7 },
   hidden: { opacity: 0 },
