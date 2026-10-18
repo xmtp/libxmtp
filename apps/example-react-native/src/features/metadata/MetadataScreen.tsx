@@ -37,6 +37,12 @@ import { useToolbarIcon } from "@/ui/toolbarIcon";
 import { toolbarTextItem } from "@/ui/ToolbarTextButton";
 import { useStore } from "@/ui/useStore";
 
+/**
+ * SwiftUI starts the separator under a row of glass buttons at the first
+ * button's title, 28 pt into the card (measured on iOS 27).
+ */
+const buttonRowInset = 28;
+
 export interface MetadataScreenProps {
   readonly conversationId: string;
   /** My fields (`true`) or Group fields (`false`). */
@@ -298,7 +304,10 @@ function ownFieldRows(
         {status}
       </Text>
     </FormRow>,
-    <FormRow key="buttons" style={styles.buttons}>
+    <FormRow
+      key="buttons"
+      style={styles.buttons}
+      separatorInset={buttonRowInset}>
       <GlassButton
         title={metadataCopy.setEmpty}
         disabled={!canSet(field)}
@@ -368,7 +377,10 @@ function groupFieldRows(
         scrollEnabled={false}
         style={styles.multiline}
       />,
-      <FormRow key="buttons" style={styles.buttons}>
+      <FormRow
+        key="buttons"
+        style={styles.buttons}
+        separatorInset={buttonRowInset}>
         <GlassButton
           variant="glassProminent"
           title={metadataCopy.set}
@@ -451,7 +463,7 @@ function groupFieldRows(
           />,
         ]
       : []),
-    <FormRow key="add" style={styles.buttons}>
+    <FormRow key="add" style={styles.buttons} separatorInset={buttonRowInset}>
       <GlassButton
         variant="glassProminent"
         title={action === "update" ? metadataCopy.update : metadataCopy.add}
