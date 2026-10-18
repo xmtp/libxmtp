@@ -35,15 +35,15 @@ When you update disappearing message settings, the system changes each field sep
 
 ### Read and change the settings
 
-Use the same fields and methods on all four SDKs:
+Use the same fields and methods on all five platform SDKs:
 
-| Action          | API                                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------------ |
-| Set at creation | `CreateGroupOptions.disappearing` or `CreateDmOptions.disappearing`                                    |
-| Update          | `updateDisappearingSettings(settings)`                                                                 |
-| Clear           | `updateDisappearingSettings` with `undefined` on Browser and Node, `null` on Kotlin, or `nil` on Swift |
-| Read            | `group.state().common.disappearingSettings` or `dm.state().disappearingSettings`                       |
-| Check           | `group.state().common.isDisappearingEnabled` or `dm.state().isDisappearingEnabled`                     |
+| Action          | API                                                                                                                   |
+| --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Set at creation | `CreateGroupOptions.disappearing` or `CreateDmOptions.disappearing`                                                   |
+| Update          | `updateDisappearingSettings(settings)`                                                                                |
+| Clear           | `updateDisappearingSettings` with `undefined` on Browser, Node, and React Native, `null` on Kotlin, or `nil` on Swift |
+| Read            | `group.state().common.disappearingSettings` or `dm.state().disappearingSettings`                                      |
+| Check           | `group.state().common.isDisappearingEnabled` or `dm.state().isDisappearingEnabled`                                    |
 
 Read `state()` asynchronously. Swift uses the label `settings:` for updates. The settings value is a `DisappearingSettings` record with `from` and `retentionNs`.
 

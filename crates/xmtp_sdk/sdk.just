@@ -5,8 +5,8 @@ root := justfile_directory()
 _env := ". " + root + "/dev/docker/load-env"
 
 # Build selected artifacts, then render only the selected target roots.
-generate targets="swift,kotlin,node,browser":
-    "{{ root }}/crates/xmtp_sdk/dev/generate" --targets "{{ targets }}"
+generate targets="swift,kotlin,node,browser" *args:
+    "{{ root }}/crates/xmtp_sdk/dev/generate" --targets "{{ targets }}" {{ args }}
 
 # Source checks that need no generated tree. CI runs them before generating.
 lint-source:

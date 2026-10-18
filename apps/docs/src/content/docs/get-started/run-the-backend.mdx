@@ -466,7 +466,8 @@ Pass the key value through the client auth callback. Add `Bearer` and one space
 before the key value. The middleware does not add this prefix. The header name defaults to
 `authorization` when `name` is omitted.
 
-This JavaScript example uses the public Node SDK:
+This JavaScript example uses the public Node SDK. React Native uses the same
+backend options; import `Backend` from `@xmtp/react-native-sdk` in a native app:
 
 ```ts twoslash
 import { Backend } from "@xmtp/node-sdk";

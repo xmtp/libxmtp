@@ -15,7 +15,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[3]
-TARGETS = ("swift", "kotlin", "node", "browser")
+TARGETS = ("swift", "kotlin", "node", "browser", "react-native")
 # Paths that contain every input of the SDK and bindgen closures. Windows has
 # no Nix, so its identity covers these paths instead of the closures; on other
 # systems, an untracked file here is an input that Nix cannot see.
@@ -96,7 +96,9 @@ def provenance():
         return {
             "source": identity,
             "generator": identity,
-            "render": dict.fromkeys(("swift", "kotlin", "typescript"), identity),
+            "render": dict.fromkeys(
+                ("swift", "kotlin", "typescript", "react-native"), identity
+            ),
         }
     untracked = untracked_inputs()
     if untracked:
@@ -178,7 +180,11 @@ def render_hash(language):
     """The identity a generated tree records: the bindgen plus its language's
     runtime and configuration, so a runtime edit changes only that language."""
     return provenance()["render"][
-        "typescript" if language.startswith("typescript-") else language
+        "react-native"
+        if language == "typescript-react-native"
+        else "typescript"
+        if language.startswith("typescript-")
+        else language
     ]
 
 
@@ -315,7 +321,7 @@ def targets(value):
     names = tuple(dict.fromkeys(value.split(",")))
     if not names or any(name not in TARGETS for name in names):
         raise argparse.ArgumentTypeError(
-            "expected comma-separated swift,kotlin,node,browser"
+            "expected comma-separated swift,kotlin,node,browser,react-native"
         )
     return names
 
@@ -507,6 +513,7 @@ RENDER_TARGETS = {
     "typescript-napi": "node",
     "typescript-wasm": "browser-worker",
     "typescript-pure": "browser-pure",
+    "typescript-react-native": "react-native",
 }
 
 
@@ -515,6 +522,7 @@ RUNTIMES = {
     "typescript-napi": ("core", "node"),
     "typescript-wasm": ("core", "wasm"),
     "typescript-pure": ("core", "wasm"),
+    "typescript-react-native": ("core",),
 }
 
 
@@ -540,6 +548,8 @@ def runtime_packages(names):
 def target_languages(target):
     if target == "browser":
         return ("typescript-wasm", "typescript-pure")
+    if target == "react-native":
+        return ("typescript-react-native",)
     return ("typescript-napi" if target == "node" else target,)
 
 
@@ -582,7 +592,7 @@ def render(args):
         raise ValueError("generator mismatch; run build first")
     # Node and Browser staging trusts sdk-contract.json and has no later source
     # check. Mobile preflight checks it itself.
-    if {"node", "browser"} & set(args.targets):
+    if {"node", "browser", "react-native"} & set(args.targets):
         if any(record["source"] != source_hash() for record in selected.values()):
             raise ValueError("source mismatch; run build first")
     binary = next(iter(selected["bindgen"]["files"]))
@@ -594,7 +604,7 @@ def render(args):
         ),
         None,
     )
-    typescript = {"node", "browser"} & set(args.targets)
+    typescript = {"node", "browser", "react-native"} & set(args.targets)
     oxfmt = formatter() if typescript else []
     runtimes = (
         runtime_packages(
@@ -668,7 +678,7 @@ def main():
         "action", choices=("build", "render", "provenance", "key", "paths")
     )
     parser.add_argument("package", nargs="?", default="xmtp_sdk")
-    parser.add_argument("--targets", type=targets, default=TARGETS)
+    parser.add_argument("--targets", type=targets, default=TARGETS[:-1])
     parser.add_argument("--artifacts", type=Path, default=ROOT / "target/sdk-artifacts")
     parser.add_argument(
         "--out",
@@ -684,7 +694,14 @@ def main():
     try:
         if args.action == "provenance":
             # The identities of a Node render.
-            print(source_hash(), render_hash("typescript-napi"))
+            print(
+                source_hash(),
+                render_hash(
+                    "typescript-react-native"
+                    if args.targets == ("react-native",)
+                    else "typescript-napi"
+                ),
+            )
         elif args.action == "key":
             print(json.dumps(source_key(args.profile, args.rust_target)))
         elif args.action == "paths":

@@ -76,6 +76,41 @@ describe("compute-version --source-ref / --timestamp", () => {
     }
   });
 
+  it.each([
+    { releaseType: "final" as const, expected: "8.0.0" },
+    { releaseType: "rc" as const, expected: "8.0.0-rc2" },
+    { releaseType: "dev" as const, expected: "dev" },
+  ])(
+    "selects the RN manifest for $releaseType",
+    ({ releaseType, expected }) => {
+      fs.mkdirSync(path.join(tmpDir, "sdks/react-native"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "sdks/react-native/package.json"),
+        '{"name":"@xmtp/react-native-sdk","version":"8.0.0"}',
+      );
+      const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        handler({
+          _: [],
+          $0: "test",
+          repoRoot: tmpDir,
+          sdk: "react-native-sdk",
+          releaseType,
+          rcNumber: 2,
+          sourceRef: "main",
+          timestamp: "20261016060000",
+        });
+        expect(spy).toHaveBeenLastCalledWith(
+          releaseType === "dev"
+            ? `8.0.0-pre.20261016060000.dev.${shortSha}`
+            : expected,
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
+
   it("emits the ordered pre.* shape for a main-cut dev", () => {
     const version = run("refs/heads/main");
     expect(version).toMatch(

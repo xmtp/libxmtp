@@ -14,7 +14,10 @@ These jobs do not run SDK or release tools. The tag push job imports a Git
 bundle into a new bare repository.
 Resolve the requested ref before SDK code runs. All SDK jobs use that fixed
 source SHA for checkout, build, and tag checks. Keep the requested ref for
-version classification. The version CLI gets its hash from the pinned HEAD.
+version classification. `release.yml` freezes the source in `validate`, then
+passes it to the nightly oracle, every SDK, the backend, and the hub. Direct
+SDK callers may omit `source-sha`; their permission job resolves `ref` once.
+The version CLI gets its hash from the pinned HEAD.
 Android and npm tags must point to that SHA. iOS can use one direct
 release commit
 that changes only the iOS release files. The push job checks this before it
@@ -226,3 +229,29 @@ Keep credentials out of global `AWS_*` settings and Nix derivations.
 `just test dev` tests CI selection, result gates, summaries, the backend
 selector, and write policy without keys, a compiler daemon, or cloud access.
 See the setup action's README for settings.
+
+`test-react-native.yml` owns the RN producer, exchange, canonical package,
+and installed bare/Expo consumer gates on both platforms. It has no privileged
+writer environment. Forks use the same-run exports when no PR cache token is
+available. Select it through the `react_native` and shared SDK path groups.
+The Linux consumer job also runs the portable package, controller, React, and
+native-helper contracts before its installed-app journeys.
+
+Once GitHub registers the workflow, `gh workflow run test-react-native.yml --ref REF`
+runs only the RN gates. Platform jobs retain `target/react-native-results/*.json`
+in `react-native-proof-PLATFORM`; release jobs use
+`react-native-release-proof-PLATFORM`. Do not upload peer logs with these reports.
+The test and release consumer builds retain 100 Nix failure lines so CocoaPods
+hook exceptions remain visible before their Ruby stack traces.
+
+The shared `react-native-product` action owns RN component exchange, canonical
+package assembly, and consumer builds. Callers pass the fixed source SHA,
+package version (empty for the default), artifact prefix, and cache mode.
+Cache setup, credentials, explicit uploads, and trusted writer environments
+stay in the calling workflows. Native derivations select their declared Xcode;
+the consumer action sets `DEVELOPER_DIR` for simulator commands outside Nix.
+`react-native-conformance` executes fresh installed bare/Expo proofs in test
+and release jobs. Post-merge builds consumers without repeating those journeys.
+Its final `build` jobs wait for RN stages before building, pushing, and pinning
+dev/release. Docs wait for the completed empty-store closure check. Keep every
+RN stage member in the dev/release declarations in `nix/ci-sets.nix`.

@@ -143,13 +143,17 @@ test("source fences render the selected compiled region and reject bad input", a
     engine.render({ code: "const unchecked = 1;", language: "ts" }),
     /need source regions or twoslash/u,
   );
-  const reference = await engine.render({
-    code: "function declarationOnly(): string;",
-    language: "ts",
-    parentDocument: { sourceFilePath: "/docs/reference/node-sdk/Client.md" },
-  });
-  assert.match(
-    reference.renderedGroupContents[0].codeBlock.code,
-    /declarationOnly/u,
-  );
+  for (const sdk of ["node", "browser", "react-native", "agent"]) {
+    const reference = await engine.render({
+      code: "function declarationOnly(): string;",
+      language: "ts",
+      parentDocument: {
+        sourceFilePath: `/docs/reference/${sdk}-sdk/Client.md`,
+      },
+    });
+    assert.match(
+      reference.renderedGroupContents[0].codeBlock.code,
+      /declarationOnly/u,
+    );
+  }
 });

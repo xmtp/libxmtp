@@ -28,6 +28,7 @@ case "${XMTP_SDK_BUILD:-cargo}" in
     for target in ${targets//,/ }; do
       case "$target" in
         node) languages=typescript-napi ;;
+        react-native) languages=typescript-react-native ;;
         browser) languages="typescript-wasm typescript-pure" ;;
         swift|kotlin) languages="$target" ;;
         *) echo "unknown SDK target: $target" >&2; exit 2 ;;

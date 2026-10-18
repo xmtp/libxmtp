@@ -1,0 +1,387 @@
+{
+  "schema": 1,
+  "installedHermes": {
+    "status": "passed",
+    "required": [
+      "Canonical matched package and all four pinned release consumers",
+      "Actual ReactHost reload with signer and HTTP settlement plus bounded stale-call observation",
+      "Fresh React/SDK initialization in actual OS background and same-process foreground",
+      "Installed /react shared ownership and disconnect"
+    ],
+    "limitation": "The installed reload scenario holds a public client/default reader and a constructor waiting on a signer. It does not deterministically intercept a raw ready Client result before its JS wrapper runs.",
+    "historicalBareIOS": {
+      "status": "passed",
+      "scope": "Historical e3ef/b338 genuine-native diagnostic package installed in a bare release Hermes/Fabric consumer on the iOS simulator with local Xcode. This does not admit the current canonical package or prove Expo or Android execution.",
+      "packageSha256": "e3ef0c89febb900ea229db359231d37f2707d230944a0e64e9b9ae9c1fa7078c",
+      "expectedSource": "9a489d75b8a5080229a6bd9bbcc1e67335fc4c943e861147168d8ccb2fe70fe9",
+      "generatorForkRevision": "b3389fdd8bd931175e33952786d3d5a43d4c075f",
+      "xcodeMode": "local",
+      "xcodeIdentity": "Xcode 27.0 (27A266a) at /Applications/Xcode.app/Contents/Developer",
+      "reactNative": "0.88.0",
+      "react": "19.3.0",
+      "conformance": {
+        "status": "passed",
+        "assertionCount": 29,
+        "phases": [
+          "foundation",
+          "features",
+          "migration",
+          "advanced",
+          "runtime-reload",
+          "react"
+        ],
+        "harnessSha256": "0516ca8bbf9fc90e44b405969881e0bee84f55bcf9bdbd509f10cd63fdb0e93c",
+        "report": {
+          "path": "/private/tmp/xmtp-rn-bootstrap-bare-ios-direct-results/bare-ios.json",
+          "sha256": "950816ae89434b6b68c3e1f6f2ae03f3e08ffc215429cd35cb00a63ca7dc487a"
+        },
+        "coverage": "All 29 assertions passed: foundation, features, migration, advanced boundaries/storage/delivery/events/logging, actual ReactHost reload with signer/HTTP settlement and bounded stale-call observation, and installed /react shared ownership and disconnect."
+      },
+      "background": {
+        "status": "passed",
+        "transport": "fresh-react-sdk-in-os-background",
+        "harnessSha256": "9d50b595e124d41a141af839cc7faa854683fae7f6dbd428508bcefdc596cf3e",
+        "report": {
+          "path": "/private/tmp/xmtp-rn-deferred-pilot-results/bare-ios-background.json",
+          "sha256": "92be4869cea0c4ea249c8409abe8ff1c5a63b4f26a01a9cdb2ca926f2f9e3765"
+        },
+        "method": "Launch a fresh native-only fixture process without React, the SDK or its lifecycle observer. Foreground Settings. After the real UIKit background notification returns, initialize the first React/SDK runtime on the main queue while UIKit is still Background. Require the cached raw native first-initialization state and current native process state to be background, zero subscription starts and no delivery during the observation window, then foreground the same process and receive the peer message through the same reader.",
+        "backgroundProcessId": 48245,
+        "foregroundProcessId": 48245,
+        "limitation": "This proves fresh React/SDK initialization in real OS background. It does not prove APNs delivery, system-triggered cold OS process launch, or execution on a physical device. The private phase name cold-background is retained in the raw report and does not expand this scope.",
+        "seedSensitivity": {
+          "status": "mutant-failed; exact-source-restore-passed",
+          "change": "replace only initial seedLifecycle(applicationState != Background) call with seeded=true; preserve both native process observers",
+          "failedAt": "initial native background seed must prevent every subscription before foregrounding",
+          "mutantForegroundRequested": false,
+          "restoredBackgroundProcessId": 56256,
+          "restoredForegroundProcessId": 56256,
+          "manifest": {
+            "path": "/private/tmp/xmtp-rn-ios-seed-mutation-ug_z1aic/mutation-proof.json",
+            "sha256": "50ecf150dfc894b5e271210988cdea81a391e03d1c9f0e54794cecbff5ec2040"
+          },
+          "verification": "Manifest records native recompilation, native source/executable and raw report hashes, and unchanged peer/fixture hashes. Independent review reproduced the mutant source hash by changing only the initial seed and confirmed both lifecycle observers remained intact."
+        }
+      },
+      "nativeStorageSensitivity": {
+        "status": "mutant-failed; exact-source-restore-passed",
+        "change": "copied installed SDK ios/XmtpReactNative.mm default final path component xmtp -> xmtp-mutation",
+        "failedAt": "default native database must be inside the independently derived OS sandbox root",
+        "harnessSha256": "94cb96e6b5a56157cb90d6a57c9eec4ddfd6c7fac73e381962e26bacf588774b",
+        "restoredAssertionCount": 9,
+        "manifest": {
+          "path": "/private/tmp/xmtp-rn-ios-storage-mutation-alstm5uu/mutation-proof.json",
+          "sha256": "c70bbfdea35c24b6de8d05d2b41d4cca0d9bc5e9a6915f45c351a76397527685"
+        },
+        "scope": "Separate historical bare iOS foundation run. Actual rebuilt native path mutation failed the independent OS sandbox-root assertion; exact-source restoration passed all nine foundation assertions. Manifest retains source/executable/report hashes and native compilation evidence."
+      }
+    },
+    "currentCanonical": {
+      "status": "passed",
+      "run": {
+        "id": 39076448106,
+        "head": "ff6c41e0c2659f5d9c5618cb6e45c1f30628d155",
+        "url": "https://github.com/xmtp/libxmtp/actions/runs/39076448106",
+        "conclusion": "success"
+      },
+      "packageSha256": "23653334dfacf38f701e603a09ff83b228313d98f861e61021347ceaefd71d85",
+      "identity": {
+        "source": "3e2796a550763d6291a556ee54453e5cf72561b2e8518125e4fc197bec4444b5",
+        "generator": "98f3d9033778cf255367bd6421bf4658de62e6aa258d0880138b7bf34408f936",
+        "forkRevision": "c4ae748b187807e6da4f9c841ad83838be7f12f2",
+        "productContract": "d7a6168ca650dc8459d7dbf0e373e7686da68d328cf49f6981e64c42dc4c7dfe"
+      },
+      "assertionsPerMain": 29,
+      "assertionsPerBackground": 1,
+      "freshUniqueRunIds": 8,
+      "pairedProof": {
+        "path": "/private/tmp/xmtp-rn-cleanup-ff6c41e0c2/stable-runtime-index.json",
+        "sha256": "af874840b85dff9e4063f898d3cae8f91b52a435e69430143a63c415d24a51ee"
+      },
+      "reportAndAppIdentities": "verification.json nativeRuntime and the four required compatibility.json rows bind the public platform artifacts, all eight current report hashes/run IDs, exact app content and toolchains.",
+      "limitsReference": "verification.json nativeRuntime.limits"
+    },
+    "sensitivityScope": "Historical native seed/storage, copied DEX, Node and C++ counter mutations retain their recorded bytes, fork labels and transport scope. Fresh installed baselines for the c4ae748b fork do not extend those historical mutation proofs.",
+    "historicalCanonical39022250312": {
+      "sourceCommit": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
+      "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+      "scope": "Historical 390222/v4w9 installed proof; its current labels describe that product.",
+      "proof": {
+        "status": "passed",
+        "run": {
+          "id": 39022250312,
+          "head": "a9d48ec7f22553b5cf1b9fb43ef67c678a1fa201",
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/39022250312"
+        },
+        "packageSha256": "2a4aa908ea7e80e5dc4c47485b346d3b8740b83900161cbfdc561d46b6435222",
+        "identity": {
+          "source": "af9e6b20d5b863a485f5cf90c3d1c14ce612d0e33a906711936cbd65206a6bf1",
+          "generator": "d8c25a72cb53f6c0856a5e5954415d619f75f2539549496e1f381d77097dee95",
+          "forkRevision": "7c292ef6d2b892c542b92bdb0dc8e69b4cfec9bf",
+          "productContract": "0df9250fc3a51480e4749b0f98ef1c0e821fb6a475799ac15d235ea72c3b10ab"
+        },
+        "driverSha256": "73481efe9a7a4a6d96deee2a19308659fc13a3598ef1948299e8d0bb7699dbf0",
+        "harnesses": {
+          "bare": "d1a441b906d090c483cd677bb436ef9cf430cbc46f5d65d3a266ca131ac2b058",
+          "expo": "0d5867ab4ee40391832a4f34c227627516855f97806fc7a66f844038e443d828"
+        },
+        "phases": [
+          "foundation",
+          "features",
+          "migration",
+          "advanced",
+          "runtime-reload",
+          "react"
+        ],
+        "assertionsPerMain": 29,
+        "assertionsPerBackground": 1,
+        "freshUniqueRunIds": 8,
+        "pairedProof": {
+          "path": "/private/tmp/xmtp-rn-hosted-39022250312-paired-proof.json",
+          "sha256": "8b5918449af38648800dae2891ee7dbdf05c24cadb6ae43adfd62be1717b6a98"
+        },
+        "limits": [
+          "Simulator/emulator execution only; no physical-device execution is claimed.",
+          "Background proof covers fresh React/SDK initialization in actual OS background and same-process foreground. It does not prove APNs delivery or system-triggered cold process wake.",
+          "The two-second shutdown/reload observation is bounded evidence, not a native callback drain barrier.",
+          "Raw report assertions do not provide per-step event logs or timings.",
+          "Release-versioned runtime and post-merge warm-cache admission remain separate gates.",
+          "No positive SCW or passkey wallet integration is claimed.",
+          "Canonical release app execution is separate from any native C++ ASan harness; it is not an instrumented-app claim."
+        ],
+        "reportAndAppIdentities": "verification.json nativeRuntime records both current artifacts, all eight report hashes/run IDs, new signed app content and toolchains."
+      }
+    },
+    "currentVersioned": {
+      "status": "passed",
+      "run": {
+        "id": 39076636069,
+        "head": "ff6c41e0c2659f5d9c5618cb6e45c1f30628d155",
+        "url": "https://github.com/xmtp/libxmtp/actions/runs/39076636069",
+        "conclusion": "success"
+      },
+      "version": "8.0.0-dev.ff6c41e",
+      "packageSha256": "0778562b9ccd1418d324fc42a0ca2fd3adcdc7352b9ed0e29c1f69def92a2cbb",
+      "assertions": 120,
+      "freshUniqueRunIds": 8,
+      "proof": "verification.json versionedPreview"
+    }
+  },
+  "siblingScenarioMechanics": {
+    "status": "passed",
+    "transport": "real generated Node N-API SDK with live worktree backend, not Hermes",
+    "backend": "http://127.0.0.1:5450",
+    "product": "target/sdk-packages/node",
+    "command": "dev/nix-shell: temporary Node ESM compilation of advanced.ts with only the package import redirected to the staged Node sibling",
+    "log": "/private/tmp/rn-advanced-isolation.log",
+    "cases": [
+      "negative full-width timestamp and nested options",
+      "held/reentrant/rejected wallet and credential callbacks",
+      "explicit unkeyed and encrypted storage, wrong-key rejection, end/delete/recreate",
+      "durable next/return/end ACK, default reader ownership, failed callback, replay and cancellation",
+      "event queue exact 1024 total including active callback; 1030 emissions give 6 drops",
+      "event isolation for two client instances sharing a database",
+      "native log records redact credential, signing and database key sentinels",
+      "shared loggingContract through real transport: exact overflow/order, failure, generation replacement, reentry"
+    ]
+  },
+  "mutations": [
+    {
+      "case": "boundaryJourney",
+      "change": "In an isolated built SDK copy, Timestamp stores BigInt(Number(ns)).",
+      "failedAt": "native timestamp must retain signed full-width nanoseconds",
+      "restored": "passed"
+    },
+    {
+      "case": "storageJourney",
+      "change": "Public host option lowering omits encryptionKey.",
+      "failedAt": "existing encrypted native database must reject a wrong key with Storage",
+      "restored": "passed"
+    },
+    {
+      "case": "deliveryJourney",
+      "change": "ReaderStream prefetches one additional native item before returning its first result.",
+      "failedAt": "return must leave the delivered item unacknowledged",
+      "restored": "passed"
+    },
+    {
+      "case": "eventJourney",
+      "change": "Public event callback wrapper detaches its returned promise.",
+      "failedAt": "held native listener must not admit concurrent callbacks",
+      "restored": "passed"
+    },
+    {
+      "case": "eventClientIsolationJourney",
+      "change": "Public event streams cache the first client host globally.",
+      "failedAt": "native subscriptions must not mix separate clients sharing a database",
+      "restored": "passed"
+    },
+    {
+      "case": "redactionJourney",
+      "change": "Credential lowering retains the actual input value and the public log projection adds it as an unsafe diagnostic field. This tests host transport leakage, not removal of Rust redaction.",
+      "failedAt": "native app log sink must redact secret text",
+      "restored": "passed"
+    },
+    {
+      "case": "diagnosticsJourney",
+      "change": "Public log projection zeros droppedRecords.",
+      "failedAt": "4096 queued plus one active",
+      "restored": "passed"
+    }
+  ],
+  "nativeCallbackMarshalling": {
+    "status": "passed",
+    "source": "native/stale-callback.cpp",
+    "command": "dev/nix-shell python3.11 sdks/react-native/test/conformance/native/run.py --generated-cpp /tmp/ubrn-native-render/out/jsi/xmtp_sdk.cpp --fork /private/tmp/codex-rn-ubrn-runtime --hermes-source /tmp/codex-rn-hermes --hermes-build /tmp/codex-rn-hermes-system --sdk-library /nix/store/sg0ra7g9jggdb9kr2ss3glcs8xv2frdq-xmtp-sdk-native-aarch64-apple-darwin-1.12.0-dev/lib/libxmtp_sdk.dylib",
+    "scope": "Actual generated XMTP callbacks, real Hermes, real Rust buffer allocator and ASan. Completion receivers are C++ counters. This does not prove actual Rust oneshot cancellation, owned-future drain, or installed RN teardown ordering.",
+    "mutations": [
+      {
+        "change": "Omit stale completion cancellation in copied generated wrapper",
+        "result": "assertion rejects missing typed failure callback"
+      },
+      {
+        "change": "Restore early return without freeing late native buffers",
+        "result": "assertion rejects remaining native buffer capacity stamp"
+      }
+    ]
+  },
+  "typesAndLint": {
+    "generatedRNTypes": "passed using actual exploratory generated RN root and /react declarations; not native runtime proof",
+    "focusedOxlint": "passed",
+    "panelGapGeneratedRNTypes": "passed with actual exploratory generated RN root/react declarations and copied sibling vector fixture; generated build identity is a temporary typecheck-only string",
+    "panelGapFocusedOxlint": "passed"
+  },
+  "panelGapMechanics": {
+    "status": "passed",
+    "transport": "Real staged Node native sibling and worktree backend. The private native file oracle was replaced only in the temporary Node runner by node:fs reads; this does not prove mobile filesystem access or Hermes.",
+    "cases": [
+      "All sibling standardSamples and variantSamples through native standard codecs and encoded-content projection; native maps are compared by key because their protobuf field order is unspecified.",
+      "Native LocalSigningKey known-vector identity, exact export bytes, sliced input, signature, restored generated key passed directly to Client.create.",
+      "Fresh native client account add/remove, handle availability/claim/static lookup, installation authorization/signature/revoke, bigint identity map.",
+      "deviceSync:true creates a native sync group; bounded readiness wait then syncAllDeviceSyncGroups requires positive eligible count and all eligible groups synced.",
+      "RN-side attachment logic uses a separate native downloader, reads exact known archive bytes, reads archive metadata, lists and deletes the relative local path, and proves the file is absent. Independent Node peer verifies the same uploaded archive.",
+      "Throwing custom codec rejects before signer/native allocation and same database immediately reopens.",
+      "Held callback plus three queued changes: stop and end complete while held; after release, no additional callback during a two-second observation window."
+    ],
+    "logs": [
+      "/private/tmp/rn-panel-mechanics.log",
+      "/private/tmp/rn-panel-advanced.log",
+      "/private/tmp/rn-panel-mutations/attachments-restored.log"
+    ],
+    "limitations": [
+      "Shutdown observation is temporal evidence, not a deterministic native callback completion barrier. An independent native callback was tried and a no-op stop mutation passed it; that insufficient barrier was replaced by an explicit bounded quiet window. Exact core cancellation semantics remain covered by Rust tests.",
+      "No positive SCW or passkey wallet integration was added. Existing sibling signer-callback fixtures cover malformed variants, not a reusable real wallet flow. EOA reentrant/held callbacks and positive LocalSigningKey native-object integration are covered; core cryptographic tests retain algorithm coverage.",
+      "These scenarios now pass through all four current canonical installed Hermes consumers. The recorded Node mutations retain Node transport scope."
+    ]
+  },
+  "panelGapMutations": [
+    {
+      "case": "stop",
+      "change": "Public stopListener returns without stopping either native or host listener.",
+      "failedAt": "shutdown must discard queued events before any further JS handoff",
+      "restored": "passed",
+      "logDirectory": "/private/tmp/rn-panel-mutations"
+    },
+    {
+      "case": "end",
+      "change": "Public end returns without ending the native or host client.",
+      "failedAt": "shutdown must discard queued events before any further JS handoff",
+      "restored": "passed",
+      "logDirectory": "/private/tmp/rn-panel-mutations"
+    },
+    {
+      "case": "constructor",
+      "change": "Public create allocates its native client before reading throwing codec options.",
+      "failedAt": "throwing codec rejects before native allocation or signer callbacks",
+      "restored": "passed",
+      "logDirectory": "/private/tmp/rn-panel-mutations"
+    },
+    {
+      "case": "vectors",
+      "change": "Actions projection discards expiresAt.",
+      "failedAt": "native actions optional/map/byte fields roundtrip",
+      "restored": "passed",
+      "logDirectory": "/private/tmp/rn-panel-mutations"
+    },
+    {
+      "case": "identity",
+      "change": "Account-add wrapper returns without calling native add.",
+      "failedAt": "native account addition appears in association state",
+      "restored": "passed",
+      "logDirectory": "/private/tmp/rn-panel-mutations"
+    },
+    {
+      "case": "sync",
+      "change": "GroupSyncSummary projection returns zero counts.",
+      "failedAt": "enabled device sync owns and synchronizes a native sync group",
+      "restored": "passed",
+      "logDirectory": "/private/tmp/rn-panel-mutations"
+    },
+    {
+      "case": "attachments",
+      "change": "Attachment deleteLocal returns without native deletion.",
+      "failedAt": "RN attachment deletion removes local listing",
+      "restored": "passed",
+      "logDirectory": "/private/tmp/rn-panel-mutations"
+    },
+    {
+      "case": "key",
+      "change": "Native signing-key byte projection drops the first byte.",
+      "failedAt": "native signing-key export retains all 32 exact bytes",
+      "restored": "passed",
+      "logDirectory": "/private/tmp/rn-panel-mutations"
+    },
+    {
+      "case": "handle",
+      "change": "Handle-claim wrapper returns without native claim.",
+      "failedAt": "native claimed handle appears in inbox state",
+      "restored": "passed",
+      "logDirectory": "/private/tmp/rn-panel-mutations"
+    }
+  ],
+  "reloadSettlementWitness": {
+    "status": "passed",
+    "behavior": "After releasing the old signer, runtime/observe waits for its fulfilled/rejected result and the actual old HTTP response finish/close event, then waits a two-second stale-call observation window. Installed runtime success requires fulfilled signer, terminal HTTP disposition, the completed window and staleCalls=0. A closed old request is a valid transport cancellation witness; it is not native callback drain. Final conformance /result admission independently calls the controller gate again, requiring completed successful observation and the current staleCalls=0, including callbacks arriving after the observation returned.",
+    "command": "dev/nix-shell 'just react-native test-control'",
+    "tests": [
+      "Real HTTP request cancelled before the old signer resolves: observation cannot report unsettled signer as safe.",
+      "Real HTTP signature response finishes; a stale continuation arrives 100ms later and is counted by the post-settlement window.",
+      "Final result is rejected before/during observation and after a late stale call; it is accepted only after successful observation."
+    ],
+    "logs": [
+      "/private/tmp/rn-runtime-settlement-tests.log",
+      "/private/tmp/rn-runtime-settlement-mutation.log",
+      "/private/tmp/rn-runtime-settlement-restored.log",
+      "/private/tmp/rn-runtime-unsettled-mutation.log",
+      "/private/tmp/rn-runtime-final-restored.log",
+      "/private/tmp/rn-runtime-control-just.log",
+      "/private/tmp/rn-runtime-admission-mutation.log",
+      "/private/tmp/rn-runtime-admission-restored.log"
+    ],
+    "limits": "Control tests prove the actual HTTP gate and delayed-callback sensitivity. All four current canonical installed Hermes conformance reports passed runtime-reload, in addition to the recorded historical bare iOS run. Neither proves native callback drain or excludes callbacks after the bounded two-second window.",
+    "mutations": [
+      {
+        "change": "In an isolated helper copy, omit the two-second window and report immediately after signer/HTTP settlement.",
+        "failedAt": "post-response stale callback must fail the installed reload gate (0 !== 1)",
+        "restored": "both tests passed"
+      },
+      {
+        "change": "Restore immediate status behavior by omitting signer/HTTP settlement waits and the observation window.",
+        "failedAt": "unsettled signer must not count as safe reload (true !== false)",
+        "restored": "both tests passed"
+      },
+      {
+        "change": "In an isolated helper copy, disable the final-result observation admission guard.",
+        "failedAt": "expected HTTP 500 for bypassed observation but received HTTP 200",
+        "restored": "both tests passed"
+      }
+    ],
+    "generatedRNTypecheck": "passed",
+    "focusedOxlint": "passed",
+    "currentCanonicalProof": "/private/tmp/xmtp-rn-cleanup-ff6c41e0c2/stable-runtime-index.json",
+    "historicalCanonicalProof": "/private/tmp/xmtp-rn-hosted-39022250312-paired-proof.json",
+    "currentVersionedProof": "/private/tmp/xmtp-rn-cleanup-ff6c41e0c2/versioned-runtime-index.json",
+    "historicalSensitivityScope": "The recorded HTTP regression and mutation commands retain their historical execution scope. Current positive reload execution is proved by the fresh stable and versioned installed reports."
+  },
+  "historicalMechanicsScope": "Sibling Node mechanics, isolated native callback/ASan checks, exploratory types and their mutations retain the original inputs and transports recorded below. The current fork is covered by the separate fresh installed baseline records."
+}

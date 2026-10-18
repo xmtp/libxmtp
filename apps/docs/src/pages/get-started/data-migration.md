@@ -20,7 +20,10 @@ The converter copies the source before it applies legacy migrations. The source 
 
 ## Supported legacy data
 
-The converter accepts known migration prefixes from the last legacy SDK majors: Node 6, Browser 7, Agent 2, iOS 4, and Android 4. The Agent SDK uses Node storage. Fixtures cover the Node 6.1.0, Browser 7.1.0, iOS 4.10.0 and 4.11.0, and Android 4.10.0 and 4.11.0 schema endpoints. Unknown migration histories fail with `XmtpError.MigrationUnsupportedSchema`.
+The converter accepts known migration prefixes from the last legacy SDK majors: Node 6, Browser 7, Agent 2, iOS 4, and Android 4. The Agent SDK uses Node storage. Fixtures cover the Node 6.1.0, Browser 7.1.0, iOS 4.10.0 and 4.11.0, and Android 4.10.0 and 4.11.0 schema endpoints. React Native 8 also exposes the native converter. Its compatibility depends on
+the stored migration chain, not the old React Native package version. See the
+[React Native upgrade guide](/get-started/migrate-to-self-hosted/react-native-sdk-upgrade-guide/).
+Unknown migration histories fail with `XmtpError.MigrationUnsupportedSchema`.
 
 The archive contains groups, DMs, application messages, and consent. Message IDs, content bytes, and nanosecond timestamps stay unchanged. Virtual sync conversations, one-shot conversations, and groups already marked as restored are excluded.
 
@@ -40,9 +43,11 @@ Create a separate random 32-byte archive key. Save it in the app's key storage b
 
 ## 2. Create and import the archive
 
-### Node and Agent
+### Node, Agent, and React Native
 
-Use the normal `@xmtp/node-sdk` or `@xmtp/agent-sdk` package. Keys are `Uint8Array` values. Buffer views are accepted without including bytes outside the view. Report counts are `bigint` values.
+Use the normal `@xmtp/node-sdk`, `@xmtp/agent-sdk`, or
+`@xmtp/react-native-sdk` package. For React Native, replace the import below with
+`@xmtp/react-native-sdk` and use native app-accessible file paths. Keys are `Uint8Array` values. Buffer views are accepted without including bytes outside the view. Report counts are `bigint` values.
 
 ```ts source="legacy-migration-node.ts" region="imports"
 

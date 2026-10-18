@@ -1,0 +1,108 @@
+---
+title: React Native SDK Upgrade Guide
+description: Migrate a pre-8.0.0 React Native app to the native v8 API and a self-hosted backend.
+---
+
+Every pre-8.0.0 React Native app must migrate. The npm package name remains
+`@xmtp/react-native-sdk`; version **8.0.0** uses the generated native v8 API.
+Existing method names, option shapes, generic types, hooks, and database files
+are not a compatibility contract.
+
+Start with [Migrate to a self-hosted backend](/get-started/migrate-to-self-hosted/).
+All participants must use the same backend. Keep the other SDK and backend
+version pins from that guide. Follow [React Native and
+Expo](/get-started/react-native/) to configure Hermes, New Architecture, native
+builds, and deployment floors.
+
+## Upgrade the native package
+
+```sh
+npm install --save-exact @xmtp/react-native-sdk@8.0.0
+```
+
+Install iOS pods and rebuild the native app. Expo apps need a rebuilt development
+client or prebuilt native project. Expo Go and JavaScript-only updates cannot
+install the module. Import the public API from the package root and optional
+React helpers from `/react`. Do not import generated binding paths.
+
+## Recreate the client integration
+
+| Area            | v8 integration                                                                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend         | Pass `backend: { url }` or a `Backend`. Use the chosen deployment; there is no implicit public network.                                               |
+| Signer          | Implement async `identity()`, `kind()`, and `sign(request)`, or restore a saved `LocalSigningKey`.                                                    |
+| Storage         | Pass explicit `storage` options. Keep the optional 32-byte encryption key, location, and label stable. Default storage uses the native app directory. |
+| Client creation | Use `Client.create(signer, options)` or reopen a current database with `Client.build(identity, options)`.                                             |
+| Shutdown        | Await `client.end()` before external file operations.                                                                                                 |
+| Types           | Use `Client`, `Group`, `Dm`, `Message`, and `Conversation` without legacy generic parameters.                                                         |
+| Values          | IDs are strings; bytes are `Uint8Array`; maps are `Map`; full-width integers use `bigint`; times use `Timestamp`.                                     |
+| Content         | Narrow `message.content.kind`. Standard codecs are built in; register only app custom codecs in `ClientOptions.codecs`.                               |
+| Readers         | Use SDK message/conversation readers. Await app processing before the next value; close readers when their owner changes.                             |
+| React           | Use `XmtpProvider`, `useXmtp`, and `useClient` from `/react`. No `setClient`, message hooks, or conversation hooks are exported.                      |
+| Attachments     | Use `client.attachments` to create, upload, download, and manage native files. The app owns picking media and OS permissions.                         |
+| Push            | Obtain tokens and OS permissions in the app, then call `client.enableNotifications`. Rewrite native handlers for the current push payload.            |
+
+The TypeScript shapes follow the [Node native API](/reference/node-sdk/readme/), with
+mobile storage and lifecycle integration. Use the [React Native API
+reference](/reference/react-native-sdk/) for the exact exported declarations.
+See [Client](/sdk/client/), [Signer](/sdk/signer/), [Streams](/sdk/stream/), and
+[Content types](/content-types/overview/) for checked React Native examples.
+
+## Convert closed legacy history to an archive
+
+A package update does not open or adopt the old database. Keep a recoverable
+copy of the legacy database and its key. Close the legacy SDK before conversion.
+Create a new current database for the target backend and identity, then convert
+eligible history to an archive and import it:
+
+```ts source="legacy-migration-react-native.ts" region="imports"
+
+```
+
+```ts source="legacy-migration-react-native.ts" region="migrate"
+
+```
+
+The native converter accepts legacy databases whose recorded migrations match
+the checked legacy migration chain, including known prefixes it can advance.
+The pinned chain comes from libxmtp `6a8e969785c62e0923cf3d8531aff4eaac3c91b7`:
+64 migrations used by Node 6.1.0 and Browser 7.1.0; Android and iOS 4.10.0 have
+62, and 4.11.0 have 64. A React Native package version alone does not prove
+schema compatibility. Unknown, reordered, or changed migrations fail with
+`MigrationUnsupportedSchema`. Retain the original database when conversion
+fails. Do not describe this as support for every old React Native release.
+
+Conversion works on a copy of a closed source and preserves the source. A source
+lock produces `StorageBusy`; close every legacy connection first. The archive
+contains eligible messages, conversation metadata, and consent. It excludes
+installation keys, MLS secrets, attachment files, and messages with stored expiry
+deadlines. Import does not restore the old installation or move its network
+identity. Arrange account registration and conversation membership on the new
+backend separately.
+
+Supply a separate 32-byte archive key and an output path in app-accessible
+storage. Keep the archive key separate from the archive file. Do not overwrite
+the source with the output.
+
+Only import archives from a trusted source. Import does not verify message
+provenance or sender membership, and anyone with the key can forge history under
+another sender. Legacy repeated-nonce archives have weakened confidentiality and
+authentication; importing them cannot restore those guarantees.
+
+See [Backups](/sdk/backups/) and the
+[migration overview](/get-started/migrate-to-self-hosted/#keeping-history) for conversion errors,
+archive limits, and restoration behavior.
+
+## Update ownership and background work
+
+The provider releases clients it creates and preserves caller-owned clients
+passed through its `client` prop. Do not close a borrowed client in a hook
+cleanup unless that component is its actual owner. `disconnect()` cancels a
+pending initialization; a late result cannot publish into context. Handle
+initialization and cleanup errors explicitly.
+
+Use native lifecycle handling supplied by the SDK. A JavaScript `AppState`
+listener cannot cover native cold starts or work after runtime teardown.
+Background push and iOS extensions require native OS integration, bounded sync,
+and coordinated access to app storage. See [Push
+notifications](/sdk/push-notifications/) before shipping the receiver.

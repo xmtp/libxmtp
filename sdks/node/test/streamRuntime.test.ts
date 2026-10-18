@@ -14,7 +14,14 @@ import {
   type ReaderLike,
   type StreamCloseReason,
 } from "../dist/runtime/streams/reader.js";
-import { ConnectionState } from "../dist/xmtp_sdk.js";
+import {
+  Client as BindingClient,
+  ClientOptions,
+  ConnectionState,
+  PublicIdentityKind,
+  StorageLocation,
+  StorageOptions,
+} from "../dist/xmtp_sdk.js";
 
 const owner = {};
 const idle = (): ReaderLike<never> => ({
@@ -427,7 +434,7 @@ describe("host event stream and listeners", () => {
   });
 });
 
-it("a custom codec key keeps authority and type apart when either has a slash", () => {
+it("a custom codec key keeps authority and type apart when either has a slash", async () => {
   const type = (authorityId: string, typeId: string) => ({
     authorityId,
     typeId,
@@ -441,21 +448,43 @@ it("a custom codec key keeps authority and type apart when either has a slash", 
     },
     decode: () => "slash codec",
   };
-  const client = new (Client as unknown as new (
-    raw: unknown,
-    codecs: unknown[],
-  ) => Client)({ clientKey: () => 2n }, [codec]);
+  // Keep native allocation outside this host-runtime test. Client.build still
+  // creates and fills the production codec registry from the supplied options.
+  const build = vi.spyOn(BindingClient, "build").mockResolvedValue({
+    clientKey: () => 2n,
+    end: async () => {},
+  } as never);
   const encoded = (contentType: ReturnType<typeof type>) => ({
     type: contentType,
     parameters: new Map<string, string>(),
     content: new Uint8Array([1]).buffer,
   });
-  expect(client.decodeCustom(encoded(type("example.org", "a/b")))).toEqual({
-    value: "slash codec",
-  });
-  expect(
-    client.decodeCustom(encoded(type("example.org/a", "b"))),
-  ).toBeUndefined();
+  let client: Client | undefined;
+  try {
+    client = await Client.build(
+      {
+        kind: PublicIdentityKind.Ethereum,
+        identifier: "0x0000000000000000000000000000000000000001",
+      },
+      {
+        ...ClientOptions.create({
+          storage: StorageOptions.create({
+            location: new StorageLocation.InMemory(),
+          }),
+        }),
+        codecs: [codec],
+      },
+    );
+    expect(client.decodeCustom(encoded(type("example.org", "a/b")))).toEqual({
+      value: "slash codec",
+    });
+    expect(
+      client.decodeCustom(encoded(type("example.org/a", "b"))),
+    ).toBeUndefined();
+  } finally {
+    await client?.end();
+    build.mockRestore();
+  }
 });
 
 it("Timestamp dates round nanoseconds down to the millisecond", () => {

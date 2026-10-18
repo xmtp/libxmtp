@@ -11,9 +11,15 @@ _env := ". " + root + "/dev/docker/load-env"
 
 set shell := ["../dev/nix-shell"]
 
-# Stage the selected SDK products for local workspace imports.
+# Stage selected public products through the module's Nix shell.
+# RN uses its JS/types output without mobile binaries.
 sdk-products target="all":
-    case "{{ target }}" in all) ../dev/js/sdk-package node && ../dev/js/sdk-package browser ;; node) ../dev/js/sdk-package node ;; wasm|browser) ../dev/js/sdk-package browser ;; *) exit 2 ;; esac
+    case {{ quote(target) }} in \
+      all) "{{ root }}/dev/js/sdk-package" node && "{{ root }}/dev/js/sdk-package" browser && "{{ root }}/dev/js/sdk-package" react-native ;; \
+      node|browser|react-native) "{{ root }}/dev/js/sdk-package" {{ quote(target) }} ;; \
+      wasm) "{{ root }}/dev/js/sdk-package" browser ;; \
+      *) echo "expected all, node, browser, wasm, or react-native" >&2; exit 2 ;; \
+    esac
 
 # Typecheck all SDKs with their task dependencies. SDK products are staged first.
 check: sdk-products
@@ -24,7 +30,7 @@ check-node: (sdk-products "node")
     pnpm --filter @xmtp/node-sdk exec tsc -p type-tests/tsconfig.json
 
 # Check the published Node push API and its absence from Browser and WASM.
-check-notification-surface: sdk-products
+check-notification-surface: (sdk-products "node") (sdk-products "browser")
     cd {{ root }} && pnpm -r --filter '@xmtp/node-sdk' --filter '@xmtp/browser-sdk' run build
     pnpm --filter @xmtp/node-sdk exec tsc -p type-tests/tsconfig.json
     pnpm --filter @xmtp/browser-sdk exec tsc -p type-tests/tsconfig.json

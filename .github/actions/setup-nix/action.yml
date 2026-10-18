@@ -149,6 +149,8 @@ runs:
           accept-flake-config = true
           max-jobs = auto
           cores = 0
+          # Exact read-only host inputs required by RN Apple tools and stock Expo phases.
+          extra-allowed-impure-host-deps = /Applications/Xcode_27.0.app/Contents /usr/bin/xcrun /usr/bin/ditto /usr/bin/env /usr/bin/touch /Library/Preferences/com.apple.dt.Xcode.plist /usr/share/firmlinks /Library/Developer/PrivateFrameworks/CoreSimulator.framework /Library/Developer/PrivateFrameworks/DVTDownloads.framework /Library/Developer/PrivateFrameworks/ROCKit.framework /Library/Developer/PrivateFrameworks/CoreDevice.framework /Library/Developer/PrivateFrameworks/CoreDeviceUtilities.framework /Library/Apple/System/Library/PrivateFrameworks/MobileDevice.framework /Library/Apple/System/Library/PrivateFrameworks/Mercury.framework
     # One cache mode per job (README "Cache modes"). Each mode has its own
     # Cachix step; `kache-ci policy` fails first on an unknown mode, a mode
     # that does not fit the event, or a token that does not fit the mode.
