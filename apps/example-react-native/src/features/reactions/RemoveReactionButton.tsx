@@ -8,14 +8,11 @@ import { Text } from "@/ui/Text";
 export function RemoveReactionButton({
   title,
   onPress,
-  disabled = false,
 }: RemoveReactionButtonProps) {
   const palette = useColors();
   return (
     <Pressable
       accessibilityRole="button"
-      testID="reactions.remove"
-      disabled={disabled}
       onPress={onPress}
       style={[styles.button, { backgroundColor: palette.tertiarySystemFill }]}>
       <Text color="systemRed" align="center">

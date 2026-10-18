@@ -17,8 +17,6 @@ export const EmojiCopy = {
   close: "Close",
   search: "Search emoji",
   recentlyUsed: "Recently used",
-  cannotLoad: "Cannot load emoji names.",
-  cannotOpen: "Cannot open message actions.",
 } as const;
 
 /** The first section's title; the boundaries below start the others. */

@@ -5,5 +5,4 @@ export const reactionsCopy = {
   /** "All 3". */
   all: (total: number) => `All ${String(total)}`,
   removeMine: "Remove my reaction",
-  cannotLoad: "Cannot load reactions. Try again.",
 } as const;

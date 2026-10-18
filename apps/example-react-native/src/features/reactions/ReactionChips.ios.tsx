@@ -11,7 +11,8 @@ import { useColors } from "@/ui/colors";
 
 /**
  * The filter chips (`ScrollView(.horizontal) { HStack { Button … } }`): glass
- * buttons with no visible selected style, only the selected trait.
+ * buttons with no visible selected style. Like iOS, only the emoji chips
+ * carry the selected trait; "All" never does.
  */
 export function ReactionChips({
   chips,
@@ -32,7 +33,7 @@ export function ReactionChips({
               label={chip.title}
               modifiers={[
                 buttonStyle("glass"),
-                ...(chip.key === selected
+                ...(chip.key !== "" && chip.key === selected
                   ? [accessibilityAddTraits(["isSelected"])]
                   : []),
               ]}

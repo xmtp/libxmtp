@@ -9,12 +9,16 @@ import {
   VStack,
 } from "@expo/ui/swift-ui";
 import {
+  background,
   buttonStyle,
   font,
   glassEffect,
   labelStyle,
   padding,
+  shapes,
+  strokeBorder,
 } from "@expo/ui/swift-ui/modifiers";
+import { DynamicColorIOS } from "react-native";
 
 import {
   MessageMenuCopy,
@@ -22,7 +26,11 @@ import {
   QUICK_REACTIONS,
 } from "@/core/messageInteractions.ts";
 import type { MessageContextMenuProps } from "@/features/chat/interactions/MessageContextMenu.types";
-import { useColors } from "@/ui/colors";
+import {
+  useIncreasedContrast,
+  useReduceTransparency,
+} from "@/ui/accessibility";
+import { type Palette, useColors } from "@/ui/colors";
 import type { SymbolName } from "@/ui/Symbol";
 
 export type { MessageContextMenuProps };
@@ -33,6 +41,53 @@ const itemSymbols: Partial<Record<MessageMenuItem, SymbolName>> = {
   react: "face.smiling",
   delete: "trash",
 };
+
+/** The preview's corner radius (`RoundedRectangle(cornerRadius: 20)`). */
+const PREVIEW_RADIUS = 20;
+
+/** `.primary.opacity(…)`: the label color at the stroke's opacity. */
+const strokeColors = {
+  regular: DynamicColorIOS({
+    light: "rgba(0,0,0,0.2)",
+    dark: "rgba(255,255,255,0.2)",
+  }),
+  increased: DynamicColorIOS({
+    light: "rgba(0,0,0,0.6)",
+    dark: "rgba(255,255,255,0.6)",
+  }),
+};
+
+/**
+ * `messengerGlass(in:)` (`DesignSystem/Glass.swift`) for the preview: Liquid
+ * Glass, or with Reduce Transparency the system background and a 1 pt stroke
+ * in the label color at 20 percent (60 percent with Increase Contrast).
+ */
+function useMessengerGlass(palette: Palette) {
+  const reduceTransparency = useReduceTransparency();
+  const increasedContrast = useIncreasedContrast();
+  if (!reduceTransparency) {
+    return [
+      glassEffect({
+        glass: { variant: "regular" },
+        shape: "roundedRectangle",
+        cornerRadius: PREVIEW_RADIUS,
+      }),
+    ];
+  }
+  return [
+    background(
+      palette.systemBackground,
+      shapes.roundedRectangle({ cornerRadius: PREVIEW_RADIUS }),
+    ),
+    strokeBorder({
+      content: increasedContrast
+        ? strokeColors.increased
+        : strokeColors.regular,
+      shape: "roundedRectangle",
+      cornerRadius: PREVIEW_RADIUS,
+    }),
+  ];
+}
 
 /**
  * The bubble's long-press menu (`ChatMessages.swift`
@@ -50,6 +105,7 @@ export function MessageContextMenu({
   children,
 }: MessageContextMenuProps) {
   const palette = useColors();
+  const glass = useMessengerGlass(palette);
   return (
     <Host matchContents seedColor={palette.tint}>
       <ContextMenu>
@@ -58,15 +114,7 @@ export function MessageContextMenu({
         </ContextMenu.Trigger>
         <ContextMenu.Preview>
           <GlassEffectContainer>
-            <VStack
-              modifiers={[
-                padding({ all: 8 }),
-                glassEffect({
-                  glass: { variant: "regular" },
-                  shape: "roundedRectangle",
-                  cornerRadius: 20,
-                }),
-              ]}>
+            <VStack modifiers={[padding({ all: 8 }), ...glass]}>
               {quickReactions ? (
                 <HStack>
                   {QUICK_REACTIONS.map((emoji) => (
