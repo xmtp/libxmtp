@@ -8,6 +8,7 @@ export type { ContextMenuItem, ContextMenuProps } from "@/ui/ContextMenu.types";
 interface NativeContextMenuProps extends ViewProps {
   items: readonly { id: string; title: string; destructive: boolean }[];
   onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
+  elevated: boolean;
 }
 
 const NativeContextMenu = requireNativeView<NativeContextMenuProps>(
@@ -23,12 +24,14 @@ const NativeContextMenu = requireNativeView<NativeContextMenuProps>(
 export function ContextMenu({
   items,
   onSelect,
+  liftedBackground = "page",
   children,
   style,
 }: ContextMenuProps) {
   return (
     <NativeContextMenu
       style={style}
+      elevated={liftedBackground === "elevated"}
       items={items.map((item) => ({
         id: item.id,
         title: item.title,

@@ -161,6 +161,7 @@ function RequestsList({ session }: { readonly session: ActiveSession }) {
           menu={[accept, remove, block]}
           swipe={[remove, block]}
           swipeGroup={swipeGroup}
+          rowBackground="system"
         />
       );
     },

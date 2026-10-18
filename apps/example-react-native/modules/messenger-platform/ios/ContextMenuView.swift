@@ -14,13 +14,25 @@ struct ContextMenuItem: Record {
 public final class ContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
     var items: [ContextMenuItem] = []
     let onSelect = EventDispatcher()
+    /// A lifted preview is elevated, which turns `systemBackground` gray in
+    /// dark mode. That matches a SwiftUI row with the default row background
+    /// (`true`); a row with a clear background keeps the page color (`false`).
+    var elevated = false {
+        didSet { updateInterfaceLevel() }
+    }
 
     public required init(appContext: AppContext? = nil) {
         super.init(appContext: appContext)
-        // A lifted preview is elevated, which turns `systemBackground` gray in
-        // dark mode. A SwiftUI list row keeps the page color.
-        traitOverrides.userInterfaceLevel = .base
+        updateInterfaceLevel()
         addInteraction(UIContextMenuInteraction(delegate: self))
+    }
+
+    private func updateInterfaceLevel() {
+        if elevated {
+            traitOverrides.remove(UITraitUserInterfaceLevel.self)
+        } else {
+            traitOverrides.userInterfaceLevel = .base
+        }
     }
 
     public func contextMenuInteraction(
@@ -39,8 +51,9 @@ public final class ContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
         }
     }
 
-    /// Lifts the row on the page background, like a SwiftUI list row (the
-    /// default preview background is a lighter gray in dark mode).
+    /// Lifts the row on `systemBackground`: the page color, or the elevated
+    /// color when `elevated` (the default preview background is a lighter
+    /// gray in dark mode).
     public func contextMenuInteraction(
         _: UIContextMenuInteraction,
         configuration _: UIContextMenuConfiguration,

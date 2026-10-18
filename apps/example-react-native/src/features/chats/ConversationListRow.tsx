@@ -53,6 +53,12 @@ export interface ConversationListRowProps {
   /** Trailing swipe actions, outermost first (SwiftUI `swipeActions` order). */
   swipe: readonly RowAction[];
   swipeGroup: RowSwipeGroup;
+  /**
+   * `clear` (default): Chats' `.listRowBackground(Color.clear)`. `system`:
+   * SwiftUI's default row background (Message requests), which lifts on the
+   * elevated color in a context menu and turns gray while swiped open.
+   */
+  rowBackground?: "clear" | "system";
 }
 
 function showAndroidMenu(title: string, actions: readonly RowAction[]): void {
@@ -74,6 +80,7 @@ export function ConversationListRow({
   menu,
   swipe,
   swipeGroup,
+  rowBackground = "clear",
 }: ConversationListRowProps) {
   const palette = useColors();
   const swipeable = useRef<SwipeableMethods>(null);
@@ -87,6 +94,7 @@ export function ConversationListRow({
   const [rowHeight, setRowHeight] = useState(0);
   const [inset, onInitialsLayout] = useInitialsInset();
   const accessibilityActions = rowAccessibilityActions(menu, swipe);
+  const swiped = revealed && rowBackground === "system";
 
   const content = (
     <PlainListRow
@@ -102,7 +110,7 @@ export function ConversationListRow({
           ?.onPress();
       }}
       showsSeparator={false}
-      backgroundColor={palette.systemBackground}
+      backgroundColor={swiped ? palette.systemGray5 : palette.systemBackground}
       onPress={() => {
         // While a row's actions are open, a tap only closes them.
         if (swipeGroup.closeAll()) return;
@@ -119,7 +127,7 @@ export function ConversationListRow({
               showAndroidMenu(row.title, menu);
             }
       }
-      style={styles.row}>
+      style={[styles.row, swiped ? styles.swiped : undefined]}>
       <ConversationRowView row={row} onInitialsLayout={onInitialsLayout} />
     </PlainListRow>
   );
@@ -185,6 +193,7 @@ export function ConversationListRow({
           </View>
         )}>
         <ContextMenu
+          liftedBackground={rowBackground === "system" ? "elevated" : "page"}
           items={menu.map((action) => ({
             id: action.label,
             title: action.label,
@@ -213,6 +222,8 @@ export function ConversationListRow({
 const styles = StyleSheet.create({
   // `.padding(.vertical, 5)` inside the 15 pt list row inset.
   row: { paddingVertical: 20 },
+  // iOS 26 rounds a swiped row's gray background (measured 28 pt).
+  swiped: { borderCurve: "continuous", borderRadius: 28 },
   actions: {
     alignItems: "center",
     flexDirection: "row",

@@ -119,6 +119,8 @@ const pairs = {
   },
   /** Row highlight while pressed (UITableViewCell selection). */
   rowHighlight: { light: "#D1D1D6", dark: "#3A3A3C", ios: "systemGray4" },
+  /** A swiped plain-list row that keeps the default row background. */
+  systemGray5: { light: "#E5E5EA", dark: "#2C2C2E", ios: "systemGray5" },
   systemRed: { light: "#FF3B30", dark: "#FF453A", ios: "systemRed" },
   systemGreen: { light: "#34C759", dark: "#30D158", ios: "systemGreen" },
   systemBlue: { light: "#007AFF", dark: "#0A84FF", ios: "systemBlue" },

@@ -60,6 +60,9 @@ public final class MessengerPlatformModule: Module {
             Prop("items") { (view, items: [ContextMenuItem]) in
                 view.items = items
             }
+            Prop("elevated") { (view, elevated: Bool) in
+                view.elevated = elevated
+            }
         }
     }
 }
