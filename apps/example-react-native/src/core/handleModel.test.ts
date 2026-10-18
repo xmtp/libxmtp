@@ -201,23 +201,77 @@ test("a successful claim records its time after the screen closes (successfulCla
   assert.equal(finished(), 0);
 });
 
-test("a claim after the session ended records nothing", async () => {
+test("a claim after the session ended records nothing, even after the screen closed", async () => {
+  for (const closeRoute of [false, true]) {
+    const account = new FakeAccount();
+    let current = true;
+    const { model: store } = model(account, {
+      isSessionCurrent: () => current,
+    });
+    store.changeInput("abc");
+    store.check();
+    await settle();
+    let release = () => {};
+    account.hold = new Promise((resolve) => {
+      release = resolve;
+    });
+    store.claim();
+    await settle();
+    // Sign out while the claim runs; the screen may already be gone.
+    if (closeRoute) store.dispose();
+    current = false;
+    release();
+    await settle();
+    assert.equal(account.times.size, 0, `closed: ${String(closeRoute)}`);
+  }
+});
+
+test("Skip does nothing while a claim record is unsaved (skip ignores a pending record)", async () => {
   const account = new FakeAccount();
-  let current = true;
-  const { model: store } = model(account, { isSessionCurrent: () => current });
+  account.recordFailures = 1;
+  let skipWrites = 0;
+  const { model: store, finished } = model(account, {
+    persistSkip: () => {
+      skipWrites += 1;
+    },
+  });
+  await store.load();
   store.changeInput("abc");
   store.check();
   await settle();
-  let release = () => {};
-  account.hold = new Promise((resolve) => {
-    release = resolve;
-  });
   store.claim();
   await settle();
-  current = false;
-  release();
+  assert.deepEqual(store.getState().notice, {
+    kind: "recordFailed",
+    handle: "abc",
+  });
+  store.skip();
+  assert.equal(skipWrites, 0);
+  assert.equal(finished(), 0);
+  assert.deepEqual(store.getState().notice, {
+    kind: "recordFailed",
+    handle: "abc",
+  });
+});
+
+test("a tooSoon claim clears the input, problem and status (tooSoon resets the editor)", async () => {
+  const account = new FakeAccount();
+  account.error = "tooSoon";
+  const { model: store } = model(account, { mode: "change" });
+  await store.load();
+  store.changeInput("abc");
+  store.check();
   await settle();
-  assert.equal(account.times.size, 0);
+  assert.equal(store.getState().status.kind, "available");
+  store.claim();
+  store.confirmClaim();
+  await settle();
+  const state = store.getState();
+  assert.equal(state.notice?.kind, "tooSoon");
+  assert.equal(state.input, "");
+  assert.equal(state.problem, undefined);
+  assert.deepEqual(state.status, { kind: "editing" });
+  assert.equal(isEditable(state), false);
 });
 
 test("a choose claim finishes without saving Skip (successfulChooseClaimBypassesFailingSkipPreference)", async () => {
