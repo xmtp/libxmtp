@@ -56,7 +56,7 @@ max_push_topics = 100000
 | `push.recipient_ttl_seconds`        | `2592000` (30 days) | At least `86400`. Registrations without renewal expire. |
 | `push.max_attempts`                 | `3`                 | From `1` to `10` attempts per delivery.                 |
 | `push.apns.environment`             | None (required)     | `production` or `sandbox`. Must match the app token.    |
-| `push.http.allowed_domains`         | Empty list          | Empty permits any public host.                          |
+| `push.http.allowed_domains`         | None (absent)       | Absent or empty permits any public host.                |
 | `push.http.allow_private_addresses` | `false`             | Use `true` only for development or tests.               |
 | `limits.max_push_topics`            | `100000`            | Maximum subscriptions per recipient.                    |
 
