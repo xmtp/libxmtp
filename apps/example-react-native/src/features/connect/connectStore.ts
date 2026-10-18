@@ -1,100 +1,42 @@
-import { parseBackendUrl } from "@/core/backendUrl.ts";
-import { errorMessage, SessionError } from "@/core/sessionError.ts";
-import { Store } from "@/core/store.ts";
-import { connectCopy } from "@/features/connect/copy";
+import { ConnectModel } from "@/core/connectModel.ts";
 import { probeBackend, sessionController } from "@/session";
 
-export interface ConnectState {
-  readonly address: string;
-  readonly name: string;
-  readonly joining: boolean;
-  /** The last Join or recovery failure, shown in red. */
-  readonly error?: string;
-}
-
-/** Join is enabled for a valid address while nothing runs (`ConnectState.canJoin`). */
-export function canJoin(state: ConnectState): boolean {
-  return !state.joining && parseBackendUrl(state.address) !== undefined;
-}
+/** `ConnectState.address` default when the launch environment has none. */
+export const DEFAULT_BACKEND_URL = "http://127.0.0.1:5050";
 
 /**
- * The Connect route store (a basic `ConnectStore.swift`): Join probes the
- * server, then opens the session. The session router leaves Connect when the
- * session opens. A server that needs an access token is reported, not joined.
+ * The Connect route store (`ConnectStore.swift`): the pure model wired to the
+ * backend probe and the session controller.
  */
-export class ConnectStore extends Store<ConnectState> {
-  #disposed = false;
+export function createConnectModel(address: string): ConnectModel {
+  return new ConnectModel(address, {
+    probe: (url) => probeBackend(url),
+    connect: ({ url, token, name, signal, onReserved }) =>
+      sessionController.connect({
+        url,
+        token,
+        ...(name === undefined ? {} : { name }),
+        signal,
+        onReserved,
+      }),
+    generation: () => sessionController.fence.currentGeneration(),
+  });
+}
 
-  constructor(address: string) {
-    super({ address, name: "", joining: false });
-  }
+// The recovery actions report their outcome through the session state
+// (`resetIncomplete`, `restoreFailed`), like iOS, so failures are not shown here.
 
-  setAddress(address: string): void {
-    this.setState((state) => ({ ...state, address, error: undefined }));
-  }
+/** Restore failed: "Retry". */
+export function retryRestore(): void {
+  sessionController.retryRestore().catch(() => {});
+}
 
-  setName(name: string): void {
-    this.setState((state) => ({ ...state, name }));
-  }
+/** Restore failed: "Delete local data" after the confirmation. */
+export function deleteLocalData(): void {
+  sessionController.deleteLocalData().catch(() => {});
+}
 
-  async join(): Promise<void> {
-    const state = this.getState();
-    const backend = parseBackendUrl(state.address);
-    if (!canJoin(state) || backend === undefined) return;
-    this.setState({ ...state, joining: true, error: undefined });
-    await this.#run(async () => {
-      let requiresToken: boolean;
-      try {
-        ({ requiresToken } = await probeBackend(backend));
-      } catch {
-        throw SessionError.message(connectCopy.unreachable);
-      }
-      if (requiresToken) throw SessionError.message(connectCopy.enterToken);
-      const name = state.name.trim();
-      await sessionController.connect({
-        url: state.address,
-        token: "",
-        ...(name === "" ? {} : { name }),
-      });
-    });
-  }
-
-  /** Restore failed: "Retry". */
-  retryRestore(): Promise<void> {
-    return this.#run(() => sessionController.retryRestore());
-  }
-
-  /** Restore failed: "Delete local data" after the confirmation. */
-  deleteLocalData(): Promise<void> {
-    return this.#run(() => sessionController.deleteLocalData());
-  }
-
-  /** Reset incomplete: "Continue local data removal". */
-  continueReset(): Promise<void> {
-    return this.#run(() => sessionController.continueReset());
-  }
-
-  /** The route unmounted. Work that is running finishes; its result is dropped. */
-  dispose(): void {
-    this.#disposed = true;
-  }
-
-  /**
-   * Runs an action and shows its failure. A successful Join keeps "Joining
-   * server…" until the router replaces Connect with the session's first screen.
-   */
-  async #run(work: () => Promise<void>): Promise<void> {
-    try {
-      await work();
-      if (this.#disposed) return;
-      this.setState((current) => ({ ...current, error: undefined }));
-    } catch (error) {
-      if (this.#disposed) return;
-      this.setState((current) => ({
-        ...current,
-        joining: false,
-        error: errorMessage(error),
-      }));
-    }
-  }
+/** Reset incomplete: "Continue local data removal". */
+export function continueReset(): void {
+  sessionController.continueReset().catch(() => {});
 }

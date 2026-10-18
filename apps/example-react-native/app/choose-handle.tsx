@@ -1,8 +1,3 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { ChooseHandleScreen } from "@/features/handles/ChooseHandleScreen";
 
-export default function ChooseHandleRoute() {
-  return (
-    <PlaceholderScreen title={routeTitles.chooseHandle} route="choose-handle" />
-  );
-}
+export default ChooseHandleScreen;

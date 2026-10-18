@@ -1,41 +1,78 @@
 import { Stack } from "expo-router";
 import { type ReactNode, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Keyboard,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  type TextInputProps,
+  View,
+} from "react-native";
+import Animated, {
+  LinearTransition,
+  useAnimatedStyle,
+  useDerivedValue,
+} from "react-native-reanimated";
 
-import { canJoin, ConnectStore } from "@/features/connect/connectStore";
+import { connectToAddress } from "@/core/backendUrl.ts";
+import { canJoin } from "@/core/connectModel.ts";
+import {
+  continueReset,
+  createConnectModel,
+  DEFAULT_BACKEND_URL,
+  deleteLocalData,
+  retryRestore,
+} from "@/features/connect/connectStore";
 import { connectCopy } from "@/features/connect/copy";
+import { Logo } from "@/features/connect/Logo";
 import { launchEnvironment } from "@/platform/messengerPlatform";
 import { useSessionState } from "@/session";
 import { ActionFooter } from "@/ui/ActionFooter";
 import { useColors } from "@/ui/colors";
 import { showConfirmation } from "@/ui/dialogs";
 import { GlassButton } from "@/ui/GlassButton";
+import { useMotion } from "@/ui/motion";
 import { Symbol } from "@/ui/Symbol";
 import { Text } from "@/ui/Text";
-import { sizes } from "@/ui/tokens";
+import { radii, sizes } from "@/ui/tokens";
 import { fontOf } from "@/ui/typography";
 import { useStore } from "@/ui/useStore";
 
-/** `ConnectState.address` default when the launch environment has none. */
-const DEFAULT_BACKEND_URL = "http://127.0.0.1:5050";
-
 /**
- * A basic Connect screen (`ConnectView.swift`): the hero, the server address
- * and name fields, the Join footer, and the recovery blocks for a failed
- * restore and an unfinished local reset. The account lane adds the quiet
- * probe, the token card and the advanced section.
+ * Join a server (`ConnectView.swift`): the hero, the server card with a
+ * quiet probe status, the access token card for servers that need one, the
+ * Advanced section and the Join footer. A failed restore and an unfinished
+ * local reset replace the form with their recovery actions.
  */
 export function ConnectScreen() {
   const palette = useColors();
   const session = useSessionState();
-  const [store] = useState(
-    () =>
-      new ConnectStore(launchEnvironment().backendUrl ?? DEFAULT_BACKEND_URL),
+  const motion = useMotion();
+  const [model] = useState(() =>
+    createConnectModel(launchEnvironment().backendUrl ?? DEFAULT_BACKEND_URL),
   );
-  useEffect(() => () => store.dispose(), [store]);
-  const state = useStore(store);
+  useEffect(() => {
+    model.appear();
+    return () => {
+      model.dispose();
+    };
+  }, [model]);
+  const state = useStore(model);
+  const [advanced, setAdvanced] = useState(false);
   const recovering =
     session.kind === "resetIncomplete" || session.kind === "restoreFailed";
+  const requiresToken = state.requiresToken;
+  const layout = motion.reduceMotion
+    ? LinearTransition.duration(200)
+    : LinearTransition.springify().stiffness(503.6).damping(38.6).mass(1);
+
+  const statusColor = state.error === undefined ? "systemGreen" : "systemRed";
+  const join = () => {
+    Keyboard.dismiss();
+    model.join();
+  };
 
   return (
     <View
@@ -46,61 +83,62 @@ export function ConnectScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
+        automaticallyAdjustKeyboardInsets
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.content}>
-        <View style={styles.column}>
-          <View style={styles.hero}>
+        <View style={[styles.column, { gap: requiresToken ? 16 : 28 }]}>
+          <Animated.View
+            layout={layout}
+            style={[styles.hero, { paddingTop: requiresToken ? 4 : 50 }]}>
+            {requiresToken ? null : (
+              <Animated.View
+                entering={motion.entering}
+                exiting={motion.exiting}
+                style={styles.logo}>
+                <Logo size={68} />
+              </Animated.View>
+            )}
             <Text
               variant="largeTitle"
               weight="bold"
               align="center"
+              color={requiresToken ? "secondaryLabel" : "label"}
               style={styles.heroTitle}>
               {connectCopy.heroTitle}
             </Text>
             <Text color="themeSecondaryLabel" align="center">
               {connectCopy.heroSubtitle}
             </Text>
-          </View>
+          </Animated.View>
           {session.kind === "resetIncomplete" ? (
-            <View style={styles.recovery}>
-              <Text variant="headline" align="center">
-                {connectCopy.resetIncomplete}
-              </Text>
-              <GlassButton
-                variant="glassProminent"
-                title={connectCopy.continueReset}
-                onPress={() => void store.continueReset()}
-              />
-              <ErrorText error={state.error} />
-            </View>
+            <Recovery
+              text={connectCopy.resetIncomplete}
+              action={connectCopy.continueReset}
+              onPress={continueReset}
+            />
           ) : session.kind === "restoreFailed" ? (
-            <View style={styles.recovery}>
-              <Text variant="headline" align="center">
-                {connectCopy.restoreFailed}
-              </Text>
-              <GlassButton
-                variant="glassProminent"
-                title={connectCopy.retry}
-                onPress={() => void store.retryRestore()}
+            <View style={styles.restoreFailed}>
+              <Recovery
+                text={connectCopy.restoreFailed}
+                action={connectCopy.retry}
+                onPress={retryRestore}
               />
               <GlassButton
                 role="destructive"
                 title={connectCopy.deleteLocalData}
                 onPress={() => {
                   showConfirmation({
-                    title: connectCopy.deleteLocalDataTitle,
                     message: connectCopy.deleteLocalDataMessage,
                     confirm: connectCopy.deleteLocalData,
                     destructive: true,
-                    onConfirm: () => void store.deleteLocalData(),
+                    onConfirm: deleteLocalData,
                   });
                 }}
               />
-              <ErrorText error={state.error} />
             </View>
           ) : (
-            <View style={styles.form}>
+            <Animated.View layout={layout} style={styles.form}>
               <Text
                 variant="footnote"
                 weight="semibold"
@@ -114,67 +152,150 @@ export function ConnectScreen() {
                   { backgroundColor: palette.secondarySystemGroupedBackground },
                 ]}>
                 <Field label={connectCopy.serverAddress}>
-                  <TextInput
+                  <FieldInput
                     testID="server-address"
+                    accessibilityLabel={connectCopy.serverAddress}
                     value={state.address}
                     onChangeText={(text) => {
-                      store.setAddress(text);
+                      model.setAddress(text);
                     }}
                     placeholder={connectCopy.serverAddressPlaceholder}
-                    placeholderTextColor={palette.placeholderText}
-                    selectionColor={palette.tint}
                     keyboardType="url"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    editable={!state.joining}
-                    style={[fontOf("body"), { color: palette.label }]}
+                    textContentType="URL"
                   />
                 </Field>
                 <Divider />
                 <Field label={connectCopy.serverName}>
-                  <TextInput
-                    value={state.name}
+                  <FieldInput
+                    accessibilityLabel={connectCopy.serverName}
+                    value={state.serverName}
                     onChangeText={(text) => {
-                      store.setName(text);
+                      model.setServerName(text);
                     }}
                     placeholder={connectCopy.serverNamePlaceholder}
-                    placeholderTextColor={palette.placeholderText}
-                    selectionColor={palette.tint}
-                    editable={!state.joining}
-                    style={[fontOf("body"), { color: palette.label }]}
                   />
                 </Field>
                 <Divider />
-                <View style={styles.status}>
-                  <Symbol
-                    name={
-                      state.error === undefined
-                        ? "network"
-                        : "exclamationmark.circle"
-                    }
-                    textStyle="subheadline"
-                    color={
-                      state.error === undefined ? "systemGreen" : "systemRed"
-                    }
-                  />
-                  <Text
-                    testID="connect-status"
-                    variant="subheadline"
-                    color={
-                      state.error === undefined ? "systemGreen" : "systemRed"
-                    }
-                    style={styles.flex}>
-                    {state.error ?? connectCopy.enterAddress}
-                  </Text>
+                <View
+                  style={[
+                    styles.status,
+                    { paddingVertical: requiresToken ? 12 : 16 },
+                  ]}>
+                  {state.checking ? (
+                    <>
+                      <ActivityIndicator size="small" />
+                      <Text variant="subheadline" color={statusColor}>
+                        {connectCopy.checking}
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Symbol
+                        name={
+                          state.error !== undefined
+                            ? "exclamationmark.circle"
+                            : state.ready
+                              ? "checkmark.seal"
+                              : "network"
+                        }
+                        textStyle="subheadline"
+                        color={statusColor}
+                      />
+                      <Text
+                        testID="connect-status"
+                        variant="subheadline"
+                        color={statusColor}
+                        style={styles.flex}>
+                        {state.error ??
+                          (state.ready
+                            ? connectCopy.ready
+                            : connectCopy.enterAddress)}
+                      </Text>
+                    </>
+                  )}
+                  {state.checking ? <View style={styles.flex} /> : null}
+                  {state.ready && requiresToken ? <TokenBadge /> : null}
+                  {!state.ready &&
+                  !state.checking &&
+                  state.error !== undefined ? (
+                    <GlassButton
+                      title={connectCopy.retry}
+                      testID="retry-server-check"
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        model.retryProbe();
+                      }}
+                    />
+                  ) : null}
                 </View>
               </View>
-              <Text
-                variant="footnote"
-                color="themeSecondaryLabel"
-                style={styles.inset}>
-                {connectCopy.footnote}
-              </Text>
-            </View>
+              {requiresToken ? (
+                <Animated.View
+                  entering={motion.entering}
+                  exiting={motion.exiting}
+                  layout={layout}
+                  style={styles.tokenSection}>
+                  <View
+                    style={[
+                      styles.tokenCard,
+                      {
+                        backgroundColor:
+                          palette.secondarySystemGroupedBackground,
+                      },
+                    ]}>
+                    <View
+                      style={[
+                        styles.keyTile,
+                        { backgroundColor: palette.tint },
+                      ]}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants">
+                      <Symbol name="key" color="onTint" />
+                    </View>
+                    <View style={styles.tokenField}>
+                      <Text variant="caption" color="themeSecondaryLabel">
+                        {connectCopy.accessToken}
+                      </Text>
+                      <FieldInput
+                        accessibilityLabel={connectCopy.accessToken}
+                        value={state.token}
+                        onChangeText={(text) => {
+                          model.setToken(text);
+                        }}
+                        placeholder={connectCopy.accessToken}
+                        secureTextEntry
+                        textContentType="password"
+                      />
+                    </View>
+                  </View>
+                  <Text
+                    variant="footnote"
+                    color="themeSecondaryLabel"
+                    style={styles.inset}>
+                    {connectCopy.tokenFootnote}
+                  </Text>
+                </Animated.View>
+              ) : null}
+              <Animated.View layout={layout}>
+                <AdvancedSection
+                  address={state.address}
+                  expanded={advanced}
+                  onToggle={() => {
+                    setAdvanced((value) => !value);
+                  }}
+                />
+              </Animated.View>
+              <Animated.View layout={layout}>
+                <Text
+                  variant="footnote"
+                  color="themeSecondaryLabel"
+                  style={styles.inset}>
+                  {advanced
+                    ? connectCopy.advancedFootnote
+                    : connectCopy.footnote}
+                </Text>
+              </Animated.View>
+            </Animated.View>
           )}
         </View>
       </ScrollView>
@@ -189,10 +310,126 @@ export function ConnectScreen() {
             disabled={!canJoin(state)}
             testID="join-server"
             accessibilityLabel={connectCopy.join}
-            onPress={() => void store.join()}
+            onPress={join}
           />
         </ActionFooter>
       )}
+    </View>
+  );
+}
+
+function Recovery({
+  text,
+  action,
+  onPress,
+}: {
+  readonly text: string;
+  readonly action: string;
+  readonly onPress: () => void;
+}) {
+  return (
+    <View style={styles.recovery}>
+      <Text align="center">{text}</Text>
+      <GlassButton variant="glassProminent" title={action} onPress={onPress} />
+    </View>
+  );
+}
+
+function AdvancedSection({
+  address,
+  expanded,
+  onToggle,
+}: {
+  readonly address: string;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
+}) {
+  const palette = useColors();
+  const motion = useMotion();
+  const rotation = useDerivedValue(() => motion.animate(expanded ? 180 : 0));
+  const chevron = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${String(rotation.value)}deg` }],
+  }));
+  const target = connectToAddress(address);
+  return (
+    <View style={styles.advanced}>
+      {expanded ? (
+        <Animated.View entering={motion.entering} exiting={motion.exiting}>
+          <Text
+            variant="footnote"
+            weight="semibold"
+            color="themeSecondaryLabel"
+            style={styles.inset}>
+            {connectCopy.advanced}
+          </Text>
+        </Animated.View>
+      ) : null}
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: palette.secondarySystemGroupedBackground },
+        ]}>
+        {expanded ? (
+          <Animated.View entering={motion.entering} exiting={motion.exiting}>
+            <Field label={connectCopy.connectTo}>
+              {target === undefined ? (
+                <Text color="themeSecondaryLabel">
+                  {connectCopy.enterAddress}
+                </Text>
+              ) : (
+                <Text monospaced selectable>
+                  {target}
+                </Text>
+              )}
+            </Field>
+            <Divider />
+          </Animated.View>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            expanded
+              ? connectCopy.hideAdvancedSettings
+              : connectCopy.advancedSettings
+          }
+          accessibilityValue={{
+            text: expanded ? connectCopy.expanded : connectCopy.collapsed,
+          }}
+          onPress={onToggle}
+          style={({ pressed }) => [
+            styles.toggle,
+            pressed ? styles.pressed : undefined,
+          ]}>
+          <Text color="accentText" style={styles.flex}>
+            {expanded
+              ? connectCopy.hideAdvancedSettings
+              : connectCopy.advancedSettings}
+          </Text>
+          <Animated.View style={chevron}>
+            <Symbol name="chevron.down" color="accentText" />
+          </Animated.View>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function TokenBadge() {
+  const palette = useColors();
+  return (
+    <View
+      style={[styles.badge, { backgroundColor: palette.tertiarySystemFill }]}
+      accessible
+      accessibilityLabel={connectCopy.needsToken}>
+      <Symbol
+        name="lock"
+        textStyle="caption"
+        weight="semibold"
+        color="secondaryLabel"
+      />
+      <Text variant="caption" weight="semibold" color="secondaryLabel">
+        {connectCopy.needsToken}
+      </Text>
     </View>
   );
 }
@@ -214,6 +451,22 @@ function Field({
   );
 }
 
+/** A plain `TextField`: body text, no capitalization or autocorrection. */
+function FieldInput(props: TextInputProps) {
+  const palette = useColors();
+  return (
+    <TextInput
+      autoCapitalize="none"
+      autoCorrect={false}
+      spellCheck={false}
+      placeholderTextColor={palette.placeholderText}
+      selectionColor={palette.tint}
+      {...props}
+      style={[fontOf("body"), styles.input, { color: palette.label }]}
+    />
+  );
+}
+
 function Divider() {
   const palette = useColors();
   return (
@@ -221,37 +474,68 @@ function Divider() {
   );
 }
 
-function ErrorText({ error }: { readonly error: string | undefined }) {
-  if (error === undefined) return null;
-  return (
-    <Text
-      testID="connect-status"
-      variant="subheadline"
-      color="systemRed"
-      align="center">
-      {error}
-    </Text>
-  );
-}
-
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { alignItems: "center", paddingBottom: 24, paddingHorizontal: 16 },
-  column: { gap: 28, maxWidth: sizes.readableWidth, width: "100%" },
-  hero: { gap: 12, paddingTop: 50 },
+  column: { maxWidth: sizes.readableWidth, width: "100%" },
+  hero: { alignItems: "center", gap: 12 },
+  logo: { marginBottom: 6 },
   heroTitle: { fontSize: 32 },
   form: { gap: 12 },
   inset: { paddingHorizontal: 16 },
-  card: { borderCurve: "continuous", borderRadius: 24, overflow: "hidden" },
+  card: {
+    borderCurve: "continuous",
+    borderRadius: radii.card,
+    overflow: "hidden",
+  },
   field: { gap: 4, paddingHorizontal: 16, paddingVertical: 10 },
+  // Android's TextInput adds its own padding; SwiftUI's TextField has none.
+  input: { margin: 0, padding: 0 },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
   status: {
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
+    minHeight: 52,
     paddingHorizontal: 16,
-    paddingVertical: 16,
   },
   flex: { flex: 1 },
-  recovery: { alignItems: "center", gap: 16, padding: 24 },
+  badge: {
+    alignItems: "center",
+    borderRadius: radii.capsule,
+    flexDirection: "row",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  tokenSection: { gap: 8, paddingTop: 4 },
+  tokenCard: {
+    alignItems: "center",
+    borderCurve: "continuous",
+    borderRadius: radii.card,
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  keyTile: {
+    alignItems: "center",
+    borderCurve: "continuous",
+    borderRadius: 8,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  tokenField: { flex: 1, gap: 4 },
+  advanced: { gap: 8 },
+  toggle: {
+    alignItems: "center",
+    flexDirection: "row",
+    minHeight: sizes.minimumHitTarget,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  pressed: { opacity: 0.6 },
+  recovery: { alignItems: "center", gap: 20, padding: 24 },
+  restoreFailed: { alignItems: "center", gap: 16 },
 });

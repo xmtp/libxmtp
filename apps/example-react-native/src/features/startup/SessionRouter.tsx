@@ -4,20 +4,10 @@ import { Appearance } from "react-native";
 
 import {
   closedSessionRoute,
-  type InitialRoute,
   openSessionRoute,
   type RouteAction,
 } from "@/core/sessionRoute.ts";
 import { useAppearance, useSessionState } from "@/session";
-
-/**
- * The session's first screen. Choose handle is a placeholder until the
- * account lane builds it, so a new inbox goes straight to Chats; that lane
- * returns `initial` here.
- */
-function firstScreen(_initial: InitialRoute): InitialRoute {
-  return "chats";
-}
 
 type Navigation = ReturnType<typeof useNavigationContainerRef>;
 
@@ -88,7 +78,7 @@ export function SessionRouter() {
     const effect: { live: boolean } = { live: true };
     void session.initialRoute().then((initial) => {
       if (!effect.live || !session.isCurrent()) return;
-      apply(navigation, openSessionRoute(firstScreen(initial), path.current));
+      apply(navigation, openSessionRoute(initial, path.current));
     });
     return () => {
       effect.live = false;
