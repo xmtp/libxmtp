@@ -165,9 +165,9 @@ function DetailsBody({
   };
 
   return (
-    <FormScreen
-      automaticallyAdjustKeyboardInsets
-      contentContainerStyle={styles.content}>
+    // No automatic keyboard insets: a sheet's keyboard would scroll Details
+    // behind it. The local-name field sits above any keyboard.
+    <FormScreen contentContainerStyle={styles.content}>
       {titleOptions()}
       {details.kind === "group" ? (
         <Stack.Toolbar placement="right">

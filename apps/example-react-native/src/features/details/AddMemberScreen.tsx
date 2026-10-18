@@ -50,13 +50,25 @@ function AddMemberForm({
   const state = useStore(store);
   const [input, setInput] = useState("");
   const submitted = useRef(false);
+  const wasBusy = useRef(state.busy);
+  const { busy, error } = state;
 
+  // The shared Details store keeps the last lookup. Each opening starts with
+  // an empty field and no preview (a recorded deviation: iOS keeps it).
   useEffect(() => {
-    if (submitted.current && !state.busy && state.error === undefined) {
+    store.resolvePreview("");
+  }, [store]);
+
+  // Close only when an Add from this sheet finishes without an error, like
+  // iOS `.onChange(of: busy)`. Typing clears the error but never closes.
+  useEffect(() => {
+    const finished = wasBusy.current && !busy;
+    wasBusy.current = busy;
+    if (finished && submitted.current && error === undefined) {
       submitted.current = false;
       router.back();
     }
-  }, [state.busy, state.error]);
+  }, [busy, error]);
 
   return (
     <FormScreen {...form} contentContainerStyle={styles.content}>
