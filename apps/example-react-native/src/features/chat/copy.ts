@@ -1,8 +1,6 @@
 /** Chat strings (`Features/Chat/Chat.xcstrings` and the chat views). */
 export const chatCopy = {
   fallbackTitle: "Conversation",
-  cannotOpenTitle: "Cannot open chat",
-  cannotOpenDetail: "Try opening this conversation again.",
   /** "· 1 member" / "· N members". */
   memberCount: (count: number) =>
     count === 1 ? "· 1 member" : `· ${String(count)} members`,

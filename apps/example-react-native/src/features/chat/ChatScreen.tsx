@@ -189,6 +189,7 @@ function ChatSessionScreen({
             {state.error === TimelineCopy.noSurvivors ? null : (
               <GlassButton
                 title={chatCopy.retry}
+                font="caption"
                 testID="chat.retry"
                 onPress={() => {
                   void runtime.timeline.refresh();

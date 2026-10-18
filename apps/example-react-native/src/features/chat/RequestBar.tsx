@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { useEffect } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 
 import { useChatContext } from "@/features/chat/ChatContext";
 import { chatCopy } from "@/features/chat/copy";
@@ -26,6 +26,10 @@ export function RequestBar() {
   useEffect(() => {
     if (confirmation === undefined) return;
     showConfirmation({
+      // iOS hides the dialog title; the Android alert shows it.
+      ...(Platform.OS === "android"
+        ? { title: chatCopy.confirmRequestAction }
+        : {}),
       confirm: chatCopy.confirm,
       destructive: true,
       onConfirm: () => {

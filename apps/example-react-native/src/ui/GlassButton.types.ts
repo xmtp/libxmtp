@@ -19,8 +19,11 @@ export interface GlassButtonProps {
   role?: "destructive" | "cancel";
   /** `.controlSize(.large)` for footer buttons. Default `regular`. */
   size?: "regular" | "large";
-  /** The label font. Default `headline` for large, `body` otherwise. */
-  font?: "body" | "headline" | "subheadline";
+  /**
+   * The label font. Default `headline` for large, `body` otherwise. `caption`
+   * is a button inside a `.font(.caption)` row (the chat's Retry).
+   */
+  font?: "body" | "headline" | "subheadline" | "caption";
   /**
    * The label color of a `glass` button when a parent sets
    * `.foregroundStyle` (Connect's red status Retry). Default the tint.
