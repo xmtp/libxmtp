@@ -37,6 +37,13 @@ additional crypto package is needed. Generating a key does not contact a backend
 ```
 
 </TabItem>
+<TabItem label="React Native">
+
+```ts source="signer-react-native.ts" region="local"
+
+```
+
+</TabItem>
 <TabItem label="Kotlin">
 
 ```kotlin
@@ -61,14 +68,14 @@ private-key bytes. `LocalSigningKey.fromHex()` and `fromBytes()` restore the sam
 identity. Hex imports require `0x` followed by exactly 64 hexadecimal digits.
 Invalid lengths, invalid hex, zero, and out-of-range private keys fail with
 `InvalidInput`. `toBytes()` and `toHex()` are synchronous on Swift and Kotlin,
-and asynchronous on Node and Browser. Generation, import, and signing remain
+and asynchronous on Node, Browser, and React Native. Generation, import, and signing remain
 asynchronous on every platform.
 
-| SDK              | Byte type    |
-| ---------------- | ------------ |
-| Browser and Node | `Uint8Array` |
-| Kotlin           | `ByteArray`  |
-| Swift            | `Data`       |
+| SDK                             | Byte type    |
+| ------------------------------- | ------------ |
+| Browser, Node, and React Native | `Uint8Array` |
+| Kotlin                          | `ByteArray`  |
+| Swift                           | `Data`       |
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -81,6 +88,13 @@ asynchronous on every platform.
 <TabItem label="Node">
 
 ```ts source="signer-node.ts" region="restore"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="signer-react-native.ts" region="restore"
 
 ```
 
@@ -131,6 +145,13 @@ raw recoverable ECDSA signature bytes.
 ```
 
 </TabItem>
+<TabItem label="React Native">
+
+```ts source="signer-react-native.ts" region="signer"
+
+```
+
+</TabItem>
 <TabItem label="Kotlin">
 
 ```kotlin
@@ -174,7 +195,7 @@ Name signer objects for their account or provider. Do not call a signer a wallet
 
 ## The signer interface
 
-| Part     | Browser, Node                         | Kotlin, Swift                         |
+| Part     | Browser, Node, React Native           | Kotlin, Swift                         |
 | -------- | ------------------------------------- | ------------------------------------- |
 | Identity | `identity(): Promise<PublicIdentity>` | `identity()` returns `PublicIdentity` |
 | Kind     | `kind(): Promise<SignerKind>`         | `kind()` returns `SignerKind`         |

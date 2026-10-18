@@ -4,7 +4,7 @@ const backendDiscovery =
 export const prompts = {
   integration: `Connect the agents in my app to my users with XMTP. Give users a private, end-to-end encrypted way to talk to an agent, with support for one-to-one conversations and groups.
 
-Read https://xmtp.org/llms.txt and https://xmtp.org/get-started/quickstart/ first. Inspect my project, choose the appropriate SDK (Swift, Kotlin, Browser, Node, or Agent), and check compatible versions and prerequisites. React Native self-hosted support is not yet confirmed; do not assume compatibility.
+Read https://xmtp.org/llms.txt and https://xmtp.org/get-started/quickstart/ first. Inspect my project, choose the appropriate SDK (Swift, Kotlin, Browser, Node, React Native, or Agent), and check compatible versions and prerequisites. For React Native, use version 8.0.0 and read the native setup and compatibility table. It requires Hermes, New Architecture, and a native development build; Expo Go cannot load it.
 
 ${backendDiscovery}
 

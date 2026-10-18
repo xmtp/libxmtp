@@ -45,12 +45,12 @@ export async function checkSource({ contentRoot }) {
       ].map((match) => match[1]);
       if (
         ![
-          "Browser,Node,Kotlin,Swift",
-          "Browser,Node,Kotlin,Swift,Agent",
+          "Browser,Node,React Native,Kotlin,Swift",
+          "Browser,Node,React Native,Kotlin,Swift,Agent",
         ].includes(labels.join(","))
       ) {
         failures.push(
-          `${label}: SDK tabs must be Browser, Node, Kotlin, Swift in that order, with an optional Agent tab last`,
+          `${label}: SDK tabs must be Browser, Node, React Native, Kotlin, Swift in that order, with an optional Agent tab last`,
         );
       }
     }

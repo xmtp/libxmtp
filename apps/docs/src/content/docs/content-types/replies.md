@@ -4,7 +4,7 @@ title: Replies
 
 A reply points to an earlier message and contains another encoded content value.
 
-Type ID: `xmtp.org/reply:1.0`. The payload bytes contain a nested `EncodedContent`. The `reference` parameter names the earlier message. The optional `referenceInboxId` parameter names its sender. The `contentType` parameter contains the nested content type ID. A text reply fallback is `Replied with "…" to an earlier message`. `shouldPush` defaults to `true` on Browser, Node, Kotlin, and Swift.
+Type ID: `xmtp.org/reply:1.0`. The payload bytes contain a nested `EncodedContent`. The `reference` parameter names the earlier message. The optional `referenceInboxId` parameter names its sender. The `contentType` parameter contains the nested content type ID. A text reply fallback is `Replied with "…" to an earlier message`. `shouldPush` defaults to `true` on Browser, Node, React Native, Kotlin, and Swift.
 
 | Field              | Meaning                                         |
 | ------------------ | ----------------------------------------------- |

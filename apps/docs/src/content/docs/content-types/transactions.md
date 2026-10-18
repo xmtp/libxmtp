@@ -4,7 +4,7 @@ title: Wallet transactions
 
 Wallet send calls ask a wallet to execute one or more chain calls.
 
-Type ID: `xmtp.org/walletSendCalls:1.0`. The payload is JSON-encoded `WalletSendCalls`. Its fallback contains `[Transaction request generated]:` followed by the JSON payload. `shouldPush` defaults to `true` on Browser, Node, Kotlin, and Swift.
+Type ID: `xmtp.org/walletSendCalls:1.0`. The payload is JSON-encoded `WalletSendCalls`. Its fallback contains `[Transaction request generated]:` followed by the JSON payload. `shouldPush` defaults to `true` on Browser, Node, React Native, Kotlin, and Swift.
 
 | Field          | Meaning                             |
 | -------------- | ----------------------------------- |

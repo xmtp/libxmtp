@@ -8,7 +8,7 @@ Create an XMTP client to connect an identity to your backend and keep its local 
 
 ## How it works
 
-When you call `Client.create()` on Browser or Node, or `SDKClient.create()` on Kotlin or Swift, these steps occur:
+When you call `Client.create()` on Browser, Node, or React Native, or `SDKClient.create()` on Kotlin or Swift, these steps occur:
 
 1. The client asks the signer for its identifier.
 2. It looks up the inbox ID registered for that identifier on your backend. If none exists, it derives an inbox ID from the identifier and a nonce.
@@ -19,7 +19,7 @@ The signer's identity is an Ethereum or passkey account. A [handle](/sdk/inboxes
 
 ### Keep the database encryption key safe
 
-For Node, Kotlin, and Swift, generate a secure 32-byte encryption key and store it so the app can use the same key on every launch. If the key changes or is lost, the client cannot read the former encrypted database. Keep the same key when reopening it.
+For Node, React Native, Kotlin, and Swift, generate a secure 32-byte encryption key and store it so the app can use the same key on every launch. If the key changes or is lost, the client cannot read the former encrypted database. Keep the same key when reopening it.
 
 ### The database is the installation
 
@@ -64,7 +64,7 @@ If you want to inspect the database visually, you can use [DB Browser for SQLite
 
 ## Create a client
 
-Browser and Node `Client.create()` take a signer, typed `backend`, and explicit
+Browser, Node, and React Native `Client.create()` take a signer, typed `backend`, and explicit
 `storage`. Kotlin and Swift use `ClientOptions.backend` and
 `ClientOptions.storage`. Use the platform example below.
 
@@ -79,6 +79,13 @@ Browser and Node `Client.create()` take a signer, typed `backend`, and explicit
 <TabItem label="Node">
 
 ```ts source="client-node.ts" region="create"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="client-react-native.ts" region="create"
 
 ```
 
@@ -119,7 +126,7 @@ databaseKey)`, `StorageOptions(location: .directory(directory: directory),
 encryptionKey: databaseKey)`, or `StorageOptions(location: .explicit(dbPath:
 dbPath, attachmentsDir: attachmentsDir), encryptionKey: databaseKey)`.
 
-The SDKs share these client options. Browser and Node use JavaScript records.
+The SDKs share these client options. Browser, Node, and React Native use JavaScript records.
 Kotlin and Swift use `ClientOptions` and `StorageOptions` records.
 
 | Option                     | Default           | Purpose                                                   |
@@ -135,14 +142,14 @@ Kotlin and Swift use `ClientOptions` and `StorageOptions` records.
 | `handlers.preAuthenticate` | Unset             | Callback before a registration signature request          |
 | `attachments`              | SDK defaults      | Attachment limits and private network access              |
 
-Pass custom codecs in `ClientOptions.codecs` on Browser and Node. Kotlin and Swift
+Pass custom codecs in `ClientOptions.codecs` on Browser, Node, and React Native. Kotlin and Swift
 take a `codecs` argument on `SDKClient.create()` and `SDKClient.build()`.
 Logging has a separate configuration API. See [Debug](/sdk/debug/#file-logging).
 
 JavaScript storage locations are `"default"`, `"inMemory"`, `{ directory }`, or
 `{ dbPath, attachmentsDir }`. Kotlin and Swift use the corresponding
 `StorageLocation` variants. Browser storage uses OPFS and has no `encryptionKey`
-option. Node, Kotlin, and Swift accept an optional 32-byte `storage.encryptionKey`.
+option. Node, React Native, Kotlin, and Swift accept an optional 32-byte `storage.encryptionKey`.
 Without that key, native storage is unencrypted.
 
 A default or directory location stores each inbox under
@@ -166,7 +173,7 @@ Swift uses `.options(options: options)` or `.connected(backend: backend)`.
 
 If the backend requires an API key or JWT, supply a `CredentialSource` in
 `BackendOptions.credentials`. Its async `credential()` method returns `value`,
-`expiresAtSeconds`, and an optional header `name`. Browser and Node use a `bigint`
+`expiresAtSeconds`, and an optional header `name`. Browser, Node, and React Native use a `bigint`
 for expiry. Kotlin uses `Long`; Swift uses `Int64`. Expiry is in Unix seconds.
 The default header name is `authorization`. For a bearer token, include `Bearer`
 and one space before the token. This credential is separate from the XMTP signer
@@ -187,6 +194,13 @@ operator's secret in a public app.
 <TabItem label="Node">
 
 ```ts source="client-node.ts" region="auth"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="client-react-native.ts" region="auth"
 
 ```
 
@@ -298,6 +312,13 @@ operations.
 ```
 
 </TabItem>
+<TabItem label="React Native">
+
+```ts source="client-react-native.ts" region="build"
+
+```
+
+</TabItem>
 <TabItem label="Kotlin">
 
 ```kotlin
@@ -337,6 +358,13 @@ Deleting the local database removes that installation's local message state and 
 ```
 
 </TabItem>
+<TabItem label="React Native">
+
+```ts source="client-react-native.ts" region="delete"
+
+```
+
+</TabItem>
 <TabItem label="Kotlin">
 
 ```kotlin
@@ -359,10 +387,19 @@ try await storage.delete()
 
 ## Manage database connections
 
-Node, Kotlin, and Swift expose `Storage.reconnect()` through `client.storage`
+Node, React Native, Kotlin, and Swift expose `Storage.reconnect()` through `client.storage`
 (JavaScript) or `client.storage()` (Kotlin and Swift). Browser has no reconnect
 method. There is no public method to drop a database connection temporarily.
 Use `client.end()` when the app releases a client. End a client before replacing
 or restoring its storage.
 
 For listener setup, the event catalog, and handlers on each SDK, see [Listen for client events](/sdk/events/).
+
+## React Native lifecycle
+
+React Native installs native lifecycle observation before the first client. It
+seeds the actual process state, including a background launch. Keep the same
+native storage location and key when reopening. The app owns secret storage;
+the SDK does not persist a signing key or select an OS backup policy for it.
+See [React Native and Expo](/get-started/react-native/) for setup, React provider
+ownership, and native rebuild requirements.

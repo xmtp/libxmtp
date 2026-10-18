@@ -87,7 +87,7 @@ export function exampleRegions({ root = examplesRoot } = {}) {
           codeBlock.language,
         );
         const isGeneratedReference =
-          /\/reference\/(?:node|browser|agent)-sdk\//u.test(
+          /\/reference\/(?:node|browser|react-native|agent)-sdk\//u.test(
             codeBlock.parentDocument?.sourceFilePath ?? "",
           );
         if (codeBlock.metaOptions.list(["source", "region"]).length) {

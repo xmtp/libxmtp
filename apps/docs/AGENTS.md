@@ -47,13 +47,15 @@ formats `.astro` files. `just lint-js-format` checks both formatters.
 
 Preserve retained source prose. Verify examples against the SDK source.
 Use MDX only when a page needs components. Platform tabs use `syncKey="sdk"`
-and the labels `Browser`, `Node`, `Kotlin`, and `Swift`. A guide that also covers
+and the labels `Browser`, `Node`, `React Native`, `Kotlin`, and `Swift`. A guide that also covers
 the Agent SDK can add `Agent` as the last tab. Package manager tabs
-use `syncKey="pkg"`. Do not add React Native examples until they can be verified.
+use `syncKey="pkg"`. Verify React Native examples against the generated public declarations, including the optional `/react` entry. The docs route stages declarations without the full mobile build closure.
 
 The post-merge workflow (`post-merge.yml`) deploys the public site on each push to `main` and
 builds the Kotlin and Swift references. Pull requests and merge runs skip them
 with `DOCS_SKIP_NATIVE_REFERENCES=1`.
+Use `dev/nix-shell 'DOCS_SKIP_NATIVE_REFERENCES=1 just docs test-browser'`
+when testing that composed site.
 
 ## TypeScript examples
 

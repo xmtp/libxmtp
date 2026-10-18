@@ -8,7 +8,7 @@ Streams deliver conversations and messages as the SDK receives and processes the
 
 ## Stream methods
 
-All four SDKs expose these stream methods:
+All five platform SDKs expose these stream methods:
 
 | Stream                                     | Value                                           |
 | ------------------------------------------ | ----------------------------------------------- |
@@ -29,6 +29,13 @@ Conversation streams select every consent state unless the app supplies a filter
 </TabItem><TabItem label="Node">
 
 ```ts source="stream-node.ts" region="stream"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="stream-react-native.ts" region="stream"
 
 ```
 
@@ -63,6 +70,13 @@ Use `group.streamMessages()` in each SDK. This reader selects one group. It does
 </TabItem><TabItem label="Node">
 
 ```ts source="stream-node.ts" region="group-messages"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="stream-react-native.ts" region="group-messages"
 
 ```
 
@@ -123,7 +137,7 @@ func stopGroupMessages(_ task: Task<Void, Error>) async throws {
 </TabItem>
 </Tabs>
 
-Pass an `AbortController`'s `signal` to the Browser or Node helper. Call `controller.abort()` when the app stops listening, then await the helper's promise. The `finally` block closes the stream after completion or failure. On Kotlin, keep the returned `Job` and call `stopGroupMessages(job)` from a coroutine to cancel and wait for cleanup. On Swift, keep the returned task and call `try await stopGroupMessages(task)` to cancel and wait for cleanup. These helpers close the reader and keep the client open.
+Pass an `AbortController`'s `signal` to the Browser, Node, or React Native helper. Call `controller.abort()` when the app stops listening, then await the helper's promise. The `finally` block closes the stream after completion or failure. On Kotlin, keep the returned `Job` and call `stopGroupMessages(job)` from a coroutine to cancel and wait for cleanup. On Swift, keep the returned task and call `try await stopGroupMessages(task)` to cancel and wait for cleanup. These helpers close the reader and keep the client open.
 
 ## Stream all messages
 
@@ -141,6 +155,13 @@ With no consent filter, an all-conversation message reader selects allowed and u
 </TabItem><TabItem label="Node">
 
 ```ts source="stream-node.ts" region="all-messages"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="stream-react-native.ts" region="all-messages"
 
 ```
 
@@ -206,11 +227,11 @@ func stopAllMessages(_ task: Task<Void, Error>) async throws {
 </TabItem>
 </Tabs>
 
-Pass an `AbortController`'s `signal` to the Browser or Node helper. Call `controller.abort()` when the app stops listening, then await the helper's promise. The `finally` block closes the stream after completion or failure. On Kotlin, keep the returned `Job` and call `stopAllMessages(job)` from a coroutine to cancel and wait for cleanup. On Swift, keep the returned task and call `try await stopAllMessages(task)` to cancel and wait for cleanup. These helpers close the reader and keep the client open.
+Pass an `AbortController`'s `signal` to the Browser, Node, or React Native helper. Call `controller.abort()` when the app stops listening, then await the helper's promise. The `finally` block closes the stream after completion or failure. On Kotlin, keep the returned `Job` and call `stopAllMessages(job)` from a coroutine to cancel and wait for cleanup. On Swift, keep the returned task and call `try await stopAllMessages(task)` to cancel and wait for cleanup. These helpers close the reader and keep the client open.
 
 ## Delivery and replay
 
-A message reader acknowledges the previous message when the app requests the next message. Await all processing before that request. Browser and Node also support `stream.onValue(callback)`, which awaits the callback before reading again. Use one consumption mode per stream.
+A message reader acknowledges the previous message when the app requests the next message. Await all processing before that request. Browser, Node, and React Native also support `stream.onValue(callback)`, which awaits the callback before reading again. Use one consumption mode per stream.
 
 Only one default message reader can own delivery progress in a client database. A second default reader fails with `ConsumerOwned`, even if it selects a different group or DM. Closing a reader does not acknowledge its pending message. Once an acknowledgement is committed, cancellation cannot undo it.
 
@@ -224,15 +245,15 @@ When a stream registers a topic, Core captures a fixed catch-up target. It fetch
 
 A [sync call](/sdk/sync/) can make the local database current before a stream opens. It does not acknowledge pending message delivery. Use a history snapshot cursor when the app needs a boundary between local history and subsequent delivery.
 
-Browser and Node can await `stream.ready()` to wait for the reader to open. This does not mean the network is connected or catch-up has finished. Break an iterator loop, call `await stream.end()`, or abort its signal to close it. Cancel the collector task on Kotlin or Swift. Release the client with `await client.end()` when it is no longer needed.
+Browser, Node, and React Native can await `stream.ready()` to wait for the reader to open. This does not mean the network is connected or catch-up has finished. Break an iterator loop, call `await stream.end()`, or abort its signal to close it. Cancel the collector task on Kotlin or Swift. Release the client with `await client.end()` when it is no longer needed.
 
 ## Recovery
 
-Core owns network recovery on all four SDKs. Retryable network faults keep streams open and resume ordered processing. A stream has a bounded recovery budget. A terminal failure ends that stream. Browser and Node reject iterator reads or the `onValue` promise and call `onClose` with a failed reason. Kotlin and Swift report the error through their stream and `onClose`.
+Core owns network recovery on all five platform SDKs. Retryable network faults keep streams open and resume ordered processing. A stream has a bounded recovery budget. A terminal failure ends that stream. Browser, Node, and React Native reject iterator reads or the `onValue` promise and call `onClose` with a failed reason. Kotlin and Swift report the error through their stream and `onClose`.
 
 Repair the cause, then open a new stream on the same client. A replacement default message reader resumes saved delivery progress. Callback failures stop delivery; the SDK does not repeat the callback in the same stream. A replacement can repeat a message if its acknowledgement failed.
 
-The public stream options are `signal` on Browser and Node, `onClose`, and `onConnectionStateChange`. Retry counts, retry delays, `retryOnFail`, and `disableSync` are not message or conversation stream options.
+The public stream options are `signal` on Browser, Node, and React Native, `onClose`, and `onConnectionStateChange`. Retry counts, retry delays, `retryOnFail`, and `disableSync` are not message or conversation stream options.
 
 Consent and HMAC changes use live client events, such as `consent.changed` and `hmac_keys.updated`. Events do not provide durable message delivery. See [Listen for client events](/sdk/events/).
 

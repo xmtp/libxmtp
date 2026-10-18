@@ -100,7 +100,10 @@ export default defineConfig({
         {
           label: "Get started",
           items: [
-            ...guidePages("get-started", "quickstart install run-the-backend"),
+            ...guidePages(
+              "get-started",
+              "quickstart install react-native run-the-backend",
+            ),
             {
               label: "Migrate to a self-hosted backend",
               collapsed: true,
@@ -111,7 +114,7 @@ export default defineConfig({
                 },
                 ...guidePages(
                   "get-started/migrate-to-self-hosted",
-                  "browser-sdk-upgrade-guide node-sdk-upgrade-guide kotlin-sdk-upgrade-guide swift-sdk-upgrade-guide agent-sdk-upgrade-guide",
+                  "browser-sdk-upgrade-guide node-sdk-upgrade-guide kotlin-sdk-upgrade-guide swift-sdk-upgrade-guide react-native-sdk-upgrade-guide agent-sdk-upgrade-guide",
                 ),
               ],
             },

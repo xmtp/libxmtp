@@ -5,7 +5,7 @@ import { ExpressiveCode } from "expressive-code";
 
 import { examplePlugins } from "../scripts/example-config.mjs";
 
-test("Twoslash resolves both local SDKs and renders all quickstart regions", async () => {
+test("Twoslash resolves all local platform SDKs and renders all quickstart regions", async () => {
   const engine = new ExpressiveCode({
     plugins: examplePlugins(),
     logger: { error: () => {} },
@@ -16,6 +16,7 @@ test("Twoslash resolves both local SDKs and renders all quickstart regions", asy
       ["quickstart-node-send.ts", "send"],
     ],
     browser: [["quickstart-browser.ts", "app"]],
+    "react-native": [["quickstart-react-native.ts", "app"]],
   };
   for (const [sdk, sources] of Object.entries(quickstarts)) {
     for (const [source, region] of sources) {
