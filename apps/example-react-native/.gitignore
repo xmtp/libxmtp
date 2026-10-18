@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+
+# SDK out-links and build output of the just recipes (DerivedData, APKs, logs)
+.build/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+# pod install writes the workspace from the project and the Pods project.
+ios/*.xcworkspace/
+# Gradle output of the local module.
+modules/*/android/build/
+modules/*/android/.cxx/
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
