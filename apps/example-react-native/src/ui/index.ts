@@ -100,6 +100,10 @@ export {
   PlaceholderScreen,
   type PlaceholderScreenProps,
 } from "@/ui/PlaceholderScreen";
+export {
+  PinnedListHeader,
+  type PinnedListHeaderProps,
+} from "@/ui/PinnedListHeader";
 export { PlainListRow, type PlainListRowProps } from "@/ui/PlainListRow";
 export {
   PopoverConfirmation,
@@ -131,5 +135,6 @@ export {
   wrappedLineHeight,
 } from "@/ui/typography";
 export { type ReadableStore, useStore } from "@/ui/useStore";
+export { WrappedText } from "@/ui/WrappedText";
 export { stackScreenOptions, useStackScreenOptions } from "@/ui/navigation";
 export { type ToolbarIcon, useToolbarIcon } from "@/ui/toolbarIcon";

@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import {
+  type AccessibilityActionEvent,
+  type AccessibilityActionInfo,
   Pressable,
   type StyleProp,
   StyleSheet,
@@ -26,6 +28,9 @@ export interface PlainListRowProps {
   testID?: string;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  /** Custom actions (SwiftUI exposes swipe and menu actions this way). */
+  accessibilityActions?: readonly AccessibilityActionInfo[];
+  onAccessibilityAction?: (event: AccessibilityActionEvent) => void;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -48,6 +53,8 @@ export function PlainListRow({
   testID,
   accessibilityLabel,
   accessibilityHint,
+  accessibilityActions,
+  onAccessibilityAction,
   style,
 }: PlainListRowProps) {
   const palette = useColors();
@@ -72,6 +79,8 @@ export function PlainListRow({
       accessibilityRole={onPress === undefined ? undefined : "button"}
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
+      accessibilityActions={accessibilityActions}
+      onAccessibilityAction={onAccessibilityAction}
       accessibilityState={selected === undefined ? undefined : { selected }}
       unstable_pressDelay={60}
       style={({ pressed }) => [

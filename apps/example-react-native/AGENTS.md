@@ -79,6 +79,8 @@ measured against the iOS example's screenshots on an iOS 27 iPhone 17 Pro.
   in `modules/messenger-platform`; Android renders the children only).
   Confirmations that SwiftUI shows as popovers (`.confirmationDialog` on a
   list) use `PopoverConfirmation`; alerts and other dialogs use `dialogs.ts`.
+- Text that wraps uses `WrappedText` (SwiftUI's wrapped line height once
+  it wraps) or `BubbleText` in message bubbles.
 - The Debug gallery shows every component and replicas of reference screens:
   `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/gallery?section=components"`
   (sections: `components`, `settings`, `details`, `chats`, `chat`, `connect`).
@@ -98,9 +100,10 @@ measured against the iOS example's screenshots on an iOS 27 iPhone 17 Pro.
 `expo prebuild`, so `app.json` plugins and `expo-build-properties` do nothing.
 After adding a native dependency, run `install` and commit `ios/Podfile.lock`
 and the project changes. A new Swift file in `modules/messenger-platform`
-also needs `install` before the next build, so the Pods project lists it. Do not add `expo-sqlite` (the SDK links its own
-SQLCipher) or `expo-dev-client`. Android keystores are never committed;
-builds sign with AGP's default debug keystore.
+also needs `install` before the next build, so the Pods project lists it.
+Do not add `expo-sqlite` (the SDK links its own SQLCipher) or
+`expo-dev-client`. Android keystores are never committed; builds sign with
+AGP's default debug keystore.
 
 Prove each new test fails under a named behavioral mutation, then restore it
 and show it passes. Record the mutation in the change description.

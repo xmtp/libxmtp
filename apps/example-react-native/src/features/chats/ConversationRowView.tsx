@@ -3,35 +3,14 @@ import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
 
 import type { ConversationRow } from "@/core/conversationList.ts";
 import { timeOfDay } from "@/core/dates.ts";
-import { splitHandle } from "@/core/titles.ts";
-import { WrappedText } from "@/features/chats/WrappedText";
 import { Avatar } from "@/ui/Avatar";
 import { useColors } from "@/ui/colors";
 import { ConversationTitle } from "@/ui/Identity";
 import { Text } from "@/ui/Text";
+import { WrappedText } from "@/ui/WrappedText";
 
 /** Where the avatar starts in a plain list row. */
 const ROW_LEADING = 16;
-
-/**
- * The row's combined accessibility label, like SwiftUI's button label:
- * `@, lena, 1:30 AM, There you go, 26` (groups: `Weekend plans, 1:30 AM, …`).
- */
-export function conversationRowLabel(row: ConversationRow): string {
-  const parts: string[] = [];
-  if (row.title.startsWith("@")) {
-    const { name, code } = splitHandle(row.title);
-    parts.push("@", name + code);
-  } else {
-    parts.push(row.title);
-  }
-  if (row.record.lastActivity !== undefined) {
-    parts.push(timeOfDay(row.record.lastActivity));
-  }
-  if (row.record.preview !== "") parts.push(row.record.preview);
-  if (row.record.unread > 0) parts.push(String(row.record.unread));
-  return parts.join(", ");
-}
 
 /**
  * The separator inset of a row: SwiftUI starts it at the row's first text,

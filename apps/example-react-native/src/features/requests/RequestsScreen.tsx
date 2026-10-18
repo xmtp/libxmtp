@@ -16,20 +16,27 @@ import type {
 } from "@/core/requestDecisions.ts";
 import {
   ConversationListRow,
-  SwipeGroup,
+  useSwipeGroup,
 } from "@/features/chats/ConversationListRow";
 import {
   useConversationList,
   useRequestDecisions,
   useVisibleRowsReporter,
 } from "@/features/chats/useConversationStores";
-import { WrappedText } from "@/features/chats/WrappedText";
 import { requestsCopy } from "@/features/requests/copy";
 import { type ActiveSession, useActiveSession } from "@/session";
 import { useColors } from "@/ui/colors";
+import { PinnedListHeader } from "@/ui/PinnedListHeader";
 import { PopoverConfirmation } from "@/ui/PopoverConfirmation";
 import { Text } from "@/ui/Text";
 import { useStore } from "@/ui/useStore";
+import { WrappedText } from "@/ui/WrappedText";
+
+/** The load error and Retry, above the rows in the same section (iOS). */
+const ERROR_ITEM = { id: "requests.error" } as const;
+type RequestsItem = ConversationRow | typeof ERROR_ITEM;
+const isRow = (item: RequestsItem): item is ConversationRow =>
+  item !== ERROR_ITEM;
 
 const chatHref = (id: string) =>
   ({
@@ -101,7 +108,7 @@ function RequestsList({ session }: { readonly session: ActiveSession }) {
   );
   const decisions = useRequestDecisions(session, onOutcome);
   const decisionState = useStore(decisions);
-  const [swipeGroup] = useState(() => new SwipeGroup());
+  const swipeGroup = useSwipeGroup();
   const [refreshing, setRefreshing] = useState(false);
   const onViewableItemsChanged = useVisibleRowsReporter(store);
 
@@ -112,8 +119,21 @@ function RequestsList({ session }: { readonly session: ActiveSession }) {
     });
   }, [store]);
 
+  const retry = useCallback(() => {
+    store.load();
+  }, [store]);
+
   const renderItem = useCallback(
-    ({ item }: { item: ConversationRow }) => {
+    ({ item }: { item: RequestsItem }) => {
+      if (!isRow(item)) {
+        return (
+          <LoadError
+            error={state.error ?? ""}
+            loading={state.loading}
+            onRetry={retry}
+          />
+        );
+      }
       const accept = {
         label: requestsCopy.accept,
         onPress: () => {
@@ -137,13 +157,22 @@ function RequestsList({ session }: { readonly session: ActiveSession }) {
       return (
         <ConversationListRow
           row={item}
+          testIDPrefix="requests.row"
           menu={[accept, remove, block]}
           swipe={[remove, block]}
           swipeGroup={swipeGroup}
         />
       );
     },
-    [decisions, swipeGroup],
+    [decisions, swipeGroup, retry, state.error, state.loading],
+  );
+
+  const items = useMemo<readonly RequestsItem[]>(
+    () =>
+      state.error === undefined
+        ? state.visible
+        : [ERROR_ITEM, ...state.visible],
+    [state.error, state.visible],
   );
 
   const confirmation = decisionState.confirmation;
@@ -158,13 +187,14 @@ function RequestsList({ session }: { readonly session: ActiveSession }) {
   );
 
   return (
-    <View style={[styles.fill, { backgroundColor: palette.systemBackground }]}>
+    <>
       <FlatList
-        data={state.error === undefined ? state.visible : []}
-        keyExtractor={(row) => row.id}
+        data={items}
+        keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentInsetAdjustmentBehavior="automatic"
-        style={styles.fill}
+        // The route's first view, so the large title collapses with it.
+        style={[styles.fill, { backgroundColor: palette.systemBackground }]}
         contentContainerStyle={styles.content}
         onScrollBeginDrag={() => {
           swipeGroup.closeAll();
@@ -174,46 +204,33 @@ function RequestsList({ session }: { readonly session: ActiveSession }) {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        // A plain list's section header stays under the navigation bar.
+        stickyHeaderIndices={[0]}
+        StickyHeaderComponent={PinnedListHeader}
         ListHeaderComponent={
-          <WrappedText color="secondaryLabel" style={styles.header}>
+          <WrappedText
+            color="secondaryLabel"
+            style={[
+              styles.header,
+              { backgroundColor: palette.systemBackground },
+            ]}>
             {requestsCopy.detail}
           </WrappedText>
         }
         ListEmptyComponent={
-          state.error === undefined ? (
-            <View style={styles.empty}>
-              {state.loading || !state.loaded ? <ActivityIndicator /> : null}
-              <Text variant="headline" align="center">
-                {state.loading || !state.loaded
-                  ? requestsCopy.loading
-                  : requestsCopy.emptyTitle}
-              </Text>
-              {state.loading || !state.loaded ? null : (
-                <WrappedText color="secondaryLabel" align="center">
-                  {requestsCopy.emptyDetail}
-                </WrappedText>
-              )}
-            </View>
-          ) : (
-            <View style={styles.error}>
-              <Text
-                color="secondaryLabel"
-                align="center"
-                testID="requests.error">
-                {state.error}
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                disabled={state.loading}
-                onPress={() => {
-                  store.load();
-                }}>
-                <Text color={state.loading ? "tertiaryLabel" : "accentText"}>
-                  {requestsCopy.retry}
-                </Text>
-              </Pressable>
-            </View>
-          )
+          <View style={styles.empty}>
+            {state.loading || !state.loaded ? <ActivityIndicator /> : null}
+            <Text variant="headline" align="center">
+              {state.loading || !state.loaded
+                ? requestsCopy.loading
+                : requestsCopy.emptyTitle}
+            </Text>
+            {state.loading || !state.loaded ? null : (
+              <WrappedText color="secondaryLabel" align="center">
+                {requestsCopy.emptyDetail}
+              </WrappedText>
+            )}
+          </View>
         }
         ListFooterComponent={
           <>
@@ -242,11 +259,38 @@ function RequestsList({ session }: { readonly session: ActiveSession }) {
           decisions.cancel();
         }}
       />
-    </View>
+    </>
   );
 }
 
 const viewability = { itemVisiblePercentThreshold: 1 };
+
+/** The load error with Retry (disabled while a load runs). */
+function LoadError({
+  error,
+  loading,
+  onRetry,
+}: {
+  readonly error: string;
+  readonly loading: boolean;
+  readonly onRetry: () => void;
+}) {
+  return (
+    <View style={styles.error}>
+      <Text color="secondaryLabel" align="center" testID="requests.error">
+        {error}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        disabled={loading}
+        onPress={onRetry}>
+        <Text color={loading ? "tertiaryLabel" : "accentText"}>
+          {requestsCopy.retry}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },

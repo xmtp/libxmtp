@@ -11,7 +11,8 @@ import {
 import type { ConversationRow } from "@/core/conversationList.ts";
 import {
   ConversationListRow,
-  SwipeGroup,
+  type RowSwipeGroup,
+  useSwipeGroup,
 } from "@/features/chats/ConversationListRow";
 import { chatsCopy, requestCountText } from "@/features/chats/copy";
 import {
@@ -51,9 +52,6 @@ export function ChatsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: chatsCopy.title }} />
-      {session === undefined ? null : (
-        <NavigationSubtitle subtitle={session.server.name} />
-      )}
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.Button
           icon={settingsIcon}
@@ -79,6 +77,10 @@ export function ChatsScreen() {
       ) : (
         <ChatsList key={session.generation} session={session} />
       )}
+      {/* After the list: the native header tracks the route's first view. */}
+      {session === undefined ? null : (
+        <NavigationSubtitle subtitle={session.server.name} />
+      )}
     </>
   );
 }
@@ -93,7 +95,7 @@ function ChatsList({ session }: { readonly session: ActiveSession }) {
   });
   const confirmation = useStore(decisions).confirmation;
   const connection = useStore(session.streams.connection);
-  const [swipeGroup] = useState(() => new SwipeGroup());
+  const swipeGroup = useSwipeGroup();
   const [refreshing, setRefreshing] = useState(false);
 
   const onViewableItemsChanged = useVisibleRowsReporter(store);
@@ -117,6 +119,7 @@ function ChatsList({ session }: { readonly session: ActiveSession }) {
       return (
         <ConversationListRow
           row={item}
+          testIDPrefix="chats.row"
           menu={[block]}
           swipe={[block]}
           swipeGroup={swipeGroup}
@@ -143,14 +146,15 @@ function ChatsList({ session }: { readonly session: ActiveSession }) {
 
   const empty = state.visible.length === 0;
   return (
-    <View style={[styles.fill, { backgroundColor: palette.systemBackground }]}>
+    <>
       <FlatList
         data={state.visible}
         keyExtractor={(row) => row.id}
         renderItem={renderItem}
         contentInsetAdjustmentBehavior="automatic"
         keyboardDismissMode="on-drag"
-        style={styles.fill}
+        // The route's first view, so the large title collapses with it.
+        style={[styles.fill, { backgroundColor: palette.systemBackground }]}
         contentContainerStyle={styles.content}
         onScrollBeginDrag={() => {
           swipeGroup.closeAll();
@@ -169,6 +173,7 @@ function ChatsList({ session }: { readonly session: ActiveSession }) {
               />
             )}
             <RequestsRow
+              swipeGroup={swipeGroup}
               count={state.requestCount}
               showsSeparator={!empty || state.error !== undefined}
             />
@@ -225,7 +230,7 @@ function ChatsList({ session }: { readonly session: ActiveSession }) {
           decisions.cancel();
         }}
       />
-    </View>
+    </>
   );
 }
 
@@ -233,9 +238,11 @@ const viewability = { itemVisiblePercentThreshold: 1 };
 
 /** The "Message requests · N" row (`ChatsView` first row). */
 function RequestsRow({
+  swipeGroup,
   count,
   showsSeparator,
 }: {
+  readonly swipeGroup: RowSwipeGroup;
   readonly count: number | undefined;
   readonly showsSeparator: boolean;
 }) {
@@ -255,6 +262,7 @@ function RequestsRow({
         .filter((part) => part !== undefined)
         .join(", ")}
       onPress={() => {
+        if (swipeGroup.closeAll()) return;
         router.push("/requests");
       }}
       style={styles.requests}>

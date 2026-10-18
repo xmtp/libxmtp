@@ -1,15 +1,23 @@
-import { router } from "expo-router";
-import { useRef, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useRef, useState } from "react";
 import { Alert, Platform, Pressable, StyleSheet, View } from "react-native";
 import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import { commonCopy } from "@/copy/common";
-import type { ConversationRow } from "@/core/conversationList.ts";
+import {
+  type ConversationRow,
+  conversationRowLabel,
+} from "@/core/conversationList.ts";
+import {
+  type RowAction,
+  SwipeGroup,
+  menuAlertButtons,
+  rowAccessibilityActions,
+} from "@/core/rowActions.ts";
 import {
   ConversationRowView,
-  conversationRowLabel,
   useInitialsInset,
 } from "@/features/chats/ConversationRowView";
 import { useColors } from "@/ui/colors";
@@ -17,49 +25,43 @@ import { ContextMenu } from "@/ui/ContextMenu";
 import { PlainListRow } from "@/ui/PlainListRow";
 import { Text } from "@/ui/Text";
 
-export interface RowAction {
-  readonly label: string;
-  readonly destructive?: boolean;
-  readonly onPress: () => void;
-}
+export type RowSwipeGroup = SwipeGroup<SwipeableMethods>;
 
-/** Keeps at most one row's swipe actions open, like a SwiftUI `List`. */
-export class SwipeGroup {
-  #open: SwipeableMethods | undefined;
-
-  opened(row: SwipeableMethods): void {
-    if (this.#open !== row) this.#open?.close();
-    this.#open = row;
-  }
-
-  closed(row: SwipeableMethods): void {
-    if (this.#open === row) this.#open = undefined;
-  }
-
-  closeAll(): void {
-    this.#open?.close();
-    this.#open = undefined;
-  }
+/**
+ * The list's swipe group: one open row at a time, closed when the screen
+ * loses focus so no open row survives a navigation.
+ */
+export function useSwipeGroup(): RowSwipeGroup {
+  const [group] = useState<RowSwipeGroup>(() => new SwipeGroup());
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        group.closeAll();
+      },
+      [group],
+    ),
+  );
+  return group;
 }
 
 export interface ConversationListRowProps {
   row: ConversationRow;
+  /** `chats.row` or `requests.row`; the row ID follows. */
+  testIDPrefix: string;
   /** Context menu items, top to bottom. */
   menu: readonly RowAction[];
   /** Trailing swipe actions, outermost first (SwiftUI `swipeActions` order). */
   swipe: readonly RowAction[];
-  swipeGroup: SwipeGroup;
+  swipeGroup: RowSwipeGroup;
 }
 
 function showAndroidMenu(title: string, actions: readonly RowAction[]): void {
-  Alert.alert(title, undefined, [
-    ...actions.map((action) => ({
-      text: action.label,
-      style: action.destructive === true ? ("destructive" as const) : undefined,
-      onPress: action.onPress,
-    })),
-    { text: commonCopy.cancel, style: "cancel" as const },
-  ]);
+  Alert.alert(
+    title,
+    undefined,
+    [...menuAlertButtons(actions, commonCopy.cancel)],
+    { cancelable: true },
+  );
 }
 
 /**
@@ -68,6 +70,7 @@ function showAndroidMenu(title: string, actions: readonly RowAction[]): void {
  */
 export function ConversationListRow({
   row,
+  testIDPrefix,
   menu,
   swipe,
   swipeGroup,
@@ -83,14 +86,26 @@ export function ConversationListRow({
   const [labelWidth, setLabelWidth] = useState(0);
   const [rowHeight, setRowHeight] = useState(0);
   const [inset, onInitialsLayout] = useInitialsInset();
+  const accessibilityActions = rowAccessibilityActions(menu, swipe);
 
   const content = (
     <PlainListRow
-      testID={`chats.row.${row.id}`}
+      testID={`${testIDPrefix}.${row.id}`}
       accessibilityLabel={conversationRowLabel(row)}
+      accessibilityActions={accessibilityActions.map((action) => ({
+        name: action.label,
+        label: action.label,
+      }))}
+      onAccessibilityAction={(event) => {
+        accessibilityActions
+          .find((action) => action.label === event.nativeEvent.actionName)
+          ?.onPress();
+      }}
       showsSeparator={false}
       backgroundColor={palette.systemBackground}
       onPress={() => {
+        // While a row's actions are open, a tap only closes them.
+        if (swipeGroup.closeAll()) return;
         router.push({
           pathname: "/chat/[conversationId]",
           params: { conversationId: row.id },
@@ -100,6 +115,7 @@ export function ConversationListRow({
         Platform.OS === "ios"
           ? undefined
           : () => {
+              if (swipeGroup.closeAll()) return;
               showAndroidMenu(row.title, menu);
             }
       }
@@ -142,6 +158,7 @@ export function ConversationListRow({
                 accessibilityRole="button"
                 accessibilityLabel={action.label}
                 onPress={() => {
+                  swipeGroup.closeAll();
                   swipeable.current?.close();
                   action.onPress();
                 }}

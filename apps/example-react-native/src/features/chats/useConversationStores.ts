@@ -23,8 +23,9 @@ const RELOAD_DELAY_MS = 250;
 /**
  * The route's conversation list (`ConversationsStore`). It loads on mount,
  * reloads from the local database after stream messages, new conversations
- * and consent, handle or deletion events, and when the screen is focused
- * again (a chat may have changed its unread count). It closes on unmount.
+ * and consent, handle or deletion events, and reads the first page again
+ * each time the screen is focused (`.task { .load }`: a chat may have changed
+ * its unread count). It closes on unmount.
  */
 export function useConversationList(
   session: ActiveSession,
@@ -39,7 +40,6 @@ export function useConversationList(
       isCurrent: () => session.isCurrent(session.generation),
     });
   const [store, setStore] = useState(create);
-  const reload = useRef<() => void>(() => {});
 
   useEffect(() => {
     // Fast Refresh (and Strict Mode) run the cleanup and then the effect
@@ -56,7 +56,6 @@ export function useConversationList(
         void store.refresh();
       }, RELOAD_DELAY_MS);
     };
-    reload.current = schedule;
     // Listeners only schedule: the next stream read waits for them.
     const stops = [
       session.streams.onMessage(schedule),
@@ -65,19 +64,19 @@ export function useConversationList(
     ];
     store.load();
     return () => {
-      reload.current = () => {};
       if (timer !== undefined) clearTimeout(timer);
       for (const stop of stops) stop();
       store.dispose();
     };
   }, [store, session]);
 
+  // The mount effect loads first; later focus events load again.
   const focused = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      if (focused.current) reload.current();
+      if (focused.current) store.load();
       focused.current = true;
-    }, []),
+    }, [store]),
   );
 
   return store;
@@ -114,7 +113,8 @@ export function useRequestDecisions(
 
 /**
  * A stable `onViewableItemsChanged` that reports the visible rows to the
- * store (SwiftUI `onAppear` per row): details and paging follow them.
+ * store (SwiftUI `onAppear` per row): details and paging follow them. Items
+ * are matched by key (the row ID), so other list items are ignored.
  */
 export function useVisibleRowsReporter(
   store: ConversationListStore,
@@ -122,12 +122,16 @@ export function useVisibleRowsReporter(
   const [report] = useState(
     () =>
       ({ viewableItems }: { viewableItems: ListViewToken[] }) => {
-        const indices = viewableItems
-          .map((token) => token.index)
-          .filter((index): index is number => index !== undefined);
-        if (indices.length === 0) return;
-        const first = Math.min(...indices);
-        store.visible(first, Math.max(...indices) - first + 1);
+        const keys = new Set(viewableItems.map((token) => token.key));
+        let first = -1;
+        let last = -1;
+        store.getState().visible.forEach((row, index) => {
+          if (!keys.has(row.id)) return;
+          if (first < 0) first = index;
+          last = index;
+        });
+        if (first < 0) return;
+        store.visible(first, last - first + 1);
       },
   );
   return report;
