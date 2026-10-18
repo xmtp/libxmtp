@@ -1,5 +1,10 @@
 import { type ReactNode, useState } from "react";
-import { Animated, type LayoutChangeEvent, StyleSheet } from "react-native";
+import {
+  Animated,
+  type LayoutChangeEvent,
+  Platform,
+  StyleSheet,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/ui/colors";
@@ -17,7 +22,7 @@ export interface PinnedListHeaderProps {
  * A `StickyHeaderComponent` that pins a plain list's section header under
  * the collapsed navigation bar, like SwiftUI. React Native's own sticky
  * header pins at the scroll view's top edge, which is behind the bar when
- * the list adjusts its insets for it. A hairline shows under it while it is
+ * the list adjusts its insets for it (iOS). A hairline shows under it while it is
  * pinned. Give the children an opaque background.
  */
 export function PinnedListHeader({
@@ -29,7 +34,10 @@ export function PinnedListHeader({
   const insets = useSafeAreaInsets();
   const [layoutY, setLayoutY] = useState(0);
   // The content offset at which the header reaches the bar's bottom edge.
-  const pinAt = layoutY - (insets.top + NAVIGATION_BAR_HEIGHT);
+  // Only an iOS list scrolls under the bar; on Android it starts below it.
+  const barBottom =
+    Platform.OS === "ios" ? insets.top + NAVIGATION_BAR_HEIGHT : 0;
+  const pinAt = layoutY - barBottom;
   const translateY = scrollAnimatedValue.interpolate({
     inputRange: [pinAt, pinAt + 1],
     outputRange: [0, 1],
