@@ -2,6 +2,7 @@ import {
   Button,
   HStack,
   Host,
+  Image,
   ProgressView,
   Spacer,
   Text,
@@ -14,6 +15,7 @@ import {
   disabled as disabledModifier,
   font,
   foregroundStyle,
+  frame,
   labelStyle,
   type ViewModifier,
 } from "@expo/ui/swift-ui/modifiers";
@@ -39,6 +41,8 @@ export function GlassButton({
   size = "regular",
   font: labelFont = size === "large" ? "headline" : "body",
   systemImage,
+  trailingSystemImage,
+  labelFills = false,
   fullWidth = false,
   disabled = false,
   loading = false,
@@ -48,6 +52,7 @@ export function GlassButton({
   style,
 }: GlassButtonProps) {
   const palette = useColors();
+  const trailing = fullWidth ? trailingSystemImage : undefined;
   const modifiers: ViewModifier[] = [
     buttonStyle(variant),
     controlSize(size),
@@ -77,12 +82,31 @@ export function GlassButton({
           centered ? modifiers : [...modifiers, font({ textStyle: labelFont })]
         }>
         {centered ? (
-          <HStack spacing={8}>
-            {fullWidth ? <Spacer /> : null}
-            {loading ? <ProgressView /> : null}
-            {text}
-            {fullWidth ? <Spacer /> : null}
-          </HStack>
+          fullWidth && labelFills && trailing === undefined && !loading ? (
+            <Text
+              modifiers={[
+                font({ textStyle: labelFont }),
+                frame({ maxWidth: 100_000 }),
+              ]}>
+              {title}
+            </Text>
+          ) : trailing === undefined ? (
+            <HStack spacing={8}>
+              {fullWidth ? <Spacer /> : null}
+              {loading ? <ProgressView /> : null}
+              {text}
+              {fullWidth ? <Spacer /> : null}
+            </HStack>
+          ) : (
+            <HStack spacing={8}>
+              {text}
+              <Spacer />
+              <Image
+                systemName={trailing}
+                modifiers={[font({ textStyle: labelFont })]}
+              />
+            </HStack>
+          )
         ) : undefined}
       </Button>
     </Host>

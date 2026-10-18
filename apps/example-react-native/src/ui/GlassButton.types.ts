@@ -27,6 +27,19 @@ export interface GlassButtonProps {
    */
   labelColor?: ColorInput;
   systemImage?: SymbolName;
+  /**
+   * A symbol at the trailing edge of a full-width button, after the leading
+   * title (`HStack { Text; Spacer(); Image }`, the request bar's "Sender
+   * details ›").
+   */
+  trailingSystemImage?: SymbolName;
+  /**
+   * With `fullWidth`: the title itself fills the width
+   * (`Text(title).frame(maxWidth: .infinity)`) instead of sitting between two
+   * Spacers, so a long title in a narrow button keeps one line (the request
+   * bar's "Delete request").
+   */
+  labelFills?: boolean;
   /** Stretches to the container width with a centered label. */
   fullWidth?: boolean;
   disabled?: boolean;

@@ -22,6 +22,8 @@ export function GlassButton({
   size = "regular",
   font = size === "large" ? "headline" : "body",
   systemImage,
+  trailingSystemImage,
+  labelFills: _labelFills,
   fullWidth = false,
   disabled = false,
   loading = false,
@@ -31,6 +33,7 @@ export function GlassButton({
   style,
 }: GlassButtonProps) {
   const palette = useColors();
+  const trailing = fullWidth ? trailingSystemImage : undefined;
   const prominent = variant === "glassProminent";
   const foreground = prominent
     ? palette.onTint
@@ -59,9 +62,16 @@ export function GlassButton({
       {systemImage === undefined ? null : (
         <Symbol name={systemImage} textStyle={font} color={foreground} />
       )}
-      <Text variant={font} color={foreground} numberOfLines={1}>
+      <Text
+        variant={font}
+        color={foreground}
+        numberOfLines={1}
+        style={trailing === undefined ? undefined : styles.leadingTitle}>
         {title}
       </Text>
+      {trailing === undefined ? null : (
+        <Symbol name={trailing} textStyle={font} color={foreground} />
+      )}
     </Pressable>
   );
 }
@@ -119,6 +129,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   regular: { minHeight: 36, paddingHorizontal: 14 },
+  leadingTitle: { flex: 1 },
   large: { minHeight: 52, paddingHorizontal: 20 },
   // Fills the width in a row or a column parent.
   fullWidth: { width: "100%" },
