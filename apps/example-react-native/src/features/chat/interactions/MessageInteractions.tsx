@@ -19,14 +19,17 @@ import Animated, {
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
-import { type ChatMessage, contentText } from "@/core/chatMessages.ts";
+import {
+  type ChatMessage,
+  contentText,
+  reactionBadges,
+} from "@/core/chatMessages.ts";
 import {
   MessageMenuCopy,
   SWIPE_MINIMUM_DISTANCE,
   accessibilityItems,
   canReply,
   menuItems,
-  showsQuickReactions,
   swipeArmed,
 } from "@/core/messageInteractions.ts";
 import { useChatContext } from "@/features/chat/ChatContext";
@@ -111,6 +114,9 @@ export function MessageInteractions({
   const fadeStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   // Swipe to reply: arms once per drag, replies on release while armed.
+  // Unlike iOS's simultaneous DragGesture, the pan fails once a drag moves
+  // 12 pt vertically before 12 pt sideways, so the list scrolls smoothly and
+  // a drag that starts vertically never arms.
   const replyable = canReply(row, allowed);
   const armed = useRef(false);
   const pan = usePanGesture({
@@ -131,11 +137,16 @@ export function MessageInteractions({
     },
   });
 
-  return (
+  // The badges reach 12 pt above the bubble. SwiftUI hosts the bubble and
+  // gets no touches outside its frame, so the hosted view grows up by the
+  // overhang and the row shifts it back.
+  const overhang = reactionBadges(row.reactions, own).length > 0;
+
+  const menu = (
     <MessageContextMenu
       items={menuItems(row, own, allowed)}
       previewText={contentText(row.content)}
-      quickReactions={showsQuickReactions(allowed)}
+      quickReactions={allowed}
       onItem={(item) => {
         runMenuItem(runtime, rowId, item);
       }}
@@ -145,16 +156,23 @@ export function MessageInteractions({
       onMore={() => {
         openEmojiPicker(conversationId, rowId);
       }}>
-      <GestureDetector gesture={pan}>
-        <Animated.View
-          ref={bubbleRef}
-          collapsable={false}
-          style={[{ maxWidth }, fadeStyle, flying ? styles.hidden : undefined]}>
-          {children}
-        </Animated.View>
-      </GestureDetector>
+      <View style={overhang ? styles.overhangInset : undefined}>
+        <GestureDetector gesture={pan}>
+          <Animated.View
+            ref={bubbleRef}
+            collapsable={false}
+            style={[
+              { maxWidth },
+              fadeStyle,
+              flying ? styles.hidden : undefined,
+            ]}>
+            {children}
+          </Animated.View>
+        </GestureDetector>
+      </View>
     </MessageContextMenu>
   );
+  return overhang ? <View style={styles.overhang}>{menu}</View> : menu;
 }
 
 export interface MessageAccessibilityProps {
@@ -205,6 +223,11 @@ function bubbleMaxWidth(windowWidth: number, hasAvatar: boolean): number {
   return windowWidth - 32 - 48 - (hasAvatar ? 30 : 0);
 }
 
+/** How far the reaction badges reach above the bubble (`.offset(y: -12)`). */
+const BADGE_OVERHANG = 12;
+
 const styles = StyleSheet.create({
   hidden: { opacity: 0 },
+  overhang: { marginTop: -BADGE_OVERHANG },
+  overhangInset: { paddingTop: BADGE_OVERHANG },
 });
