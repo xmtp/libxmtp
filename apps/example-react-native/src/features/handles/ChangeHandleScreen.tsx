@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 import { abbreviatedDate } from "@/core/dates.ts";
 import { canRetryNotice } from "@/core/handleModel.ts";
@@ -80,7 +80,7 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
               model.changeInput(text);
             }}
             placeholder={handleCopy.placeholder}
-            accessibilityLabel={handleCopy.newHandle}
+            accessibilityLabel={handleCopy.placeholder}
             autoCapitalize="none"
             autoCorrect={false}
             spellCheck={false}
@@ -177,21 +177,24 @@ function ChangeHandle({ session }: { readonly session: ActiveSession }) {
               </WrappedText>
             </FormRow>
             {state.others.map((handle) => (
-              <FormRow key={handle}>
+              // A Form row with one button: the whole row is the button. When
+              // the editor is blocked only the "Use" label dims, like SwiftUI.
+              <FormRow
+                key={handle}
+                accessibilityRole="button"
+                accessibilityLabel={`${handleCopy.use}, ${handle}`}
+                accessibilityState={{ disabled: !editable }}
+                {...(editable
+                  ? {
+                      onPress: () => {
+                        model.switchBack(handle);
+                      },
+                    }
+                  : {})}>
                 <HandleText handle={handle} style={styles.flex} />
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${handleCopy.use}, ${handle}`}
-                  disabled={!editable}
-                  hitSlop={8}
-                  onPress={() => {
-                    model.switchBack(handle);
-                  }}
-                  style={({ pressed }) =>
-                    pressed || !editable ? styles.dim : undefined
-                  }>
-                  <Text color="tint">{handleCopy.use}</Text>
-                </Pressable>
+                <Text color="tint" style={editable ? undefined : styles.dim}>
+                  {handleCopy.use}
+                </Text>
               </FormRow>
             ))}
           </FormSection>

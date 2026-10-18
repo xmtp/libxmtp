@@ -20,6 +20,11 @@ export function showAlert(
 export interface ConfirmationOptions {
   /** iOS hides a confirmation dialog's title unless it is set here. */
   title?: string;
+  /**
+   * The SwiftUI dialog title that iOS hides (`titleVisibility: .automatic`).
+   * Only the Android alert shows it; there it wins over `confirm`.
+   */
+  hiddenTitle?: string;
   message?: string;
   /** The action's label, for example "Block". */
   confirm: string;
@@ -36,6 +41,7 @@ export interface ConfirmationOptions {
  */
 export function showConfirmation({
   title,
+  hiddenTitle,
   message,
   confirm,
   destructive = false,
@@ -59,7 +65,7 @@ export function showConfirmation({
     );
     return;
   }
-  Alert.alert(title ?? confirm, message, [
+  Alert.alert(title ?? hiddenTitle ?? confirm, message, [
     { text: cancel, style: "cancel", onPress: onCancel },
     {
       text: confirm,

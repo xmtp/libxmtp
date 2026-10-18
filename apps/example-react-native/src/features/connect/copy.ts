@@ -32,6 +32,7 @@ export const connectCopy = {
   restoreFailed: SessionCopy.missingSecret,
   retry: commonCopy.retry,
   deleteLocalData: "Delete local data",
+  deleteLocalDataTitle: "Delete local data?",
   deleteLocalDataMessage:
     "This removes this server’s local identity, messages and files. It does not delete messages on other devices.",
 } as const;

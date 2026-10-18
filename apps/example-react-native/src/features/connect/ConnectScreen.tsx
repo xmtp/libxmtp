@@ -129,6 +129,7 @@ export function ConnectScreen() {
                 title={connectCopy.deleteLocalData}
                 onPress={() => {
                   showConfirmation({
+                    hiddenTitle: connectCopy.deleteLocalDataTitle,
                     message: connectCopy.deleteLocalDataMessage,
                     confirm: connectCopy.deleteLocalData,
                     destructive: true,
@@ -202,8 +203,8 @@ export function ConnectScreen() {
                         color={statusColor}
                       />
                       <WrappedText
-                        testID="connect-status"
                         variant="subheadline"
+                        leading="standard"
                         color={statusColor}
                         style={styles.flex}>
                         {state.error ??
@@ -270,12 +271,13 @@ export function ConnectScreen() {
                       />
                     </View>
                   </View>
-                  <Text
+                  <WrappedText
                     variant="footnote"
+                    leading="standard"
                     color="themeSecondaryLabel"
                     style={styles.inset}>
                     {connectCopy.tokenFootnote}
-                  </Text>
+                  </WrappedText>
                 </Animated.View>
               ) : null}
               <Animated.View layout={layout}>
@@ -288,14 +290,15 @@ export function ConnectScreen() {
                 />
               </Animated.View>
               <Animated.View layout={layout}>
-                <Text
+                <WrappedText
                   variant="footnote"
+                  leading="standard"
                   color="themeSecondaryLabel"
                   style={styles.inset}>
                   {advanced
                     ? connectCopy.advancedFootnote
                     : connectCopy.footnote}
-                </Text>
+                </WrappedText>
               </Animated.View>
             </Animated.View>
           )}
@@ -311,7 +314,9 @@ export function ConnectScreen() {
             loading={state.joining}
             disabled={!canJoin(state)}
             testID="join-server"
-            accessibilityLabel={connectCopy.join}
+            accessibilityLabel={
+              state.joining ? connectCopy.joining : connectCopy.join
+            }
             onPress={join}
           />
         </ActionFooter>

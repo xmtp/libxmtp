@@ -26,11 +26,9 @@ import {
   visibleSuggestions,
 } from "@/core/handles.ts";
 import { handleCopy } from "@/features/handles/copy";
-import {
-  useHandleModel,
-  useLargeTitleScale,
-} from "@/features/handles/useHandleModel";
+import { useHandleModel } from "@/features/handles/useHandleModel";
 import { type ActiveSession, useActiveSession } from "@/session";
+import { useLargeTitleScale } from "@/ui/accessibility";
 import { ActionFooter } from "@/ui/ActionFooter";
 import { useColors } from "@/ui/colors";
 import { GlassButton } from "@/ui/GlassButton";
@@ -102,6 +100,7 @@ function ChooseHandle({ session }: { readonly session: ActiveSession }) {
                 {handleCopy.heroTitle}
               </Text>
               <WrappedText
+                leading="standard"
                 variant="callout"
                 color="themeSecondaryLabel"
                 align="center">
@@ -123,7 +122,7 @@ function ChooseHandle({ session }: { readonly session: ActiveSession }) {
                 model.changeInput(text);
               }}
               placeholder={handleCopy.placeholder}
-              accessibilityLabel={handleCopy.yourHandle}
+              accessibilityLabel={handleCopy.placeholder}
               placeholderTextColor={palette.placeholderText}
               selectionColor={palette.tint}
               autoCapitalize="none"
@@ -142,11 +141,17 @@ function ChooseHandle({ session }: { readonly session: ActiveSession }) {
             />
             <View style={styles.hint}>
               {state.problem === undefined ? (
-                <WrappedText variant="footnote" color="themeSecondaryLabel">
+                <WrappedText
+                  leading="standard"
+                  variant="footnote"
+                  color="themeSecondaryLabel">
                   {handleHint(state.minimum)}
                 </WrappedText>
               ) : (
-                <WrappedText variant="footnote" color="systemRed">
+                <WrappedText
+                  leading="standard"
+                  variant="footnote"
+                  color="systemRed">
                   {handleProblemCopy(state.problem, state.input, state.minimum)}
                 </WrappedText>
               )}
@@ -219,6 +224,7 @@ function Feedback({
       {status.kind === "suggestions" ? (
         <>
           <WrappedText
+            leading="standard"
             variant="subheadline"
             style={[styles.feedback, styles.inset]}>
             {handleCopy.taken(status.input)}
@@ -272,6 +278,7 @@ function Feedback({
       {status.kind === "noneFree" ? (
         <>
           <WrappedText
+            leading="standard"
             variant="subheadline"
             style={[styles.feedback, styles.inset]}>
             {handleCopy.noneFree(status.input)}
@@ -288,6 +295,7 @@ function Feedback({
       {state.notice === undefined ? null : (
         <>
           <WrappedText
+            leading="standard"
             variant="subheadline"
             color="systemRed"
             style={[styles.feedback, styles.inset]}>
