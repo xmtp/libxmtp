@@ -7,6 +7,7 @@ Rust workspace. MLS messaging. SDKs: `sdks/{agent,android,browser,ios,node,react
 - `docs/specs/` — approved specs. They win over code, plans, and XIPs. Read the
   ones that cover what you are working on, not all of them;
   `docs/specs/README.md` says which spec owns what.
+- `REVIEW.md` — what to weigh and report when you review a change.
 - For TypeScript and JavaScript work, use the `writing-typescript` skill in
   `.agents/skills/`.
 

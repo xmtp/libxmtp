@@ -37,3 +37,12 @@ fault precondition, the effect, and the check or fix needed. Mark a confirmed
 security regression as a blocker. Separate an unverified concern from a
 confirmed finding. If no issue is found, say so without claiming a complete
 security proof.
+
+### Shared review guidance
+
+The repository's shared review guidance follows. Use it to weigh findings
+inside this check's scope. It does not widen that scope or add reasons to
+fail this check. Where it differs from the instructions above, the
+instructions above apply.
+
+@/REVIEW.md

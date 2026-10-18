@@ -2,6 +2,7 @@
 neverApprove:
   - .macroscope/**
   - AGENTS.md
+  - REVIEW.md
   - docs/specs/**
   - .github/CODEOWNERS
   - apps/backend/migrations/**
