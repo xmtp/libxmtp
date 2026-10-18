@@ -288,6 +288,30 @@ test("a reload while the upload runs keeps it uploading, and its failure shows",
   assert.equal(h.store.getState().drafts[0]?.phase, "failed");
 });
 
+test("a focus reload reads drafts other screens saved and imports nothing", async () => {
+  const h = harness();
+  await h.store.load();
+  // Recovery assigned a draft to this chat; the SDK also holds an orphan.
+  h.drafts.save({
+    id: "R",
+    conversationId: CONVERSATION,
+    file: remoteFile("assigned.pdf"),
+    phase: "waiting",
+    retryable: true,
+  });
+  h.gateway.pendingFiles = [
+    remoteFile("assigned.pdf"),
+    remoteFile("orphan.pdf"),
+  ];
+  h.store.reloadDrafts();
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(
+    h.store.getState().drafts.map((draft) => draft.file.filename),
+    ["assigned.pdf"],
+  );
+  assert.equal(h.drafts.all().length, 1);
+});
+
 test("a discard whose SDK delete fails still keeps the running send from queuing", async () => {
   const h = harness();
   const draft = await staged(h);
