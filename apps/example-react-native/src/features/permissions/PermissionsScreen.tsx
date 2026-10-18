@@ -128,8 +128,8 @@ interface PresetRowProps {
 }
 
 /**
- * A preset choice: a radio symbol, the title and a footnote. `FormRow` dims
- * disabled presets; Custom is not a button and shows at 60 percent unless
+ * A preset choice: a radio symbol, the title and a footnote. Disabled presets
+ * draw at 50 percent; Custom is not a button and shows at 60 percent unless
  * selected.
  */
 function PresetRow({
@@ -142,13 +142,16 @@ function PresetRow({
 }: PresetRowProps) {
   return (
     <FormRow
-      onPress={onPress}
-      disabled={disabled}
+      onPress={disabled ? undefined : onPress}
       accessibilityRole={onPress === undefined ? "text" : "button"}
       accessibilityLabel={`${title}, ${detail}`}
       accessibilityState={{ selected, disabled }}
       separatorInset={presetSeparatorInset}
-      style={[styles.presetRow, dimmed ? styles.dimmed : undefined]}>
+      style={[
+        styles.presetRow,
+        dimmed ? styles.dimmed : undefined,
+        disabled && onPress !== undefined ? styles.disabled : undefined,
+      ]}>
       <View style={styles.iconColumn}>
         <Symbol
           name={selected ? "largecircle.fill.circle" : "circle"}
@@ -181,5 +184,7 @@ const styles = StyleSheet.create({
   // Measured on iOS 27: wrapped footnote lines advance 17.9 pt here.
   detail: { lineHeight: 18 },
   dimmed: { opacity: 0.6 },
+  // Native disabled plain buttons draw at about 50 percent (FormRow uses 40).
+  disabled: { opacity: 0.5 },
   center: { justifyContent: "center" },
 });

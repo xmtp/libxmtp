@@ -28,8 +28,6 @@ export const detailsCopy = {
   developerFooter: "Raw metadata fields for this conversation.",
   block: "Block conversation",
   leave: "Leave group",
-  blockQuestion: "Block conversation?",
-  leaveQuestion: "Leave group?",
   membershipPending: "Membership change pending",
   localRemovalFootnote:
     "Block removes this conversation from Chats. It does not delete its messages. Leave requests your removal from the group. You leave when the group confirms the change.",
