@@ -1,6 +1,6 @@
 import { Stack, router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import {
   type ConversationDetails,
@@ -178,9 +178,18 @@ function DetailsBody({
               onPress={openEdit}
             />
           ) : (
-            <Stack.Toolbar.Button onPress={openEdit}>
-              {detailsCopy.edit}
-            </Stack.Toolbar.Button>
+            // SwiftUI draws this `.plain` Text button as a 44 pt glass
+            // circle with a medium label-colored title; a bar button title
+            // would be a wider capsule tinted (and dimmed under sheets).
+            <Stack.Toolbar.View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={detailsCopy.edit}
+                onPress={openEdit}
+                style={styles.editButton}>
+                <Text weight="medium">{detailsCopy.edit}</Text>
+              </Pressable>
+            </Stack.Toolbar.View>
           )}
         </Stack.Toolbar>
       ) : null}
@@ -432,6 +441,13 @@ function MembersSection({
 }
 
 const styles = StyleSheet.create({
+  // The bar adds 4 pt of glass on each side: a 44 pt circle.
+  editButton: {
+    alignItems: "center",
+    height: 44,
+    justifyContent: "center",
+    width: 36,
+  },
   content: { paddingBottom: 16 },
   flex: { flex: 1 },
   center: { justifyContent: "center" },
