@@ -1,11 +1,10 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { useLocalSearchParams } from "expo-router";
+
+import { DetailsScreen } from "@/features/details/DetailsScreen";
 
 export default function DetailsRoute() {
-  return (
-    <PlaceholderScreen
-      title={routeTitles.details}
-      route="details/[conversationId]"
-    />
-  );
+  const { conversationId } = useLocalSearchParams<{
+    conversationId: string;
+  }>();
+  return <DetailsScreen conversationId={conversationId} />;
 }

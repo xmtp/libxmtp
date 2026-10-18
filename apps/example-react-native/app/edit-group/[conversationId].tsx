@@ -1,11 +1,10 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { useLocalSearchParams } from "expo-router";
+
+import { EditGroupScreen } from "@/features/details/EditGroupScreen";
 
 export default function EditGroupRoute() {
-  return (
-    <PlaceholderScreen
-      title={routeTitles.editGroup}
-      route="edit-group/[conversationId]"
-    />
-  );
+  const { conversationId } = useLocalSearchParams<{
+    conversationId: string;
+  }>();
+  return <EditGroupScreen conversationId={conversationId} />;
 }

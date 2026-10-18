@@ -179,6 +179,11 @@ export class DetailsStore extends Store<DetailsState> {
     );
   }
 
+  /** True after `dispose`. */
+  get disposed(): boolean {
+    return this.#disposed;
+  }
+
   /** Stops the store: no result applies after this. */
   dispose(): void {
     this.#disposed = true;
