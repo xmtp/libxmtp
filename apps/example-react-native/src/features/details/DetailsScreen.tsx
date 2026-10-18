@@ -27,11 +27,15 @@ import { useSharedDetailsStore } from "@/features/details/detailsStores";
 import { type ActiveSession, useActiveSession } from "@/session";
 import { useIsAccessibilitySize } from "@/ui/accessibility";
 import { Avatar } from "@/ui/Avatar";
-import { showAlert, showConfirmation } from "@/ui/dialogs";
+import { showAlert } from "@/ui/dialogs";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
 import { ButtonRow, TextFieldRow } from "@/ui/FormRows";
 import { GlassButton } from "@/ui/GlassButton";
 import { ConversationTitle } from "@/ui/Identity";
+import {
+  PopoverConfirmation,
+  type PopoverConfirmationRequest,
+} from "@/ui/PopoverConfirmation";
 import { Text } from "@/ui/Text";
 import { useToolbarIcon } from "@/ui/toolbarIcon";
 import { useStore } from "@/ui/useStore";
@@ -86,6 +90,9 @@ function DetailsBody({
   const [alias, setAlias] = useState(
     () => session.preferences.alias(conversationId) ?? "",
   );
+  const [confirmation, setConfirmation] = useState<
+    PopoverConfirmationRequest | undefined
+  >();
   const aliasRef = useRef(alias);
   aliasRef.current = alias;
 
@@ -164,141 +171,159 @@ function DetailsBody({
     router.push({ pathname, params: { conversationId } });
   };
 
+  const block: PopoverConfirmationRequest = {
+    title: detailsCopy.blockQuestion,
+    confirm: detailsCopy.block,
+    destructive: true,
+    onConfirm: () => {
+      store.send({ kind: "mutate", mutation: { kind: "block" } });
+    },
+  };
+  const leave: PopoverConfirmationRequest = {
+    title: detailsCopy.leaveQuestion,
+    confirm: detailsCopy.leave,
+    destructive: true,
+    onConfirm: () => {
+      store.send({ kind: "mutate", mutation: { kind: "leave" } });
+    },
+  };
+
   return (
-    // No automatic keyboard insets: a sheet's keyboard would scroll Details
-    // behind it. The local-name field sits above any keyboard.
-    <FormScreen contentContainerStyle={styles.content}>
-      {titleOptions()}
-      {details.kind === "group" ? (
-        <Stack.Toolbar placement="right">
-          {accessibilitySize ? (
-            <Stack.Toolbar.Button
-              icon={pencil}
-              accessibilityLabel={detailsCopy.edit}
-              onPress={openEdit}
-            />
-          ) : (
-            // SwiftUI draws this `.plain` Text button as a 44 pt glass
-            // circle with a medium label-colored title; a bar button title
-            // would be a wider capsule tinted (and dimmed under sheets).
-            <Stack.Toolbar.View>
-              <Pressable
-                accessibilityRole="button"
+    <>
+      {/* No automatic keyboard insets: a sheet's keyboard would scroll
+          Details behind it. The local-name field sits above any keyboard. */}
+      <FormScreen contentContainerStyle={styles.content}>
+        {titleOptions()}
+        {details.kind === "group" ? (
+          <Stack.Toolbar placement="right">
+            {accessibilitySize ? (
+              <Stack.Toolbar.Button
+                icon={pencil}
                 accessibilityLabel={detailsCopy.edit}
                 onPress={openEdit}
-                style={styles.editButton}>
-                <Text weight="medium">{detailsCopy.edit}</Text>
-              </Pressable>
-            </Stack.Toolbar.View>
-          )}
-        </Stack.Toolbar>
-      ) : null}
-      <Header conversationId={conversationId} details={details} alias={alias} />
-      <FormSection
-        header={detailsCopy.nameOnThisDevice}
-        footer={detailsCopy.nameFooter}>
-        <TextFieldRow
-          placeholder={detailsCopy.localName}
-          value={alias}
-          onChangeText={setAlias}
-          onSubmitEditing={saveAlias}
-          onEndEditing={saveAlias}
-          returnKeyType="done"
+              />
+            ) : (
+              // SwiftUI draws this `.plain` Text button as a 44 pt glass
+              // circle with a medium label-colored title; a bar button title
+              // would be a wider capsule tinted (and dimmed under sheets).
+              <Stack.Toolbar.View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={detailsCopy.edit}
+                  onPress={openEdit}
+                  style={styles.editButton}>
+                  <Text weight="medium">{detailsCopy.edit}</Text>
+                </Pressable>
+              </Stack.Toolbar.View>
+            )}
+          </Stack.Toolbar>
+        ) : null}
+        <Header
+          conversationId={conversationId}
+          details={details}
+          alias={alias}
         />
-      </FormSection>
-      <FormSection>
-        <FormRow>
-          <Text style={styles.flex}>{detailsCopy.notificationsOff}</Text>
-        </FormRow>
-      </FormSection>
-      <MembersSection
-        conversationId={conversationId}
-        details={details}
-        store={store}
-      />
-      <FormSection header={detailsCopy.sharedMedia}>
-        <MediaRow
-          title={detailsCopy.mediaAndFiles}
-          onPress={() => {
-            push("/shared-media/[conversationId]");
-          }}
+        <FormSection
+          header={detailsCopy.nameOnThisDevice}
+          footer={detailsCopy.nameFooter}>
+          <TextFieldRow
+            placeholder={detailsCopy.localName}
+            value={alias}
+            onChangeText={setAlias}
+            onSubmitEditing={saveAlias}
+            onEndEditing={saveAlias}
+            returnKeyType="done"
+          />
+        </FormSection>
+        <FormSection>
+          <FormRow>
+            <Text style={styles.flex}>{detailsCopy.notificationsOff}</Text>
+          </FormRow>
+        </FormSection>
+        <MembersSection
+          conversationId={conversationId}
+          details={details}
+          store={store}
         />
-      </FormSection>
-      <FormSection header={detailsCopy.groupSettings}>
-        {details.kind === "group" ? (
-          <DetailsNavigationRow
-            title={detailsCopy.permissions}
-            systemImage="lock.shield"
-            value={details.preset}
+        <FormSection header={detailsCopy.sharedMedia}>
+          <MediaRow
+            title={detailsCopy.mediaAndFiles}
             onPress={() => {
-              push("/permissions/[conversationId]");
+              push("/shared-media/[conversationId]");
             }}
           />
-        ) : null}
-        <DetailsNavigationRow
-          title={detailsCopy.disappearingMessages}
-          systemImage="hourglass"
-          value={retentionValue(details.retentionNs)}
-          onPress={() => {
-            push("/disappearing/[conversationId]");
-          }}
-        />
-      </FormSection>
-      <FormSection
-        header={detailsCopy.developerTools}
-        footer={detailsCopy.developerFooter}>
-        {details.kind === "group" ? (
+        </FormSection>
+        <FormSection header={detailsCopy.groupSettings}>
+          {details.kind === "group" ? (
+            <DetailsNavigationRow
+              title={detailsCopy.permissions}
+              systemImage="lock.shield"
+              value={details.preset}
+              onPress={() => {
+                push("/permissions/[conversationId]");
+              }}
+            />
+          ) : null}
           <DetailsNavigationRow
-            title={detailsCopy.groupFields}
-            systemImage="curlybraces"
+            title={detailsCopy.disappearingMessages}
+            systemImage="hourglass"
+            value={retentionValue(details.retentionNs)}
             onPress={() => {
-              push("/group-fields/[conversationId]");
+              push("/disappearing/[conversationId]");
             }}
           />
-        ) : null}
-        <DetailsNavigationRow
-          title={detailsCopy.myFields}
-          systemImage="person.crop.square"
-          onPress={() => {
-            push("/my-fields/[conversationId]");
-          }}
-        />
-      </FormSection>
-      <FormSection footer={detailsCopy.localRemovalFootnote}>
-        <FormRow
-          onPress={() => {
-            showConfirmation({
-              confirm: detailsCopy.block,
-              destructive: true,
-              onConfirm: () => {
-                store.send({ kind: "mutate", mutation: { kind: "block" } });
-              },
-            });
-          }}>
-          <Text style={styles.flex}>{detailsCopy.block}</Text>
-        </FormRow>
-        {canLeave(details, store.ownInboxId) ? (
+        </FormSection>
+        <FormSection
+          header={detailsCopy.developerTools}
+          footer={detailsCopy.developerFooter}>
+          {details.kind === "group" ? (
+            <DetailsNavigationRow
+              title={detailsCopy.groupFields}
+              systemImage="curlybraces"
+              onPress={() => {
+                push("/group-fields/[conversationId]");
+              }}
+            />
+          ) : null}
+          <DetailsNavigationRow
+            title={detailsCopy.myFields}
+            systemImage="person.crop.square"
+            onPress={() => {
+              push("/my-fields/[conversationId]");
+            }}
+          />
+        </FormSection>
+        <FormSection footer={detailsCopy.localRemovalFootnote}>
           <FormRow
             onPress={() => {
-              showConfirmation({
-                confirm: detailsCopy.leave,
-                destructive: true,
-                onConfirm: () => {
-                  store.send({ kind: "mutate", mutation: { kind: "leave" } });
-                },
-              });
+              setConfirmation(block);
             }}>
-            <Text style={styles.flex}>{detailsCopy.leave}</Text>
+            <Text style={styles.flex}>{detailsCopy.block}</Text>
           </FormRow>
-        ) : null}
-        {state.pendingLeave ? (
-          <FormRow>
-            <Text style={styles.flex}>{detailsCopy.membershipPending}</Text>
-          </FormRow>
-        ) : null}
-      </FormSection>
-      <DetailsErrorSection error={state.error} />
-    </FormScreen>
+          {canLeave(details, store.ownInboxId) ? (
+            <FormRow
+              onPress={() => {
+                setConfirmation(leave);
+              }}>
+              <Text style={styles.flex}>{detailsCopy.leave}</Text>
+            </FormRow>
+          ) : null}
+          {state.pendingLeave ? (
+            <FormRow>
+              <Text style={styles.flex}>{detailsCopy.membershipPending}</Text>
+            </FormRow>
+          ) : null}
+        </FormSection>
+        <DetailsErrorSection error={state.error} />
+      </FormScreen>
+      {/* SwiftUI anchors the list's `.confirmationDialog` to the list. */}
+      <PopoverConfirmation
+        request={confirmation}
+        onDismiss={() => {
+          setConfirmation(undefined);
+        }}
+      />
+    </>
   );
 }
 

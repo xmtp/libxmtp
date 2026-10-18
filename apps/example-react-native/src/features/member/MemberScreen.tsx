@@ -1,5 +1,5 @@
 import { Stack, router } from "expo-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 import {
@@ -24,10 +24,13 @@ import { type ActiveSession, useActiveSession } from "@/session";
 import { Avatar } from "@/ui/Avatar";
 import { useColors } from "@/ui/colors";
 import { ContentUnavailable } from "@/ui/ContentUnavailable";
-import { showConfirmation } from "@/ui/dialogs";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
 import { ButtonRow, LabeledRow } from "@/ui/FormRows";
 import { IdentityText } from "@/ui/Identity";
+import {
+  PopoverConfirmation,
+  type PopoverConfirmationRequest,
+} from "@/ui/PopoverConfirmation";
 import { Text } from "@/ui/Text";
 import { useToolbarIcon } from "@/ui/toolbarIcon";
 import { useStore } from "@/ui/useStore";
@@ -122,6 +125,9 @@ function MemberBody({
   const store = useOwnDetailsStore(session, conversationId);
   const state = useStore(store);
   const removal = useCloseAfterRemoval(state, inboxId);
+  const [confirmation, setConfirmation] = useState<
+    PopoverConfirmationRequest | undefined
+  >();
   const details = state.details;
   const member = details?.members.find((entry) => entry.id === inboxId);
 
@@ -165,7 +171,8 @@ function MemberBody({
             store={store}
             member={member}
             onRemove={() => {
-              showConfirmation({
+              setConfirmation({
+                title: memberCopy.removeQuestion,
                 confirm: memberCopy.remove,
                 destructive: true,
                 onConfirm: () => {
@@ -187,6 +194,13 @@ function MemberBody({
           ) : null}
           <DetailsErrorSection error={state.error} />
         </FormScreen>
+        {/* SwiftUI anchors the form's `.confirmationDialog` to the form. */}
+        <PopoverConfirmation
+          request={confirmation}
+          onDismiss={() => {
+            setConfirmation(undefined);
+          }}
+        />
       </>
     );
   }

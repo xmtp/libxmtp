@@ -9,6 +9,7 @@ export const memberCopy = {
   makeAdmin: "Make admin",
   removeAdmin: "Remove admin",
   remove: "Remove from group",
+  removeQuestion: "Remove from group?",
   actionsFooter:
     "Available actions follow the group permissions. Super admins cannot be changed here.",
   membershipPending: "Membership change pending",
