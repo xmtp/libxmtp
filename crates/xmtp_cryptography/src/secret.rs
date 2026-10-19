@@ -19,7 +19,7 @@ use serde::de::{SeqAccess, Visitor};
 use subtle::ConstantTimeEq;
 pub use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-#[cfg(all(feature = "test-utils", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "test-utils", unix))]
 pub mod heap_canary;
 
 /// Capacity reserved before a [`Secret`] is deserialized.

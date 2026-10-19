@@ -38,9 +38,12 @@ zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ctor.workspace = true
-# The heap-canary scanner (`test-utils`) searches freed blocks with `memmem`.
-libc = { workspace = true, optional = true }
 rustls.workspace = true
+
+# The heap-canary scanner (`test-utils`) searches freed blocks with `memmem`,
+# which only Unix `libc` provides.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true, optional = true }
 
 # All wasm specific dependencies should go here as a single place to enable wasm features since all crates depend on this crate
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]

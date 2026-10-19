@@ -27,6 +27,7 @@
 //!   Never forward `realloc` to `System.realloc`: the old block would be freed
 //!   without a scan.
 //! - Stack and register copies are invisible to a heap scan.
+//! - Unix only: the scanner needs `libc::memmem`.
 //! - Arming takes a process-wide lock, so concurrent scans in one process
 //!   run one after another.
 

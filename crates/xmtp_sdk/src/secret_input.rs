@@ -10,11 +10,11 @@
 //! format, so the bindings see the same `bytes` or `string` parameter as
 //! before: there is no custom type and no new foreign name.
 //!
-//! The lift also wipes the host's `RustBuffer`. UniFFI lifts a `String` by
-//! reusing that buffer, so the `Zeroizing<String>` wipes it. It lifts a
-//! `Vec<u8>` by copying out of the buffer and then freeing it, so
-//! [`SecretBytes`] takes the buffer itself, reads the copy, and wipes the
-//! buffer before it is freed. Both readers decode into wiping storage and
+//! The lift also wipes the host's `RustBuffer`. [`SecretString`] takes the
+//! buffer as wiping bytes, checks UTF-8 (UniFFI's builtin `String` lift does
+//! not), and moves the checked bytes into the string. UniFFI lifts a `Vec<u8>`
+//! by copying out of the buffer and then freeing it, so [`SecretBytes`] takes
+//! the buffer itself, reads the copy, and wipes the buffer before it is freed. Both readers decode into wiping storage and
 //! check the length (and UTF-8) before they build a value, so a malformed
 //! buffer leaves no partial copy.
 //!
@@ -149,22 +149,29 @@ unsafe impl<UT> LowerReturn<UT> for SecretBytes {
     }
 }
 
-// SAFETY: same FFI type as `String`. The builtin lift reuses the host's buffer
-// as the `String`, which `Zeroizing` then wipes; the reader below decodes into
-// wiping storage and checks UTF-8 before building the `String`.
+// SAFETY: same FFI type and wire format as `String`, and `TypeId` reports the
+// builtin's metadata, so the bindings pass the argument exactly as `String`.
 unsafe impl<UT> Lift<UT> for SecretString {
-    type FfiType = <String as Lift<UT>>::FfiType;
+    type FfiType = RustBuffer;
 
-    fn try_lift(value: Self::FfiType) -> uniffi::Result<Self> {
-        <String as Lift<UT>>::try_lift(value).map(Self::from)
+    /// Owns the host's buffer as wiping bytes and checks UTF-8 before it
+    /// becomes the `String`. UniFFI's builtin `String` lift skips that check.
+    /// The checked bytes move into the `String` without a copy, and invalid
+    /// bytes are wiped with the buffer.
+    fn try_lift(value: RustBuffer) -> uniffi::Result<Self> {
+        utf8_secret(Zeroizing::new(value.destroy_into_vec()))
     }
 
     fn try_read(buf: &mut &[u8]) -> uniffi::Result<Self> {
-        let mut bytes = read_secret(buf)?;
-        std::str::from_utf8(&bytes)?;
-        let text = String::from_utf8(std::mem::take(&mut *bytes)).expect("checked as UTF-8 above");
-        Ok(Self::from(text))
+        utf8_secret(read_secret(buf)?)
     }
+}
+
+/// Check `bytes` as UTF-8, then move them into a `SecretString`.
+fn utf8_secret(mut bytes: Zeroizing<Vec<u8>>) -> uniffi::Result<SecretString> {
+    std::str::from_utf8(&bytes)?;
+    let text = String::from_utf8(std::mem::take(&mut *bytes)).expect("checked as UTF-8 above");
+    Ok(SecretString::from(text))
 }
 
 #[cfg(test)]
@@ -196,6 +203,14 @@ mod tests {
         let text = <String as uniffi::Lower<UniFfiTag>>::lower("0xab".to_owned());
         let lifted = <SecretString as Lift<UniFfiTag>>::try_lift(text)?;
         assert_eq!(&*lifted, "0xab");
+    }
+
+    /// UniFFI's builtin `String` lift does not check UTF-8; this one does, so
+    /// a malformed host buffer is an error, not an invalid `String`.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_invalid_utf8() {
+        let buffer = RustBuffer::from_vec(vec![b'0', b'x', 0xff]);
+        assert!(<SecretString as Lift<UniFfiTag>>::try_lift(buffer).is_err());
     }
 
     #[xmtp_common::test(unwrap_try = true)]

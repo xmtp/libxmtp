@@ -1,7 +1,8 @@
 //! Self-test of the heap-canary allocator. If the harness stops scanning,
 //! every zeroization proof that uses it passes vacuously; these tests fail
 //! instead.
-#![cfg(not(target_arch = "wasm32"))]
+// The heap-canary harness is Unix-only (`libc::memmem`).
+#![cfg(unix)]
 
 use std::hint::black_box;
 

@@ -1,7 +1,8 @@
 //! Heap-canary proofs that wallet key import and export wipe every copy the
 //! SDK makes. Native only: it installs the heap-canary global allocator.
 //! No backend needed. The local signer does not exist under `pure-only`.
-#![cfg(all(not(target_arch = "wasm32"), not(feature = "pure-only")))]
+// The heap-canary harness is Unix-only (`libc::memmem`).
+#![cfg(all(unix, not(feature = "pure-only")))]
 
 use std::{mem::ManuallyDrop, sync::Arc};
 
@@ -182,6 +183,16 @@ fn malformed_inputs_leave_no_partial_copy() {
     });
     assert!(result, "invalid UTF-8 must fail");
     assert_eq!(hits, [0], "invalid UTF-8 SecretString");
+
+    // The same text as a host `RustBuffer` (raw bytes, no length prefix).
+    let mut invalid = text.as_bytes().to_vec();
+    invalid.push(0xff);
+    let buffer = RustBuffer::from_vec(invalid);
+    let (result, hits) = scan(&[Canary::new(text.as_bytes())], || {
+        <SecretString as Lift<UniFfiTag>>::try_lift(buffer).is_err()
+    });
+    assert!(result, "invalid UTF-8 must fail the lift");
+    assert_eq!(hits, [0], "invalid UTF-8 SecretString lift");
 }
 
 /// k256 wipes its scalar when a signer drops. This guards the k256 `zeroize`

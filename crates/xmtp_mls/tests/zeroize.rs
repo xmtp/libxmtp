@@ -1,7 +1,8 @@
 //! Heap-canary proofs that libxmtp wipes the copies of secrets it owns.
 //! Native only: it installs the heap-canary global allocator.
 //! Needs the shared backend (`just backend up`).
-#![cfg(not(target_arch = "wasm32"))]
+// The heap-canary harness is Unix-only (`libc::memmem`).
+#![cfg(unix)]
 
 use std::time::Duration;
 
