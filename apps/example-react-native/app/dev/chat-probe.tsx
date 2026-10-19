@@ -24,7 +24,7 @@ import { probeLinkCopy } from "@/features/dev/copy";
 import { useActiveSession } from "@/session";
 import { AlertDialog, type AlertDialogRequest } from "@/ui/AlertDialog";
 
-/** The in-app confirmation a link needs (the chat's alert for Delete). */
+/** The in-app confirmation a link needs (the chat's alert text for Delete). */
 function linkConfirmation(
   confirmation: ChatProbeLinkConfirmation,
   emoji: string,
