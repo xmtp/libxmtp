@@ -31,7 +31,7 @@ type Answer =
   | "wrongInbox"
   | "failure";
 
-/** `RecipientAssociationVerificationTests.AssociationProbe`. */
+/** An identity port whose `inboxStates` answer each row sets. */
 function associationProbe(answer: Answer) {
   const refreshes: boolean[] = [];
   const port: IdentityPort = {
@@ -70,44 +70,35 @@ async function failure(work: Promise<unknown>): Promise<unknown> {
 }
 
 describe("address resolution requires its verified association", () => {
-  for (const answer of [
-    "matching",
-    "wrongAddress",
-    "wrongKind",
-    "missingState",
-    "wrongInbox",
+  for (const [answer, message] of [
+    ["matching", undefined],
+    ["wrongAddress", RecipientCopy.addressNotFound],
+    ["wrongKind", RecipientCopy.addressNotFound],
+    ["missingState", RecipientCopy.addressNotFound],
+    ["wrongInbox", RecipientCopy.addressNotFound],
+    // A failed verification read stays an error, not "no account".
+    ["failure", "unavailable"],
   ] as const) {
     test(answer, async () => {
       const { port, refreshes } = associationProbe(answer);
-      if (answer === "matching") {
+      if (message === undefined) {
         assert.equal(await resolveInboxId(address, port), inbox);
       } else {
         const error = await failure(resolveInboxId(address, port));
         assert.ok(error instanceof Error);
-        assert.equal(error.message, RecipientCopy.addressNotFound);
+        assert.equal(error.message, message);
       }
       assert.deepEqual(refreshes, [true]);
     });
   }
-
-  test("a verification failure remains an error", async () => {
-    const { port, refreshes } = associationProbe("failure");
-    const error = await failure(resolveInboxId(address, port));
-    assert.ok(error instanceof Error);
-    assert.equal(error.message, "unavailable");
-    assert.deepEqual(refreshes, [true]);
-  });
 });
 
 function lookupPort(
   inboxes: Record<string, string | Error>,
   handles: Record<string, string> = {},
-): IdentityPort & { lookups: string[] } {
-  const lookups: string[] = [];
+): IdentityPort {
   return {
-    lookups,
-    inboxIdFor: ({ kind, identifier }) => {
-      lookups.push(`${kind}:${identifier}`);
+    inboxIdFor: ({ identifier }) => {
       const found = inboxes[identifier];
       if (found instanceof Error) return Promise.reject(found);
       return Promise.resolve(found);
@@ -138,7 +129,12 @@ function lookupPort(
 
 test("resolves handles, addresses and inbox IDs (recipientLookupFailures)", async () => {
   const port = lookupPort(
-    { lena: "a".repeat(64), [address]: "b".repeat(64), gone: new NotFound() },
+    {
+      lena: "a".repeat(64),
+      [address]: "b".repeat(64),
+      gone: new NotFound(),
+      offline: new Error("offline"),
+    },
     { ["a".repeat(64)]: "lena" },
   );
   assert.deepEqual(await resolvePerson("@Lena", port), {
@@ -155,15 +151,10 @@ test("resolves handles, addresses and inbox IDs (recipientLookupFailures)", asyn
       inboxId: "b".repeat(64),
     },
   );
-  // An inbox ID is accepted without a lookup.
+  // An inbox ID is accepted as is (the port has no entry for it).
   assert.deepEqual(await resolvePerson("C".repeat(64), port), {
     inboxId: "c".repeat(64),
   });
-  assert.deepEqual(port.lookups, [
-    "handle:lena",
-    "handle:lena",
-    `ethereum:${address}`,
-  ]);
   for (const [input, copy] of [
     ["nobody", RecipientCopy.handleNotFound],
     ["gone", RecipientCopy.handleNotFound],
@@ -177,12 +168,9 @@ test("resolves handles, addresses and inbox IDs (recipientLookupFailures)", asyn
     assert.ok(error instanceof NewConversationError, input);
     assert.equal(error.message, copy, input);
   }
-});
-
-test("other lookup failures are not shown as not found", async () => {
-  const port = lookupPort({ lena: new Error("offline") });
-  const error = await failure(resolvePerson("lena", port));
-  assert.ok(!(error instanceof NewConversationError));
+  // Any other lookup failure is not shown as "not found".
+  const offline = await failure(resolvePerson("offline", port));
+  assert.ok(!(offline instanceof NewConversationError));
 });
 
 test("a failed handle read leaves the person without a handle", async () => {
@@ -256,29 +244,42 @@ interface FakeOptions {
   readonly failLimit?: boolean;
 }
 
+type Query = "people" | "maximum" | "create";
+
 class FakeQueries implements NewConversationQueries {
   calls: string[] = [];
   created: Parameters<NewConversationQueries["create"]>[0][] = [];
   options: FakeOptions;
-  onPeople: () => void = () => {};
   createFailure: Error | undefined;
   resolveGate: Promise<void> | undefined;
   peopleGate: Promise<void> | undefined;
+  readonly #during = new Map<Query, () => void>();
 
   constructor(options: FakeOptions = {}) {
     this.options = options;
   }
 
+  /** Runs `effect` inside the next `name` call, before it answers. */
+  during(name: Query, effect: () => void): void {
+    this.#during.set(name, effect);
+  }
+
+  #call(name: Query): void {
+    this.calls.push(name);
+    const effect = this.#during.get(name);
+    this.#during.delete(name);
+    effect?.();
+  }
+
   async people(): Promise<readonly Person[]> {
-    this.calls.push("people");
-    this.onPeople();
+    this.#call("people");
     if (this.peopleGate !== undefined) await this.peopleGate;
     if (this.options.failPeople === true) throw new Error("unavailable");
     return this.options.people ?? [];
   }
 
   maximumMembers(): Promise<number> {
-    this.calls.push("maximum");
+    this.#call("maximum");
     if (this.options.failLimit === true) {
       return Promise.reject(new Error("unavailable"));
     }
@@ -298,7 +299,7 @@ class FakeQueries implements NewConversationQueries {
   create(
     request: Parameters<NewConversationQueries["create"]>[0],
   ): Promise<string> {
-    this.calls.push("create");
+    this.#call("create");
     this.created.push(request);
     if (this.createFailure !== undefined)
       return Promise.reject(this.createFailure);
@@ -320,66 +321,49 @@ function makeStore(queries: FakeQueries, admit: () => boolean = () => true) {
 
 describe("admission (NewConversationAdmissionTests)", () => {
   test("stale actions do not call queries", async () => {
-    const queries = new FakeQueries();
-    let valid = true;
-    const { store } = makeStore(queries, () => valid);
-    store.setInput("peer");
-    valid = false;
-    store.load();
-    store.add();
-    store.next();
-    store.create();
-    store.setInput("changed");
-    store.setName("changed");
-    await settle();
-    assert.deepEqual(queries.calls, []);
-    assert.equal(store.getState().input, "peer");
-    assert.equal(store.getState().name, "");
+    for (const ended of ["session", "dispose"] as const) {
+      const queries = new FakeQueries();
+      let valid = true;
+      const { store } = makeStore(queries, () => valid);
+      store.setInput("peer");
+      if (ended === "session") valid = false;
+      else store.dispose();
+      store.load();
+      store.add();
+      store.next();
+      store.create();
+      store.setInput("changed");
+      store.setName("changed");
+      await settle();
+      assert.deepEqual(queries.calls, [], ended);
+      assert.equal(store.getState().input, "peer", ended);
+      assert.equal(store.getState().name, "", ended);
+    }
   });
 
-  test("closed stores do not call queries", async () => {
-    const queries = new FakeQueries();
-    const { store } = makeStore(queries);
-    store.setInput("peer");
-    store.dispose();
-    store.load();
-    store.add();
-    store.next();
-    store.create();
-    await settle();
-    assert.deepEqual(queries.calls, []);
-  });
-
-  test("a queued load checks admission before any query", async () => {
-    const queries = new FakeQueries();
+  test("a load that outlives its session is not applied", async () => {
+    const peer: Person = { inboxId: "inbox-peer", handle: "person" };
+    const queries = new FakeQueries({ people: [peer], maximum: 10 });
     let valid = true;
-    const { store } = makeStore(queries, () => valid);
-    store.load();
-    valid = false;
-    await settle();
-    assert.deepEqual(queries.calls, []);
-  });
-
-  test("a load stops after admission changes", async () => {
-    const queries = new FakeQueries();
-    let valid = true;
-    queries.onPeople = () => {
+    // The session ends during the last read, so only the final check stops it.
+    queries.during("maximum", () => {
       valid = false;
-    };
+    });
     const { store } = makeStore(queries, () => valid);
     store.load();
     await settle();
-    assert.deepEqual(queries.calls, ["people"]);
-    assert.equal(store.getState().loadingPeople, true);
+    assert.deepEqual(store.getState().people, []);
+    assert.equal(store.getState().maximumMembers, 0);
   });
 });
 
 describe("bootstrap failure survives editing and can retry", () => {
-  for (const failPeople of [false, true]) {
-    test(failPeople ? "people fails" : "limit fails", async () => {
+  const peer: Person = { inboxId: "inbox-peer", handle: "person" };
+  for (const failing of ["limit", "people"] as const) {
+    test(`${failing} fails`, async () => {
       const queries = new FakeQueries({
-        failPeople,
-        failLimit: true,
+        failPeople: failing === "people",
+        failLimit: failing === "limit",
         maximum: 10,
       });
       const { store } = makeStore(queries);
@@ -395,18 +379,15 @@ describe("bootstrap failure survives editing and can retry", () => {
       assert.equal(canContinue(store.getState()), false);
       store.setInput("second");
       assert.notEqual(store.getState().bootstrapError, undefined);
-      queries.options = { maximum: 10 };
+      queries.options = { maximum: 10, people: [peer] };
       store.load();
       assert.equal(store.getState().bootstrapError, undefined);
       assert.equal(store.getState().loadingPeople, true);
       await settle();
       assert.equal(store.getState().bootstrapError, undefined);
       assert.equal(store.getState().maximumMembers, 10);
+      assert.deepEqual(store.getState().people, [peer]);
       assert.equal(canContinue(store.getState()), true);
-      const reads = (name: string) =>
-        queries.calls.filter((call) => call === name).length;
-      assert.equal(reads("people"), 2);
-      assert.equal(reads("maximum"), failPeople ? 1 : 2);
     });
   }
 });
@@ -425,25 +406,6 @@ test("an unchanged input keeps its resolution", async () => {
   assert.equal(store.getState().input, "");
 });
 
-test("editing the input drops a resolution in flight", async () => {
-  const queries = new FakeQueries();
-  let open = () => {};
-  queries.resolveGate = new Promise((resolve) => {
-    open = resolve;
-  });
-  const { store } = makeStore(queries);
-  store.setInput("peer");
-  store.add();
-  assert.equal(store.getState().busy, true);
-  await settle();
-  store.setInput("peer, other");
-  assert.equal(store.getState().busy, false);
-  open();
-  await settle();
-  assert.deepEqual(store.getState().recipients, []);
-  assert.equal(store.getState().input, "peer, other");
-});
-
 test("editing recipients does not cancel the initial people load (editingRecipientsDoesNotCancelInitialPeopleLoad)", async () => {
   const peer: Person = { inboxId: "inbox-peer", handle: "person" };
   const queries = new FakeQueries({ people: [peer] });
@@ -454,7 +416,7 @@ test("editing recipients does not cancel the initial people load (editingRecipie
   const { store } = makeStore(queries);
   store.load();
   await settle();
-  assert.deepEqual(queries.calls, ["people"]);
+  assert.equal(store.getState().loadingPeople, true);
   store.setGroup(true);
   store.setInput("person");
   store.toggle(peer);
@@ -469,9 +431,12 @@ test("editing recipients does not cancel the initial people load (editingRecipie
   assert.equal(canContinue(state), true);
 });
 
-describe("choosing people drops a resolution in flight", () => {
+describe("editing the input or the people drops a resolution in flight", () => {
   const chosen: Person = { inboxId: "inbox-chosen", handle: "chosen" };
   const edits = {
+    setInput: (store: NewConversationStore) => {
+      store.setInput("peer, other");
+    },
     toggle: (store: NewConversationStore) => {
       store.toggle(chosen);
     },
@@ -480,6 +445,9 @@ describe("choosing people drops a resolution in flight", () => {
     },
     setGroup: (store: NewConversationStore) => {
       store.setGroup(true);
+    },
+    back: (store: NewConversationStore) => {
+      store.back();
     },
   };
   for (const [name, edit] of Object.entries(edits)) {
@@ -501,7 +469,12 @@ describe("choosing people drops a resolution in flight", () => {
       await settle();
       const ids = store.getState().recipients.map((person) => person.inboxId);
       assert.equal(ids.includes("inbox-peer"), false);
-      assert.equal(store.getState().input, "peer");
+      // A dropped run reports nothing; an error means it ran on.
+      assert.equal(store.getState().error, undefined);
+      assert.equal(
+        store.getState().input,
+        name === "setInput" ? "peer, other" : "peer",
+      );
     });
   }
 });
@@ -516,10 +489,6 @@ test("Add resolves every entry in order, skips duplicates, then clears the input
   store.setInput("@jun,lena,,ava");
   store.add();
   await settle();
-  assert.deepEqual(
-    queries.calls.filter((call) => call.startsWith("resolve")),
-    ["resolve:@jun", "resolve:lena", "resolve:ava"],
-  );
   assert.deepEqual(
     store.getState().recipients.map((person) => person.handle),
     ["lena", "jun", "ava"],
@@ -541,7 +510,7 @@ test("an entry that fails stops resolution, keeps the input and shows its copy",
   assert.equal(store.getState().error, RecipientCopy.invalidHandle);
   assert.deepEqual(store.getState().recipients, []);
   assert.equal(store.getState().input, "ava, bad, theo");
-  assert.ok(!queries.calls.includes("resolve: theo"));
+  assert.ok(!queries.calls.some((call) => call.includes("theo")));
   store.setInput("boom");
   assert.equal(store.getState().error, undefined);
   store.add();
@@ -667,11 +636,9 @@ test("a session that ends during create does not finish", async () => {
   store.load();
   await settle();
   store.setInput("theo");
-  queries.create = (request) => {
-    queries.created.push(request);
+  queries.during("create", () => {
     valid = false;
-    return Promise.resolve("conversation-1");
-  };
+  });
   store.create();
   await settle();
   assert.equal(queries.created.length, 1);

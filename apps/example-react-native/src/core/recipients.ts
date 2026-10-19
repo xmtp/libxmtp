@@ -75,8 +75,3 @@ export function recipientNotFound(recipient: Recipient): RecipientError {
 export function recipientEntries(input: string): readonly string[] {
   return input.split(",").filter((entry) => entry.length > 0);
 }
-
-/** A resolved recipient's label: `@handle`, else the first 12 inbox ID characters. */
-export function recipientLabel(inboxId: string, handle?: string): string {
-  return handle === undefined ? inboxId.slice(0, 12) : "@" + handle;
-}
