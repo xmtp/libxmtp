@@ -1225,7 +1225,7 @@
       }
     },
     "test_node": {
-      "title": "Node SDK and CLI",
+      "title": "Node SDK, Agent SDK, CLI",
       "phase": "test",
       "workflow": "test-node-sdk.yml",
       "run_on": [
@@ -1270,62 +1270,6 @@
         "nix/musl-docker.nix",
         "nix/node-packages.nix",
         "nix/package/backend.nix",
-        "nix/package/libffi-zig-cross.site",
-        "nix/package/node.nix",
-        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
-        "nix/sdk-platforms.json",
-        "nix/{js,js-node}.nix",
-        "sdks/js.just",
-        "sdks/node/**",
-        "{Cargo.toml,Cargo.lock}",
-        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
-    "test_agent": {
-      "title": "Agent SDK",
-      "phase": "test",
-      "workflow": "test-agent-sdk.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "inherit",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [
-        "sdk_js"
-      ],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-js/**",
-        ".github/actions/setup-nix/**",
-        ".github/workflows/test-agent-sdk.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "apps/cli/**",
-        "apps/xmtp_sdk_bindgen/**",
-        "crates/xmtp_sdk/**",
-        "dev/js/{sdk-*,tsconfig.*.json}",
-        "nix/lib/packages/napi-rs-cli/**",
-        "nix/lib/packages/pnpm.nix",
-        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
-        "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",

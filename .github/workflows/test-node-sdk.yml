@@ -7,14 +7,11 @@ env:
   # cargo debug build.
   XMTP_SDK_BUILD: nix
 jobs:
+  # One job and one backend start for the Node SDK, CLI, and Agent SDK tests.
   test:
-    name: Test (node-sdk) shard ${{ matrix.shard }}
+    name: Test (node-sdk, cli, agent-sdk)
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
-    strategy:
-      fail-fast: true
-      matrix:
-        shard: [1, 2]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -23,13 +20,19 @@ jobs:
           cache-mode: ci
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
       - uses: ./.github/actions/setup-js
         with:
           cache-mode: ci
       - name: Start backend
         run: dev/nix-shell 'just backend up'
-      - name: Run node-sdk tests (shard ${{ matrix.shard }}/2)
-        run: dev/nix-shell 'just js test-node-sdk-ci --shard ${{ matrix.shard }}/2 --exclude test/streamRecovery.test.ts'
-      - name: Run CLI tests (shard ${{ matrix.shard }}/2)
-        run: dev/nix-shell 'just cli test --shard ${{ matrix.shard }}/2'
+      - name: Run node-sdk tests
+        id: node
+        run: dev/nix-shell 'just js test-node-sdk-ci --exclude test/streamRecovery.test.ts'
+      # The CLI and agent tests also run when an earlier test step failed, so
+      # one run reports all three. They do not run when setup failed.
+      - name: Run CLI tests
+        if: ${{ !cancelled() && steps.node.outcome != 'skipped' }}
+        run: dev/nix-shell 'just cli test'
+      - name: Run agent-sdk tests
+        if: ${{ !cancelled() && steps.node.outcome != 'skipped' }}
+        run: dev/nix-shell 'just js test-agent-sdk-ci'

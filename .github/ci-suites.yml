@@ -637,8 +637,9 @@ suites:
       - "sdks/{node,browser}/package.json"
       - "sdks/browser/test/platform/**"
       - "nix/check-sdk-products.py"
+  # The Node SDK, CLI, and Agent SDK tests share one job and one backend.
   test_node:
-    title: Node SDK and CLI
+    title: Node SDK, Agent SDK, CLI
     phase: test
     workflow: test-node-sdk.yml
     run_on: [ready_pr_push, merge]
@@ -651,21 +652,6 @@ suites:
       - path_group: js_workspace
       - path_group: sdk_core
       - path_group: docker_backend
-      - "sdks/node/**"
-      - "apps/cli/**"
-  test_agent:
-    title: Agent SDK
-    phase: test
-    workflow: test-agent-sdk.yml
-    run_on: [ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: inherit
-    permissions: {contents: read}
-    kache: []
-    products: [sdk_js]
-    pr_filters:
-      - path_group: js_workspace
-      - path_group: sdk_core
       - "sdks/{node,agent}/**"
       - "apps/cli/**"
   test_browser:
