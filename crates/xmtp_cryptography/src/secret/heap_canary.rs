@@ -29,7 +29,9 @@
 //! - Stack and register copies are invisible to a heap scan.
 //! - Unix only: the scanner needs `libc::memmem`.
 //! - Arming takes a process-wide lock, so concurrent scans in one process
-//!   run one after another.
+//!   run one after another. A scan that would wait for a scan armed on its own
+//!   thread panics instead: `scan_async` holds the lock across `.await`, so on
+//!   a single-threaded executor that wait could never end.
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -157,6 +159,18 @@ struct ArmedFormsInner {
 unsafe impl Sync for ArmedForms {}
 
 static SCAN_LOCK: Mutex<()> = Mutex::new(());
+/// The thread that holds [`SCAN_LOCK`], as a [`thread_key`], or 0.
+static HOLDER: AtomicUsize = AtomicUsize::new(0);
+
+thread_local! {
+    static THREAD_KEY: u8 = const { 0 };
+}
+
+/// A nonzero key that is unique among live threads: the address of this
+/// thread's `THREAD_KEY`.
+fn thread_key() -> usize {
+    THREAD_KEY.with(|key| std::ptr::from_ref(key) as usize)
+}
 static ARMED: AtomicBool = AtomicBool::new(false);
 /// Frees that may be reading [`FORMS`]. Disarming waits for zero.
 static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
@@ -251,7 +265,15 @@ impl Armed {
             "a scan arms 1 to {MAX_CANARIES} canaries, got {}",
             canaries.len()
         );
+        let me = thread_key();
+        assert_ne!(
+            HOLDER.load(SeqCst),
+            me,
+            "heap-canary scans cannot nest or overlap on one thread: the armed \
+             scan holds the lock until its future finishes"
+        );
         let lock = SCAN_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        HOLDER.store(me, SeqCst);
         debug_assert!(!ARMED.load(SeqCst));
         // SAFETY: we hold `SCAN_LOCK` and `ARMED` is false. The last disarm
         // waited for `IN_FLIGHT` to reach zero, so no free reads the forms.
@@ -308,6 +330,8 @@ impl Armed {
 impl Drop for Armed {
     fn drop(&mut self) {
         Self::disarm();
+        // Cleared before `_lock` drops, so the next holder sets it afresh.
+        HOLDER.store(0, SeqCst);
     }
 }
 
@@ -351,6 +375,17 @@ macro_rules! install_heap_canary {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A second scan on the thread that armed the first would wait forever on
+    /// a single-threaded executor. It panics instead of deadlocking.
+    #[test]
+    #[should_panic(expected = "cannot nest or overlap on one thread")]
+    fn overlapping_scan_on_one_thread_panics() {
+        let canary = Canary::new(&[0x5a; 32]);
+        let ((), _) = scan(&[canary], || {
+            let ((), _) = scan(&[canary], || ());
+        });
+    }
 
     /// The armed forms hold the raw key. Disarming wipes them; without the
     /// wipe the key stays in the static until the next scan overwrites it.
