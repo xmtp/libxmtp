@@ -193,10 +193,9 @@ afterEvaluate {
     }
 }
 
-// Share the pinned legacy files with the native migration tests. The tests
-// load the host library through jna.library.path and call the local backend;
-// neither is a task input, so CI's build cache must not replay a result.
+// The JVM tests load the host library through jna.library.path and call the
+// local backend; neither is a task input, so CI's build cache must not replay a
+// result.
 tasks.withType(Test).configureEach {
-    systemProperty "xmtp.legacy.fixtures", rootProject.file("../../crates/xmtp_legacy_migration/fixtures").canonicalPath
     outputs.cacheIf("tests use native code and a backend outside the task inputs") { false }
 }

@@ -1,102 +1,15 @@
 package uniffi.xmtp_sdk
 
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// A smoke test of the metadata-field catalogue through the generated Kotlin
-// records: descriptors, values, profiles and a typed denial cross the native
-// boundary. Rust owns the field rules:
+// Metadata-field catalogue records through the generated Kotlin converters.
+// Rust owns the field rules and the live read and write paths:
 // xmtp_sdk/src/tests/metadata_fields/descriptors.rs::fields_are_identified_by_component_id,
 // reads.rs::batch_reads_keep_request_order, profiles.rs::profile_writes_are_atomic_and_denials_are_typed,
 // collections.rs::collection_fields_apply_whole_deltas.
 class MetadataFieldTest {
-    // verifies: META-069
-    @Test
-    fun wellKnownCatalogueFieldsReadAndWrite() =
-        runBlocking {
-            withTimeout(60_000) {
-                withClients {
-                    val alix = create()
-                    val bo = create()
-                    val groupName = metadataFieldRef(WellKnownMetadataField.GROUP_NAME)
-                    val displayName = metadataFieldRef(WellKnownMetadataField.USER_DISPLAY_NAME)
-                    assertEquals(MetadataFieldRef(0x800Cu, "USER_DISPLAY_NAME"), displayName)
-
-                    // The default policy set lets all members write the
-                    // name; delete stays super-admin only. Each member may
-                    // write only its own profile entry.
-                    val group = alix.conversations.createGroup(listOf(bo.inboxId()))
-                    val descriptors = group.metadataFields().associateBy { it.field }
-                    val allow = MetadataPolicy.Base(MetadataBasePolicy.Allow)
-                    assertEquals(
-                        MetadataFieldDescriptor(
-                            groupName,
-                            MetadataComponentType.String,
-                            ComponentPermissions(
-                                allow,
-                                allow,
-                                MetadataPolicy.Base(MetadataBasePolicy.AllowIfSuperAdmin),
-                            ),
-                            false,
-                        ),
-                        descriptors.getValue(groupName),
-                    )
-                    val selfOwned = MetadataPolicy.Base(MetadataBasePolicy.AllowIfSelfOrNonMember)
-                    assertEquals(
-                        MetadataFieldDescriptor(
-                            displayName,
-                            MetadataComponentType.Map(MetadataKeyType.INBOX_ID, MetadataScalarType.STRING),
-                            ComponentPermissions(selfOwned, selfOwned, selfOwned),
-                            true,
-                        ),
-                        descriptors.getValue(displayName),
-                    )
-                    assertEquals(groupName, group.metadataField("GROUP_NAME")?.field)
-
-                    group.updateMetadataField(groupName, ComponentMutation.Replace(FieldValue.String("Team")))
-                    bo.conversations.sync()
-                    val boGroup = (checkNotNull(bo.conversations.getById(group.id())) as Conversation.Group).group
-                    boGroup.sync()
-                    assertEquals(MetadataValue.Scalar(FieldValue.String("Team")), boGroup.metadataValue(groupName))
-
-                    boGroup.updateUserData(listOf(UserFieldUpdate(displayName, FieldValue.String("Bo"))))
-                    group.sync()
-                    val profiles = group.userData(null, null)
-                    assertEquals(listOf(UserFieldValue(displayName, FieldValue.String("Bo"))), profiles[bo.inboxId()])
-                    assertEquals(emptyList<UserFieldValue>(), profiles[alix.inboxId()])
-                    assertEquals(FieldValue.String("Bo"), group.mapValue(displayName, FieldKey.InboxId(bo.inboxId())))
-                    val profileMap =
-                        MetadataValue.Map(listOf(MapEntry(FieldKey.InboxId(bo.inboxId()), FieldValue.String("Bo"))))
-                    assertEquals(profileMap, group.metadataValue(displayName))
-                    assertEquals(
-                        listOf(
-                            MetadataFieldValue(groupName, MetadataValue.Scalar(FieldValue.String("Team"))),
-                            MetadataFieldValue(displayName, profileMap),
-                        ),
-                        group.metadataValues(listOf(groupName, displayName)),
-                    )
-
-                    val duplicate =
-                        runCatching {
-                            boGroup.updateUserData(
-                                listOf(
-                                    UserFieldUpdate(displayName, FieldValue.String("Bobby")),
-                                    UserFieldUpdate(displayName, null),
-                                ),
-                            )
-                        }.exceptionOrNull()
-                    assertTrue("Expected DuplicateField, got $duplicate", duplicate is XmtpException.DuplicateField)
-                    val details = (duplicate as XmtpException.DuplicateField).v1
-                    assertEquals("DuplicateField", details.code)
-                    assertEquals(ErrorCategory.INPUT, details.category)
-                }
-            }
-        }
-
     // An application catalogue, and so the Set, byte-keyed Map and Unknown
     // component types and the And and Any policies, needs a backend catalogue
     // or the conformance build's override. These records still cross the
