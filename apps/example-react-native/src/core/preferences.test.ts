@@ -146,9 +146,10 @@ test("reads are cached and corrupt files throw", () => {
   assert.throws(() => prefs.serverLabel, PreferenceError);
   files.files.set("read-markers", '{"k":"1"}');
   const fresh = new ProfilePreferences(files);
-  fresh.marker("k");
-  fresh.marker("k");
-  assert.equal(files.reads, 2);
+  assert.equal(fresh.marker("k"), 1n);
+  const reads = files.reads;
+  assert.equal(fresh.marker("k"), 1n);
+  assert.equal(files.reads, reads, "the second read uses the cache");
   files.files.set("read-markers", '{"k":"x"}');
   assert.throws(
     () => new ProfilePreferences(files).marker("k"),

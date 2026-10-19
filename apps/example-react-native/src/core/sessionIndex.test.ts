@@ -73,7 +73,7 @@ test("profiles match by normalized URL, also for legacy stored URLs", () => {
   assert.equal(activeProfile({ ...index, activeId: undefined }), undefined);
 });
 
-test("established profiles and replacement order", () => {
+test("a profile with an inbox or identity is established; withProfile replaces its entry", () => {
   assert.ok(isEstablished({ id: "x", url: "u", inboxId: "i" }));
   assert.ok(isEstablished({ id: "x", url: "u", identity: "0x" }));
   assert.ok(!isEstablished({ id: "x", url: "u" }));
@@ -82,11 +82,9 @@ test("established profiles and replacement order", () => {
     url: "http://127.0.0.1:5150",
     inboxId: "new",
   });
+  assert.equal(next.profiles.length, 2);
   assert.deepEqual(
-    next.profiles.map((profile) => [profile.id, profile.inboxId]),
-    [
-      ["B", undefined],
-      ["A", "new"],
-    ],
+    next.profiles.filter((profile) => profile.id === "A"),
+    [{ id: "A", url: "http://127.0.0.1:5150", inboxId: "new" }],
   );
 });

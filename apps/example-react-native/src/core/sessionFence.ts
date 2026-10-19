@@ -42,14 +42,9 @@ export class SessionFence {
     return this.#generation;
   }
 
-  /** True when `reserved` is current and no profile is bound to it yet. */
-  isReserved(reserved: number): boolean {
-    return this.#generation === reserved && this.#profileId === undefined;
-  }
-
   /** Binds `profileId` to the reserved generation, or returns undefined if it is stale. */
   bind(profileId: string, reserved: number): SessionKey | undefined {
-    if (!this.isReserved(reserved)) return undefined;
+    if (!this.#isReserved(reserved)) return undefined;
     this.#profileId = profileId;
     return { profileId, generation: this.#generation };
   }
@@ -59,5 +54,10 @@ export class SessionFence {
     return (
       this.#generation === key.generation && this.#profileId === key.profileId
     );
+  }
+
+  /** True when `reserved` is current and no profile is bound to it yet. */
+  #isReserved(reserved: number): boolean {
+    return this.#generation === reserved && this.#profileId === undefined;
   }
 }

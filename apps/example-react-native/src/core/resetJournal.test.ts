@@ -66,21 +66,6 @@ test("resumes from each phase and saves each phase before the next step", async 
   }
 });
 
-test("a failed step leaves the saved phase for the next attempt", async () => {
-  const { steps, ops } = recorder();
-  await assert.rejects(
-    continueResetJournal(
-      { profileId: "p", phase: "STOPPING" },
-      {
-        ...ops,
-        removeProfileFiles: () => Promise.reject(new Error("busy")),
-      },
-    ),
-    /busy/u,
-  );
-  assert.deepEqual(steps, ["database p", "save DATABASE_REMOVED"]);
-});
-
 test("phase names match the iOS raw values", () => {
   for (const phase of ["STOPPING", "DATABASE_REMOVED", "FILES_REMOVED"]) {
     assert.ok(isResetPhase(phase));

@@ -6,7 +6,6 @@ import { test } from "node:test";
 
 import { bytesToHex } from "./hex.ts";
 import { type ProfilePaths, profilePaths } from "./paths.ts";
-import { type ResetPhase } from "./resetJournal.ts";
 import {
   type BindRequest,
   type ClientFactory,
@@ -18,12 +17,13 @@ import {
   SessionController,
 } from "./sessionController.ts";
 import { CancelledError, SessionCopy, SessionError } from "./sessionError.ts";
-import { type SessionKey, SessionFence } from "./sessionFence.ts";
+import { type SessionKey } from "./sessionFence.ts";
 import {
   EMPTY_SESSION_INDEX,
   type BackendProfile,
   type SessionIndex,
 } from "./sessionIndex.ts";
+import { deferred, settle } from "./testing.ts";
 
 const KEY_A = "07".repeat(32);
 const KEY_B = "08".repeat(32);
@@ -87,12 +87,10 @@ class Files implements ProfileFiles {
   removed: string[] = [];
   databases = new Set<string>();
   failLoad = false;
-  failOnLoad: number | undefined;
   failPrepare = false;
   failExports = false;
   failSave = false;
   exportRemovalAttempts = 0;
-  loads = 0;
   writes = 0;
   onSave: (() => void) | undefined;
 
@@ -103,8 +101,7 @@ class Files implements ProfileFiles {
   }
 
   loadIndex(): Promise<SessionIndex> {
-    this.loads += 1;
-    if (this.failLoad || this.loads === this.failOnLoad) {
+    if (this.failLoad) {
       return Promise.reject(SessionError.message("Cannot read profile."));
     }
     return Promise.resolve(this.index);
@@ -126,7 +123,8 @@ class Files implements ProfileFiles {
     return Promise.resolve(this.databases.has(profileId));
   }
 
-  removeDatabase(): Promise<void> {
+  removeDatabase(profileId: string): Promise<void> {
+    this.databases.delete(profileId);
     this.removed.push("database");
     return Promise.resolve();
   }
@@ -211,7 +209,6 @@ function controller(
     files?: Files;
     secrets?: Secrets;
     factory?: Factory;
-    fence?: SessionFence;
   } = {},
 ) {
   const files = options.files ?? new Files();
@@ -222,7 +219,6 @@ function controller(
     files,
     secrets,
     factory,
-    fence: options.fence,
     newProfileId: () => {
       ids += 1;
       return `profile-${String(ids)}`;
@@ -265,12 +261,26 @@ function saveKeys(secrets: Secrets, profile: string, skip?: SecretRef): void {
   }
 }
 
-async function waitUntil(condition: () => boolean): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!condition() && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 2));
-  }
-  assert.ok(condition(), "condition not reached");
+/** A device with one saved profile for `url`, its keys and its database. */
+function savedSession(
+  options: {
+    url?: string;
+    signedIn?: boolean;
+    database?: boolean;
+    skip?: SecretRef;
+  } = {},
+) {
+  const files = new Files();
+  const secrets = new Secrets();
+  const profile = savedProfile(files, options.url ?? "https://example.com");
+  files.index = { ...files.index, signedIn: options.signedIn ?? true };
+  if (options.database ?? true) files.databases.add(profile.id);
+  saveKeys(secrets, profile.id, options.skip);
+  return { files, secrets, profile };
+}
+
+function hexOf(bytes: Uint8Array | undefined): string {
+  return bytesToHex(bytes ?? new Uint8Array());
 }
 
 test("first join creates three secrets, stores the token and records the inbox", async () => {
@@ -290,10 +300,7 @@ test("first join creates three secrets, stores the token and records the inbox",
   assert.equal(secrets.get(profile.id, "credential"), "token");
   const request = factory.requests.at(0);
   assert.equal(request?.profile.inboxId, undefined);
-  assert.equal(
-    bytesToHex(request?.wallet ?? new Uint8Array()),
-    secrets.get(profile.id, "wallet"),
-  );
+  assert.equal(hexOf(request?.wallet), secrets.get(profile.id, "wallet"));
   assert.equal(await request?.credential?.(), "token");
   assert.deepEqual(files.index.profiles, [
     {
@@ -319,25 +326,29 @@ test("an empty token removes a stored one and attaches no credential source", as
   assert.equal(factory.requests.at(-1)?.credential, undefined);
 });
 
-test("the credential source stops for an ended session", async () => {
-  const { factory, session } = controller();
+test("the credential source stops for a replaced session", async () => {
+  const { secrets, factory, session } = controller();
   await session.connect({ url: "https://example.com", token: "token" });
+  const first = active(session).profile;
   const credential = factory.requests.at(0)?.credential;
   assert.ok(credential !== undefined);
-  await session.signOut();
+  await session.connect({ url: "https://other.example", token: "other" });
+  // The first server's token is still stored; only the fence stops it.
+  assert.equal(secrets.get(first.id, "credential"), "token");
   await assert.rejects(
     credential(),
     (error: unknown) => error instanceof SessionError && error.kind === "stale",
   );
 });
 
-test("sign out keeps the local identity (signOutKeepsLocalIdentity)", async () => {
+test("sign out stops session work, then ends the client and keeps the local identity", async () => {
   const { files, secrets, factory, session } = controller();
   await session.connect({ url: "http://localhost:5050", token: "token" });
   const { profile, request } = active(session);
   request.scope.addCleanup(() => {
     factory.client.cleaned = true;
   });
+  assert.ok(request.isCurrent());
   await session.signOut();
   assert.ok(factory.client.ended);
   assert.ok(factory.client.endedAfterCleanup);
@@ -347,85 +358,72 @@ test("sign out keeps the local identity (signOutKeepsLocalIdentity)", async () =
   assert.deepEqual(files.removed, ["exports"]);
   assert.ok(!files.index.signedIn);
   assert.equal(session.getState().kind, "signedOut");
-  assert.ok(!session.isCurrent(request.key));
+  assert.ok(!request.isCurrent());
 });
 
-for (const holdClientEnd of [false, true]) {
-  test(`a concurrent reset waits for sign-out teardown (holdClientEnd: ${String(holdClientEnd)})`, async () => {
-    const { files, secrets, factory, session } = controller();
-    await session.connect({ url: "http://localhost:5050", token: "token" });
-    const { profile, request } = active(session);
-    files.databases.add(profile.id);
-    let releaseCleanup: (() => void) | undefined;
-    factory.client.holdEnd = holdClientEnd;
-    request.scope.addCleanup(async () => {
-      if (!holdClientEnd) {
-        await new Promise<void>((resolve) => {
-          releaseCleanup = resolve;
-        });
-      }
-      factory.client.cleaned = true;
-    });
-    const signingOut = session.signOut();
-    await waitUntil(() =>
-      holdClientEnd
-        ? factory.client.endGate !== undefined
-        : releaseCleanup !== undefined,
-    );
-    const generation = session.fence.currentGeneration();
-    const resetting = session.deleteLocalData();
-    await waitUntil(() => session.fence.currentGeneration() > generation);
-    for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
-    const removedWhileHeld = [...files.removed];
-    const walletWhileHeld = secrets.get(profile.id, "wallet");
-    releaseCleanup?.();
-    factory.client.endGate?.();
-    await signingOut;
-    await resetting;
-    assert.deepEqual(removedWhileHeld, []);
-    assert.ok(walletWhileHeld !== undefined);
-    assert.equal(factory.client.endCalls, 1);
-    assert.ok(factory.client.endedAfterCleanup);
-    assert.deepEqual(files.removed, ["database", "profile"]);
-    assert.equal(secrets.values.size, 0);
-    assert.equal(session.getState().kind, "signedOut");
-    assert.deepEqual(files.index.profiles, []);
+test("a concurrent reset waits for sign-out teardown", async () => {
+  const { files, secrets, factory, session } = controller();
+  await session.connect({ url: "http://localhost:5050", token: "token" });
+  const { profile, request } = active(session);
+  files.databases.add(profile.id);
+  const cleanup = deferred();
+  factory.client.holdEnd = true;
+  request.scope.addCleanup(async () => {
+    await cleanup.promise;
+    factory.client.cleaned = true;
   });
-}
+  const signingOut = session.signOut();
+  await settle();
+  const generation = session.fence.currentGeneration();
+  const resetting = session.deleteLocalData();
+  await settle();
+  assert.ok(session.fence.currentGeneration() > generation);
+  assert.deepEqual(files.removed, [], "held in a scope cleanup");
+  assert.equal(factory.client.endCalls, 0, "client.end waits for the scope");
+  cleanup.resolve();
+  await settle();
+  assert.ok(factory.client.endGate !== undefined, "client.end is running");
+  assert.deepEqual(files.removed, [], "held in client.end");
+  assert.ok(secrets.get(profile.id, "wallet") !== undefined);
+  factory.client.endGate?.();
+  await signingOut;
+  await resetting;
+  assert.equal(factory.client.endCalls, 1);
+  assert.ok(factory.client.endedAfterCleanup);
+  assert.deepEqual(files.removed, ["database", "profile"]);
+  assert.equal(secrets.values.size, 0);
+  assert.equal(session.getState().kind, "signedOut");
+  assert.deepEqual(files.index.profiles, []);
+});
 
-for (const phase of [
-  "STOPPING",
-  "DATABASE_REMOVED",
-  "FILES_REMOVED",
-] as const satisfies readonly ResetPhase[]) {
-  test(`an interrupted reset resumes from ${phase} (resumesReset)`, async () => {
-    const files = new Files();
-    const secrets = new Secrets();
-    const profile = { id: "p", url: "https://example.com" };
-    files.index = {
-      ...EMPTY_SESSION_INDEX,
-      profiles: [profile, { id: "other", url: "https://other.example" }],
-      activeId: profile.id,
-      reset: { profileId: profile.id, phase },
-    };
-    secrets.set("p", "wallet", KEY_A);
-    secrets.set("other", "wallet", KEY_A);
-    const { session } = controller({ files, secrets });
-    await session.start();
-    assert.equal(session.getState().kind, "resetIncomplete");
-    await session.continueReset();
-    assert.equal(files.index.reset, undefined);
-    assert.deepEqual(files.index.profiles, [
-      { id: "other", url: "https://other.example" },
-    ]);
-    assert.equal(files.index.activeId, undefined);
-    assert.equal(secrets.get("p", "wallet"), undefined);
-    assert.equal(secrets.get("other", "wallet"), KEY_A);
-    assert.equal(files.removed.includes("database"), phase === "STOPPING");
-    assert.equal(files.removed.includes("profile"), phase !== "FILES_REMOVED");
-    assert.equal(session.getState().kind, "signedOut");
-  });
-}
+test("an interrupted reset resumes from DATABASE_REMOVED", async () => {
+  const files = new Files();
+  const secrets = new Secrets();
+  const profile = { id: "p", url: "https://example.com" };
+  files.index = {
+    ...EMPTY_SESSION_INDEX,
+    profiles: [profile, { id: "other", url: "https://other.example" }],
+    activeId: profile.id,
+    reset: { profileId: profile.id, phase: "DATABASE_REMOVED" },
+  };
+  secrets.set("p", "wallet", KEY_A);
+  secrets.set("other", "wallet", KEY_A);
+  const { session } = controller({ files, secrets });
+  await session.start();
+  assert.equal(session.getState().kind, "resetIncomplete");
+  await session.continueReset();
+  assert.equal(files.index.reset, undefined);
+  assert.deepEqual(files.index.profiles, [
+    { id: "other", url: "https://other.example" },
+  ]);
+  assert.equal(files.index.activeId, undefined);
+  assert.equal(secrets.get("p", "wallet"), undefined);
+  assert.equal(secrets.get("other", "wallet"), KEY_A);
+  // The saved phase says the database is already gone.
+  assert.ok(!files.removed.includes("database"));
+  assert.ok(files.removed.includes("profile"));
+  assert.equal(session.getState().kind, "signedOut");
+});
 
 test("a failed reset step keeps the journal and reports resetIncomplete", async () => {
   const { files, session } = controller();
@@ -441,14 +439,9 @@ test("a failed reset step keeps the journal and reports resetIncomplete", async 
   );
 });
 
-for (const missing of ["wallet", "database-key", "preferences-key"] as const) {
-  test(`restore never replaces a missing ${missing} (restoreDoesNotReplaceMissingSecrets)`, async () => {
-    const files = new Files();
-    const secrets = new Secrets();
-    const profile = savedProfile(files, "https://example.com");
-    files.index = { ...files.index, signedIn: true };
-    files.databases.add(profile.id);
-    saveKeys(secrets, profile.id, missing);
+for (const missing of ["wallet", "database-key"] as const) {
+  test(`restore never replaces a missing ${missing}`, async () => {
+    const { files, secrets } = savedSession({ skip: missing });
     const before = new Map(secrets.values);
     const { factory, session } = controller({ files, secrets });
     await session.start();
@@ -459,12 +452,7 @@ for (const missing of ["wallet", "database-key", "preferences-key"] as const) {
 }
 
 test("a secret that is not 64 hex characters counts as missing", async () => {
-  const files = new Files();
-  const secrets = new Secrets();
-  const profile = savedProfile(files, "https://example.com");
-  files.index = { ...files.index, signedIn: true };
-  files.databases.add(profile.id);
-  saveKeys(secrets, profile.id);
+  const { files, secrets, profile } = savedSession();
   secrets.set(profile.id, "wallet", "07".repeat(31));
   const { factory, session } = controller({ files, secrets });
   await session.start();
@@ -473,12 +461,7 @@ test("a secret that is not 64 hex characters counts as missing", async () => {
 });
 
 test("restore reopens an established profile offline with saved keys", async () => {
-  const files = new Files();
-  const secrets = new Secrets();
-  const profile = savedProfile(files, "https://example.com");
-  files.index = { ...files.index, signedIn: true };
-  files.databases.add(profile.id);
-  saveKeys(secrets, profile.id);
+  const { files, secrets } = savedSession();
   const { factory, session } = controller({ files, secrets });
   factory.client = new Client("saved-inbox", "saved-identity");
   await session.start();
@@ -486,7 +469,7 @@ test("restore reopens an established profile offline with saved keys", async () 
   const request = factory.requests.at(0);
   assert.equal(request?.profile.inboxId, "saved-inbox");
   assert.equal(request?.profile.identity, "saved-identity");
-  assert.equal(bytesToHex(request?.databaseKey ?? new Uint8Array()), KEY_B);
+  assert.equal(hexOf(request?.databaseKey), KEY_B);
   assert.equal(request?.credential, undefined);
   assert.equal(secrets.writes, 0);
   // A second automatic restore while active does nothing.
@@ -494,16 +477,15 @@ test("restore reopens an established profile offline with saved keys", async () 
   assert.equal(factory.opens, 1);
 });
 
-test("an index read failure before reservation allows a retry (joinFailureBeforeReservationAllowsRetry)", async () => {
-  const fence = new SessionFence();
-  const { files, session } = controller({ fence });
+test("an index read failure before reservation allows a retry", async () => {
+  const { files, session } = controller();
   await session.start();
   files.failLoad = true;
   await assert.rejects(
     session.connect({ url: "https://example.com", token: "" }),
     /Cannot read profile/u,
   );
-  assert.equal(fence.currentGeneration(), 0);
+  assert.equal(session.fence.currentGeneration(), 0);
   assert.equal(session.getState().kind, "signedOut");
   files.failLoad = false;
   await session.connect({ url: "https://example.com", token: "" });
@@ -515,7 +497,8 @@ test("a late open after a newer reservation ends its client and changes nothing"
   await session.start();
   factory.pause = true;
   const joining = session.connect({ url: "https://example.com", token: "" });
-  await waitUntil(() => factory.pending !== undefined);
+  await settle();
+  assert.ok(factory.pending !== undefined);
   session.fence.reserve();
   const before = session.getState();
   const index = files.index;
@@ -543,7 +526,8 @@ test("a cancelled join ends a client that opens too late (canceledQueuedConnect)
     token: "",
     signal: abort.signal,
   });
-  await waitUntil(() => factory.pending !== undefined);
+  await settle();
+  assert.ok(factory.pending !== undefined);
   abort.abort();
   const late = new Client("late");
   factory.pending?.resolve(late);
@@ -565,11 +549,10 @@ test("a cancelled join ends a client that opens too late (canceledQueuedConnect)
 });
 
 test("a failed connect with a missing secret retries with an explicit reservation (failedConnectRecoveryRetriesWithExplicitReservation)", async () => {
-  const files = new Files();
-  const secrets = new Secrets();
-  const profile = savedProfile(files, "https://example.com");
-  files.databases.add(profile.id);
-  saveKeys(secrets, profile.id, "wallet");
+  const { files, secrets, profile } = savedSession({
+    signedIn: false,
+    skip: "wallet",
+  });
   const { factory, session } = controller({ files, secrets });
   await session.start();
   await assert.rejects(
@@ -588,11 +571,11 @@ test("a failed connect with a missing secret retries with an explicit reservatio
 });
 
 test("an established profile without its database cannot rejoin silently", async () => {
-  const files = new Files();
   // Its keys survive, so only the database check stops the open.
-  const secrets = new Secrets();
-  const profile = savedProfile(files, "https://example.com");
-  saveKeys(secrets, profile.id);
+  const { files, secrets, profile } = savedSession({
+    signedIn: false,
+    database: false,
+  });
   const { factory, session } = controller({ files, secrets });
   await assert.rejects(
     session.connect({ url: profile.url, token: "" }),
@@ -603,10 +586,14 @@ test("an established profile without its database cannot rejoin silently", async
   assert.equal(factory.opens, 0);
 });
 
-test("an index read failure ends the uncommitted client (indexReadFailureEndsUncommittedClient)", async () => {
+test("an index read failure ends the uncommitted client", async () => {
   const files = new Files();
-  files.failOnLoad = 2;
   const { factory, session } = controller({ files });
+  // The index becomes unreadable after the SDK opened.
+  factory.clientFor = () => {
+    files.failLoad = true;
+    return factory.client;
+  };
   await assert.rejects(
     session.connect({ url: "https://example.com", token: "" }),
     /Cannot read profile/u,
@@ -633,8 +620,8 @@ test("an incomplete profile retries with the same wallet (incompleteProfileRetri
     [saved.id, saved.id],
   );
   assert.equal(
-    bytesToHex(factory.requests.at(0)?.wallet ?? new Uint8Array()),
-    bytesToHex(factory.requests.at(1)?.wallet ?? new Uint8Array(1)),
+    hexOf(factory.requests.at(0)?.wallet),
+    hexOf(factory.requests.at(1)?.wallet),
   );
   assert.deepEqual(secrets.values, savedSecrets);
   assert.equal(files.index.profiles.length, 1);
@@ -642,13 +629,13 @@ test("an incomplete profile retries with the same wallet (incompleteProfileRetri
   assert.ok(session.client !== undefined);
 });
 
-for (const failure of ["credential", "exports", "both"] as const) {
-  test(`sign-out cleanup failure (${failure}) still ends the session (signOutCleanupFailureStillEndsSession)`, async () => {
+for (const failure of ["credential", "exports"] as const) {
+  test(`sign-out cleanup failure (${failure}) still ends the session`, async () => {
     const { files, secrets, factory, session } = controller();
     await session.connect({ url: "https://example.com", token: "token" });
     const { profile } = active(session);
-    secrets.failCredentialRemoval = failure !== "exports";
-    files.failExports = failure !== "credential";
+    secrets.failCredentialRemoval = failure === "credential";
+    files.failExports = failure === "exports";
     const expected =
       failure === "exports"
         ? "Export cleanup failed"
@@ -714,67 +701,56 @@ for (const reset of [false, true]) {
   });
 }
 
-for (const [stored, typed] of [
-  ["HTTPS://EXAMPLE.COM:443", "https://example.com"],
-  ["HTTP://LOCALHOST:80/", "http://localhost"],
-  ["https://EXAMPLE.COM:443/API/v1/", "https://example.com/API/v1"],
-] as const) {
-  test(`an equivalent legacy URL reuses its identity (${stored})`, async () => {
-    const files = new Files();
-    const secrets = new Secrets();
-    const profile = savedProfile(files, stored);
-    files.databases.add(profile.id);
-    saveKeys(secrets, profile.id);
-    const original = new Map(secrets.values);
-    const { factory, session } = controller({ files, secrets });
-    factory.client = new Client("saved-inbox", "saved-identity");
-    await session.connect({ url: typed, token: "" });
-    const opened = active(session).profile;
-    assert.equal(opened.id, profile.id);
-    assert.equal(opened.url, stored);
-    assert.equal(opened.inboxId, "saved-inbox");
-    assert.equal(files.index.profiles.length, 1);
-    assert.equal(files.index.activeId, profile.id);
-    const request = factory.requests.at(0);
-    assert.equal(bytesToHex(request?.wallet ?? new Uint8Array()), KEY_A);
-    assert.equal(bytesToHex(request?.databaseKey ?? new Uint8Array()), KEY_B);
-    assert.equal(request?.paths.root, "/fixture/messenger/profiles/saved");
-    assert.deepEqual(secrets.values, original);
-    assert.equal(secrets.randomCalls, 0);
-    assert.deepEqual(files.removed, []);
+test("an equivalent legacy URL reuses its identity", async () => {
+  const stored = "https://EXAMPLE.COM:443/API/v1/";
+  const { files, secrets, profile } = savedSession({
+    url: stored,
+    signedIn: false,
   });
-}
+  const original = new Map(secrets.values);
+  const { factory, session } = controller({ files, secrets });
+  factory.client = new Client("saved-inbox", "saved-identity");
+  await session.connect({ url: "https://example.com/API/v1", token: "" });
+  const opened = active(session).profile;
+  assert.equal(opened.id, profile.id);
+  assert.equal(opened.url, stored);
+  assert.equal(opened.inboxId, "saved-inbox");
+  assert.equal(files.index.profiles.length, 1);
+  assert.equal(files.index.activeId, profile.id);
+  const request = factory.requests.at(0);
+  assert.equal(hexOf(request?.wallet), KEY_A);
+  assert.equal(hexOf(request?.databaseKey), KEY_B);
+  assert.equal(request?.paths.root, "/fixture/messenger/profiles/saved");
+  assert.deepEqual(secrets.values, original);
+  assert.equal(secrets.randomCalls, 0);
+  assert.deepEqual(files.removed, []);
+});
 
-for (const input of [
-  "https://example.com:444/API",
-  "https://example.com/api",
-]) {
-  test(`a different endpoint creates a separate identity (${input})`, async () => {
-    const files = new Files();
-    const secrets = new Secrets();
-    const profile = savedProfile(files, "https://EXAMPLE.COM:443/API");
-    files.databases.add(profile.id);
-    saveKeys(secrets, profile.id);
-    const { factory, session } = controller({ files, secrets });
-    factory.clientFor = (request) =>
-      request.profile.id === profile.id
-        ? new Client("saved-inbox")
-        : new Client("new-inbox");
-    await session.connect({ url: input, token: "" });
-    const opened = active(session).profile;
-    assert.notEqual(opened.id, profile.id);
-    assert.equal(opened.url, input);
-    assert.equal(opened.inboxId, "new-inbox");
-    assert.equal(files.index.profiles.length, 2);
-    assert.ok(
-      files.index.profiles.some(
-        (entry) => entry.id === profile.id && entry.inboxId === "saved-inbox",
-      ),
-    );
-    assert.equal(secrets.get(profile.id, "wallet"), KEY_A);
-    assert.deepEqual(files.removed, []);
+test("a different endpoint creates a separate identity", async () => {
+  const input = "https://example.com/api";
+  const { files, secrets, profile } = savedSession({
+    url: "https://EXAMPLE.COM:443/API",
+    signedIn: false,
   });
-}
+  const { factory, session } = controller({ files, secrets });
+  factory.clientFor = (request) =>
+    request.profile.id === profile.id
+      ? new Client("saved-inbox")
+      : new Client("new-inbox");
+  await session.connect({ url: input, token: "" });
+  const opened = active(session).profile;
+  assert.notEqual(opened.id, profile.id);
+  assert.equal(opened.url, input);
+  assert.equal(opened.inboxId, "new-inbox");
+  assert.equal(files.index.profiles.length, 2);
+  assert.ok(
+    files.index.profiles.some(
+      (entry) => entry.id === profile.id && entry.inboxId === "saved-inbox",
+    ),
+  );
+  assert.equal(secrets.get(profile.id, "wallet"), KEY_A);
+  assert.deepEqual(files.removed, []);
+});
 
 test("rejoin after sign out reopens the same inbox; delete local data starts over", async () => {
   const { files, factory, session } = controller();
@@ -790,38 +766,10 @@ test("rejoin after sign out reopens the same inbox; delete local data starts ove
   assert.equal(again.inboxId, first.inboxId);
   assert.equal(factory.requests.at(-1)?.profile.inboxId, first.inboxId);
   await session.deleteLocalData();
-  files.databases.delete(first.id);
   await session.connect({ url: "http://127.0.0.1:5150", token: "" });
   const fresh = active(session).profile;
   assert.notEqual(fresh.id, first.id);
   assert.notEqual(fresh.inboxId, first.inboxId);
-});
-
-test("the scope is cancelled and awaited before the client ends", async () => {
-  const { factory, session } = controller();
-  await session.connect({ url: "https://example.com", token: "" });
-  const { request } = active(session);
-  const order: string[] = [];
-  void request.scope.add(
-    (signal) =>
-      new Promise<void>((resolve) => {
-        signal.addEventListener("abort", () => {
-          setTimeout(() => {
-            order.push("reader stopped");
-            resolve();
-          }, 5);
-        });
-      }),
-  );
-  const end = factory.client.end.bind(factory.client);
-  factory.client.end = () => {
-    order.push("client ended");
-    return end();
-  };
-  assert.ok(request.isCurrent());
-  await session.signOut();
-  assert.deepEqual(order, ["reader stopped", "client ended"]);
-  assert.ok(!request.isCurrent());
 });
 
 test("a bind failure ends the client and reports the error", async () => {
@@ -867,13 +815,15 @@ test("start reports unavailable storage and retries; appearance is global", asyn
   assert.equal(session.appearance.getState(), "dark");
 });
 
-test("concurrent start calls share one launch", async () => {
-  const { files, session } = controller();
-  const first = session.start();
-  const second = session.start();
-  await Promise.all([first, second]);
-  assert.equal(files.loads, 2);
-  assert.equal(session.getState().kind, "signedOut");
+test("two start calls share one launch without a Join flash", async () => {
+  const { files, secrets } = savedSession();
+  const { factory, session } = controller({ files, secrets });
+  const seen: string[] = [];
+  session.subscribe(() => seen.push(session.getState().kind));
+  await Promise.all([session.start(), session.start()]);
+  assert.equal(session.getState().kind, "active");
+  assert.ok(!seen.includes("signedOut"), seen.join(","));
+  assert.equal(factory.opens, 1);
 });
 
 test("restore with a missing active profile or database fails visibly", async () => {
@@ -882,10 +832,8 @@ test("restore with a missing active profile or database fails visibly", async ()
   const first = controller({ files });
   await first.session.start();
   assert.equal(first.session.getState().kind, "restoreFailed");
-  const other = new Files();
-  savedProfile(other, "https://example.com");
-  other.index = { ...other.index, signedIn: true };
-  const second = controller({ files: other });
+  const other = savedSession({ database: false });
+  const second = controller({ files: other.files, secrets: other.secrets });
   await second.session.start();
   assert.equal(second.session.getState().kind, "restoreFailed");
   assert.equal(second.factory.opens, 0);

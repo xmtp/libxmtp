@@ -24,6 +24,10 @@ test("notifies subscribers of each change until they unsubscribe", () => {
     calls += 1;
   });
   counter.increment();
+  const before = counter.getState();
+  counter.same();
+  assert.equal(counter.getState(), before);
+  assert.equal(calls, 1, "the same state object notifies nobody");
   counter.increment();
   assert.equal(counter.getState().count, 2);
   assert.equal(calls, 2);
@@ -31,18 +35,6 @@ test("notifies subscribers of each change until they unsubscribe", () => {
   counter.increment();
   assert.equal(calls, 2);
   assert.equal(counter.getState().count, 3);
-});
-
-test("the same state object notifies nobody", () => {
-  const counter = new Counter();
-  const before = counter.getState();
-  let calls = 0;
-  counter.subscribe(() => {
-    calls += 1;
-  });
-  counter.same();
-  assert.equal(calls, 0);
-  assert.equal(counter.getState(), before);
 });
 
 test("a listener that unsubscribes during notification does not skip others", () => {

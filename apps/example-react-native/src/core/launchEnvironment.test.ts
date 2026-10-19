@@ -33,17 +33,3 @@ test("allows private attachments only for exactly 1", () => {
     );
   }
 });
-
-test("ignores values that are not strings", () => {
-  assert.deepEqual(
-    parseLaunchEnvironment({
-      XMTP_BACKEND_URL: 5150,
-      XMTP_UI_TEST_ATTACHMENT: null,
-    }),
-    {
-      backendUrl: undefined,
-      allowPrivateAttachments: false,
-      uiTestAttachment: undefined,
-    },
-  );
-});

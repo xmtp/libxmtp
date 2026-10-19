@@ -125,7 +125,6 @@ export interface SessionControllerOptions<C extends SessionClient, S> {
   readonly factory: ClientFactory<C>;
   /** Builds the active session (stores, streams). Runs once per opened client. */
   readonly bind: (request: BindRequest<C>) => S;
-  readonly fence?: SessionFence;
   /** A new profile ID. Defaults to a version 4 UUID from `secrets.randomBytes`. */
   readonly newProfileId?: () => string;
 }
@@ -153,7 +152,7 @@ async function endQuietly(client: SessionClient): Promise<void> {
 export class SessionController<C extends SessionClient, S> extends Store<
   SessionState<S>
 > {
-  readonly fence: SessionFence;
+  readonly fence = new SessionFence();
   /** The global appearance setting (survives sign out and deletion). */
   readonly appearance = new ValueStore<Appearance>("system");
   readonly #secrets: SecretStore;
@@ -170,7 +169,6 @@ export class SessionController<C extends SessionClient, S> extends Store<
 
   constructor(options: SessionControllerOptions<C, S>) {
     super({ kind: "starting" });
-    this.fence = options.fence ?? new SessionFence();
     this.#secrets = options.secrets;
     this.#files = options.files;
     this.#factory = options.factory;
@@ -182,11 +180,6 @@ export class SessionController<C extends SessionClient, S> extends Store<
   /** The open client, if any (for tests and teardown checks). */
   get client(): C | undefined {
     return this.#client;
-  }
-
-  /** True while `key` is the open session. */
-  isCurrent(key: SessionKey): boolean {
-    return this.fence.accepts(key);
   }
 
   /**

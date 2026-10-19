@@ -28,7 +28,11 @@ export class SessionScope {
     return this.#closed;
   }
 
-  /** The number of unfinished tasks (for tests). */
+  /**
+   * The number of unfinished tasks. Only a test reads it: a finished task
+   * that stayed in the set would make `cancelAndWait` loop on microtasks
+   * forever, which no test timeout can catch.
+   */
   get taskCount(): number {
     return this.#tasks.size;
   }
