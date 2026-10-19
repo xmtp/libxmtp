@@ -42,7 +42,6 @@ export default function ChatProbe() {
           (row) => row.sender === chat.own && row.delivery !== "published",
         )?.id ??
       "";
-    console.log(`[chat-probe] message ${message}`);
     switch (params.action) {
       case "failNextSend":
         chatDebug.failNextQueue = true;
