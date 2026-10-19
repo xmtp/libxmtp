@@ -100,7 +100,7 @@ export function logicalKey(
   return "dm:" + [ownInboxId, conversation.peerInboxId ?? ""].sort().join(":");
 }
 
-/** `@handle`, else the short inbox ID (`IdentityDirectory.displayName`). */
+/** `@handle`, else the short inbox ID. */
 export function displayName(
   inboxId: string,
   handle: string | undefined,
@@ -122,7 +122,7 @@ export function memberInitial(inboxId: string, handle?: string): string {
     .toUpperCase();
 }
 
-/** The handle without one leading `@` (`HandleText.normalized`). */
+/** The handle without one leading `@`: the spoken label of `HandleText`. */
 export function stripAt(handle: string): string {
   return handle.startsWith("@") ? handle.slice(1) : handle;
 }

@@ -101,7 +101,7 @@ export interface ConversationListState {
 
 export const LOAD_FAILED = "Cannot load conversations. Try again.";
 
-/** The content types that count as unread (`unreadOptions`). */
+/** The content types that count as unread. */
 export const UNREAD_CONTENT_KINDS = [
   "text",
   "markdown",
@@ -228,7 +228,7 @@ export class ConversationListStore extends Store<ConversationListState> {
     return this.#options.consent;
   }
 
-  /** Reads the first page again (`.load`). */
+  /** Reads the first page again. */
   load(): void {
     this.#limit = CONVERSATION_PAGE_SIZE;
     void this.#load();
@@ -264,8 +264,8 @@ export class ConversationListStore extends Store<ConversationListState> {
   }
 
   /**
-   * Visible rows changed (`.visible(start:count:)`): read their details and
-   * the 50 below, and load the next page near the end.
+   * The list shows `count` rows from `start`: read their details and the
+   * window below them, and load the next page near the end.
    */
   visible(start: number, count: number): void {
     if (this.#disposed) return;

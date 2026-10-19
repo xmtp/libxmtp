@@ -210,9 +210,9 @@ export class ActiveSession {
   }
 
   /**
-   * The first screen after a join or restore (`chooseInitialRoute`): Choose
-   * handle when the inbox has no handle and the user did not skip; else Chats
-   * (also when the handle read fails).
+   * The first screen after a join or restore: Choose handle when the inbox has
+   * no handle and the user did not skip; else Chats (also when the handle read
+   * fails).
    */
   async initialRoute(): Promise<"choose-handle" | "chats"> {
     try {

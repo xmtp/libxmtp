@@ -6,7 +6,7 @@ export interface SendReviewSectionProps {
 
 /**
  * The "Send needs review" section of Settings.
- * The messaging lane replaces this placeholder, which renders nothing.
+ * Until the messaging screens exist, this placeholder renders nothing.
  */
 export function SendReviewSection(_props: SendReviewSectionProps) {
   return null;

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The XMTP mark from apps/example-ios Logo.svg, at the iOS icon proportion (64% of the visible 72dp). -->
+<!-- The XMTP mark at the proportion of this app's iOS icon: 64% of the visible 72dp. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"

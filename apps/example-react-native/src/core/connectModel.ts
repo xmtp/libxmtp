@@ -30,8 +30,8 @@ export interface ConnectState {
 
 /**
  * Join is enabled when nothing runs, the address parses, and a token is typed
- * when the server needs one (`ConnectState.canJoin`). It does not require a
- * successful probe: Join probes again first.
+ * when the server needs one. It does not require a successful probe: Join
+ * probes again first.
  */
 export function canJoin(state: ConnectState): boolean {
   return (

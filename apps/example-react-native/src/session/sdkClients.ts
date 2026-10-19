@@ -116,7 +116,7 @@ export async function probeBackend(
   return { requiresToken: configuration.auth.enabled };
 }
 
-/** The handle failure for an SDK error (`mapHandleError`). */
+/** The handle failure for an SDK error. */
 export function handleError(error: unknown): HandleError {
   if (error instanceof XmtpError.HandleTaken) return "taken";
   if (error instanceof XmtpError.HandleNotAllowed) return "notAllowed";

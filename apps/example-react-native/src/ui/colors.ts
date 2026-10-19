@@ -177,8 +177,8 @@ export function useColors(): Palette {
 }
 
 /**
- * The six avatar background/foreground pairs (`AvatarBackground<i>`,
- * `AvatarForeground<i>`). They are the same in light and dark mode.
+ * The six avatar background/foreground pairs, indexed by `avatarPaletteIndex`.
+ * They are the same in light and dark mode.
  */
 export const avatarPalette = [
   { background: "#DCE4FF", foreground: "#243E91" },

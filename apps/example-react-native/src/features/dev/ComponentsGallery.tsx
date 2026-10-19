@@ -545,7 +545,7 @@ const styles = StyleSheet.create({
   bubbles: { borderRadius: 26, gap: 10, padding: 16 },
   incoming: { alignItems: "flex-start", paddingRight: 42, paddingVertical: 6 },
   outgoing: { alignItems: "flex-end", paddingLeft: 42 },
-  // `reactionBadges`: 44 pt targets at the top-trailing corner, 12 pt up.
+  // Reaction badges: 44 pt targets at the top-trailing corner, 12 pt up.
   badges: {
     flexDirection: "row",
     gap: 2,

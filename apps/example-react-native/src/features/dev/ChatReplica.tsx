@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
   outgoing: { justifyContent: "flex-end", paddingLeft: 42 },
   reacted: { paddingVertical: 6 },
   column: { gap: 4 },
-  // `reactionBadges`: 44 pt targets at the top-trailing corner, 12 pt up.
+  // Reaction badges: 44 pt targets at the top-trailing corner, 12 pt up.
   badges: {
     flexDirection: "row",
     gap: 2,

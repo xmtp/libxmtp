@@ -15,7 +15,7 @@ import { form } from "@/ui/tokens";
 import { fontOf } from "@/ui/typography";
 
 const iconColumnInset = form.rowInset + form.iconColumn + form.iconGap;
-/** Settings `actionRow` icons sit in `.frame(width: 20)`. */
+/** Settings action row icons sit in a 20 pt frame. */
 const actionIconWidth = 20;
 /** A SwiftUI `Label` in a list row gives its icon a 28 pt column. */
 const labelIconWidth = 28;
@@ -123,14 +123,14 @@ export interface ButtonRowProps extends PressableRowProps {
   /** A trailing chevron in the row color at 25 percent (Settings "Change handle"). */
   navigates?: boolean;
   /**
-   * `action` (default): the Settings `actionRow`, a 20 pt icon column.
+   * `action` (default): a Settings action row, a 20 pt icon column.
    * `label`: a SwiftUI `Label` row (Details "Add member"), a 28 pt column.
    */
   iconStyle?: "action" | "label";
 }
 
 /**
- * A tinted action row (Settings `actionRow`): an icon column and the title in
+ * A tinted action row (Settings): an icon column and the title in
  * the tint, or system red when destructive.
  */
 export function ButtonRow({

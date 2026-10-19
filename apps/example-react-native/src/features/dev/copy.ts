@@ -14,7 +14,7 @@ export const galleryCopy = {
   },
   sectionsHeader: "Replicas",
   sectionsFooter:
-    "Each replica uses the reference capture's content, so it can be compared pixel by pixel.",
+    "Each replica uses fixed content, so screenshots compare across builds.",
 
   typography: "Typography",
   colors: "Colors",

@@ -95,7 +95,7 @@ function RequestsList({ session }: { readonly session: ActiveSession }) {
         router.dismissTo("/chats");
         return;
       }
-      // Accept: the stack becomes Chats → Chat (`setPath([.chat(id)])`).
+      // Accept: the stack becomes Chats → Chat.
       const routes = navigation.getState()?.routes ?? [];
       if (routes.at(-2)?.name === "chats") {
         router.replace(chatHref(outcome.id));

@@ -3,7 +3,7 @@
 
 import { sha256, utf8 } from "./sha256.ts";
 
-/** The number of avatar color pairs (`AvatarBackground0`…`AvatarBackground5`). */
+/** The number of avatar color pairs in the app palette. */
 export const AVATAR_PALETTE_SIZE = 6;
 
 /** The palette index for `seed`: the first SHA-256 byte of its UTF-8, mod 6. */

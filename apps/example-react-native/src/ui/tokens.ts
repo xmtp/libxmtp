@@ -68,7 +68,7 @@ export const form = {
 } as const;
 
 export const sizes = {
-  /** `Theme.minimumHitTarget`. */
+  /** The smallest touch target. */
   minimumHitTarget: 44,
   /** Glass bar buttons and icon buttons. */
   glassButton: 44,

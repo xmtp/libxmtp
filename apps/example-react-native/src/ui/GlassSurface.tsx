@@ -8,7 +8,7 @@ export type { GlassSurfaceProps };
 
 /**
  * Plain React Native glass stand-in (Android): the Reduce Transparency look of
- * `messengerGlass(in:)`, a background surface with a 1 pt stroke.
+ * the iOS glass surface, a background surface with a 1 pt stroke.
  */
 export function GlassSurface({
   shape = "rect",

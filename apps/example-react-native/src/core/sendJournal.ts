@@ -202,7 +202,7 @@ export class SendJournal {
   }
 }
 
-/** The SDK reads the coordinator needs (the chat lane maps SDK errors to `SendError`). */
+/** The SDK reads the coordinator needs. Implementations throw `SendError` for SDK failures. */
 export interface SendQueries {
   /** The conversation's consent state now. */
   consent(conversationId: string): Promise<"allowed" | "unknown" | "denied">;
