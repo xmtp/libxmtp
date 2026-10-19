@@ -5,9 +5,9 @@
 // `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`,
 // `contend`, `allowRequests`, `handles`, `claim` (`name`) or
 // `createGroup` (`name`, `members=handle,handle`); add `&n=<anything new>` to run the
-// same action again. A link that can end the session or change the account
-// asks in the app first (`src/core/probeLinks.ts`); other links are ignored
-// until that alert closes.
+// same action again. A link that can open, end or replace the session or
+// change the account asks in the app first (`src/core/probeLinks.ts`); other
+// links are ignored until that alert closes.
 
 import type { Message } from "@xmtp/react-native-sdk";
 import { useXmtp } from "@xmtp/react-native-sdk/react";
@@ -70,8 +70,12 @@ function memberHandles(members: string | undefined): string[] {
   return (members ?? "").split(",").filter((handle) => handle !== "");
 }
 
-/** The in-app confirmation a link needs (Settings' alerts for sign out and deletion). */
+/**
+ * The in-app confirmation a link needs (Settings' alerts for sign out and
+ * deletion). The title names the link's `action`.
+ */
 function linkConfirmation(
+  action: string,
   confirmation: ProbeLinkConfirmation,
   input: { url: string; name?: string; members?: string },
   run: () => void,
@@ -88,7 +92,7 @@ function linkConfirmation(
       { text: probeLinkCopy.cancel, style: "cancel" },
     ],
   });
-  const title = probeLinkCopy.title(confirmation);
+  const title = probeLinkCopy.title(action);
   switch (confirmation) {
     case "signOut":
       return ask(
@@ -104,8 +108,12 @@ function linkConfirmation(
       );
     case "connect":
       return ask(title, probeLinkCopy.connect(input.url), probeLinkCopy.run);
+    case "join":
+      return ask(title, probeLinkCopy.join(input.url), probeLinkCopy.run);
     case "retry":
       return ask(title, probeLinkCopy.retry, probeLinkCopy.run);
+    case "reopen":
+      return ask(title, probeLinkCopy.reopen, probeLinkCopy.run);
     case "allowRequests":
       return ask(title, probeLinkCopy.allowRequests, probeLinkCopy.run);
     case "claim":
@@ -400,7 +408,7 @@ export default function SessionProbe() {
     if (confirmation !== undefined) {
       log(`${action} from a link: waiting for confirmation`);
       setAlert(
-        linkConfirmation(confirmation, input, () => {
+        linkConfirmation(action, confirmation, input, () => {
           void actions(action, input);
         }),
       );

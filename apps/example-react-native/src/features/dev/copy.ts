@@ -169,8 +169,12 @@ export const probeLinkCopy = {
   cancel: commonCopy.cancel,
   connect: (url: string) =>
     `Any app can open this link. It ends the current session and joins ${url}.`,
+  join: (url: string) =>
+    `Any app can open this link. You are signed out, and it joins ${url} with an identity from this device.`,
   retry:
     "Any app can open this link. It ends the current session and opens it again.",
+  reopen:
+    "Any app can open this link. You are signed out, and it opens the saved account whose restore failed, if there is one.",
   allowRequests:
     "Any app can open this link. It accepts every message request.",
   claim: (handle: string) =>

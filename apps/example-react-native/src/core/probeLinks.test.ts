@@ -9,7 +9,7 @@ import type { SessionState } from "./sessionController.ts";
 
 type Kind = SessionState<unknown>["kind"];
 
-test("a probe link asks before it can end the session or change the account", () => {
+test("a probe link asks before it can open, end or replace a session or change the account", () => {
   const notSignedOut: readonly Kind[] = [
     "starting",
     "storageFailed",
@@ -24,9 +24,9 @@ test("a probe link asks before it can end the session or change the account", ()
     ["allowRequests", "active", "allowRequests"],
     ["claim", "active", "claim"],
     ["createGroup", "active", "createGroup"],
-    // A signed-out app has no session to end: Join and Retry run at once.
-    ["connect", "signedOut", undefined],
-    ["retry", "signedOut", undefined],
+    // Signed out, a link still opens a session: it asks with its own text.
+    ["connect", "signedOut", "join"],
+    ["retry", "signedOut", "reopen"],
     ...notSignedOut.flatMap((kind) => [
       ["connect", kind, "connect"] as const,
       ["retry", kind, "retry"] as const,

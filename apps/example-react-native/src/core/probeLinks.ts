@@ -7,10 +7,13 @@
 // - `allowRequests` (accepts every message request), `claim` (the claim
 //   stays in the identity log) and `createGroup` (adds the members the link
 //   names).
-// - `connect` and `retry` unless the app is signed out, because they end or
-//   replace the app's session. A signed-out app has none, so they run at
-//   once, as Join on Connect and Retry do, and UI checks can join by link.
-//   Like Join with an empty Access token, a connect link without a token
+// - `connect` and `retry`, in every session state. With a session open they
+//   end or replace it. Signed out, `connect` still opens a session: it
+//   reopens the identity this device keeps for the server the link names, or
+//   creates one there, so a link must not choose the server. `retry` reopens
+//   the saved profile whose restore failed, on its own server. The signed-out
+//   confirmations (`join`, `reopen`) say so instead of naming a session to
+//   end. Like Join with an empty Access token, a connect link without a token
 //   clears the token saved for that server.
 //
 // The other actions run at once: `start` and `restore` do what launch does,
@@ -27,12 +30,17 @@
 
 import type { SessionState } from "./sessionController.ts";
 
-/** A session probe action that a link runs only after an in-app confirmation. */
+/**
+ * A confirmation a session probe link needs before its action runs. `join`
+ * and `reopen` are `connect` and `retry` while the app is signed out.
+ */
 export type ProbeLinkConfirmation =
   | "signOut"
   | "delete"
   | "connect"
+  | "join"
   | "retry"
+  | "reopen"
   | "allowRequests"
   | "claim"
   | "createGroup";
@@ -53,8 +61,9 @@ export function probeLinkConfirmation(
     case "createGroup":
       return action;
     case "connect":
+      return session === "signedOut" ? "join" : "connect";
     case "retry":
-      return session === "signedOut" ? undefined : action;
+      return session === "signedOut" ? "reopen" : "retry";
     default:
       return undefined;
   }
