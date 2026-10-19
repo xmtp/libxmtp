@@ -5,7 +5,9 @@
 // `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`,
 // `contend`, `allowRequests`, `handles`, `claim` (`name`) or
 // `createGroup` (`name`, `members=handle,handle`); add `&n=<anything new>` to run the
-// same action again. A link to `signOut` or `delete` asks in the app first.
+// same action again. A link that can end the session or change the account
+// asks in the app first (`src/core/probeLinks.ts`); other links are ignored
+// until that alert closes.
 
 import type { Message } from "@xmtp/react-native-sdk";
 import { useXmtp } from "@xmtp/react-native-sdk/react";
@@ -28,6 +30,7 @@ import {
 } from "@/core/probeLinks.ts";
 import { errorMessage } from "@/core/sessionError.ts";
 import type { SessionEvent } from "@/core/streamHub.ts";
+import { probeLinkCopy } from "@/features/dev/copy";
 import { settingsCopy } from "@/features/settings/copy";
 import { launchEnvironment } from "@/platform/messengerPlatform";
 import {
@@ -61,24 +64,65 @@ function describeEvent(event: SessionEvent): string {
   }
 }
 
-/** The in-app confirmation for a link to `signOut` or `delete` (Settings' copy). */
+/** The handles in a comma-separated `members` parameter. */
+function memberHandles(members: string | undefined): string[] {
+  return (members ?? "").split(",").filter((handle) => handle !== "");
+}
+
+/** The in-app confirmation a link needs (Settings' alerts for sign out and deletion). */
 function linkConfirmation(
   confirmation: ProbeLinkConfirmation,
+  input: { url: string; name?: string; members?: string },
   run: () => void,
 ): AlertDialogRequest {
-  const signOut = confirmation === "signOut";
-  return {
-    title: signOut ? settingsCopy.signOutTitle : settingsCopy.deleteTitle,
-    message: signOut ? settingsCopy.signOutMessage : settingsCopy.deleteMessage,
+  const ask = (
+    title: string,
+    message: string,
+    action: string,
+  ): AlertDialogRequest => ({
+    title,
+    message,
     buttons: [
-      {
-        text: signOut ? settingsCopy.signOut : settingsCopy.deleteLocalData,
-        style: "destructive",
-        onPress: run,
-      },
-      { text: settingsCopy.cancel, style: "cancel" },
+      { text: action, style: "destructive", onPress: run },
+      { text: probeLinkCopy.cancel, style: "cancel" },
     ],
-  };
+  });
+  const title = probeLinkCopy.title(confirmation);
+  switch (confirmation) {
+    case "signOut":
+      return ask(
+        settingsCopy.signOutTitle,
+        settingsCopy.signOutMessage,
+        settingsCopy.signOut,
+      );
+    case "delete":
+      return ask(
+        settingsCopy.deleteTitle,
+        settingsCopy.deleteMessage,
+        settingsCopy.deleteLocalData,
+      );
+    case "connect":
+      return ask(title, probeLinkCopy.connect(input.url), probeLinkCopy.run);
+    case "retry":
+      return ask(title, probeLinkCopy.retry, probeLinkCopy.run);
+    case "allowRequests":
+      return ask(title, probeLinkCopy.allowRequests, probeLinkCopy.run);
+    case "claim":
+      return ask(
+        title,
+        probeLinkCopy.claim(input.name ?? ""),
+        probeLinkCopy.run,
+      );
+    case "createGroup":
+      return ask(
+        title,
+        probeLinkCopy.createGroup(
+          input.name ?? "",
+          memberHandles(input.members),
+        ),
+        probeLinkCopy.run,
+      );
+  }
 }
 
 function SessionDetails({
@@ -296,13 +340,10 @@ export default function SessionProbe() {
             if (current.kind !== "active") throw new Error("No open session");
             const group =
               await current.session.client.conversations.createGroup(
-                (input.members ?? "")
-                  .split(",")
-                  .filter((handle) => handle !== "")
-                  .map((handle) => ({
-                    kind: "handle" as const,
-                    identifier: handle,
-                  })),
+                memberHandles(input.members).map((handle) => ({
+                  kind: "handle" as const,
+                  identifier: handle,
+                })),
                 { name: input.name ?? "" },
               );
             return group.id;
@@ -330,9 +371,19 @@ export default function SessionProbe() {
   useEffect(() => {
     const action = params.action;
     if (action === undefined) return;
+    // A link that launches the app arrives while the session starts: decide
+    // once it settles, so the rule sees whether a session is open.
+    if (state.kind === "starting") return;
     const id = `${action}|${params.url ?? ""}|${params.n ?? ""}`;
     if (ran.current === id) return;
     ran.current = id;
+    // One link at a time: the open alert's buttons would run a newer link's
+    // action under the text of the first, and a link that runs at once could
+    // change the session the alert asks about.
+    if (alert !== undefined) {
+      log(`${action} from a link: ignored while another link waits`);
+      return;
+    }
     const input = {
       url: params.url ?? url,
       token: params.token ?? token,
@@ -340,11 +391,11 @@ export default function SessionProbe() {
       ...(params.members === undefined ? {} : { members: params.members }),
     };
     if (params.url !== undefined) setUrl(params.url);
-    const confirmation = probeLinkConfirmation(action);
+    const confirmation = probeLinkConfirmation(action, state.kind);
     if (confirmation !== undefined) {
       log(`${action} from a link: waiting for confirmation`);
       setAlert(
-        linkConfirmation(confirmation, () => {
+        linkConfirmation(confirmation, input, () => {
           void actions(action, input);
         }),
       );
@@ -353,6 +404,7 @@ export default function SessionProbe() {
     void actions(action, input);
   }, [
     actions,
+    alert,
     log,
     params.action,
     params.members,
@@ -360,6 +412,7 @@ export default function SessionProbe() {
     params.name,
     params.token,
     params.url,
+    state.kind,
     token,
     url,
   ]);

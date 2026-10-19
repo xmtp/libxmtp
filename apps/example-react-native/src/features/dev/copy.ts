@@ -1,3 +1,5 @@
+import { commonCopy } from "@/copy/common";
+
 /**
  * Design gallery strings: fixed sample content, so screenshots of the
  * samples compare across builds.
@@ -158,4 +160,23 @@ export const galleryCopy = {
   connect: {
     footer: "Use a server address from someone you trust.",
   },
+} as const;
+
+/** The session probe's confirmation for a link (`src/core/probeLinks.ts`). */
+export const probeLinkCopy = {
+  title: (action: string) => `Run ${action} from a link?`,
+  run: "Run",
+  cancel: commonCopy.cancel,
+  connect: (url: string) =>
+    `Any app can open this link. It ends the current session and joins ${url}.`,
+  retry:
+    "Any app can open this link. It ends the current session and opens it again.",
+  allowRequests:
+    "Any app can open this link. It accepts every message request.",
+  claim: (handle: string) =>
+    `Any app can open this link. It claims the handle ${handle}, and the claim stays in the identity log.`,
+  createGroup: (name: string, members: readonly string[]) =>
+    members.length === 0
+      ? `Any app can open this link. It creates the group ${name}.`
+      : `Any app can open this link. It creates the group ${name} with ${members.join(", ")}.`,
 } as const;
