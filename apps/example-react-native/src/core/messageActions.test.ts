@@ -45,10 +45,10 @@ const own = (n: number): ChatMessage => textMessage(n, { sender: OWN });
 
 test("reacting adds the emoji, and reacting again removes it", async () => {
   const h = harness();
-  // A peer's reaction with the same emoji is not the own one.
+  // A peer's 👍 and the own ❤️ are not an own 👍.
   const row: ChatMessage = {
     ...textMessage(1),
-    reactions: [reactionRecord(PEER, "👍", 4)],
+    reactions: [reactionRecord(PEER, "👍", 4), reactionRecord(OWN, "❤️", 3)],
   };
   h.queries.published.push(row);
   h.actions.react(row, "👍");
