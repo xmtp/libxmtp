@@ -113,5 +113,75 @@ class AdmissionTests(unittest.TestCase):
         self.assertIn("trusted-public-keys", commands[0])
 
 
+class StageTests(unittest.TestCase):
+    def evaluated(self, *args):
+        result = subprocess.CompletedProcess(
+            (), 0, stdout=json.dumps({"root": "/nix/store/" + "d" * 32 + "-root"})
+        )
+        with patch.object(exchange, "run", return_value=result) as process:
+            exchange.roots(*args)
+        return process.call_args.args
+
+    def test_each_kind_reads_its_own_stage_set(self):
+        self.assertIn(
+            ".#ciStages.aarch64-darwin.components",
+            self.evaluated("aarch64-darwin", "components"),
+        )
+        self.assertIn(
+            ".#legacyPackages.x86_64-linux.reactNative.testStages.package",
+            self.evaluated("x86_64-linux", "package", None, "test"),
+        )
+
+    def test_release_version_never_names_a_test_package(self):
+        with self.assertRaisesRegex(ValueError, "release package stage"):
+            exchange.roots("x86_64-linux", "package", "8.0.1", "test")
+
+    def test_export_compresses_with_parallel_zstd(self):
+        product = "/nix/store/" + "f" * 32 + "-component"
+        commands = []
+
+        def process(*args, **kwargs):
+            commands.append(args)
+            if args[:3] == ("nix", "key", "generate-secret"):
+                kwargs["stdout"].write(b"secret")
+            if args[:3] == ("nix", "key", "convert-secret-to-public"):
+                return subprocess.CompletedProcess(args, 0, stdout=b"public\n")
+            if args[:2] == ("nix", "copy"):
+                cache = Path(args[3].split("?")[0].removeprefix("file://"))
+                (cache / "nar").mkdir(parents=True)
+                (cache / "nar/x.nar.zst").write_bytes(b"nar")
+                (cache / ("f" * 32 + ".narinfo")).write_text("URL: nar/x.nar.zst\n")
+            return subprocess.CompletedProcess(args, 0)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            argv = [
+                "exchange",
+                "export",
+                "--system",
+                "x86_64-linux",
+                "--stage",
+                "components",
+                "--kind",
+                "test",
+                "--directory",
+                str(Path(temporary) / "export"),
+            ]
+            with (
+                patch("sys.argv", argv),
+                patch.object(exchange, "roots", return_value={"root": product}),
+                patch.object(
+                    exchange,
+                    "info",
+                    return_value={product: {"narHash": "sha256-x", "references": []}},
+                ),
+                patch.object(exchange, "run", side_effect=process),
+            ):
+                exchange.main()
+        copy = next(args for args in commands if args[:2] == ("nix", "copy"))
+        query = copy[3].split("?", 1)[1]
+        self.assertIn("compression=zstd", query)
+        self.assertIn("parallel-compression=true", query)
+
+
 if __name__ == "__main__":
     unittest.main()

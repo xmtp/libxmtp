@@ -129,6 +129,8 @@ jobs:
     env:
       XMTP_SDK_BUILD: nix
       NIX_DEVSHELL: ${{ matrix.platform == 'android' && 'android' || 'ios' }}
+      # Every journey, also runtime reload and background launch, gates publish.
+      XMTP_RN_JOURNEYS: full
     steps:
       - name: Check out the release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

@@ -13,12 +13,34 @@ inputs:
   package-version:
     description: Empty for the default package, or the exact release version
     default: ""
+  package-kind:
+    description: >-
+      release (the full package of every ABI and slice) or test (the partial
+      pull request package of the fast components; it cannot ship)
+    default: release
+  consumers:
+    description: Consumers stage only. all (bare and Expo) or bare (test Android only)
+    default: all
+  exchange:
+    description: >-
+      true moves the closures through same-run artifacts. Pass false when the
+      producers pushed them to Cachix: the next stage then substitutes them.
+      Forks, tokenless runs, and releases keep true.
+    default: "true"
+  substitute-only:
+    description: Consumers stage only. true allows no builder; every output must substitute
+    default: "false"
   artifact-prefix:
     description: Same-run artifact namespace shared by all stages
     required: true
   cache-mode:
     description: Cache policy selected by the calling job; this action receives no credentials
     required: true
+  debug:
+    description: >-
+      true records the product identity receipts and uploads them. A run
+      re-run with debug logging (runner.debug) records them too.
+    default: "false"
 runs:
   using: composite
   steps:
@@ -33,7 +55,8 @@ runs:
           echo "build=$(jq -er .build <<< "$pin")"
           echo "directory=$(jq -er .developerDir <<< "$pin")"
         } >> "$GITHUB_OUTPUT"
-    - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+    - name: Select the pinned Xcode
+      uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
       if: runner.os == 'macOS'
       with:
         xcode-version: ${{ steps.xcode.outputs.version }}
@@ -47,25 +70,29 @@ runs:
       run: |
         test "$(xcode-select -p)" = "$PIN_DIRECTORY"
         test "$(xcodebuild -version)" = "$(printf 'Xcode %s\nBuild version %s' "$PIN_VERSION" "$PIN_BUILD")"
-    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-      if: inputs.stage == 'package'
+    - name: Download the component closures
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      if: inputs.stage == 'package' && inputs.exchange == 'true'
       with:
         pattern: ${{ inputs.artifact-prefix }}-components-*
         path: target/rn-exchange
-    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-      if: inputs.stage == 'consumers'
+    - name: Download the package closure
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      if: inputs.stage == 'consumers' && inputs.exchange == 'true'
       with:
         name: ${{ inputs.artifact-prefix }}-package-closure
         path: target/rn-exchange/package
     - name: Record the initial product identities
-      if: inputs.stage != 'package'
+      if: (inputs.debug == 'true' || runner.debug == '1') && inputs.stage != 'package'
       id: before
       shell: bash
       env:
         RN_STAGE: ${{ inputs.stage }}
         RN_SYSTEM: ${{ inputs.system }}
         RN_PACKAGE_VERSION: ${{ inputs.package-version }}
-      run: dev/nix-shell --shell js --command python3.11 "$GITHUB_ACTION_PATH/receipt.py" "$RN_STAGE" "$RN_SYSTEM" "$RN_PACKAGE_VERSION" '${{ inputs.cache-mode }}' before
+        RN_PACKAGE_KIND: ${{ inputs.package-kind }}
+        RN_CONSUMERS: ${{ inputs.consumers }}
+      run: dev/nix-shell --shell js-node --command python3.11 "$GITHUB_ACTION_PATH/receipt.py" "$RN_STAGE" "$RN_SYSTEM" "$RN_PACKAGE_VERSION" '${{ inputs.cache-mode }}' before
     - name: Build and exchange the declared products
       shell: bash
       env:
@@ -73,6 +100,10 @@ runs:
         RN_SYSTEM: ${{ inputs.system }}
         RN_SOURCE_SHA: ${{ inputs.source-sha }}
         RN_PACKAGE_VERSION: ${{ inputs.package-version }}
+        RN_PACKAGE_KIND: ${{ inputs.package-kind }}
+        RN_CONSUMERS: ${{ inputs.consumers }}
+        RN_EXCHANGE: ${{ inputs.exchange }}
+        RN_SUBSTITUTE_ONLY: ${{ inputs.substitute-only }}
         RN_ARTIFACT_PREFIX: ${{ inputs.artifact-prefix }}
         RN_CACHE_MODE: ${{ inputs.cache-mode }}
       run: |
@@ -82,28 +113,66 @@ runs:
         [[ "$RN_ARTIFACT_PREFIX" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]
         case "$RN_CACHE_MODE" in read|ci|trusted) ;; *) exit 1 ;; esac
         case "$RN_SYSTEM" in x86_64-linux|aarch64-darwin) ;; *) exit 1 ;; esac
-        exchange() { dev/nix-shell --shell js --command python3.11 nix/react-native-exchange.py "$@"; }
+        case "$RN_EXCHANGE" in true|false) ;; *) exit 1 ;; esac
+        case "$RN_SUBSTITUTE_ONLY" in true|false) ;; *) exit 1 ;; esac
+        case "$RN_PACKAGE_KIND" in
+          release) stages=".#ciStages.$RN_SYSTEM" ;;
+          # The partial package has no release version.
+          test) [[ -z "$RN_PACKAGE_VERSION" ]] || exit 1; stages=".#legacyPackages.$RN_SYSTEM.reactNative.testStages" ;;
+          *) exit 1 ;;
+        esac
+        exchange() { dev/nix-shell --shell js-node --command python3.11 nix/react-native-exchange.py "$@" --kind "$RN_PACKAGE_KIND"; }
         # Bash 3.2 treats an empty array as unset under nounset.
         version_args=()
         if [[ -n "$RN_PACKAGE_VERSION" ]]; then version_args=(--version "$RN_PACKAGE_VERSION"); fi
+        # The declared roots of a stage, for the Cachix pushes and the package
+        # path. An exchange manifest already holds them: export and import
+        # check them against this checkout.
+        mkdir -p target/rn-roots
+        write_roots() {
+          if [[ "$RN_EXCHANGE" == true ]]; then
+            jq -e .roots "$3" > "target/rn-roots/$2.json"
+          else
+            exchange roots --system "$1" --stage "$2" ${version_args[@]+"${version_args[@]}"} > "target/rn-roots/$2.json"
+          fi
+        }
+        package_root() {
+          jq -er 'to_entries | if length == 1 then .[0].value else error("expected one package root") end' target/rn-roots/package.json
+        }
+        options=(--option log-lines 100 --no-link)
+        if [[ "$RUNNER_OS" == macOS ]]; then options+=(--option sandbox relaxed); fi
+        if [[ "$RN_SUBSTITUTE_ONLY" == true ]]; then
+          # Link farms set allowSubstitutes = false; the override lets them substitute.
+          options+=(--max-jobs 0 --option builders "" --option always-allow-substitutes true)
+        fi
+        build=(nix build "${options[@]}" --json)
         case "$RN_STAGE" in
           components)
             build_started=$SECONDS
-            nix build --no-link ".#ciStages.$RN_SYSTEM.components" 2> >(tee "$RUNNER_TEMP/rn-build.log" >&2)
+            nix build --no-link "$stages.components" 2> >(tee "$RUNNER_TEMP/rn-build.log" >&2)
             echo "RN_BUILD_SECONDS=$((SECONDS - build_started))" >> "$GITHUB_ENV"
-            exchange export --system "$RN_SYSTEM" --stage components --directory target/rn-exchange/components
+            if [[ "$RN_EXCHANGE" == true ]]; then
+              exchange export --system "$RN_SYSTEM" --stage components --directory target/rn-exchange/components
+            fi
+            version_args=()
+            write_roots "$RN_SYSTEM" components target/rn-exchange/components/manifest.json
+            echo "XMTP_RN_ROOTS=$PWD/target/rn-roots/components.json" >> "$GITHUB_ENV"
             ;;
           package|consumers)
             if [[ "$RN_STAGE" == package ]]; then
               test "$RN_SYSTEM" = x86_64-linux
-              for producer in x86_64-linux aarch64-darwin; do
-                exchange import --system "$producer" --stage components --directory "target/rn-exchange/$RN_ARTIFACT_PREFIX-components-$producer"
-              done
+              if [[ "$RN_EXCHANGE" == true ]]; then
+                for producer in x86_64-linux aarch64-darwin; do
+                  exchange import --system "$producer" --stage components --directory "target/rn-exchange/$RN_ARTIFACT_PREFIX-components-$producer"
+                done
+              fi
             else
-              exchange import --system x86_64-linux --stage package --directory target/rn-exchange/package ${version_args[@]+"${version_args[@]}"}
+              if [[ "$RN_EXCHANGE" == true ]]; then
+                exchange import --system x86_64-linux --stage package --directory target/rn-exchange/package ${version_args[@]+"${version_args[@]}"}
+              fi
+              write_roots x86_64-linux package target/rn-exchange/package/manifest.json
             fi
-            build=(nix build --option log-lines 100 --no-link --json)
-            if [[ "$RUNNER_OS" == macOS ]]; then build+=(--option sandbox relaxed); fi
+            platform=$([[ "$RN_SYSTEM" == x86_64-linux ]] && echo android || echo ios)
             if [[ -n "$RN_PACKAGE_VERSION" ]]; then
               # Both phases construct the package with the same exact version.
               # shellcheck disable=SC2016
@@ -114,30 +183,47 @@ runs:
                     };
                 in if builtins.getEnv "RN_STAGE" == "package" then package
                    else flake.legacyPackages.${builtins.getEnv "RN_SYSTEM"}.reactNative.mkConsumers { inherit package; }')
+            elif [[ "$RN_STAGE" == package ]]; then
+              build+=("$stages.package")
             else
-              build+=(".#ciStages.$RN_SYSTEM.$RN_STAGE")
+              # Only the app bundles the device test installs; on a cache hit
+              # this downloads no app build inputs.
+              consumer=react-native-consumer-$platform
+              if [[ "$RN_PACKAGE_KIND" == test ]]; then consumer=react-native-test-consumer-$platform; fi
+              case "$RN_CONSUMERS" in
+                all) ;;
+                bare) [[ "$RN_PACKAGE_KIND/$platform" == test/android ]] || exit 1; consumer+=-bare ;;
+                *) exit 1 ;;
+              esac
+              if [[ "$RN_EXCHANGE" == false ]]; then
+                # The package tarball comes from Cachix; the device test installs it.
+                nix build "${options[@]}" ".#packages.x86_64-linux.$(jq -er 'keys[0]' target/rn-roots/package.json)"
+              fi
+              build+=(".#$consumer")
             fi
             build_started=$SECONDS
             product=$("${build[@]}" 2> >(tee "$RUNNER_TEMP/rn-build.log" >&2) | jq -er '.[0].outputs.out')
             echo "RN_BUILD_SECONDS=$((SECONDS - build_started))" >> "$GITHUB_ENV"
             if [[ "$RN_STAGE" == package ]]; then
-              exchange export --system x86_64-linux --stage package --directory target/rn-exchange/package ${version_args[@]+"${version_args[@]}"}
-              manifest=target/rn-exchange/package/manifest.json
-            else
-              manifest=target/rn-exchange/package/manifest.json
-              if [[ -z "$RN_PACKAGE_VERSION" ]]; then
-                platform=$([[ "$RN_SYSTEM" == x86_64-linux ]] && echo android || echo ios)
-                product=$(nix eval --raw ".#react-native-consumer-$platform.outPath")
+              if [[ "$RN_EXCHANGE" == true ]]; then
+                exchange export --system x86_64-linux --stage package --directory target/rn-exchange/package ${version_args[@]+"${version_args[@]}"}
               fi
+              write_roots x86_64-linux package target/rn-exchange/package/manifest.json
+              echo "XMTP_RN_ROOTS=$PWD/target/rn-roots/package.json" >> "$GITHUB_ENV"
+            else
               echo "XMTP_RN_CONSUMER_BUNDLES=$product" >> "$GITHUB_ENV"
               if [[ "$RUNNER_OS" == macOS ]]; then
                 echo "DEVELOPER_DIR=$(nix eval --raw .#lib.reactNativeXcode.developerDir)" >> "$GITHUB_ENV"
               fi
             fi
+            package_dir=$(package_root)
+            test -d "$package_dir"
+            version=${RN_PACKAGE_VERSION:-$(jq -er .version sdks/react-native/package.json)}
+            if [[ "$RN_PACKAGE_KIND" == test ]]; then version+=-partial; fi
             {
-              echo "XMTP_RN_PACKAGE_DIR=$(jq -er '.roots["xmtp-sdk-react-native-package"]' "$manifest")"
+              echo "XMTP_RN_PACKAGE_DIR=$package_dir"
               echo "XMTP_RN_EXPECTED_SOURCE=$(nix eval --raw .#sdkProvenance.source)"
-              echo "XMTP_RN_EXPECTED_VERSION=${RN_PACKAGE_VERSION:-$(jq -er .version sdks/react-native/package.json)}"
+              echo "XMTP_RN_EXPECTED_VERSION=$version"
             } >> "$GITHUB_ENV"
             ;;
           *) exit 1 ;;
@@ -149,19 +235,23 @@ runs:
         RN_STAGE: ${{ inputs.stage }}
         RN_SYSTEM: ${{ inputs.system }}
         RN_PACKAGE_VERSION: ${{ inputs.package-version }}
-      run: dev/nix-shell --shell js --command python3.11 "$GITHUB_ACTION_PATH/receipt.py" "$RN_STAGE" "$RN_SYSTEM" "$RN_PACKAGE_VERSION" '${{ inputs.cache-mode }}' after
-    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-      if: always() && inputs.stage != 'package'
+      run: dev/nix-shell --shell js-node --command python3.11 "$GITHUB_ACTION_PATH/receipt.py" "$RN_STAGE" "$RN_SYSTEM" "$RN_PACKAGE_VERSION" '${{ inputs.cache-mode }}' after
+    - name: Upload the product identity receipts
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      if: always() && steps.before.outcome == 'success' && inputs.stage != 'package'
       with:
         name: ${{ inputs.artifact-prefix }}-identity-${{ inputs.stage }}-${{ inputs.system }}
         path: target/rn-evidence/*.json
         if-no-files-found: ignore
         retention-days: 7
-    # Same-run closures also serve forks with no cache writer token.
-    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-      if: inputs.stage != 'consumers'
+    # Same-run closures serve forks, tokenless runs, and releases.
+    - name: Upload the closure for the next stage
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      if: inputs.stage != 'consumers' && inputs.exchange == 'true'
       with:
         name: ${{ inputs.artifact-prefix }}-${{ inputs.stage == 'components' && format('components-{0}', inputs.system) || 'package-closure' }}
         path: target/rn-exchange/${{ inputs.stage }}
         if-no-files-found: error
         retention-days: 2
+        # The NARs are zstd already.
+        compression-level: 0

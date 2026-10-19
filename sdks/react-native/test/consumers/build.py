@@ -31,14 +31,48 @@ def package_verifier():
     return module
 
 
-def sdk_identity(package, expected_version, expected_source):
+def verified_package(package, expected_version, expected_source):
+    """Admit the tarball and return its digest and package receipt.
+
+    Only an expected version with the partial suffix admits a partial CI test
+    package, so a release version never matches one.
+    """
     if not expected_source:
         raise ValueError(
             "pass the exact SDK source identity with --expected-source or XMTP_RN_EXPECTED_SOURCE"
         )
-    package_verifier().verify_package(package, expected_version, expected_source)
+    verifier = package_verifier()
+    receipt = verifier.verify_package(
+        package,
+        expected_version,
+        expected_source,
+        allow_partial=expected_version.endswith(verifier.PARTIAL_SUFFIX),
+    )
     with package.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        return hashlib.file_digest(stream, "sha256").hexdigest(), receipt
+
+
+def sdk_identity(package, expected_version, expected_source):
+    return verified_package(package, expected_version, expected_source)[0]
+
+
+# Gradle's ABI names in the order the fixed list used before packages could be
+# partial.
+ANDROID_ABI_ORDER = ("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+
+
+def android_architectures(receipt):
+    """The Android ABIs whose libraries the package ships, for Gradle."""
+    targets = set(receipt["components"]["android"]["native"])
+    abis = package_verifier().ANDROID
+    if set(abis) != set(ANDROID_ABI_ORDER):
+        raise ValueError("nix/sdk-platforms.json lists an ABI without a Gradle order")
+    unknown = targets - set(abis.values())
+    if unknown or not targets:
+        raise ValueError(
+            f"RN package Android targets are not known ABIs: {sorted(unknown)}"
+        )
+    return [abi for abi in ANDROID_ABI_ORDER if abis.get(abi) in targets]
 
 
 LEGACY_INPUTS = (
@@ -518,7 +552,9 @@ def build(args):
             "iOS builds require explicit canonical/local Xcode mode and exact selected identity"
         )
     package = args.package.resolve(strict=True)
-    digest = sdk_identity(package, args.expected_version, args.expected_source)
+    digest, package_receipt = verified_package(
+        package, args.expected_version, args.expected_source
+    )
     work = prepare(args.consumer, package, args.work_dir.resolve(), args.offline)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -537,7 +573,8 @@ def build(args):
         command.extend(
             [
                 "assembleRelease",
-                "-PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64",
+                "-PreactNativeArchitectures="
+                + ",".join(android_architectures(package_receipt)),
             ]
         )
         run(command, work / "android")

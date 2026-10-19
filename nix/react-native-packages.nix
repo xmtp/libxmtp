@@ -1,5 +1,10 @@
 # RN products keep Rust compilation, rendering, package glue, and consumers in
 # distinct closures. Only Linux assembles the cross-platform npm product.
+#
+# Pull requests test a partial package instead: `xmtp-sdk-react-native-test-package`
+# holds only the fast components (x86_64 Android, iOS simulator), its version
+# ends with `-partial`, and `package.py verify-package` rejects it. Main, the
+# post-merge smoke, and releases keep the full package.
 { self, ... }:
 {
   perSystem =
@@ -128,12 +133,18 @@
             cp -R "$TMPDIR/component" "$out"
           '';
       mkConsumers =
-        { package }:
+        {
+          package,
+          names ? [
+            "bare"
+            "expo"
+          ],
+        }:
         let
           platform = if system == "aarch64-darwin" then "ios" else "android";
           packageVersion = package.passthru.packageVersion;
           expectedSource = sdkProvenance.source;
-          consumers = lib.genAttrs [ "bare" "expo" ] (
+          consumers = lib.genAttrs names (
             consumer:
             pkgs.callPackage ./package/react-native-consumer.nix {
               inherit
@@ -153,28 +164,49 @@
             }
           );
         in
-        (pkgs.linkFarm "react-native-consumers-${platform}-${packageVersion}" consumers).overrideAttrs {
-          passthru = {
-            members = consumers;
-            inherit package;
+        (pkgs.linkFarm "react-native-consumers-${platform}-${packageVersion}${
+          lib.optionalString (
+            names != [
+              "bare"
+              "expo"
+            ]
+          ) "-${lib.concatStringsSep "-" names}"
+        }" consumers).overrideAttrs
+          {
+            passthru = {
+              members = consumers;
+              inherit package;
+            };
           };
-        };
+      # partial: the CI test package of the fast components. Its version gets
+      # package.py's PARTIAL_SUFFIX, which no release version carries.
       mkPackage =
         {
           version ? (lib.importJSON (sdk + "/package.json")).version,
+          partial ? false,
         }:
-        pkgs.runCommand "xmtp-sdk-react-native-package-${version}"
+        let
+          packageVersion = version + lib.optionalString partial "-partial";
+          components =
+            if partial then
+              {
+                android = self.packages.x86_64-linux.xmtp-sdk-react-native-android-fast;
+                ios = self.packages.aarch64-darwin.xmtp-sdk-react-native-ios-simulator;
+              }
+            else
+              {
+                android = self.packages.x86_64-linux.xmtp-sdk-react-native-android;
+                ios = self.packages.aarch64-darwin.xmtp-sdk-react-native-ios;
+              };
+        in
+        pkgs.runCommand "xmtp-sdk-react-native-package-${packageVersion}"
           {
             nativeBuildInputs = [
               pkgs.python311
               pkgs.nodejs_26
             ];
             passthru = {
-              packageVersion = version;
-              components = {
-                android = self.packages.x86_64-linux.xmtp-sdk-react-native-android;
-                ios = self.packages.aarch64-darwin.xmtp-sdk-react-native-ios;
-              };
+              inherit packageVersion components;
             };
           }
           ''
@@ -182,17 +214,40 @@
             mkdir -p "$HOME"
             # These are immutable foreign-system bytes. Producers must finish
             # exporting/importing them before this Linux derivation is built.
-            test -f ${self.packages.aarch64-darwin.xmtp-sdk-react-native-ios}/sdk-contract.json
+            test -f ${components.ios}/sdk-contract.json
             python3 ${packageTools}/sdks/react-native/scripts/package.py assemble \
               --js ${self.packages.x86_64-linux.xmtp-sdk-react-native-js} \
-              --android ${self.packages.x86_64-linux.xmtp-sdk-react-native-android} \
-              --ios ${self.packages.aarch64-darwin.xmtp-sdk-react-native-ios} \
-              --version ${lib.escapeShellArg version} --out "$TMPDIR/package"
+              --android ${components.android} \
+              --ios ${components.ios} \
+              --version ${lib.escapeShellArg packageVersion} ${lib.optionalString partial "--partial "}--out "$TMPDIR/package"
             cp -R "$TMPDIR/package" "$out"
           '';
+      # The producer stages of the partial test package, in the shape of
+      # `ciStages.<system>.<stage>`: a link farm whose passthru.members are the
+      # roots that nix/react-native-exchange.py exports and imports.
+      stage =
+        name: members:
+        (pkgs.linkFarm "rn-test-${name}" members).overrideAttrs {
+          passthru = { inherit members; };
+        };
+      testStages = {
+        components = stage "components" (
+          if system == "x86_64-linux" then
+            { inherit (p) xmtp-sdk-react-native-js xmtp-sdk-react-native-android-fast; }
+          else if system == "aarch64-darwin" then
+            { inherit (p) xmtp-sdk-react-native-ios-simulator; }
+          else
+            { }
+        );
+        package = stage "package" (
+          lib.optionalAttrs (system == "x86_64-linux") {
+            inherit (p) xmtp-sdk-react-native-test-package;
+          }
+        );
+      };
     in
     {
-      legacyPackages.reactNative = { inherit mkPackage mkConsumers; };
+      legacyPackages.reactNative = { inherit mkPackage mkConsumers testStages; };
       packages = {
         xmtp-sdk-react-native-js = js;
         react-native-js-tools = jsTools;
@@ -208,7 +263,16 @@
           entry: entry.name == "x86_64"
         ) androidEntries) true;
         xmtp-sdk-react-native-package = mkPackage { };
+        xmtp-sdk-react-native-test-package = mkPackage { partial = true; };
         react-native-consumer-android = mkConsumers { package = p.xmtp-sdk-react-native-package; };
+        react-native-test-consumer-android = mkConsumers {
+          package = p.xmtp-sdk-react-native-test-package;
+        };
+        # The pull request smoke: the bare app only.
+        react-native-test-consumer-android-bare = mkConsumers {
+          package = p.xmtp-sdk-react-native-test-package;
+          names = [ "bare" ];
+        };
         react-native-consumer-native-deps-android = pkgs.linkFarm "rn-android-native-dependencies" (
           (lib.mapAttrs (
             _: drv: drv.passthru.nativeDependencies
@@ -222,6 +286,9 @@
         react-native-consumer-native-deps-ios = iosDependencies;
         react-native-consumer-ios = mkConsumers {
           package = self.packages.x86_64-linux.xmtp-sdk-react-native-package;
+        };
+        react-native-test-consumer-ios = mkConsumers {
+          package = self.packages.x86_64-linux.xmtp-sdk-react-native-test-package;
         };
         xmtp-sdk-react-native-ios = component "ios" iosEntries false;
         xmtp-sdk-react-native-ios-simulator = component "ios" (builtins.filter (

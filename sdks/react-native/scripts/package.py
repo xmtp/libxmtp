@@ -2,7 +2,10 @@
 """Validate and assemble immutable React Native SDK components.
 
 Native compilers never run here. Component receipts bind the binaries to the
-rendered JS/runtime; assembly needs both complete platform products.
+rendered JS/runtime; assembly needs both complete platform products. A partial
+CI test package (`assemble --partial`) also accepts the fast components (x86_64
+Android, iOS simulator); its version carries PARTIAL_SUFFIX and every release
+check rejects it.
 """
 
 import argparse
@@ -24,6 +27,14 @@ ROOT = Path(__file__).resolve().parents[3]
 PLATFORMS = json.loads((ROOT / "nix/sdk-platforms.json").read_text())
 ANDROID = {row["abi"]: row["rustTarget"] for row in PLATFORMS["android"]}
 IOS = {"device": "aarch64-apple-ios", "simulator": "aarch64-apple-ios-sim"}
+# The targets of `component --fast`: the CI emulator and simulator architectures.
+FAST = {
+    "android": {"x86_64": ANDROID["x86_64"]},
+    "ios": {"simulator": IOS["simulator"]},
+}
+# Release tooling never computes this version suffix, so a partial package
+# cannot carry a release version.
+PARTIAL_SUFFIX = "-partial"
 NAME = "@xmtp/react-native-sdk"
 CODEGEN = {
     "name": "XmtpReactNativeSpec",
@@ -152,15 +163,22 @@ def ios_metadata(mapping):
     }
 
 
+def full_mapping(platform):
+    return ANDROID if platform == "android" else IOS
+
+
+def receipt_mapping(receipt, platform, partial):
+    """The targets a component receipt must hold: all, or the fast set when partial."""
+    if receipt.get("complete") is True:
+        return full_mapping(platform)
+    if partial and receipt.get("complete") is False:
+        return FAST[platform]
+    raise ValueError(f"RN {platform} component has incomplete target set")
+
+
 def component(args):
     js = validate(args.js, "react-native-js")
-    mapping = ANDROID if args.platform == "android" else IOS
-    if args.fast:
-        mapping = (
-            {"x86_64": ANDROID["x86_64"]}
-            if args.platform == "android"
-            else {"simulator": IOS["simulator"]}
-        )
+    mapping = FAST[args.platform] if args.fast else full_mapping(args.platform)
     expected_toolchains = read(args.toolchain_identity)
     native = {}
     with artifacts.staged_output(args.out.resolve()) as output:
@@ -213,13 +231,11 @@ def component(args):
         )
 
 
-def validate_platform(directory, platform, identity):
+def validate_platform(directory, platform, identity, partial=False):
     receipt = validate(directory, f"react-native-{platform}")
     same_identity(identity, receipt["identity"])
-    mapping = ANDROID if platform == "android" else IOS
-    if receipt.get("complete") is not True or set(receipt.get("native", {})) != set(
-        mapping.values()
-    ):
+    mapping = receipt_mapping(receipt, platform, partial)
+    if set(receipt.get("native", {})) != set(mapping.values()):
         raise ValueError(f"RN {platform} component has incomplete target set")
     expected_assets = {binary_path(platform, name).as_posix() for name in mapping}
     if platform == "ios":
@@ -252,13 +268,28 @@ def validate_platform(directory, platform, identity):
     return receipt
 
 
-def validate_package(directory, version=None):
+def validate_package(directory, version=None, allow_partial=False):
     receipt = validate(directory, "react-native-package")
     manifest = read(directory / "package.json")
     if manifest.get("name") != NAME or manifest.get("version") != receipt.get(
         "packageVersion"
     ):
         raise ValueError("RN package identity/version mismatch")
+    if receipt.get("partial", False) not in (False, True):
+        raise ValueError("RN package partial marker must be a boolean")
+    partial = receipt.get("partial", False)
+    if partial != manifest["version"].endswith(PARTIAL_SUFFIX):
+        raise ValueError(
+            f"RN package version must end with {PARTIAL_SUFFIX} exactly when it is partial"
+        )
+    if partial and not allow_partial:
+        raise ValueError("RN package is a partial CI test package; it cannot ship")
+    mappings = {
+        platform: receipt_mapping(
+            receipt.get("components", {}).get(platform, {}), platform, partial
+        )
+        for platform in ("android", "ios")
+    }
     if version and manifest["version"] != version:
         raise ValueError(
             f"RN package version {manifest['version']} differs from {version}"
@@ -293,7 +324,7 @@ def validate_package(directory, version=None):
     ]
     required += [
         binary_path(platform, name).as_posix()
-        for platform, mapping in (("android", ANDROID), ("ios", IOS))
+        for platform, mapping in mappings.items()
         for name in mapping
     ]
     for name in required:
@@ -302,7 +333,7 @@ def validate_package(directory, version=None):
     if digest(directory / "LICENSE") != digest(ROOT / "LICENSE"):
         raise ValueError("RN package XMTP license mismatch")
     with (directory / "ios/XmtpSdkFFI.xcframework/Info.plist").open("rb") as stream:
-        if plistlib.load(stream) != ios_metadata(IOS):
+        if plistlib.load(stream) != ios_metadata(mappings["ios"]):
             raise ValueError("RN package iOS XCFramework slice metadata mismatch")
     if not any(name.startswith("cpp/runtime/") for name in receipt["assets"]):
         raise ValueError("RN package omits pinned C++ runtime")
@@ -318,11 +349,9 @@ def validate_package(directory, version=None):
         for path in export.values() if isinstance(export, dict) else [export]:
             if isinstance(path, str) and not (directory / path).is_file():
                 raise ValueError(f"RN package export missing: {path}")
-    for platform, mapping in (("android", ANDROID), ("ios", IOS)):
-        native = receipt.get("components", {}).get(platform, {})
-        if native.get("complete") is not True or set(native.get("native", {})) != set(
-            mapping.values()
-        ):
+    for platform, mapping in mappings.items():
+        native = receipt["components"][platform]
+        if set(native.get("native", {})) != set(mapping.values()):
             raise ValueError(f"RN package lacks complete {platform} receipt")
         same_identity(receipt["identity"], native.get("identity", {}))
         if set(native.get("toolchains", {})) != set(mapping.values()):
@@ -369,21 +398,26 @@ def unpack(path):
         yield destination / "package"
 
 
-def verify_package(path, version=None, source=None):
+def verify_package(path, version=None, source=None, allow_partial=False):
     with unpack(path) as directory:
-        receipt = validate_package(directory, version)
+        receipt = validate_package(directory, version, allow_partial)
         if source and receipt["identity"]["source"] != source:
             raise ValueError("RN package source identity mismatch")
         return receipt
 
 
 def assemble(args):
+    partial = getattr(args, "partial", False)
     js = validate(args.js, "react-native-js")
-    android = validate_platform(args.android, "android", js["identity"])
-    ios = validate_platform(args.ios, "ios", js["identity"])
+    android = validate_platform(args.android, "android", js["identity"], partial)
+    ios = validate_platform(args.ios, "ios", js["identity"], partial)
     version = args.version or read(args.js / "package.json")["version"]
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version):
         raise ValueError(f"invalid package version: {version}")
+    if partial != version.endswith(PARTIAL_SUFFIX):
+        raise ValueError(
+            f"RN package version must end with {PARTIAL_SUFFIX} exactly when it is partial"
+        )
     with artifacts.staged_output(args.out.resolve()) as output:
         product = output / "package"
         shutil.copytree(args.js, product)
@@ -403,8 +437,9 @@ def assemble(args):
             js["identity"],
             packageVersion=version,
             components={"android": android, "ios": ios},
+            **({"partial": True} if partial else {}),
         )
-        validate_package(product, version)
+        validate_package(product, version, partial)
         npm = os.environ.get("XMTP_SDK_NPM_CLI")
         command = [os.environ.get("NODE", "node"), npm] if npm else ["npm"]
         packed = json.loads(
@@ -423,7 +458,7 @@ def assemble(args):
             )
         )
         tarball = output / packed[0]["filename"]
-        verify_package(tarball, version)
+        verify_package(tarball, version, allow_partial=partial)
         (output / "sdk-contract.json").write_text(
             json.dumps(
                 {
@@ -454,6 +489,11 @@ def main():
     for key in ("js", "android", "ios", "out"):
         assembly.add_argument(f"--{key}", required=True, type=Path)
     assembly.add_argument("--version")
+    assembly.add_argument(
+        "--partial",
+        action="store_true",
+        help=f"accept fast components; the version must end with {PARTIAL_SUFFIX}",
+    )
     verify = commands.add_parser("verify-package")
     verify.add_argument("path", type=Path)
     verify.add_argument("--version")
