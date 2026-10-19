@@ -201,6 +201,7 @@ async fn stable_history_metadata_and_exclusions() {
 // verifies: MIG-001, MIG-002, MIG-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn react_native_5_7_0_database_exports_its_independent_records() {
+    use sha2::{Digest, Sha256};
     use xmtp_proto::xmtp::device_sync::consent_backup::{ConsentStateSave, ConsentTypeSave};
 
     let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/react-native-5.7.0");
@@ -215,6 +216,20 @@ async fn react_native_5_7_0_database_exports_its_independent_records() {
         ["", ".sqlcipher_salt"],
         "the closed source has no WAL, SHM, or journal"
     );
+    // The committed bytes are the ones the provenance record describes.
+    let inspection: serde_json::Value =
+        serde_json::from_slice(&fs::read(fixture_dir.join("source-inspection.json"))?)?;
+    for (suffix, bytes) in &before {
+        let recorded = &inspection["sourceHashesBefore"][format!("react-native-5.7.0.db3{suffix}")];
+        assert_eq!(
+            (hex::encode(Sha256::digest(bytes)), bytes.len() as u64),
+            (
+                text(&recorded["sha256"]),
+                recorded["bytes"].as_u64().expect("byte count")
+            ),
+            "source-inspection.json records react-native-5.7.0.db3{suffix}"
+        );
+    }
 
     let report = prepare_migration_archive(args.clone()).await?;
     let counts = &expected["counts"];
