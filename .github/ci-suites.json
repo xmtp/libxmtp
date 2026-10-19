@@ -406,20 +406,30 @@
       },
       "with": {},
       "cargo_roots": [
+        "xdbg",
         "xmtp_backend"
       ],
       "crates": [
         "apps/backend/**",
+        "apps/xmtp_debug/**",
         "crates/xmtp-workspace-hack/**",
+        "crates/xmtp_api/**",
+        "crates/xmtp_api_backend/**",
+        "crates/xmtp_api_grpc/**",
+        "crates/xmtp_archive/**",
+        "crates/xmtp_attachments/**",
         "crates/xmtp_attachments_server/**",
         "crates/xmtp_backend_config/**",
         "crates/xmtp_common/**",
         "crates/xmtp_configuration/**",
+        "crates/xmtp_content_types/**",
         "crates/xmtp_cryptography/**",
+        "crates/xmtp_db/**",
         "crates/xmtp_events/**",
         "crates/xmtp_id/**",
         "crates/xmtp_logging/**",
         "crates/xmtp_macro/**",
+        "crates/xmtp_mls/**",
         "crates/xmtp_mls_common/**",
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
@@ -1086,6 +1096,7 @@
       "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_legacy_migration/**",
         "crates/xmtp_sdk/**",
         "dev/js/{sdk-*,tsconfig.*.json}",
         "nix/lib/packages/napi-rs-cli/**",
@@ -1170,6 +1181,7 @@
         "nix/{js,js-node}.nix",
         "sdks/agent/src/**",
         "sdks/js.just",
+        "sdks/react-native/{src/**,package.json}",
         "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}",
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}",
@@ -1311,7 +1323,7 @@
         "contents": "read"
       },
       "covered_by": null,
-      "skip_full_runs": false,
+      "skip_full_runs": true,
       "kache": [],
       "products": [
         "sdk_android"
@@ -1342,8 +1354,6 @@
           "nix/ci-sets.nix",
           "nix/lib/android-*",
           "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
-          "nix/musl-docker.nix",
-          "nix/package/backend.nix",
           "nix/package/libffi-zig-cross.site",
           "nix/package/xmtp-sdk{,-native}.nix",
           "nix/sdk-platforms.json",
@@ -1368,7 +1378,7 @@
         "contents": "read"
       },
       "covered_by": null,
-      "skip_full_runs": false,
+      "skip_full_runs": true,
       "kache": [],
       "products": [
         "sdk_android"
@@ -1383,21 +1393,22 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-example-android.yml"
       ],
-      "workflow_tier": "advisory",
-      "paths": [],
-      "labels": [],
+      "workflow_tier": "blocking",
+      "paths": [
+        "apps/example-android/**",
+        "nix/package/example-android-apk*"
+      ],
+      "labels": [
+        "android"
+      ],
       "advisory": {
         "cargo_roots": [],
         "crates": [],
         "paths": [
-          "apps/example-android/**",
           "nix/android-packages.nix",
           "nix/ci-sets.nix",
           "nix/lib/android-*",
           "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
-          "nix/musl-docker.nix",
-          "nix/package/backend.nix",
-          "nix/package/example-android-apk*",
           "nix/package/libffi-zig-cross.site",
           "nix/package/xmtp-sdk{,-native}.nix",
           "nix/sdk-platforms.json",
@@ -1405,9 +1416,7 @@
           "sdks/android/**",
           "!docs/**"
         ],
-        "labels": [
-          "android"
-        ]
+        "labels": []
       }
     },
     "test_example_ios": {
@@ -1424,7 +1433,7 @@
         "contents": "read"
       },
       "covered_by": null,
-      "skip_full_runs": false,
+      "skip_full_runs": true,
       "kache": [],
       "products": [],
       "runners": {},
@@ -1452,12 +1461,9 @@
           "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix",
           "nix/lib/packages/{swiftformat,swiftlint}.nix",
           "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
-          "nix/musl-docker.nix",
-          "nix/package/backend.nix",
           "nix/package/ios.nix",
           "nix/package/xmtp-sdk{,-native}.nix",
           "nix/sdk-platforms.json",
-          "nix/services/**",
           "sdks/ios/**",
           "{Package.swift,Package.resolved,.spi.yml}"
         ],

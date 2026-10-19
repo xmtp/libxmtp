@@ -16,8 +16,9 @@
 # that only advisory_filters match runs as advisory, in a second caller job
 # named `<title> (advisory)`, and no gate waits for it. A full run of a pull
 # request (see `shared` below) runs a suite with advisory_filters as advisory
-# unless a pr_filters entry matched. Merge runs and manual runs run every
-# selected suite as blocking. The suite's workflow file and every local
+# unless a pr_filters entry matched. When detection fails or a pull request has
+# more files than the list holds, a suite that pr_filters can select blocks.
+# Merge runs and manual runs run every selected suite as blocking. The suite's workflow file and every local
 # workflow and action it uses count as pr_filters, or as advisory_filters for
 # a suite whose pr_filters select nothing.
 #
@@ -58,7 +59,8 @@
 #                     when the cover runs in the same or a stronger tier.
 #   skip_full_runs    true: a full run of a pull request (see `shared` below)
 #                     runs the suite only when its own filters or labels
-#                     match. Merge and manual runs are unchanged.
+#                     match. Merge and manual runs, and runs whose changed
+#                     files are not all known, are unchanged.
 #   runners           Workflow inputs that set runs-on, each as
 #                     {pr: LABEL, merge: LABEL}. The caller passes the pr
 #                     label on pull requests and the merge label on merge and
@@ -72,7 +74,9 @@
 #   advisory_filters  Filters that select the suite as advisory.
 #
 # Manual runs: the `suites` input of ci.yml is a comma-separated list of suite
-# keys. Empty runs every suite. An unknown key fails Select suites.
+# keys. Empty runs every suite. An unknown key fails Select suites. A run of a
+# subset names its gates `Lint (manual subset)` and `Test (manual subset)`, so
+# it cannot satisfy the required Lint and Test checks.
 #
 # A changed file that matches `shared` runs every suite. A file that matches no
 # rule also runs every suite. A `neutral` file selects a suite only through a
@@ -97,8 +101,10 @@
 # the group's flake outputs as `ciSets.x86_64-linux.<group>`. ci.yml gets one
 # job, `products_<group>`, that builds the group once (mode ci, so it pushes to
 # xmtp-pr), and each suite that waits for the group needs that job. A run
-# builds a group when a selected suite waits for it and a changed file matches
-# its filters, or on a full run, and only when the run has the PR-cache token.
+# builds a group when a selected blocking suite waits for it and a changed file
+# matches its filters, or on a full run, and only when the run has the PR-cache
+# token. The Test gate needs every products job, so it never waits for a group
+# that only advisory suites use; those suites build the products themselves.
 # Fork runs have no token. Dependabot runs have it once it is a Dependabot
 # secret. A suite whose group did not run builds the products itself, so a
 # filter that is too narrow costs time, not coverage. The Test gate counts a
@@ -170,7 +176,6 @@ path_groups:
   js_workspace:
     - "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
     - "sdks/js.just"
-    # lint_js alone runs the source lint script and its test.
     - "dev/js/{sdk-*,tsconfig.*.json}"
     - "nix/{js,js-node}.nix"
     - "nix/lib/packages/pnpm.nix"
@@ -211,15 +216,14 @@ path_groups:
   example_react_native:
     - "apps/example-react-native/**"
     - "!**/*.md"
-  # SDK, toolchain, and service Nix inputs of the example apps. They select an
-  # example suite as advisory (decision D1); the app's own paths block. The
-  # common shell toolchain reads both mobile platform definitions.
+  # SDK and toolchain Nix inputs of the example apps. They select an example
+  # suite as advisory (decision D1); the app's own paths block. The common
+  # shell toolchain reads both mobile platform definitions. Backend and
+  # service inputs select no example suite; the merge run covers them.
   example_common_nix:
     - "nix/package/xmtp-sdk{,-native}.nix"
     - "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix"
     - "nix/sdk-platforms.json"
-    - "nix/package/backend.nix"
-    - "nix/musl-docker.nix"
   example_android_nix:
     - path_group: example_common_nix
     - "nix/package/libffi-zig-cross.site"
@@ -232,7 +236,6 @@ path_groups:
     - "nix/package/ios.nix"
     # The iOS/default shell inherits pnpm and WASM tools from the Rust shell.
     - "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix"
-    - "nix/services/**"
   react_native:
     - ".github/actions/react-native-{product,conformance}/**"
     - "sdks/react-native/**"
@@ -430,7 +433,8 @@ suites:
       - "{.clippy.toml,dev/wasm.just}"
   # The Docker backend job: the image starts with only the database, then the
   # full Compose stack passes the observability check (xdbg traffic, traces,
-  # metrics, and the dashboard).
+  # metrics, and the dashboard). The check builds xdbg, so the xdbg closure
+  # (the client crates) selects it too.
   test_backend:
     title: Backend Docker image
     phase: test
@@ -444,7 +448,7 @@ suites:
     runners:
       runner: {pr: blacksmith-8vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
-      - cargo_package: xmtp_backend
+      - cargo_package: [xmtp_backend, xdbg]
       - path_group: docker_backend
       - "dev/docker/{tempo,prometheus,grafana}/**"
       - "dev/docker/{observe-check.sh,observe_check.py}"
@@ -634,6 +638,8 @@ suites:
       - path_group: js_workspace
       - path_group: sdk_core
       - "sdks/browser/**"
+      # The platform proofs build its fixture host (examples/fixture_host.rs).
+      - "crates/xmtp_legacy_migration/**"
   # Post-merge builds and deploys the docs after every merge, so the CI merge
   # run does not build them; docs_rust then runs there and writes the
   # rust-reference Kache scope.
@@ -658,6 +664,8 @@ suites:
       - "docs/**"
       - "sdks/agent/src/**"
       - "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}"
+      # The RN reference reads the package exports and the sources.
+      - "sdks/react-native/{src/**,package.json}"
       - "!sdks/agent/src/**/*.test.ts"
 
   # --- Mobile ----------------------------------------------------------------
@@ -694,11 +702,11 @@ suites:
       # Spotless, so no separate Android lint suite exists.
       - path_group: sdk_core
       - path_group: android
-  # Messenger has two suites over one workflow. Decision D1: the APK, JVM
-  # test, lint, and build job blocks on the app's own paths and its label; the
-  # Kotlin SDK and the SDK and toolchain Nix inputs run it as advisory. The
-  # emulator tests are an advisory smoke on every pull request that selects
-  # the app. Merge runs run both as blocking.
+  # Messenger has two suites over one workflow: the APK, JVM test, lint, and
+  # build job, and the emulator tests. Decision D1 applies to both: the app's
+  # own paths and its label block; the Kotlin SDK and the SDK and toolchain
+  # Nix inputs run them as advisory; other pull requests, full runs included,
+  # do not run them. Merge runs run both as blocking.
   test_example_android:
     title: Android example app
     phase: test
@@ -707,6 +715,7 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
+    skip_full_runs: true
     kache: []
     products: [sdk_android]
     with: {emulator: false}
@@ -725,14 +734,15 @@ suites:
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
+    skip_full_runs: true
     kache: []
     products: [sdk_android]
     with: {emulator: true}
-    pr_filters: []
-    advisory_filters:
+    pr_filters:
       - "apps/example-android/**"
       - "nix/package/example-android-apk*"
       - pr_label: "android"
+    advisory_filters:
       - path_group: android
       - path_group: example_android_nix
 
@@ -744,11 +754,13 @@ suites:
     disable_on_forks: false
     secrets: cachix-pr
     permissions: {contents: read}
+    skip_full_runs: true
     kache: []
     products: []
     # Decision D1: the app's own paths and its label block, both the fast job
-    # (lint, unit tests, builds) and the journeys. The Swift SDK and the SDK,
-    # toolchain, and service Nix inputs run the app as advisory.
+    # (lint, unit tests, builds) and the journeys. The Swift SDK and the SDK
+    # and toolchain Nix inputs run the app as advisory. Other pull requests,
+    # full runs included, do not run it.
     pr_filters:
       - "apps/example-ios/**"
       - "nix/package/example-ios-run.nix"

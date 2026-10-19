@@ -65,6 +65,22 @@ def ci_jobs(manifest):
     return yaml.safe_load(SUITES.render_ci(manifest))["jobs"]
 
 
+def evaluate(raw, values):
+    """Evaluate a `${{ }}` expression of ==, !=, &&, ||, and string literals.
+
+    `values` maps each context reference in it to its value.
+    """
+    match = re.fullmatch(r"\$\{\{\s*(.*?)\s*\}\}", raw.strip(), re.DOTALL)
+    assert match, raw
+    python = match[1]
+    for name, value in sorted(values.items(), key=lambda item: -len(item[0])):
+        python = python.replace(name, repr(value))
+    python = python.replace("&&", " and ").replace("||", " or ")
+    leftover = re.sub(r"'[^']*'", "", python)
+    assert not re.search(r"[A-Za-z_]+\.", leftover), f"unknown context in {raw!r}"
+    return eval(python, {"__builtins__": {}}, {})
+
+
 class CargoGraphTests(unittest.TestCase):
     graph = SUITES.CargoGraph(ROOT)
 
@@ -201,8 +217,10 @@ class CompileTests(unittest.TestCase):
             return lambda d: d["suites"]["test_dev"].update(title=value)
 
         self.compile(title("A" * 30))
-        # Titles repeat across phases (the lint and test jobs of one SDK).
-        self.compile(title("Protobuf"))
+        # Titles repeat across phases: test_dev may take the title of the
+        # lint suite lint_config.
+        self.assertEqual(declaration()["suites"]["lint_config"]["title"], "Repository lint")
+        self.compile(title("Repository lint"))
         for change in [
             lambda d: d["suites"]["test_dev"].pop("title"),
             title(None),
@@ -354,24 +372,64 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(jobs["test_dev"]["name"], "Observability")
         self.assertEqual(jobs["detect-changes"]["name"], "Select suites")
         self.assertEqual(jobs["products_sdk_js"]["name"], "Prebuild JS SDKs (Nix)")
-        # Branch protection requires Lint and Test; drafts get other names so
-        # that a draft run cannot satisfy them.
-        for gate, draft in (
-            ("lint", "Lint (draft)"),
-            ("test", "Test (not run on drafts)"),
+        # Branch protection requires Lint and Test. Drafts and manual runs of
+        # a subset of the suites get other names, so they cannot satisfy them.
+        for gate, draft, subset in (
+            ("lint", "Lint (draft)", "Lint (manual subset)"),
+            ("test", "Test (not run on drafts)", "Test (manual subset)"),
         ):
-            name = jobs[gate]["name"]
-            self.assertEqual(
-                name,
-                "${{ github.event_name == 'pull_request' && "
-                "toJSON(github.event.pull_request.draft) == 'true' && "
-                f"'{draft}' || '{gate.capitalize()}' }}}}",
-            )
+            required = gate.capitalize()
+            for event, is_draft, suites, expected in (
+                ("pull_request", False, None, required),
+                ("pull_request", True, None, draft),
+                ("push", None, None, required),
+                ("workflow_dispatch", None, "", required),
+                ("workflow_dispatch", None, "test_dev", subset),
+                ("workflow_dispatch", None, "test_dev,lint_config", subset),
+            ):
+                with self.subTest(gate=gate, event=event, draft=is_draft, suites=suites):
+                    values = {
+                        "github.event_name": event,
+                        # toJSON of a missing draft field is 'null'.
+                        "toJSON(github.event.pull_request.draft)": "null"
+                        if is_draft is None
+                        else str(is_draft).lower(),
+                        "inputs.suites": suites,
+                    }
+                    self.assertEqual(evaluate(jobs[gate]["name"], values), expected)
             self.assertEqual(jobs[gate]["if"], "always()")
         # Only the gates are named Lint or Test, and they never skip.
         for job_id, job in jobs.items():
             if job_id not in ("detect-changes", "lint", "test"):
                 self.assertNotIn(job.get("name"), SUITES.RESERVED_NAMES)
+
+    def test_merge_runs_are_not_cancelled_and_forks_get_no_token_flag(self):
+        document = yaml.safe_load(SUITES.render_ci(self.manifest))
+        # Only a pull request push cancels its older run; merge and manual
+        # runs each have their own group and are latest-wins.
+        cancel = document["concurrency"]["cancel-in-progress"]
+        for event, expected in (
+            ("pull_request", True),
+            ("push", False),
+            ("workflow_dispatch", False),
+        ):
+            with self.subTest(event=event):
+                self.assertIs(evaluate(cancel, {"github.event_name": event}), expected)
+        self.assertEqual(
+            document["concurrency"]["group"],
+            "ci-${{ github.event.pull_request.number || "
+            "format('{0}-{1}', github.event_name, github.ref) }}",
+        )
+        # Select suites picks product groups only when the run can push to
+        # xmtp-pr; a fork or a tokenless Dependabot run gets 'false'.
+        (select,) = (
+            step
+            for step in document["jobs"]["detect-changes"]["steps"]
+            if step.get("id") == "select"
+        )
+        self.assertEqual(
+            select["env"]["PR_CACHE_TOKEN"], "${{ secrets.CACHIX_PR_AUTH_TOKEN != '' }}"
+        )
 
     def test_ci_yml_has_only_select_products_callers_and_two_gates(self):
         jobs = ci_jobs(self.manifest)

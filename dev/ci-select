@@ -147,6 +147,12 @@ def has_advisory_tier(suite):
     return bool(advisory["crates"] or advisory["paths"] or advisory["labels"])
 
 
+def has_blocking_tier(suite):
+    """Whether a pull request filter can block the suite: its pr_filters
+    select something, or it has no advisory_filters."""
+    return suite["workflow_tier"] == "blocking"
+
+
 def json_strings(value):
     """Require a JSON array of strings. Empty arrays are valid."""
     items = json.loads(value) if isinstance(value, str) else value
@@ -264,13 +270,16 @@ def select_suites(
         if (kind == "manual" or kind in suite["run_on"])
         and not (fork and suite["disable_on_forks"])
     }
+    # Detection failed, or the PR has more files than the list holds: any file
+    # may have changed, so a suite that a pull request filter can block blocks.
+    unseen = bool({"detection_failed", "large_pr"} & set(reasons))
     if requested:
         selected = set(requested) & eligible
     elif reasons:
         selected = eligible
         # A full run of a pull request runs a suite with skip_full_runs only
         # when its own filters or labels matched.
-        if kind not in ("merge", "manual"):
+        if kind not in ("merge", "manual") and not unseen:
             selected = {
                 name
                 for name in selected
@@ -284,6 +293,8 @@ def select_suites(
         # A suite is advisory only on a pull request where no blocking filter
         # matched it: an advisory filter selected it, or a full run did.
         if kind in ("merge", "manual") or name in matched:
+            return "blocking"
+        if unseen and has_blocking_tier(SUITES[name]):
             return "blocking"
         return "advisory" if has_advisory_tier(SUITES[name]) else "blocking"
 
@@ -299,8 +310,15 @@ def select_suites(
 
     tiers = {name: t for name, t in tiers.items() if not covered(name)}
     # A suite whose group does not run builds the products itself. A group
-    # runs only when it can push to xmtp-pr for the suites to substitute.
-    waited = {group for name in tiers for group in SUITES[name]["products"]}
+    # runs only when it can push to xmtp-pr for the suites to substitute, and
+    # only for blocking suites: the Test gate needs every products job, and
+    # it must not wait for advisory work.
+    waited = {
+        group
+        for name, t in tiers.items()
+        if t == "blocking"
+        for group in SUITES[name]["products"]
+    }
     if not pr_cache_token:
         products = set()
     elif reasons:

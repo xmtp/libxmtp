@@ -85,23 +85,52 @@ class SelectionTests(unittest.TestCase):
         # A package's dependency closure selects a suite; its dependents do not.
         client = selected(select(["crates/xmtp_mls/src/client.rs"]))
         self.assertIn("test_workspace", client)
-        self.assertTrue(client.isdisjoint({"test_backend", "test_node"}))
+        self.assertNotIn("test_node", client)
         proto = selected(select(["crates/xmtp_proto/src/lib.rs"]))
         self.assertIn("test_nix_checks", proto)
 
+    def test_xdbg_and_its_client_crates_run_the_observability_check(self):
+        # The Docker backend job builds xdbg for its observability check.
+        for path in (
+            "apps/xmtp_debug/src/main.rs",
+            "crates/xmtp_mls/src/lib.rs",
+            "crates/xmtp_api_grpc/src/lib.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("test_backend", selected(select([path])))
+
     def test_examples_follow_decision_d1(self):
-        # Decision D1: the app's own paths and its label block; the SDK the
-        # app consumes runs it as advisory. (blocking, advisory)
-        ios, android = "test_example_ios", "test_example_android"
-        examples = {ios, android}
+        # Decision D1: the app's own paths and its label block the app's
+        # suites; the SDK the app consumes runs them as advisory; nothing else
+        # selects them. Labels match exactly. (blocking, advisory)
+        ios = {"test_example_ios"}
+        android = {"test_example_android", "test_example_android_emulator"}
+        examples = ios | android
         swift = "sdks/ios/Sources/Client.swift"
         kotlin = "sdks/android/library/src/main/java/Client.kt"
+        app_ios = "apps/example-ios/ExampleApp/View.swift"
+        app_android = "apps/example-android/app/src/main/java/A.kt"
         for paths, labels, blocking, advisory_only in [
-            (["apps/example-ios/ExampleApp/View.swift"], [], {ios}, set()),
-            (["apps/example-android/app/src/main/java/A.kt"], [], {android}, set()),
-            ([swift], [], set(), {ios}),
-            ([kotlin], [], set(), {android}),
+            ([app_ios], [], ios, set()),
+            ([app_android], [], android, set()),
+            (["apps/example-ios/AGENTS.md"], [], set(), set()),
+            ([swift], [], set(), ios),
+            ([kotlin], [], set(), android),
+            (["nix/package/ios.nix"], [], set(), ios),
+            (["nix/android-packages.nix"], [], set(), android),
+            (["nix/package/xmtp-sdk.nix"], [], set(), examples),
+            (["docs/guide.md"], ["iOS"], ios, set()),
+            (["docs/guide.md"], ["android"], android, set()),
             (["docs/guide.md"], ["iOS", "android"], examples, set()),
+            (["sdks/ios/AGENTS.md"], ["iOS"], ios, set()),
+            (["docs/guide.md"], ["ios", "Android", "unrelated"], set(), set()),
+            ([swift], ["android"], android, ios),
+            ([app_ios], ["android"], examples, set()),
+            # Backend and service inputs, and the Rust core, select no app.
+            (["nix/package/backend.nix"], [], set(), set()),
+            (["nix/musl-docker.nix"], [], set(), set()),
+            (["nix/services/stack.nix"], [], set(), set()),
+            (["apps/backend/src/main.rs"], [], set(), set()),
             (["crates/xmtp_sdk/src/client.rs"], [], set(), set()),
         ]:
             with self.subTest(paths=paths, labels=labels):
@@ -109,6 +138,9 @@ class SelectionTests(unittest.TestCase):
                 self.assertEqual(result["reasons"], [])
                 self.assertEqual(selected(result) & examples, blocking)
                 self.assertEqual(advisory(result) & examples, advisory_only)
+                self.assertEqual(
+                    result["matched_labels"], sorted(set(labels) & {"iOS", "android"})
+                )
 
     def test_label_matches_respect_drafts_and_forks(self):
         # A label selects a suite only where the suite could run: not on
@@ -137,58 +169,94 @@ class SelectionTests(unittest.TestCase):
                         selected(result) & {"open_suite", "closed_suite"}, expected
                     )
 
-    def test_full_runs_keep_tiered_suites_advisory(self):
-        # A full run of a pull request runs a suite with advisory filters as
-        # advisory unless its own pr_filters or label match. Merge and manual
-        # runs block on it.
-        tiered = {
-            name
-            for name, suite in SELECTOR.SUITES.items()
-            if SELECTOR.has_advisory_tier(suite)
+    def test_full_runs_leave_out_the_example_apps(self):
+        # Decision D1: a full run of a pull request runs an example app only
+        # when the app's own paths, its workflow, its label, or its SDK match.
+        examples = {
+            "test_example_ios",
+            "test_example_android",
+            "test_example_android_emulator",
         }
-        # A tiered suite whose cover is tiered too gives way to it.
-        shown = {
-            name for name in tiered if SELECTOR.SUITES[name]["covered_by"] not in tiered
-        }
-        # A full pull request run skips the suites with skip_full_runs, so
-        # a suite that they cover runs in their place.
-        full = {name for name in tiered if not SELECTOR.SUITES[name]["skip_full_runs"]}
-        full_shown = {
-            name for name in full if SELECTOR.SUITES[name]["covered_by"] not in full
-        }
-        self.assertIn("test_example_ios", tiered)
-        self.assertIn("test_react_native_smoke", full_shown - shown)
-        self.assertIn("test_react_native", shown - full_shown)
-        merging = {name for name in shown if "merge" in SELECTOR.SUITES[name]["run_on"]}
-        self.assertNotIn("test_react_native", merging)
-        for kwargs, tier in [
-            ({"files": ["flake.nix"]}, "advisory"),
-            ({"files": ["flake.nix", "apps/example-ios/App.swift"]}, "mixed"),
-            ({"files": ["new-language/source.xyz"]}, "advisory"),
-            ({"total": 3001}, "advisory"),
-            ({"total": None}, "advisory"),
-            ({"outcome": "failure"}, "advisory"),
-            ({"files": None}, "advisory"),
-            ({"name": "push"}, "blocking"),
-            ({"name": "workflow_dispatch"}, "blocking"),
+        for paths in (
+            ["justfile"],
+            [".github/ci-suites.yml"],
+            ["flake.nix"],
+            ["new-language/source.xyz"],
+        ):
+            with self.subTest(paths=paths):
+                result = select(paths)
+                self.assertTrue(result["reasons"])
+                self.assertTrue(examples.isdisjoint(selected(result) | advisory(result)))
+                self.assertEqual(advisory(result), {"test_react_native_smoke"})
+        for paths, labels, blocking, advisory_only in [
+            (["flake.nix", "apps/example-ios/App.swift"], [], {"test_example_ios"}, set()),
+            (["flake.nix", ".github/workflows/test-example-ios.yml"], [], {"test_example_ios"}, set()),
+            (["flake.nix", "sdks/ios/Sources/Client.swift"], [], set(), {"test_example_ios"}),
+            (
+                ["flake.nix"],
+                ["android"],
+                {"test_example_android", "test_example_android_emulator"},
+                set(),
+            ),
         ]:
+            with self.subTest(paths=paths, labels=labels):
+                result = select(paths, payload=event(labels=labels), total=len(paths))
+                self.assertTrue(result["reasons"])
+                self.assertEqual(selected(result) & examples, blocking)
+                self.assertEqual(advisory(result) & examples, advisory_only)
+        # Merge and manual runs run every example suite as blocking.
+        for name in ("push", "workflow_dispatch"):
+            with self.subTest(name=name):
+                result = select(name=name, payload={})
+                self.assertLessEqual(examples, selected(result))
+                self.assertEqual(advisory(result), set())
+
+    def test_unseen_files_block_every_suite_that_a_filter_can_block(self):
+        # Detection failed, or the PR has more files than the list: any app
+        # may have changed, so its suites block. The RN device chain has no
+        # blocking filter and runs in full as advisory.
+        examples = {
+            "test_example_ios",
+            "test_example_android",
+            "test_example_android_emulator",
+        }
+        for kwargs in (
+            {"outcome": "failure"},
+            {"files": None},
+            {"total": None},
+            {"total": 3001},
+            {"error": "Could not read PR metadata from the API."},
+        ):
             with self.subTest(kwargs=kwargs):
                 result = select(**kwargs)
-                self.assertTrue(result["reasons"])
-                if tier == "blocking":
-                    # Merge runs run only the suites with `merge` in run_on;
-                    # manual runs ignore run_on.
-                    push = kwargs.get("name") == "push"
-                    self.assertLessEqual(merging if push else shown, selected(result))
-                    self.assertEqual(advisory(result), set())
-                elif tier == "advisory":
-                    self.assertEqual(advisory(result), full_shown)
-                    self.assertTrue(tiered.isdisjoint(selected(result)))
-                else:
-                    self.assertIn("test_example_ios", selected(result))
-                    self.assertEqual(
-                        advisory(result), full_shown - {"test_example_ios"}
-                    )
+                self.assertLessEqual(examples, selected(result))
+                self.assertEqual(advisory(result), {"test_react_native"})
+
+    def test_products_run_only_for_blocking_suites(self):
+        # The Test gate needs every products job, so a group that only
+        # advisory suites wait for would hold the gate.
+        for paths in (["nix/ci-sets.nix"], ["sdks/android/library/src/A.kt"], ["justfile"]):
+            with self.subTest(paths=paths):
+                result = select(paths)
+                waited = {
+                    group
+                    for name in selected(result)
+                    for group in SELECTOR.SUITES[name]["products"]
+                }
+                self.assertLessEqual(set(result["products"]), waited)
+        self.assertNotIn("sdk_android", select(["nix/ci-sets.nix"])["products"])
+        self.assertIn(
+            "sdk_android", select(["crates/xmtp_sdk/src/lib.rs"])["products"]
+        )
+
+    def test_docs_and_platform_proofs_follow_their_inputs(self):
+        # The docs site builds the RN API reference from these files.
+        for path in ("sdks/react-native/src/index.ts", "sdks/react-native/package.json"):
+            with self.subTest(path=path):
+                self.assertIn("docs_site", selected(select([path])))
+        # The platform proofs build the legacy migration fixture host.
+        fixture = "crates/xmtp_legacy_migration/examples/fixture_host.rs"
+        self.assertIn("test_sdk_platform", selected(select([fixture])))
 
     def test_shared_input_selects_every_suite_and_records_paths(self):
         result = select(["proto/mls/a.proto", "crates/xmtp_mls/src/client.rs"])
@@ -203,8 +271,8 @@ class SelectionTests(unittest.TestCase):
             selected(result), eligible("ready_pr_push") - {"docs_rust"} - tiered
         )
         # Without an RN change the full RN chain skips the full run, and the
-        # Android smoke runs instead.
-        self.assertEqual(advisory(result), tiered - {"test_react_native"})
+        # Android smoke runs instead. The example apps skip it too.
+        self.assertEqual(advisory(result), {"test_react_native_smoke"})
 
     def test_full_runs_run_the_full_rn_chain_only_for_rn_changes(self):
         # Decision D2: the full device chain on RN paths or the label, the
@@ -687,20 +755,6 @@ class WorkflowTests(unittest.TestCase):
                 run = self.gate("lint", [], {}, detected=detected)
                 self.assertEqual(run.returncode, 1)
                 self.assertIn(f"Select suites: {detected}", run.stdout)
-
-    def test_gate_ignores_advisory_callers(self):
-        # An advisory caller is not a need, so its failure never reaches the
-        # gate; the blocking caller of the same suite was skipped.
-        run = self.gate(
-            "test",
-            ["test_ios"],
-            {
-                "test_ios": "success",
-                "test_example_ios": "skipped",
-                "test_example_ios_advisory": "failure",
-            },
-        )
-        self.assertEqual(run.returncode, 0, run.stdout)
 
     def test_gate_counts_a_products_job_only_for_blocking_suites(self):
         broken = {"products_sdk_android": "failure", "test_android": "skipped"}

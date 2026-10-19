@@ -103,20 +103,19 @@ INPUT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
 TITLE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9 _.,()+-]*[A-Za-z0-9)])?\Z")
 TITLE_LENGTH = 30
 ADVISORY_SUFFIX = " (advisory)"
-# Job names that ci.yml uses itself. Branch protection requires `Lint` and
-# `Test`, and a skipped job with a required name counts as passing, so no
-# caller job may take one of these names.
-RESERVED_NAMES = (
-    "Select suites",
-    "Lint",
-    "Lint (draft)",
-    "Test",
-    "Test (not run on drafts)",
-)
+# The gate names: required, on drafts, and on manual runs of some suites.
+# Branch protection requires `Lint` and `Test`. A draft run and a manual run
+# of a subset of the suites do not check everything, so their gates take
+# other names and cannot satisfy the required checks.
 GATE_NAMES = {
-    "lint": ("Lint", "Lint (draft)"),
-    "test": ("Test", "Test (not run on drafts)"),
+    "lint": ("Lint", "Lint (draft)", "Lint (manual subset)"),
+    "test": ("Test", "Test (not run on drafts)", "Test (manual subset)"),
 }
+# Job names that ci.yml uses itself. A skipped job with a required name counts
+# as passing, so no caller job may take one of these names.
+RESERVED_NAMES = ("Select suites",) + tuple(
+    name for names in GATE_NAMES.values() for name in names
+)
 PERMISSION_LEVELS = {"none": 0, "read": 1, "write": 2}
 CHECKOUT = "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0"
 
@@ -770,12 +769,14 @@ jq -enr \
 def gate_job(manifest, phase):
     suites = {n: s for n, s in manifest["suites"].items() if s["phase"] == phase}
     groups = list(manifest["products"]) if phase == "test" else []
-    name, draft = GATE_NAMES[phase]
+    name, draft, subset = GATE_NAMES[phase]
     waits = {n: s["products"] for n, s in suites.items() if s["products"]}
     lines = [
         f"  {phase}:",
         "    name: ${{ github.event_name == 'pull_request' && "
-        f"toJSON(github.event.pull_request.draft) == 'true' && '{draft}' || '{name}' }}}}",
+        f"toJSON(github.event.pull_request.draft) == 'true' && '{draft}' || "
+        f"github.event_name == 'workflow_dispatch' && inputs.suites != '' && '{subset}' || "
+        f"'{name}' }}}}",
         # A skipped job counts as a passing required check, so the gate always runs.
         "    if: always()",
         f"    runs-on: {scalar(runner_value(manifest['runners']['gates']))}",

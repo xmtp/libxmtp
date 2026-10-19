@@ -445,7 +445,7 @@ jobs:
     with:
       scope: android-smoke
   lint:
-    name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Lint (draft)' || 'Lint' }}
+    name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Lint (draft)' || github.event_name == 'workflow_dispatch' && inputs.suites != '' && 'Lint (manual subset)' || 'Lint' }}
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -480,7 +480,7 @@ jobs:
             ($failed[] | "\(.): \($results[.].result)"),
             ($broken + $failed == [])'
   test:
-    name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Test (not run on drafts)' || 'Test' }}
+    name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Test (not run on drafts)' || github.event_name == 'workflow_dispatch' && inputs.suites != '' && 'Test (manual subset)' || 'Test' }}
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
