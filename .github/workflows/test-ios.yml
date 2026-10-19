@@ -26,9 +26,12 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: "26.3"
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - name: Check native Apple toolchain
         run: dev/nix-shell 'dev/check-apple-toolchain'
+      # SwiftLint and SwiftFormat take seconds, so they run here instead of in
+      # a macOS lint job of their own.
+      - name: Lint the iOS SDK
+        run: dev/nix-shell 'just ios lint'
       # The tracked Swift under sdks/ios/Sources must match the generated
       # Swift: a changed, deleted, or new file fails.
       - name: Build the iOS bindings and check the tracked Swift

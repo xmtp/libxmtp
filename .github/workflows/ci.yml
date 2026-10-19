@@ -160,14 +160,6 @@ jobs:
     secrets:
       KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
       KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-  lint_ios:
-    name: iOS SDK
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'lint_ios')
-    uses: ./.github/workflows/lint-ios.yml
-    permissions:
-      contents: read
   lint_deny:
     name: Rust dependencies
     needs:
@@ -176,16 +168,6 @@ jobs:
     uses: ./.github/workflows/lint-deny.yml
     permissions:
       contents: read
-  lint_example_ios:
-    name: iOS example app
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'lint_example_ios')
-    uses: ./.github/workflows/lint-example-ios.yml
-    permissions:
-      contents: read
-    secrets:
-      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
   lint_example_react_native:
     name: React Native example app
     needs:
@@ -391,6 +373,8 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+    with:
+      emulator: false
   test_example_android_advisory:
     name: Android example app (advisory)
     needs:
@@ -401,6 +385,32 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+    with:
+      emulator: false
+  test_example_android_emulator:
+    name: Android example emulator
+    needs:
+    - detect-changes
+    - products_sdk_android
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_example_android_emulator') && needs.products_sdk_android.result != 'failure' }}
+    uses: ./.github/workflows/test-example-android.yml
+    permissions:
+      contents: read
+    secrets: inherit
+    with:
+      emulator: true
+  test_example_android_emulator_advisory:
+    name: Android example emulator (advisory)
+    needs:
+    - detect-changes
+    - products_sdk_android
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && contains(fromJSON(needs.detect-changes.outputs.advisory_suites), 'test_example_android_emulator') && needs.products_sdk_android.result != 'failure' }}
+    uses: ./.github/workflows/test-example-android.yml
+    permissions:
+      contents: read
+    secrets: inherit
+    with:
+      emulator: true
   test_example_ios:
     name: iOS example app
     needs:
@@ -444,9 +454,7 @@ jobs:
     - nix_eval
     - lint_proto
     - docs_quality
-    - lint_ios
     - lint_deny
-    - lint_example_ios
     - lint_example_react_native
     steps:
     - name: Check detection and the selected blocking lint suites
@@ -502,6 +510,7 @@ jobs:
     - test_ios
     - test_android
     - test_example_android
+    - test_example_android_emulator
     - test_example_ios
     - test_react_native
     steps:
@@ -510,7 +519,7 @@ jobs:
         DETECTED: ${{ needs.detect-changes.result }}
         SELECTED: ${{ needs.detect-changes.outputs.test_suites }}
         PRODUCTS: ${{ needs.detect-changes.outputs.products }}
-        WAITS: '{"check_types":["sdk_js"],"check_sdk":["sdk_js","sdk_android"],"test_node":["sdk_js"],"test_agent":["sdk_js"],"test_browser":["sdk_js"],"test_sdk_platform":["sdk_js"],"docs_site":["sdk_js"],"test_android":["sdk_android"],"test_example_android":["sdk_android"]}'
+        WAITS: '{"check_types":["sdk_js"],"check_sdk":["sdk_js","sdk_android"],"test_node":["sdk_js"],"test_agent":["sdk_js"],"test_browser":["sdk_js"],"test_sdk_platform":["sdk_js"],"docs_site":["sdk_js"],"test_android":["sdk_android"],"test_example_android":["sdk_android"],"test_example_android_emulator":["sdk_android"]}'
         RESULTS: ${{ toJSON(needs) }}
       run: |
         if [ "$DETECTED" != success ]; then

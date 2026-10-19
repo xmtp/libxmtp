@@ -1,6 +1,14 @@
 name: Test Android example
 'on':
   workflow_call:
+    inputs:
+      emulator:
+        description: >-
+          false runs the APK, JVM test, lint, and build job; true runs the
+          emulator tests. Two suites call this file, one per job, so the
+          emulator tests can run as advisory on pull requests (decision D1).
+        type: boolean
+        required: true
 permissions:
   contents: read
 jobs:
@@ -8,6 +16,7 @@ jobs:
   # keys its entries by job id and the calling workflow).
   messenger-build:
     name: APK, unit tests, lint, and builds (Messenger)
+    if: ${{ !inputs.emulator }}
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 45
     env:
@@ -29,15 +38,14 @@ jobs:
     # restored Gradle User Home, and needs no backend.
     - name: Build and verify the signed universal APK
       run: nix build .#example-android-apk --no-link
-    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
-    - name: Start backend
-      run: dev/nix-shell 'just backend up'
     # One Gradle call: unit tests, Spotless, Android Lint, and every variant
-    # build, then the APK package checks.
+    # build, then the APK package checks. No JVM test creates a client, so
+    # the job starts no backend.
     - name: Test, lint, and build Messenger
       run: dev/nix-shell 'just example-android check-all'
   integration-tests:
     name: Integration tests (Messenger)
+    if: ${{ inputs.emulator }}
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 45
     steps:
@@ -52,7 +60,6 @@ jobs:
         # CI-only Gradle cache: protected trunk pushes write it, and every
         # other run only reads it. Release and deploy jobs never restore it.
         cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main') }}
-    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - name: Start backend
       env:
         NIX_DEVSHELL: android-ci-emulator
@@ -88,15 +95,3 @@ jobs:
           ${{ runner.temp }}/messenger-metadata-backend/
           ${{ runner.temp }}/messenger-emulator-startup/
         include-hidden-files: 'true'
-  results:
-    name: Require Android example checks
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 1
-    if: always()
-    needs:
-    - messenger-build
-    - integration-tests
-    steps:
-    - env:
-        PASSED: ${{ needs.messenger-build.result == 'success' && needs.integration-tests.result == 'success' }}
-      run: test "$PASSED" = true

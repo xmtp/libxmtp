@@ -9,10 +9,12 @@ permissions:
 env:
   NIX_DEVSHELL: ios
 jobs:
+  # The fast job: lint first, then the ExampleKit unit tests and the Debug and
+  # Push builds. The journeys run in their own job, in parallel.
   tests:
-    name: Tests (iOS example)
+    name: Lint, unit tests, and builds (iOS example)
     runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-nix
@@ -23,9 +25,10 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: "26.3"
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - name: Check native Apple toolchain
         run: dev/nix-shell 'bash dev/check-apple-toolchain'
+      - name: Lint and unit tests
+        run: dev/nix-shell 'just example-ios lint && just example-ios test'
       - name: Build Debug
         run: dev/nix-shell 'just example-ios build'
       - name: Compile Push configuration
@@ -41,8 +44,23 @@ jobs:
           done
           push_settings=$(dev/nix-shell "env -u LD xcodebuild -showBuildSettings -project apps/example-ios/ExampleApp.xcodeproj -scheme ExampleApp -configuration Push -sdk iphonesimulator")
           printf '%s\n' "$push_settings" | grep -Eq '^[[:space:]]*CODE_SIGN_ENTITLEMENTS = ExampleApp/Resources/ExampleApp-Push.entitlements[[:space:]]*$'
-      - name: Lint and unit tests
-        run: dev/nix-shell 'just example-ios lint && just example-ios test'
+  journeys:
+    name: Simulator journeys (iOS example)
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: "26.3"
+      - name: Check native Apple toolchain
+        run: dev/nix-shell 'bash dev/check-apple-toolchain'
+      # `test-ui` builds Debug first.
       - name: Run simulator journeys
         env:
           XMTP_SERVICES_LOGS: ${{ runner.temp }}/backend-ci-logs/journeys
@@ -56,11 +74,6 @@ jobs:
           path: apps/example-ios/.build/DerivedData/Logs/Test
           include-hidden-files: true
           retention-days: 7
-      - name: Launch simulator app
-        env:
-          XMTP_SERVICES_LOGS: ${{ runner.temp }}/backend-ci-logs/launch
-          XMTP_BACKEND_URL: http://127.0.0.1:5050
-        run: dev/nix-shell 'just backend ci nix run .#example-ios -- --headless'
       - name: Retain native service logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

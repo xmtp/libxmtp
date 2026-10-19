@@ -350,47 +350,6 @@
         "labels": []
       }
     },
-    "lint_ios": {
-      "title": "iOS SDK",
-      "phase": "lint",
-      "workflow": "lint-ios.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-ios.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "dev/check-apple-toolchain",
-        "nix/lib/ios-env.nix",
-        "nix/lib/packages/{swiftformat,swiftlint}.nix",
-        "nix/package/ios.nix",
-        "sdks/ios/**",
-        "{Package.swift,Package.resolved,.spi.yml}"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
     "lint_deny": {
       "title": "Rust dependencies",
       "phase": "lint",
@@ -420,61 +379,6 @@
       "paths": [
         "**/Cargo.toml",
         "{Cargo.lock,deny.toml}"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
-    "lint_example_ios": {
-      "title": "iOS example app",
-      "phase": "lint",
-      "workflow": "lint-example-ios.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "cachix-pr",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-example-ios.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "apps/example-ios/**",
-        "apps/xmtp_sdk_bindgen/**",
-        "crates/xmtp_sdk/**",
-        "dev/check-apple-toolchain",
-        "nix/lib/ios-env.nix",
-        "nix/lib/packages/napi-rs-cli/**",
-        "nix/lib/packages/{swiftformat,swiftlint}.nix",
-        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
-        "nix/node-packages.nix",
-        "nix/package/example-ios-run.nix",
-        "nix/package/ios.nix",
-        "nix/package/libffi-zig-cross.site",
-        "nix/package/node.nix",
-        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
-        "nix/sdk-platforms.json",
-        "sdks/ios/**",
-        "{Cargo.toml,Cargo.lock}",
-        "{Package.swift,Package.resolved,.spi.yml}",
-        "!**/*.md"
       ],
       "labels": [],
       "advisory": {
@@ -1624,7 +1528,7 @@
         "ready_pr_push",
         "merge"
       ],
-      "disable_on_forks": true,
+      "disable_on_forks": false,
       "secrets": "inherit",
       "permissions": {
         "contents": "read"
@@ -1642,20 +1546,27 @@
       ],
       "workflow_tier": "blocking",
       "paths": [
+        "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_sdk/**",
+        "dev/backend/**",
         "dev/check-apple-toolchain",
+        "dev/docker/s3/**",
         "nix/lib/ios-env.nix",
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/{swiftformat,swiftlint}.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
         "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
+        "nix/package/backend.nix",
         "nix/package/ios.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/sdk-platforms.json",
+        "nix/services/**",
         "sdks/ios/**",
         "{Cargo.toml,Cargo.lock}",
         "{Package.swift,Package.resolved,.spi.yml}"
@@ -1740,7 +1651,9 @@
         "sdk_android"
       ],
       "runners": {},
-      "with": {},
+      "with": {
+        "emulator": false
+      },
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1773,6 +1686,61 @@
           "!docs/**"
         ],
         "labels": []
+      }
+    },
+    "test_example_android_emulator": {
+      "title": "Android example emulator",
+      "phase": "test",
+      "workflow": "test-example-android.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "products": [
+        "sdk_android"
+      ],
+      "runners": {},
+      "with": {
+        "emulator": true
+      },
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-example-android.yml"
+      ],
+      "workflow_tier": "advisory",
+      "paths": [],
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [
+          "apps/example-android/**",
+          "nix/android-packages.nix",
+          "nix/ci-sets.nix",
+          "nix/lib/android-*",
+          "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
+          "nix/musl-docker.nix",
+          "nix/package/backend.nix",
+          "nix/package/example-android-apk*",
+          "nix/package/libffi-zig-cross.site",
+          "nix/package/xmtp-sdk{,-native}.nix",
+          "nix/sdk-platforms.json",
+          "nix/shells/android{,-ci}.nix",
+          "sdks/android/**",
+          "!docs/**"
+        ],
+        "labels": [
+          "android"
+        ]
       }
     },
     "test_example_ios": {

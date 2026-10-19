@@ -84,16 +84,21 @@ build the products themselves.
 - `test-example-android.yml` owns app build, lint, host, and integration
   checks in two jobs: `messenger-build` (the APK derivation,
   then `just example-android check-all`: unit tests, lint, and every variant in
-  one Gradle call) and `integration-tests`. App lint is in the test phase so
-  that it can wait for the `sdk_android` products job.
+  one Gradle call, with no backend) and `integration-tests`. Its `emulator`
+  input picks one job, so two suites call the file:
+  `test_example_android` (blocking on the app's own paths) and
+  `test_example_android_emulator` (advisory on every pull request, blocking on
+  merges). App lint is in the test phase so that it can wait for the
+  `sdk_android` products job.
 - `test-android.yml` has two jobs: `sdk-build` (`just android check`, one
   Gradle call for `gradlew build` and the instrumented test APK, then
-  `check-consumers` and the AAR staged over the Nix libraries) and
-  `sdk-emulator` (API 34 tests, then the API 23 smoke). App-only changes do not select SDK
-  checks; SDK and shared toolchain changes select app compatibility checks.
-- `lint-example-ios.yml` owns example app lint. `test-example-ios.yml` owns
-  the Debug and Push builds, unit tests, simulator journeys, and Nix launch.
-  Keep both registered in `.github/ci-suites.yml`.
+  `check-consumers`) and `sdk-emulator` (API 34 tests, then the API 23 smoke
+  on merge and manual runs only). App-only changes do not select SDK checks;
+  the Kotlin SDK and shared toolchain changes select the app as advisory.
+- `test-example-ios.yml` owns example app lint, unit tests, and the Debug and
+  Push builds in its `tests` job, and the simulator journeys in its
+  `journeys` job. `test-ios.yml` runs SwiftLint and SwiftFormat for the SDK
+  in its `tests` job; no macOS lint job exists.
 - `lint-example-react-native.yml` owns the React Native example's typecheck,
   Oxlint, Oxfmt and unit tests (`just example-react-native check` against the
   JS-only SDK product). It runs on drafts. Native builds are local.

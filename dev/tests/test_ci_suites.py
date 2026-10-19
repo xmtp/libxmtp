@@ -546,11 +546,12 @@ class ExplainTests(unittest.TestCase):
         for path, expected in [
             (
                 "apps/example-ios/ExampleApp/View.swift",
-                "blocking: lint_config, lint_example_ios, test_example_ios",
+                "blocking: lint_config, test_example_ios",
             ),
             (
                 "sdks/android/library/src/main/java/Client.kt",
-                "blocking: lint_config, test_android; advisory: test_example_android",
+                "blocking: lint_config, test_android; advisory: "
+                "test_example_android, test_example_android_emulator",
             ),
             ("flake.nix", "shared (every suite)"),
             ("new-language/source.xyz", "unknown (every suite)"),

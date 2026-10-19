@@ -145,9 +145,9 @@ path_groups:
     - "nix/package/backend.nix"
     - "nix/musl-docker.nix"
   # The native backend package and the test services (nix/services), which
-  # `just backend ci` runs. test_backend checks the services contract; test_ios
-  # uses `just backend ci` but is not selected by backend changes (see
-  # docker_backend).
+  # `just backend ci` runs. test_ios starts them on macOS, the only Darwin run
+  # before a merge. test_dev checks the services contract on Linux
+  # (dev/tests/test_services.py).
   native_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
@@ -377,18 +377,6 @@ suites:
       - "sdks/agent/src/**"
       - "sdks/*/package.json"
       - "dev/js/sdk-package"
-  lint_ios:
-    title: iOS SDK
-    phase: lint
-    workflow: lint-ios.yml
-    run_on: [ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: none
-    permissions: {contents: read}
-    kache: []
-    products: []
-    pr_filters:
-      - path_group: swift
   lint_deny:
     title: Rust dependencies
     phase: lint
@@ -402,21 +390,6 @@ suites:
     pr_filters:
       - "{Cargo.lock,deny.toml}"
       - "**/Cargo.toml"
-
-  lint_example_ios:
-    title: iOS example app
-    phase: lint
-    workflow: lint-example-ios.yml
-    run_on: [ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: cachix-pr
-    permissions: {contents: read}
-    kache: []
-    products: []
-    pr_filters:
-      - path_group: example_ios
-      - path_group: swift
-      - path_group: sdk_core
 
   # Typecheck, Oxlint, Oxfmt and unit tests of the React Native example. It
   # runs on drafts too: native builds are local (see the app's AGENTS.md).
@@ -749,12 +722,16 @@ suites:
       - "!sdks/agent/src/**/*.test.ts"
 
   # --- Mobile ----------------------------------------------------------------
+  # The tests job also runs SwiftLint and SwiftFormat. Forks run it: its only
+  # secret is the PR-cache token, which forks do not get. The native backend
+  # selects it because no other job builds and starts the backend and the test
+  # services on macOS before a merge.
   test_ios:
     title: iOS SDK
     phase: test
     workflow: test-ios.yml
     run_on: [ready_pr_push, merge]
-    disable_on_forks: true
+    disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
     kache: []
@@ -762,6 +739,7 @@ suites:
     pr_filters:
       - path_group: sdk_core
       - path_group: swift
+      - path_group: native_backend
   test_android:
     title: Android SDK
     phase: test
@@ -777,6 +755,11 @@ suites:
       # Spotless, so no separate Android lint suite exists.
       - path_group: sdk_core
       - path_group: android
+  # Messenger has two suites over one workflow. Decision D1: the APK, JVM
+  # test, lint, and build job blocks on the app's own paths and its label; the
+  # Kotlin SDK and the SDK and toolchain Nix inputs run it as advisory. The
+  # emulator tests are an advisory smoke on every pull request that selects
+  # the app. Merge runs run both as blocking.
   test_example_android:
     title: Android example app
     phase: test
@@ -787,13 +770,30 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_android]
-    # Decision D1: the app's own paths and its label block. The Kotlin SDK
-    # and the SDK and toolchain Nix inputs run the app as advisory.
+    with: {emulator: false}
     pr_filters:
       - "apps/example-android/**"
       - "nix/package/example-android-apk*"
       - pr_label: "android"
     advisory_filters:
+      - path_group: android
+      - path_group: example_android_nix
+  test_example_android_emulator:
+    title: Android example emulator
+    phase: test
+    workflow: test-example-android.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: []
+    products: [sdk_android]
+    with: {emulator: true}
+    pr_filters: []
+    advisory_filters:
+      - "apps/example-android/**"
+      - "nix/package/example-android-apk*"
+      - pr_label: "android"
       - path_group: android
       - path_group: example_android_nix
 
@@ -807,8 +807,9 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
-    # Decision D1: the app's own paths and its label block. The Swift SDK and
-    # the SDK, toolchain, and service Nix inputs run the app as advisory.
+    # Decision D1: the app's own paths and its label block, both the fast job
+    # (lint, unit tests, builds) and the journeys. The Swift SDK and the SDK,
+    # toolchain, and service Nix inputs run the app as advisory.
     pr_filters:
       - "apps/example-ios/**"
       - "nix/package/example-ios-run.nix"
