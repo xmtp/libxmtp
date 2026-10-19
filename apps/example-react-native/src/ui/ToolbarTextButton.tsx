@@ -26,8 +26,8 @@ export function ToolbarTextButton({
 /**
  * The titled button as a toolbar item, for a `Stack.Toolbar` that holds other
  * items too. A function, not a component: `Stack.Toolbar` reads only its
- * direct `Stack.Toolbar.*` children on iOS. The palette argument matches the
- * iOS signature; labels take palette names here.
+ * direct `Stack.Toolbar.*` children on iOS. The palette argument matches
+ * `ToolbarTextButton.ios.tsx`; labels take palette names here.
  */
 export function toolbarTextItem(
   {

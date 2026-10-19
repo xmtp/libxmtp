@@ -1,5 +1,4 @@
-// The SDK side of `DetailsStore` (ExampleSDK/GroupQueries.swift and
-// IdentityQueries.swift).
+// The SDK side of `DetailsStore`: group reads and writes, and recipient lookup.
 
 import {
   type Conversation,
@@ -57,7 +56,7 @@ function detailsMember(member: Member): DetailsMember {
   };
 }
 
-/** Finds the inbox of a parsed recipient (`SDKIdentityQueries.inboxID`). */
+/** Finds the inbox of a parsed recipient. */
 async function inboxIdFor(
   session: ActiveSession,
   recipient: Recipient,
@@ -93,9 +92,8 @@ async function inboxIdFor(
 }
 
 /**
- * Resolves a recipient to a member with its handle
- * (`SDKGroupQueries.resolve`). Throws `RecipientError` for input that does
- * not parse or resolve.
+ * Resolves a recipient to a member with its handle. Throws `RecipientError`
+ * for input that does not parse or resolve.
  */
 export async function resolveMember(
   session: ActiveSession,

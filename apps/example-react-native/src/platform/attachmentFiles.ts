@@ -1,6 +1,5 @@
-// Attachment files on the device (App/Platform/FileStager.swift,
-// PhotoImport.swift, QuickLookExport.swift): pickers, staging copies into the
-// profile's protected `temp/attachment-staging/<uuid>`, export copies into
+// Attachment files on the device: pickers, staging copies into the profile's
+// protected `temp/attachment-staging/<uuid>`, export copies into
 // `exports/<uuid>/<name>`, Quick Look and Save to Files.
 
 import {

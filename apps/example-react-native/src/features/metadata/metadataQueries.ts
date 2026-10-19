@@ -1,4 +1,4 @@
-// The SDK side of `MetadataStore` (ExampleSDK/MetadataQueries.swift).
+// The SDK side of `MetadataStore`.
 
 import {
   type ComponentMutation,

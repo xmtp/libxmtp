@@ -1,4 +1,4 @@
-/** Disappearing strings (`Features/Disappearing/Disappearing.xcstrings`, Common). */
+/** Disappearing messages strings. */
 export const disappearingCopy = {
   title: "Disappearing messages",
   messageDuration: "Message duration",

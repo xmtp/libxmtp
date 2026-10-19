@@ -61,9 +61,9 @@ const palettes: Record<
 };
 
 /**
- * A file message (`AttachmentCardView`): name, size and status, then
- * Download (or Retry), a spinner while downloading, or Open and Save once the
- * file is verified. Verified images show a preview above the name.
+ * A file message: name, size and status, then Download (or Retry), a spinner
+ * while downloading, or Open and Save once the file is verified. Verified
+ * images show a preview above the name.
  */
 export function AttachmentCard({
   store,
@@ -160,7 +160,7 @@ export function AttachmentCard({
           appearance === "list" ? styles.listLabel : undefined,
         ]}>
         {appearance === "list" ? (
-          // A List styles the Label: a larger icon in its own column.
+          // A list row styles its label: a larger icon in its own column.
           <View style={styles.listIcon}>
             <Symbol
               name="doc.fill"
@@ -293,11 +293,11 @@ function Preview({ path }: { readonly path: string }) {
   );
 }
 
-/** The list Label's `doc.fill` box (subheadline, image scale large). */
+/** The list label's `doc.fill` box (subheadline, large image scale). */
 const LIST_ICON = 23.5;
 
 const styles = StyleSheet.create({
-  // `.frame(maxWidth: 260)` fills up to 260 pt when the parent offers more.
+  // Fills up to 260 pt when the parent offers more.
   card: {
     alignItems: "flex-start",
     gap: 8,
@@ -306,8 +306,8 @@ const styles = StyleSheet.create({
     width: 260,
   },
   label: { alignItems: "center", flexDirection: "row", gap: 8 },
-  // Measured on the native Media and files card: the title starts 36 pt
-  // after the icon's leading edge, and the icon is about 20 pt tall.
+  // The title starts 36 pt after the icon's leading edge, and the icon is
+  // about 20 pt tall.
   listLabel: { gap: 17 },
   listIcon: { alignItems: "center", minWidth: 19 },
   name: { flexShrink: 1 },

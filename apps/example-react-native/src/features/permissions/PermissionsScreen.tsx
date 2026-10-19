@@ -17,10 +17,10 @@ export interface PermissionsScreenProps {
 }
 
 /**
- * Group permissions (`PermissionsFeatureView`): the All members / Admins only
- * presets (super admins only), a disabled Custom row, and the six current
- * policies. A preset makes nine ordered writes; after a failure the screen
- * shows the policies the group has now.
+ * Group permissions: the All members / Admins only presets (super admins
+ * only), a disabled Custom row, and the six current policies. A preset makes
+ * nine ordered writes; after a failure the screen shows the policies the group
+ * has now.
  */
 export function PermissionsScreen({ conversationId }: PermissionsScreenProps) {
   const session = useActiveSession();
@@ -181,7 +181,7 @@ const presetSeparatorInset = form.rowInset + form.iconColumn + form.iconGap;
 
 const styles = StyleSheet.create({
   iconColumn: { alignItems: "center", minWidth: form.iconColumn },
-  // VStack spacing 4, less the extra leading of the 18 pt footnote line.
+  // 4 pt between the title and the footnote, less the footnote's extra leading.
   text: { flex: 1, gap: 3 },
   value: { flex: 1 },
   presetRow: { paddingVertical: 14 },

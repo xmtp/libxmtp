@@ -1,6 +1,5 @@
 // Conversation details, member mutations, permission presets and pending
-// membership changes (ExampleCore/Details/DetailsStore.swift and
-// DetailsModels.swift). The SDK side is a `GroupQueries` port.
+// membership changes. The SDK side is a `GroupQueries` port.
 
 import type { GroupPolicyType } from "@xmtp/react-native-sdk";
 
@@ -20,7 +19,7 @@ export const DetailsCopy = {
   recipientNotFound: "No XMTP account matches this recipient.",
 } as const;
 
-/** A group member (`GroupMember`). */
+/** A group member. */
 export interface DetailsMember {
   readonly id: string;
   readonly handle?: string;
@@ -28,7 +27,7 @@ export interface DetailsMember {
   readonly role: GroupRole;
 }
 
-/** A loaded conversation (`ConversationDetails`). */
+/** A loaded conversation. */
 export interface ConversationDetails extends Authority {
   readonly record: TitleSource;
   readonly description: string;
@@ -58,10 +57,10 @@ export type DetailsAction =
   | { readonly kind: "mutate"; readonly mutation: DetailsMutation }
   | { readonly kind: "preset"; readonly adminOnly: boolean };
 
-/** The SDK side of the store (`GroupQueries`). */
+/** The SDK side of the store. */
 export interface GroupQueries {
   load(): Promise<ConversationDetails>;
-  /** Resolves a recipient; throws `RecipientError` with the iOS copy. */
+  /** Resolves a recipient; throws a `RecipientError` with its copy. */
   resolve(input: string): Promise<DetailsMember>;
   /** Writes one mutation. `add` receives a resolved inbox ID as `input`. */
   mutate(mutation: DetailsMutation): Promise<void>;

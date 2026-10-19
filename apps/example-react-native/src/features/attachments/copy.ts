@@ -1,6 +1,4 @@
-// English strings of the attachment screens (Attachments.xcstrings,
-// AttachmentRecovery.xcstrings, SharedMedia.xcstrings, and the attachment
-// keys of Chat.xcstrings).
+// English strings of the attachment screens.
 
 export { AttachmentCopy as attachmentCopy } from "@/core/attachments.ts";
 export { SharedMediaCopy as sharedMediaCopy } from "@/core/sharedMedia.ts";

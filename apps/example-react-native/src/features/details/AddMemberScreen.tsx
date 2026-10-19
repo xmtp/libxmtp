@@ -21,9 +21,9 @@ export interface AddMemberScreenProps {
 }
 
 /**
- * The Add member sheet (`AddMemberSheet`): a recipient field with a 300 ms
- * lookup and a "Found" row, Cancel and Add. Add resolves the input again and
- * adds the inbox; the sheet closes when that finishes without an error.
+ * The Add member sheet: a recipient field with a 300 ms lookup and a "Found"
+ * row, Cancel and Add. Add resolves the input again and adds the inbox; the
+ * sheet closes when that finishes without an error.
  */
 export function AddMemberScreen({ conversationId }: AddMemberScreenProps) {
   const session = useActiveSession();
@@ -53,13 +53,13 @@ function AddMemberForm({
   const { busy, error } = state;
 
   // The shared Details store keeps the last lookup. Each opening starts with
-  // an empty field and no preview (a recorded deviation: iOS keeps it).
+  // an empty field and no preview.
   useEffect(() => {
     store.resolvePreview("");
   }, [store]);
 
-  // Close only when an Add from this sheet finishes without an error, like
-  // iOS `.onChange(of: busy)`. Typing clears the error but never closes.
+  // Close only when an Add from this sheet finishes without an error.
+  // Typing clears the error but never closes.
   useEffect(() => {
     const finished = wasBusy.current && !busy;
     wasBusy.current = busy;
@@ -138,9 +138,9 @@ function AddMemberForm({
 }
 
 const styles = StyleSheet.create({
-  // A sheet Form starts its first section 35 pt below the bar.
+  // A form in a sheet starts its first section 35 pt below the bar.
   content: { paddingTop: 35 },
   center: { justifyContent: "center" },
-  // SwiftUI's default HStack spacing is 8, the row's is 12.
+  // The row spaces its items 12 pt apart, not the default 8.
   found: { marginLeft: -4 },
 });

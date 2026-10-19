@@ -1,6 +1,6 @@
-// Per-session attachment services (ChatServices.swift `gateway`, `staging`,
-// `files`): the SDK gateway, the saved drafts, and the staging and export
-// directories. A store per screen comes from `createAttachmentStore`.
+// Per-session attachment services: the SDK gateway, the saved drafts, and the
+// staging and export directories. A store per screen comes from
+// `createAttachmentStore`.
 
 import type { RemoteAttachment } from "@xmtp/react-native-sdk";
 

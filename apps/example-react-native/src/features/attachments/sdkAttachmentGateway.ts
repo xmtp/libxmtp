@@ -1,5 +1,4 @@
-// The SDK calls behind attachments (ExampleSDK/AttachmentGateway.swift) and
-// the shared-media read (ChatQueries.swift `media`).
+// The SDK calls behind attachments and the shared-media read.
 
 import {
   type Client,

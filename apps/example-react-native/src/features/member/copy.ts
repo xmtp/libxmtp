@@ -1,4 +1,4 @@
-/** Member sheet strings (`Features/Member/Member.xcstrings`, Common). */
+/** Member sheet strings. */
 export const memberCopy = {
   title: "Member",
   close: "Close",

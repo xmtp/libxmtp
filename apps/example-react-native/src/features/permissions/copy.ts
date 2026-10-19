@@ -1,4 +1,4 @@
-/** Permissions strings (`Features/Permissions/Permissions.xcstrings`, Common). */
+/** Permissions strings. */
 export const permissionsCopy = {
   title: "Permissions",
   header: "Who can change group settings",

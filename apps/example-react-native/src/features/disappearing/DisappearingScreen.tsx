@@ -25,9 +25,9 @@ export interface DisappearingScreenProps {
 }
 
 /**
- * Disappearing messages (`DisappearingFeatureView`): presets that save at
- * once, and Custom with a seconds field and "Save duration". 0 turns it off;
- * a duration whose nanoseconds overflow Int64 is rejected before any write.
+ * Disappearing messages: presets that save at once, and Custom with a seconds
+ * field and "Save duration". 0 turns it off; a duration whose nanoseconds
+ * overflow Int64 is rejected before any write.
  */
 export function DisappearingScreen({
   conversationId,
@@ -155,6 +155,6 @@ function DisappearingBody({
 }
 
 const styles = StyleSheet.create({
-  // A glass button row in a List: 14.3 pt above and 13.3 pt below the glass (iOS 27).
+  // A glass button row in a list: 14.3 pt above and 13.3 pt below the glass (iOS 27).
   buttonRow: { paddingVertical: 15 },
 });

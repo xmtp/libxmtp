@@ -14,9 +14,9 @@ export interface EditGroupScreenProps {
 }
 
 /**
- * The Edit group sheet (`DetailsFeatureView` `.sheet(isPresented: $edit)`):
- * name and description fields, Cancel and Save. Save sends the edit to the
- * Details store and closes at once; errors show on Details.
+ * The Edit group sheet: name and description fields, Cancel and Save. Save
+ * sends the edit to the Details store and closes at once; errors show on
+ * Details.
  */
 export function EditGroupScreen({ conversationId }: EditGroupScreenProps) {
   const session = useActiveSession();
@@ -88,6 +88,6 @@ function EditGroupForm({
 }
 
 const styles = StyleSheet.create({
-  // A vertical-axis TextField grows from one 52 pt line.
+  // The multiline field grows from one 52 pt line.
   multiline: { paddingBottom: 15, paddingTop: 15 },
 });

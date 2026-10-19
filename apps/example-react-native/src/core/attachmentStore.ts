@@ -1,5 +1,4 @@
-// Upload drafts and file downloads of one screen
-// (ExampleCore/Attachments/AttachmentStore.swift).
+// Upload drafts and file downloads of one screen.
 //
 // Staging hands a copied file to the SDK (`attachments.create`), which
 // encrypts it, and saves a draft. Send uploads first, then queues the message
@@ -32,7 +31,7 @@ import {
 } from "./sendJournal.ts";
 import { Store } from "./store.ts";
 
-/** The SDK calls behind attachments (`AttachmentGateway`). */
+/** The SDK calls behind attachments. */
 export interface AttachmentGateway {
   /** The server's upload limit, or undefined when it offers no attachments. */
   capability(): bigint | undefined;
@@ -151,9 +150,9 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   }
 
   /**
-   * Re-reads the saved drafts only (`reloadDrafts`): no SDK import and no
-   * reset of interrupted uploads, so a running send keeps its phase. The chat
-   * calls it on focus, after recovery may have discarded or assigned a draft.
+   * Re-reads the saved drafts only: no SDK import and no reset of interrupted
+   * uploads, so a running send keeps its phase. The chat calls it on focus,
+   * after recovery may have discarded or assigned a draft.
    */
   reloadDrafts(): void {
     try {

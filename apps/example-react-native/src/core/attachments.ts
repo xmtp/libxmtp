@@ -1,13 +1,12 @@
-// Attachment models and rules (ExampleCore/Attachments/AttachmentModels.swift,
-// AttachmentDraftStore.swift, ExampleSDK/AttachmentGateway.swift): file phases,
-// saved upload drafts, the verified-file cache, SDK failure copy, and the
-// byte-count and file-type text the cards show.
+// Attachment models and rules: file phases, saved upload drafts, the
+// verified-file cache, SDK failure copy, and the byte-count and file-type text
+// the cards show.
 
 import type { RemoteAttachment } from "@xmtp/react-native-sdk";
 
 import { bytesToHex, hexToBytes } from "./hex.ts";
 
-/** `FilePhase`: drafts use waiting → uploading → complete; cards use available → downloading → verified. */
+/** Drafts use waiting → uploading → complete; cards use available → downloading → verified. */
 export type FilePhase =
   | "available"
   | "waiting"
@@ -29,7 +28,7 @@ export interface FileCard {
   readonly retryable: boolean;
 }
 
-/** An upload draft, saved before it is sent (`FileDraft`). */
+/** An upload draft, saved before it is sent. */
 export interface FileDraft {
   /** A UUID; also the send journal entry ID. */
   readonly id: string;
@@ -158,7 +157,7 @@ function causeRetryable(failure: AttachmentFailureLike): boolean {
 }
 
 /**
- * The copy and retry rule of an SDK attachment failure (`attachmentFailure`).
+ * The copy and retry rule of an SDK attachment failure.
  * A thrown error's own `retryable` detail wins over the cause table.
  */
 export function attachmentFailure(
@@ -176,7 +175,7 @@ export function operationFailed(): AttachmentError {
   return new AttachmentError(AttachmentCopy.operationFailed, true);
 }
 
-/** The card status line (`AttachmentCardView.status`). */
+/** The card status line. */
 export function cardStatus(phase: FilePhase, allowed: boolean): string {
   if (!allowed) return AttachmentCopy.closed;
   switch (phase) {
@@ -325,8 +324,8 @@ function fileTypeDescription(name: string): string {
 }
 
 /**
- * The MIME type the SDK records for a file (`attachmentMIMEType`): from the
- * extension, else the picker's type, else `application/octet-stream`.
+ * The MIME type the SDK records for a file: from the extension, else the
+ * picker's type, else `application/octet-stream`.
  */
 export function mimeTypeFor(name: string, pickerType?: string): string {
   return (
@@ -540,7 +539,7 @@ export interface DraftPreferences {
 const DRAFT_PREFIX = "attachment-";
 const REFERENCES = "attachment-refs";
 
-/** Saved upload drafts (`AttachmentDraftStore`). */
+/** Saved upload drafts. */
 export class AttachmentDraftStore {
   readonly #preferences: DraftPreferences;
 
@@ -608,7 +607,7 @@ export class AttachmentDraftStore {
   }
 }
 
-/** The most recently used verified files, at most 16 (`VerifiedFileCache`). */
+/** The most recently used verified files, at most `LIMIT`. */
 export class VerifiedFileCache {
   static readonly LIMIT = 16;
   readonly #entries = new Map<string, VerifiedFile>();

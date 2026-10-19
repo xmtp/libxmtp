@@ -1,8 +1,7 @@
-// The attachment store of one open chat (`ChatRuntime.attachments`). The
-// composer slots and the file cards share it through the chat runtime.
-// While any of them is mounted it is attached: it loaded once, and a consent
-// change (or a lagged stream) drops every download, like iOS
-// `graph.consentRevision`.
+// The attachment store of one open chat. The composer slots and the file
+// cards share it through the chat runtime. While any of them is mounted it is
+// attached: it loaded once, and a consent change (or a lagged stream) drops
+// every download.
 
 import { useEffect } from "react";
 

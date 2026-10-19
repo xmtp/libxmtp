@@ -143,8 +143,8 @@ export function AttachMenu({ allowed }: ComposerSlotProps) {
 }
 
 /**
- * This chat's staged files (`StagedAttachmentPreview`) and the attachment
- * error line, which shows only while the composer has no error of its own.
+ * This chat's staged files and the attachment error line, which shows only
+ * while the composer has no error of its own.
  */
 export function StagedAttachments({
   conversationId,
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
   previewStacked: { alignItems: "stretch", flexDirection: "column" },
   details: { alignItems: "center", flexDirection: "row", gap: 10 },
   detailsInline: { flex: 1 },
-  // The symbol is not clipped: at accessibility sizes it outgrows the box, as in SwiftUI.
+  // The symbol is not clipped: at accessibility sizes it outgrows the box.
   icon: {
     alignItems: "center",
     height: 44,

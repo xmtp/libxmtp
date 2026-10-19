@@ -38,8 +38,8 @@ import { toolbarTextItem } from "@/ui/ToolbarTextButton";
 import { useStore } from "@/ui/useStore";
 
 /**
- * SwiftUI starts the separator under a row of glass buttons at the first
- * button's title, 28 pt into the card (measured on iOS 27).
+ * The separator under a row of glass buttons starts at the first button's
+ * title, 28 pt into the card (measured on iOS 27).
  */
 const buttonRowInset = 28;
 
@@ -50,8 +50,8 @@ export interface MetadataScreenProps {
 }
 
 /**
- * Group fields and My fields (`MetadataView`): the raw registry fields of a
- * conversation with editors that follow each field's shape and policies.
+ * Group fields and My fields: the raw registry fields of a conversation with
+ * editors that follow each field's shape and policies.
  */
 export function MetadataScreen({ conversationId, own }: MetadataScreenProps) {
   const session = useActiveSession();
@@ -502,12 +502,12 @@ function groupFieldRows(
 }
 
 const styles = StyleSheet.create({
-  // An inset-grouped List starts a headerless first section lower.
+  // An inset-grouped list starts a headerless first section lower.
   content: { paddingTop: 35 },
   flex: { flex: 1 },
   center: { justifyContent: "center" },
   multiline: { paddingBottom: 15, paddingTop: 15 },
-  // A glass button row in a List: 14.3 pt above and 13.3 pt below the glass (iOS 27).
+  // A glass button row in a list: 14.3 pt above and 13.3 pt below the glass (iOS 27).
   buttons: { gap: 8, paddingVertical: 15 },
   member: { paddingVertical: 19 },
   memberText: { flex: 1, gap: 5 },

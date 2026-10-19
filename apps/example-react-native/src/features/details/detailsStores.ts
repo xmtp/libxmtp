@@ -5,9 +5,9 @@ import { SdkGroupQueries } from "@/features/details/groupQueries";
 import type { ActiveSession } from "@/session";
 
 /**
- * A Details store for one screen (`makeDetailsStore`). Its results apply only
- * while its session is current and the store is not disposed. Its work runs
- * in the session scope, so sign-out awaits it.
+ * A Details store for one screen. Its results apply only while its session
+ * is current and the store is not disposed. Its work runs in the session
+ * scope, so sign-out awaits it.
  */
 export function createDetailsStore(
   session: ActiveSession,
@@ -41,7 +41,7 @@ function sharedKey(session: ActiveSession, conversationId: string): string {
 
 /**
  * The Details screen's store, shared with its Add member and Edit group
- * sheets (iOS presents both from Details with the Details store). A sheet
+ * sheets, so their errors and pending members show on Details. A sheet
  * opened without Details gets its own store.
  */
 export function useSharedDetailsStore(

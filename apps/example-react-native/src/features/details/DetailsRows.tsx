@@ -25,8 +25,8 @@ export interface MemberIdentityRowProps {
 }
 
 /**
- * `MemberIdentityRow`: a 44 pt avatar, the handle or short inbox ID, and the
- * role in secondary text, with 4 pt more vertical padding than a text row.
+ * A member row: a 44 pt avatar, the handle or short inbox ID, and the role in
+ * secondary text, with 4 pt more vertical padding than a text row.
  */
 export function MemberIdentityRow({
   member,
@@ -70,7 +70,7 @@ export interface DetailsNavigationRowProps {
 }
 
 /**
- * `DetailsNavigationRow` inside a default List button: a system blue symbol
+ * A navigation row inside a default list button: a system blue symbol
  * in a 24 pt column, the title in the tint, the value and chevron in lighter
  * tints (the button tints its `.primary` and `.secondary` styles).
  */
@@ -112,7 +112,7 @@ export interface MediaRowProps {
 }
 
 /**
- * "Media and files": a default List button `Label` with the `photo` symbol,
+ * "Media and files": a default list button label with the `photo` symbol,
  * all in the tint. The symbol draws 24 x 19 pt, its left edge 15.4 pt into
  * the row; the title starts 56.4 pt in (measured on iOS 27).
  */
@@ -129,7 +129,7 @@ export function MediaRow({ title, onPress }: MediaRowProps) {
   );
 }
 
-/** `DetailsErrorView`: red error text in its own row. */
+/** Red error text in its own row. */
 export function DetailsErrorSection({ error }: { readonly error?: string }) {
   if (error === undefined) return null;
   return (
@@ -150,7 +150,7 @@ export interface ShortcutTileProps {
   readonly testID?: string;
 }
 
-/** A Details shortcut tile (`DetailsShortcutLabelStyle`): glass, radius 20. */
+/** A Details shortcut tile: glass, radius 20. */
 export function ShortcutTile({
   title,
   systemImage,
@@ -176,11 +176,11 @@ export function ShortcutTile({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  // SwiftUI adds `.padding(.vertical, 4)` inside the 15 pt row inset.
+  // 4 pt of vertical padding inside the 15 pt row inset.
   memberRow: { paddingVertical: 19 },
   iconColumn: { alignItems: "center", width: form.iconColumn },
-  // The chevron glyph is narrower than its symbol box: SwiftUI puts the
-  // glyph's right edge on the 16 pt row inset.
+  // The chevron glyph is narrower than its symbol box: its right edge sits
+  // on the 16 pt row inset.
   chevron: { marginLeft: -2.2, marginRight: -2.5 },
   // A 29 pt box centers the 24 pt glyph: pull it 3.1 pt left of the inset.
   mediaIcon: {

@@ -20,9 +20,9 @@ function draftStatus(draft: FileDraft): string {
 }
 
 /**
- * Attachment recovery (`AttachmentRecoveryFeatureView`): every saved upload
- * draft, including SDK uploads no chat claims, with View chat, Assign to a
- * chat, and Discard. Sends are not possible here.
+ * Attachment recovery: every saved upload draft, including SDK uploads no
+ * chat claims, with View chat, Assign to a chat, and Discard. Sends are not
+ * possible here.
  */
 export function AttachmentRecoveryScreen() {
   const session = useActiveSession();

@@ -1,6 +1,5 @@
-// Conversation metadata fields for the developer tools (ExampleCore/Metadata/
-// MetadataRules.swift, OwnFieldDraft.swift, MetadataStore.swift and the
-// mapping in ExampleSDK/MetadataQueries.swift).
+// Conversation metadata fields for the developer tools: field rules, the
+// own-field draft, the store and the SDK mapping.
 
 import type {
   FieldValue,
@@ -294,7 +293,7 @@ export function readOnlyValue(field: MetadataField): string {
     .join("\n");
 }
 
-// SDK mapping (`metadataShape`, `metadataPolicy`, `metadataAllows`).
+// SDK mapping: field shapes, policy labels and authority.
 
 function metadataShape(descriptor: MetadataFieldDescriptor): FieldShape {
   const type = descriptor.componentType;
@@ -437,7 +436,7 @@ export function isListedField(descriptor: MetadataFieldDescriptor): boolean {
   return descriptor.isUserField || (id >= 0xc000 && id <= 0xfeff);
 }
 
-// Own field draft (`OwnFieldDraft`): absent differs from "".
+// Own field draft: absent differs from "".
 
 export type OwnFieldValue =
   | { readonly kind: "absent" }
@@ -523,7 +522,7 @@ export function draftChanges(
   return changes;
 }
 
-// Store (`MetadataStore`).
+// The metadata store.
 
 export type MetadataEdit =
   | {

@@ -1,7 +1,6 @@
-// Media and files of one conversation
-// (ExampleCore/Attachments/SharedMediaStore.swift): the 50 newest file
-// messages and the conversation's consent, split into "Photos and videos"
-// and "Files" by file name.
+// Media and files of one conversation: the 50 newest file messages and the
+// conversation's consent, split into "Photos and videos" and "Files" by file
+// name.
 
 import { isVisualFile } from "./attachments.ts";
 import type { ChatMessage, ConversationRecord } from "./chatMessages.ts";

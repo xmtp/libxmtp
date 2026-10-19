@@ -35,7 +35,7 @@ import { Text } from "@/ui/Text";
 import { useToolbarIcon } from "@/ui/toolbarIcon";
 import { useStore } from "@/ui/useStore";
 
-/** A list `Label` draws its symbol at about 27 pt. */
+/** A list label draws its symbol at about 27 pt. */
 const labelIconSize = 27;
 /** A 26 pt box draws `doc.on.doc` at its measured 21 x 26 pt. */
 const copyIconSize = 26;
@@ -46,9 +46,9 @@ export interface MemberScreenProps {
 }
 
 /**
- * The Member sheet (`MemberFeatureView`): identity and role, the inbox ID
- * with Copy, and Make/Remove admin and Remove from group when the group's
- * policies allow them. It closes after a confirmed removal.
+ * The Member sheet: identity and role, the inbox ID with Copy, and
+ * Make/Remove admin and Remove from group when the group's policies allow
+ * them. It closes after a confirmed removal.
  */
 export function MemberScreen({ conversationId, inboxId }: MemberScreenProps) {
   const session = useActiveSession();
@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   fill: { flexGrow: 1 },
   center: { justifyContent: "center" },
-  // An inset-grouped List (not a Form) starts its first section lower.
+  // An inset-grouped list starts its first section lower than a form.
   headerSection: { paddingTop: 35 },
   header: {
     alignItems: "center",

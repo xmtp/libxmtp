@@ -1,7 +1,4 @@
-/**
- * Details, Add member and Edit group strings (`Features/Details/
- * Details.xcstrings`, `DetailsFeatureView.swift`, `AddMemberSheet.swift`).
- */
+/** Details, Add member and Edit group strings. */
 export const detailsCopy = {
   title: "Details",
   edit: "Edit",

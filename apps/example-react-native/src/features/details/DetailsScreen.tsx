@@ -45,10 +45,10 @@ export interface DetailsScreenProps {
 }
 
 /**
- * Conversation details (`DetailsFeatureView`): an inset-grouped list with a
- * hidden title, the header with shortcut tiles, the local name, members,
- * shared media, group settings, developer tools, and Block / Leave. Groups
- * get an Edit toolbar button. It reloads each time it comes into view.
+ * Conversation details: an inset-grouped list with a hidden title, the header
+ * with shortcut tiles, the local name, members, shared media, group settings,
+ * developer tools, and Block / Leave. Groups get an Edit toolbar button. It
+ * reloads each time it comes into view.
  */
 export function DetailsScreen({ conversationId }: DetailsScreenProps) {
   const session = useActiveSession();
@@ -203,9 +203,9 @@ function DetailsBody({
                 onPress={openEdit}
               />
             ) : (
-              // SwiftUI draws this `.plain` Text button as a 44 pt glass
-              // circle with a medium label-colored title; a bar button title
-              // would be a wider capsule tinted (and dimmed under sheets).
+              // A 44 pt glass circle with a medium, label-colored title. A
+              // bar button title would be a wider tinted capsule, dimmed
+              // under sheets.
               <Stack.Toolbar.View>
                 <Pressable
                   accessibilityRole="button"

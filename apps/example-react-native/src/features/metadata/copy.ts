@@ -1,4 +1,4 @@
-/** Developer tools strings (`Features/DevTools/DevTools.xcstrings`, Common). */
+/** Developer tools strings. */
 export const metadataCopy = {
   groupFields: "Group fields",
   myFields: "My fields",

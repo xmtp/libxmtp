@@ -22,7 +22,7 @@ import { IdentityText } from "@/ui/Identity";
 import { Span, Text } from "@/ui/Text";
 import { useStore } from "@/ui/useStore";
 
-/** `GridItem(.adaptive(minimum: 140))` with 12 pt spacing. */
+/** An adaptive grid: columns at least 140 pt wide, 12 pt apart. */
 const GRID_MINIMUM = 140;
 const GRID_SPACING = 12;
 
@@ -36,9 +36,9 @@ function gridColumns(width: number): { count: number; width: number } {
 }
 
 /**
- * Media and files (`SharedMediaFeatureView`): the 50 newest file messages,
- * "Photos and videos" in an adaptive grid and other "Files" in rows, each
- * with its sender, date, file card and "View in chat".
+ * Media and files: the 50 newest file messages, "Photos and videos" in an
+ * adaptive grid and other "Files" in rows, each with its sender, date, file
+ * card and "View in chat".
  */
 export function SharedMediaScreen({
   conversationId,
@@ -238,9 +238,9 @@ function MediaCard({
 }
 
 /**
- * The byline's `IdentityText` under the row's `.foregroundStyle(.secondary)`:
- * a handle's name takes the secondary color and its `#code` the tertiary one
- * (seen in the native capture); an inbox ID prefix stays monospaced.
+ * The byline's `IdentityText` in secondary text: a handle's name takes the
+ * secondary color and its `#code` the tertiary one; an inbox ID prefix stays
+ * monospaced.
  */
 function SenderText({
   inboxId,
@@ -273,14 +273,15 @@ function SenderText({
 }
 
 const styles = StyleSheet.create({
-  // An inline-title list starts 35 pt below the bar (the kit measures large titles).
+  // An inline-title list starts 35 pt below the bar (the form kit's insets are
+  // measured for large titles).
   inlineTop: { paddingTop: 35 },
   grid: { flex: 1, gap: GRID_SPACING },
   gridRow: { alignItems: "center", flexDirection: "row", gap: GRID_SPACING },
   mediaCard: { alignItems: "flex-start", gap: 8 },
-  // An HStack: the line never wraps, and a text wraps in place. SwiftUI
-  // breaks a text only between words, so the one-word sender keeps its
-  // width and the date wraps; Yoga would shrink both and split the handle.
+  // One line that never wraps; a text wraps in place. Only the date wraps:
+  // the one-word sender keeps its width, where Yoga would shrink both and
+  // split the handle.
   byline: { alignItems: "center", flexDirection: "row", gap: 8 },
   date: { flexShrink: 1 },
   sender: { flexShrink: 0, maxWidth: "100%" },
