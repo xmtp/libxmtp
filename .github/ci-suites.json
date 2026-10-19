@@ -502,8 +502,7 @@
       },
       "covered_by": null,
       "kache": [
-        "rust-clippy-native",
-        "rust-clippy-wasm"
+        "rust-clippy"
       ],
       "products": [],
       "runners": {},
@@ -541,7 +540,6 @@
         "crates/xmtp_sdk/**"
       ],
       "workflow_files": [
-        ".github/actions/setup-js/**",
         ".github/actions/setup-nix/**",
         ".github/workflows/check-rust.yml"
       ],
@@ -559,84 +557,8 @@
         "labels": []
       }
     },
-    "check_sdk_unit": {
-      "title": "xmtp_sdk crate",
-      "phase": "test",
-      "workflow": "check-sdk-unit.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "kache",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [
-        "sdk-tests-debug"
-      ],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [
-        "xmtp_sdk"
-      ],
-      "crates": [
-        "apps/backend/**",
-        "crates/xmtp-workspace-hack/**",
-        "crates/xmtp_api/**",
-        "crates/xmtp_api_backend/**",
-        "crates/xmtp_api_grpc/**",
-        "crates/xmtp_archive/**",
-        "crates/xmtp_attachments/**",
-        "crates/xmtp_attachments_server/**",
-        "crates/xmtp_backend_config/**",
-        "crates/xmtp_common/**",
-        "crates/xmtp_configuration/**",
-        "crates/xmtp_content_types/**",
-        "crates/xmtp_cryptography/**",
-        "crates/xmtp_db/**",
-        "crates/xmtp_events/**",
-        "crates/xmtp_id/**",
-        "crates/xmtp_legacy_migration/**",
-        "crates/xmtp_logging/**",
-        "crates/xmtp_macro/**",
-        "crates/xmtp_mls/**",
-        "crates/xmtp_mls_common/**",
-        "crates/xmtp_mls_validation/**",
-        "crates/xmtp_proto/**",
-        "crates/xmtp_push_types/**",
-        "crates/xmtp_sdk/**"
-      ],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/check-sdk-unit.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        ".config/nextest.toml",
-        "Cargo.lock",
-        "Cargo.toml",
-        "apps/backend/**",
-        "crates/xmtp_attachments_server/**",
-        "crates/xmtp_backend_config/**",
-        "dev/backend/{local.toml,local-s3.toml}",
-        "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
-        "dev/docker/{postgres,s3,toxiproxy}/**",
-        "nix/musl-docker.nix",
-        "nix/package/backend.nix"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
     "test_backend": {
-      "title": "Backend",
+      "title": "Backend Docker image",
       "phase": "test",
       "workflow": "test-backend.yml",
       "run_on": [
@@ -644,7 +566,7 @@
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "inherit",
+      "secrets": "cachix-pr",
       "permissions": {
         "contents": "read"
       },
@@ -684,16 +606,14 @@
         "apps/backend/**",
         "crates/xmtp_attachments_server/**",
         "crates/xmtp_backend_config/**",
-        "dev/backend/**",
         "dev/backend/{local.toml,local-s3.toml}",
-        "dev/docker/s3/**",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
+        "dev/docker/{observe-check.sh,observe_check.py}",
         "dev/docker/{postgres,s3,toxiproxy}/**",
-        "docs/{backend-observability.md,specs/OPS-backend-operations.md}",
+        "dev/docker/{tempo,prometheus,grafana}/**",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
-        "nix/services/**",
-        "nix/{ci-checks,package/backend-tests}.nix"
+        "nix/package/xdbg.nix"
       ],
       "labels": [],
       "advisory": {
@@ -703,16 +623,16 @@
         "labels": []
       }
     },
-    "test_validation": {
-      "title": "MLS validation",
+    "test_nix_checks": {
+      "title": "Rust Nix checks",
       "phase": "test",
-      "workflow": "test-validation.yml",
+      "workflow": "test-nix-checks.yml",
       "run_on": [
         "ready_pr_push",
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "inherit",
+      "secrets": "cachix-pr",
       "permissions": {
         "contents": "read"
       },
@@ -722,31 +642,59 @@
       "runners": {},
       "with": {},
       "cargo_roots": [
+        "keepalive-probe",
+        "xdbg",
+        "xmtp_backend",
         "xmtp_id",
         "xmtp_mls_validation",
         "xmtp_proto"
       ],
       "crates": [
+        "apps/backend/**",
+        "apps/keepalive-probe/**",
+        "apps/xmtp_debug/**",
+        "crates/xmtp-workspace-hack/**",
+        "crates/xmtp_api/**",
+        "crates/xmtp_api_backend/**",
+        "crates/xmtp_api_grpc/**",
+        "crates/xmtp_archive/**",
+        "crates/xmtp_attachments/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_common/**",
         "crates/xmtp_configuration/**",
+        "crates/xmtp_content_types/**",
         "crates/xmtp_cryptography/**",
+        "crates/xmtp_db/**",
         "crates/xmtp_events/**",
         "crates/xmtp_id/**",
         "crates/xmtp_logging/**",
         "crates/xmtp_macro/**",
+        "crates/xmtp_mls/**",
         "crates/xmtp_mls_common/**",
         "crates/xmtp_mls_validation/**",
-        "crates/xmtp_proto/**"
+        "crates/xmtp_proto/**",
+        "crates/xmtp_push_types/**"
       ],
       "workflow_files": [
         ".github/actions/setup-nix/**",
-        ".github/workflows/test-validation.yml"
+        ".github/workflows/test-nix-checks.yml"
       ],
       "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
-        "{crates/xmtp_mls_validation/dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
+        "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
+        "crates/xmtp_mls_validation/dev/check-validation",
+        "dev/backend/**",
+        "dev/docker/s3/**",
+        "docs/{backend-observability.md,specs/OPS-backend-operations.md}",
+        "nix/ci-checks.nix",
+        "nix/package/backend.nix",
+        "nix/package/{backend-tests,validation-check,xdbg,xdbg-check,keepalive-probe-check}.nix",
+        "nix/services/**"
       ],
       "labels": [],
       "advisory": {
@@ -833,55 +781,6 @@
         "labels": []
       }
     },
-    "test_keepalive": {
-      "title": "keepalive-probe",
-      "phase": "test",
-      "workflow": "test-keepalive-probe.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "inherit",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [
-        "keepalive-probe"
-      ],
-      "crates": [
-        "apps/keepalive-probe/**",
-        "crates/xmtp_common/**",
-        "crates/xmtp_configuration/**",
-        "crates/xmtp_cryptography/**",
-        "crates/xmtp_events/**",
-        "crates/xmtp_logging/**",
-        "crates/xmtp_macro/**",
-        "crates/xmtp_proto/**"
-      ],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/test-keepalive-probe.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "Cargo.lock",
-        "Cargo.toml",
-        "{nix/package/keepalive-probe-check.nix,nix/ci-checks.nix}"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
     "test_wasm": {
       "title": "Rust WASM",
       "phase": "test",
@@ -958,79 +857,6 @@
         "nix/services/**",
         "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
         "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
-    "test_xdbg": {
-      "title": "xdbg and observability",
-      "phase": "test",
-      "workflow": "test-xdbg.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "inherit",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [
-        "xdbg"
-      ],
-      "crates": [
-        "apps/xmtp_debug/**",
-        "crates/xmtp-workspace-hack/**",
-        "crates/xmtp_api/**",
-        "crates/xmtp_api_backend/**",
-        "crates/xmtp_api_grpc/**",
-        "crates/xmtp_archive/**",
-        "crates/xmtp_attachments/**",
-        "crates/xmtp_common/**",
-        "crates/xmtp_configuration/**",
-        "crates/xmtp_content_types/**",
-        "crates/xmtp_cryptography/**",
-        "crates/xmtp_db/**",
-        "crates/xmtp_events/**",
-        "crates/xmtp_id/**",
-        "crates/xmtp_logging/**",
-        "crates/xmtp_macro/**",
-        "crates/xmtp_mls/**",
-        "crates/xmtp_mls_common/**",
-        "crates/xmtp_mls_validation/**",
-        "crates/xmtp_proto/**",
-        "crates/xmtp_push_types/**"
-      ],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/test-xdbg.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "Cargo.lock",
-        "Cargo.toml",
-        "apps/backend/**",
-        "crates/xmtp_attachments_server/**",
-        "crates/xmtp_backend_config/**",
-        "dev/backend/{local.toml,local-s3.toml}",
-        "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
-        "dev/docker/{observe-check.sh,observe_check.py}",
-        "dev/docker/{postgres,s3,toxiproxy}/**",
-        "dev/docker/{tempo,prometheus,grafana}/**",
-        "nix/ci-checks.nix",
-        "nix/musl-docker.nix",
-        "nix/package/backend.nix",
-        "nix/package/xdbg{,-check}.nix"
       ],
       "labels": [],
       "advisory": {

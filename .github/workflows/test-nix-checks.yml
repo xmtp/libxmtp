@@ -1,0 +1,38 @@
+name: Test Rust Nix checks
+on:
+  workflow_call:
+    secrets:
+      CACHIX_PR_AUTH_TOKEN:
+        required: false
+permissions:
+  contents: read
+jobs:
+  # Four Nix checks in one job. Each stays its own derivation, so a check
+  # whose inputs did not change substitutes its passed result from the CI
+  # cache instead of running again.
+  check:
+    name: Check (validation, backend tests, xdbg, keepalive-probe)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+          github-token: ${{ github.token }}
+      # - validation: isolated graphs, native and WASM MLS validation tests.
+      # - backend-tests: the backend's tests, replica recovery, HTTPS
+      #   streaming, and SQL cache. The derivation starts its own PostgreSQL
+      #   primary, streaming replica, and VersityGW in the build sandbox.
+      # - cargo-clippy: Clippy of xdbg and keepalive-probe.
+      # --keep-going builds every check when one fails; a failure shows the
+      # end of its build log.
+      - name: Build the validation, backend test, and Clippy checks
+        run: >-
+          nix build --keep-going --no-link --log-lines 500
+          .#validation.x86_64-linux
+          .#backend-tests.x86_64-linux
+          .#cargo-clippy.x86_64-linux.xdbg
+          .#cargo-clippy.x86_64-linux.keepalive-probe

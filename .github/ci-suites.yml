@@ -129,12 +129,11 @@ neutral:
 
 path_groups:
   # Suites that start the Docker stack test against a backend built from source.
-  # A backend change runs the backend suites and four client suites that talk
-  # to it: test_workspace, test_wasm, test_node, and check_sdk_unit. The
-  # Android, iOS, browser, agent, and SDK platform suites add wrapper code that
-  # a backend change does not touch; the merge run covers them. The
-  # observability services (Tempo, Prometheus, Grafana) select only test_xdbg,
-  # which checks them.
+  # A backend change runs the backend suites and three client suites that talk
+  # to it: test_workspace, test_wasm, and test_node. The Android, iOS, browser,
+  # and SDK platform suites add wrapper code that a backend change does not
+  # touch; the merge run covers them. The observability services (Tempo,
+  # Prometheus, Grafana) select only test_backend, which checks them.
   docker_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
@@ -457,6 +456,7 @@ suites:
       - path_group: js_workspace
 
   # --- Rust ------------------------------------------------------------------
+  # Native, SDK generator, and WASM Clippy in one job and one Kache scope.
   check_rust:
     title: Rust Clippy
     phase: test
@@ -465,55 +465,56 @@ suites:
     disable_on_forks: false
     secrets: kache
     permissions: {contents: read}
-    kache: [rust-clippy-native, rust-clippy-wasm]
+    kache: [rust-clippy]
     products: []
     pr_filters:
       - cargo_package: ["@default-members", xmtp-sdk-bindgen]
       - "{.clippy.toml,dev/wasm.just}"
-  check_sdk_unit:
-    title: xmtp_sdk crate
-    phase: test
-    workflow: check-sdk-unit.yml
-    run_on: [ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: kache
-    permissions: {contents: read}
-    kache: [sdk-tests-debug]
-    products: []
-    pr_filters:
-      - cargo_package: xmtp_sdk
-      - path_group: docker_backend
-      - ".config/nextest.toml"
+  # The Docker backend job: the image starts with only the database, then the
+  # full Compose stack passes the observability check (xdbg traffic, traces,
+  # metrics, and the dashboard).
   test_backend:
-    title: Backend
+    title: Backend Docker image
     phase: test
     workflow: test-backend.yml
     run_on: [ready_pr_push, merge]
     disable_on_forks: false
-    secrets: inherit
+    secrets: cachix-pr
     permissions: {contents: read}
     kache: []
     products: []
     pr_filters:
       - cargo_package: xmtp_backend
       - path_group: docker_backend
-      # apps/backend tests embed these files.
-      - "docs/{backend-observability.md,specs/OPS-backend-operations.md}"
-      - path_group: native_backend
-      - "nix/{ci-checks,package/backend-tests}.nix"
-  test_validation:
-    title: MLS validation
+      - "dev/docker/{tempo,prometheus,grafana}/**"
+      - "dev/docker/{observe-check.sh,observe_check.py}"
+      - "nix/package/xdbg.nix"
+  # One job builds four Nix checks, each its own derivation: MLS validation,
+  # the backend tests, and the xdbg and keepalive-probe Clippy.
+  test_nix_checks:
+    title: Rust Nix checks
     phase: test
-    workflow: test-validation.yml
+    workflow: test-nix-checks.yml
     run_on: [ready_pr_push, merge]
     disable_on_forks: false
-    secrets: inherit
+    secrets: cachix-pr
     permissions: {contents: read}
     kache: []
     products: []
     pr_filters:
-      - cargo_package: [xmtp_mls_validation, xmtp_id, xmtp_proto]
-      - "{crates/xmtp_mls_validation/dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
+      - cargo_package:
+          - xmtp_backend
+          - xmtp_mls_validation
+          - xmtp_id
+          - xmtp_proto
+          - xdbg
+          - keepalive-probe
+      - path_group: native_backend
+      # apps/backend tests embed these files.
+      - "docs/{backend-observability.md,specs/OPS-backend-operations.md}"
+      - "crates/xmtp_mls_validation/dev/check-validation"
+      - "nix/package/{backend-tests,validation-check,xdbg,xdbg-check,keepalive-probe-check}.nix"
+      - "nix/ci-checks.nix"
   test_workspace:
     title: Rust workspace
     phase: test
@@ -533,19 +534,6 @@ suites:
       - "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
       # The derivation starts these services.
       - "nix/services/**"
-  test_keepalive:
-    title: keepalive-probe
-    phase: test
-    workflow: test-keepalive-probe.yml
-    run_on: [ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: inherit
-    permissions: {contents: read}
-    kache: []
-    products: []
-    pr_filters:
-      - cargo_package: keepalive-probe
-      - "{nix/package/keepalive-probe-check.nix,nix/ci-checks.nix}"
   test_wasm:
     title: Rust WASM
     phase: test
@@ -572,25 +560,6 @@ suites:
       - "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       - "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}"
       - "nix/services/**"
-  test_xdbg:
-    title: xdbg and observability
-    phase: test
-    workflow: test-xdbg.yml
-    run_on: [ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: inherit
-    permissions: {contents: read}
-    kache: []
-    products: []
-    pr_filters:
-      - cargo_package: xdbg
-      # The observability job runs xdbg against the Docker stack and checks
-      # its traces, metrics, and dashboard.
-      - path_group: docker_backend
-      - "dev/docker/{tempo,prometheus,grafana}/**"
-      - "dev/docker/{observe-check.sh,observe_check.py}"
-      - "nix/package/xdbg{,-check}.nix"
-      - "nix/ci-checks.nix"
   docs_rust:
     title: Rust reference
     phase: test

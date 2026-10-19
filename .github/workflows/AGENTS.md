@@ -65,17 +65,19 @@ build the products themselves.
   `dev/nix-shell 'just backend ci COMMAND'`. Each job creates its own database
   and S3 bucket. Failed-job-only reruns do not need a deployment job.
 - Keep the `native_backend` and `swift` path groups in `.github/ci-suites.yml`
-  current when native setup inputs change.
-  The `native` job in `test-backend.yml` checks wrapper cleanup and the real S3
-  contract. It also checks the owned loopback listeners and metrics endpoint.
-  It runs in cache mode `ci` without the `xmtp-pr` token, and fork pull requests
-  skip it. Service logs are retained for 7 days.
-- The Linux job in `test-backend.yml` builds `.#backend-tests.x86_64-linux`.
-  The derivation starts its own PostgreSQL primary, streaming replica, and
-  VersityGW in the build sandbox, so the job starts no Docker services. Cachix
-  keeps a passed result. A run with unchanged inputs does not test again.
-- `test-xdbg.yml` owns the observability check. It runs xdbg against the
-  Docker stack, so backend changes also select the xdbg suite.
+  current when native setup inputs change. Native backend changes select
+  `test_ios`, the only run of the backend and the test services on macOS
+  before a merge. `dev/tests/test_services.py` (in `just test dev`) checks the
+  services contract on Linux.
+- `test-nix-checks.yml` builds `.#validation`, `.#backend-tests`, and the
+  xdbg and keepalive-probe Clippy derivations in one `nix build --keep-going`.
+  Each stays its own derivation: Cachix keeps a passed result, so a check with
+  unchanged inputs does not run again. The backend tests start their own
+  PostgreSQL primary, streaming replica, and VersityGW in the build sandbox.
+- `test-backend.yml` is the Docker backend job: it builds the backend image,
+  checks its architecture, starts it with only the database, then starts the
+  full stack and runs the observability check (xdbg traffic, traces, metrics,
+  and the dashboard). Manual runs add an arm64 leg.
 - `test-ios.yml` owns the Swift lifecycle checks (`just ios test-lifecycle`)
   and Swift consumer checks. `test-android.yml` owns Kotlin consumer checks.
   The iOS `tests` job runs `just ios test skip-lifecycle`, so it does not
@@ -219,9 +221,10 @@ bans, licenses, and sources) and the advisories check for Cargo lock and
 manifest or deny configuration changes, on drafts too, and on every merge. An
 advisory does not fail a pull request or merge; the daily scheduled run on the
 default branch fails on one. A backend change selects the backend suites and
-the client suites `test_workspace`, `test_wasm`, `test_node`, and
-`check_sdk_unit`; the Android, iOS, browser, agent, and SDK platform suites run
-on the merge. Android lint has no suite of its own: `sdk-build` in
+the client suites `test_workspace`, `test_wasm`, and `test_node`; the Android,
+browser, and SDK platform suites run on the merge. `test_workspace` builds
+with the `ci-test` Cargo profile: release speed with overflow checks and
+debug assertions in the workspace crates. Android lint has no suite of its own: `sdk-build` in
 `test-android.yml` runs `gradlew build`, which includes it.
 Source lint does not generate SDK products or run compiler checks. Test owns
 full types, full lint, Clippy, SDK and runtime checks. Pull requests that only
@@ -255,13 +258,9 @@ environment. Do not create a reader environment.
 Existing deployment jobs retain their environments and use reader access.
 Tags, dispatches, and jobs that build a selected ref cannot write. Source lint,
 docs quality and composition, Nix output warming, and manual recovery are
-readers or leave Kache off. The backend suite uses `secrets: inherit`. Keep
-the native backend acceptance job free of cache writer keys: pass only the
-Kache reader pair to its setup-nix step, and do not reference other secrets in
-that job.
+readers or leave Kache off.
 
-When adding an enabled caller, add it to the setup action's README table and
-to `KACHE_CALLERS` in `dev/tests/test_kache_env.py`. Pass both optional Kache
+When adding an enabled caller, add it to the setup action's README table. Pass both optional Kache
 secrets through every reusable call in its chain. Declare them under
 `workflow_call.secrets` when a caller uses an explicit secret map. Share a
 stable scope across the same outer

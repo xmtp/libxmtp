@@ -88,53 +88,53 @@ class CompileTests(unittest.TestCase):
         def change(data):
             data["suites"]["check_rust"]["kache"] = ["rust-clippy-native"]
 
-        with self.assertRaisesRegex(SUITES.DeclarationError, "rust-clippy-wasm"):
+        with self.assertRaisesRegex(SUITES.DeclarationError, r"use \['rust-clippy'\]"):
             self.compile(change)
 
     def test_invalid_declarations_are_rejected(self):
         for change in [
-            lambda d: d["suites"]["test_xdbg"].update(paths=["x"]),
-            lambda d: d["suites"]["test_xdbg"].update(pr_filters="x"),
-            lambda d: d["suites"]["test_xdbg"].pop("pr_filters"),
-            lambda d: d["suites"]["test_xdbg"].update(path_filters=[]),
+            lambda d: d["suites"]["test_dev"].update(paths=["x"]),
+            lambda d: d["suites"]["test_dev"].update(pr_filters="x"),
+            lambda d: d["suites"]["test_dev"].pop("pr_filters"),
+            lambda d: d["suites"]["test_dev"].update(path_filters=[]),
             *[
-                lambda d, value=value: d["suites"]["test_xdbg"].update(
+                lambda d, value=value: d["suites"]["test_dev"].update(
                     pr_filters=[{"pr_label": value}]
                 )
                 for value in (None, True, 1, [], ["iOS"], "", " ")
             ],
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(
                 pr_filters=[{"pr_label": "iOS", "path_group": "swift"}]
             ),
             lambda d: d["path_groups"].update(swift=[{"pr_label": "iOS"}]),
             lambda d: d["products"]["sdk_js"].update(
                 path_filters=[{"pr_label": "iOS"}]
             ),
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(
                 pr_filters=[{"path_group": "missing"}]
             ),
-            lambda d: d["suites"]["test_xdbg"].update(pr_filters=[{"crate": "xdbg"}]),
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(pr_filters=[{"crate": "xdbg"}]),
+            lambda d: d["suites"]["test_dev"].update(
                 pr_filters=[{"cargo_package": "xdbg", "path_group": "swift"}]
             ),
             lambda d: (
                 d["path_groups"].update(loop=[{"path_group": "loop"}])
-                or d["suites"]["test_xdbg"].update(pr_filters=[{"path_group": "loop"}])
+                or d["suites"]["test_dev"].update(pr_filters=[{"path_group": "loop"}])
             ),
-            lambda d: d["suites"]["test_xdbg"].update(run_on=["nightly"]),
-            lambda d: d["suites"]["test_xdbg"].update(run_on=[]),
-            lambda d: d["suites"]["test_xdbg"].update(secrets="all"),
-            lambda d: d["suites"]["test_xdbg"].update(covered_by="missing"),
-            lambda d: d["suites"]["test_xdbg"].update(disable_on_forks="no"),
-            lambda d: d["suites"]["test_xdbg"].update(permissions={}),
-            lambda d: d["suites"]["test_xdbg"].update(permissions={"pages": "admin"}),
-            lambda d: d["suites"]["test_xdbg"].update(covered_by=["docs_site"]),
-            lambda d: d["suites"]["test_xdbg"].update(covered_by=None),
+            lambda d: d["suites"]["test_dev"].update(run_on=["nightly"]),
+            lambda d: d["suites"]["test_dev"].update(run_on=[]),
+            lambda d: d["suites"]["test_dev"].update(secrets="all"),
+            lambda d: d["suites"]["test_dev"].update(covered_by="missing"),
+            lambda d: d["suites"]["test_dev"].update(disable_on_forks="no"),
+            lambda d: d["suites"]["test_dev"].update(permissions={}),
+            lambda d: d["suites"]["test_dev"].update(permissions={"pages": "admin"}),
+            lambda d: d["suites"]["test_dev"].update(covered_by=["docs_site"]),
+            lambda d: d["suites"]["test_dev"].update(covered_by=None),
             lambda d: d.pop("neutral"),
             lambda d: d.update(on_deleted_path=[]),
             lambda d: d.update(on_deleted_path=["missing"]),
             lambda d: d["suites"]["docs_site"].update(covered_by="docs_rust"),
-            lambda d: d["suites"]["test_xdbg"].update(covered_by="test_xdbg"),
+            lambda d: d["suites"]["test_dev"].update(covered_by="test_dev"),
             lambda d: d.update(extra=[]),
             lambda d: with_groups(d)["suites"]["test_ios"].update(products=["gamma"]),
             lambda d: with_groups(d)["suites"]["lint_proto"].update(products=["alpha"]),
@@ -146,31 +146,31 @@ class CompileTests(unittest.TestCase):
             ),
             lambda d: with_groups(d)["products"].update(alpha={"path_filters": []}),
             lambda d: with_groups(d)["products"].update(alpha=["crates/xmtp_sdk/**"]),
-            lambda d: d["suites"]["test_xdbg"].pop("products"),
+            lambda d: d["suites"]["test_dev"].pop("products"),
             lambda d: with_groups(d)["products"]["alpha"].pop("title"),
             lambda d: with_groups(d)["products"]["alpha"].update(title="Test"),
             # The tier, input, and runner keys.
-            lambda d: d["suites"]["test_xdbg"].update(advisory_filters=[]),
-            lambda d: d["suites"]["test_xdbg"].update(advisory_filters=["!docs/**"]),
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(advisory_filters=[]),
+            lambda d: d["suites"]["test_dev"].update(advisory_filters=["!docs/**"]),
+            lambda d: d["suites"]["test_dev"].update(
                 advisory_filters=[{"path_group": "missing"}]
             ),
-            lambda d: d["suites"]["test_xdbg"].update(with_={}),
-            lambda d: d["suites"]["test_xdbg"].update({"with": ["scope"]}),
-            lambda d: d["suites"]["test_xdbg"].update({"with": {"scope": None}}),
-            lambda d: d["suites"]["test_xdbg"].update({"with": {"scope": ["a"]}}),
-            lambda d: d["suites"]["test_xdbg"].update({"with": {"bad name": "a"}}),
-            lambda d: d["suites"]["test_xdbg"].update(runners=["ubuntu-24.04"]),
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(with_={}),
+            lambda d: d["suites"]["test_dev"].update({"with": ["scope"]}),
+            lambda d: d["suites"]["test_dev"].update({"with": {"scope": None}}),
+            lambda d: d["suites"]["test_dev"].update({"with": {"scope": ["a"]}}),
+            lambda d: d["suites"]["test_dev"].update({"with": {"bad name": "a"}}),
+            lambda d: d["suites"]["test_dev"].update(runners=["ubuntu-24.04"]),
+            lambda d: d["suites"]["test_dev"].update(
                 runners={"runner": "ubuntu-24.04"}
             ),
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(
                 runners={"runner": {"pr": "ubuntu-24.04"}}
             ),
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(
                 runners={"runner": {"pr": "ubuntu-latest", "merge": "ubuntu-24.04"}}
             ),
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(
                 runners={"runner": {"pr": "ubuntu-24.04", "merge": "ubuntu-24.04"}},
                 **{"with": {"runner": "x"}},
             ),
@@ -180,29 +180,29 @@ class CompileTests(unittest.TestCase):
                 select={"pr": "my-runner", "merge": "ubuntu-24.04"}
             ),
             # Test suites do not run on drafts; the draft Test gate says so.
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(
                 run_on=["draft_pr_push", "ready_pr_push"]
             ),
             # Suite keys are job ids next to the generated ones.
-            lambda d: d["suites"].update(test=d["suites"].pop("test_xdbg")),
-            lambda d: d["suites"].update(products_x=d["suites"].pop("test_xdbg")),
+            lambda d: d["suites"].update(test=d["suites"].pop("test_dev")),
+            lambda d: d["suites"].update(products_x=d["suites"].pop("test_dev")),
             lambda d: d["suites"].update(
-                test_ios_advisory=d["suites"].pop("test_xdbg")
+                test_ios_advisory=d["suites"].pop("test_dev")
             ),
-            lambda d: d["suites"].update({"Test-X": d["suites"].pop("test_xdbg")}),
+            lambda d: d["suites"].update({"Test-X": d["suites"].pop("test_dev")}),
         ]:
             with self.assertRaises(SUITES.DeclarationError):
                 self.compile(change)
 
     def test_titles_are_required_short_unique_and_not_reserved(self):
         def title(value):
-            return lambda d: d["suites"]["test_xdbg"].update(title=value)
+            return lambda d: d["suites"]["test_dev"].update(title=value)
 
         self.compile(title("A" * 30))
         # Titles repeat across phases (the lint and test jobs of one SDK).
         self.compile(title("Protobuf"))
         for change in [
-            lambda d: d["suites"]["test_xdbg"].pop("title"),
+            lambda d: d["suites"]["test_dev"].pop("title"),
             title(None),
             title(""),
             title("A" * 31),
@@ -235,11 +235,11 @@ class CompileTests(unittest.TestCase):
         packages, globs = SUITES.expand_filters(filters, groups, "test")
         self.assertEqual(packages, ["xmtp_id", "x", "y"])
         self.assertEqual(globs, ["a/**", "!a/skip/**", "b.md"])
-        self.compile(lambda d: d["suites"]["test_xdbg"].update(pr_filters=[]))
+        self.compile(lambda d: d["suites"]["test_dev"].update(pr_filters=[]))
 
     def test_compiled_labels_and_paths_select_independently(self):
         manifest = self.compile(
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(
                 pr_filters=["docs/**", "!docs/private/**", {"pr_label": "observe"}]
             )
         )
@@ -266,13 +266,13 @@ class CompileTests(unittest.TestCase):
                     result = selector.select_suites(
                         [path], "pull_request", payload, "success", 1
                     )
-                self.assertEqual("test_xdbg" in result["suites"]["test"], expected)
+                self.assertEqual("test_dev" in result["suites"]["test"], expected)
 
     def test_workflow_files_select_in_the_strongest_tier(self):
         # An always-advisory suite stays advisory when its own workflow or a
         # local action it uses changes; a suite that can block, blocks.
         def tiers(path, **suite):
-            manifest = self.compile(lambda d: d["suites"]["test_xdbg"].update(suite))
+            manifest = self.compile(lambda d: d["suites"]["test_dev"].update(suite))
             selector = SUITES.load_selector()
             payload = {
                 "repository": {"full_name": "r"},
@@ -285,11 +285,11 @@ class CompileTests(unittest.TestCase):
                     [path], "pull_request", payload, "success", 1
                 )
             return (
-                "test_xdbg" in result["suites"]["test"],
-                "test_xdbg" in result["advisory"],
+                "test_dev" in result["suites"]["test"],
+                "test_dev" in result["advisory"],
             )
 
-        workflow = ".github/workflows/test-xdbg.yml"
+        workflow = ".github/workflows/test-dev.yml"
         self.assertEqual(
             tiers(workflow, pr_filters=[], advisory_filters=["docs/**"]), (False, True)
         )
@@ -347,9 +347,9 @@ class RenderTests(unittest.TestCase):
 
     def test_callers_are_named_by_title_and_gates_keep_the_required_names(self):
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["title"] = "Observability"
+        manifest["suites"]["test_dev"]["title"] = "Observability"
         jobs = ci_jobs(manifest)
-        self.assertEqual(jobs["test_xdbg"]["name"], "Observability")
+        self.assertEqual(jobs["test_dev"]["name"], "Observability")
         self.assertEqual(jobs["detect-changes"]["name"], "Select suites")
         self.assertEqual(jobs["products_sdk_js"]["name"], "Prebuild JS SDKs (Nix)")
         # Branch protection requires Lint and Test; drafts get other names so
@@ -435,7 +435,7 @@ class TierRenderTests(unittest.TestCase):
 class InputRenderTests(unittest.TestCase):
     def manifest(self, **suite):
         data = declaration()
-        data["suites"]["test_xdbg"].update(suite)
+        data["suites"]["test_dev"].update(suite)
         return SUITES.compile_declaration(ROOT, data)
 
     def test_with_inputs_and_runners_reach_the_caller(self):
@@ -454,7 +454,7 @@ class InputRenderTests(unittest.TestCase):
                 },
             }
         )
-        given = ci_jobs(manifest)["test_xdbg"]["with"]
+        given = ci_jobs(manifest)["test_dev"]["with"]
         self.assertEqual(
             given,
             {
@@ -494,7 +494,7 @@ class InputRenderTests(unittest.TestCase):
             **{"with": {"a": "true", "b": "1", "c": "x: y", "d": "#"}}
         )
         self.assertEqual(
-            ci_jobs(manifest)["test_xdbg"]["with"],
+            ci_jobs(manifest)["test_dev"]["with"],
             {"a": "true", "b": "1", "c": "x: y", "d": "#"},
         )
 
@@ -511,7 +511,7 @@ class ProductRenderTests(unittest.TestCase):
             self.jobs["test_android"]["needs"],
             ["detect-changes", "products_alpha", "products_beta"],
         )
-        self.assertEqual(self.jobs["test_xdbg"]["needs"], ["detect-changes"])
+        self.assertEqual(self.jobs["test_dev"]["needs"], ["detect-changes"])
         outputs = {"test_suites": ["test_ios", "test_android"], "products": []}
         for alpha, beta, ios, android in [
             ("success", "success", True, True),

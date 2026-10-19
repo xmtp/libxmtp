@@ -82,17 +82,12 @@ def eligible(kind, fork=False):
 
 class SelectionTests(unittest.TestCase):
     def test_rust_closures_narrow_selection(self):
+        # A package's dependency closure selects a suite; its dependents do not.
         client = selected(select(["crates/xmtp_mls/src/client.rs"]))
         self.assertIn("test_workspace", client)
-        self.assertTrue(
-            client.isdisjoint(
-                {"test_backend", "test_validation", "test_keepalive", "test_node"}
-            )
-        )
-        backend_doc = selected(select(["docs/backend-observability.md"]))
-        self.assertIn("test_backend", backend_doc)
+        self.assertTrue(client.isdisjoint({"test_backend", "test_node"}))
         proto = selected(select(["crates/xmtp_proto/src/lib.rs"]))
-        self.assertIn("test_validation", proto)
+        self.assertIn("test_nix_checks", proto)
 
     def test_examples_follow_decision_d1(self):
         # Decision D1: the app's own paths and its label block; the SDK the

@@ -197,35 +197,26 @@ jobs:
     secrets:
       KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
       KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-  check_sdk_unit:
-    name: xmtp_sdk crate
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'check_sdk_unit')
-    uses: ./.github/workflows/check-sdk-unit.yml
-    permissions:
-      contents: read
-    secrets:
-      KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-      KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
   test_backend:
-    name: Backend
+    name: Backend Docker image
     needs:
     - detect-changes
     if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_backend')
     uses: ./.github/workflows/test-backend.yml
     permissions:
       contents: read
-    secrets: inherit
-  test_validation:
-    name: MLS validation
+    secrets:
+      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+  test_nix_checks:
+    name: Rust Nix checks
     needs:
     - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_validation')
-    uses: ./.github/workflows/test-validation.yml
+    if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_nix_checks')
+    uses: ./.github/workflows/test-nix-checks.yml
     permissions:
       contents: read
-    secrets: inherit
+    secrets:
+      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
   test_workspace:
     name: Rust workspace
     needs:
@@ -235,30 +226,12 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
-  test_keepalive:
-    name: keepalive-probe
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_keepalive')
-    uses: ./.github/workflows/test-keepalive-probe.yml
-    permissions:
-      contents: read
-    secrets: inherit
   test_wasm:
     name: Rust WASM
     needs:
     - detect-changes
     if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_wasm')
     uses: ./.github/workflows/test-wasm.yml
-    permissions:
-      contents: read
-    secrets: inherit
-  test_xdbg:
-    name: xdbg and observability
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_xdbg')
-    uses: ./.github/workflows/test-xdbg.yml
     permissions:
       contents: read
     secrets: inherit
@@ -482,13 +455,10 @@ jobs:
     - products_sdk_android
     - test_dev
     - check_rust
-    - check_sdk_unit
     - test_backend
-    - test_validation
+    - test_nix_checks
     - test_workspace
-    - test_keepalive
     - test_wasm
-    - test_xdbg
     - docs_rust
     - check_types
     - check_sdk
