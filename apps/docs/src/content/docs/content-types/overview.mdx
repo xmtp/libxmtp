@@ -30,7 +30,7 @@ Every content type ID has the form `authorityId/typeId:versionMajor.versionMinor
 | Actions                     | `coinbase.com/actions:1.0`                 | JSON-encoded `Actions`                        | Numbered action list              | `true`               |
 | Intent                      | `coinbase.com/intent:1.0`                  | JSON-encoded `Intent`                         | Names the selected action         | `true`               |
 
-Browser, Node, Kotlin, and Swift include these standard codecs. Core decodes standard content without app registration. Register codecs only for custom content that your app receives. A codec matches the authority, type ID, and major version; the minor version is not part of this match.
+Browser, Node, React Native, Kotlin, and Swift include these standard codecs. Core decodes standard content without app registration. Register codecs only for custom content that your app receives. A codec matches the authority, type ID, and major version; the minor version is not part of this match.
 
 Node exports standalone codecs from `@xmtp/node-sdk`. Browser exports them from `@xmtp/browser-sdk/pure`; call `initPureWasm()` before you use them. Kotlin and Swift expose typed codec wrappers over the same Rust encoders and decoders.
 
@@ -46,7 +46,7 @@ To prevent a poor user experience or app crashes, you should use the `fallback` 
 
 **For receiving:** When your app receives a message, check if it supports the message's `contentType`. If not, render the `fallback` text.
 
-Some background types, such as read receipts, have no fallback. A renderer can skip them. Do not assume that `message.content` is missing for an unsupported type. Browser and Node expose a content union with `unknown` and `custom` variants. Kotlin and Swift expose `SDKMessageContent` with standard, custom, and unknown variants. Raw bytes and decode errors remain available.
+Some background types, such as read receipts, have no fallback. A renderer can skip them. Do not assume that `message.content` is missing for an unsupported type. Browser, Node, and React Native expose a content union with `unknown` and `custom` variants. Kotlin and Swift expose `SDKMessageContent` with standard, custom, and unknown variants. Raw bytes and decode errors remain available.
 
 These examples show a text-only renderer. It shows text, skips read receipts, and uses fallback text for other content. Extend it with the types your app can display.
 
@@ -61,6 +61,13 @@ These examples show a text-only renderer. It shows text, skips read receipts, an
 <TabItem label="Node">
 
 ```ts source="content-types-fallback-node.ts" region="example"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="content-types-fallback-react-native.ts" region="example"
 
 ```
 
@@ -122,7 +129,7 @@ Example:
 
 ### Registering custom codecs
 
-Pass custom codec instances in the `codecs` option to Browser or Node `Client.create()`, or to `Agent.create()`. Kotlin and Swift accept a `codecs` argument on `SDKClient.create()`. Registration decodes incoming custom content. To send a custom value, pass the codec and value to a typed send method.
+Pass custom codec instances in the `codecs` option to Browser, Node, or React Native `Client.create()`, or to `Agent.create()`. Kotlin and Swift accept a `codecs` argument on `SDKClient.create()`. Registration decodes incoming custom content. To send a custom value, pass the codec and value to a typed send method.
 
 This example registers a codec with an agent:
 

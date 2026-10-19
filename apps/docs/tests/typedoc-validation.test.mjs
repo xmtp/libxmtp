@@ -4,40 +4,48 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { validateTypeDoc } from "../scripts/typedoc-validation.mjs";
+import { Application, Converter, Logger } from "typedoc";
 
-test("TypeDoc rejects a missing documentation link during validation", async () => {
+import { typeDocValidation } from "../scripts/typedoc-validation.mjs";
+
+test("TypeDoc validates one conversion and retains bootstrap diagnostics", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "xmtp-typedoc-test-"));
-  try {
-    const entry = join(root, "index.ts");
-    const tsconfig = join(root, "tsconfig.json");
-    await writeFile(
-      tsconfig,
-      JSON.stringify({
-        compilerOptions: { types: [], skipLibCheck: true },
-        files: [entry],
-      }),
-    );
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const entry = join(root, "index.ts");
+  const tsconfig = join(root, "tsconfig.json");
+  await writeFile(
+    tsconfig,
+    JSON.stringify({
+      compilerOptions: { types: [], skipLibCheck: true },
+      files: [entry],
+    }),
+  );
+  for (const [comment, options, fails] of [
+    ["Return the test value.", {}, false],
+    ["See {@link Missing}.", {}, true],
+    ["Return the test value.", { unknownFixtureOption: true }, true],
+  ]) {
     await writeFile(
       entry,
-      '/** See {@link Missing}. */\nexport function example(): string { return "test"; }',
+      `/** ${comment} */\nexport function example(): string { return "test"; }`,
     );
-    const options = {
+    const app = await Application.bootstrapWithPlugins({
       name: "Fixture",
       entryPoints: [entry],
       tsconfig,
       readme: "none",
-    };
-    await assert.rejects(
-      validateTypeDoc(options, "Fixture"),
-      /TypeDoc validation failed/,
-    );
-    await writeFile(
-      entry,
-      '/** Return the test value. */\nexport function example(): string { return "test"; }',
-    );
-    await validateTypeDoc(options, "Fixture");
-  } finally {
-    await rm(root, { recursive: true, force: true });
+      plugin: [typeDocValidation("Fixture")],
+      ...options,
+    });
+    let conversions = 0;
+    app.converter.on(Converter.EVENT_BEGIN, () => conversions++);
+    // Match Starlight's logger replacement after bootstrap.
+    app.logger = new Logger();
+    if (fails) {
+      await assert.rejects(app.convert(), /Fixture TypeDoc validation failed/);
+    } else {
+      assert.equal((await app.convert()).children[0].name, "example");
+    }
+    assert.equal(conversions, 1);
   }
 });

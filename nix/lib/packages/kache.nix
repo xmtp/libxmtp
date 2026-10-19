@@ -5,26 +5,25 @@
   lib,
   stdenvNoCC,
   fetchurl,
-  bash,
 }:
 let
-  version = "1.1.1";
+  version = "1.2.2";
   sources = {
     aarch64-darwin = {
       target = "aarch64-apple-darwin";
-      hash = "sha256-5fWbhcMND8wtJ0OvdiZ3SzloD8sGQkOIe+1Dd+clxhE=";
+      hash = "sha256-ENCeFGhSqN+Hls9kLKWIchB6fzkbdkfsjMJTzyia8Kk=";
     };
     x86_64-darwin = {
       target = "x86_64-apple-darwin";
-      hash = "sha256-f1sdHcjPXrYHhurX1qBwnIet8cbvz2Aow7l1iYj1mvU=";
+      hash = "sha256-mhw+zInPNrI1Eqk4aCJhQNRvH3DPbLZIv+CO6vslo2g=";
     };
     aarch64-linux = {
       target = "aarch64-unknown-linux-musl";
-      hash = "sha256-PC6C9CCSEjqTcASqGjte+nZsObBx7tzi3p6bUfvpGwg=";
+      hash = "sha256-OIVs7mE/buDsV5CZ/JIFuECgtFu3Y/S4+ngtJdk8GO8=";
     };
     x86_64-linux = {
       target = "x86_64-unknown-linux-musl";
-      hash = "sha256-LvCXEhuH7Xok+bQPv103mYN7TCrHU5HSJk6lzGw4s9c=";
+      hash = "sha256-8vZVXe5QlFwqkKf7eTwghKAMxkWdCKwjBtONkFBkMhs=";
     };
   };
   source = sources.${stdenvNoCC.hostPlatform.system};
@@ -43,11 +42,6 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
     install -Dm755 kache $out/bin/kache
-    ${lib.optionalString stdenvNoCC.isDarwin ''
-      install -Dm755 ${./kache-darwin-wrapper.sh} $out/bin/xmtp-kache
-      substituteInPlace $out/bin/xmtp-kache \
-        --replace-fail '#!/usr/bin/env bash' '#!${bash}/bin/bash'
-    ''}
     runHook postInstall
   '';
   doInstallCheck = true;

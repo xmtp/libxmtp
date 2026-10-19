@@ -15,6 +15,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
+use xmtp_backend_config::{Config, ValidatedConfig, attachments::TargetConfig};
 
 const REFERENCE_TIME: u64 = 1_369_353_600; // 2013-05-24T00:00:00Z
 
@@ -31,6 +32,35 @@ fn config() -> S3Config {
         },
         presign_ttl_seconds: Some(900),
     }
+}
+
+/// A configuration that holds `s3` as its storage target and passed
+/// validation.
+fn validated(s3: S3Config) -> ValidatedConfig {
+    let mut config = Config::from_toml_str(
+        "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n",
+    )
+    .expect("the base configuration parses");
+    config.attachments = Some(AttachmentsConfig {
+        base_url: "https://files.example.org/attachments".into(),
+        max_upload_bytes: None,
+        retention_seconds: None,
+        target: TargetConfig::S3(s3),
+    });
+    config.validate().expect("the test settings are valid")
+}
+
+/// Build a target the way the backend does: validate a configuration that
+/// holds `s3`, then hand over its storage target section.
+async fn build(s3: S3Config) -> Result<S3Target, BuildError> {
+    let config = validated(s3);
+    S3Target::new(
+        config
+            .attachments()
+            .expect("the configuration offers attachments")
+            .s3(),
+    )
+    .await
 }
 
 fn fixed_clock() -> Arc<dyn Fn() -> SystemTime + Send + Sync> {
@@ -158,7 +188,7 @@ async fn assert_resolves_to(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = config();
     config.credentials = credentials;
-    let target = S3Target::new(&config).await?;
+    let target = build(config).await?;
     let signed = target.presign_put(&[1; 32], 1).await?;
     let url = Url::parse(&signed.url)?;
     let credential = url
@@ -209,7 +239,7 @@ fn every_credential_kind_builds() {
             let mut config = config();
             config.credentials = credentials;
             assert!(
-                S3Target::new(&config).await.is_ok(),
+                build(config.clone()).await.is_ok(),
                 "could not build {:?}",
                 config.credentials
             );

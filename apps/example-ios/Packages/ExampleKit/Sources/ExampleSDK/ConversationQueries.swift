@@ -184,19 +184,16 @@ public extension SDKConversationQueries {
 			let options = MessageStreamOptions(onConnectionStateChange: { _, state in connection(Self.banner(state)) })
 			let stream = try await self.client.conversations.streamAllMessages(options: options)
 			for try await message in stream {
-				try Task.checkCancellation()
 				try await projectMessage(message.conversationId)
 			}
 		}, conversations: {
 			let stream = try await self.client.conversations.stream()
 			for try await conversation in stream {
-				try Task.checkCancellation()
 				try await projectConversation(conversation.id())
 			}
 		}, events: {
 			let stream = try await self.client.events(EventFilter(kinds: sessionEventKinds))
 			for try await event in stream {
-				try Task.checkCancellation()
 				if let projection = sessionEvent(event) {
 					try await projectEvent(projection)
 				}

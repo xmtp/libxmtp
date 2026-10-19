@@ -26,7 +26,7 @@ this also requires arm64-v8a, armeabi-v7a, x86_64, and x86.
 The format and lint recipes use strict dependency verification and stop their Gradle daemons.
 The lint recipe checks the SDK. Use the app lint recipe for the example.
 The dependency locks include the pinned Spotless formatter graph.
-The config check tests settings service startup and clock failure before emulator tests.
+`dev/nix-shell 'just test dev'` checks emulator startup, including a hung clock sync, with fixtures instead of an emulator.
 
 ```bash
 dev/nix-shell 'just android build'

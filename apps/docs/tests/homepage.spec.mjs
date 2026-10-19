@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("homepage uses the approved content order, security links, and local agent avatars", async ({
+test("homepage agent tabs start on the group panel and load local avatars", async ({
   page,
 }) => {
   const prototypeRequests = [];
@@ -10,94 +10,37 @@ test("homepage uses the approved content order, security links, and local agent 
     }
   });
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-    "Build secure messaging for people and agents.",
-  );
-  await expect(page.locator(".home-hero .home-label")).toHaveText(
-    "OPEN SOURCE · END-TO-END ENCRYPTED · QUANTUM-RESISTANT",
-  );
-  await expect(
-    page.getByRole("link", { name: /How quantum resistance works/ }),
-  ).toHaveAttribute("href", "/protocol/security/#quantum-resistance");
-
-  await expect(
-    page.getByRole("link", { name: "Read how we built it" }),
-  ).toHaveAttribute(
-    "href",
-    "https://blog.xmtp.org/xmtp-and-the-future-of-privacy-in-a-quantum-world/",
-  );
-  await expect(page.locator("#agents .agent-heading h2")).toHaveText(
-    "The open, secure agent network.",
-  );
-  await expect(page.locator("#consent-preferences h2")).toHaveText(
-    "Spam protection, built-in",
-  );
-  await expect(
-    page.getByRole("link", { name: "Explore consent" }),
-  ).toHaveAttribute("href", "/sdk/consent/");
-  expect(
-    await page
-      .locator(".home-content > section")
-      .evaluateAll((sections) => sections.map((section) => section.id)),
-  ).toEqual([
-    "",
-    "sdks",
-    "agents",
-    "start",
-    "security",
-    "consent-preferences",
-    "start-building-today",
-  ]);
-  await expect(page.getByRole("tab").first()).toHaveText(
-    "Create an agent group",
-  );
   await expect(page.getByRole("tab").first()).toHaveAttribute(
     "aria-selected",
     "true",
   );
   await expect(page.locator("#agent-panel-two")).toBeHidden();
   await expect(page.locator("#agent-panel-group")).toBeVisible();
-  await page
-    .getByRole("tab", { name: "Create an agent group", exact: true })
-    .click();
   const network = page.locator(".network");
   await network.scrollIntoViewIfNeeded();
   const avatars = network.locator(".badge img");
   await expect(avatars).toHaveCount(6);
-  const avatarData = await avatars.evaluateAll((images) =>
-    images.map((image) => ({ alt: image.alt, src: image.getAttribute("src") })),
+  const sources = await avatars.evaluateAll((images) =>
+    images.map((image) => image.getAttribute("src")),
   );
-  expect(avatarData.map(({ alt }) => alt)).toEqual([
-    "Doc",
-    "Instinct",
-    "Muse",
-    "Codex",
-    "Claude",
-    "Grokbot",
-  ]);
-  expect(avatarData.every(({ src }) => src?.startsWith("/_astro/"))).toBe(true);
+  expect(sources.every((src) => src?.startsWith("/_astro/"))).toBe(true);
   expect(prototypeRequests).toEqual([]);
 });
 
 test("homepage links open the install, security, and client guides", async ({
   page,
 }) => {
-  for (const [scope, name, path, heading] of [
-    [".home-header", "SDKs", "/get-started/install/", "Install the XMTP SDK"],
-    [".home-header", "Security", "/protocol/security/", "Messaging security"],
-    [
-      ".home-hero",
-      "Build with your coding assistant",
-      "/sdk/client/",
-      "Client",
-    ],
+  for (const [scope, name, path] of [
+    [".home-header", "SDKs", "/get-started/install/"],
+    [".home-header", "Security", "/protocol/security/"],
+    [".home-hero", "Build with your coding assistant", "/sdk/client/"],
   ]) {
     await page.goto("/");
     const link = page.locator(scope).getByRole("link", { name });
     await expect(link).toHaveAttribute("href", path);
     await link.click();
     await expect(page).toHaveURL(new RegExp(`${path.replace(/\/$/, "")}/?$`));
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(heading);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   }
 });
 

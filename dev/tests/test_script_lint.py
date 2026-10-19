@@ -105,8 +105,8 @@ def lint(found, root=ROOT):
     return failures
 
 
-def lint_config_misses(paths):
-    """The scripts whose change alone does not select lint_config."""
+def script_lint_misses(paths):
+    """The scripts whose change alone does not select test_dev."""
     loader = importlib.machinery.SourceFileLoader(
         "ci_select_for_lint", str(ROOT / "dev/ci-select")
     )
@@ -126,10 +126,10 @@ def lint_config_misses(paths):
     return [
         path
         for path in paths
-        if "lint_config"
+        if "test_dev"
         not in selector.select_suites(
             [path], "pull_request", payload, "success", 1, None, ()
-        )["suites"]["lint"]
+        )["suites"]["test"]
     ]
 
 
@@ -165,8 +165,8 @@ class ScriptLintTests(unittest.TestCase):
         self.assertEqual(lint(found), [])
 
     def test_every_script_change_runs_the_script_lint(self):
-        """A changed script selects lint_config, which runs this test."""
-        self.assertEqual(lint_config_misses([path for path, *_ in scripts()]), [])
+        """A changed script selects test_dev, which runs this test."""
+        self.assertEqual(script_lint_misses([path for path, *_ in scripts()]), [])
 
     def test_python311_scripts_run_inside_the_nix_shell(self):
         """A bare runner has no python3.11; such scripts run in dev/nix-shell."""

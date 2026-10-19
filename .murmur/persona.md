@@ -59,6 +59,7 @@ Either way: let it run. Do not interrupt it and do not conclude it has hung.
 
     Build:  just check
     Test:   just test
+    Dev:    just test dev  # dev tool tests; after dev/, nix/, or .github/ changes
     Lint:   just lint      # run before any commit
 
 `just check` runs `cargo check --locked` over the default members:
@@ -110,7 +111,6 @@ error, check disk before you debug the error itself:
 To reclaim space, in increasing order of severity:
 
     cargo clean -p <crate>          # one crate's artifacts
-    just clean-incremental          # stale incremental dirs
     docker system prune -f          # unused images and volumes
     nix-collect-garbage             # unrooted store paths
 

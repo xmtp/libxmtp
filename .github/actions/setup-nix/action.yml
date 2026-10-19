@@ -149,6 +149,8 @@ runs:
           accept-flake-config = true
           max-jobs = auto
           cores = 0
+          # Exact read-only host inputs required by RN Apple tools and stock Expo phases.
+          extra-allowed-impure-host-deps = /Applications/Xcode_27.0.app/Contents /usr/bin/xcrun /usr/bin/ditto /usr/bin/env /usr/bin/touch /Library/Preferences/com.apple.dt.Xcode.plist /usr/share/firmlinks /Library/Developer/PrivateFrameworks/CoreSimulator.framework /Library/Developer/PrivateFrameworks/DVTDownloads.framework /Library/Developer/PrivateFrameworks/ROCKit.framework /Library/Developer/PrivateFrameworks/CoreDevice.framework /Library/Developer/PrivateFrameworks/CoreDeviceUtilities.framework /Library/Apple/System/Library/PrivateFrameworks/MobileDevice.framework /Library/Apple/System/Library/PrivateFrameworks/Mercury.framework
     # One cache mode per job (README "Cache modes"). Each mode has its own
     # Cachix step; `kache-ci policy` fails first on an unknown mode, a mode
     # that does not fit the event, or a token that does not fit the mode.
@@ -172,7 +174,7 @@ runs:
       uses: kunobi-ninja/kache-action@1a33fb2ff51be23eb9e87abeae6edb65be78f71c
       with:
         # The version of nix/lib/packages/kache.nix; one Kache per cache.
-        version: v1.1.1
+        version: v1.2.2
         cache-executables: "true"
         pr-comment: "false"
         github-cache: "false"
@@ -192,26 +194,24 @@ runs:
     - name: Configure Kache compiler environment
       if: ${{ inputs.kache == 'true' }}
       run: |
-        # Use the immutable Nix wrapper; keep the action's cache and runtime.
+        # The Rust dev shells set RUSTC_WRAPPER and the Kache settings
+        # (nix/lib/shell-common.nix, nix/lib/kache.toml). Keep the action's
+        # cache, runtime, and KACHE_CONFIG; its variables win over the file.
+        # Runners discard incremental state, so compile without it.
         : "${KACHE_CACHE_DIR:?Kache action did not configure storage}"
         : "${KACHE_RUNTIME_DIR:?Kache action did not configure a private runtime}"
         cache_package=$(nix build --no-link --print-out-paths .#kache)
-        export PATH="$cache_package/bin:$PATH"
         echo "$cache_package/bin" >> "$GITHUB_PATH"
-        if [[ -x "$cache_package/bin/xmtp-kache" ]]; then
-          export RUSTC_WRAPPER="$cache_package/bin/xmtp-kache"
-        else
-          export RUSTC_WRAPPER="$cache_package/bin/kache"
-        fi
-        export XMTP_KACHE=1
-        source dev/kache-env
-        for key in XMTP_KACHE XMTP_KACHE_WRAPPER RUSTC_WRAPPER KACHE_CACHE_DIR KACHE_MAX_SIZE KACHE_CACHE_EXECUTABLES KACHE_KEY_ENV_VARS KACHE_BUILD_SCRIPT_CACHE KACHE_CACHE_CC_LINKS CARGO_INCREMENTAL KACHE_ADAPTIVE_INCREMENTAL KACHE_PRESERVE_INCREMENTAL; do
-          printf '%s=%s\n' "$key" "${!key}" >> "$GITHUB_ENV"
-        done
+        {
+          echo CARGO_INCREMENTAL=0
+          echo KACHE_ADAPTIVE_INCREMENTAL=0
+          echo KACHE_PRESERVE_INCREMENTAL=0
+        } >> "$GITHUB_ENV"
       shell: bash
     - name: Disable outer compiler cache
       if: ${{ inputs.kache != 'true' }}
       run: |
-        echo 'XMTP_KACHE=0' >> "$GITHUB_ENV"
+        # The dev shells' RUSTC_WRAPPER then runs rustc directly.
+        echo 'KACHE_DISABLED=1' >> "$GITHUB_ENV"
         echo 'RUSTC_WRAPPER=' >> "$GITHUB_ENV"
       shell: bash

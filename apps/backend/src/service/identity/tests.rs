@@ -83,10 +83,9 @@ async fn verified_identity_projects_normalized_positional_lookups_and_duplicate_
     let stored = server.publish(vec![update.clone()]).await?;
     assert_eq!(server.publish(vec![update]).await?, stored);
     let mut backend = server.backend.clone();
-    std::sync::Arc::make_mut(&mut backend.config)
-        .limits
-        .max_identity_entries = 1;
-    backend.config.validate()?;
+    let mut config = (*backend.config).clone().into_config();
+    config.limits.max_identity_entries = 1;
+    backend.config = std::sync::Arc::new(config.validate()?);
     let topic = stored[0].topic.clone().unwrap();
     let history = backend.store.history(&topic.topic).await?;
     assert_eq!(history.payloads.len(), 2);

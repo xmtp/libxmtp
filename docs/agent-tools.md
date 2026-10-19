@@ -41,8 +41,8 @@ override module shell selection. Humans, the Codex hook, Murmur, Zed, and direnv
 The wrapper caches each evaluated environment (`nix print-dev-env`) under
 `${XDG_CACHE_HOME:-~/.cache}/xmtp/nix-shell`. The key is the system, the shell,
 and the files that the shells read (`key_paths` in `dev/nix-shell`: `nix/`,
-`flake.nix`, `flake.lock`, the root `package.json`, `webdriver.json`, and the
-Kache helpers). A Rust, Cargo, or nested `package.json` edit keeps the cached
+`flake.nix`, `flake.lock`, the root `package.json`, `webdriver.json`,
+`sdks/react-native/test/consumers/native-toolchain.json`, and the Kache helpers). A Rust, Cargo, or nested `package.json` edit keeps the cached
 environment, so entry takes about 0.1 s. An edit to a key file evaluates
 again. `dev/nix-shell --refresh ...` evaluates again on request, for example
 after a change that the key cannot see. A shell file that reads a new file
@@ -135,7 +135,7 @@ Use `rtk gain --project` to inspect estimated savings. Do not use `rtk just`,
 `rtk test just ...`, or a generic output pipeline around these recipes: those
 do not apply the dedicated child-command filters and can hide useful output.
 
-`dev/nix-shell 'just lint-config'` runs the routing and hook tests
+`dev/nix-shell 'just test dev'` runs the routing and hook tests
 (`dev/tests/test_agents.py`). They do not start Serena or backend services.
 
 ## Rust navigation
@@ -191,7 +191,7 @@ The key is never written into the repo or the VM image.
 ## Checks
 
 ```sh
-dev/nix-shell 'just lint-config'
+dev/nix-shell 'just test dev'
 dev/serena test
 dev/serena smoke
 ```

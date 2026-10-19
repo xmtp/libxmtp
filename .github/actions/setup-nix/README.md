@@ -11,6 +11,12 @@ kernel out-of-memory record, or when a measurement shows the job slower with
 `Out of memory: Killed process` or `oom-kill` when the job ends, also after a
 failure, and adds a warning when it finds one. On macOS, check memory pressure.
 
+The Darwin installer additionally admits only
+`/Applications/Xcode_27.0.app/Contents` for RN consumer derivations that
+explicitly request that pinned Xcode. It preserves Nix's default host paths;
+it does not mount Xcode into other derivations or disable their sandbox.
+Keep this path aligned with `lib.reactNativeXcode`.
+
 The Nix store is not persisted between jobs. Each job substitutes from Cachix
 and cache.nixos.org, and Nix checks the signature of every path it adds.
 
@@ -97,8 +103,11 @@ and trusted jobs do not restore it (`CacheModeWiringTests`).
 
 ## CI compiler cache
 
-`setup-nix` uses pinned Kache 1.0.0 and its private runtime directory.
-GitHub cache archives are disabled for the compiler store. Nix/Crane, Cachix,
+`setup-nix` uses the Kache of `nix/lib/packages/kache.nix` and its private
+runtime directory. The Rust dev shells supply the wrapper and the settings in
+`nix/lib/kache.toml`; `setup-nix` adds `CARGO_INCREMENTAL=0` and turns
+Kache's incremental modes off, and a job without `kache: "true"` gets
+`KACHE_DISABLED=1`. GitHub cache archives are disabled for the compiler store. Nix/Crane, Cachix,
 pnpm, Windows rust-cache, Gradle, and Docker keep their existing caches.
 
 Without either access key field, Kache uses a private local store. A partial
@@ -217,8 +226,8 @@ is a configuration error. For key rotation, follow the two-apply process in
 the infrastructure guide, then update the GitHub pair before deleting the old
 key.
 
-Check changes with `dev/nix-shell 'just lint-config'`. The fixtures use fake credentials and never
-start Kache or access S3.
+Check changes with `dev/nix-shell 'just test dev'` and `dev/nix-shell 'just lint-config'`. The
+fixtures use fake credentials and never start Kache or access S3.
 
 ## Caller scopes
 

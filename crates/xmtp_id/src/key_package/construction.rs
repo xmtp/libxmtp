@@ -10,9 +10,9 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use xmtp_configuration::{
-    CIPHERSUITE, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
-    WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+    WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
+use xmtp_cryptography::configuration::CIPHERSUITE;
 use xmtp_cryptography::{
     GeneratePostQuantumKeyError, XmtpInstallationCredential, generate_post_quantum_key,
 };

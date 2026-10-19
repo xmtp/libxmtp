@@ -29,9 +29,10 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `dev/nix-shell 'just docs check-external'`: check external URLs with Lychee.
 - `dev/nix-shell 'just docs check-cutover'`: check the composed site origin, exports, and signature route. Pass the expected origin and staged site path to check a cutover candidate. This does not verify live DNS, certificates, or HTTP redirects.
 
-`just docs build` and `just docs check-examples` select each SDK product from its
-source manifest, then run its package tasks with the pnpm dependency graph. Do not
-add a separate SDK build before either command.
+`just docs build`, `just docs check-examples`, and `just docs typecheck` use the
+pnpm dependency graph to build each local SDK once through Nix. Do not add a
+separate SDK build before these commands. The typecheck recipe builds the
+SDK dependencies first, then checks the docs package and examples.
 
 ## Build and check scripts
 
@@ -47,13 +48,15 @@ formats `.astro` files. `just lint-js-format` checks both formatters.
 
 Preserve retained source prose. Verify examples against the SDK source.
 Use MDX only when a page needs components. Platform tabs use `syncKey="sdk"`
-and the labels `Browser`, `Node`, `Kotlin`, and `Swift`. A guide that also covers
+and the labels `Browser`, `Node`, `React Native`, `Kotlin`, and `Swift`. A guide that also covers
 the Agent SDK can add `Agent` as the last tab. Package manager tabs
-use `syncKey="pkg"`. Do not add React Native examples until they can be verified.
+use `syncKey="pkg"`. Verify React Native examples against the generated public declarations, including the optional `/react` entry. The docs route stages declarations without the full mobile build closure.
 
 The post-merge workflow (`post-merge.yml`) deploys the public site on each push to `main` and
 builds the Kotlin and Swift references. Pull requests and merge runs skip them
 with `DOCS_SKIP_NATIVE_REFERENCES=1`.
+Use `dev/nix-shell 'DOCS_SKIP_NATIVE_REFERENCES=1 just docs test-browser'`
+when testing that composed site.
 
 ## TypeScript examples
 
@@ -64,7 +67,7 @@ API. The other workspace packages use TypeScript 7.
 SDK declarations. `just docs typecheck` checks Astro and executable examples.
 
 The site tsconfig excludes `examples/`. Check executable examples separately
-against each selected public SDK declaration entry.
+against the public SDK package exports.
 `examples.tsconfig.json` checks every executable example against the real SDK
 declarations through `just docs check-examples` and the docs build. Keep both
 checks; do not add examples to the Astro program or disable their type checks.

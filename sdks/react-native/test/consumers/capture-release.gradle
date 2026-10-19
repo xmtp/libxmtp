@@ -1,0 +1,27 @@
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+
+// Capture the selected Release app and its native/JS build tools. Android test
+// classpaths include the app's own unbuilt output and cannot be resolved as a
+// generic FileCollection under AGP 9. The final offline assembleRelease is the
+// completeness check for this download manifest.
+gradle.projectsLoaded {
+    rootProject.allprojects {
+        tasks.register('xmtpDownloadReleaseDependencies') {
+            doLast {
+                configurations.findAll { configuration ->
+                    def name = configuration.name.toLowerCase()
+                    configuration.canBeResolved &&
+                        !name.contains('test') &&
+                        !name.startsWith('debug') &&
+                        !name.endsWith('dependenciesmetadata')
+                }.each { configuration ->
+                    println("Capturing ${project.path}:${configuration.name}")
+                    configuration.incoming.artifactView {
+                        componentFilter { component -> component instanceof ModuleComponentIdentifier }
+                    }.files.files
+                }
+                buildscript.configurations.findAll { it.canBeResolved }.each { it.resolve() }
+            }
+        }
+    }
+}

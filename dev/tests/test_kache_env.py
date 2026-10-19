@@ -1,64 +1,107 @@
-"""Check the real cache environment helper and CI write policy."""
+"""Check the Kache settings file, the CI wiring, and the CI write policy."""
 
+import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 import unittest
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 KACHE_CI = ROOT / ".github/actions/setup-nix/kache-ci"
+KACHE_TOML = ROOT / "nix/lib/kache.toml"
 
 
-class KacheEnvTests(unittest.TestCase):
+# Each key of nix/lib/kache.toml and the variable that Kache documents for it.
+# Kache reports a host key as overridden only by that key's own variable, so a
+# key it does not know (a typo) is never reported as overridden.
+KACHE_KEY_VARIABLES = {
+    "cache.local_store": ("KACHE_CACHE_DIR", "store"),
+    "cache.local_max_size": ("KACHE_MAX_SIZE", "1GiB"),
+    "cache.cache_executables": ("KACHE_CACHE_EXECUTABLES", "0"),
+    "cache.cache_cc_links": ("KACHE_CACHE_CC_LINKS", "1"),
+    "cache.auto_clean_unused_units_days": ("KACHE_AUTO_CLEAN_UNUSED_UNITS_DAYS", "9"),
+    "cache.auto_recover_targets": ("KACHE_AUTO_RECOVER_TARGETS", "0"),
+}
+RUST_SHELLS = ("rust", "local", "android")
+
+
+def toml_keys(table, prefix=""):
+    for key, value in table.items():
+        if isinstance(value, dict):
+            yield from toml_keys(value, f"{prefix}{key}.")
+        else:
+            yield f"{prefix}{key}"
+
+
+class KacheConfigTests(unittest.TestCase):
+    """The real Kache reads nix/lib/kache.toml, in an empty home."""
+
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="xmtp kache env ")
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.bash = shutil.which("bash")
-        self.binary = self.root / "kache"
-        self.binary.write_text("#!/bin/sh\nexit 99\n")
-        self.binary.chmod(0o755)
-        self.env = {
-            key: value
-            for key, value in os.environ.items()
-            if not key.startswith(("KACHE_", "XMTP_KACHE"))
-            and key not in ("CI", "CARGO_INCREMENTAL", "RUSTC_WRAPPER", "BASH_ENV")
-        }
-        self.env["PATH"] = str(self.root)
+        self.kache = shutil.which("kache")
+        self.assertIsNotNone(self.kache, "run inside dev/nix-shell")
+        temp = tempfile.TemporaryDirectory(prefix="xmtp kache config ")
+        self.addCleanup(temp.cleanup)
+        self.home = Path(temp.name)
 
-    def shell(self, script):
-        return subprocess.run(
-            [self.bash, "-euc", script, "test", str(ROOT / "dev/kache-env")],
-            env=self.env,
+    def host_config(self, **variables):
+        """Kache's `Host config` doctor check, with no other config file."""
+        result = subprocess.run(
+            [self.kache, "--json", "doctor"],
+            cwd=self.home,
+            env={
+                "PATH": os.environ["PATH"],
+                "HOME": str(self.home),
+                "XDG_CONFIG_HOME": str(self.home / "config"),
+                "XDG_CACHE_HOME": str(self.home / "cache"),
+                "KACHE_HOST_CONFIG": str(KACHE_TOML),
+                **variables,
+            },
             capture_output=True,
             text=True,
         )
+        checks = json.loads(result.stdout)["checks"]
+        check = next(check for check in checks if check["label"] == "Host config")
+        self.assertTrue(check["pass"], check["detail"])
+        prefix = f"{KACHE_TOML}: "
+        self.assertTrue(check["detail"].startswith(prefix), check["detail"])
+        return sorted(check["detail"].removeprefix(prefix).split(", "))
 
-    def values(self):
-        result = self.shell(
-            'source "$1"; printf "%s\\n" "${RUSTC_WRAPPER-unset}" '
-            '"${CARGO_INCREMENTAL-unset}" "${KACHE_MAX_SIZE-unset}" '
-            '"${KACHE_KEY_ENV_VARS-unset}" "${KACHE_BUILD_SCRIPT_CACHE-unset}" '
-            '"${KACHE_CACHE_EXECUTABLES-unset}"'
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout.splitlines()
+    def test_kache_reads_every_key_of_the_file(self):
+        keys = sorted(toml_keys(tomllib.loads(KACHE_TOML.read_text())))
+        self.assertEqual(keys, sorted(KACHE_KEY_VARIABLES))
+        self.assertEqual(self.host_config(), keys)
 
-    def test_local_defaults_select_cache_and_keep_incremental_profile(self):
-        values = self.values()
+    def test_kache_knows_every_key_of_the_file(self):
+        variables = {
+            variable: str(self.home / value) if key == "cache.local_store" else value
+            for key, (variable, value) in KACHE_KEY_VARIABLES.items()
+        }
         self.assertEqual(
-            values,
-            [str(self.binary), "unset", "50GiB", "CI,XMTP_TEST_LOGGING", "0", "1"],
+            self.host_config(**variables),
+            sorted(
+                f"{key} (overridden by {variable})"
+                for key, (variable, _) in KACHE_KEY_VARIABLES.items()
+            ),
         )
-        for value in ("0", "1"):
-            with self.subTest(value=value):
-                self.env["CARGO_INCREMENTAL"] = value
-                self.assertEqual(self.values()[1], value)
+
+    def test_rust_shells_pin_the_settings_that_keep_builds_correct(self):
+        # Variables win over every Kache file, so a personal config cannot
+        # turn these off. dev/tests run inside the default (local) shell.
+        shell = os.environ.get("XMTP_DEV_SHELL")
+        if shell not in RUST_SHELLS:
+            self.skipTest(f"not in a Rust dev shell ({shell})")
+        self.assertEqual(os.environ.get("KACHE_KEY_ENV_VARS"), "CI,XMTP_TEST_LOGGING")
+        self.assertEqual(os.environ.get("KACHE_BUILD_SCRIPT_CACHE"), "0")
+        self.assertEqual(
+            Path(os.environ["KACHE_HOST_CONFIG"]).read_text(), KACHE_TOML.read_text()
+        )
+        self.assertEqual(Path(os.environ["RUSTC_WRAPPER"]).name, "kache")
 
 
 TRUNK_PUSH = {
@@ -391,7 +434,13 @@ S3_INPUTS = (
 
 # Jobs that select the writer environment only for its trusted Cachix token,
 # not for Kache. CacheModeWiringTests checks when each one is trusted.
-TRUSTED_CACHIX_WRITERS = {"post-merge.yml / build", "push-backend.yml / publish"}
+TRUSTED_CACHIX_WRITERS = {
+    "post-merge.yml / build",
+    "post-merge.yml / rn-components",
+    "post-merge.yml / rn-package",
+    "post-merge.yml / rn-consumers",
+    "push-backend.yml / publish",
+}
 
 # Jobs that run cargo outside Nix, with their Kache scope. A job leaves this
 # list only when it stops running cargo outside Nix, so dropping Kache from a
@@ -420,6 +469,71 @@ def action_step(name):
 
 
 class SetupNixTests(unittest.TestCase):
+    def test_darwin_installer_admits_only_the_pinned_rn_apple_host_inputs(self):
+        nix = shutil.which("nix")
+        developer = subprocess.check_output(
+            [nix, "eval", "--raw", ".#lib.reactNativeXcode.developerDir"],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+        expected = str(Path(developer).parent)
+        with tempfile.TemporaryDirectory(prefix="xmtp nix host deps ") as folder:
+            folder = Path(folder)
+            system = folder / "system"
+            system.mkdir()
+            (system / "nix.conf").write_text(
+                "allowed-impure-host-deps = /xmtp-test-inherited-host-dependency\n"
+            )
+            config = folder / "user.conf"
+            config.write_text("")
+            env = os.environ | {
+                "NIX_CONF_DIR": str(system),
+                "NIX_USER_CONF_FILES": str(config),
+                "NIX_CONFIG": "",
+            }
+
+            def paths():
+                return set(
+                    subprocess.check_output(
+                        [
+                            nix,
+                            "--extra-experimental-features",
+                            "nix-command",
+                            "config",
+                            "show",
+                            "allowed-impure-host-deps",
+                        ],
+                        env=env,
+                        text=True,
+                    ).split()
+                )
+
+            defaults = paths()
+            self.assertIn("/xmtp-test-inherited-host-dependency", defaults)
+            config.write_text(
+                action_step("Install Nix (macOS)")["with"]["extra_nix_config"]
+            )
+            self.assertEqual(
+                paths(),
+                defaults
+                | {
+                    expected,
+                    "/usr/bin/xcrun",
+                    "/usr/bin/ditto",
+                    "/usr/bin/env",
+                    "/usr/bin/touch",
+                    "/Library/Preferences/com.apple.dt.Xcode.plist",
+                    "/usr/share/firmlinks",
+                    "/Library/Developer/PrivateFrameworks/CoreSimulator.framework",
+                    "/Library/Developer/PrivateFrameworks/DVTDownloads.framework",
+                    "/Library/Developer/PrivateFrameworks/ROCKit.framework",
+                    "/Library/Developer/PrivateFrameworks/CoreDevice.framework",
+                    "/Library/Developer/PrivateFrameworks/CoreDeviceUtilities.framework",
+                    "/Library/Apple/System/Library/PrivateFrameworks/MobileDevice.framework",
+                    "/Library/Apple/System/Library/PrivateFrameworks/Mercury.framework",
+                },
+            )
+
     def test_action_installs_the_nix_kache_version(self):
         # Two Kache versions in one job share the local cache directory and
         # the S3 manifests, so the action installs the shell's version.
@@ -468,6 +582,61 @@ class SetupNixTests(unittest.TestCase):
                         self.assertIn("cachix-auth-token", inputs)
                     else:
                         self.assertNotIn("kache-s3-writer", environment)
+
+    def run_kache_step(self, name):
+        """Run a setup-nix step; return its $GITHUB_ENV and $GITHUB_PATH lines."""
+        with tempfile.TemporaryDirectory(prefix="xmtp setup-nix ") as temp:
+            temp = Path(temp)
+            nix = temp / "nix"
+            nix.write_text("#!/bin/sh\necho /nix/store/fake-kache\n")
+            nix.chmod(0o755)
+            for file in ("env", "path"):
+                (temp / file).write_text("")
+            result = subprocess.run(
+                [
+                    shutil.which("bash"),
+                    "-euo",
+                    "pipefail",
+                    "-c",
+                    action_step(name)["run"],
+                ],
+                env={
+                    "PATH": f"{temp}:/usr/bin:/bin",
+                    "GITHUB_ENV": str(temp / "env"),
+                    "GITHUB_PATH": str(temp / "path"),
+                    "KACHE_CACHE_DIR": str(temp / "store"),
+                    "KACHE_RUNTIME_DIR": str(temp / "runtime"),
+                },
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return (
+                (temp / "env").read_text().splitlines(),
+                (temp / "path").read_text().splitlines(),
+            )
+
+    def test_kache_jobs_compile_without_incremental_state(self):
+        step = action_step("Configure Kache compiler environment")
+        self.assertEqual(step["if"], "${{ inputs.kache == 'true' }}")
+        env, path = self.run_kache_step("Configure Kache compiler environment")
+        for line in (
+            "CARGO_INCREMENTAL=0",
+            "KACHE_ADAPTIVE_INCREMENTAL=0",
+            "KACHE_PRESERVE_INCREMENTAL=0",
+        ):
+            self.assertIn(line, env)
+        # kache-action's KACHE_CONFIG holds the S3 remote; the dev shells set
+        # KACHE_HOST_CONFIG. Neither may be replaced here.
+        written = {line.split("=", 1)[0] for line in env}
+        self.assertFalse(written & {"KACHE_CONFIG", "KACHE_HOST_CONFIG"})
+        self.assertEqual(path, ["/nix/store/fake-kache/bin"])
+
+    def test_other_jobs_turn_kache_off(self):
+        step = action_step("Disable outer compiler cache")
+        self.assertEqual(step["if"], "${{ inputs.kache != 'true' }}")
+        env, _ = self.run_kache_step("Disable outer compiler cache")
+        self.assertIn("KACHE_DISABLED=1", env)
 
     def test_kache_callers_match_the_cargo_job_list(self):
         callers = {
@@ -816,6 +985,7 @@ CI_ENTRIES = {
     "deploy-docs.yml",
     "lint-deny.yml",
     "test-backend.yml",
+    "test-react-native.yml",
 }
 
 

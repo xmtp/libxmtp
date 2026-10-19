@@ -1,15 +1,25 @@
 #!/usr/bin/env python3.11
-"""Run every dev test module that `just lint-config` owns.
+"""Run every dev test module that `just test dev` owns.
 
 Each start directory contributes its `test_*.py` files. A new test file in one
-of these directories runs without a recipe or workflow edit. The tests import
-sibling modules by bare name, so each directory runs in its own Python process
-with that directory first on `sys.path`. A test cannot pass here by importing
-a module from another start directory.
+of these directories runs without a recipe or workflow edit.
+
+Each module runs in its own Python process, and up to WORKERS processes run at
+the same time. The tests import sibling modules by bare name, so a module's
+process has its start directory first on `sys.path`. A test cannot pass here
+by importing a module from another start directory, or by using state that
+another module left behind.
+
+The runner captures the output of each process. It prints a module's status
+line when the module finishes. After every module finishes, it prints the
+failure details to stderr in module order. The last stdout line counts the
+tests and the failed modules.
 """
 
+import concurrent.futures
 import importlib
 import io
+import os
 import subprocess
 import sys
 import time
@@ -27,7 +37,21 @@ START_DIRS = (
     "nix/lib",
 )
 
-# The last stdout line of a directory process: tests run and failed modules.
+# Past 8 processes the wall time stops falling, and more processes that start
+# at once make the timing-sensitive tests slower.
+WORKERS = min(8, os.cpu_count() or 1)
+
+# The slowest modules start first, so that none of them starts last and sets
+# the wall time. A stale name costs only time.
+SLOW_FIRST = (
+    "dev/tests/test_services.py",
+    "dev/tests/test_release_push.py",
+    "dev/tests/test_android_emulator_start.py",
+    "dev/tests/test_ci_suites.py",
+    "dev/tests/test_agents.py",
+)
+
+# The last stdout line of a module process: tests run and failed modules.
 SUMMARY = "dev-tests-run-summary"
 
 
@@ -56,64 +80,90 @@ def run_module(path):
     return result.testsRun, skipped, None
 
 
-def run_directory(start):
-    """Run the modules of one start directory in this process."""
-    directory = ROOT / start
-    files = sorted(directory.glob("test_*.py"))
-    failed = []
-    if not files:
-        failed.append((start, "No test_*.py files. Update START_DIRS.\n"))
-    # Python put this script's directory first; only the selected one stays.
+def run_one(start, label):
+    """Run one module in this process, with its start directory first."""
+    # Python put this script's directory first; only the start directory stays.
     runner = Path(__file__).resolve().parent
     sys.path[:] = [p for p in sys.path if not p or Path(p).resolve() != runner]
-    sys.path.insert(0, str(directory))
-    total = 0
-    for path in files:
-        label = path.relative_to(ROOT).as_posix()
-        started = time.monotonic()
-        count, skipped, detail = run_module(path)
-        seconds = time.monotonic() - started
-        total += count
-        status = "ok" if detail is None else "FAIL"
-        counts = f"{count} tests, {skipped} skipped, {seconds:.1f} s"
-        print(f"{status:5} {label} ({counts})", flush=True)
-        if detail is not None:
-            failed.append((label, detail))
-    for label, detail in failed:
-        print(f"\n===== {label}\n{detail}", file=sys.stderr, flush=True)
-    print(f"{SUMMARY} {total} {len(failed)}", flush=True)
-    return 1 if failed else 0
+    sys.path.insert(0, str(ROOT / start))
+    started = time.monotonic()
+    count, skipped, detail = run_module(ROOT / label)
+    seconds = time.monotonic() - started
+    status = "ok" if detail is None else "FAIL"
+    counts = f"{count} tests, {skipped} skipped, {seconds:.1f} s"
+    print(f"{status:5} {label} ({counts})", flush=True)
+    if detail is not None:
+        print(detail, end="", file=sys.stderr, flush=True)
+    print(f"{SUMMARY} {count} {0 if detail is None else 1}", flush=True)
+    return 0 if detail is None else 1
+
+
+def run_child(start, label):
+    command = [sys.executable, "-B", __file__, "--module", start, label]
+    return subprocess.run(
+        command,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        check=False,
+    )
 
 
 def main():
-    if len(sys.argv) == 3 and sys.argv[1] == "--directory":
-        return run_directory(sys.argv[2])
+    if len(sys.argv) == 4 and sys.argv[1] == "--module":
+        return run_one(sys.argv[2], sys.argv[3])
     if len(sys.argv) != 1:
         print("Usage: dev/tests/run", file=sys.stderr)
         return 2
-    total = 0
-    failed = 0
+    # Module order: START_DIRS, then file names. Failure details use it.
+    order = []
+    details = {}
+    jobs = []
     for start in START_DIRS:
-        command = [sys.executable, "-B", __file__, "--directory", start]
-        child = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, text=True)
-        summary = None
-        for line in child.stdout:
-            if line.startswith(SUMMARY + " "):
-                summary = line.split()[1:]
+        files = sorted((ROOT / start).glob("test_*.py"))
+        if not files:
+            order.append(start)
+            details[start] = "No test_*.py files. Update START_DIRS.\n"
+        for path in files:
+            label = path.relative_to(ROOT).as_posix()
+            order.append(label)
+            jobs.append((start, label))
+    # The sort is stable, so the other modules keep module order.
+    rank = {label: index for index, label in enumerate(SLOW_FIRST)}
+    jobs.sort(key=lambda job: rank.get(job[1], len(rank)))
+    total = 0
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS)
+    try:
+        futures = {pool.submit(run_child, *job): job[1] for job in jobs}
+        for future in concurrent.futures.as_completed(futures):
+            label = futures[future]
+            child = future.result()
+            summary = None
+            for line in child.stdout.splitlines():
+                if line.startswith(SUMMARY + " "):
+                    summary = line.split()[1:]
+                else:
+                    print(line, flush=True)
+            error = None
+            if summary is None:
+                error = f"the test process exited {child.returncode} without a summary"
             else:
-                print(line, end="", flush=True)
-        code = child.wait()
-        if summary is None:
-            print(f"ERROR {start}: the test process exited {code} without a summary")
-            failed += 1
-            continue
-        total += int(summary[0])
-        failed += int(summary[1])
-        if code != 0 and int(summary[1]) == 0:
-            print(f"ERROR {start}: the test process exited {code}")
-            failed += 1
-    print(f"{total} tests; {failed} failed modules")
-    return 1 if failed else 0
+                total += int(summary[0])
+                if child.returncode != 0 and int(summary[1]) == 0:
+                    error = f"the test process exited {child.returncode}"
+            if error is not None:
+                print(f"ERROR {label}: {error}", flush=True)
+                details[label] = child.stderr + f"ERROR {label}: {error}\n"
+            elif int(summary[1]):
+                details[label] = child.stderr
+    finally:
+        pool.shutdown(cancel_futures=True)
+    for label in order:
+        if label in details:
+            print(f"\n===== {label}\n{details[label]}", file=sys.stderr, flush=True)
+    print(f"{total} tests; {len(details)} failed modules", flush=True)
+    return 1 if details else 0
 
 
 if __name__ == "__main__":

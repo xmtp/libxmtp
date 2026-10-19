@@ -1,10 +1,11 @@
 # GitHub workflows
 
-Validate workflow edits with `dev/nix-shell 'just lint-config'`.
+Validate workflow edits with `dev/nix-shell 'just lint-config'` and
+`dev/nix-shell 'just test dev'`.
 Messenger benchmarks run only through `benchmark-example-android.yml` with
 `workflow_dispatch`, or the explicit Android Just command. Do not add benchmark
 jobs or dependencies to normal test workflows. Keep host runner validators in
-normal config tests.
+the dev tool tests.
 
 SDK release tags use `GH_APP_ID` and `GH_APP_PK` for the release App.
 The App installation must grant Contents write and Workflows write.
@@ -13,13 +14,16 @@ These jobs do not run SDK or release tools. The tag push job imports a Git
 bundle into a new bare repository.
 Resolve the requested ref before SDK code runs. All SDK jobs use that fixed
 source SHA for checkout, build, and tag checks. Keep the requested ref for
-version classification. The version CLI gets its hash from the pinned HEAD.
+version classification. `release.yml` freezes the source in `validate`, then
+passes it to the nightly oracle, every SDK, the backend, and the hub. Direct
+SDK callers may omit `source-sha`; their permission job resolves `ref` once.
+The version CLI gets its hash from the pinned HEAD.
 Android and npm tags must point to that SHA. iOS can use one direct
 release commit
 that changes only the iOS release files. The push job checks this before it
 creates its token.
 Npm dry runs resolve the source but do not create an App token or push a tag.
-`just lint-config` checks the tag transfer with a local Git HTTP remote.
+`just test dev` checks the tag transfer with a local Git HTTP remote.
 The nightly libxmtp hub tag (`v<version>`, `release.yml`) uses the same tag
 push job, so a `v*` tag ruleset can list the App as its bypass actor.
 `check-release-push.yml` refuses a source commit that is not on `main`
@@ -109,8 +113,8 @@ Gradle User Home, and no backend.
 
 ## CI selection
 
-`.github/ci-suites.yml` declares every CI suite: its workflow, `path_filters` (globs, Cargo
-packages, and path groups), Kache scopes, and policy (`run_on`, `disable_on_forks`,
+`.github/ci-suites.yml` declares every CI suite: its workflow, `pr_filters` (globs, Cargo
+packages, path groups, and `pr_label` names joined with OR), Kache scopes, and policy (`run_on`, `disable_on_forks`,
 `secrets`, `permissions`, `covered_by`). Every suite key except `covered_by` is
 required; nothing has a default. `secrets` is `inherit`, `kache` (only the
 Kache keys), `cachix-pr` (only `CACHIX_PR_AUTH_TOKEN`), or `none`; use `none`
@@ -150,7 +154,17 @@ suites, because `dev/ci-suites check` can then find a pattern that names no
 file. A new pull request push cancels the older run; merge runs are not
 cancelled.
 
-The job summary lists the full-run reasons, matched suites, shared and unknown
+PR label additions and removals also recalculate selection. `pr_label` matches
+the exact name in the event's `pull_request.labels`; it can select a suite
+without any matching path. Path exclusions and neutral files do not block
+label matches. Example app test suites declare their app directories, relevant
+Nix inputs (`example_ios_nix` and `example_android_nix` path groups), and
+platform labels (`iOS` and `android`); the automatic workflow and full-run
+rules above still apply. Keep those Nix groups current when app packaging,
+SDK products, platform shells, or test service inputs change. Product groups
+keep path-only `path_filters`.
+
+The job summary lists the full-run reasons, matched suites and labels, shared and unknown
 paths, policy exclusions, and the selected suites. Lists show up to 200
 entries. JSON path data goes through standard input to preserve quotes and
 line breaks and avoid environment size limits.
@@ -173,7 +187,7 @@ publication runs only on main, tag pushes, or reusable calls.
 
 All CI commands select a targeted Nix shell. Full root Nix warming still builds
 all outputs and dependencies, including the default developer shell. Kache is
-off unless a job sets `kache: "true"`; its Darwin helper bypasses linked outputs.
+off unless a job sets `kache: "true"`; other jobs get `KACHE_DISABLED=1`.
 Recovery runs only through the manual workflow. The release `load` jobs of
 `build-sdk-node-platforms.yml` run the Windows installed-package smoke.
 
@@ -212,6 +226,32 @@ Kache off; Nix derivations do not use this remote. Identical test shards share
 a scope. The action adds runner OS and architecture.
 Keep credentials out of global `AWS_*` settings and Nix derivations.
 
-`just lint-config` tests CI selection, result gates, summaries, the backend
+`just test dev` tests CI selection, result gates, summaries, the backend
 selector, and write policy without keys, a compiler daemon, or cloud access.
 See the setup action's README for settings.
+
+`test-react-native.yml` owns the RN producer, exchange, canonical package,
+and installed bare/Expo consumer gates on both platforms. It has no privileged
+writer environment. Forks use the same-run exports when no PR cache token is
+available. Select it through the `react_native` and shared SDK path groups.
+The Linux consumer job also runs the portable package, controller, React, and
+native-helper contracts before its installed-app journeys.
+
+Once GitHub registers the workflow, `gh workflow run test-react-native.yml --ref REF`
+runs only the RN gates. Platform jobs retain `target/react-native-results/*.json`
+in `react-native-proof-PLATFORM`; release jobs use
+`react-native-release-proof-PLATFORM`. Do not upload peer logs with these reports.
+The test and release consumer builds retain 100 Nix failure lines so CocoaPods
+hook exceptions remain visible before their Ruby stack traces.
+
+The shared `react-native-product` action owns RN component exchange, canonical
+package assembly, and consumer builds. Callers pass the fixed source SHA,
+package version (empty for the default), artifact prefix, and cache mode.
+Cache setup, credentials, explicit uploads, and trusted writer environments
+stay in the calling workflows. Native derivations select their declared Xcode;
+the consumer action sets `DEVELOPER_DIR` for simulator commands outside Nix.
+`react-native-conformance` executes fresh installed bare/Expo proofs in test
+and release jobs. Post-merge builds consumers without repeating those journeys.
+Its final `build` jobs wait for RN stages before building, pushing, and pinning
+dev/release. Docs wait for the completed empty-store closure check. Keep every
+RN stage member in the dev/release declarations in `nix/ci-sets.nix`.

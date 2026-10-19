@@ -8,13 +8,14 @@
     ".cargo/**",
     "proto/**",
     "nix/lib/{base,default,filesets,mkToolchain,mkVersion,patches,shell-common}.nix",
-    "nix/lib/packages/{kache.nix,kache-darwin-wrapper.sh,rtk.nix}",
+    "nix/lib/kache.toml",
+    "nix/lib/packages/{kache,rtk}.nix",
     "nix/shells/{local,rust}.nix",
     "nix/apps.nix",
     ".github/{ci-suites.yml,ci-suites.json}",
     ".github/workflows/{ci,lint-generated,test-generated}.yml",
     ".github/actions/setup-nix/**",
-    "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run,kache-env}"
+    "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run}"
   ],
   "neutral": [
     "**/{AGENTS,CLAUDE}.md",
@@ -39,7 +40,7 @@
         "nix/ci-sets.nix",
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
@@ -59,7 +60,7 @@
         "nix/lib/android-env.nix",
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
@@ -98,7 +99,8 @@
         "apps/chaos/chaos.just",
         "crates/xmtp-workspace-hack/**",
         "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
-      ]
+      ],
+      "labels": []
     },
     "lint_js": {
       "phase": "lint",
@@ -131,9 +133,10 @@
         "nix/lib/packages/pnpm.nix",
         "nix/{js,js-node}.nix",
         "sdks/js.just",
-        "sdks/{node,browser,agent}/**",
+        "sdks/{node,browser,agent,react-native}/**",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ]
+      ],
+      "labels": []
     },
     "lint_config": {
       "phase": "lint",
@@ -160,28 +163,18 @@
       ],
       "paths": [
         "**/*.{nix,py,sh,toml,kt,swift}",
-        "**/dev/**",
         ".github/**",
-        "apps/backend/backend.just",
-        "apps/example-android/{dev/apk,example-android.just,app/build.gradle}",
-        "dev/ci-failure-markers",
-        "dev/docker/grafana/dashboards/backend.json",
-        "dev/docker/{compose.yml,load-backend-image,load-env,up}",
-        "dev/js/sdk-package",
         "dev/js/{sdk-*,tsconfig.*.json}",
-        "dev/services",
-        "dev/tls/**",
-        "dev/{tests,agents,specs,release-tools,fly,ci}/**",
+        "dev/release-tools/**",
         "nix/fmt.nix",
         "nix/lib/packages/pnpm.nix",
         "nix/{js,js-node}.nix",
-        "sdks/android/android.just",
-        "sdks/browser/test/platform/object-store/with-object-store",
         "sdks/js.just",
         "{.editorconfig,sdks/ios/.swiftformat,apps/example-ios/.swiftformat}",
         "{crates,apps}/**/*.rs",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ]
+      ],
+      "labels": []
     },
     "lint_proto": {
       "phase": "lint",
@@ -207,7 +200,8 @@
       ],
       "paths": [
         "proto/**"
-      ]
+      ],
+      "labels": []
     },
     "docs_quality": {
       "phase": "lint",
@@ -244,7 +238,8 @@
         "sdks/js.just",
         "{apps/docs,docs}/**",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ]
+      ],
+      "labels": []
     },
     "lint_ios": {
       "phase": "lint",
@@ -274,7 +269,8 @@
         "nix/package/ios.nix",
         "sdks/ios/**",
         "{Package.swift,Package.resolved,.spi.yml}"
-      ]
+      ],
+      "labels": []
     },
     "lint_deny": {
       "phase": "lint",
@@ -301,7 +297,8 @@
       "paths": [
         "**/Cargo.toml",
         "{Cargo.lock,deny.toml}"
-      ]
+      ],
+      "labels": []
     },
     "lint_example_ios": {
       "phase": "lint",
@@ -333,7 +330,7 @@
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/{swiftformat,swiftlint}.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/example-ios-run.nix",
         "nix/package/ios.nix",
@@ -345,7 +342,57 @@
         "{Cargo.toml,Cargo.lock}",
         "{Package.swift,Package.resolved,.spi.yml}",
         "!**/*.md"
-      ]
+      ],
+      "labels": []
+    },
+    "test_dev": {
+      "phase": "test",
+      "workflow": "test-dev.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "none",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "products": [],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-dev.yml"
+      ],
+      "paths": [
+        "**/*.{nix,py,sh,toml}",
+        "**/dev/**",
+        ".github/**",
+        "apps/backend/backend.just",
+        "apps/example-android/{dev/apk,example-android.just,app/build.gradle}",
+        "dev/ci-failure-markers",
+        "dev/docker/grafana/dashboards/backend.json",
+        "dev/docker/{compose.yml,load-backend-image,load-env,up}",
+        "dev/js/sdk-package",
+        "dev/js/{sdk-*,tsconfig.*.json}",
+        "dev/services",
+        "dev/tls/**",
+        "dev/{tests,agents,specs,release-tools,fly,ci}/**",
+        "nix/fmt.nix",
+        "nix/lib/packages/pnpm.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/android/android.just",
+        "sdks/android/gradle.properties",
+        "sdks/browser/test/platform/object-store/with-object-store",
+        "sdks/ios/ios.just",
+        "sdks/js.just",
+        "sdks/react-native/scripts/test-installed",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+      ],
+      "labels": []
     },
     "check_rust": {
       "phase": "test",
@@ -379,6 +426,7 @@
         "crates/xmtp_archive/**",
         "crates/xmtp_attachments/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_common/**",
         "crates/xmtp_configuration/**",
         "crates/xmtp_content_types/**",
@@ -405,7 +453,8 @@
         "Cargo.lock",
         "Cargo.toml",
         "{.clippy.toml,dev/wasm.just}"
-      ]
+      ],
+      "labels": []
     },
     "check_sdk_unit": {
       "phase": "test",
@@ -436,6 +485,7 @@
         "crates/xmtp_archive/**",
         "crates/xmtp_attachments/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_common/**",
         "crates/xmtp_configuration/**",
         "crates/xmtp_content_types/**",
@@ -463,12 +513,14 @@
         "Cargo.toml",
         "apps/backend/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
         "dev/docker/{postgres,s3,toxiproxy}/**",
         "nix/musl-docker.nix",
         "nix/package/backend.nix"
-      ]
+      ],
+      "labels": []
     },
     "test_backend": {
       "phase": "test",
@@ -492,6 +544,7 @@
         "apps/backend/**",
         "crates/xmtp-workspace-hack/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_common/**",
         "crates/xmtp_configuration/**",
         "crates/xmtp_cryptography/**",
@@ -513,17 +566,19 @@
         "Cargo.toml",
         "apps/backend/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "dev/backend/**",
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/s3/**",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
         "dev/docker/{postgres,s3,toxiproxy}/**",
-        "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}",
+        "docs/{backend-observability.md,specs/OPS-backend-operations.md}",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
         "nix/services/**",
         "nix/{ci-checks,package/backend-tests}.nix"
-      ]
+      ],
+      "labels": []
     },
     "test_validation": {
       "phase": "test",
@@ -565,7 +620,8 @@
         "Cargo.lock",
         "Cargo.toml",
         "{crates/xmtp_mls_validation/dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
-      ]
+      ],
+      "labels": []
     },
     "test_workspace": {
       "phase": "test",
@@ -594,6 +650,7 @@
         "crates/xmtp_archive/**",
         "crates/xmtp_attachments/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_common/**",
         "crates/xmtp_configuration/**",
         "crates/xmtp_content_types/**",
@@ -620,15 +677,18 @@
         "Cargo.toml",
         "apps/backend/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
         "dev/docker/{postgres,s3,toxiproxy}/**",
+        "docs/{schemas/backend-v1.json,specs/CONF-backend-configuration.md}",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
         "nix/services/**",
         "{.config/nextest.toml,webdriver.json}",
         "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
-      ]
+      ],
+      "labels": []
     },
     "test_keepalive": {
       "phase": "test",
@@ -666,7 +726,8 @@
         "Cargo.lock",
         "Cargo.toml",
         "{nix/package/keepalive-probe-check.nix,nix/ci-checks.nix}"
-      ]
+      ],
+      "labels": []
     },
     "test_wasm": {
       "phase": "test",
@@ -704,6 +765,7 @@
         "crates/xmtp_archive/**",
         "crates/xmtp_attachments/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_common/**",
         "crates/xmtp_configuration/**",
         "crates/xmtp_content_types/**",
@@ -730,6 +792,7 @@
         "Cargo.toml",
         "apps/backend/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
         "dev/docker/{postgres,s3,toxiproxy}/**",
@@ -738,7 +801,8 @@
         "nix/services/**",
         "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
         "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
-      ]
+      ],
+      "labels": []
     },
     "test_xdbg": {
       "phase": "test",
@@ -790,6 +854,7 @@
         "Cargo.toml",
         "apps/backend/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
         "dev/docker/{observe-check.sh,observe_check.py}",
@@ -799,7 +864,8 @@
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
         "nix/package/xdbg{,-check}.nix"
-      ]
+      ],
+      "labels": []
     },
     "docs_rust": {
       "phase": "test",
@@ -832,6 +898,7 @@
         "crates/xmtp_archive/**",
         "crates/xmtp_attachments/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_common/**",
         "crates/xmtp_configuration/**",
         "crates/xmtp_content_types/**",
@@ -857,7 +924,8 @@
         "Cargo.lock",
         "Cargo.toml",
         "{docs/error_glossary.md,dev/gen-error-glossary}"
-      ]
+      ],
+      "labels": []
     },
     "check_types": {
       "phase": "test",
@@ -891,7 +959,7 @@
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/pnpm.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
@@ -899,10 +967,11 @@
         "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
         "sdks/js.just",
-        "sdks/{node,browser,agent}/**",
+        "sdks/{node,browser,agent,react-native}/**",
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ]
+      ],
+      "labels": []
     },
     "check_sdk": {
       "phase": "test",
@@ -937,7 +1006,7 @@
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/pnpm.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
@@ -949,7 +1018,8 @@
         "sdks/{node,browser}/package.json",
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ]
+      ],
+      "labels": []
     },
     "test_node": {
       "phase": "test",
@@ -980,6 +1050,7 @@
         "apps/cli/**",
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_sdk/**",
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
@@ -988,7 +1059,7 @@
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/pnpm.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/musl-docker.nix",
         "nix/node-packages.nix",
         "nix/package/backend.nix",
@@ -1001,7 +1072,8 @@
         "sdks/node/**",
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ]
+      ],
+      "labels": []
     },
     "test_agent": {
       "phase": "test",
@@ -1035,7 +1107,7 @@
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/pnpm.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
@@ -1046,7 +1118,8 @@
         "sdks/{node,agent}/**",
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ]
+      ],
+      "labels": []
     },
     "test_browser": {
       "phase": "test",
@@ -1082,7 +1155,7 @@
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/pnpm.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
@@ -1093,7 +1166,8 @@
         "sdks/js.just",
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ]
+      ],
+      "labels": []
     },
     "test_sdk_platform": {
       "phase": "test",
@@ -1126,7 +1200,7 @@
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/pnpm.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
@@ -1137,7 +1211,8 @@
         "sdks/js.just",
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ]
+      ],
+      "labels": []
     },
     "docs_site": {
       "phase": "test",
@@ -1176,7 +1251,7 @@
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/pnpm.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
@@ -1189,7 +1264,8 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}",
         "!sdks/agent/src/**/*.test.ts"
-      ]
+      ],
+      "labels": []
     },
     "test_ios": {
       "phase": "test",
@@ -1220,7 +1296,7 @@
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/{swiftformat,swiftlint}.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/ios.nix",
         "nix/package/libffi-zig-cross.site",
@@ -1230,7 +1306,8 @@
         "sdks/ios/**",
         "{Cargo.toml,Cargo.lock}",
         "{Package.swift,Package.resolved,.spi.yml}"
-      ]
+      ],
+      "labels": []
     },
     "test_android": {
       "phase": "test",
@@ -1262,7 +1339,7 @@
         "nix/lib/android-*",
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
@@ -1272,7 +1349,8 @@
         "sdks/android/**",
         "{Cargo.toml,Cargo.lock}",
         "!docs/**"
-      ]
+      ],
+      "labels": []
     },
     "test_example_android": {
       "phase": "test",
@@ -1299,24 +1377,20 @@
       ],
       "paths": [
         "apps/example-android/**",
-        "apps/xmtp_sdk_bindgen/**",
-        "crates/xmtp_sdk/**",
         "nix/android-packages.nix",
+        "nix/ci-sets.nix",
         "nix/lib/android-*",
-        "nix/lib/packages/napi-rs-cli/**",
-        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
-        "nix/node-packages.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
+        "nix/musl-docker.nix",
+        "nix/package/backend.nix",
         "nix/package/example-android-apk*",
         "nix/package/libffi-zig-cross.site",
-        "nix/package/node.nix",
-        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/package/xmtp-sdk{,-native}.nix",
         "nix/sdk-platforms.json",
-        "nix/shells/android{,-ci}.nix",
-        "sdks/android/**",
-        "{Cargo.toml,Cargo.lock}",
-        "!**/*.md",
-        "!docs/**"
+        "nix/shells/android{,-ci}.nix"
+      ],
+      "labels": [
+        "android"
       ]
     },
     "test_example_ios": {
@@ -1341,33 +1415,85 @@
         ".github/workflows/test-example-ios.yml"
       ],
       "paths": [
-        "apps/backend/**",
         "apps/example-ios/**",
+        "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
+        "nix/musl-docker.nix",
+        "nix/package/backend.nix",
+        "nix/package/xmtp-sdk{,-native}.nix",
+        "nix/package/{example-ios-run,ios}.nix",
+        "nix/sdk-platforms.json",
+        "nix/services/**"
+      ],
+      "labels": [
+        "iOS"
+      ]
+    },
+    "test_react_native": {
+      "phase": "test",
+      "workflow": "test-react-native.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "cachix-pr",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "products": [],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/react-native-conformance/**",
+        ".github/actions/react-native-product/**",
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-react-native.yml"
+      ],
+      "paths": [
+        ".github/actions/react-native-{product,conformance}/**",
+        "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_sdk/**",
         "dev/backend/**",
-        "dev/check-apple-toolchain",
+        "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/s3/**",
+        "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
+        "dev/docker/{postgres,s3,toxiproxy}/**",
+        "dev/js/{sdk-*,tsconfig.*.json}",
+        "nix/android-packages.nix",
+        "nix/ci-sets.nix",
+        "nix/lib/android-*",
         "nix/lib/ios-env.nix",
         "nix/lib/packages/napi-rs-cli/**",
-        "nix/lib/packages/{swiftformat,swiftlint}.nix",
+        "nix/lib/packages/pnpm.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix",
+        "nix/lib/{react-native-env,sdk-native-toolchain}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
+        "nix/musl-docker.nix",
         "nix/node-packages.nix",
         "nix/package/backend.nix",
-        "nix/package/example-ios-run.nix",
-        "nix/package/ios.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
+        "nix/package/react-native-*",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/react-native-*",
         "nix/sdk-platforms.json",
         "nix/services/**",
-        "sdks/ios/**",
+        "nix/shells/android{,-ci}.nix",
+        "nix/shells/react-native.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/js.just",
+        "sdks/react-native/**",
         "{Cargo.toml,Cargo.lock}",
-        "{Package.swift,Package.resolved,.spi.yml}",
-        "!**/*.md"
-      ]
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+      ],
+      "labels": []
     }
   }
 }

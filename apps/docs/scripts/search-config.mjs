@@ -1,6 +1,8 @@
 // Prefer guides. Keep specs and generated API references searchable at lower weight.
 export function isSearchReference(id) {
-  return /^(specs(?:\/|$)|reference\/(node|browser|agent)-sdk\/)/.test(id);
+  return /^(specs(?:\/|$)|reference\/(node|browser|react-native|agent)-sdk\/)/.test(
+    id,
+  );
 }
 
 export const searchRanking = {

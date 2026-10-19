@@ -1,0 +1,11 @@
+error[E0423]: cannot initialize a tuple struct which contains private fields
+  --> tests/ui/validated_section_literal.rs:19:18
+   |
+19 |     build_target(Validated(&settings));
+   |                  ^^^^^^^^^
+   |
+note: constructor is not visible here due to private fields
+  --> src/validated.rs
+   |
+   | pub struct Validated<'a, T>(&'a T);
+   |                             ^^^^^ private field

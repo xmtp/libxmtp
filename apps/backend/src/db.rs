@@ -5,7 +5,7 @@ mod push;
 mod read;
 pub(crate) mod stream;
 
-use crate::{config::Config, error::Error};
+use crate::{config::ValidatedConfig, error::Error};
 use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 
 mod model;
@@ -45,7 +45,7 @@ impl Store {
     /// A replica is never used for migrations. If no replica URL is configured,
     /// both fields share the primary pool and all reads use the same database.
     #[xmtp_common::db_span]
-    pub async fn connect(config: &Config) -> Result<Self, Error> {
+    pub async fn connect(config: &ValidatedConfig) -> Result<Self, Error> {
         let primary = connect_pool(&config.database.url, config).await?;
         sqlx::migrate!().run(&primary).await?;
         let read = match &config.database.replica_url {
@@ -60,7 +60,7 @@ impl Store {
 ///
 /// The timeout is installed in `after_connect`, so every connection in the pool
 /// has the same bound, including connections returned after pool replacement.
-async fn connect_pool(url: &str, config: &Config) -> Result<PgPool, Error> {
+async fn connect_pool(url: &str, config: &ValidatedConfig) -> Result<PgPool, Error> {
     let timeout = format!("{}ms", config.database.max_statement_timeout_ms);
     Ok(PgPoolOptions::new()
         .max_connections(config.database.max_connections)

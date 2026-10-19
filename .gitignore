@@ -78,6 +78,9 @@ web_modules/
 # Optional eslint cache
 .eslintcache
 
+# dev/js/lint-source.mjs writes these Oxlint configs while it runs.
+.oxlint-source-*.json
+
 # Microbundle cache
 .rpt2_cache/
 .rts2_cache_cjs/

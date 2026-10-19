@@ -303,7 +303,7 @@ The NLB TLS listener has a fixed 350 s idle timeout. It cannot be configured.
 A TCP listener also defaults to 350 s, but there you can set
 `tcp.idle_timeout.seconds` between 60 and 6000. That knob does not apply to a
 TLS listener.
-The default `streams.keepalive_interval_ms` in `apps/backend/src/config.rs`
+The default `streams.keepalive_interval_ms` in `crates/xmtp_backend_config/src/lib.rs`
 uses the shared value `30000` ms (30 s). Server keepalive traffic keeps active
 streams inside this limit. The example sets a 30 s deregistration delay and a
 60 s container stop timeout. See [shutdown](/deploy/overview/#shutdown) for the

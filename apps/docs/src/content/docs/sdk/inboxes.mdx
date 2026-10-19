@@ -73,13 +73,13 @@ Default and directory storage place the database at `{root}/{deployment}/{inboxI
 
 ### Derive an inbox ID
 
-All four SDKs expose `generateInboxId` to calculate an inbox ID from an identity and nonce. This calculation does not register or move an identity. Client creation uses `registration.nonce` when it needs to derive an inbox ID; the default is `0`. An existing identifier association still selects its current inbox. A new nonce does not reset a full log or merge conversations.
+All five platform SDKs expose `generateInboxId` to calculate an inbox ID from an identity and nonce. This calculation does not register or move an identity. Client creation uses `registration.nonce` when it needs to derive an inbox ID; the default is `0`. An existing identifier association still selects its current inbox. A new nonce does not reset a full log or merge conversations.
 
 ## Manage installations
 
 Show a user the installation ID, last activity time, app version, and device data that your app stores. Revoking an installation removes its authorization from the identity log. It does not delete its local copy of earlier messages.
 
-| Task                           | Browser, Node                                | Kotlin, Swift                                                                                                         |
+| Task                           | Browser, Node, React Native                  | Kotlin, Swift                                                                                                         |
 | ------------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Read inbox state               | `client.inboxState(true)`                    | `client.inboxState(refreshFromNetwork = true)` (Kotlin) or `client.inboxState(refreshFromNetwork: true)` (Swift)      |
 | Read several inbox states      | `Client.inboxStates(ids, backend)`           | `SDKClient.inboxStates(ids, backend)` (Kotlin) or `SDKClient.inboxStates(ids: ids, backend: backend)` (Swift)         |
@@ -107,6 +107,13 @@ options or a connected `Backend`. Kotlin and Swift use `BackendSource`.
 <TabItem label="Node">
 
 ```ts source="inboxes-node.ts" region="manage"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="inboxes-react-native.ts" region="manage"
 
 ```
 
@@ -141,7 +148,7 @@ If the user cannot open an active installation, call static `Client.revokeInstal
 Reassigning an identity that belongs to another inbox moves its identifier lookup to the new inbox. The user loses access through that identity to the former inbox. Enable reassignment only after the user chooses it.
 :::
 
-Browser and Node call `client.unsafeAddAccount(signer, allowInboxReassign)`. Kotlin calls `client.unsafeAddAccount(signer, allowInboxReassign)`; Swift calls `client.unsafeAddAccount(signer: signer, allowInboxReassign: allowInboxReassign)`. Use `false` to reject an identity associated with another inbox. Use `true` to permit reassignment. The new identity signs the association; the current installation also signs it.
+Browser, Node, and React Native call `client.unsafeAddAccount(signer, allowInboxReassign)`. Kotlin calls `client.unsafeAddAccount(signer, allowInboxReassign)`; Swift calls `client.unsafeAddAccount(signer: signer, allowInboxReassign: allowInboxReassign)`. Use `false` to reject an identity associated with another inbox. Use `true` to permit reassignment. The new identity signs the association; the current installation also signs it.
 
 ## Remove an identity
 
@@ -149,7 +156,7 @@ Browser and Node call `client.unsafeAddAccount(signer, allowInboxReassign)`. Kot
 You cannot remove the recovery identity.
 :::
 
-Use `removeAccount(recoverySigner, identity)` on Browser, Node, or Kotlin. Swift uses `removeAccount(recoverySigner: recoverySigner, identity: identity)`. The recovery signer signs the removal. To remove the current recovery identity, first change the recovery identity with `changeRecoveryIdentifier`.
+Use `removeAccount(recoverySigner, identity)` on Browser, Node, React Native, or Kotlin. Swift uses `removeAccount(recoverySigner: recoverySigner, identity: identity)`. The recovery signer signs the removal. To remove the current recovery identity, first change the recovery identity with `changeRecoveryIdentifier`.
 
 ## Select an identity to display
 
@@ -197,6 +204,13 @@ The backend publishes its minimum name length in the server configuration as `ha
 ```
 
 </TabItem>
+<TabItem label="React Native">
+
+```ts source="inboxes-react-native.ts" region="hint"
+
+```
+
+</TabItem>
 <TabItem label="Kotlin">
 
 ```kotlin
@@ -236,7 +250,7 @@ func handleHint(client: SDKClient, typed: String) -> String? {
 </TabItem>
 </Tabs>
 
-Before the client exists, read the same value with `Client.fetchServerConfiguration(backend)` on Browser and Node, or `SDKClient.fetchServerConfiguration` on Kotlin and Swift.
+Before the client exists, read the same value with `Client.fetchServerConfiguration(backend)` on Browser, Node, and React Native, or `SDKClient.fetchServerConfiguration` on Kotlin and Swift.
 
 ### Find and claim a handle
 
@@ -264,6 +278,13 @@ Never claim a handle that the user did not choose. A claim is permanent, and the
 <TabItem label="Node">
 
 ```ts source="inboxes-node.ts" region="claim"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="inboxes-react-native.ts" region="claim"
 
 ```
 
@@ -345,6 +366,13 @@ When an inbox has a current handle, show that handle as the text that identifies
 <TabItem label="Node">
 
 ```ts source="inboxes-node.ts" region="display"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="inboxes-react-native.ts" region="display"
 
 ```
 

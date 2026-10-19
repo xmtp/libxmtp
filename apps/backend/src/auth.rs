@@ -5,6 +5,8 @@ pub(crate) mod verify;
 
 pub use verify::AuthContext;
 
+use crate::config::auth::SigningAlgorithm;
+
 pub(crate) struct Authentication {
     pub verifier: std::sync::Arc<verify::Verifier>,
     pub jwks: Option<jwks::JwksSource>,
@@ -13,6 +15,9 @@ pub(crate) struct Authentication {
 
 impl Authentication {
     /// Load keys before any listener binds. Startup fetch errors contain only the host.
+    /// An inline key that does not parse for its algorithm returns
+    /// `ConfigError::Auth` naming its key under `auth.keys[N]`, without the
+    /// key material.
     pub async fn initialize(
         config: &crate::config::auth::AuthConfig,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
@@ -36,17 +41,17 @@ impl Authentication {
     /// The public identity of every key loaded at startup, as `(kid, alg)`
     /// pairs. Published settings name the key set that was loaded; a later
     /// JWKS refresh does not change what was announced.
-    pub fn published_keys(&self) -> Vec<(String, String)> {
+    pub fn published_keys(&self) -> Vec<(String, SigningAlgorithm)> {
         self.verifier
             .keys
             .0
             .load()
             .iter()
-            .map(|key| {
-                (
+            .filter_map(|key| {
+                Some((
                     key.kid.clone().unwrap_or_default(),
-                    crate::config::auth::algorithm_name(key.alg).to_owned(),
-                )
+                    keys::signing_algorithm(key.alg)?,
+                ))
             })
             .collect()
     }

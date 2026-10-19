@@ -435,3 +435,22 @@ kind = "gap"
 owner = "protocol"
 issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
 reason = "Restored conversations report an unknown creator until validated activation, including when the archive supplied a creator. Legacy getters use empty text; the new SDK uses its optional unknown value. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+
+[[waiver]]
+id = "CONF-085"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4589"
+reason = "The backend's own errors and Debug output omit secret values, and a store connection failure with a password in the URL omits it (configuration_source_errors_and_help_omit_secrets). Errors from third-party crates, such as the database driver, the HTTP and gRPC clients, and the AWS SDK, are not audited on every path."
+
+[[waiver]]
+id = "CONF-086"
+kind = "analysis"
+reason = "A test can load only the files of releases that exist, so no test proves what a later release will accept. every_release_example_still_loads loads the committed example file of each release, with each commented alternative, under today's code; a reviewer applies this row to every change of section 1 or of a check it cites."
+
+[[waiver]]
+id = "CONF-087"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4606"
+reason = "Two Type gaps remain. A table with fixed keys, including an entry of auth.keys or application_components, accepts an array and decodes it by position, such as limits = [] or database = ['postgres://localhost/xmtp']; a table whose keys the operator chooses refuses one. A key whose value is one of a fixed list of strings (server.log_level, server.log_format, and the type and policies of application_components[]) accepts a one-key table, such as server.log_level = { debug = {} }. attachments.target and attachments.target.S3.credentials refuse an array, and attachments.target.S3.credentials.kind refuses a table. The bounds and the standard checks hold: every_standard_check_in_the_field_table_refuses_a_failing_value proves them."

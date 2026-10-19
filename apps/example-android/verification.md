@@ -6,6 +6,17 @@ spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
 
+## Direct message creation, 2026-10-16
+
+Six recipient journeys and the 320 dp / 200% text-size test pass on API 34.
+They cover recipient lookup, the DM people picker, inline errors, separate
+DM/group drafts, and group options. Unit tests, Spotless, lint, Debug/Release
+and instrumentation builds, and JNI checks pass.
+
+Regression controls catch an extra DM review step, stale errors, lost drafts,
+and a missing people picker. Evidence: `.cache/designs/android-simple-form-*`
+and `.cache/designs/dm-people-*`.
+
 ## Handle selection, 2026-10-13
 
 Choose your handle (onboarding) and Change handle (Settings) follow the
@@ -140,7 +151,7 @@ The local run archive is `xmtp-android-redesign-20261010`.
 Commit `ec52581121` then reused the route owner's conversation mapping and fixed
 connect retry ownership. An older Connect or Retry completion cannot clear the
 newer attempt's backend and credential. The existing
-`MessengerRecoveryUxInstrumentedTest.startRetryUsesCurrentBackendAndCredentialInRealConnect`
+`MessengerRecoveryUxInstrumentedTest.newServerJoinClearsFailureAndUsesCurrentBackendAndCredential`
 checks both overlapping operations after its actual native connection proof.
 Both separate guard-removal controls failed at their named assertions. The
 restored method passed with no skips. Evidence: `architecture-retry-restored/`,
@@ -573,6 +584,7 @@ dev/nix-shell 'just example-android test-integration'
 dev/nix-shell 'python3.11 -B -m unittest discover -s apps/example-android/performance -p "test_*.py"'
 dev/nix-shell 'just example-android performance'
 dev/nix-shell 'just lint-config'
+dev/nix-shell 'just test dev'
 dev/nix-shell 'just spec-check'
 ```
 

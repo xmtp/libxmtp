@@ -177,7 +177,8 @@ pub fn unwrap_payload_symmetric(
 mod tests {
     use super::*;
     use openmls_traits::{crypto::OpenMlsCrypto, random::OpenMlsRand};
-    use xmtp_configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE, WELCOME_HPKE_LABEL};
+    use xmtp_configuration::WELCOME_HPKE_LABEL;
+    use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 
     // These public test keys and ciphertexts were made with libcrux-kem 0.0.9.
     // See payload_encryption/fixtures/legacy_xwing/README.md for their source.

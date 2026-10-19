@@ -7,7 +7,7 @@
 let
   patches = import ./patches.nix;
 
-  craneConfig = final: prev: {
+  craneConfig = pkgs: final: prev: {
     # askama_derive 0.16 canonicalizes the askama.toml path through crane's
     # symlinked vendor dir, then emits include_bytes! with a lexical relative
     # path that resolves through the symlink target's real parents and lands
@@ -27,6 +27,17 @@ let
                 postInstall = (old.postInstall or "") + ''
                   substituteInPlace $out/src/config.rs \
                     --replace-fail "filename.canonicalize().ok()" "Some(filename)"
+                '';
+              })
+            # openssl-src replaces the selected simulator compiler with a raw
+            # xcrun invocation. Keep cc-rs's compiler so Apple's path-remapping
+            # wrapper also sees the configured engine/module directory macros.
+            else if p.name == "openssl-src" && pkgs.stdenv.hostPlatform.isDarwin then
+              drv.overrideAttrs (old: {
+                postInstall = (old.postInstall or "") + ''
+                  substituteInPlace $out/src/lib.rs \
+                    --replace-fail '"xcrun -sdk iphonesimulator cc -isysroot {}",' \
+                    '"{} -isysroot {}", sanitize_sh(&Path::new(path)),'
                 '';
               })
             else
@@ -65,7 +76,7 @@ let
           [
             "llvm-tools"
           ];
-      craneLib = (inputs.crane.mkLib final).overrideScope craneConfig;
+      craneLib = (inputs.crane.mkLib final).overrideScope (craneConfig final);
       base = final.callPackage ./base.nix { };
       androidEnv = final.callPackage ./android-env.nix { };
       iosEnv = final.callPackage ./ios-env.nix { };
@@ -147,6 +158,7 @@ in
     # The Xcode of the CI and release iOS outputs; sdks/ios/dev/bindings
     # compares it with the selected Xcode.
     inherit (import ./ios-env.nix { inherit lib; }) xcode;
+    reactNativeXcode = (import ./react-native-env.nix { inherit lib; }).xcode;
 
     # Build cross pkgsets sharing one host pkgset across all targets.
     mkCrossPkgs =

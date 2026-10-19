@@ -70,6 +70,12 @@ export function builder(yargs: Argv<GlobalArgs>) {
       choices: [...BUMP_OPTIONS, "keep"],
       describe: "Agent SDK version bump type",
     })
+    .option("react-native-sdk", {
+      type: "string",
+      default: "none",
+      choices: [...BUMP_OPTIONS, "keep"],
+      describe: "React Native SDK version bump type",
+    })
     .option("cli", {
       type: "string",
       default: "none",
@@ -87,6 +93,7 @@ interface CreateReleaseBranchArgs extends GlobalArgs {
   browserSdk?: string;
   agentSdk?: string;
   cli?: string;
+  reactNativeSdk?: string;
   libxmtpVersion?: string;
 }
 
@@ -127,6 +134,12 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
     sdkBumps.push({
       sdk: Sdk.AgentSdk,
       bump: argv.agentSdk as SdkBump["bump"],
+    });
+  }
+  if (argv.reactNativeSdk && argv.reactNativeSdk !== "none") {
+    sdkBumps.push({
+      sdk: Sdk.ReactNativeSdk,
+      bump: argv.reactNativeSdk as SdkBump["bump"],
     });
   }
   if (argv.cli && argv.cli !== "none") {

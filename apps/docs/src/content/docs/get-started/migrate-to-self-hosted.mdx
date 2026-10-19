@@ -16,25 +16,26 @@ This guide compares two fixed source versions:
 
 These are source baselines, not one shared release number. The examples marked
 **Before** use the old SDK. The examples marked **After** use the new SDK. Do not
-mix imports or generated runtime assets from the two versions. React Native is
-not included in this repository's new SDKs.
+mix imports or generated runtime assets from the two versions. React Native 8.0.0 is included; every pre-8.0.0 React Native app must migrate.
 
 ## Recommended versions
 
-Use **8.0.0-rc1** for every SDK and the backend. Pin the exact release candidate
+Use **8.0.0-rc2** for Browser, Node, Kotlin, Swift, Agent, and the backend.
+Use **8.0.0** for React Native. Pin the exact package
 version in your app and deployment configuration.
 
-| Component | Package or image                                    | Recommended version               |
-| --------- | --------------------------------------------------- | --------------------------------- |
-| Browser   | `@xmtp/browser-sdk`                                 | `8.0.0-rc1`                       |
-| Node      | `@xmtp/node-sdk`                                    | `8.0.0-rc1`                       |
-| Android   | `org.xmtp:android`                                  | `8.0.0-rc1`                       |
-| iOS       | Swift package product `XmtpSdk` from `xmtp/libxmtp` | `8.0.0-rc1` (tag `ios-8.0.0-rc1`) |
-| Agent     | `@xmtp/agent-sdk`                                   | `8.0.0-rc1`                       |
-| Backend   | `ghcr.io/xmtp/backend`                              | `8.0.0-rc1`                       |
+| Component    | Package or image                                    | Recommended version               |
+| ------------ | --------------------------------------------------- | --------------------------------- |
+| Browser      | `@xmtp/browser-sdk`                                 | `8.0.0-rc2`                       |
+| Node         | `@xmtp/node-sdk`                                    | `8.0.0-rc2`                       |
+| React Native | `@xmtp/react-native-sdk`                            | `8.0.0`                           |
+| Android      | `org.xmtp:android`                                  | `8.0.0-rc2`                       |
+| iOS          | Swift package product `XmtpSdk` from `xmtp/libxmtp` | `8.0.0-rc2` (tag `ios-8.0.0-rc2`) |
+| Agent        | `@xmtp/agent-sdk`                                   | `8.0.0-rc2`                       |
+| Backend      | `ghcr.io/xmtp/backend`                              | `8.0.0-rc2`                       |
 
 See [Install the XMTP SDK](/get-started/install/) for the exact package commands.
-Run the backend with `ghcr.io/xmtp/backend:8.0.0-rc1`; see
+Run the backend with `ghcr.io/xmtp/backend:8.0.0-rc2`; see
 [Run the backend](/get-started/run-the-backend/#run-the-container-image).
 
 ## Migration order
@@ -134,28 +135,22 @@ and invalidates earlier delivery cursors and acknowledgement tokens.
 
 ## Keeping history
 
-There is no server-side transfer of identities, groups, or history from the old
-network. Create active conversations on the new backend.
+You can import messages and conversations from a trusted database file created
+by a supported older SDK. Close the old SDK, keep a recoverable copy of the
+database and its encryption key, and use `prepareMigrationArchive` to create an
+encrypted archive. Import that archive through the new client's `archives`
+resource. Only import history from a database you trust.
 
-Local archives use the client's `archives` resource. All SDKs support archive
-bytes. Node, Kotlin, and Swift also support archive files. Every archive method,
-including metadata reads, requires a separate 32-byte archive key. See
-[Backups](/sdk/backups/) for the methods and key handling.
+Imported conversations are inactive. You can read their message history, but
+you cannot send or receive new messages in them. Importing history does not
+move contacts or active conversations to the new network.
 
-Imported conversations are initially inactive. Their local history is readable,
-but they have no joined MLS state for sending. On the same backend, an active
-member can add the new installation so that it can join. Restored DMs also remain
-inactive until the installation joins; a new DM can later be combined with the
-restored conversation.
+Before you can message your old contacts, they must join the same new
+self-hosted network. Once they have joined, create new conversations with them
+on that network.
 
-:::caution[Archives are not a backend migration]
-Archive tests cover installations on the same backend. They do not establish
-compatibility between a pre-transition export and this source version. An
-archive contains local rows, not MLS group keys or backend state. It cannot
-recreate the original group on a separate backend. Check import with the exact
-old and new SDK versions before promising history retention. Keep the original
-backup.
-:::
+Every archive method requires a separate 32-byte archive key. See
+[Backups](/sdk/backups/) for import methods and key handling.
 
 ## Streams, sync, and delivery
 
@@ -199,7 +194,7 @@ confirmation. Do not send the message again.
 ## Push notifications
 
 Replace the separate push server, manual topic subscriptions, and HMAC-key
-updates with the SDK's notification APIs. Node, Kotlin, and Swift expose
+updates with the SDK's notification APIs. Node, React Native, Kotlin, and Swift expose
 `enableNotifications`, `notificationState`, and `disableNotifications`. Agents
 use `agent.client`. Browser does not expose these methods.
 
@@ -241,4 +236,5 @@ before you update the SDK.
 - [Node SDK Upgrade Guide](/get-started/migrate-to-self-hosted/node-sdk-upgrade-guide/)
 - [Kotlin SDK Upgrade Guide](/get-started/migrate-to-self-hosted/kotlin-sdk-upgrade-guide/)
 - [Swift SDK Upgrade Guide](/get-started/migrate-to-self-hosted/swift-sdk-upgrade-guide/)
+- [React Native SDK Upgrade Guide](/get-started/migrate-to-self-hosted/react-native-sdk-upgrade-guide/)
 - [Agent SDK Upgrade Guide](/get-started/migrate-to-self-hosted/agent-sdk-upgrade-guide/)

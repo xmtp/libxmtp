@@ -1,0 +1,7 @@
+error[E0594]: cannot assign to data in dereference of `ValidatedConfig`
+  --> tests/ui/validated_config_assignment.rs:11:5
+   |
+11 |     validated.limits.max_query_limit = 1;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot assign
+   |
+   = help: trait `DerefMut` is required to modify through a dereference, but it is not implemented for `ValidatedConfig`

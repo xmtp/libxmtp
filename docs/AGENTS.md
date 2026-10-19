@@ -59,7 +59,7 @@ site after source changes.
 
 The recipe keeps the removed CI step's HTTP and HTTPS schemes, two retries,
 HTML patterns, and exclusions. It checks the site root, the guide sections, and
-the Browser, Node, Agent, error glossary, and limits references. Rust, Kotlin, and
+the Browser, Node, Agent, React Native, error glossary, and limits references. Rust, Kotlin, and
 Swift generated HTML is outside this scan, as it was in CI.
 
 The exclusions cover xmtp.org and the legacy docs.xmtp.org domain, GitHub edit URLs, GitHub

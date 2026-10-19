@@ -57,7 +57,7 @@ async fn apns_terminal_replies_delete_but_sender_mismatches_keep_subscriptions_a
     let sender = Arc::new(apns::tests::sender(&provider)?);
     let hub = PushHub::with_senders(
         fixture.store.clone(),
-        &fixture.config,
+        &fixture.validated(),
         Arc::new(Notify::new()),
         Senders([Some(sender), None, None]),
     );
@@ -139,7 +139,7 @@ async fn fcm_terminal_detail_deletes_but_mismatch_and_bare_statuses_keep_subscri
     let sender = Arc::new(fcm::tests::sender(&token, &provider)?);
     let hub = PushHub::with_senders(
         fixture.store.clone(),
-        &fixture.config,
+        &fixture.validated(),
         Arc::new(Notify::new()),
         Senders([None, Some(sender), None]),
     );
@@ -219,7 +219,7 @@ async fn removed_provider_counts_failed_and_keeps_the_recipient() {
     fixture.config.push.max_attempts = 10;
     let hub = PushHub::with_senders(
         fixture.store.clone(),
-        &fixture.config,
+        &fixture.validated(),
         Arc::new(Notify::new()),
         Senders::default(),
     );

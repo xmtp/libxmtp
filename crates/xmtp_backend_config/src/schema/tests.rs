@@ -1,0 +1,832 @@
+use serde_json::{Value, json};
+
+use crate::{Config, ValidatedConfig};
+
+/// Use the published artifact and standard format assertions, as a schema consumer does.
+fn validator() -> jsonschema::Validator {
+    let schema: Value =
+        serde_json::from_str(include_str!("../../../../docs/schemas/backend-v1.json"))
+            .expect("published schema");
+    jsonschema::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .expect("valid schema")
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_logging_levels_and_switch() {
+    let validator = validator();
+    for level in [
+        "off",
+        "error",
+        "warn",
+        "info",
+        "debug",
+        "trace",
+        "env:LOG_LEVEL",
+    ] {
+        assert!(validator.is_valid(&json!({"database": {"url": "env:DB"}, "server": {"log_level": level, "request_logger": false}})));
+    }
+    assert!(
+        !validator
+            .is_valid(&json!({"database": {"url": "env:DB"}, "server": {"log_level": "verbose"}}))
+    );
+    assert!(
+        !validator.is_valid(
+            &json!({"database": {"url": "env:DB"}, "server": {"request_logger": "false"}})
+        )
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
+    let validator = validator();
+    let example: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local.toml"))?;
+    let example = serde_json::to_value(example)?;
+    assert!(validator.is_valid(&example));
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
+    assert!(validator.is_valid(&serde_json::to_value(s3)?));
+    for section in [
+        "",
+        "server",
+        "telemetry",
+        "database",
+        "publishing",
+        "streams",
+        "retention",
+        "push",
+        "validation",
+        "limits",
+        "mls",
+    ] {
+        let mut instance = example.clone();
+        if section.is_empty() {
+            instance["unknown"] = json!(1);
+        } else {
+            instance[section]["unknown"] = json!(1);
+        }
+        assert!(!validator.is_valid(&instance), "unknown key in {section}");
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_bounds_attachment_settings() {
+    let validator = validator();
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
+    let baseline = serde_json::to_value(s3)?;
+    for (upload_bytes, accepted) in [
+        (0_u64, false),
+        (1, true),
+        (u32::MAX as u64, true),
+        (u32::MAX as u64 + 1, false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["max_upload_bytes"] = json!(upload_bytes);
+        assert_eq!(
+            validator.is_valid(&instance),
+            accepted,
+            "max_upload_bytes = {upload_bytes}"
+        );
+    }
+    for (prefix, accepted) in [
+        ("", true),
+        ("a/", true),
+        ("a/b/", true),
+        ("a.b/_-/", true),
+        ("a/.../b", true),
+        ("Ab_09-x.y/z/", true),
+        ("/lead/", false),
+        ("/", false),
+        ("a//b/", false),
+        ("a//", false),
+        ("a/./b", false),
+        ("a/../b", false),
+        ("a/.", false),
+        ("a/..", false),
+        (".", false),
+        ("..", false),
+        ("a b", false),
+        ("a b/", false),
+        ("a%2Fb/", false),
+        ("a+b/", false),
+        ("é/", false),
+        ("a\\b/", false),
+        ("a\n", false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["target"]["S3"]["key_prefix"] = json!(prefix);
+        assert_eq!(
+            validator.is_valid(&instance),
+            accepted,
+            "key_prefix = {prefix:?}"
+        );
+    }
+    for (ttl, accepted) in [(299, false), (300, true), (3600, true), (3601, false)] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["target"]["S3"]["presign_ttl_seconds"] = json!(ttl);
+        assert_eq!(
+            validator.is_valid(&instance),
+            accepted,
+            "presign_ttl_seconds = {ttl}"
+        );
+    }
+    for (retention, accepted) in [
+        (0_u64, true),
+        (9_007_199_254_740_991, true),
+        (9_007_199_254_740_992, false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["retention_seconds"] = json!(retention);
+        assert_eq!(
+            validator.is_valid(&instance),
+            accepted,
+            "retention_seconds = {retention}"
+        );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn local_s3_config_only_adds_attachments() {
+    let base: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local.toml"))?;
+    let mut s3: toml::Value =
+        toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
+    let removed = s3
+        .as_table_mut()
+        .expect("S3 config is a table")
+        .remove("attachments");
+    assert!(removed.is_some(), "S3 config must contain attachments");
+    assert_eq!(s3, base);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn local_config_loads_without_attachment_settings() {
+    let base = include_str!("../../../../dev/backend/local.toml");
+    assert!(!base.contains("XMTP_S3_"));
+    assert!(load_dev_config(base)?.attachments.is_none());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn compose_config_loads_attachment_settings() {
+    let s3 = include_str!("../../../../dev/backend/local-s3.toml");
+    assert!(load_dev_config(s3)?.attachments.is_some());
+}
+
+fn load_dev_config(contents: &str) -> Result<ValidatedConfig, crate::ConfigError> {
+    let contents = contents
+        .replace("env:XMTP_DATABASE_URL", "postgres://localhost/xmtp")
+        .replace("env:XMTP_REPLICA_URL", "postgres://localhost/xmtp")
+        .replace("env:XMTP_CHAIN_31337_URL", "http://127.0.0.1:8545")
+        .replace("env:XMTP_S3_BASE_URL", "http://127.0.0.1:9067/attachments")
+        .replace("env:XMTP_S3_URL", "http://127.0.0.1:9067");
+    ValidatedConfig::load_str(&contents)
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_enforces_every_numeric_scalar_range() {
+    let validator = validator();
+    let config: Config = toml::from_str("[database]\nurl = 'postgres://localhost/xmtp'")?;
+    let baseline = serde_json::to_value(config)?;
+    assert!(validator.is_valid(&baseline));
+    for (section, properties) in baseline.as_object()? {
+        // The catalogue is a list with no entry in the baseline; its own test covers it.
+        let Some(properties) = properties.as_object() else {
+            continue;
+        };
+        for (field, value) in properties {
+            if !value.is_number() || field == "sample_ratio" {
+                continue;
+            }
+            let maximum = match (section.as_str(), field.as_str()) {
+                ("push", "recipient_ttl_seconds") => i64::MAX as u64 / 1_000_000_000,
+                ("push", "max_attempts") => 10,
+                ("limits", "max_push_topics") => i32::MAX as u64,
+                ("database", "max_connections")
+                | ("server", "max_drain_duration_ms")
+                | ("streams", "keepalive_interval_ms" | "poll_interval_ms" | "max_pong_wait_ms")
+                | (
+                    "limits",
+                    "max_http2_streams"
+                    | "max_update_frames_per_second"
+                    | "max_update_burst"
+                    | "max_ping_frames_per_second"
+                    | "max_ping_burst"
+                    | "max_query_topics"
+                    | "default_query_limit"
+                    | "max_query_limit"
+                    | "max_newest_metadata_topics"
+                    | "max_newest_full_topics"
+                    | "max_publish_topics"
+                    | "max_update_adds"
+                    | "max_update_removes"
+                    | "max_stream_topics"
+                    | "max_static_topics"
+                    | "max_lookup_identifiers"
+                    | "max_scw_signatures"
+                    | "max_identity_entries",
+                ) => u32::MAX as u64,
+                ("database", "max_statement_timeout_ms") | ("publishing", _) => i32::MAX as u64,
+                ("retention", _) => i64::MAX as u64 / 1_000_000_000,
+                ("mls", _) => super::super::MAX_MLS_LIMIT as u64,
+                ("handles", "min_name_length") => 27,
+                _ => u64::MAX,
+            };
+            let minimum = if section == "push" && field == "recipient_ttl_seconds" {
+                86_400
+            } else {
+                1
+            };
+            for (value, accepted) in [
+                (json!(minimum), true),
+                (json!(maximum), true),
+                (json!(minimum - 1), false),
+                (json!(-1), false),
+                (json!(1.5), false),
+                (
+                    serde_json::from_str(&(u128::from(maximum) + 1).to_string())?,
+                    false,
+                ),
+            ] {
+                let mut instance = baseline.clone();
+                instance[section][field] = value.clone();
+                assert_eq!(
+                    validator.is_valid(&instance),
+                    accepted,
+                    "{section}.{field} = {value}"
+                );
+            }
+        }
+    }
+    // The baseline has no `[auth]` table, so its bounded timer is checked here.
+    for (value, accepted) in [
+        (json!(0), true),
+        (json!(u32::MAX), true),
+        (json!(u64::from(u32::MAX) + 1), false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["auth"] = json!({"enabled": false, "jwks_max_stale_seconds": value});
+        assert_eq!(
+            validator.is_valid(&instance),
+            accepted,
+            "auth.jwks_max_stale_seconds = {value}"
+        );
+    }
+}
+
+/// An editor must flag a catalogue entry startup would refuse for its
+/// shape: an ID outside the application range, an empty or long name, an
+/// unknown type or policy, a missing key, or an unknown key.
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_application_component_shape() {
+    let validator = validator();
+    let entry = json!({
+        "component_id": 0xC000, "name": "USER_PRONOUNS", "component_type": "tls_map_inbox_id_string",
+        "insert_policy": "allow_if_self_or_non_member", "update_policy": "allow_if_self_or_non_member",
+        "delete_policy": "allow_if_admin", "in_groups": true, "in_dms": false
+    });
+    let with = |key: &str, value: Value| {
+        let mut entry = entry.clone();
+        entry[key] = value;
+        json!({"database": {"url": "env:DB"}, "application_components": [entry]})
+    };
+    for (key, value, accepted) in [
+        ("component_id", json!(0xC000), true),
+        ("component_id", json!(0xFEFF), true),
+        ("component_id", json!(0xBFFF), false),
+        ("component_id", json!(0xFF00), false),
+        ("name", json!("x".repeat(100)), true),
+        ("name", json!(""), false),
+        ("name", json!("x".repeat(101)), false),
+        ("component_type", json!("bytes"), true),
+        ("component_type", json!("map"), false),
+        ("delete_policy", json!("deny"), true),
+        ("delete_policy", json!("everyone"), false),
+        ("in_dms", json!("false"), false),
+        ("unknown", json!(1), false),
+    ] {
+        assert_eq!(
+            validator.is_valid(&with(key, value.clone())),
+            accepted,
+            "{key} = {value}"
+        );
+    }
+    let mut missing = entry.clone();
+    missing.as_object_mut()?.remove("delete_policy");
+    assert!(
+        !validator
+            .is_valid(&json!({"database": {"url": "env:DB"}, "application_components": [missing]}))
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_requires_provider_credentials_and_names_valid_environments() {
+    let validator = validator();
+    let apns = json!({ "key": "env:APNS_KEY", "key_id": "key", "team_id": "team", "bundle_id": "bundle", "environment": "sandbox" });
+    let baseline = json!({ "database": { "url": "env:DB" }, "push": { "apns": apns, "fcm": { "service_account": "env:FCM_ACCOUNT" }, "http": {} } });
+    assert!(validator.is_valid(&baseline));
+    for key in ["key", "key_id", "team_id", "bundle_id", "environment"] {
+        let mut missing = baseline.clone();
+        missing["push"]["apns"].as_object_mut()?.remove(key);
+        assert!(!validator.is_valid(&missing), "missing {key}");
+    }
+    let mut missing = baseline.clone();
+    missing["push"]["fcm"] = json!({});
+    assert!(!validator.is_valid(&missing));
+    for environment in ["sandbox", "production", "env:APNS_ENVIRONMENT"] {
+        let mut instance = baseline.clone();
+        instance["push"]["apns"]["environment"] = json!(environment);
+        assert!(validator.is_valid(&instance));
+    }
+    let mut invalid = baseline;
+    invalid["push"]["apns"]["environment"] = json!("invalid");
+    assert!(!validator.is_valid(&invalid));
+}
+
+// verifies: ATCH-073
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_requires_nonempty_signing_credential_fields() {
+    let validator = validator();
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
+    let baseline = serde_json::to_value(s3)?;
+    for (field, mut credentials) in [
+        (
+            "access_key_id",
+            json!({"kind": "static", "access_key_id": "key", "secret_access_key": "secret"}),
+        ),
+        (
+            "secret_access_key",
+            json!({"kind": "static", "access_key_id": "key", "secret_access_key": "secret"}),
+        ),
+        ("name", json!({"kind": "profile", "name": "profile"})),
+        (
+            "account_id",
+            json!({"kind": "sso", "account_id": "account", "region": "region", "role_name": "role", "start_url": "https://sso.example.com"}),
+        ),
+        (
+            "region",
+            json!({"kind": "sso", "account_id": "account", "region": "region", "role_name": "role", "start_url": "https://sso.example.com"}),
+        ),
+        (
+            "role_name",
+            json!({"kind": "sso", "account_id": "account", "region": "region", "role_name": "role", "start_url": "https://sso.example.com"}),
+        ),
+        (
+            "start_url",
+            json!({"kind": "sso", "account_id": "account", "region": "region", "role_name": "role", "start_url": "https://sso.example.com"}),
+        ),
+        ("command", json!({"kind": "process", "command": "command"})),
+        (
+            "role_arn",
+            json!({"kind": "assume_role", "role_arn": "arn:aws:iam::123:role/test"}),
+        ),
+    ] {
+        for (value, accepted) in [("", false), ("present", true), ("env:NAME", true)] {
+            credentials[field] = json!(value);
+            let mut instance = baseline.clone();
+            instance["attachments"]["target"]["S3"]["credentials"] = credentials.clone();
+            assert_eq!(
+                validator.is_valid(&instance),
+                accepted,
+                "credentials.{field} = {value:?}"
+            );
+        }
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_socket_addresses_with_the_runtime_parser() {
+    let validator = validator();
+    for address in [
+        "0.0.0.0:0",
+        "255.255.255.255:65535",
+        "127.0.0.1:0005050",
+        "[::]:0",
+        "[::1]:5050",
+        "[1:2:3:4:5:6:7:8]:65535",
+        "[1:2:3:4:5:6:192.0.2.1]:9",
+        "[::ffff:192.0.2.1]:80",
+        "[1:2::192.0.2.1%4294967295]:80",
+        "[fe80::1%0002]:00080",
+        "",
+        "localhost:5050",
+        "256.0.0.1:1",
+        "01.2.3.4:1",
+        "1.2.3:1",
+        "127.0.0.1:65536",
+        "127.0.0.1:-1",
+        "127.0.0.1:+1",
+        "[1:2:3:4:5:6:7]:1",
+        "[1:2:3:4:5:6:7:8:9]:1",
+        "[1:2:3:4:5:6:7::8]:1",
+        "[1::2::3]:1",
+        "[::gg]:1",
+        "[::ffff:256.1.2.3]:1",
+        "[1:2:3:4:5::192.0.2.1]:1",
+        "[1:2:3:4:5:6::192.0.2.1]:1",
+        "[::1%4294967296]:1",
+        "[::1%eth0]:1",
+        "[::1%]:1",
+        "::1:80",
+        "127.0.0.1:80\n",
+    ] {
+        let instance = json!({"database": {"url": "postgres://localhost/xmtp"}, "server": {"listen": address}});
+        assert_eq!(
+            validator.is_valid(&instance),
+            address.parse::<std::net::SocketAddr>().is_ok(),
+            "{address:?}"
+        );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_urls_chain_keys_and_environment_references() {
+    let validator = validator();
+    for (section, field, accepted, rejected) in [
+        (
+            "database",
+            "url",
+            vec![
+                "postgres://localhost/xmtp",
+                "postgresql://user:pass@host/db",
+                "env:DATABASE_URL",
+            ],
+            vec![
+                "",
+                "env:",
+                "env:BAD=NAME",
+                "env:BAD\0NAME",
+                "https://host/db",
+                "postgres://[bad]/db",
+                "postgres://host/bad%ZZ",
+            ],
+        ),
+        (
+            "database",
+            "replica_url",
+            vec!["postgres://localhost/replica", "env:REPLICA_URL"],
+            vec!["", "env:", "mysql://localhost/db"],
+        ),
+        ("server", "listen", vec!["env:LISTEN"], vec!["env:"]),
+        (
+            "chains",
+            "eip155:1",
+            vec![
+                "https://rpc.example/path?key=value",
+                "http://localhost:8545",
+                "env:RPC_URL",
+            ],
+            vec![
+                "",
+                "env:",
+                "ftp://host",
+                "https://",
+                "https://[bad]",
+                "https://host/bad%ZZ",
+            ],
+        ),
+    ] {
+        for (values, expected) in [(accepted, true), (rejected, false)] {
+            for value in values {
+                let mut instance = json!({"database": {"url": "postgres://localhost/xmtp"}});
+                instance[section][field] = json!(value);
+                assert_eq!(
+                    validator.is_valid(&instance),
+                    expected,
+                    "{section}.{field} = {value}"
+                );
+            }
+        }
+    }
+    for chain in [
+        "eip155:0",
+        "eip155:1",
+        "eip155:+001",
+        "eip155:+1",
+        "eip155:01",
+        "eip155:00",
+        "eip155:18446744073709551615",
+        "eip155:18446744073709551616",
+        "eip155:-1",
+        "eip155:",
+        "cosmos:1",
+        "eip155:1\n",
+    ] {
+        let instance = json!({"database": {"url": "postgres://localhost/xmtp"}, "chains": {chain: "https://rpc.example"}});
+        let runtime = xmtp_configuration::parse_eip155_chain_id(chain).is_ok();
+        assert_eq!(validator.is_valid(&instance), runtime, "{chain:?}");
+    }
+    assert!(validator.is_valid(&json!({"database": {"url": "env:DB", "replica_url": null}})));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_attachment_urls_and_environment_references() {
+    let validator = validator();
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
+    let baseline = serde_json::to_value(s3)?;
+
+    for (field, accepted, rejected) in [
+        (
+            "base_url",
+            vec![
+                "https://files.example.com/a",
+                "https://files.example.com",
+                "http://localhost:9000/a",
+                "http://127.0.0.1:9000/a",
+                "http://[::1]:9000/a",
+                "env:XMTP_S3_BASE_URL",
+            ],
+            vec![
+                "",
+                "env:",
+                "http://files.example.com/a",
+                "ftp://h/a",
+                "https://h/a/",
+                "https://h/a?x=1",
+                "https://h/a#f",
+                "https://u:p@h/a",
+                "https://h/a b",
+                "https:h/a",
+            ],
+        ),
+        (
+            "endpoint",
+            vec![
+                "https://s3.example.com",
+                "https://s3.example.com/prefix/",
+                "http://127.0.0.1:9067",
+                "env:XMTP_S3_URL",
+            ],
+            vec!["http://s3.example.com", "https://h?x=1", "ftp://h"],
+        ),
+    ] {
+        for (values, expected) in [(accepted, true), (rejected, false)] {
+            for value in values {
+                let mut instance = baseline.clone();
+                let field_ref = if field == "base_url" {
+                    &mut instance["attachments"]["base_url"]
+                } else {
+                    &mut instance["attachments"]["target"]["S3"]["endpoint"]
+                };
+                *field_ref = json!(value);
+                assert_eq!(
+                    validator.is_valid(&instance),
+                    expected,
+                    "{field} = {value:?}"
+                );
+            }
+        }
+    }
+
+    let mut instance = baseline;
+    instance["attachments"]["target"]["S3"]["key_prefix"] = json!("env:XMTP_PREFIX");
+    assert!(validator.is_valid(&instance));
+
+    for (field, accepted, rejected) in [
+        (
+            "region",
+            ["us-east-1", "env:XMTP_S3_REGION"].as_slice(),
+            ["", "us east-1", "us-east-1\n"].as_slice(),
+        ),
+        (
+            "bucket",
+            ["attachments.v2", "env:XMTP_S3_BUCKET"].as_slice(),
+            ["", "a/b", ".", ".."].as_slice(),
+        ),
+    ] {
+        for (values, expected) in [(accepted, true), (rejected, false)] {
+            for value in values {
+                let mut row = instance.clone();
+                row["attachments"]["target"]["S3"][field] = json!(value);
+                assert_eq!(validator.is_valid(&row), expected, "{field} = {value:?}");
+            }
+        }
+    }
+
+    let schema: Value =
+        serde_json::from_str(include_str!("../../../../docs/schemas/backend-v1.json"))?;
+    assert_eq!(
+        schema["$defs"]["S3Config"]["properties"]["key_prefix"]["default"],
+        json!("")
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_attachment_endpoint_schema_agrees_with_runtime_vectors() {
+    let validator = validator();
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
+    let mut baseline = serde_json::to_value(s3)?;
+    baseline["attachments"]["base_url"] = json!("https://files.example.com/a");
+    for endpoint in [
+        "https://s3.example.com",
+        "https://s3.example.com/prefix/",
+        "HTTPS://s3.example.com",
+        "Http://127.0.0.1:9000",
+        "http://localhost:9000",
+        "http://[::1]:9000",
+        "http://s3.example.com",
+        "https://h?x=1",
+        "https://h#f",
+        "https://u:p@h",
+        "ftp://h",
+        " https://s3.example.com",
+        "https://s3.example.com ",
+        r"https://s3.example.com\x",
+        "https://exa%6Dple.com",
+        "https://bücher.example",
+        "http://127.1",
+        "http://0x7f.0.0.1",
+        "http://2130706433",
+        "http://127.000.0.1",
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:000",
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["target"]["S3"]["endpoint"] = json!(endpoint);
+        let settings: crate::attachments::AttachmentsConfig =
+            serde_json::from_value(instance["attachments"].clone())?;
+        // AttachmentsConfig::validate calls S3Config::validate for this target.
+        assert_eq!(
+            validator.is_valid(&instance),
+            settings.validate().is_ok(),
+            "endpoint = {endpoint:?}"
+        );
+    }
+    for (endpoint, expected) in [
+        ("https://1.a", true),
+        ("https://1a.example", true),
+        ("https://[::ffff:1.2.3.4]", true),
+        ("https://[2001:db8:0:0:0:0:1.2.3.4]", true),
+        ("https://[2001:db8::1.2.3.4]", true),
+        ("http://[::0.0.0.1]", true),
+        ("http://[0:0:0:0:0:0:0.0.0.1]", true),
+        ("http://0177.0.0.1", false),
+        ("http://127.0.0.1.", false),
+        ("https://[::1.2.3]", false),
+        ("http://[::127.0.0.1]", false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["target"]["S3"]["endpoint"] = json!(endpoint);
+        let settings: crate::attachments::AttachmentsConfig =
+            serde_json::from_value(instance["attachments"].clone())?;
+        assert_eq!(
+            settings.validate().is_ok(),
+            expected,
+            "runtime: {endpoint:?}"
+        );
+        assert_eq!(
+            validator.is_valid(&instance),
+            expected,
+            "schema: {endpoint:?}"
+        );
+    }
+}
+
+// These are the URL vectors in xmtp_configuration/src/common/attachments/tests.rs.
+// Environment references are the one exception: the loader resolves them before
+// the runtime check, while the published schema accepts the reference itself.
+#[xmtp_common::test(unwrap_try = true)]
+fn published_attachment_base_url_schema_agrees_with_runtime_vectors() {
+    let validator = validator();
+    let s3: toml::Value = toml::from_str(include_str!("../../../../dev/backend/local-s3.toml"))?;
+    let baseline = serde_json::to_value(s3)?;
+    for value in [
+        "https://example.com/attachments",
+        "https://example.com",
+        "https://CDN.example.com/att",
+        "https://example.com:443/att",
+        "https://example.com:0/att",
+        "http://127.0.0.1:0/att",
+        "https://example.com:000/att",
+        "https://example.com/att%20file",
+        "http://LOCALHOST/files",
+        "http://127.0.0.1:9000",
+        "http://127.0.0.1/attachments",
+        "http://[::1]/attachments",
+        "http://[0:0:0:0:0:0:0:1]/att",
+        "http://example.com/attachments",
+        "HTTPS://example.com/a",
+        "Http://127.0.0.1/a",
+        "https://example.com/attachments?key=value",
+        "https://example.com/attachments#section",
+        "https://example.com/attachments/",
+        "https://example.com/attachments/ ",
+        "https://example.com/attachments/\n",
+        "https://example.com/a/..",
+        "https://example.com/x/../files",
+        "https://example.com/./files",
+        "https://example.com/%2e/files",
+        " https://example.com/a",
+        "https://example.com/files ",
+        "https://example.com/fi les",
+        "https://example.com/fi\tles",
+        r"https:\\example.com\a",
+        "https:example.com/a",
+        "https:example.com/files",
+        "https:/example.com/files",
+        "https://bücher.example/att",
+        "https://exa%6Dple.com/att",
+        "http://2130706433/att",
+        "http://0x7f.1/att",
+        "http://127.1/att",
+        "https://user:secret@example.com/attachments",
+        "https://user@example.com/attachments",
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["base_url"] = json!(value);
+        let runtime = xmtp_configuration::check_base_url(value).is_ok();
+        assert_eq!(
+            validator.is_valid(&instance),
+            runtime,
+            "base_url = {value:?}"
+        );
+    }
+    for (value, expected) in [
+        ("https://[::ffff:1.2.3.4]/att", true),
+        ("https://[2001:db8:0:0:0:0:1.2.3.4]/att", true),
+        ("https://[2001:db8::1.2.3.4]/att", true),
+        ("http://[::0.0.0.1]/att", true),
+        ("http://[0:0:0:0:0:0:0.0.0.1]/att", true),
+        ("https://[::1.2.3]/att", false),
+        ("http://[::127.0.0.1]/att", false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["base_url"] = json!(value);
+        assert_eq!(
+            xmtp_configuration::check_base_url(value).is_ok(),
+            expected,
+            "runtime: {value:?}"
+        );
+        assert_eq!(validator.is_valid(&instance), expected, "schema: {value:?}");
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn keepalive_interval_fits_the_started_wire_field() {
+    let mut config: Config = toml::from_str(
+        "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'",
+    )?;
+    config.streams.keepalive_interval_ms = u32::MAX as u64;
+    config.clone().validate()?;
+    config.streams.keepalive_interval_ms += 1;
+    assert!(config.clone().validate().is_err());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn telemetry_schema_describes_all_keys_and_checks_values() {
+    let validator = validator();
+    let baseline = json!({"database": {"url": "env:DB"}, "telemetry": {
+        "metrics_listen": "", "otlp_endpoint": "env:OTLP", "otlp_logs": false,
+        "service_name": "xmtp-backend", "sample_ratio": 0.5,
+        "resource_attributes": {"deployment.environment": "test"}
+    }, "server": {"log_format": "env:LOG_FORMAT"}});
+    assert!(validator.is_valid(&baseline));
+    for (key, value) in [
+        ("metrics_listen", json!("bad")),
+        ("otlp_endpoint", json!("ftp://host")),
+        ("otlp_logs", json!("false")),
+        ("sample_ratio", json!(-0.1)),
+        ("sample_ratio", json!(1.1)),
+        ("resource_attributes", json!({"service.name": "bad"})),
+        ("resource_attributes", json!({"service.version": "bad"})),
+        ("unknown", json!(true)),
+    ] {
+        let mut instance = baseline.clone();
+        instance["telemetry"][key] = value;
+        assert!(!validator.is_valid(&instance), "{key}");
+    }
+    for format in ["text", "json"] {
+        let mut instance = baseline.clone();
+        instance["server"]["log_format"] = json!(format);
+        assert!(validator.is_valid(&instance));
+    }
+    for ratio in [0.0, 1.0] {
+        let mut instance = baseline.clone();
+        instance["telemetry"]["sample_ratio"] = json!(ratio);
+        assert!(validator.is_valid(&instance));
+    }
+}
+
+/// An editor flags the handle minimum that startup refuses: 0, and anything
+/// above the longest name part of 27 characters.
+// verifies: CONF-080
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_handles_range() {
+    let validator = validator();
+    let config: Config = toml::from_str("[database]\nurl = 'postgres://localhost/xmtp'")?;
+    let baseline = serde_json::to_value(config)?;
+    assert_eq!(baseline["handles"]["min_name_length"], json!(3));
+    for (value, accepted) in [
+        (json!(1), true),
+        (json!(3), true),
+        (json!(27), true),
+        (json!(0), false),
+        (json!(28), false),
+        (json!("3"), false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["handles"]["min_name_length"] = value.clone();
+        assert_eq!(validator.is_valid(&instance), accepted, "{value}");
+    }
+    let mut unknown = baseline;
+    unknown["handles"]["max_name_length"] = json!(27);
+    assert!(!validator.is_valid(&unknown));
+}

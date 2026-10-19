@@ -99,6 +99,45 @@ class MessengerUxInstrumentedTest {
             }
         }
 
+    @Test fun serverProbeErrorsStayHiddenUntilJoinAndResetForANewAddress() =
+        runBlocking {
+            try {
+                model.session.signOut()
+                until("connect screen") { model.state.value.screen == Screen.START }
+                val first = "http://first.example.test"
+                val second = "http://second.example.test"
+                val firstFinished = CompletableDeferred<Unit>()
+                val secondFinished = CompletableDeferred<Unit>()
+                model.connect.onBackendProbeFinished = { _, url ->
+                    when (url) {
+                        first -> firstFinished.complete(Unit)
+                        second -> secondFinished.complete(Unit)
+                    }
+                }
+                compose.onNodeWithText("Server address").performTextReplacement(first)
+                withTimeout(30_000) { firstFinished.await() }
+                compose.onNodeWithText("Cannot check this server. Try again.").assertDoesNotExist()
+                compose.onNodeWithText("Server check failed. Check the address and try again.").assertDoesNotExist()
+                compose.onNodeWithText("Join a server").performScrollTo().performClick()
+                until("explicit join failure") {
+                    !model.connect.state.value.busy &&
+                        model.connect.state.value.failure
+                            ?.code == "connect"
+                }
+                compose.onNodeWithText("Cannot connect to this server. Check the address and try again.").assertExists()
+                compose.onNodeWithText("Server address").performScrollTo().performTextReplacement(second)
+                withTimeout(30_000) { secondFinished.await() }
+                compose.onNodeWithText("Cannot check this server. Try again.").assertDoesNotExist()
+                compose.onNodeWithText("Server check failed. Check the address and try again.").assertDoesNotExist()
+                compose
+                    .onNodeWithText(
+                        "Cannot connect to this server. Check the address and try again.",
+                    ).assertDoesNotExist()
+            } finally {
+                cleanup()
+            }
+        }
+
     @Test fun credentialsUsePublishedAuthConfigurationAndIgnoreAnEarlierUrl() =
         runBlocking<Unit> {
             val release = CompletableDeferred<Unit>()

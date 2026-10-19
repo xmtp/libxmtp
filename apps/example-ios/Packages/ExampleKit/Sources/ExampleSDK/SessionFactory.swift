@@ -144,7 +144,8 @@ func sessionOptions(
 func bearerCredential(_ token: String) throws -> Credential {
 	let value = token.trimmingCharacters(in: .whitespacesAndNewlines)
 	guard !value.isEmpty else { throw SessionError.message("Enter an access token.") }
-	return Credential(name: nil, value: "Bearer " + value, expiresAtSeconds: Int64.max)
+	let header = value.lowercased().hasPrefix("bearer ") ? value : "Bearer " + value
+	return Credential(name: nil, value: header, expiresAtSeconds: Int64.max)
 }
 
 func connectionError(_ error: any Error) -> any Error {

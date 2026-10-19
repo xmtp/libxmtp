@@ -43,7 +43,7 @@ describe("SDK configs", () => {
 
   it("throws for unknown SDK with available options", () => {
     expect(() => getSdkConfig("unknown")).toThrow(
-      "Unknown SDK: unknown. Available: ios, android, browser-sdk, node-sdk, agent-sdk, cli, libxmtp",
+      "Unknown SDK: unknown. Available: ios, android, browser-sdk, node-sdk, agent-sdk, react-native-sdk, cli, libxmtp",
     );
   });
 
@@ -151,6 +151,7 @@ describe("SDK configs", () => {
     expect(getSdkConfig("android").versionTrack).toBe("independent");
     expect(getSdkConfig("browser-sdk").versionTrack).toBe("independent");
     expect(getSdkConfig("node-sdk").versionTrack).toBe("independent");
+    expect(getSdkConfig("react-native-sdk").versionTrack).toBe("independent");
     expect(getSdkConfig("cli").versionTrack).toBe("independent");
     expect(getSdkConfig("libxmtp").versionTrack).toBe("follows-libxmtp");
   });

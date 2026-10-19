@@ -141,22 +141,47 @@ nix flake show
 ## Compiler cache
 
 The Rust, local, WASM, Android, and iOS shells enable pinned Kache by default.
-CI uses the same helper through `setup-nix`. Nix derivations keep their own
-Nix/Crane caches. Each worktree keeps its own Cargo target directory.
+Every Rust compile goes through it on every platform: libraries, tests,
+binaries, proc macros, and the SDK `cdylib` and `staticlib`. So do the C
+compiles of build scripts, because cc-rs routes them through a `RUSTC_WRAPPER`
+named `kache`. Nix derivations keep their own Nix/Crane caches. Each worktree
+keeps its own Cargo target directory.
 
-The helper preserves local compiler flags and profiles. CI sets
-`CARGO_INCREMENTAL=0` and disables adaptive and preserved incremental policies.
-On Darwin, only explicit library compiles are cached. Linked outputs, tests,
-proc macros, static libraries, and unknown forms go directly to rustc with
-unchanged arguments. Output verification remains enabled.
+The shells set four variables (`nix/lib/shell-common.nix`): `RUSTC_WRAPPER`,
+`KACHE_HOST_CONFIG`, `KACHE_BUILD_SCRIPT_CACHE=0`, and
+`KACHE_KEY_ENV_VARS=CI,XMTP_TEST_LOGGING`. `KACHE_HOST_CONFIG` points at
+`nix/lib/kache.toml`, which holds the preferences: the store
+`~/.cache/kache`, a 50 GiB limit, executable caching on, C link caching off,
+the 7-day unit cleanup, and target removal under disk pressure. It is Kache's
+lowest file layer, so your own Kache
+config file (`~/.config/kache/config.toml`) and any `KACHE_*` variable win.
+The two settings that keep builds correct are variables, which win over every
+file. Kache expands only a leading `~` in the file, so the store no longer
+follows `$XDG_CACHE_HOME`; set `KACHE_CACHE_DIR` to keep a store elsewhere.
 
-Run `dev/nix-shell 'kache stats --full'` to inspect hits, misses, and scheduler wait. To opt out,
-use `XMTP_KACHE=0 dev/nix-shell 'just check'`. The default store is
-`${XDG_CACHE_HOME:-$HOME/.cache}/kache`, with a local default limit of 50 GiB.
-The CI action uses a 10 GiB limit. Existing nonempty `KACHE_CACHE_DIR` and
-`KACHE_MAX_SIZE` values are kept.
+In CI, `setup-nix` keeps kache-action's store, runtime, `KACHE_CONFIG` (its
+S3 remote), and 10 GiB limit, and adds `CARGO_INCREMENTAL=0`,
+`KACHE_ADAPTIVE_INCREMENTAL=0`, and `KACHE_PRESERVE_INCREMENTAL=0`. A job
+that does not set `kache: "true"` gets `KACHE_DISABLED=1`, so the shells'
+wrapper runs rustc directly.
 
-Kache's scheduler is on. It does two things (Kache 1.1.1
+Run `dev/nix-shell 'kache stats --full'` to inspect hits, misses, and
+scheduler wait, and `dev/nix-shell 'kache doctor'` to see which file or
+variable sets each key. To opt out, use
+`KACHE_DISABLED=1 dev/nix-shell 'just check'`; add
+`KACHE_PRESERVE_INCREMENTAL=1` to keep incremental compilation, which the
+disabled wrapper otherwise strips. Locally, when the cache's volume has less
+than 10 GiB free, builds evict cache entries (Kache's default since 1.2.0),
+and with `auto_recover_targets` the daemon then removes whole target
+directories that no build used for a day, largest first, on a quiet machine.
+That applies to every target the daemon tracks, including other projects'.
+Both are off in CI, where Kache's free-space floor is 0.
+
+One Kache daemon serves every checkout on the machine. It keeps the settings
+of the shell that started it and does not watch `nix/lib/kache.toml`; after a
+change there, run `dev/nix-shell 'kache daemon restart'`.
+
+Kache's scheduler is on. It does two things (Kache 1.2.2
 `docs/how-it-works/limits.mdx`). After a local and remote miss, a compile joins
 a machine-wide flight for its cache key, so a second process that misses the
 same key waits and then restores the first one's entry; `kache stats --full`
@@ -180,7 +205,34 @@ dependency such as `crates/xmtp_mls` under an `xmtp_sdk` build. On the owner
 Mac a one-line `xmtp_mls` edit rebuilt the SDK host library in about 6 s from
 the second edit on (19 s for the first), against 31 s per edit with
 `KACHE_ADAPTIVE_INCREMENTAL=0`, so neither `-p` lists nor
-`KACHE_PRESERVE_INCREMENTAL=1` are needed.
+`KACHE_PRESERVE_INCREMENTAL=1` are needed. On 2026-10-15, after two edits, a
+one-line `xmtp_mls` edit rebuilt `cargo check -p xmtp_mls --all-targets` in
+6 s and `cargo nextest run -p xmtp_mls --no-run` in 17 s; with
+`CARGO_INCREMENTAL=0` they took 25 s and 55 s.
+
+Kache clears Cargo's shared `<profile>/incremental` after each compile it
+wraps; its own compiles keep their state in `incremental.kache-auto/`. A
+compile outside Kache on the same target writes `incremental/` and can lose
+its state mid-build ("failed to move dependency graph"), so run editors
+inside the dev shell: Zed's settings start rust-analyzer through
+`dev/nix-shell`, and in VS Code install the recommended direnv extension,
+which loads `.envrc` before rust-analyzer starts. Repeated builds reuse their
+units in `incremental.kache-auto/`, but Kache drops a unit only when a cache
+hit replaces it, and a unit's key includes the compiler and its rustc
+arguments. So a toolchain bump, or a new feature set, profile, or target,
+leaves the old units behind (2 to 4 GiB per worktree on 2026-10-15). Nothing
+prunes them inside a target that is still in use: Kache removes the whole
+target when its worktree is deleted, or under disk pressure. To reclaim them
+by hand, delete `target/<profile>/incremental.kache-auto` while no build
+runs. `just disk` shows the incremental state of each worktree. The Kache
+daemon removes other build units no build used for 7 days
+(`auto_clean_unused_units_days` in `nix/lib/kache.toml`; Kache's default is
+30).
+
+Kache remaps the source paths of what it compiles to `/kache/workspace`, so
+a debugger needs a source map. VS Code maps it in `.vscode/settings.json`;
+in command-line lldb, run
+`settings set target.source-map /kache/workspace "$PWD"` from the checkout.
 
 `KACHE_MAX_SIZE` limits the store's private blob bytes on each machine; blobs
 that a target directory still holds (hardlinked or cloned) are not freed until

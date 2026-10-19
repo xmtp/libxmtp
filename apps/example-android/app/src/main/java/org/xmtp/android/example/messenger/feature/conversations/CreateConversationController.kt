@@ -43,10 +43,19 @@ internal class CreateConversationController(
     private var pastedIds = emptySet<String>()
     private var excludedPastedIds = emptySet<String>()
 
+    private data class Draft(
+        val state: CreateConversationState,
+        val pastedIds: Set<String>,
+        val excludedPastedIds: Set<String>,
+    )
+
+    private val drafts = mutableMapOf<Boolean, Draft>()
+
     fun clear() =
         session.withStateLock {
             generation.incrementAndGet()
             busyCommands.clear()
+            drafts.clear()
             pastedIds =
                 emptySet()
             excludedPastedIds =
@@ -121,18 +130,21 @@ internal class CreateConversationController(
         }
         when (action) {
             is CreateConversationAction.ChangeMode -> {
-                generation.incrementAndGet()
-                ui.update {
-                    it.copy(
-                        group =
-                            action.group,
-                        step =
-                            CreateStep.RECIPIENTS,
-                        busy =
-                        false,
-                        failure =
-                        null,
-                    )
+                session.withStateLock {
+                    val current = ui.value
+                    if (current.group != action.group) {
+                        generation.incrementAndGet()
+                        drafts[current.group] =
+                            Draft(current.copy(busy = false, failure = null), pastedIds, excludedPastedIds)
+                        val draft = drafts[action.group]
+                        pastedIds = draft?.pastedIds.orEmpty()
+                        excludedPastedIds = draft?.excludedPastedIds.orEmpty()
+                        ui.value =
+                            (draft?.state ?: CreateConversationState(group = action.group)).copy(
+                                knownRecipients = current.knownRecipients,
+                                maxMembers = current.maxMembers,
+                            )
+                    }
                 }
             }
 
@@ -148,6 +160,7 @@ internal class CreateConversationController(
                         false,
                         failure =
                         null,
+                        selectedRecipients = if (it.group) it.selectedRecipients else emptyList(),
                     )
                 }
             }
@@ -334,6 +347,9 @@ internal class CreateConversationController(
                 .split(',')
                 .map(String::trim)
                 .filter(String::isNotEmpty)
+        if (!ui.value.group && entered.size != 1) {
+            throw FeatureInputFailure("Enter one handle, Ethereum address, or inbox ID.")
+        }
         val rows = mutableListOf<RecipientUi>()
         for (value in entered) {
             if (!destinations.accepts(origin) ||
@@ -377,16 +393,20 @@ internal class CreateConversationController(
         ui.update { current ->
             current.copy(
                 selectedRecipients =
-                    (
-                        current.selectedRecipients.filter {
-                            it.failure == null &&
-                                it.inboxId !in pastedIds
-                        } +
-                            rows.filter {
-                                it.inboxId !in excludedPastedIds
-                            }
-                    ).distinctBy {
-                        it.inboxId
+                    if (!current.group) {
+                        rows
+                    } else {
+                        (
+                            current.selectedRecipients.filter {
+                                it.failure == null &&
+                                    it.inboxId !in pastedIds
+                            } +
+                                rows.filter {
+                                    it.inboxId !in excludedPastedIds
+                                }
+                        ).distinctBy {
+                            it.inboxId
+                        }
                     },
             )
         }

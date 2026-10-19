@@ -1,0 +1,355 @@
+# Backend configuration with every key set. Secret values are environment
+# references; set those variables in the backend's environment.
+
+[server]
+# Stable name of this deployment, in reverse DNS form. Every client database
+# binds to it on first connect, so never change it after clients connect.
+identifier = "org.example.xmtp"
+# Oldest libxmtp version this deployment accepts. Clients compare major,
+# minor, and patch, and refuse to run when they are older. Omit it to accept
+# every version.
+min_libxmtp_version = "1.10.0"
+# Address and port of the listener that serves gRPC, gRPC-Web, and health.
+listen = "0.0.0.0:5050"
+# Log level: off, error, warn, info, debug, or trace. Request completion logs
+# need info or a more detailed level. The --log-level option overrides it.
+log_level = "info"
+# Log encoding on standard output: text, or json for one JSON event per line.
+log_format = "json"
+# Write one completion log line for each gRPC request.
+request_logger = true
+# Milliseconds that shutdown gives running requests to finish. OPS-008 says
+# when the process exits after that; keep that below your orchestrator's kill
+# timeout.
+max_drain_duration_ms = 10000
+
+[telemetry]
+# Prometheus listener. Keep it on a private network. An empty string turns
+# the listener off; metrics are still recorded.
+metrics_listen = "0.0.0.0:9464"
+# OTLP gRPC collector for traces. Omit it to use OTEL_EXPORTER_OTLP_ENDPOINT;
+# with neither, nothing is exported.
+otlp_endpoint = "env:XMTP_OTLP_ENDPOINT"
+# Also export logs to the OTLP collector.
+otlp_logs = true
+# service.name on every exported span. Give each backend its own name when
+# several share one collector.
+service_name = "xmtp-backend"
+# Share of new traces to record, from 0.0 to 1.0. Metrics do not depend on it.
+sample_ratio = 0.25
+
+[telemetry.resource_attributes]
+# Extra OpenTelemetry resource attributes, exported as written on every
+# signal. service.name, service.version, and xmtp.backend.identifier are set by
+# the backend and cannot be used. Never put a secret here.
+"deployment.environment" = "production"
+
+[database]
+# Connection URL of the primary database. Publishing, queries, migrations, and
+# maintenance use it. Keep it in an environment variable.
+url = "env:XMTP_DATABASE_URL"
+# Connection URL of one streaming read replica. Omit it to read from the
+# primary. Reads from a replica can lag behind a publish.
+replica_url = "env:XMTP_REPLICA_URL"
+# Connections in each pool: one pool on the primary and one on the replica.
+# The stream tailer and the push dispatcher each hold one more connection.
+max_connections = 20
+# Statement timeout, in milliseconds, on every database connection. Raise it
+# only together with publishing.max_publish_duration_ms.
+max_statement_timeout_ms = 5000
+
+[publishing]
+# Upper bound, in milliseconds, on one publish, from its first lock to its
+# commit. It must be greater than database.max_statement_timeout_ms.
+max_publish_duration_ms = 10000
+# Milliseconds the boundary task waits for the allocation barrier before it
+# tries again on a later poll.
+max_barrier_wait_ms = 1000
+
+[streams]
+# Milliseconds between polls of the read database by the stream tailer and
+# the push dispatcher. A lower value cuts delivery latency and raises database
+# load.
+poll_interval_ms = 100
+# Unresolved sequence gaps the tailer tracks before it ends open streams and
+# restarts recovery.
+max_gap_ranges = 10000
+# Idle milliseconds after which the server sends a keepalive or a Ping on a
+# stream. Keep it below every proxy and load balancer idle timeout.
+keepalive_interval_ms = 30000
+# Milliseconds the server waits for the Pong that answers its Ping.
+max_pong_wait_ms = 90000
+
+[retention]
+# Expiry period, in seconds, stamped on each group message. Commits and
+# proposals never expire.
+group_message_seconds = 7776000
+# Expiry period, in seconds, stamped on each Welcome.
+welcome_seconds = 7776000
+# Expiry period, in seconds, stamped on each key package.
+key_package_seconds = 7776000
+
+[validation]
+# Entries in this instance's cache of smart contract wallet signature
+# verdicts. Raise it to make fewer chain RPC calls.
+max_scw_cache_entries = 10000
+
+[limits]
+# Most push subscriptions one push recipient may hold.
+max_push_topics = 100000
+# Most topics in one Query request.
+max_query_topics = 1000
+# Rows per page when a Query request sets limit 0. Not above max_query_limit.
+default_query_limit = 100
+# Most rows in one Query page. A larger client limit is lowered to it.
+max_query_limit = 1000
+# Most topics in one QueryNewest request without full envelopes.
+max_newest_metadata_topics = 1000
+# Most topics in one QueryNewest request with full envelopes.
+max_newest_full_topics = 100
+# Most distinct topics in one Publish request.
+max_publish_topics = 1000
+# Largest client envelope, in bytes, that a publish may carry. It must leave
+# room for framing inside the request, response, and stream frame budgets.
+max_envelope_bytes = 1048576
+# Largest encoded request, in bytes, including a Subscribe update frame. It
+# cannot exceed the transport ceiling.
+max_request_bytes = 26214400
+# Largest encoded response or stream frame, in bytes. It cannot exceed the
+# transport ceiling.
+max_response_bytes = 26214400
+# Most topics one Subscribe update may add. Not above max_stream_topics.
+max_update_adds = 100000
+# Most topics one Subscribe update may remove.
+max_update_removes = 100000
+# Most topics one Subscribe stream may hold.
+max_stream_topics = 100000
+# Most topics in one SubscribeStatic request.
+max_static_topics = 10000
+# Most identifiers in one GetInboxIds request.
+max_lookup_identifiers = 250
+# Most smart contract wallet signatures in one verification request or one
+# identity update.
+max_scw_signatures = 100
+# Most identity updates one inbox's identity log may hold.
+max_identity_entries = 256
+# Most concurrent HTTP/2 streams on one connection. Open subscriptions count.
+max_http2_streams = 100
+# Update frames per second one Subscribe stream may send, on average.
+max_update_frames_per_second = 10
+# Update frames one Subscribe stream may send in a burst.
+max_update_burst = 100
+# Ping frames per second one Subscribe stream may send, on average.
+max_ping_frames_per_second = 10
+# Ping frames one Subscribe stream may send in a burst.
+max_ping_burst = 100
+
+[mls]
+# Largest group a client creates or grows. Clients apply it; the backend only
+# publishes it.
+max_group_members = 250
+# Most installations a client keeps for one inbox. Clients apply it.
+max_installations_per_inbox = 10
+# Whether clients publish and read the remote commit log for fork detection.
+commit_log_enabled = true
+
+[handles]
+# Shortest name part, the text before "#", that a new handle claim may have.
+# Handles claimed before a change stay valid.
+min_name_length = 3
+
+[chains]
+# JSON-RPC URL of each EIP-155 chain that smart contract wallet signatures are
+# verified on. Clients see the chain ids, never the URLs. RPC URLs often carry
+# an API key, so keep them in environment variables.
+"eip155:1" = "env:XMTP_CHAIN_1_RPC_URL"
+"eip155:8453" = "env:XMTP_CHAIN_8453_RPC_URL"
+
+[auth]
+# Require a credential on every RPC except health and the configuration
+# service. Set it whenever [auth] is present. With false, the values of the
+# other keys of this table are not checked and no key set is loaded.
+enabled = true
+# URL of the identity provider's JWKS document, which holds the keys that
+# verify JWTs. Pick one of jwks_url and [[auth.keys]].
+jwks_url = "https://auth.example.org/.well-known/jwks.json"
+# Audiences a JWT must name in its aud claim. Omit it to accept any audience.
+audiences = ["xmtp.example.org"]
+# Issuers a JWT's iss claim must equal. Omit it to accept any issuer.
+issuers = ["https://auth.example.org/"]
+# Scopes every JWT must carry. Clients read this list to request a token.
+required_scopes = ["xmtp.messaging"]
+# Clock skew, in seconds, allowed on a JWT's exp and nbf claims.
+leeway_seconds = 60
+# Seconds between JWKS refreshes, before random jitter.
+jwks_refresh_seconds = 300
+# Longest time, in seconds, the backend keeps serving after its last good JWKS
+# fetch. AUTH-034 sets its minimum from jwks_refresh_seconds.
+jwks_max_stale_seconds = 3600
+
+# Inline signing keys, in place of jwks_url. Pick one of jwks_url and
+# [[auth.keys]]. A key change needs a restart.
+# [[auth.keys]]
+# # Key id that a JWT header names to select this key. Unique per key.
+# kid = "2026-10-signing"
+# # JWS algorithm of the key, one that AUTH-008 accepts.
+# alg = "ES256"
+# # PEM SubjectPublicKeyInfo text of the key, not a file path.
+# public_key = "env:XMTP_JWT_PUBLIC_KEY"
+
+[auth.api_keys]
+# Named API keys for callers you run, such as bots. The name identifies the
+# caller in logs; the value is the bearer token it sends, a long random string
+# of printable ASCII. Keep each value in an environment variable.
+notification-bot = "env:XMTP_API_KEY_NOTIFICATION_BOT"
+"support.bridge" = "env:XMTP_API_KEY_SUPPORT_BRIDGE"
+
+[push]
+# Seconds a push registration lives without renewal before the backend
+# deletes it.
+recipient_ttl_seconds = 2592000
+# Provider attempts for each delivery, counting the first.
+max_attempts = 3
+
+[push.apns]
+# APNs signing key: the PEM text of the .p8 file, not a path.
+key = "env:XMTP_APNS_KEY"
+# Apple's identifier for that signing key.
+key_id = "ABC123DEFG"
+# Apple developer team that owns the key.
+team_id = "DEF123GHIJ"
+# Bundle id of the app, sent as the APNs topic.
+bundle_id = "org.example.messenger"
+# APNs service: sandbox for development builds, production for App Store and
+# TestFlight builds.
+environment = "production"
+
+[push.fcm]
+# Firebase service account key: the JSON text, not a path. It selects the one
+# Firebase project this deployment sends through.
+service_account = "env:XMTP_FCM_SERVICE_ACCOUNT"
+
+[push.http]
+# Hosts that webhook URLs may use; "*." also allows every subdomain. Omit it to
+# allow any public host. Narrowing it also stops deliveries to earlier
+# registrations.
+allowed_domains = ["push.example.org", "*.hooks.example.net"]
+# Allow webhooks to private, loopback, and link-local addresses. For
+# development and tests only.
+allow_private_addresses = false
+
+[attachments]
+# Public URL prefix that clients download attachment ciphertext from, with no
+# trailing slash. Use HTTPS.
+base_url = "https://files.example.org/attachments"
+# Largest encrypted upload, in bytes.
+max_upload_bytes = 104857600
+# Seconds the storage target keeps an object. Set it to the target's expiry
+# rule, or omit it when objects never expire.
+retention_seconds = 2592000
+
+[attachments.target.S3]
+# S3-compatible API URL. The target must accept path-style requests.
+endpoint = "env:XMTP_S3_ENDPOINT"
+# Signing region of the target.
+region = "us-east-1"
+# Bucket that receives uploads.
+bucket = "example-xmtp-attachments"
+# Prefix of every object key. End it with "/" to place objects in a folder;
+# base_url must serve the same path.
+key_prefix = "attachments/"
+# Lifetime, in seconds, of each signed upload URL.
+presign_ttl_seconds = 900
+
+[attachments.target.S3.credentials]
+# Where the backend gets the credentials it signs uploads with. Pick one kind;
+# prefer an ambient source to static keys. web_identity reads the web identity
+# token the platform provides.
+kind = "web_identity"
+
+# kind = "static"
+# # Static access key id. Use static keys only with a secret injector.
+# access_key_id = "env:XMTP_S3_ACCESS_KEY_ID"
+# # Static secret access key.
+# secret_access_key = "env:XMTP_S3_SECRET_ACCESS_KEY"
+# # Session token, for temporary static credentials.
+# session_token = "env:XMTP_S3_SESSION_TOKEN"
+
+# # The AWS SDK default provider chain.
+# kind = "default_chain"
+# # The standard AWS credential environment variables.
+# kind = "environment"
+# # The container credential endpoint.
+# kind = "container"
+# # The instance metadata service.
+# kind = "instance"
+
+# kind = "profile"
+# # Profile in the shared AWS configuration.
+# name = "xmtp-attachments"
+
+# kind = "sso"
+# # AWS account of the IAM Identity Center role.
+# account_id = "123456789012"
+# # Region of the IAM Identity Center instance.
+# region = "us-east-1"
+# # Role, or permission set, to sign in as.
+# role_name = "XmtpAttachments"
+# # IAM Identity Center start URL.
+# start_url = "https://example.awsapps.com/start"
+# # Optional session name.
+# session_name = "xmtp-backend"
+
+# kind = "process"
+# # Command that prints credentials in the credential_process format.
+# command = "/usr/local/bin/xmtp-s3-credentials"
+
+# kind = "assume_role"
+# # Role to assume, starting from credentials in the AWS default chain.
+# role_arn = "arn:aws:iam::123456789012:role/xmtp-attachments"
+# # External id that the role's trust policy requires, if any.
+# external_id = "xmtp-backend-prod"
+# # Optional session name.
+# session_name = "xmtp-backend"
+
+# Group metadata fields that clients add to the conversations they create.
+# Every key is required. Keep a published entry unchanged once conversations
+# use it.
+[[application_components]]
+# Field id. Never reuse an id for a different field.
+component_id = 0xC000
+# Name apps look the field up by. Prefix a per-inbox field with USER_.
+name = "USER_STATUS"
+# Value shape: bytes, string, tls_map_bytes_bytes, tls_map_inbox_id_bytes,
+# tls_set_bytes, tls_set_inbox_id, or tls_map_inbox_id_string.
+component_type = "tls_map_inbox_id_string"
+# Who may add a value: allow, deny, allow_if_admin, allow_if_super_admin, or
+# allow_if_self_or_non_member, which is meant for an inbox-keyed map.
+insert_policy = "allow_if_self_or_non_member"
+# Who may change a value.
+update_policy = "allow_if_self_or_non_member"
+# Who may remove a value.
+delete_policy = "allow_if_self_or_non_member"
+# Add the field to new groups.
+in_groups = true
+# Add the field to new direct messages.
+in_dms = true
+
+[[application_components]]
+# An id in the write-once range: the value is set once and never changes.
+component_id = 0xFD00
+# Name apps look the field up by.
+name = "TICKET_ID"
+# A single text value.
+component_type = "string"
+# Only admins may set the value.
+insert_policy = "allow_if_admin"
+# Write-once ids refuse every change.
+update_policy = "deny"
+# Write-once ids refuse every removal.
+delete_policy = "deny"
+# Add the field to new groups.
+in_groups = true
+# Leave it out of direct messages.
+in_dms = false
+

@@ -26,6 +26,24 @@ const { quickstart } = Astro.props;
       >Build with your coding assistant <span aria-hidden="true">→</span></a
     >
   </div>
+  <p class="social-proof">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"></path>
+      <path d="m9 12 2 2 4-4"></path>
+    </svg>
+    <span>Billions of messages sent since 2022</span>
+  </p>
 </section>
 <style>
   .home-hero {
@@ -56,6 +74,20 @@ const { quickstart } = Astro.props;
     align-items: center;
     gap: 26px;
   }
+  .social-proof {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 9px;
+    margin: 25px auto 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--home-muted);
+  }
+  .social-proof svg {
+    flex-shrink: 0;
+    color: var(--home-blue);
+  }
   @media (max-width: 900px) {
     h1 {
       font-size: 53px;
@@ -78,6 +110,9 @@ const { quickstart } = Astro.props;
     .actions {
       flex-direction: column;
       gap: 22px;
+    }
+    .social-proof {
+      font-size: 13px;
     }
   }
 </style>

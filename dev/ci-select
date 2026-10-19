@@ -162,6 +162,13 @@ def select_suites(
     kind = event_kind(event_name, event)
     rules = Rules(MANIFEST)
     matched, shared, unknown, details, reasons = set(), [], [], [], []
+    labels = {label["name"] for label in pr.get("labels", [])}
+    matched_labels = set()
+    for name, suite in SUITES.items():
+        found = labels.intersection(suite["labels"])
+        if found:
+            matched.add(name)
+            matched_labels.update(found)
     matched_products = set()
     if kind == "manual":
         reasons.append("explicit_request")
@@ -218,6 +225,7 @@ def select_suites(
         "reasons": reasons,
         "details": details,
         "matched_suites": sorted(matched),
+        "matched_labels": sorted(matched_labels),
         "deleted_paths": sorted(deleted),
         "shared_paths": shared,
         "unknown_paths": unknown,
@@ -245,7 +253,7 @@ def summary(result):
         "Event": result["event_kind"],
         "Fork": str(result["fork"]).lower(),
         "Dependabot": str(result["dependabot"]).lower(),
-        "Selection": "full" if result["reasons"] else "path-selected",
+        "Selection": "full" if result["reasons"] else "filter-selected",
         "PR changed files": result["changed_files"]
         if result["changed_files"] is not None
         else "Not applicable or unavailable",
@@ -254,7 +262,8 @@ def summary(result):
     lines.extend(f"| {key} | {code(value)} |" for key, value in fields.items())
     lists = {
         "Detection details": result["details"],
-        "Suites matched by paths": result["matched_suites"],
+        "Suites matched by PR filters": result["matched_suites"],
+        "Matching PR labels": result["matched_labels"],
         "Deleted or renamed paths": result["deleted_paths"],
         "Shared paths": result["shared_paths"],
         "Unknown paths": result["unknown_paths"],

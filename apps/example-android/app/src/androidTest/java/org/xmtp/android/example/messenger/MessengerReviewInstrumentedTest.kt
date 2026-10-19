@@ -8,8 +8,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import org.junit.Assert.*
 import org.junit.Rule
@@ -1298,6 +1300,23 @@ class MessengerReviewInstrumentedTest {
             cleanup()
         }
     }
+
+    @Test fun stoppedActivityReleasesTheDefaultReader() =
+        runBlocking {
+            try {
+                val owner = connect()
+                withTimeout(30_000) { model.session.connection.first { it == "CONNECTED" } }
+                compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+                withTimeout(30_000) { model.session.connection.first { it.isEmpty() } }
+                assertFalse("A stopped activity keeps no default reader", defaultReaderOwned(owner.client))
+                compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+                withTimeout(30_000) { model.session.connection.first { it == "CONNECTED" } }
+                assertTrue("A started activity owns delivery again", defaultReaderOwned(owner.client))
+                assertNull(model.session.readerError.value)
+            } finally {
+                cleanup()
+            }
+        }
 
     @Test fun blockedReadEditCannotCommitAfterBackgrounding() = runBlocking { blockedRead(false) }
 

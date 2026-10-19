@@ -302,7 +302,7 @@ impl Sender for FcmSender {
 
 fn invalid() -> ConfigError {
     ConfigError::Invalid {
-        field: "push.fcm.service_account",
+        field: "push.fcm.service_account".into(),
         reason: "must contain a valid service account, project_id, and Google token_uri",
     }
 }

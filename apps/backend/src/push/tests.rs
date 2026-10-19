@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
-    config::Config,
+    config::{Config, ValidatedConfig},
     db::{PushChannel, Store},
-    test_support::{TestDatabase, TestResult},
+    test_support::{TestDatabase, TestResult, config_for},
 };
 use channel::{Delivery, DeliveryConfig, Outcome, Sender, Senders};
 use parking_lot::Mutex;
@@ -19,6 +19,7 @@ mod window;
 
 struct Fixture {
     store: Store,
+    /// The file layer. A test changes it, and each hub validates it.
     config: Config,
     _database: TestDatabase,
 }
@@ -26,11 +27,10 @@ struct Fixture {
 impl Fixture {
     async fn new() -> TestResult<Self> {
         let database = TestDatabase::new()?;
-        let mut config: Config =
-            toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+        let mut config = config_for(database.url());
         config.streams.poll_interval_ms = 25;
         config.push.max_attempts = 3;
-        let store = Store::connect(&config).await?;
+        let store = Store::connect(&config.clone().validate()?).await?;
         Ok(Self {
             store,
             config,
@@ -83,6 +83,14 @@ impl Fixture {
             .unwrap()
     }
 
+    /// The fixture's configuration as it is now, validated.
+    fn validated(&self) -> ValidatedConfig {
+        self.config
+            .clone()
+            .validate()
+            .expect("the fixture configuration is valid")
+    }
+
     fn hub(&self, sender: Arc<dyn Sender>) -> Arc<PushHub> {
         self.hub_with(sender.clone(), sender, Arc::new(Notify::new()))
     }
@@ -95,7 +103,7 @@ impl Fixture {
     ) -> Arc<PushHub> {
         PushHub::with_senders(
             self.store.clone(),
-            &self.config,
+            &self.validated(),
             maintenance,
             Senders([Some(other), None, Some(http)]),
         )
@@ -149,4 +157,20 @@ async fn stop(hub: &PushHub) {
 async fn holder_pid(store: &Store) -> Option<i32> {
     sqlx::query_scalar("SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid = 3 AND objsubid = 2 AND granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())")
         .fetch_optional(&store.primary).await.unwrap()
+}
+
+/// A recipient whose expiry cannot be represented is an invariant failure. The
+/// configuration's expiry arithmetic decides which renewals those are.
+#[xmtp_common::test(unwrap_try = true)]
+fn an_unrepresentable_recipient_expiry_is_an_invariant_failure() {
+    let config: Config = toml::from_str(
+        "[database]\nurl = 'postgres://localhost/xmtp'\n[push]\nrecipient_ttl_seconds = 86400",
+    )?;
+    assert_eq!(recipient_expiry(&config.push, 0)?, 86_400 * 1_000_000_000);
+    for renewed_ns in [-1, i64::MAX] {
+        assert!(matches!(
+            recipient_expiry(&config.push, renewed_ns),
+            Err(crate::error::Error::PushExpiryOverflow)
+        ));
+    }
 }

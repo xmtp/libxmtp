@@ -125,28 +125,34 @@ import Testing
 
 private actor RecoveringProbe: BackendProbe {
 	var calls = 0
+	let failures: Int
+	let requiresToken: Bool
+	init(failures: Int = 4, requiresToken: Bool = true) {
+		self.failures = failures; self.requiresToken = requiresToken
+	}
+
 	func probe(_: BackendURL) async throws -> BackendProbeResult {
 		calls += 1
-		if calls == 1 {
+		if calls <= failures {
 			throw SessionError.message("Probe unavailable")
 		}
-		return BackendProbeResult(requiresToken: true)
+		return BackendProbeResult(requiresToken: requiresToken)
 	}
 }
 
 struct ConnectProbeRecoveryTests {
-	@Test func joinRequiresKnownServerConfiguration() {
+	@Test func joinCanRetryAnUnknownServerButStillRequiresATokenWhenKnown() {
 		var state = ConnectState(address: "https://example.com")
-		#expect(!state.canJoin)
+		#expect(state.canJoin)
 		state.error = "Cannot reach this server. Try again."
-		#expect(!state.canJoin)
+		#expect(state.canJoin)
 		state.error = nil; state.ready = true
 		#expect(state.canJoin)
 		state.error = "Access token was not accepted. Check it and try again."
 		#expect(state.canJoin)
 	}
 
-	@Test @MainActor func failedProbeCannotJoinAndRetryRevealsRequiredToken() async throws {
+	@Test @MainActor func backgroundProbeIsQuietUntilJoinAndRetryRevealsRequiredToken() async throws {
 		let factory = ProbeFactory()
 		let session = SessionController(fence: SessionFence(), secrets: ProbeSecrets(), files: ProbeFiles(), factory: factory)
 		let store = ConnectStore(
@@ -157,13 +163,22 @@ struct ConnectProbeRecoveryTests {
 		)
 		store.send(.appear)
 		try await settled(store)
-		#expect(store.state.error == "Cannot reach this server. Try again.")
-		#expect(!store.state.ready); #expect(!store.state.requiresToken); #expect(!store.state.canJoin)
+		#expect(store.state.error == nil)
+		#expect(!store.state.ready); #expect(!store.state.requiresToken); #expect(store.state.canJoin)
 		store.send(.join)
+		try await settled(store)
+		#expect(store.state.error == "Cannot reach this server. Try again.")
 		#expect(!store.state.joining)
 		for _ in 0 ..< 20 {
 			await Task.yield()
 		}
+		#expect(factory.opens == 0)
+		store.send(.addressChanged("https://other.example.com"))
+		try await settled(store)
+		#expect(store.state.error == nil)
+		store.send(.join)
+		try await settled(store)
+		#expect(store.state.error == "Cannot reach this server. Try again.")
 		#expect(factory.opens == 0)
 		store.send(.retryProbe)
 		#expect(store.state.checking); #expect(!store.state.canJoin)
@@ -172,6 +187,21 @@ struct ConnectProbeRecoveryTests {
 		#expect(!store.state.canJoin)
 		store.send(.tokenChanged("fixture-token"))
 		#expect(store.state.canJoin)
+	}
+
+	@Test @MainActor func joinConnectsAfterAQuietProbeRecovers() async throws {
+		let factory = ProbeFactory()
+		let session = SessionController(fence: SessionFence(), secrets: ProbeSecrets(), files: ProbeFiles(), factory: factory)
+		let store = ConnectStore(probe: RecoveringProbe(failures: 1, requiresToken: false), session: session,
+		                         owner: RouteOwner(), defaultURL: "https://example.com")
+		store.send(.appear); try await settled(store)
+		#expect(factory.opens == 0)
+		store.send(.join); try await settled(store)
+		let clock = ContinuousClock(); let deadline = clock.now.advanced(by: .seconds(3))
+		while factory.opens == 0, clock.now < deadline {
+			await Task.yield()
+		}
+		#expect(factory.opens == 1)
 	}
 
 	@Test(arguments: ["https://example.com/", "https://other.example.com"]) @MainActor

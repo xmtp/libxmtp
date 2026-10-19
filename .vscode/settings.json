@@ -33,6 +33,11 @@
       "command": "clippy"
     }
   },
+  // Kache remaps the source paths of what it compiles. CodeLLDB merges this
+  // into every lldb launch, including rust-analyzer's Debug code lens.
+  "lldb.launch.sourceMap": {
+    "/kache/workspace": "${workspaceFolder}"
+  },
   "gitlens.blame.ignoreWhitespace": true,
   "coverage-gutters.coverageFileNames": ["coverage/lcov"],
   "coverage-gutters.coverageReportFileName": "coverage/html/index.html",

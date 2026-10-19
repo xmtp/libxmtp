@@ -8,6 +8,9 @@ on:
         type: string
       rc-number:
         type: string
+      source-sha:
+        description: Fixed source commit resolved by the release caller
+        type: string
       ref:
         required: true
         type: string
@@ -44,10 +47,11 @@ jobs:
         env:
           REF: ${{ inputs.ref }}
           WORKFLOW_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
         run: |
           set -euo pipefail
           ref="${REF#refs/heads/}"
-          git fetch --no-tags --depth=1 origin -- "$ref"
+          git fetch --no-tags --depth=1 origin -- "${SOURCE_SHA:-$ref}"
           sha=$(git rev-parse 'FETCH_HEAD^{commit}')
           if [ "$sha" != "$WORKFLOW_SHA" ]; then
             echo "::error::Backend releases require the workflow revision and source ref to use the same commit"

@@ -42,6 +42,11 @@ jobs:
         github-token: ${{ github.token }}
     - name: Build the sdk_android products
       run: nix build --keep-going --no-link .#ciSets.x86_64-linux.sdk_android
+  test_dev:
+    if: contains(fromJSON(inputs.suites), 'test_dev')
+    uses: ./.github/workflows/test-dev.yml
+    permissions:
+      contents: read
   check_rust:
     if: contains(fromJSON(inputs.suites), 'check_rust')
     uses: ./.github/workflows/check-rust.yml
@@ -188,6 +193,13 @@ jobs:
       contents: read
     secrets:
       CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+  test_react_native:
+    if: contains(fromJSON(inputs.suites), 'test_react_native')
+    uses: ./.github/workflows/test-react-native.yml
+    permissions:
+      contents: read
+    secrets:
+      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
   required:
     name: Require selected suites
     if: always()
@@ -196,6 +208,7 @@ jobs:
     needs:
     - products_sdk_js
     - products_sdk_android
+    - test_dev
     - check_rust
     - check_sdk_unit
     - test_backend
@@ -216,6 +229,7 @@ jobs:
     - test_android
     - test_example_android
     - test_example_ios
+    - test_react_native
     steps:
     - name: Check that every selected suite passed
       env:

@@ -13,6 +13,8 @@ import threading
 import unittest
 from urllib.parse import urlsplit
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/push-release-tag.yml"
 
@@ -50,6 +52,89 @@ def git_runner(env, cwd=None, strip=True):
 
 
 class ReleasePushTest(unittest.TestCase):
+    def test_release_source_stays_fixed_when_the_requested_branch_moves(self):
+        def jobs(name):
+            path = ROOT / f".github/workflows/{name}.yml"
+            return yaml.safe_load(path.read_text())["jobs"]
+
+        def expand(raw, values):
+            keys = raw.removeprefix("${{ ").removesuffix(" }}").split(" || ")
+            return next(filter(None, (values.get(key) for key in keys)), "")
+
+        release, plan = jobs("release"), jobs("release-gate-plan")
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            env = os.environ | {
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": os.devnull,
+            }
+            git = git_runner(env, directory)
+            git("init", "--initial-branch=main")
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.com")
+            git("config", "commit.gpgSign", "false")
+            git("commit", "--allow-empty", "-m", "original")
+            original = git("rev-parse", "HEAD")
+            output = directory / "output"
+
+            def resolve(name, workflow):
+                output.write_text("")
+                source = ROOT / f".github/workflows/{workflow}.yml"
+                subprocess.run(
+                    ["bash", "-euc", script(name, source)],
+                    cwd=directory,
+                    env=env | {"GITHUB_OUTPUT": str(output)},
+                    check=True,
+                )
+                return dict(
+                    line.split("=", 1) for line in output.read_text().splitlines()
+                )["sha"]
+
+            def checkout(job, values):
+                step = next(
+                    s
+                    for s in job["steps"]
+                    if s.get("uses", "").startswith("actions/checkout@")
+                )
+                git("checkout", "--detach", expand(step["with"]["ref"], values))
+                self.assertEqual(git("rev-parse", "HEAD"), original)
+
+            frozen = resolve("Resolve release source", "release")
+            self.assertEqual(frozen, original)
+            git("commit", "--allow-empty", "-m", "branch advanced")
+            self.assertNotEqual(git("rev-parse", "main"), original)
+            values = {
+                "needs.validate.outputs.source-sha": frozen,
+                "needs.validate.outputs.ref": "main",
+            }
+            plan_ref = expand(release["plan"]["with"]["ref"], values)
+            checkout(plan["gate"], {"inputs.ref": plan_ref})
+            gate_sha = resolve("Resolve exact SHA", "release-gate-plan")
+            checkout(
+                plan["pending"],
+                {"inputs.ref": plan_ref, "needs.gate.outputs.sha": gate_sha},
+            )
+            rn = {
+                "inputs." + key: expand(raw, values)
+                for key, raw in release["release-react-native-sdk"]["with"].items()
+                if isinstance(raw, str)
+            }
+            source = jobs("release-react-native-sdk")["check-push-permissions"]["with"][
+                "ref"
+            ]
+            git("checkout", "--detach", expand(source, rn))
+            self.assertEqual(git("rev-parse", "HEAD"), original)
+            checkout(release["hub"], values)
+            # Every sibling receives the same snapshot while keeping its requested
+            # ref. The existing CLI test below proves dev classification for each SDK.
+            for name, job in release.items():
+                if name.startswith("release-"):
+                    with self.subTest(caller=name):
+                        self.assertEqual(
+                            expand(job["with"]["source-sha"], values), frozen
+                        )
+                        self.assertEqual(expand(job["with"]["ref"], values), "main")
+
     def test_production_version_scripts_keep_requested_ref_classification(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -60,6 +145,7 @@ class ReleasePushTest(unittest.TestCase):
                 "sdks/node/package.json",
                 "sdks/browser/package.json",
                 "sdks/agent/package.json",
+                "sdks/react-native/package.json",
                 "apps/cli/package.json",
             ]:
                 manifest = root / path
@@ -102,6 +188,7 @@ class ReleasePushTest(unittest.TestCase):
                 "node-sdk",
                 "browser-sdk",
                 "agent-sdk",
+                "react-native-sdk",
                 "cli",
             ]:
                 workflow = ROOT / f".github/workflows/release-{sdk}.yml"
@@ -111,11 +198,14 @@ class ReleasePushTest(unittest.TestCase):
                     .split("      - ", 1)[0]
                 )
                 ref_expression = re.search(r"(?m)^\s+REF: (.+)$", version_step).group(1)
-                for requested, release_type in [
+                cases = [
                     ("main", "dev"),
                     ("refs/heads/main", "dev"),
                     ("release/8.0.0", "rc"),
-                ]:
+                ]
+                if sdk == "react-native-sdk":
+                    cases.append(("main", "nightly"))
+                for requested, release_type in cases:
                     with self.subTest(
                         sdk=sdk, requested=requested, release_type=release_type
                     ):
@@ -128,6 +218,10 @@ class ReleasePushTest(unittest.TestCase):
                             "inputs.pending-version": "8.0.0",
                             "inputs.pending-kind": "patch",
                         }
+
+                        if release_type == "nightly":
+                            values["inputs.pending-version"] = "1.12.0"
+                            values["inputs.pending-kind"] = "minor"
 
                         def expand(text):
                             return re.sub(
@@ -166,6 +260,8 @@ class ReleasePushTest(unittest.TestCase):
                         expected = (
                             f"8.0.0-pre.{timestamp}.dev.{short}"
                             if release_type == "dev"
+                            else f"8.1.0-pre.{timestamp}.nightly.{short}"
+                            if release_type == "nightly"
                             else "8.0.0-rc1"
                         )
                         self.assertEqual(actual, expected)
@@ -298,7 +394,7 @@ class ReleasePushTest(unittest.TestCase):
     def test_bundle_push_retains_commit_without_persisting_token(self):
         # libxmtp is the nightly hub tag of release.yml.
         # One SDK of each release shape: SwiftPM tag, npm tag, and the hub tag.
-        for sdk in ["ios", "node-sdk", "libxmtp"]:
+        for sdk in ["ios", "node-sdk", "react-native-sdk", "libxmtp"]:
             with self.subTest(sdk=sdk):
                 self.bundle_push(sdk)
 
@@ -504,7 +600,15 @@ class ReleasePushTest(unittest.TestCase):
                 )
 
     def test_rejects_a_release_commit_that_changes_workflows(self):
-        for sdk in ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+        for sdk in [
+            "ios",
+            "android",
+            "node-sdk",
+            "browser-sdk",
+            "agent-sdk",
+            "react-native-sdk",
+            "cli",
+        ]:
             with self.subTest(sdk=sdk), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 temporary = root / "runner"
@@ -797,10 +901,15 @@ class ReleasePushTest(unittest.TestCase):
         self.assertIn("if: ${{ inputs.dry-run != true }}", push)
         self.assertIn("needs: [publish, check-push-permissions]", push)
         self.assertIn("uses: ./.github/workflows/push-release-tag.yml", push)
+        # The direct input also blocks Slack if validation exits without outputs.
+        release = (ROOT / ".github/workflows/release.yml").read_text()
+        notify = release.split("  notify:\n", 1)[1].split("    steps:\n", 1)[0]
+        self.assertIn("inputs.dry-run != true", notify)
+        self.assertIn("needs.validate.outputs.dry-run != 'true'", notify)
 
     def test_npm_callers_fix_source_before_setup_and_build(self):
         source = "${{ needs.check-push-permissions.outputs.source-sha }}"
-        for name in ["node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+        for name in ["node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk", "cli"]:
             with self.subTest(caller=name):
                 text = (ROOT / f".github/workflows/release-{name}.yml").read_text()
                 jobs = re.split(

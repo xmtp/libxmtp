@@ -384,9 +384,7 @@ async fn unregister_cascades_even_after_the_provider_is_removed() {
     client
         .update_subscriptions(update(vec![subscription(1, 1)], vec![]))
         .await?;
-    let mut config = (*server.backend.config).clone();
-    config.push.fcm = None;
-    let mut second = RunningServer::new(config).await?;
+    let mut second = server.restart_with(|config| config.push.fcm = None).await?;
     second.notifications().unregister(unregister()).await?;
     assert!(
         server

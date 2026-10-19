@@ -57,11 +57,11 @@ Add admin and remove admin cannot use an allow-all policy. A custom policy can a
 
 A custom set contains nine policies: add member, remove member, add admin, remove admin, update name, update description, update image URL, update disappearing messages, and update app data.
 
-Pass a custom `GroupPermissionMode` in `CreateGroupOptions.permissions`. The custom variant contains a `PermissionPolicySet`. This option is available on all four SDKs.
+Pass a custom `GroupPermissionMode` in `CreateGroupOptions.permissions`. The custom variant contains a `PermissionPolicySet`. This option is available on all five platform SDKs.
 
 ## Update permissions
 
-All four SDKs use `group.updatePermission(kind, policy, metadataField)`. Use `PermissionUpdateKind` for the action and `PermissionPolicy` for the policy. For a metadata update, also pass `MetadataFieldKind`. This includes the disappearing-message and app-data policies. Swift uses the labels `kind:`, `policy:`, and `metadataField:`.
+All five platform SDKs use `group.updatePermission(kind, policy, metadataField)`. Use `PermissionUpdateKind` for the action and `PermissionPolicy` for the policy. For a metadata update, also pass `MetadataFieldKind`. This includes the disappearing-message and app-data policies. Swift uses the labels `kind:`, `policy:`, and `metadataField:`.
 
 ## Admins
 
@@ -72,13 +72,13 @@ All four SDKs use `group.updatePermission(kind, policy, metadataField)`. Use `Pe
 | Grant role  | `addAdmin(inboxId)`, `addSuperAdmin(inboxId)`       |
 | Revoke role | `removeAdmin(inboxId)`, `removeSuperAdmin(inboxId)` |
 
-These names are the same on all four SDKs. The calls are asynchronous. Swift uses `inboxId:` for the methods that take an inbox ID.
+These names are the same on all five platform SDKs. The calls are asynchronous. Swift uses `inboxId:` for the methods that take an inbox ID.
 
 ## Members
 
 The backend sets the group member limit. The default limit is 250 inboxes.
 
-Use `addMembers` and `removeMembers` with a list of inbox IDs or a list of `PublicIdentity` values. Swift uses the `members:` label. Call `members()` to read the member list on all four SDKs. These calls are asynchronous.
+Use `addMembers` and `removeMembers` with a list of inbox IDs or a list of `PublicIdentity` values. Swift uses the `members:` label. Call `members()` to read the member list on all five platform SDKs. These calls are asynchronous.
 
 A `PublicIdentity` list can hold [handles](/sdk/inboxes/#handles) and accounts together, and each call makes one commit. A handle that no inbox claimed fails the call with `IdentityNotFound` before any change.
 
@@ -103,7 +103,7 @@ Group chats can have metadata, like names, descriptions, and images. Metadata ca
 | Image URL   | `updateImageUrl(url)`            | 2,048 bytes |
 | App data    | `updateAppData(data, expected)`  | 8,192 bytes |
 
-Read metadata from the asynchronous `group.state()` snapshot on all four SDKs. App data is a string. Pass the previous value as `expected` to update app data only if it still matches, or pass `undefined` on Browser and Node or `null`/`nil` on mobile to omit that check. Serialize structured data before you set it. See [Disappearing messages](/sdk/disappearing-messages/).
+Read metadata from the asynchronous `group.state()` snapshot on all five platform SDKs. App data is a string. Pass the previous value as `expected` to update app data only if it still matches, or pass `undefined` on Browser, Node, and React Native or `null`/`nil` on Kotlin/Swift to omit that check. Serialize structured data before you set it. See [Disappearing messages](/sdk/disappearing-messages/).
 
 ### Configurable fields
 
@@ -143,7 +143,7 @@ operations insert or delete one key. A field in the immutable application
 range can be set only once. Wrong types, unknown fields, unsupported types, and
 denied writes produce typed errors.
 
-Browser and Node use records with `kind: "replace"`, `kind: "mapDelta"`, or
+Browser, Node, and React Native use records with `kind: "replace"`, `kind: "mapDelta"`, or
 `kind: "setDelta"`. A scalar value is a `FieldValue` with `kind: "string"` or
 `kind: "bytes"` and a matching `value`.
 
@@ -162,7 +162,7 @@ policies. The `USER_` prefix is a naming convention. The inbox-keyed map type
 determines whether `isUserField` is true.
 
 `updateUserData(values)` uses the caller's inbox ID. Each value sets that
-inbox's entry; an `undefined` value on Browser and Node, `null` on Kotlin,
+inbox's entry; an `undefined` value on Browser, Node, and React Native, `null` on Kotlin,
 or `nil` on Swift removes it. All changes
 in the call use one commit. Duplicate fields, non-user fields, and type
 mismatches fail the call. Clearing an absent entry makes no change.
@@ -183,6 +183,13 @@ must have registered them, and the caller must be an admin to set the category.
 <TabItem label="Node">
 
 ```ts source="metadata-fields-node.ts" region="update"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="metadata-fields-react-native.ts" region="update"
 
 ```
 
@@ -242,7 +249,7 @@ if let pronouns = try await group.metadataField(name: "USER_PRONOUNS")?.field {
 </div>
 
 `userData(fields, inboxIds)` returns a map from inbox ID to present field and
-value records. Omit the filters with `undefined` on Browser and Node,
+value records. Omit the filters with `undefined` on Browser, Node, and React Native,
 `null` on Kotlin, or `nil` on Swift to read all user fields for current members
 or the two DM participants. An empty filter selects nothing. An inbox with no
 selected values has an empty list. Supply inbox IDs to read entries for former

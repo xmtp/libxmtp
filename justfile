@@ -5,6 +5,7 @@ mod example-android 'apps/example-android/example-android.just'
 mod ios 'sdks/ios/ios.just'
 mod example-ios 'apps/example-ios/example-ios.just'
 mod sdk 'crates/xmtp_sdk/sdk.just'
+mod react-native 'sdks/react-native/react-native.just'
 mod wasm 'dev/wasm.just'
 mod js 'sdks/js.just'
 mod docs 'apps/docs/docs.just'
@@ -14,6 +15,10 @@ mod web-chat 'apps/web-chat/web-chat.just'
 export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 
 set shell := ["./dev/nix-shell"]
+
+[script("bash")]
+default:
+    just --list --list-submodules
 
 # --- SPECS ---
 # See docs/specs/SPEC-spec-format.md and .agents/skills/authoring-specs.
@@ -39,10 +44,6 @@ cargo_test := env("CARGO_TEST_CMD", "dev/agent-run cargo nextest run")
 # Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
 # `_env` loads it so the Rust suites reach this worktree's own stack.
 _env := ". " + justfile_directory() + "/dev/docker/load-env"
-
-[script("bash")]
-default:
-    just --list --list-submodules
 
 # Install all JavaScript workspace dependencies from the root lockfile.
 install-js:
@@ -74,10 +75,12 @@ _check-crate +crates:
 
 # The CI lint suites lint_workspace, lint_js, lint_config, lint_proto,
 # lint_deny, and docs_quality, the WASM and SDK generator Clippy of check_rust,
-# and `spec-check`. It skips lint_ios and the Android example lint (a job of
-# test_example_android), which need mobile toolchains, and the cargo-deny
-# advisories check, which does not block.
-lint: _js-deps lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto lint-deny docs::test docs::check-source spec-check
+# and `spec-check`. It skips lint_ios, lint_example_ios, and the Android example
+# lint (a job of test_example_android), which need mobile toolchains, and the
+# cargo-deny advisories check, which does not block.
+# The checks run in parallel; `just --jobs 1 lint` runs them one at a time.
+[parallel]
+lint: _js-deps && lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto lint-deny docs::test docs::check-source spec-check
 
 lint-proto:
     buf lint proto
@@ -102,17 +105,14 @@ lint-js-source:
     pnpm lint:source
     node --test dev/js/test-lint-source.mjs
 
-# Config linting: TOML, Nix, and shell scripts, and the dev tool tests.
-# dev/tests/run finds test_*.py files; add a test without editing this recipe.
-# The release-tools checks run here, so release-tools edits do not select
-# check_types.
+# Lint config files with treefmt (Rust, TOML, Nix, shell, Python, Kotlin, and
+# Swift), check the CI suite declaration, and lint and type-check
+# dev/release-tools. The release-tools checks run here, so release-tools edits
+# do not select check_types.
 lint-config: _js-deps lint-treefmt
     python3.11 -B dev/ci-suites check
-    python3.11 -B dev/tests/run
-    node --test dev/fly/render-dashboard.test.mjs
     pnpm --filter @xmtp/release-tools --fail-if-no-match run typecheck
     pnpm --filter @xmtp/release-tools --fail-if-no-match run lint
-    pnpm --filter @xmtp/release-tools --fail-if-no-match run test
 
 [script("bash")]
 lint-treefmt:
@@ -145,10 +145,29 @@ lint-js-format:
 nix-test:
     nix run --inputs-from . nixpkgs#nix-output-monitor -- build .#nextest.{{ nix_system }}
 
-# `just test`, `just test crate xmtp_mls xmtp_db`
+# `just test`, `just test crate xmtp_mls xmtp_db`, `just test dev`
 [script("bash")]
 test target="workspace" *args="":
     just _test-{{ target }} {{ args }}
+
+# The dev tool tests, in parallel. dev/tests/run finds test_*.py files; add a
+# test without editing this recipe. The release push test and the release-tools
+# tests run the release-tools `tsx`, so `_js-deps` runs first.
+[parallel]
+[private]
+_test-dev: _js-deps && _test-dev-python _test-dev-fly _test-dev-release-tools
+
+[private]
+_test-dev-python:
+    python3.11 -B dev/tests/run
+
+[private]
+_test-dev-fly:
+    node --test dev/fly/render-dashboard.test.mjs
+
+[private]
+_test-dev-release-tools:
+    pnpm --filter @xmtp/release-tools --fail-if-no-match run test
 
 [private]
 _test-workspace *args="":
@@ -203,59 +222,22 @@ validation mode="all":
 
 # --- DISK ---
 
-# Free space, and the target/ and incremental/ size of each worktree.
+# Free space, and the size of target/ and of its incremental state (incremental/
+# and Kache's incremental.kache-auto/) in each worktree.
 [script("bash")]
 disk:
     set -euo pipefail
     df -h "$(git rev-parse --git-common-dir)" | awk 'NR == 2 { print "free " $4 " of " $2 " (" $5 " used) on " $NF }'
     git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r root; do
       [ -d "$root/target" ] || { printf '0\t0\t%s\n' "$root"; continue; }
-      # One du pass: depth 0 is target/, incremental/ is at depth 2 or 3.
+      # One du pass: depth 0 is target/, the incremental dirs are at depth 2 or 3.
       du -k -d 3 "$root/target" 2>/dev/null | awk -F'\t' -v t="$root/target" -v r="$root" '
-        $2 == t { total = $1 } $2 ~ /\/incremental$/ { inc += $1 }
+        $2 == t { total = $1 } $2 ~ /\/incremental(\.kache-auto)?$/ { inc += $1 }
         END { printf "%d\t%d\t%s\n", total, inc, r }' || true
     done | sort -rn | awk -F'\t' '
       BEGIN { print "  target  incremental  worktree" }
       { printf "%7.1fG %11.1fG  %s\n", $1 / 1048576, $2 / 1048576, $3; sum += $1 }
       END { printf "%7.1fG total target/\n", sum / 1048576 }'
-
-# `--minutes N` deletes each crate cache in incremental/ in which nothing
-# changed for N minutes. A cache with a `-working` session (rustc is compiling
-# that crate now) stays, so this is safe during builds.
-# Delete stale incremental/ dirs across all worktrees (default: unused 14+ days).
-[script("bash")]
-[arg("minutes", long="minutes")]
-clean-incremental days="14" minutes="":
-    set -euo pipefail
-    days={{ quote(days) }}
-    minutes={{ quote(minutes) }}
-    if ! [[ $days =~ ^[0-9]+$ ]] || { [ -n "$minutes" ] && ! [[ $minutes =~ ^[0-9]+$ ]]; }; then
-      echo "days and --minutes take a whole number" >&2
-      exit 1
-    fi
-    stale() {
-      if [ -z "$minutes" ]; then
-        find "$1/target" -maxdepth 3 -type d -name incremental -atime +"$days" 2>/dev/null
-        return
-      fi
-      find "$1/target" -maxdepth 4 -type d -path '*/incremental/*' ! -path '*/incremental/*/*' -prune 2>/dev/null |
-        while IFS= read -r crate; do
-          [ -z "$(find "$crate" -maxdepth 1 -name '*-working' -print -quit)" ] || continue
-          [ -z "$(find "$crate" -maxdepth 2 -mmin -"$minutes" -print -quit)" ] || continue
-          echo "$crate"
-        done
-    }
-    total=0
-    while IFS= read -r root; do
-      while IFS= read -r dir; do
-        [ -n "$dir" ] || continue
-        size=$(du -sk "$dir" | cut -f1)
-        total=$((total + size))
-        [ -n "$minutes" ] || echo "removing $dir ($((size / 1024)) MB)"
-        rm -rf "$dir"
-      done < <(stale "$root" || true)
-    done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
-    echo "reclaimed $((total / 1024)) MB"
 
 # --- AGENT HELPERS ---
 # Compact output for agents. See .agents/skills/check-ci.

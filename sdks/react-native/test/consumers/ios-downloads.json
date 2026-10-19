@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "description": "Actual RN0.88/Hermes archives fetched during native Pod dependency capture. Prefill Pods artifact paths before offline pod install to avoid cache-validation network calls.",
+  "artifacts": [
+    {
+      "url": "https://repo.reactnative.dev/maven2/com/facebook/react/react-native-artifacts/0.88.0/react-native-artifacts-0.88.0-reactnative-core-debug.tar.gz",
+      "sha256": "c33c04dca2c14be698877c381c8916888e55eb81ea704563aed99294f18871ff",
+      "path": "Pods/ReactNativeCore-artifacts/reactnative-core-0.88.0-debug.tar.gz"
+    },
+    {
+      "url": "https://repo.reactnative.dev/maven2/com/facebook/react/react-native-artifacts/0.88.0/react-native-artifacts-0.88.0-reactnative-core-release.tar.gz",
+      "sha256": "4f3d22afd5d74809178b737d3ed987cc747ea63336a758cdf20064c47ef67203",
+      "path": "Pods/ReactNativeCore-artifacts/reactnative-core-0.88.0-release.tar.gz"
+    },
+    {
+      "url": "https://repo.reactnative.dev/maven2/com/facebook/react/react-native-artifacts/0.88.0/react-native-artifacts-0.88.0-reactnative-dependencies-debug.tar.gz",
+      "sha256": "e2ff39ab5e7c3d45e7eb9fc092b40eae0c0f34f52b54fdcda816a5c24d3bb5b1",
+      "path": "Pods/ReactNativeDependencies-artifacts/reactnative-dependencies-0.88.0-debug.tar.gz"
+    },
+    {
+      "url": "https://repo.reactnative.dev/maven2/com/facebook/react/react-native-artifacts/0.88.0/react-native-artifacts-0.88.0-reactnative-dependencies-release.tar.gz",
+      "sha256": "309b2fcea39fb4cdeb434144e735bc4065ac0dd8720e4f35ffee55fb3be54093",
+      "path": "Pods/ReactNativeDependencies-artifacts/reactnative-dependencies-0.88.0-release.tar.gz"
+    },
+    {
+      "url": "https://repo.reactnative.dev/maven2/com/facebook/hermes/hermes-ios/260318099.0.4/hermes-ios-260318099.0.4-hermes-ios-debug.tar.gz",
+      "sha256": "293b327565663e734f97082bad331f3e43a4422d6eab07061346027a394ecdc0",
+      "path": "Pods/hermes-engine-artifacts/hermes-ios-260318099.0.4-debug.tar.gz"
+    },
+    {
+      "url": "https://repo.reactnative.dev/maven2/com/facebook/hermes/hermes-ios/260318099.0.4/hermes-ios-260318099.0.4-hermes-ios-release.tar.gz",
+      "sha256": "b0db43628abc20b5eccb7ed1161801f418830f47b1ac1b5946cf532a886841f6",
+      "path": "Pods/hermes-engine-artifacts/hermes-ios-260318099.0.4-release.tar.gz"
+    }
+  ]
+}
