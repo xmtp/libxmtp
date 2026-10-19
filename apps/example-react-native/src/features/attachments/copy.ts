@@ -1,9 +1,14 @@
 // English strings of the attachment screens.
 
 import { commonCopy } from "@/copy/common";
+import { SharedMediaCopy } from "@/core/sharedMedia.ts";
 
 export { AttachmentCopy as attachmentCopy } from "@/core/attachments.ts";
-export { SharedMediaCopy as sharedMediaCopy } from "@/core/sharedMedia.ts";
+
+export const sharedMediaCopy = {
+  ...SharedMediaCopy,
+  retry: commonCopy.retry,
+} as const;
 
 export const recoveryCopy = {
   title: "Attachment recovery",

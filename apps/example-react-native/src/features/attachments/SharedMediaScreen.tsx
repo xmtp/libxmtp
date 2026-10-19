@@ -185,8 +185,20 @@ function SharedMediaList({
       {state.error === undefined && failure === undefined ? null : (
         <FormSection>
           <FormRow>
-            <Text color="systemRed">{state.error ?? failure}</Text>
+            <Text color="systemRed" testID="shared-media.error">
+              {state.error ?? failure}
+            </Text>
           </FormRow>
+          {state.error === undefined ? null : (
+            // A failed load keeps downloads closed until Retry loads again.
+            <FormRow>
+              <GlassButton
+                title={sharedMediaCopy.retry}
+                testID="shared-media.retry"
+                onPress={() => void media.load()}
+              />
+            </FormRow>
+          )}
         </FormSection>
       )}
       <FormSection>
