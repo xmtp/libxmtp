@@ -50,18 +50,6 @@ export class MemoryPreferences implements DraftPreferences {
   }
 }
 
-/** A promise with its resolver, to hold a fake call open. */
-export function deferred<T = void>(): {
-  readonly promise: Promise<T>;
-  readonly resolve: (value: T) => void;
-} {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
 /** The SDK's attachment calls, in memory. */
 export class FakeGateway implements AttachmentGateway {
   limit: bigint | undefined = 1_000_000n;

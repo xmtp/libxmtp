@@ -28,6 +28,7 @@ import {
   scalarText,
   setDraft,
 } from "./metadata.ts";
+import { settle } from "./testing.ts";
 
 function field(overrides: Partial<MetadataField>): MetadataField {
   return {
@@ -276,9 +277,7 @@ test("a failed edit reloads and shows the update error", async () => {
   store.edit({ kind: "scalar", id: 0xc001, value: "x" });
   assert.equal(store.getState().busy, true);
   store.refresh();
-  for (let index = 0; index < 50 && store.getState().busy; index += 1) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
+  await settle();
   assert.equal(loads, 1);
   assert.equal(store.getState().snapshot, snapshot);
   assert.equal(

@@ -6,13 +6,13 @@ import {
   FileConversation,
   MemoryPreferences,
   attachmentError,
-  deferred,
   remoteFile,
 } from "./attachmentFakes.ts";
 import { AttachmentDraftStore, type FileDraft } from "./attachments.ts";
 import { AttachmentStore } from "./attachmentStore.ts";
-import { CONVERSATION, MemoryJournal } from "./chatFakes.ts";
-import { SendCoordinator, SendError, SendJournal } from "./sendJournal.ts";
+import { CONVERSATION, MemoryJournal, coordinatorFor } from "./chatFakes.ts";
+import { SendError, SendJournal } from "./sendJournal.ts";
+import { deferred, settle } from "./testing.ts";
 
 function harness(
   options: {
@@ -28,24 +28,7 @@ function harness(
   const drafts = new AttachmentDraftStore(preferences);
   const storage = options.journal ?? new MemoryJournal();
   const journal = new SendJournal(storage);
-  const coordinator = new SendCoordinator(
-    journal,
-    {
-      consent: async (id) => (await conversation.conversation(id)).consent,
-      message: async (id) => {
-        const row = await conversation.message(id);
-        return row === undefined
-          ? undefined
-          : {
-              conversationId: row.conversationId,
-              published: row.delivery === "published",
-            };
-      },
-      publish: (conversationId, messageId) =>
-        conversation.publish(conversationId, messageId),
-    },
-    () => true,
-  );
+  const coordinator = coordinatorFor(conversation, journal);
   const removed: string[] = [];
   const env: {
     admitted: boolean;
@@ -238,24 +221,6 @@ test("upload failures follow the SDK retry rule", async () => {
   assert.equal(h.gateway.uploads.length, 2);
 });
 
-test("discarding during the upload keeps the send from queuing", async () => {
-  const h = harness();
-  const draft = await staged(h);
-  const gate = deferred();
-  const upload = h.gateway.upload.bind(h.gateway);
-  h.gateway.upload = async (file) => {
-    await gate.promise;
-    return upload(file);
-  };
-  const sending = h.store.send(draft.id);
-  await h.store.discard(draft.id);
-  gate.resolve();
-  await sending;
-  assert.equal(h.conversation.queued.length, 0);
-  assert.equal(h.gateway.discarded.length, 1);
-  assert.deepEqual(h.drafts.all(), []);
-});
-
 /** Holds the next uploads until `gate` resolves. */
 function holdUploads(h: ReturnType<typeof harness>) {
   const gate = deferred();
@@ -266,6 +231,19 @@ function holdUploads(h: ReturnType<typeof harness>) {
   };
   return gate;
 }
+
+test("discarding during the upload keeps the send from queuing", async () => {
+  const h = harness();
+  const draft = await staged(h);
+  const gate = holdUploads(h);
+  const sending = h.store.send(draft.id);
+  await h.store.discard(draft.id);
+  gate.resolve();
+  await sending;
+  assert.equal(h.conversation.queued.length, 0);
+  assert.equal(h.gateway.discarded.length, 1);
+  assert.deepEqual(h.drafts.all(), []);
+});
 
 test("a reload while the upload runs keeps it uploading, and its failure shows", async () => {
   const h = harness();
@@ -304,7 +282,7 @@ test("a focus reload reads drafts other screens saved and imports nothing", asyn
     remoteFile("orphan.pdf"),
   ];
   h.store.reloadDrafts();
-  await new Promise((done) => setImmediate(done));
+  await settle();
   assert.deepEqual(
     h.store.getState().drafts.map((draft) => draft.file.filename),
     ["assigned.pdf"],

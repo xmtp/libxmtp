@@ -15,19 +15,11 @@ import {
   permissionPresetWrites,
 } from "./permissions.ts";
 import { RecipientError } from "./recipients.ts";
-
-/** Waits until every queued job and timer callback has run. */
-const tick = (): Promise<void> =>
-  new Promise((resolve) => {
-    setImmediate(resolve);
-  });
+import { settle } from "./testing.ts";
 
 async function eventually(condition: () => boolean): Promise<void> {
-  for (let index = 0; index < 1000; index += 1) {
-    if (condition()) return;
-    await tick();
-  }
-  assert.fail("condition never held");
+  await settle();
+  assert.ok(condition(), "condition did not hold after one turn");
 }
 
 /** A gate that holds callers until `releaseAll`. */
@@ -324,7 +316,7 @@ test("pending changes poll until the group confirms them", async () => {
   ];
   ticks.releaseAll();
   await eventually(() => store.getState().pendingMembers.size === 0);
-  await tick();
+  await settle();
   assert.equal(ticks.waiters.length, 0);
   assert.equal(fake.loads, 3);
 });
@@ -360,8 +352,8 @@ test("a disposed store stops polling and drops results", async () => {
   const loads = fake.loads;
   store.dispose();
   ticks.releaseAll();
-  await tick();
-  await tick();
+  await settle();
+  await settle();
   assert.equal(fake.loads, loads);
   assert.equal(ticks.waiters.length, 0);
 });
@@ -376,8 +368,8 @@ test("a stale session drops a load result", async () => {
   await eventually(() => loads.waiters.length === 1);
   valid = false;
   loads.releaseAll();
-  await tick();
-  await tick();
+  await settle();
+  await settle();
   assert.equal(store.getState().details, undefined);
 });
 
@@ -401,13 +393,13 @@ test("a slow older lookup cannot replace a newer one", async () => {
   fake.resolveGates.set("first", slow);
   const store = makeStore(fake);
   store.resolvePreview("first");
-  await tick();
+  await settle();
   store.resolvePreview("second");
   await eventually(() => store.getState().recipient !== undefined);
   assert.equal(store.getState().recipient?.id, "second");
   slow.releaseAll();
-  await tick();
-  await tick();
+  await settle();
+  await settle();
   assert.equal(store.getState().recipient?.id, "second");
 });
 
@@ -430,7 +422,7 @@ test("a settled poller restarts for the next pending action", async () => {
   fake.members = [{ id: "first", otherHandles: [], role: "member" }];
   ticks.releaseAll();
   await eventually(() => store.getState().pendingMembers.size === 0);
-  await tick();
+  await settle();
   assert.equal(ticks.waiters.length, 0);
   store.send({ kind: "mutate", mutation: { kind: "add", input: "second" } });
   await eventually(() => ticks.waiters.length === 1);
@@ -449,7 +441,7 @@ test("a confirmed removal clears and ends polling", async () => {
   fake.members = [{ id: "own", otherHandles: [], role: "superAdmin" }];
   ticks.releaseAll();
   await eventually(() => store.getState().pendingRemoval.size === 0);
-  await tick();
+  await settle();
   assert.equal(ticks.waiters.length, 0);
 });
 
@@ -464,8 +456,8 @@ test("a slow older failed lookup cannot set the error", async () => {
   store.resolvePreview("second");
   await eventually(() => store.getState().recipient !== undefined);
   slow.releaseAll();
-  await tick();
-  await tick();
+  await settle();
+  await settle();
   assert.equal(store.getState().error, undefined);
   assert.equal(store.getState().recipient?.id, "second");
 });
@@ -480,8 +472,8 @@ test("losing admission while an add resolves writes nothing", async () => {
   await eventually(() => lookup.waiters.length === 1);
   valid = false;
   lookup.releaseAll();
-  await tick();
-  await tick();
+  await settle();
+  await settle();
   assert.deepEqual(fake.mutations, []);
   assert.equal(store.getState().pendingMembers.size, 0);
 });

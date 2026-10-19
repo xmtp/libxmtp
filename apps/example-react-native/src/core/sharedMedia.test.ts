@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { deferred, remoteFile } from "./attachmentFakes.ts";
+import { remoteFile } from "./attachmentFakes.ts";
 import { CONVERSATION, textMessage } from "./chatFakes.ts";
 import type { ChatMessage, ConversationRecord } from "./chatMessages.ts";
 import {
@@ -9,6 +9,7 @@ import {
   SharedMediaStore,
   mediaSections,
 } from "./sharedMedia.ts";
+import { deferred } from "./testing.ts";
 
 function fileMessage(n: number, name: string): ChatMessage {
   return {
