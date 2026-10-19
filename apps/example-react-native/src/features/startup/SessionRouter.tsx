@@ -1,5 +1,5 @@
 import { router, useNavigationContainerRef, usePathname } from "expo-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import { Appearance } from "react-native";
 
 import {
@@ -66,12 +66,12 @@ export function SessionRouter() {
     );
   }, [appearance]);
 
-  // The first state is `starting` (stay); later states arrive after the
-  // root stack has mounted.
-  useEffect(() => {
+  // Shows the screen for the current state. The cleanup drops the result of
+  // a session's first-screen read that is no longer wanted.
+  const route = useEffectEvent((): (() => void) | undefined => {
     if (state.kind !== "active") {
       apply(navigation, closedSessionRoute(state.kind, path.current));
-      return;
+      return undefined;
     }
     const session = state.session;
     const effect: { live: boolean } = { live: true };
@@ -82,7 +82,17 @@ export function SessionRouter() {
     return () => {
       effect.live = false;
     };
-  }, [state, navigation]);
+  });
+
+  // The first state is `starting` (stay); later states arrive after the
+  // root stack has mounted.
+  useEffect(() => route(), [state, navigation]);
+
+  // A route behind a guard that fails (a Debug tool opened from a link in a
+  // Release build) redirects to the startup gate, and the session state does
+  // not change. Leave the gate again for the state's screen.
+  const atGate = pathname === "/";
+  useEffect(() => (atGate ? route() : undefined), [atGate]);
 
   return null;
 }
