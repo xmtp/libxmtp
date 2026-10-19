@@ -203,7 +203,7 @@ jobs:
       # The pair is cached by the source key of its SDK inputs, build recipe
       # (this file), and compiler, not by commit, so a re-dispatch with
       # unchanged SDK sources reuses it. A run restores
-      # entries from its own ref, then from main (the nightly and dispatches
+      # entries from its own ref, then from main (dev releases dispatched
       # on main save there). This is a release-only exception to selecting
       # nothing by cache status: Windows has no Nix store to substitute from.
       # The key names the compiler (`rustc -vV`), so install the toolchain of
