@@ -591,6 +591,9 @@ where
         let installation_id = self.installation_id();
 
         for mut msg in messages {
+            // The plaintext and its inner encoding can hold an HMAC root key.
+            // Both are wiped on every path, including skipped messages.
+            let plaintext = Zeroizing::new(std::mem::take(&mut msg.decrypted_message_bytes));
             // Older builds stored sync groups from other inboxes.
             // implements: SYNC-011
             if msg.sender_inbox_id != self.context.inbox_id() {
@@ -604,9 +607,6 @@ where
                     .mark_device_sync_msg_as_processed(&msg.id)?;
                 continue;
             }
-            // The plaintext and its inner encoding can hold an HMAC root key.
-            // Both are wiped once decoded.
-            let plaintext = Zeroizing::new(std::mem::take(&mut msg.decrypted_message_bytes));
             let content = EncodedContent::decode(plaintext.as_slice())
                 .ok()
                 .and_then(|encoded| decode_supported_content(&Zeroizing::new(encoded.content)));
