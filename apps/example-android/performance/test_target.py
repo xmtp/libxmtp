@@ -1,4 +1,3 @@
-import contextlib
 import copy
 import json
 import os
@@ -9,7 +8,6 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import run
 from target import disposable_backend
 
 
@@ -83,32 +81,6 @@ class DisposableTargetTest(unittest.TestCase):
             self.stop()
             with self.assertRaises(ProcessLookupError):
                 disposable_backend()
-
-    def test_runner_rejects_arbitrary_backend_cli_and_admits_before_execution(self):
-        with (
-            patch.object(
-                sys,
-                "argv",
-                [
-                    "run.py",
-                    "--output",
-                    self.home.name,
-                    "--backend",
-                    "https://persistent.invalid",
-                ],
-            ),
-            contextlib.redirect_stderr(__import__("io").StringIO()),
-        ):
-            with self.assertRaises(SystemExit) as failure:
-                run.main()
-            self.assertEqual(2, failure.exception.code)
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch.object(run, "execute") as execute,
-        ):
-            with self.assertRaisesRegex(ValueError, "owned disposable backend"):
-                run.run(Path(self.home.name), False)
-            execute.assert_not_called()
 
 
 if __name__ == "__main__":

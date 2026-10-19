@@ -41,7 +41,7 @@ It names a mode 0600 JSON file in the mode 0700 fixture directory. Its
 `formatVersion`, `url`, `port`, `database`, `serverPid`, `groupPid`, `ownerPid`
 and `uid` fields identify the ready disposable target without credentials.
 `groupPid` is the retained keeper/session; `serverPid` is the backend command.
-The descriptor is removed when the fixture scope exits. The performance runner
+The descriptor is removed when the fixture scope exits. `performance/target.py`
 uses this record to admit only the owned target.
 
 Every PostgreSQL command removes the URI password from its arguments. If the
@@ -53,12 +53,14 @@ Other connection settings stay the same. This uses the
 Select the metadata test with:
 
 ```sh
-dev/nix-shell 'just example-android test-integration -Pandroid.testInstrumentationRunnerArguments.class=org.xmtp.android.example.messenger.metadata.MetadataEditorInstrumentedTest'
+dev/nix-shell 'just example-android test-integration -Pandroid.testInstrumentationRunnerArguments.class=org.xmtp.android.example.messenger.metadata.MetadataNavigationInstrumentedTest'
 ```
 
-The test requires all twelve published catalogue entries before it creates new
-conversations. Each run uses two real clients. An existing conversation can
-lack a registered field; this state is checked in the app host tests.
+The test uses two real clients on the catalogue backend. It saves group fields
+through the app screens, checks that the other client reads them, and checks
+that a write by the other client refreshes the screen. An
+existing conversation can lack a registered field; this state is checked in the
+app host tests.
 
 `metadata-catalogue.toml` is also a complete catalogue example for an operator.
 Append its `[[application_components]]` entries to a backend configuration.
@@ -79,9 +81,10 @@ dev/nix-shell 'just example-android metadata-fixture-test'
 ```
 
 These checks use process stubs. They prove teardown and exit status behavior.
-They do not prove metadata commits. The instrumented test uses two real clients
-to check bytes, collection deltas, sibling entries, own fields in a group and DM,
-empty and absent values, denied writes and stale save rejection.
+They do not prove metadata commits. The field rules (bytes, collection deltas,
+own fields, empty and absent values, denied writes) are Rust's:
+`crates/xmtp_sdk/src/tests/metadata_fields/`. The app editor rules are in the
+`MetadataEditorTest` host test.
 
 The original eight definitions remain stable. Four immutable definitions use
 IDs 0xFD00–0xFD03 for a group String, Bytes map, Bytes set and own String map.
