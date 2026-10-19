@@ -1,7 +1,8 @@
 //! Heap-canary proofs that the MLS key store wipes the private keys it writes
 //! and reads. Native only: it installs the heap-canary global allocator.
 //! No backend needed.
-#![cfg(not(target_arch = "wasm32"))]
+// The heap-canary harness is Unix-only (`libc::memmem`).
+#![cfg(unix)]
 
 use openmls::{
     group::GroupId,
