@@ -15,7 +15,10 @@ import {
   type FileDraft,
   VerifiedFileCache,
 } from "./attachments.ts";
-import { AttachmentStore } from "./attachmentStore.ts";
+import {
+  AttachmentStore,
+  type AttachmentStorePorts,
+} from "./attachmentStore.ts";
 import { CONVERSATION, MemoryJournal, coordinatorFor } from "./chatFakes.ts";
 import { SendError, SendJournal } from "./sendJournal.ts";
 import { deferred, settle } from "./testing.ts";
@@ -43,16 +46,18 @@ function harness(
     authorize?: () => Promise<boolean>;
   } = { admitted: true, allowed: true, authorized: true, changes: 0 };
   let next = 0;
-  const store = new AttachmentStore({
+  const activeSends = new Set<string>();
+  const ports = (conversationId?: string): AttachmentStorePorts => ({
     gateway,
     drafts,
     coordinator,
-    conversationId: CONVERSATION,
+    ...(conversationId === undefined ? {} : { conversationId }),
     admit: () => env.admitted,
     acceptsSession: () => true,
     allowed: () => env.allowed,
     authorizeDownload: () =>
       env.authorize?.() ?? Promise.resolve(env.authorized),
+    activeSends,
     sendFile: (id, file) =>
       conversation.queue(id, { kind: "attachment", file }),
     published: async (id, messageId) => {
@@ -72,8 +77,11 @@ function harness(
     },
     now: () => 1,
   });
+  const store = new AttachmentStore(ports(CONVERSATION));
   return {
     store,
+    /** Attachment recovery's store in the same session. */
+    recovery: () => new AttachmentStore(ports()),
     gateway,
     conversation,
     drafts,
@@ -242,6 +250,26 @@ test("upload failures follow the SDK retry rule, and a reload while the upload r
   // A terminal failure cannot be sent again.
   await h.store.send(draft.id);
   assert.equal(h.gateway.uploads.length, 2);
+});
+
+test("recovery opened during a chat's upload keeps it uploading and cannot send it again", async () => {
+  const h = harness();
+  const draft = await staged(h);
+  // The chat's send uploads, then its queue call fails with an unknown outcome.
+  h.conversation.queueError = new Error("connection reset");
+  const gate = holdUploads(h);
+  const sending = h.store.send(draft.id);
+  await settle();
+  const recovery = h.recovery();
+  await recovery.load();
+  assert.equal(recovery.getState().drafts[0]?.phase, "uploading");
+  const second = recovery.send(draft.id);
+  gate.resolve();
+  await Promise.all([sending, second]);
+  assert.equal(h.gateway.uploads.length, 1);
+  // The unknown outcome stays: nothing can queue the file again.
+  assert.equal(h.drafts.all()[0]?.phase, "unknown");
+  assert.equal(h.conversation.queued.length, 0);
 });
 
 test("a discard during the upload keeps the send from queuing, and a draft whose SDK delete failed can still be sent", async () => {

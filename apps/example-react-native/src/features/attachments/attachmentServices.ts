@@ -26,6 +26,8 @@ export interface AttachmentServices {
   readonly staging: string;
   /** `<profile>/exports`. */
   readonly exports: string;
+  /** Draft IDs whose send runs in any store of the session. */
+  readonly activeSends: Set<string>;
 }
 
 const services = new WeakMap<ActiveSession, AttachmentServices>();
@@ -48,6 +50,7 @@ export function attachmentServices(session: ActiveSession): AttachmentServices {
     drafts: new AttachmentDraftStore(session.preferences),
     staging,
     exports: session.paths.exports,
+    activeSends: new Set(),
   };
   // Exported copies never outlive the session (sign out, reset).
   session.scope.addFinalCleanup(() => {
@@ -94,6 +97,7 @@ export function createAttachmentStore(
       : { authorizeDownload: options.authorizeDownload }),
     sendFile: (conversationId: string, file: RemoteAttachment) =>
       queries.queue(conversationId, { kind: "attachment", file }),
+    activeSends: value.activeSends,
     published: async (conversationId, messageId) => {
       const message = await queries.message(messageId);
       return (

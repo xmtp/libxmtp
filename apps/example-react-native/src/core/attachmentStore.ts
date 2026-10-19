@@ -87,6 +87,11 @@ export interface AttachmentStorePorts {
     conversationId: string,
     messageId: string,
   ) => Promise<boolean>;
+  /**
+   * Draft IDs whose send runs, shared by every store of the session: a load
+   * leaves their upload alone, and no other store sends them meanwhile.
+   */
+  readonly activeSends: Set<string>;
   /** Removes a staged copy (after `create`, whether it worked or not). */
   readonly removeStaged: (path: string) => void;
   /** Runs after a draft's message was published (the chat refreshes). */
@@ -109,7 +114,6 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   readonly #verified = new VerifiedFileCache();
   #revision = 0;
   readonly #admissions = new Map<string, object>();
-  readonly #activeSends = new Set<string>();
   readonly #discarded = new Set<string>();
   readonly #discardedFiles = new Map<string, RemoteAttachment>();
   readonly #generations = new Map<string, number>();
@@ -201,8 +205,11 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
       await this.#reconcileAccepted(saved);
       if (!this.#ports.acceptsSession()) return;
       const current = drafts.all().map((draft) => {
-        // An upload this store is still running was not interrupted.
-        if (draft.phase !== "uploading" || this.#activeSends.has(draft.id)) {
+        // An upload a store of this session still runs was not interrupted.
+        if (
+          draft.phase !== "uploading" ||
+          this.#ports.activeSends.has(draft.id)
+        ) {
           return draft;
         }
         const waiting: FileDraft = { ...draft, phase: "waiting" };
@@ -312,8 +319,9 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
    * draft once the message is published.
    */
   async send(id: string): Promise<void> {
-    if (this.#discarded.has(id) || this.#activeSends.has(id)) return;
-    this.#activeSends.add(id);
+    const { activeSends } = this.#ports;
+    if (this.#discarded.has(id) || activeSends.has(id)) return;
+    activeSends.add(id);
     try {
       const generation = this.#generations.get(id) ?? 0;
       const draft = this.#ports.drafts.all().find((entry) => entry.id === id);
@@ -344,7 +352,7 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     } catch (error) {
       this.#handleFailure(error, { kind: "send", id });
     } finally {
-      this.#activeSends.delete(id);
+      activeSends.delete(id);
     }
   }
 
