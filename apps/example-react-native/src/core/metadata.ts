@@ -10,12 +10,14 @@ import type {
 } from "@xmtp/react-native-sdk";
 
 import { bytesToHex, hexToBytes } from "./hex.ts";
-import type { GroupRole } from "./permissions.ts";
+import { type GroupRole, POLICY_LABELS } from "./permissions.ts";
 import { Store } from "./store.ts";
 
 export const MetadataCopy = {
   updateFailed: "Cannot update these fields. Reload and try again.",
   absent: "Absent",
+  ownEntry: "Own entry",
+  unsupportedPolicy: (tag: number) => `Unsupported policy ${String(tag)}`,
 } as const;
 
 export type FieldShape =
@@ -147,7 +149,7 @@ export function hexBytes(text: string): Uint8Array {
 }
 
 /** An inbox ID key: exactly 64 lowercase hex characters. */
-export function inboxKey(text: string): string {
+function inboxKey(text: string): string {
   if (!INBOX.test(text)) throw new MetadataRuleError("inbox");
   return text;
 }
@@ -294,7 +296,7 @@ export function readOnlyValue(field: MetadataField): string {
 
 // SDK mapping (`metadataShape`, `metadataPolicy`, `metadataAllows`).
 
-export function metadataShape(descriptor: MetadataFieldDescriptor): FieldShape {
+function metadataShape(descriptor: MetadataFieldDescriptor): FieldShape {
   const type = descriptor.componentType;
   const user = descriptor.isUserField;
   switch (type.kind) {
@@ -318,25 +320,25 @@ export function metadataShape(descriptor: MetadataFieldDescriptor): FieldShape {
 }
 
 /** A policy label and whether the app understands it. */
-export function policyLabel(policy: MetadataPolicy): {
+function policyLabel(policy: MetadataPolicy): {
   readonly label: string;
   readonly known: boolean;
 } {
   if (policy.kind === "base") {
     switch (policy.value.kind) {
       case "allow":
-        return { label: "All members", known: true };
+        return { label: POLICY_LABELS.allow, known: true };
       case "deny":
-        return { label: "Denied", known: true };
+        return { label: POLICY_LABELS.deny, known: true };
       case "allowIfAdmin":
-        return { label: "Admins", known: true };
+        return { label: POLICY_LABELS.admin, known: true };
       case "allowIfSuperAdmin":
-        return { label: "Super admins", known: true };
+        return { label: POLICY_LABELS.superAdmin, known: true };
       case "allowIfSelfOrNonMember":
-        return { label: "Own entry", known: true };
+        return { label: MetadataCopy.ownEntry, known: true };
       case "unknown":
         return {
-          label: `Unsupported policy ${String(policy.value.tag)}`,
+          label: MetadataCopy.unsupportedPolicy(policy.value.tag),
           known: false,
         };
     }
@@ -350,7 +352,7 @@ export function policyLabel(policy: MetadataPolicy): {
 }
 
 /** Whether `role` passes a policy (`ownEntry` for a user's own entry). */
-export function policyAllows(
+function policyAllows(
   policy: MetadataPolicy,
   role: GroupRole,
   ownEntry: boolean,
@@ -552,7 +554,7 @@ export interface MetadataState {
   readonly error?: string;
 }
 
-export const emptySnapshot: MetadataSnapshot = {
+const emptySnapshot: MetadataSnapshot = {
   fields: [],
   members: [],
   missing: [],

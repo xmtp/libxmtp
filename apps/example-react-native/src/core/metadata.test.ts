@@ -17,17 +17,17 @@ import {
   entryAction,
   fieldHeader,
   hexBytes,
+  MetadataCopy,
   type MetadataField,
   metadataField,
   MetadataRuleError,
   type MetadataSnapshot,
   MetadataStore,
   mergeDraft,
-  policyAllows,
-  policyLabel,
   scalarText,
   setDraft,
 } from "./metadata.ts";
+import { POLICY_LABELS } from "./permissions.ts";
 import { settle } from "./testing.ts";
 
 function field(overrides: Partial<MetadataField>): MetadataField {
@@ -69,20 +69,6 @@ test("strings are at most 8192 UTF-8 bytes", () => {
   assert.equal(scalarText("é".repeat(4096), "string").length, 4096);
   rejects("valueLimit", () => scalarText("é".repeat(4097), "string"));
   rejects("unsupported", () => scalarText("x", "unsupported"));
-});
-
-test("a serialized collection includes its outer prefix", () => {
-  const entries = Array.from({ length: 7 }, (_, index) => ({
-    key: index.toString(16).padStart(2, "0"),
-    value: "ff".repeat(8192),
-  }));
-  checkCollection(entries, "byteMap");
-  rejects("collectionLimit", () => {
-    checkCollection(
-      [...entries, { key: "08", value: "ff".repeat(8192) }],
-      "byteMap",
-    );
-  });
 });
 
 test("the outer prefix decides a payload at the limit", () => {
@@ -168,32 +154,7 @@ test("the own draft writes only intentional changes", () => {
 const base = (kind: string): MetadataPolicy =>
   ({ kind: "base", value: { kind } }) as MetadataPolicy;
 
-test("policy labels and authority follow the role", () => {
-  assert.equal(policyLabel(base("allowIfAdmin")).label, "Admins");
-  const both: MetadataPolicy = {
-    kind: "and",
-    value: [base("allowIfAdmin"), base("allowIfSelfOrNonMember")],
-  };
-  assert.equal(policyLabel(both).label, "(Admins and Own entry)");
-  const unknown: MetadataPolicy = {
-    kind: "base",
-    value: { kind: "unknown", tag: 9 },
-  };
-  assert.deepEqual(policyLabel({ kind: "any", value: [unknown] }), {
-    label: "(Unsupported policy 9)",
-    known: false,
-  });
-  assert.equal(policyAllows(base("allowIfAdmin"), "member", false), false);
-  assert.equal(policyAllows(base("allowIfAdmin"), "superAdmin", false), true);
-  assert.equal(policyAllows(both, "admin", false), false);
-  assert.equal(policyAllows(both, "admin", true), true);
-  assert.equal(
-    policyAllows({ kind: "and", value: [] }, "superAdmin", true),
-    false,
-  );
-});
-
-test("a descriptor maps to a field with its header, shape and value", () => {
+test("a descriptor maps to a field with its header, policies, authority and value", () => {
   const descriptor: MetadataFieldDescriptor = {
     field: { componentId: 0xc101, name: "Topic" },
     componentType: { kind: "string" },
@@ -210,22 +171,60 @@ test("a descriptor maps to a field with its header, shape and value", () => {
     "admin",
   );
   assert.equal(fieldHeader(mapped), "Topic · 0xC101 · string");
-  assert.equal(mapped.policy, "Insert: Admins; Update: Admins; Delete: Denied");
-  assert.equal(mapped.scalar, "MLS");
-  assert.equal(mapped.canUpdate, true);
-  assert.equal(mapped.canDelete, false);
-  const user = metadataField(
-    {
-      ...descriptor,
-      field: { componentId: 0xc201 },
-      componentType: { kind: "map", keyType: "inboxId", valueType: "bytes" },
-      isUserField: true,
-    },
-    undefined,
+  assert.equal(
+    mapped.policy,
+    `Insert: ${POLICY_LABELS.admin}; Update: ${POLICY_LABELS.admin}; Delete: ${POLICY_LABELS.deny}`,
   );
+  assert.equal(mapped.scalar, "MLS");
+  assert.equal(mapped.editable, true);
+  assert.deepEqual(
+    (["member", "admin", "superAdmin"] as const).map(
+      (role) => metadataField(descriptor, undefined, role).canUpdate,
+    ),
+    [false, true, true],
+  );
+  assert.equal(mapped.canDelete, false);
+  const both: MetadataPolicy = {
+    kind: "and",
+    value: [base("allowIfAdmin"), base("allowIfSelfOrNonMember")],
+  };
+  const unknown: MetadataPolicy = {
+    kind: "any",
+    value: [{ kind: "base", value: { kind: "unknown", tag: 9 } }],
+  };
+  const own: MetadataFieldDescriptor = {
+    field: { componentId: 0xc201 },
+    componentType: { kind: "map", keyType: "inboxId", valueType: "bytes" },
+    permissions: { insert: both, update: both, delete: unknown },
+    isUserField: true,
+  };
+  const user = metadataField(own, undefined, "admin");
   assert.equal(user.name, `Component ${String(0xc201)}`);
   assert.equal(user.shape, "userBytes");
   assert.equal(user.present, false);
+  assert.equal(
+    user.policy,
+    `Insert: (${POLICY_LABELS.admin} and ${MetadataCopy.ownEntry}); Update: (${POLICY_LABELS.admin} and ${MetadataCopy.ownEntry}); Delete: (${MetadataCopy.unsupportedPolicy(9)})`,
+  );
+  // The unsupported label names its tag.
+  assert.ok(user.policy.split("; ").at(-1)?.includes("9"));
+  assert.equal(user.editable, false);
+  assert.equal(user.canInsert, true);
+  assert.equal(user.canDelete, false);
+  // The own-entry rule needs a user field, and an empty "and" allows no one.
+  assert.equal(
+    metadataField({ ...own, isUserField: false }, undefined, "admin").canInsert,
+    false,
+  );
+  const empty: MetadataPolicy = { kind: "and", value: [] };
+  assert.equal(
+    metadataField(
+      { ...own, permissions: { ...own.permissions, insert: empty } },
+      undefined,
+      "superAdmin",
+    ).canInsert,
+    false,
+  );
 });
 
 test("a registry change after the load blocks the write", () => {
@@ -260,7 +259,7 @@ test("a registry change after the load blocks the write", () => {
   }
 });
 
-test("a failed edit reloads and shows the update error", async () => {
+test("a failed edit reloads and shows the update error until the next action", async () => {
   const snapshot: MetadataSnapshot = {
     fields: [field({})],
     members: [],
@@ -278,10 +277,11 @@ test("a failed edit reloads and shows the update error", async () => {
   assert.equal(store.getState().busy, true);
   store.refresh();
   await settle();
+  assert.equal(store.getState().busy, false);
   assert.equal(loads, 1);
-  assert.equal(store.getState().snapshot, snapshot);
-  assert.equal(
-    store.getState().error,
-    "Cannot update these fields. Reload and try again.",
-  );
+  assert.deepEqual(store.getState().snapshot, snapshot);
+  assert.equal(store.getState().error, MetadataCopy.updateFailed);
+  store.refresh();
+  await settle();
+  assert.equal(store.getState().error, undefined);
 });
