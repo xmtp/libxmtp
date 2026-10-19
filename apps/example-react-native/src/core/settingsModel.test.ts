@@ -71,7 +71,7 @@ test("failures show the iOS copy for each action", async () => {
   assert.equal(appearance.getState().error, SessionCopy.appearanceFailed);
 });
 
-test("results after the screen closes are dropped", async () => {
+test("results after the screen closes are dropped, and the reopened screen takes the next action", async () => {
   const model = new SettingsModel(
     ports({ signOut: () => Promise.reject(new Error("late")) }),
   );
@@ -79,14 +79,8 @@ test("results after the screen closes are dropped", async () => {
   model.dispose();
   await running;
   assert.equal(model.getState().error, undefined);
-});
-
-test("appear reopens a disposed model", async () => {
-  const model = new SettingsModel(
-    ports({ signOut: () => Promise.reject(new Error("no")) }),
-  );
-  model.dispose();
+  // A React effect runs again after its cleanup, with the same model.
   model.appear();
   await model.signOut();
-  assert.equal(model.getState().error, "Cannot sign out. Try again.");
+  assert.equal(model.getState().error, SessionCopy.signOutFailed);
 });

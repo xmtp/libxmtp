@@ -76,12 +76,19 @@ export class SettingsModel extends Store<SettingsState> {
   async #device(work: () => Promise<void>, failure: string): Promise<void> {
     if (this.getState().busy) return;
     this.setState((state) => ({ ...state, busy: true }));
+    let error: string | undefined;
     try {
       await work();
-      this.#apply((state) => ({ ...state, busy: false }));
     } catch {
-      this.#apply((state) => ({ ...state, busy: false, error: failure }));
+      error = failure;
     }
+    // A closed screen drops the error, but `busy` always clears: the same
+    // model can appear again and must take the next action.
+    this.setState((state) =>
+      error === undefined || this.#disposed
+        ? { ...state, busy: false }
+        : { ...state, busy: false, error },
+    );
   }
 
   #apply(change: (state: SettingsState) => SettingsState): void {
