@@ -25,6 +25,7 @@ import {
 
 import { normalizeBackendUrl } from "@/core/backendUrl.ts";
 import { errorLogText } from "@/core/errorLog.ts";
+import { contend } from "@/core/probeContend.ts";
 import {
   type ProbeLinkConfirmation,
   probeLinkConfirmation,
@@ -297,12 +298,14 @@ export default function SessionProbe() {
             const current = sessionController.getState();
             if (current.kind !== "active") throw new Error("No open session");
             const { streams, client } = current.session;
-            await streams.setForeground(false);
-            const rival = client.conversations.streamAllMessages();
-            await rival.ready();
-            await streams.setForeground(true);
-            await new Promise((resolve) => setTimeout(resolve, 15_000));
-            await rival.end();
+            await contend({
+              setForeground: (active) => streams.setForeground(active),
+              openRival: () => client.conversations.streamAllMessages(),
+              sleep: (ms) =>
+                new Promise((resolve) => {
+                  setTimeout(resolve, ms);
+                }),
+            });
           });
         case "allowRequests":
           // Accepts every message request (consent unknown → allowed), for
