@@ -12,7 +12,12 @@ import { File, Paths } from "expo-file-system";
 import { launchImageLibraryAsync } from "expo-image-picker";
 import { Platform } from "react-native";
 
-import { exceedsLimit, photoName, safeFileName } from "@/core/attachments.ts";
+import {
+  exceedsLimit,
+  mimeTypeFor,
+  photoName,
+  safeFileName,
+} from "@/core/attachments.ts";
 import { errorLogText } from "@/core/errorLog.ts";
 import { isInside, joinPath, pathToUri, uriToPath } from "@/core/paths.ts";
 import {
@@ -214,14 +219,21 @@ export async function previewFile(
 
 /**
  * Save to Files. Resolves false when the user cancelled; throws when the
- * copy failed.
+ * copy failed. `mimeType` is the verified file's type.
  */
-export async function saveFile(path: string, name: string): Promise<boolean> {
+export async function saveFile(
+  path: string,
+  name: string,
+  mimeType?: string,
+): Promise<boolean> {
   try {
     const results = await saveDocuments({
       sourceUris: [pathToUri(path)],
       copy: true,
       fileName: name,
+      // Android reads no type from a file:// URI and opens no dialog without
+      // one. The name's extension decides first, as when the file was sent.
+      mimeType: mimeTypeFor(name, mimeType),
     });
     // Android reports a failed copy into the chosen file in its result.
     if (results.some((result) => typeof result.error === "string")) {

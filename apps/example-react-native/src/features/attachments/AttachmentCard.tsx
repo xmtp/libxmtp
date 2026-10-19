@@ -129,7 +129,7 @@ export function AttachmentCard({
     exported.current = path;
     try {
       if (save) {
-        await saveFile(path, card.name);
+        await saveFile(path, card.name, source.mimeType);
         clearExport();
       } else {
         // Quick Look keeps reading the copy: it is removed by the next Open
