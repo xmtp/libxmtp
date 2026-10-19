@@ -309,6 +309,27 @@ test("a discard during the upload keeps the send from queuing, and a draft whose
   assert.equal(h.conversation.queued.length, 1);
 });
 
+test("a discard while the message queues stays discarded when the SDK accepts it", async () => {
+  const h = harness();
+  const draft = await staged(h);
+  const gate = deferred();
+  const queue = h.conversation.queue.bind(h.conversation);
+  h.conversation.queue = async (id, content) => {
+    await gate.promise;
+    return queue(id, content);
+  };
+  const sending = h.store.send(draft.id);
+  await settle();
+  assert.equal(h.drafts.all()[0]?.phase, "unknown");
+  await h.store.discard(draft.id);
+  gate.resolve();
+  await sending;
+  assert.deepEqual(h.drafts.all(), []);
+  assert.deepEqual(h.store.getState().drafts, []);
+  // The journal still records the accepted message for Retry.
+  assert.equal(h.journal.all()[0]?.phase, "accepted");
+});
+
 test("a focus reload reads drafts other screens saved and imports nothing", async () => {
   const h = harness();
   await h.store.load();

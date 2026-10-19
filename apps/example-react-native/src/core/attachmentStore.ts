@@ -412,8 +412,13 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
           beforeQueue: () => {
             drafts.save({ ...draft, phase: "unknown" });
           },
+          // A draft discarded while the SDK call ran stays discarded; the
+          // journal still records the accepted message.
           acknowledge: (messageId) => {
-            drafts.save({ ...draft, acceptedId: messageId, phase: "complete" });
+            this.#replace(
+              { ...draft, phase: "unknown" },
+              { ...draft, acceptedId: messageId, phase: "complete" },
+            );
           },
         },
       );
