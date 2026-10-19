@@ -17,7 +17,11 @@
 //!   Rust reference to a freed block. It searches the block through
 //!   `libc::memmem` on raw pointers; C reads every byte as `unsigned char`,
 //!   which has no invalid values. Only the canary forms, which live in a static,
-//!   are read as Rust slices.
+//!   are read as Rust slices. A general allocator sees only a pointer and a
+//!   size, so it cannot track which bytes of a block were written; reading the
+//!   whole block as `unsigned char` in C is the sound alternative.
+//! - Disarming wipes the armed forms, so the raw key does not stay in the
+//!   static after a scan.
 //! - `realloc` keeps the default `alloc` + copy + `dealloc`, so a block that
 //!   grows while it holds the secret is scanned when the old block is freed.
 //!   Never forward `realloc` to `System.realloc`: the old block would be freed
@@ -35,6 +39,8 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst},
     },
 };
+
+use super::Zeroize;
 
 /// Most canaries one scan can arm.
 pub const MAX_CANARIES: usize = 8;
@@ -269,11 +275,23 @@ impl Armed {
         }
     }
 
+    /// Stop scanning, wait for in-flight frees, then wipe the armed forms so
+    /// the raw key does not stay in static memory. Callers hold `SCAN_LOCK`
+    /// through the `Armed` guard.
     fn disarm() {
         ARMED.store(false, SeqCst);
         while IN_FLIGHT.load(SeqCst) != 0 {
             std::hint::spin_loop();
         }
+        // SAFETY: `ARMED` is false and no free is in flight, and the caller
+        // holds `SCAN_LOCK`, so nothing else reads or writes the forms.
+        let armed = unsafe { &mut *FORMS.0.get() };
+        for form in &mut armed.forms {
+            form.bytes.zeroize();
+            form.len = 0;
+        }
+        armed.count = 0;
+        armed.min_len = usize::MAX;
     }
 
     /// Disarm and read the hit counts.
@@ -327,4 +345,27 @@ macro_rules! install_heap_canary {
         static XMTP_HEAP_CANARY: $crate::secret::heap_canary::Scanner =
             $crate::secret::heap_canary::Scanner;
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The armed forms hold the raw key. Disarming wipes them; without the
+    /// wipe the key stays in the static until the next scan overwrites it.
+    #[test]
+    fn disarm_wipes_the_armed_forms() {
+        let key = [0x5a; 32];
+        let ((), _) = scan(&[Canary::new(&key)], || ());
+        let _lock = SCAN_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        // SAFETY: no scan is armed and we hold `SCAN_LOCK`.
+        let armed = unsafe { &*FORMS.0.get() };
+        assert_eq!(armed.count, 0);
+        assert!(
+            armed
+                .forms
+                .iter()
+                .all(|form| form.len == 0 && form.bytes.iter().all(|&b| b == 0))
+        );
+    }
 }
