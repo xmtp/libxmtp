@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   chatProbeLinkConfirmation,
   probeLinkConfirmation,
+  probeLinkWaits,
 } from "./probeLinks.ts";
 import type { SessionState } from "./sessionController.ts";
 
@@ -44,6 +45,23 @@ test("a probe link asks before it can open, end or replace a session or change t
       confirmation,
       `${action} (${kind})`,
     );
+  }
+});
+
+test("a probe link waits while the session starts or opens", () => {
+  const cases: readonly (readonly [Kind, boolean])[] = [
+    // A launch, and a restore, retry or join that opens a client.
+    ["starting", true],
+    ["opening", true],
+    // Settled states.
+    ["storageFailed", false],
+    ["signedOut", false],
+    ["active", false],
+    ["restoreFailed", false],
+    ["resetIncomplete", false],
+  ];
+  for (const [kind, waits] of cases) {
+    assert.equal(probeLinkWaits(kind), waits, kind);
   }
 });
 

@@ -16,6 +16,11 @@
 //   end. Like Join with an empty Access token, a connect link without a token
 //   clears the token saved for that server.
 //
+// A link waits while the session is between settled states (`starting`,
+// `opening`), and the rule decides it once the state settles. Before that,
+// `allowRequests`, `claim` and `createGroup` find no open session, and a
+// confirmed `retry` does nothing while a restore runs.
+//
 // The other actions run at once: `start` and `restore` do what launch does,
 // `probe` and `handles` only read, `continueReset` only finishes a deletion
 // the user confirmed, and `contend` holds the message reader's lease for
@@ -66,6 +71,27 @@ export function probeLinkConfirmation(
       return session === "signedOut" ? "reopen" : "retry";
     default:
       return undefined;
+  }
+}
+
+/**
+ * True while the session moves between settled states: `starting` at launch,
+ * and `opening` while a restore, retry or join opens a client. A session
+ * probe link waits then.
+ */
+export function probeLinkWaits(
+  session: SessionState<unknown>["kind"],
+): boolean {
+  switch (session) {
+    case "starting":
+    case "opening":
+      return true;
+    case "storageFailed":
+    case "signedOut":
+    case "active":
+    case "restoreFailed":
+    case "resetIncomplete":
+      return false;
   }
 }
 

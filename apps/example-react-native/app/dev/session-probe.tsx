@@ -29,6 +29,7 @@ import { contend } from "@/core/probeContend.ts";
 import {
   type ProbeLinkConfirmation,
   probeLinkConfirmation,
+  probeLinkWaits,
 } from "@/core/probeLinks.ts";
 import type { SessionEvent } from "@/core/streamHub.ts";
 import { probeLinkCopy } from "@/features/dev/copy";
@@ -384,9 +385,11 @@ export default function SessionProbe() {
   useEffect(() => {
     const action = params.action;
     if (action === undefined) return;
-    // A link that launches the app arrives while the session starts: decide
-    // once it settles, so the rule sees whether a session is open.
-    if (state.kind === "starting") return;
+    // A link that launches the app arrives while the session starts, and
+    // one can arrive while a session opens: decide once the state settles,
+    // so the rule and the action see whether a session is open. The effect
+    // runs again when the state changes.
+    if (probeLinkWaits(state.kind)) return;
     const id = `${action}|${params.url ?? ""}|${params.n ?? ""}`;
     if (ran.current === id) return;
     ran.current = id;
