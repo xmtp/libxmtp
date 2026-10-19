@@ -454,6 +454,8 @@ const sameValue = (
 export interface OwnFieldDraft {
   readonly baseline: ReadonlyMap<number, OwnFieldValue>;
   readonly values: ReadonlyMap<number, OwnFieldValue>;
+  /** Each field's shape, for comparing values in canonical form. */
+  readonly shapes: ReadonlyMap<number, FieldShape>;
   /** Fields a running save writes (`markSaving`); the next merge clears it. */
   readonly saving?: ReadonlySet<number>;
 }
@@ -461,14 +463,22 @@ export interface OwnFieldDraft {
 export const emptyDraft: OwnFieldDraft = {
   baseline: new Map(),
   values: new Map(),
+  shapes: new Map(),
 };
 
 export function draftValue(draft: OwnFieldDraft, id: number): OwnFieldValue {
   return draft.values.get(id) ?? ABSENT;
 }
 
+/** True when the field's edit differs from the committed baseline. */
 export function draftChanged(draft: OwnFieldDraft, id: number): boolean {
-  return !sameValue(draft.values.get(id), draft.baseline.get(id));
+  const value = draft.values.get(id);
+  const baseline = draft.baseline.get(id);
+  const shape = draft.shapes.get(id);
+  if (value === undefined || baseline === undefined || shape === undefined) {
+    return !sameValue(value, baseline);
+  }
+  return !matchesCommitted(value, baseline, shape);
 }
 
 export function setDraft(
@@ -480,8 +490,8 @@ export function setDraft(
 }
 
 /**
- * An edit matches the committed value once both are in the field's
- * canonical form: the SDK reads bytes back as lowercase hex.
+ * An edit matches a committed value once both are in the field's canonical
+ * form: the SDK reads bytes back as lowercase hex.
  */
 function matchesCommitted(
   edited: OwnFieldValue,
@@ -511,6 +521,7 @@ export function mergeDraft(
 ): OwnFieldDraft {
   const baseline = new Map<number, OwnFieldValue>();
   const values = new Map<number, OwnFieldValue>();
+  const shapes = new Map<number, FieldShape>();
   for (const field of fields) {
     if (!field.userField || !canWrite(field)) continue;
     const committed: OwnFieldValue = field.present
@@ -519,10 +530,12 @@ export function mergeDraft(
     const old = draft.baseline.get(field.id);
     const edited = draft.values.get(field.id);
     baseline.set(field.id, committed);
+    shapes.set(field.id, field.shape);
     if (
       old !== undefined &&
       edited !== undefined &&
-      (draft.saving?.has(field.id) === true || !sameValue(edited, old)) &&
+      (draft.saving?.has(field.id) === true ||
+        !matchesCommitted(edited, old, field.shape)) &&
       !matchesCommitted(edited, committed, field.shape)
     ) {
       values.set(field.id, edited);
@@ -530,7 +543,7 @@ export function mergeDraft(
       values.set(field.id, committed);
     }
   }
-  return { baseline, values };
+  return { baseline, values, shapes };
 }
 
 /** Changed own fields: text to set, or undefined to clear. */
@@ -539,7 +552,7 @@ export function draftChanges(
 ): ReadonlyMap<number, string | undefined> {
   const changes = new Map<number, string | undefined>();
   for (const [id, value] of draft.values) {
-    if (sameValue(value, draft.baseline.get(id))) continue;
+    if (!draftChanged(draft, id)) continue;
     changes.set(id, value.kind === "value" ? value.text : undefined);
   }
   return changes;

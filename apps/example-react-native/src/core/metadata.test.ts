@@ -14,6 +14,7 @@ import {
   checkUnchanged,
   draftChanged,
   draftChanges,
+  draftValue,
   emptyDraft,
   entryAction,
   fieldHeader,
@@ -184,7 +185,7 @@ test("a field edited while its save runs keeps the newest input", () => {
   }
 });
 
-test("a saved uppercase byte value leaves nothing to save", () => {
+test("an uppercase byte value equal to the committed bytes leaves nothing to save", () => {
   const key = field({
     id: 0xc203,
     name: "key",
@@ -195,9 +196,17 @@ test("a saved uppercase byte value leaves nothing to save", () => {
   draft = setDraft(draft, key.id, { kind: "value", text: "ABCD" });
   assert.equal(draftChanged(draft, key.id), true);
   // The group stores bytes, and the SDK reads them back as lowercase hex.
-  draft = mergeDraft(draft, [{ ...key, present: true, scalar: "abcd" }]);
+  const saved = { ...key, present: true, scalar: "abcd" };
+  draft = mergeDraft(draft, [saved]);
   assert.equal(draftChanged(draft, key.id), false);
   assert.equal(draftChanges(draft).size, 0);
+  // Typing the saved bytes in uppercase is no change either.
+  draft = setDraft(draft, key.id, { kind: "value", text: "ABCD" });
+  assert.equal(draftChanged(draft, key.id), false);
+  assert.equal(draftChanges(draft).size, 0);
+  // So a reload takes a value another device committed meanwhile.
+  draft = mergeDraft(draft, [{ ...saved, scalar: "ef01" }]);
+  assert.deepEqual(draftValue(draft, key.id), { kind: "value", text: "ef01" });
 });
 
 const base = (kind: string): MetadataPolicy =>
