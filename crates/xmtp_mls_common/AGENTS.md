@@ -9,7 +9,7 @@ just check crate xmtp_mls_common
 just test crate xmtp_mls_common
 just test workspace -p xmtp_mls_common --ignore-default-filter lookup_returns_correct_component_for_each_well_known_id   # one test
 just test workspace -p xmtp_mls_common app_data::   # one module
-just test workspace -p xmtp_mls_common --features test-utils --test zeroize   # commit-log signer heap-canary proofs
+just test workspace -p xmtp_mls_common --test zeroize   # commit-log signer heap-canary proofs
 ```
 
 ## Gotchas

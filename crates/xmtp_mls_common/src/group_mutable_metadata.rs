@@ -486,15 +486,28 @@ pub fn merge_dict_into_mutable_metadata(
     base: &mut GroupMutableMetadata,
     extensions: &Extensions<GroupContext>,
 ) -> Result<(), GroupMutableMetadataError> {
-    use super::app_data::component_id::ComponentId;
-
     let Some(ext) = extensions.app_data_dictionary() else {
         return Ok(());
     };
     let dict = ext.dictionary();
+    merge_components_into_mutable_metadata(base, |id| dict.get(&id.as_u16()))
+}
+
+/// Overlay metadata components onto `base`, reading each component's bytes
+/// with `component`. Values translate as in
+/// [`merge_dict_into_mutable_metadata`].
+///
+/// Borrowing the bytes lets a caller merge values it computed, such as the
+/// post-commit state, without copying them into an OpenMLS dictionary that
+/// would free the commit-log signer unwiped.
+pub fn merge_components_into_mutable_metadata<'a>(
+    base: &mut GroupMutableMetadata,
+    component: impl Fn(super::app_data::component_id::ComponentId) -> Option<&'a [u8]>,
+) -> Result<(), GroupMutableMetadataError> {
+    use super::app_data::component_id::ComponentId;
 
     for (field, id) in METADATA_FIELD_COMPONENT_MAP {
-        if let Some(bytes) = dict.get(&id.as_u16()) {
+        if let Some(bytes) = component(*id) {
             let legacy_value = decode_metadata_component(*id, bytes)?;
             base.insert_attribute(field.as_str().to_string(), legacy_value);
         }
@@ -506,7 +519,7 @@ pub fn merge_dict_into_mutable_metadata(
         (ComponentId::ADMIN_LIST, &mut base.admin_list),
         (ComponentId::SUPER_ADMIN_LIST, &mut base.super_admin_list),
     ] {
-        if let Some(bytes) = dict.get(&component_id.as_u16()) {
+        if let Some(bytes) = component(component_id) {
             *list = decode_inbox_id_list(component_id, bytes)?;
         }
     }

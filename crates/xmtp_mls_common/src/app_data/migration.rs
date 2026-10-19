@@ -251,7 +251,15 @@ pub fn synthesize_canonical_subset_from_extensions(
             .metadata(),
     )?;
 
-    let mut strict: BTreeMap<ComponentId, (AppDataUpdateOperationType, Vec<u8>)> = BTreeMap::new();
+    // The expectation owns the strict payloads from the first insert, so an
+    // early error return wipes the commit-log signer's payload too.
+    let mut expectation = CanonicalBootstrapExpectation {
+        strict: BTreeMap::new(),
+        expected_registry: BTreeMap::new(),
+        membership_sequence_ids: BTreeMap::new(),
+        allowed_failed_installations: BTreeSet::new(),
+    };
+    let strict = &mut expectation.strict;
 
     // COMPONENT_REGISTRY: decoded per-entry compare (see
     // `CanonicalBootstrapExpectation` doc — bytes inside each entry are
@@ -381,12 +389,10 @@ pub fn synthesize_canonical_subset_from_extensions(
         allowed_failed_installations.insert(key);
     }
 
-    Ok(CanonicalBootstrapExpectation {
-        strict,
-        expected_registry,
-        membership_sequence_ids,
-        allowed_failed_installations,
-    })
+    expectation.expected_registry = expected_registry;
+    expectation.membership_sequence_ids = membership_sequence_ids;
+    expectation.allowed_failed_installations = allowed_failed_installations;
+    Ok(expectation)
 }
 
 /// Build a registry tailored to the legacy state in `extensions` —

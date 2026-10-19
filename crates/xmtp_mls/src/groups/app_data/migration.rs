@@ -461,7 +461,7 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
     let empty_registry = xmtp_mls_common::app_data::component_registry::ComponentRegistry::new();
     let mut updater = stage.app_data_dictionary_updater();
     for (component_id, wire_bytes) in component_values.iter() {
-        let dict_bytes =
+        let mut dict_bytes =
             xmtp_mls_common::app_data::component_source::apply_app_data_update_payload(
                 *component_id,
                 wire_bytes,
@@ -469,9 +469,10 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
                 &empty_registry,
             )
             .map_err(BootstrapCommitError::DictApply)?;
+        // The bytes move to OpenMLS without a copy.
         updater.set(ComponentData::from_parts(
             component_id.as_u16(),
-            dict_bytes.into(),
+            std::mem::take(&mut *dict_bytes).into(),
         ));
     }
     stage.with_app_data_dictionary_updates(updater.changes());

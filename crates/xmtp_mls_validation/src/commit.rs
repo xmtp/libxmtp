@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
-    extensions::{Extension, Extensions},
+    extensions::Extensions,
     group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::{AppDataUpdateOperation, Proposal, ProposalType},
     prelude::{LeafNodeIndex, Sender},
@@ -469,17 +469,21 @@ pub fn get_latest_group_membership(
 
 /// Read committed metadata once through the active extension representation.
 /// Decode the post-commit metadata for messages, callbacks, and admin side effects.
+///
+/// The post-commit values stay in `Zeroizing` until they are merged, because
+/// one can be the commit-log signer's private key.
 pub fn read_post_commit_mutable_metadata(
     group: &OpenMlsGroup,
     staged_commit: &StagedCommit,
     registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
 ) -> Result<GroupMutableMetadata, CommitRuleError> {
-    use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
     use xmtp_mls_common::{
         app_data::component_id::ComponentId,
-        group_mutable_metadata::{METADATA_FIELD_COMPONENT_MAP, merge_dict_into_mutable_metadata},
+        group_mutable_metadata::{
+            METADATA_FIELD_COMPONENT_MAP, merge_components_into_mutable_metadata,
+        },
     };
-    let mut dictionary = AppDataDictionary::new();
+    let mut post_commit = HashMap::new();
     for id in METADATA_FIELD_COMPONENT_MAP
         .iter()
         .map(|(_, id)| *id)
@@ -493,15 +497,13 @@ pub fn read_post_commit_mutable_metadata(
                 registry,
             )?
         {
-            dictionary.insert(id.as_u16(), bytes);
+            post_commit.insert(id, bytes);
         }
     }
-    let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
-        AppDataDictionaryExtension::new(dictionary),
-    )])
-    .expect("one dictionary extension has no duplicate types");
     let mut metadata = GroupMutableMetadata::new(HashMap::new(), Vec::new(), Vec::new());
-    merge_dict_into_mutable_metadata(&mut metadata, &extensions)?;
+    merge_components_into_mutable_metadata(&mut metadata, |id| {
+        post_commit.get(&id).map(|bytes| bytes.as_slice())
+    })?;
     Ok(metadata)
 }
 
@@ -654,13 +656,14 @@ pub fn validate_one_app_data_update(
     let old_value = read_from_app_data_dict(component_id, openmls_group);
     // A standalone proposal has no commit, so the self-owned policy reads
     // the committed membership.
-    let membership = membership_inbox_ids(
-        read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, openmls_group).as_deref(),
-    );
+    let membership = membership_inbox_ids(read_from_app_data_dict(
+        ComponentId::GROUP_MEMBERSHIP,
+        openmls_group,
+    ));
     if component_id == ComponentId::GROUP_MEMBERSHIP
         && removes_super_admin(
             operation,
-            read_from_app_data_dict(ComponentId::SUPER_ADMIN_LIST, openmls_group).as_deref(),
+            read_from_app_data_dict(ComponentId::SUPER_ADMIN_LIST, openmls_group),
         )
     {
         tracing::warn!(
@@ -676,7 +679,7 @@ pub fn validate_one_app_data_update(
         actor,
         proposer_inbox_id,
         registry,
-        old_value.as_deref(),
+        old_value,
         dm_members,
         membership.as_ref(),
     )
@@ -721,6 +724,7 @@ pub(crate) fn validate_standalone_app_data_update(
     let AppDataUpdateOperation::Update(payload) = operation else {
         return Ok(());
     };
+    // Only the error matters; the computed state is wiped on drop.
     match apply_app_data_update_payload(component_id, payload.as_slice(), old_value, registry) {
         Err(ComponentSourceError::FieldBoundExceeded { .. }) => {
             Err(CommitRuleError::InsufficientPermissions)
@@ -927,9 +931,10 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     //   gates the write, so deny-by-default applies.
     let component = lookup_component(component_id);
     // The expanded values can hold the commit-log signer's private key.
-    let changes = Zeroizing::new(if let Some(component) = component {
+    let changes = if let Some(component) = component {
         component
             .expand_to_changes(operation, old_value)
+            .map(Zeroizing::new)
             .map_err(|e| {
                 let wrapped =
                     xmtp_mls_common::app_data::component_source::ComponentSourceError::from(e);
@@ -959,7 +964,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
                 return Err(CommitRuleError::InsufficientPermissions);
             }
         }
-    });
+    };
 
     // A DM may add its other participant even though its add-member policy
     // denies general additions. Use the same exception as MLS Add validation.
@@ -1089,38 +1094,43 @@ pub struct AppDataUpdateInCommit<'a> {
     pub proposer_inbox_id: &'a str,
 }
 
+/// The state of each component a commit's `AppDataUpdate` proposals touch,
+/// after the last of them (`None` once removed). A state can be the
+/// commit-log signer's private key, so each is wiped on drop.
+pub type AppDataPostStates =
+    HashMap<xmtp_mls_common::app_data::component_id::ComponentId, Option<Zeroizing<Vec<u8>>>>;
+
 /// Validate a commit's `AppDataUpdate` proposals in order and return each
 /// touched component's state after the last of them (`None` once removed).
 ///
 /// Each proposal is judged against its component's state after the
 /// preceding proposals, starting from `committed`, so neither a transition
 /// invariant nor an immutable first write can be split across proposals.
-pub fn validate_app_data_update_sequence<'a>(
+/// `committed` borrows each component's committed bytes, so the sequence
+/// copies no value it does not compute.
+pub fn validate_app_data_update_sequence<'a, 'c>(
     updates: impl IntoIterator<Item = AppDataUpdateInCommit<'a>>,
-    committed: impl Fn(xmtp_mls_common::app_data::component_id::ComponentId) -> Option<Vec<u8>>,
+    committed: impl Fn(xmtp_mls_common::app_data::component_id::ComponentId) -> Option<&'c [u8]>,
     registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
     dm_members: Option<&DmMembers<String>>,
     membership: Option<&HashSet<xmtp_mls_common::inbox_id::InboxId>>,
-) -> Result<
-    HashMap<xmtp_mls_common::app_data::component_id::ComponentId, Option<Vec<u8>>>,
-    CommitRuleError,
-> {
+) -> Result<AppDataPostStates, CommitRuleError> {
     use openmls::messages::proposals::AppDataUpdateOperation;
     use xmtp_mls_common::app_data::component_source::apply_app_data_update_payload;
 
-    let mut post_states = HashMap::new();
+    let mut post_states = AppDataPostStates::new();
     for update in updates {
-        let old_value = post_states
-            .entry(update.component_id)
-            .or_insert_with(|| committed(update.component_id))
-            .clone();
+        let old_value = match post_states.get(&update.component_id) {
+            Some(state) => state.as_deref().map(Vec::as_slice),
+            None => committed(update.component_id),
+        };
         validate_one_app_data_update_with_old_value(
             update.component_id,
             update.operation,
             update.actor,
             update.proposer_inbox_id,
             registry,
-            old_value.as_deref(),
+            old_value,
             dm_members,
             membership,
         )?;
@@ -1129,13 +1139,14 @@ pub fn validate_app_data_update_sequence<'a>(
                 apply_app_data_update_payload(
                     update.component_id,
                     payload.as_slice(),
-                    old_value.as_deref(),
+                    old_value,
                     registry,
                 )
                 .map_err(|_| CommitRuleError::InsufficientPermissions)?,
             ),
             AppDataUpdateOperation::Remove => None,
         };
+        // The replaced state is wiped on drop.
         post_states.insert(update.component_id, post_value);
     }
     Ok(post_states)
@@ -1236,7 +1247,7 @@ pub fn validate_app_data_update_proposals_in_commit(
         |component_id| read_from_app_data_dict(component_id, openmls_group),
         registry,
         immutable_metadata.dm_members.as_ref(),
-        membership_inbox_ids(membership.as_deref()).as_ref(),
+        membership_inbox_ids(membership.as_deref().map(Vec::as_slice)).as_ref(),
     )?;
 
     // Validate the final registry after all deltas. Required action entries

@@ -27,6 +27,13 @@
 //! See [`crate::inbox_id`] for the full wire-format contract;
 //! the short version is `varint(version) || 32-byte payload`, with
 //! version 0 producing a 33-byte encoding.
+//!
+//! ## Secret values
+//!
+//! `COMMIT_LOG_SIGNER` holds the group's commit-log private key, so every
+//! component value these helpers copy is a secret candidate. Reads borrow
+//! the dictionary's bytes, and computed values come back in `Zeroizing`,
+//! which wipes them on drop whatever the component.
 
 use crate::{
     app_data::{
@@ -47,6 +54,7 @@ use openmls::{
     messages::proposals::AppDataUpdateOperation,
 };
 use tls_codec::{Deserialize, Serialize, VLBytes};
+use xmtp_cryptography::secret::Zeroizing;
 use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 
 /// Longest scalar, collection key, or collection value that an application
@@ -297,7 +305,7 @@ pub fn component_id_to_metadata_field(id: ComponentId) -> Option<MetadataField> 
 pub fn read_component_bytes(
     id: ComponentId,
     extensions: &Extensions<GroupContext>,
-) -> Result<Option<Vec<u8>>, ComponentSourceError> {
+) -> Result<Option<&[u8]>, ComponentSourceError> {
     Ok(read_from_app_data_dict_from_extensions(id, extensions))
 }
 
@@ -318,6 +326,8 @@ pub fn read_component_bytes(
 /// Used by the commit validator to evaluate per-component invariants
 /// (notably `MIN_SUPPORTED_PROTOCOL_VERSION`) that need the post-commit
 /// view from the AppData dictionary.
+///
+/// The value is `Zeroizing`: it can be the commit-log signer's private key.
 ///
 /// # Registry semantics
 ///
@@ -343,50 +353,27 @@ pub fn read_post_commit_component_bytes(
     mls_group: &OpenMlsGroup,
     staged_commit: &StagedCommit,
     registry: &ComponentRegistry,
-) -> Result<Option<Vec<u8>>, ComponentSourceError> {
+) -> Result<Option<Zeroizing<Vec<u8>>>, ComponentSourceError> {
     let openmls_id: openmls::component::ComponentId = id.as_u16();
 
-    // Owned snapshot of operations targeting this specific component.
-    // Iterating `app_data_update_proposals()` yields short-lived
-    // `QueuedAppDataUpdateProposal` views that borrow into the staged
-    // commit — we can't hold their byte slices across iterations, so
-    // we materialize an owned form up front. `Update` payloads are
-    // typically tiny (version strings, single-key deltas), so the
-    // clone cost is negligible.
-    enum Op {
-        Update(Vec<u8>),
-        Remove,
-    }
-    let ops: Vec<Op> = staged_commit
-        .app_data_update_proposals()
-        .filter_map(|queued| {
-            let proposal = queued.app_data_update_proposal();
-            if proposal.component_id() != openmls_id {
-                return None;
-            }
-            Some(match proposal.operation() {
-                AppDataUpdateOperation::Update(payload) => Op::Update(payload.as_slice().to_vec()),
-                AppDataUpdateOperation::Remove => Op::Remove,
-            })
-        })
-        .collect();
-    if ops.is_empty() {
-        return Ok(read_from_app_data_dict(id, mls_group));
-    }
-
-    let mut current = read_from_app_data_dict(id, mls_group);
-    for op in &ops {
-        match op {
-            Op::Update(payload) => {
-                current = Some(apply_app_data_update_payload(
-                    id,
-                    payload,
-                    current.as_deref(),
-                    registry,
-                )?);
-            }
-            Op::Remove => current = None,
+    // Each proposal's payload is borrowed only while it is applied, so no
+    // payload is copied. Every replaced value is wiped on drop.
+    let mut current =
+        read_from_app_data_dict(id, mls_group).map(|bytes| Zeroizing::new(bytes.to_vec()));
+    for queued in staged_commit.app_data_update_proposals() {
+        let proposal = queued.app_data_update_proposal();
+        if proposal.component_id() != openmls_id {
+            continue;
         }
+        current = match proposal.operation() {
+            AppDataUpdateOperation::Update(payload) => Some(apply_app_data_update_payload(
+                id,
+                payload.as_slice(),
+                current.as_deref().map(Vec::as_slice),
+                registry,
+            )?),
+            AppDataUpdateOperation::Remove => None,
+        };
     }
     Ok(current)
 }
@@ -400,7 +387,7 @@ pub fn read_post_commit_component_bytes(
 /// inbox id. `xmtp_mls`'s `app_data` module also uses it from
 /// `process_message_with_app_data`, `stage_app_data_propose_and_commit`,
 /// and `pending_app_data_updates`.
-pub fn read_from_app_data_dict(id: ComponentId, mls_group: &OpenMlsGroup) -> Option<Vec<u8>> {
+pub fn read_from_app_data_dict(id: ComponentId, mls_group: &OpenMlsGroup) -> Option<&[u8]> {
     read_from_app_data_dict_from_extensions(id, mls_group.extensions())
 }
 
@@ -408,14 +395,16 @@ pub fn read_from_app_data_dict(id: ComponentId, mls_group: &OpenMlsGroup) -> Opt
 /// component's bytes straight from a group's `GroupContext` extensions, with no
 /// full `OpenMlsGroup`. openmls keys the dictionary by its own `ComponentId`,
 /// which is just a `u16` alias, so `id.as_u16()` unwraps our newtype to the key.
+///
+/// Borrows the bytes, because a component can be the commit-log signer's
+/// private key. A caller that needs an owned copy holds it in `Zeroizing`.
 pub fn read_from_app_data_dict_from_extensions(
     id: ComponentId,
     extensions: &Extensions<GroupContext>,
-) -> Option<Vec<u8>> {
+) -> Option<&[u8]> {
     extensions
         .app_data_dictionary()
         .and_then(|ext| ext.dictionary().get(&id.as_u16()))
-        .map(|bytes| bytes.to_vec())
 }
 
 use crate::app_data::typed::ExpandedComponentChange;
@@ -448,15 +437,19 @@ use crate::app_data::typed::ExpandedComponentChange;
 /// directly so it can also call `Component::validate_invariant`
 /// without a second binary search. This wrapper is retained for
 /// callers that don't need the invariant hook.
+///
+/// The changes are `Zeroizing`: a value can be the commit-log signer's
+/// private key.
 pub fn expand_app_data_update_to_changes(
     component_id: ComponentId,
     operation: &AppDataUpdateOperation,
     old_value: Option<&[u8]>,
     registry: &ComponentRegistry,
-) -> Result<Vec<ExpandedComponentChange>, ComponentSourceError> {
+) -> Result<Zeroizing<Vec<ExpandedComponentChange>>, ComponentSourceError> {
     if let Some(component) = lookup_component(component_id) {
         return component
             .expand_to_changes(operation, old_value)
+            .map(Zeroizing::new)
             .map_err(Into::into);
     }
 
@@ -466,7 +459,9 @@ pub fn expand_app_data_update_to_changes(
     // validator. Old and new clients converge on the same dict state for
     // the same wire bytes.
     let ty = resolved_type(component_id, registry)?;
-    expand_to_changes_for_type(component_id, ty, operation, old_value).map_err(Into::into)
+    expand_to_changes_for_type(component_id, ty, operation, old_value)
+        .map(Zeroizing::new)
+        .map_err(Into::into)
 }
 
 /// Decode an incoming `AppDataUpdateOperation::Update(bytes)` payload
@@ -484,12 +479,15 @@ pub fn expand_app_data_update_to_changes(
 /// A bounded component's payload is held to the element bound before
 /// anything else, so the result does not depend on the state it applies
 /// to; the new value is then held to the snapshot bound.
+///
+/// The new value is `Zeroizing`: it can be the commit-log signer's private
+/// key.
 pub fn apply_app_data_update_payload(
     id: ComponentId,
     payload: &[u8],
     old_value: Option<&[u8]>,
     registry: &ComponentRegistry,
-) -> Result<Vec<u8>, ComponentSourceError> {
+) -> Result<Zeroizing<Vec<u8>>, ComponentSourceError> {
     check_update_payload_bounds(id, payload, registry)?;
     // Immutability gate. Reject only on overwrite — a fresh insert
     // (no prior value) is the bootstrap commit's first write of an
@@ -503,12 +501,12 @@ pub fn apply_app_data_update_payload(
 
     // A per-id `Component` impl handles the well-known mutable components
     // with a typed decoder; every other id dispatches on its resolved type.
-    let new_value = match lookup_component(id) {
+    let new_value = Zeroizing::new(match lookup_component(id) {
         Some(component) => component.apply_update_payload(payload, old_value)?,
         None => {
             apply_update_payload_for_type(id, resolved_type(id, registry)?, payload, old_value)?
         }
-    };
+    });
     if is_field_bounded(id) {
         check_field_bounds(id, resolved_type(id, registry)?, &new_value)?;
     }
@@ -1263,7 +1261,7 @@ mod tests {
             &empty_registry(),
         )
         .unwrap();
-        assert_eq!(new_value, payload);
+        assert_eq!(*new_value, payload);
     }
 
     #[xmtp_common::test]
@@ -1276,7 +1274,7 @@ mod tests {
             &empty_registry(),
         )
         .unwrap();
-        assert_eq!(new_value, b"replacement");
+        assert_eq!(*new_value, b"replacement");
     }
 
     #[xmtp_common::test]
@@ -1426,7 +1424,7 @@ mod tests {
             &empty_registry(),
         )
         .unwrap();
-        assert_eq!(bytes, b"seed");
+        assert_eq!(*bytes, b"seed");
     }
 
     #[xmtp_common::test]
@@ -1581,7 +1579,7 @@ mod tests {
         let id = ComponentId::new(0xC123);
         let registry = registry_with(id, ComponentType::Bytes);
         let new_value = apply_app_data_update_payload(id, b"opaque", None, &registry).unwrap();
-        assert_eq!(new_value, b"opaque");
+        assert_eq!(*new_value, b"opaque");
     }
 
     #[xmtp_common::test]
@@ -1592,7 +1590,7 @@ mod tests {
         let id = ComponentId::new(0xC222);
         let registry = registry_with(id, ComponentType::String);
         let ok = apply_app_data_update_payload(id, b"hello", None, &registry).unwrap();
-        assert_eq!(ok, b"hello");
+        assert_eq!(*ok, b"hello");
         let err = apply_app_data_update_payload(id, &[0xC3, 0x28], None, &registry).unwrap_err();
         assert!(matches!(
             err,
@@ -1644,7 +1642,7 @@ mod tests {
         assert!(id.is_immutable());
         let registry = registry_with(id, ComponentType::Bytes);
         let new_value = apply_app_data_update_payload(id, b"seed", None, &registry).unwrap();
-        assert_eq!(new_value, b"seed");
+        assert_eq!(*new_value, b"seed");
     }
 
     #[xmtp_common::test]
@@ -1699,7 +1697,7 @@ mod tests {
         assert!(id.is_xmtp_range());
         let registry = registry_with(id, ComponentType::Bytes);
         let new_value = apply_app_data_update_payload(id, b"opaque", None, &registry).unwrap();
-        assert_eq!(new_value, b"opaque");
+        assert_eq!(*new_value, b"opaque");
     }
 
     // --- expand_app_data_update_to_changes ---------------------------------
@@ -2314,7 +2312,7 @@ mod tests {
         for id in [app, ComponentId::GROUP_IMAGE] {
             let at_limit = vec![0; MAX_FIELD_ELEMENT_BYTES];
             assert_eq!(
-                apply_app_data_update_payload(id, &at_limit, None, &registry)?,
+                *apply_app_data_update_payload(id, &at_limit, None, &registry)?,
                 at_limit
             );
             let over = [0; MAX_FIELD_ELEMENT_BYTES + 1];
