@@ -222,6 +222,7 @@ pub async fn generate_local_signer() -> Arc<dyn Signer> {
 
 #[xmtp_macro::sdk_export]
 pub async fn local_signer_from_private_key(key: Vec<u8>) -> Result<Arc<dyn Signer>, XmtpError> {
+    let key = Zeroizing::new(key);
     Ok(LocalSigningKey::parse_bytes(&key)?)
 }
 

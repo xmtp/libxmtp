@@ -22,19 +22,23 @@ impl LocalSigningKey {
     /// Restore a 32-byte secp256k1 private key. The input is copied.
     #[uniffi::constructor]
     pub async fn from_bytes(key: Vec<u8>) -> Result<Arc<Self>, XmtpError> {
+        let key = Zeroizing::new(key);
         Self::parse_bytes(&key)
     }
 
     /// Restore a private key encoded as 0x followed by exactly 64 hexadecimal digits.
     #[uniffi::constructor]
     pub async fn from_hex(key: String) -> Result<Arc<Self>, XmtpError> {
+        let key = Zeroizing::new(key);
         let encoded = key
             .strip_prefix("0x")
             .filter(|text| text.len() == PRIVATE_KEY_HEX_LENGTH)
             .ok_or_else(|| XmtpError::invalid("invalid local signer private key"))?;
-        let bytes = hex::decode(encoded)
+        // Accepts either hex case.
+        let mut bytes = Zeroizing::new([0u8; PRIVATE_KEY_LENGTH]);
+        hex::decode_to_slice(encoded, bytes.as_mut_slice())
             .map_err(|_| XmtpError::invalid("invalid local signer private key"))?;
-        Self::parse_bytes(&bytes)
+        Self::parse_bytes(bytes.as_slice())
     }
 
     pub async fn identity(&self) -> Result<PublicIdentity, XmtpError> {
@@ -81,9 +85,18 @@ impl LocalSigningKey {
         self.private_key().to_vec()
     }
 
+    /// The returned `String` is the only heap copy: digits are written
+    /// straight into it.
     // implements: IDENT-088
     fn private_key_hex(&self) -> String {
-        format!("0x{}", hex::encode(*self.private_key()))
+        const DIGITS: &[u8; 16] = b"0123456789abcdef";
+        let mut hex = String::with_capacity(2 + PRIVATE_KEY_HEX_LENGTH);
+        hex.push_str("0x");
+        for byte in self.private_key().iter() {
+            hex.push(char::from(DIGITS[usize::from(byte >> 4)]));
+            hex.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+        }
+        hex
     }
 }
 

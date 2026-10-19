@@ -136,6 +136,8 @@ Run commands from the repository root in the Nix shell. Run
   The handle tests that claim more than once per inbox, or need another
   handle setting, also start a disposable backend (`xmtp_backend`'s
   `TestServer`). It creates its own database on this worktree's `db` service.
+- `dev/nix-shell 'just test workspace -p xmtp_sdk --features xmtp_cryptography/test-utils --test zeroize'`
+  runs the heap-canary proofs for wallet key import and export. It needs no backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
 `xmtp_sdk` to this crate root so Swift and Kotlin load `uniffi.toml`.
