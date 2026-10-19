@@ -7,6 +7,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef } from "react";
 
+import { decimalToBigint } from "@/core/bigint.ts";
 import { attachmentDebug } from "@/features/attachments/sdkAttachmentGateway";
 
 export default function AttachmentProbe() {
@@ -23,9 +24,19 @@ export default function AttachmentProbe() {
     if (ran.current === id) return;
     ran.current = id;
     switch (params.action) {
-      case "limit":
-        attachmentDebug.limit = BigInt(params.bytes ?? "0");
+      case "limit": {
+        // A count that is not decimal digits leaves the limit as it was; the
+        // probe still goes back.
+        const bytes = decimalToBigint(params.bytes ?? "0");
+        if (bytes === undefined || bytes < 0n) {
+          console.warn(
+            `[attachment-probe] invalid bytes ${params.bytes ?? ""}`,
+          );
+        } else {
+          attachmentDebug.limit = bytes;
+        }
         break;
+      }
       case "clearLimit":
         attachmentDebug.limit = undefined;
         break;
