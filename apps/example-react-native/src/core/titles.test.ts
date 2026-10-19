@@ -46,13 +46,14 @@ test("conversation titles follow the iOS rules (ListRulesTests)", () => {
   );
 });
 
-test("row initials use the inbox ID rule only for a short inbox ID title", () => {
-  assert.equal(conversationInitials(dm, conversationTitle(dm)), "N");
+test("row and Details initials use the inbox ID rule only without an alias or handle", () => {
   const noHandle = {
     id: "d",
     kind: "dm" as const,
     peerInboxId: "9c0de1ab34cd56ef",
   };
+  // Conversation rows.
+  assert.equal(conversationInitials(dm, conversationTitle(dm)), "N");
   assert.equal(
     conversationInitials(noHandle, conversationTitle(noHandle)),
     "9c",
@@ -62,14 +63,7 @@ test("row initials use the inbox ID rule only for a short inbox ID title", () =>
     conversationInitials({ id: "g", kind: "group" }, "Protocol design"),
     "PD",
   );
-});
-
-test("details avatar label ignores the inbox ID rule when an alias is set", () => {
-  const noHandle = {
-    id: "d",
-    kind: "dm" as const,
-    peerInboxId: "9c0de1ab34cd56ef",
-  };
+  // The Details header.
   assert.equal(detailsAvatarLabel(noHandle), "9c");
   assert.equal(detailsAvatarLabel(noHandle, "zed"), "Z");
   assert.equal(detailsAvatarLabel(dm), "N");
@@ -108,7 +102,7 @@ test("logical keys sort DM inbox IDs so duplicate DMs share one key", () => {
   assert.equal(logicalKey({ id: "z", kind: "dm" }, "own"), "dm::own");
 });
 
-test("handles split into name and code without a leading @", () => {
+test("handles split once at the first # after dropping exactly one leading @", () => {
   assert.deepEqual(splitHandle("@marco#0412"), {
     name: "marco",
     code: "#0412",
@@ -116,27 +110,23 @@ test("handles split into name and code without a leading @", () => {
   assert.deepEqual(splitHandle("lena#2207"), { name: "lena", code: "#2207" });
   assert.deepEqual(splitHandle("nick"), { name: "nick", code: "" });
   assert.deepEqual(splitHandle(""), { name: "", code: "" });
-});
-
-test("handles split only at the first #", () => {
   assert.deepEqual(splitHandle("a#b#c"), { name: "a", code: "#b#c" });
-});
-
-test("a handle's spoken label drops exactly one leading @", () => {
+  assert.deepEqual(splitHandle("@@nick"), { name: "@nick", code: "" });
+  // The spoken label (`stripAt`) follows the same one-@ rule.
   assert.equal(stripAt("@nick"), "nick");
   assert.equal(stripAt("@@nick"), "@nick");
   assert.equal(stripAt("nick"), "nick");
-  assert.deepEqual(splitHandle("@@nick"), { name: "@nick", code: "" });
 });
 
 test("search matches title, handle, preview or ID ignoring case", () => {
+  // Each field holds a different word, so each search proves one field.
   const row = {
-    title: "@nick#1234",
+    title: "Book club",
     peerHandle: "nick#1234",
     preview: "hello",
     id: "abc",
   };
-  for (const search of ["NICK", "HELLO", "ABC", "1234"]) {
+  for (const search of ["BOOK", "NICK", "HELLO", "ABC"]) {
     assert.ok(rowMatches(row, search), search);
   }
   assert.ok(!rowMatches(row, "zzz"));

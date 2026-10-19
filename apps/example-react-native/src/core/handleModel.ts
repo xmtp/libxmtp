@@ -8,7 +8,6 @@ import {
   type HandleMode,
   type HandleNotice,
   type HandleStatus,
-  DEFAULT_HANDLE_MINIMUM,
   availabilityStatus,
   canClaim,
   effectiveHandleMinimum,
@@ -65,7 +64,6 @@ export interface HandleModelOptions {
   readonly finish: () => void;
   /** Saves "Skip for now" (choose mode). May throw. */
   readonly persistSkip?: () => void;
-  readonly now?: () => Date;
 }
 
 export interface HandleState extends HandleEditorState {
@@ -98,7 +96,6 @@ export class HandleModel extends Store<HandleState> {
   readonly #isSessionCurrent: () => boolean;
   readonly #finish: () => void;
   readonly #persistSkip: (() => void) | undefined;
-  readonly #now: () => Date;
   #attempt = 0;
   #loadAttempt = 0;
   #closed = false;
@@ -109,7 +106,7 @@ export class HandleModel extends Store<HandleState> {
       mode: options.mode,
       loading: true,
       others: [],
-      minimum: DEFAULT_HANDLE_MINIMUM,
+      minimum: effectiveHandleMinimum(options.account.minimum),
       input: "",
       problem: undefined,
       status: { kind: "editing" },
@@ -120,14 +117,6 @@ export class HandleModel extends Store<HandleState> {
     this.#isSessionCurrent = options.isSessionCurrent;
     this.#finish = options.finish;
     this.#persistSkip = options.persistSkip;
-    this.#now = options.now ?? (() => new Date());
-    let minimum = DEFAULT_HANDLE_MINIMUM;
-    try {
-      minimum = effectiveHandleMinimum(options.account.minimum);
-    } catch {
-      minimum = DEFAULT_HANDLE_MINIMUM;
-    }
-    this.setState((state) => ({ ...state, minimum }));
   }
 
   #admitted(): boolean {
@@ -404,7 +393,7 @@ export class HandleModel extends Store<HandleState> {
         return;
       }
       if (!this.#isSessionCurrent()) return;
-      const now = this.#now();
+      const now = new Date();
       if (this.#closed || number !== this.#attempt) {
         // The claim happened: keep its time even though the screen moved on.
         try {
@@ -479,7 +468,7 @@ export class HandleModel extends Store<HandleState> {
             ...cleared,
             notice: tooSoonNotice(
               this.#account.claimTimes().values(),
-              this.#now(),
+              new Date(),
             ),
           };
         case "limitReached":

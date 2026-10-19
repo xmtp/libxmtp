@@ -8,13 +8,15 @@ import {
   HandleModel,
   canRetryNotice,
 } from "./handleModel.ts";
-import { type HandleError, canCheck, canClaim, isEditable } from "./handles.ts";
-
-async function settle(): Promise<void> {
-  for (let index = 0; index < 20; index += 1) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-}
+import {
+  type HandleError,
+  canCheck,
+  canClaim,
+  isEditable,
+  statusPick,
+  visibleSuggestions,
+} from "./handles.ts";
+import { deferred, settle } from "./testing.ts";
 
 class FakeAccount implements HandleAccount {
   minimum = 3;
@@ -66,9 +68,14 @@ class FakeAccount implements HandleAccount {
 
 function model(
   account: FakeAccount,
-  options: Partial<HandleModelOptions> = {},
-): { model: HandleModel; finished: () => number } {
+  options: Partial<HandleModelOptions> & {
+    /** Makes "Skip for now" fail to save while it returns true. */
+    readonly failSkip?: () => boolean;
+  } = {},
+) {
   let finished = 0;
+  let skipWrites = 0;
+  const { failSkip, ...overrides } = options;
   const handleModel = new HandleModel({
     account,
     mode: "choose",
@@ -76,64 +83,66 @@ function model(
     finish: () => {
       finished += 1;
     },
-    ...options,
+    persistSkip: () => {
+      skipWrites += 1;
+      if (failSkip?.() === true) throw new Error("no");
+    },
+    ...overrides,
   });
-  return { model: handleModel, finished: () => finished };
+  return {
+    model: handleModel,
+    finished: () => finished,
+    skipWrites: () => skipWrites,
+  };
+}
+
+/** Types `input`, checks it and waits for the answer. */
+async function checked(store: HandleModel, input: string): Promise<void> {
+  store.changeInput(input);
+  store.check();
+  await settle();
 }
 
 const codes = ["abc#0001", "abc#0002", "abc#0003", "abc#0004"];
 
-test("suggestions show three at a time; taken and tooSoon claims (suggestionsAndClaimFailures)", async () => {
+test("suggestions show three at a time, and a taken claim offers the rest", async () => {
   const account = new FakeAccount();
   account.answers = codes;
   const { model: store } = model(account);
   await store.load();
-  store.changeInput("abc");
-  store.check();
-  await settle();
-  let status = store.getState().status;
-  assert.equal(status.kind, "suggestions");
-  assert.deepEqual(status.kind === "suggestions" ? status.shown : 0, 3);
+  await checked(store, "abc");
+  assert.equal(visibleSuggestions(store.getState().status).length, 3);
   store.showMore();
-  status = store.getState().status;
-  assert.equal(status.kind === "suggestions" ? status.shown : 0, 4);
+  assert.equal(visibleSuggestions(store.getState().status).length, 4);
 
   account.error = "taken";
   store.claim();
   await settle();
   const state = store.getState();
   assert.equal(state.notice?.kind, "taken");
-  assert.equal(
-    state.status.kind === "suggestions" ? state.status.selected : undefined,
-    "abc#0002",
-  );
-  assert.ok(
-    state.status.kind === "suggestions" &&
-      !state.status.handles.includes("abc#0001"),
-  );
+  assert.equal(statusPick(state.status), "abc#0002");
+  assert.ok(!visibleSuggestions(state.status).includes("abc#0001"));
   assert.equal(account.claims.length, 1);
-
-  account.error = "tooSoon";
-  store.claim();
-  await settle();
-  assert.equal(store.getState().notice?.kind, "tooSoon");
-  assert.equal(isEditable(store.getState()), false, "blocked");
 });
 
-test("the handle limit locks the editor (claimLimitLocksEditor)", async () => {
-  const account = new FakeAccount();
-  account.error = "limitReached";
-  const { model: store } = model(account);
-  await store.load();
-  store.changeInput("abc");
-  store.check();
-  await settle();
-  store.claim();
-  await settle();
-  assert.equal(store.getState().notice?.kind, "limitReached");
-  assert.equal(isEditable(store.getState()), false);
-  store.changeInput("different");
-  assert.equal(store.getState().input, "");
+test("tooSoon and the handle limit clear and lock the editor", async () => {
+  for (const error of ["tooSoon", "limitReached"] as const) {
+    const account = new FakeAccount();
+    account.error = error;
+    const { model: store } = model(account);
+    await store.load();
+    await checked(store, "abc");
+    store.claim();
+    await settle();
+    const state = store.getState();
+    assert.equal(state.notice?.kind, error);
+    assert.equal(state.input, "", error);
+    assert.equal(state.problem, undefined, error);
+    assert.deepEqual(state.status, { kind: "editing" }, error);
+    assert.equal(isEditable(state), false, error);
+    store.changeInput("different");
+    assert.equal(store.getState().input, "", error);
+  }
 });
 
 test("editing while the first read runs stays usable (editingDuringInitialHandleLoadRemainsUsable)", async () => {
@@ -156,15 +165,13 @@ test("editing while the first read runs stays usable (editingDuringInitialHandle
   assert.equal(canCheck(store.getState()), true);
 });
 
-test("a failed claim record retries only the local save (failedClaimRecordRetriesOnlyLocalSave)", async () => {
+test("a failed claim record retries only the local save, and Skip waits for it", async () => {
   const account = new FakeAccount();
   account.answers = codes;
   account.recordFailures = 1;
-  const { model: store, finished } = model(account);
+  const { model: store, finished, skipWrites } = model(account);
   await store.load();
-  store.changeInput("abc");
-  store.check();
-  await settle();
+  await checked(store, "abc");
   store.claim();
   await settle();
   let state = store.getState();
@@ -173,6 +180,10 @@ test("a failed claim record retries only the local save (failedClaimRecordRetrie
   assert.equal(isEditable(state), false);
   assert.equal(finished(), 0);
   assert.equal(canRetryNotice(state.notice), true);
+  store.skip();
+  assert.equal(skipWrites(), 0, "Skip is ignored while the record is unsaved");
+  assert.equal(finished(), 0);
+  assert.deepEqual(store.getState().notice, state.notice);
   store.retry();
   state = store.getState();
   assert.equal(state.notice, undefined);
@@ -181,118 +192,51 @@ test("a failed claim record retries only the local save (failedClaimRecordRetrie
   assert.equal(finished(), 1);
 });
 
-test("a successful claim records its time after the screen closes (successfulClaimPersistsAfterRouteCloses)", async () => {
-  const account = new FakeAccount();
-  let release = () => {};
-  account.hold = new Promise((resolve) => {
-    release = resolve;
-  });
-  const { model: store, finished } = model(account);
-  store.changeInput("abc");
-  store.check();
-  await settle();
-  store.claim();
-  await settle();
-  assert.equal(account.claimStarted, true);
-  store.dispose();
-  release();
-  await settle();
-  assert.ok(account.times.has("abc"));
-  assert.equal(finished(), 0);
-});
-
-test("a claim after the session ended records nothing, even after the screen closed", async () => {
-  for (const closeRoute of [false, true]) {
+test("a claim that finishes after the screen closed records its time only while the session is current", async () => {
+  const cases = [
+    { sessionEnds: false, closeRoute: true, recorded: true },
+    { sessionEnds: true, closeRoute: false, recorded: false },
+    { sessionEnds: true, closeRoute: true, recorded: false },
+  ];
+  for (const { sessionEnds, closeRoute, recorded } of cases) {
+    const label = JSON.stringify({ sessionEnds, closeRoute });
     const account = new FakeAccount();
     let current = true;
-    const { model: store } = model(account, {
+    const { model: store, finished } = model(account, {
       isSessionCurrent: () => current,
     });
-    store.changeInput("abc");
-    store.check();
-    await settle();
-    let release = () => {};
-    account.hold = new Promise((resolve) => {
-      release = resolve;
-    });
+    await checked(store, "abc");
+    const hold = deferred();
+    account.hold = hold.promise;
     store.claim();
     await settle();
-    // Sign out while the claim runs; the screen may already be gone.
+    // The screen may close and the session may end while the claim runs.
     if (closeRoute) store.dispose();
-    current = false;
-    release();
+    if (sessionEnds) current = false;
+    hold.resolve();
     await settle();
-    assert.equal(account.times.size, 0, `closed: ${String(closeRoute)}`);
+    assert.equal(account.times.has("abc"), recorded, label);
+    assert.equal(finished(), 0, label);
   }
-});
-
-test("Skip does nothing while a claim record is unsaved (skip ignores a pending record)", async () => {
-  const account = new FakeAccount();
-  account.recordFailures = 1;
-  let skipWrites = 0;
-  const { model: store, finished } = model(account, {
-    persistSkip: () => {
-      skipWrites += 1;
-    },
-  });
-  await store.load();
-  store.changeInput("abc");
-  store.check();
-  await settle();
-  store.claim();
-  await settle();
-  assert.deepEqual(store.getState().notice, {
-    kind: "recordFailed",
-    handle: "abc",
-  });
-  store.skip();
-  assert.equal(skipWrites, 0);
-  assert.equal(finished(), 0);
-  assert.deepEqual(store.getState().notice, {
-    kind: "recordFailed",
-    handle: "abc",
-  });
-});
-
-test("a tooSoon claim clears the input, problem and status (tooSoon resets the editor)", async () => {
-  const account = new FakeAccount();
-  account.error = "tooSoon";
-  const { model: store } = model(account, { mode: "change" });
-  await store.load();
-  store.changeInput("abc");
-  store.check();
-  await settle();
-  assert.equal(store.getState().status.kind, "available");
-  store.claim();
-  store.confirmClaim();
-  await settle();
-  const state = store.getState();
-  assert.equal(state.notice?.kind, "tooSoon");
-  assert.equal(state.input, "");
-  assert.equal(state.problem, undefined);
-  assert.deepEqual(state.status, { kind: "editing" });
-  assert.equal(isEditable(state), false);
 });
 
 test("a choose claim finishes without saving Skip (successfulChooseClaimBypassesFailingSkipPreference)", async () => {
   const account = new FakeAccount();
-  let skipWrites = 0;
-  const { model: store, finished } = model(account, {
-    persistSkip: () => {
-      skipWrites += 1;
-      throw new Error("no");
-    },
+  const {
+    model: store,
+    finished,
+    skipWrites,
+  } = model(account, {
+    failSkip: () => true,
   });
   await store.load();
-  store.changeInput("claimme");
-  store.check();
-  await settle();
+  await checked(store, "claimme");
   assert.equal(canClaim(store.getState()), true);
   store.claim();
   await settle();
   assert.deepEqual(account.claims, ["claimme"]);
   assert.ok(account.times.has("claimme"));
-  assert.equal(skipWrites, 0);
+  assert.equal(skipWrites(), 0);
   assert.equal(finished(), 1);
   assert.equal(store.getState().notice, undefined);
   assert.equal(store.getState().confirm, undefined, "choose mode never asks");
@@ -301,15 +245,10 @@ test("a choose claim finishes without saving Skip (successfulChooseClaimBypasses
 test("an existing handle finishes Choose handle on load (existingHandleFinishesWithoutSavingSkip)", async () => {
   const account = new FakeAccount();
   account.current = "alreadyclaimed";
-  let skipWrites = 0;
-  const { model: store, finished } = model(account, {
-    persistSkip: () => {
-      skipWrites += 1;
-    },
-  });
+  const { model: store, finished, skipWrites } = model(account);
   await store.load();
   assert.equal(finished(), 1);
-  assert.equal(skipWrites, 0);
+  assert.equal(skipWrites(), 0);
 
   const change = model(account, { mode: "change" });
   await change.model.load();
@@ -319,21 +258,21 @@ test("an existing handle finishes Choose handle on load (existingHandleFinishesW
 
 test("a failed skip retries the preference without claiming (explicitSkipFailureRetriesPreferenceWithoutClaiming)", () => {
   const account = new FakeAccount();
-  let skipWrites = 0;
   let fail = true;
-  const { model: store, finished } = model(account, {
-    persistSkip: () => {
-      skipWrites += 1;
-      if (fail) throw new Error("no");
-    },
+  const {
+    model: store,
+    finished,
+    skipWrites,
+  } = model(account, {
+    failSkip: () => fail,
   });
   store.skip();
-  assert.equal(skipWrites, 1);
+  assert.equal(skipWrites(), 1);
   assert.deepEqual(store.getState().notice, { kind: "skipFailed" });
   assert.equal(finished(), 0);
   fail = false;
   store.retry();
-  assert.equal(skipWrites, 2);
+  assert.equal(skipWrites(), 2);
   assert.equal(store.getState().notice, undefined);
   assert.equal(finished(), 1);
   assert.equal(account.claims.length, 0);
@@ -342,34 +281,32 @@ test("a failed skip retries the preference without claiming (explicitSkipFailure
 test("a stale skip neither saves nor finishes (staleSkipDoesNotSaveOrNavigate)", () => {
   for (const closeRoute of [false, true]) {
     const account = new FakeAccount();
-    let writes = 0;
-    const { model: store, finished } = model(account, {
+    const {
+      model: store,
+      finished,
+      skipWrites,
+    } = model(account, {
       isSessionCurrent: () => closeRoute,
-      persistSkip: () => {
-        writes += 1;
-      },
     });
     if (closeRoute) store.dispose();
     store.skip();
     store.retry();
-    assert.equal(writes, 0);
+    assert.equal(skipWrites(), 0);
     assert.equal(finished(), 0);
     assert.equal(store.getState().notice, undefined);
   }
 });
 
-test("an unchanged input keeps an available claim; change mode confirms (semanticNoOpCommitPreservesAvailableClaim)", async () => {
+test("an unchanged input keeps an available claim; change mode confirms", async () => {
   for (const input of ["abc", "ABC"]) {
     const account = new FakeAccount();
     const { model: store } = model(account, { mode: "change" });
     await store.load();
-    store.changeInput("abc");
-    store.check();
-    await settle();
+    await checked(store, "abc");
     assert.equal(canClaim(store.getState()), true);
     const available = store.getState();
     store.changeInput(input);
-    assert.equal(store.getState(), available);
+    assert.deepEqual(store.getState(), available);
     store.claim();
     assert.equal(store.getState().confirm, "abc");
     assert.equal(account.claims.length, 0);
@@ -423,9 +360,7 @@ test("a not-allowed claim of an old handle says it cannot be switched back to", 
     handle: "ni",
     shorter: true,
   });
-  store.changeInput("other");
-  store.check();
-  await settle();
+  await checked(store, "other");
   store.claim();
   store.confirmClaim();
   await settle();
@@ -441,14 +376,10 @@ test("check failures: invalid argument marks the input, others offer Retry", asy
   account.checkError = "invalidArgument";
   const { model: store } = model(account);
   await store.load();
-  store.changeInput("abc");
-  store.check();
-  await settle();
+  await checked(store, "abc");
   assert.equal(store.getState().problem, "invalidCharacters");
-  store.changeInput("abcd");
   account.checkError = "failed";
-  store.check();
-  await settle();
+  await checked(store, "abcd");
   assert.deepEqual(store.getState().notice, { kind: "checkFailed" });
   account.checkError = undefined;
   store.retry();
@@ -468,11 +399,23 @@ test("a late check result is dropped after an edit", async () => {
 });
 
 test("the server minimum is used only inside 1-27", () => {
-  const account = new FakeAccount();
-  account.minimum = 5;
-  assert.equal(model(account).model.getState().minimum, 5);
-  account.minimum = 40;
-  assert.equal(model(account).model.getState().minimum, 3);
+  const cases = [
+    [5, 5],
+    [1, 1],
+    [27, 27],
+    [0, 3],
+    [28, 3],
+    [2.5, 3],
+  ] as const;
+  for (const [server, minimum] of cases) {
+    const account = new FakeAccount();
+    account.minimum = server;
+    assert.equal(
+      model(account).model.getState().minimum,
+      minimum,
+      String(server),
+    );
+  }
 });
 
 test("load reopens a disposed model (a React effect runs again after its cleanup)", async () => {

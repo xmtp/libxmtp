@@ -259,7 +259,7 @@ export interface HandleEditorState {
 }
 
 /** A tooSoon or limitReached notice blocks the editor. */
-export function isBlocked(state: HandleEditorState): boolean {
+function isBlocked(state: HandleEditorState): boolean {
   return (
     state.notice?.kind === "tooSoon" || state.notice?.kind === "limitReached"
   );

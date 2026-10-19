@@ -8,14 +8,12 @@ import {
   availabilityStatus,
   canCheck,
   canClaim,
-  effectiveHandleMinimum,
   handleHint,
   handleName,
   handleNoticeCopy,
   handleProblem,
   handleProblemCopy,
   hasMoreSuggestions,
-  isBlocked,
   isEditable,
   normalizeHandle,
   primaryButtonTitle,
@@ -26,47 +24,36 @@ import {
   visibleSuggestions,
 } from "./handles.ts";
 
-test("grammar problems come in the iOS order (handleGrammarOrder)", () => {
-  const cases: readonly (readonly [string, string | undefined])[] = [
-    ["a!#x", "invalidCharacters"],
-    ["1#x", "startWithLetter"],
-    ["a".repeat(28) + "#x", "tooLong"],
-    ["a#x", "tooShort"],
-    ["abc#x", "badCode"],
-    ["abc#1234", undefined],
+test("the first grammar problem shown follows the check order", () => {
+  const cases: readonly (readonly [string, number, string | undefined])[] = [
+    // One problem per row, in the order the checks run.
+    ["a!#x", 3, "invalidCharacters"],
+    ["1#x", 3, "startWithLetter"],
+    ["a".repeat(28) + "#x", 3, "tooLong"],
+    ["a#x", 3, "tooShort"],
+    ["abc#x", 3, "badCode"],
+    ["abc#1234", 3, undefined],
+    // Edges.
+    ["", 3, undefined],
+    ["Abc", 3, "invalidCharacters"],
+    ["_abc", 3, "startWithLetter"],
+    ["a".repeat(27), 3, undefined],
+    // Length checks run longest first, even when the minimum is higher.
+    ["a".repeat(28), 30, "tooLong"],
+    ["ab", 3, "tooShort"],
+    ["a", 1, undefined],
+    ["abc#", 3, "badCode"],
+    ["abc#12345", 3, "badCode"],
+    ["abc#12a4", 3, "badCode"],
+    ["abc#١٢٣٤", 3, "badCode"],
+    ["a-b_c9", 3, undefined],
   ];
-  for (const [input, problem] of cases) {
-    assert.equal(handleProblem(input, 3), problem, input);
+  for (const [input, minimum, problem] of cases) {
+    assert.equal(handleProblem(input, minimum), problem, input);
   }
   assert.equal(normalizeHandle("AbÇ"), "abÇ");
-});
-
-test("grammar edge cases", () => {
-  assert.equal(handleProblem("", 3), undefined);
-  assert.equal(handleProblem("Abc", 3), "invalidCharacters");
-  assert.equal(handleProblem("_abc", 3), "startWithLetter");
-  assert.equal(handleProblem("a".repeat(27), 3), undefined);
-  // Length checks run longest first: an over-long name is tooLong even when
-  // the minimum is higher still.
-  assert.equal(handleProblem("a".repeat(28), 30), "tooLong");
-  assert.equal(handleProblem("ab", 3), "tooShort");
-  assert.equal(handleProblem("a", 1), undefined);
-  assert.equal(handleProblem("abc#", 3), "badCode");
-  assert.equal(handleProblem("abc#12345", 3), "badCode");
-  assert.equal(handleProblem("abc#12a4", 3), "badCode");
-  assert.equal(handleProblem("abc#١٢٣٤", 3), "badCode");
-  assert.equal(handleProblem("a-b_c9", 3), undefined);
   assert.equal(handleName("nick#2341"), "nick");
   assert.equal(handleName("nick"), "nick");
-});
-
-test("server minimums outside 1-27 fall back to 3", () => {
-  assert.equal(effectiveHandleMinimum(5), 5);
-  assert.equal(effectiveHandleMinimum(1), 1);
-  assert.equal(effectiveHandleMinimum(27), 27);
-  assert.equal(effectiveHandleMinimum(0), 3);
-  assert.equal(effectiveHandleMinimum(28), 3);
-  assert.equal(effectiveHandleMinimum(2.5), 3);
 });
 
 test("problem and notice copy matches HandleCopy.swift", () => {
@@ -159,23 +146,22 @@ test("tooSoon uses the newest claim under 7 days old", () => {
   });
 });
 
-test("availability: the input itself, else up to 3 suggestions, else none free", () => {
+test("availability: the input itself, else up to 3 suggestions without the taken handle, else none free", () => {
   assert.deepEqual(
     availabilityStatus("abc", ["abc", "abc#0001"], ["abc", "abc#0001"]),
-    {
-      kind: "available",
-      handle: "abc",
-    },
+    { kind: "available", handle: "abc" },
   );
   const answers = ["abc#0001", "abc#0002", "abc#0003", "abc#0004"];
   const status = availabilityStatus("abc", answers, answers);
-  assert.equal(status.kind, "suggestions");
   assert.deepEqual(visibleSuggestions(status), [
     "abc#0001",
     "abc#0002",
     "abc#0003",
   ]);
   assert.equal(statusPick(status), "abc#0001");
+  // Select picks only a visible suggestion.
+  assert.equal(statusPick(selectSuggestion(status, "abc#0002")), "abc#0002");
+  assert.equal(statusPick(selectSuggestion(status, "abc#0004")), "abc#0001");
   assert.ok(hasMoreSuggestions(status));
   const more = showMoreSuggestions(status);
   assert.equal(visibleSuggestions(more).length, 4);
@@ -184,25 +170,14 @@ test("availability: the input itself, else up to 3 suggestions, else none free",
     kind: "noneFree",
     input: "abc#1234",
   });
-});
-
-test("a taken handle is excluded from the new suggestions (suggestionsAndClaimFailures)", () => {
-  const answers = ["abc#0001", "abc#0002", "abc#0003", "abc#0004"];
-  const status = availabilityStatus("abc", answers, answers, "abc#0001");
-  assert.ok(!visibleSuggestions(status).includes("abc#0001"));
-  assert.equal(statusPick(status), "abc#0002");
-  // The taken handle is not offered even when the input itself was free.
+  // A handle that was just taken is never offered, even as the free input.
+  const retaken = availabilityStatus("abc", answers, answers, "abc#0001");
+  assert.ok(!visibleSuggestions(retaken).includes("abc#0001"));
+  assert.equal(statusPick(retaken), "abc#0002");
   assert.equal(
     availabilityStatus("abc", ["abc"], ["abc"], "abc").kind,
     "noneFree",
   );
-});
-
-test("select picks only a visible suggestion", () => {
-  const answers = ["a#0001", "a#0002", "a#0003", "a#0004"];
-  const status = availabilityStatus("a", answers, answers);
-  assert.equal(statusPick(selectSuggestion(status, "a#0002")), "a#0002");
-  assert.equal(statusPick(selectSuggestion(status, "a#0004")), "a#0001");
 });
 
 const editor = (
@@ -217,16 +192,14 @@ const editor = (
   ...overrides,
 });
 
-test("editor flags (claimLimitLocksEditor and canCheck)", () => {
+test("editor flags decide when a handle can be checked, edited and claimed", () => {
   assert.ok(canCheck(editor()));
   assert.ok(!canCheck(editor({ loading: true })));
   assert.ok(!canCheck(editor({ input: "" })));
   assert.ok(!canCheck(editor({ problem: "tooShort" })));
   assert.ok(!canCheck(editor({ notice: { kind: "notAllowed", name: "abc" } })));
   assert.ok(canCheck(editor({ notice: { kind: "notAllowed", name: "xyz" } })));
-  const limit = editor({ notice: { kind: "limitReached" } });
-  assert.ok(isBlocked(limit));
-  assert.ok(!isEditable(limit));
+  assert.ok(!isEditable(editor({ notice: { kind: "limitReached" } })));
   assert.ok(
     !isEditable(editor({ notice: { kind: "recordFailed", handle: "abc" } })),
   );

@@ -32,10 +32,7 @@ export class SettingsModel extends Store<SettingsState> {
 
   /** "Sign out" in the "Sign out?" alert. */
   signOut(): Promise<void> {
-    return this.#device(
-      () => this.#ports.signOut(),
-      "Cannot sign out. Try again.",
-    );
+    return this.#device(() => this.#ports.signOut(), SessionCopy.signOutFailed);
   }
 
   /** "Delete local data" in the "Delete local data?" alert. */
