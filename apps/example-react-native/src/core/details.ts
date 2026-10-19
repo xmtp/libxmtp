@@ -94,7 +94,7 @@ export function initialLoadError(state: DetailsState): string | undefined {
 }
 
 /** True while a membership change waits for the group to confirm it. */
-export function hasPending(state: DetailsState): boolean {
+function hasPending(state: DetailsState): boolean {
   return (
     state.pendingMembers.size > 0 ||
     state.pendingRoles.size > 0 ||
