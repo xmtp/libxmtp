@@ -172,8 +172,12 @@ paths and its label block; the SDK the app consumes and the SDK and toolchain
 Nix inputs (`example_ios_nix`, `example_android_nix`) run it as advisory.
 
 `runners` maps a workflow input to a `{pr, merge}` pair of labels. The caller
-passes the merge label on pushes to `main` and the `pr` label on pull requests
-and manual runs; the suite workflow uses it as `runs-on: ${{ inputs.NAME }}`.
+passes the `pr` label on pull requests and the merge label on merge and manual
+runs, so a manual run on a branch measures the merge runners; the suite
+workflow uses it as `runs-on: ${{ inputs.NAME }}`. Merge and manual runs use
+free GitHub-hosted runners, except the Gradle jobs, which write the Gradle
+home that pull requests restore from Blacksmith's cache. On a GitHub-hosted
+Linux runner, `setup-nix` first removes preinstalled toolchains to free disk.
 `with` passes other inputs (for example a scope). The top-level `runners` key
 sets the runners of `Select suites`, the products jobs, and the gates.
 

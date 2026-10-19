@@ -1,10 +1,15 @@
 name: Check SDK products
 'on':
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 jobs:
   generated:
     name: Check (generated SDK products)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 90
     env:
       NIX_DEVSHELL: rust

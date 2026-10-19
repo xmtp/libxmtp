@@ -1,6 +1,11 @@
 name: Test WASM
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 env:
   NIX_DEVSHELL: wasm
 jobs:
@@ -9,7 +14,7 @@ jobs:
   # partitions substitute them instead of 4 runners building them at once.
   archive:
     name: Test (WASM archive)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -30,7 +35,7 @@ jobs:
   partition:
     name: Test (WASM ${{ matrix.part }})
     needs: archive
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false

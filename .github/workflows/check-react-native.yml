@@ -4,13 +4,19 @@
 name: React Native unit checks
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 permissions:
   contents: read
 jobs:
   unit:
     name: Package, React, and native-helper checks
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 30
+    runs-on: ${{ inputs.runner }}
+    # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
+    timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
     env:
       # One shell for every recipe; its react-native.just recipes run in it.
       NIX_DEVSHELL: react-native

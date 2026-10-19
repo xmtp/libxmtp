@@ -9,7 +9,7 @@ jobs:
   # calling workflow, so a shared id would mix two Gradle User Homes.
   sdk-build:
     name: Build, unit tests, and consumers (Android)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 40
     env:
       # The slim CI shell: no Rust toolchain, no emulator.
@@ -47,7 +47,7 @@ jobs:
         retention-days: 7
   sdk-emulator:
     name: Emulator tests, API 34 and API 23 (Android)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 60
     env:
       # The slim CI shell with the emulator; no Rust toolchain.

@@ -33,7 +33,7 @@ concurrency:
 jobs:
   detect-changes:
     name: Select suites
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -82,7 +82,7 @@ jobs:
     needs:
     - detect-changes
     if: contains(fromJSON(needs.detect-changes.outputs.products), 'sdk_js')
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 60
     steps:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -98,7 +98,7 @@ jobs:
     needs:
     - detect-changes
     if: contains(fromJSON(needs.detect-changes.outputs.products), 'sdk_android')
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 60
     steps:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -117,6 +117,8 @@ jobs:
     uses: ./.github/workflows/lint-config.yml
     permissions:
       contents: read
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   nix_eval:
     name: Nix evaluation
     needs:
@@ -143,6 +145,8 @@ jobs:
     uses: ./.github/workflows/test-dev.yml
     permissions:
       contents: read
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   check_rust:
     name: Rust Clippy
     needs:
@@ -154,6 +158,8 @@ jobs:
     secrets:
       KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
       KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   test_backend:
     name: Backend Docker image
     needs:
@@ -164,6 +170,8 @@ jobs:
       contents: read
     secrets:
       CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   test_nix_checks:
     name: Rust Nix checks
     needs:
@@ -174,6 +182,8 @@ jobs:
       contents: read
     secrets:
       CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   test_workspace:
     name: Rust workspace
     needs:
@@ -183,6 +193,8 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   test_wasm:
     name: Rust WASM
     needs:
@@ -192,6 +204,8 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   docs_rust:
     name: Rust reference
     needs:
@@ -203,6 +217,8 @@ jobs:
     secrets:
       KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
       KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   check_types:
     name: JS types
     needs:
@@ -212,6 +228,8 @@ jobs:
     uses: ./.github/workflows/check-types.yml
     permissions:
       contents: read
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   check_sdk:
     name: SDK packaging
     needs:
@@ -222,6 +240,8 @@ jobs:
     uses: ./.github/workflows/check-sdk-products.yml
     permissions:
       contents: read
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   test_node:
     name: Node SDK, Agent SDK, CLI
     needs:
@@ -232,6 +252,8 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   test_browser:
     name: Browser SDK
     needs:
@@ -242,6 +264,8 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   test_sdk_platform:
     name: Browser SDK platform
     needs:
@@ -252,6 +276,8 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   docs_site:
     name: Docs site
     needs:
@@ -264,6 +290,9 @@ jobs:
     secrets:
       KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
       KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+      compose-runner: ${{ github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   test_ios:
     name: iOS SDK
     needs:
@@ -360,6 +389,8 @@ jobs:
     uses: ./.github/workflows/check-react-native.yml
     permissions:
       contents: read
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   test_react_native:
     name: React Native SDK
     needs:
@@ -411,7 +442,7 @@ jobs:
   lint:
     name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Lint (draft)' || 'Lint' }}
     if: always()
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     needs:
     - detect-changes
@@ -446,7 +477,7 @@ jobs:
   test:
     name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Test (not run on drafts)' || 'Test' }}
     if: always()
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     needs:
     - detect-changes

@@ -1,6 +1,11 @@
 name: Check Rust compiler lint
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
     secrets:
       KACHE_S3_ACCESS_KEY_ID:
         description: "Optional compiler cache reader access key ID"
@@ -13,8 +18,9 @@ jobs:
   # of the rust shell (flake.nix), so one shell serves every step.
   clippy:
     name: Check (native all-feature and WASM Clippy)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+    runs-on: ${{ inputs.runner }}
+    # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
+    timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
     environment:
       name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'kache-s3-writer' || '' }}
     env:

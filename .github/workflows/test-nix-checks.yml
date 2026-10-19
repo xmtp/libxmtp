@@ -1,6 +1,11 @@
 name: Test Rust Nix checks
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
     secrets:
       CACHIX_PR_AUTH_TOKEN:
         required: false
@@ -12,8 +17,9 @@ jobs:
   # cache instead of running again.
   check:
     name: Check (validation, backend tests, xdbg, keepalive-probe)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 45
+    runs-on: ${{ inputs.runner }}
+    # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
+    timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 90 || 45 }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

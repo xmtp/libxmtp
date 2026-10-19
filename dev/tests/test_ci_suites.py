@@ -461,16 +461,17 @@ class InputRenderTests(unittest.TestCase):
                 "scope": "android-smoke",
                 "debug": False,
                 "shards": 2,
-                "runner": "${{ github.event_name == 'push' && 'ubuntu-24.04' "
-                "|| 'blacksmith-8vcpu-ubuntu-2404' }}",
+                "runner": "${{ github.event_name == 'pull_request' && "
+                "'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}",
                 "big-runner": "blacksmith-16vcpu-ubuntu-2404",
             },
         )
-        # The expression picks the merge label only on a push to main.
+        # The expression picks the pr label only on a pull request; merge and
+        # manual runs get the merge label.
         for event, label in [
             ("push", "ubuntu-24.04"),
             ("pull_request", "blacksmith-8vcpu-ubuntu-2404"),
-            ("workflow_dispatch", "blacksmith-8vcpu-ubuntu-2404"),
+            ("workflow_dispatch", "ubuntu-24.04"),
         ]:
             with self.subTest(event=event):
                 source = (
@@ -493,10 +494,9 @@ class InputRenderTests(unittest.TestCase):
         manifest = self.manifest(
             **{"with": {"a": "true", "b": "1", "c": "x: y", "d": "#"}}
         )
-        self.assertEqual(
-            ci_jobs(manifest)["test_dev"]["with"],
-            {"a": "true", "b": "1", "c": "x: y", "d": "#"},
-        )
+        given = ci_jobs(manifest)["test_dev"]["with"]
+        given.pop("runner")
+        self.assertEqual(given, {"a": "true", "b": "1", "c": "x: y", "d": "#"})
 
 
 class ProductRenderTests(unittest.TestCase):
@@ -617,11 +617,11 @@ class ValidateTests(unittest.TestCase):
         manifest = copy.deepcopy(self.manifest)
         suite = manifest["suites"]["docs_site"]
         label = {"pr": "ubuntu-24.04", "merge": "ubuntu-24.04"}
-        suite["runners"] = {"deploy": label, "runner": label}
+        suite["runners"] = {"deploy": label, "spare-runner": label}
         errors = "\n".join(SUITES.validate(manifest))
         self.assertIn("deploy-docs.yml input deploy must have type string", errors)
         self.assertIn("no job of deploy-docs.yml runs on inputs.deploy", errors)
-        self.assertIn("deploy-docs.yml has no workflow_call input runner", errors)
+        self.assertIn("deploy-docs.yml has no workflow_call input spare-runner", errors)
 
     def test_a_runner_input_that_sets_runs_on_is_valid(self):
         document = {

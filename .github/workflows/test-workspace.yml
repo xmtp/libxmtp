@@ -1,13 +1,19 @@
 name: Test Workspace
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 env:
   NIX_DEVSHELL: rust
 jobs:
   test:
     name: Test (Rust Workspace)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+    runs-on: ${{ inputs.runner }}
+    # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
+    timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
     env:
       SQLX_OFFLINE: "true"
     steps:

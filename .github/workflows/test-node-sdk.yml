@@ -1,6 +1,11 @@
 name: Test Node SDK
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 env:
   NIX_DEVSHELL: js-node
   # JS jobs test the release-profile Nix products (products_sdk_js), not a
@@ -10,8 +15,9 @@ jobs:
   # One job and one backend start for the Node SDK, CLI, and Agent SDK tests.
   test:
     name: Test (node-sdk, cli, agent-sdk)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+    runs-on: ${{ inputs.runner }}
+    # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
+    timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

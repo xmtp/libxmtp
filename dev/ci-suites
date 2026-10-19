@@ -673,16 +673,18 @@ def scalar(value):
 
 
 def runner_value(runner):
-    """A label, or an expression that picks the merge label on a push to main.
+    """A label, or an expression that picks the merge label outside pull requests.
 
-    ci.yml runs on pushes only for main, so `push` means a merge run. Pull
-    requests and manual runs use the `pr` label.
+    ci.yml runs on pushes only for main, so `push` means a merge run. Manual
+    runs use the merge label too, so a dispatch on a branch measures the
+    runners of a merge run before the change merges. Pull requests use the
+    `pr` label.
     """
     if runner["pr"] == runner["merge"]:
         return runner["pr"]
     return (
-        f"${{{{ github.event_name == 'push' && '{runner['merge']}' "
-        f"|| '{runner['pr']}' }}}}"
+        f"${{{{ github.event_name == 'pull_request' && '{runner['pr']}' "
+        f"|| '{runner['merge']}' }}}}"
     )
 
 

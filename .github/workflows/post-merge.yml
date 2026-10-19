@@ -183,9 +183,6 @@ jobs:
       XMTP_SDK_BUILD: nix
       XMTP_RN_JOURNEYS: full
     steps:
-      - name: Free disk space on the GitHub-hosted runner
-        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - name: Check out the source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -312,7 +309,7 @@ jobs:
     name: Check that the warm sets substitute
     # Waits for both build jobs, after their post steps finish the uploads.
     needs: build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -452,7 +449,7 @@ jobs:
   docs-kotlin:
     name: Kotlin reference
     needs: closure
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       NIX_DEVSHELL: android
@@ -477,6 +474,8 @@ jobs:
     uses: ./.github/workflows/deploy-docs.yml
     with:
       deploy: true
+      runner: ubuntu-24.04
+      compose-runner: ubuntu-24.04
     # Mode read: the docs jobs need only the Kache reader keys.
     secrets:
       KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}

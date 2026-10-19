@@ -2,6 +2,10 @@ name: Rust reference and error glossary
 on:
   workflow_call:
     inputs:
+      runner:
+        description: The runner label. ci.yml and deploy-docs.yml pass it.
+        type: string
+        default: blacksmith-8vcpu-ubuntu-2404
       cache-mode:
         description: >-
           setup-nix cache mode. Empty: trusted on a protected push to trunk,
@@ -20,7 +24,7 @@ permissions:
 jobs:
   rust:
     name: Rust reference and error glossary
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     environment:
       name: ${{ (inputs.cache-mode || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'ci')) == 'trusted' && 'kache-s3-writer' || '' }}
     timeout-minutes: 45

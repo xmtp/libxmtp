@@ -57,8 +57,9 @@
 #   covered_by        A suite whose run makes this one unnecessary. It applies
 #                     when the cover runs in the same or a stronger tier.
 #   runners           Workflow inputs that set runs-on, each as
-#                     {pr: LABEL, merge: LABEL}. The caller passes the merge
-#                     label on pushes to main and the pr label otherwise. The
+#                     {pr: LABEL, merge: LABEL}. The caller passes the pr
+#                     label on pull requests and the merge label on merge and
+#                     manual runs, so a dispatch measures merge runners. The
 #                     workflow declares the input (type string) and a job uses
 #                     it as `runs-on: ${{ inputs.NAME }}`. A workflow that is
 #                     also dispatched or called elsewhere needs a default for
@@ -80,6 +81,14 @@
 # `runners` at the top sets the runners of the jobs that ci.yml defines itself
 # (Select suites, the products jobs, and the gates), as {pr, merge} pairs.
 #
+# Runner policy. Merge and manual runs use free GitHub-hosted runners, except
+# the jobs that write the Gradle home, which lives in Blacksmith's cache and
+# which pull requests read. Pull request jobs use the smallest Blacksmith size
+# that keeps them off the critical path: 4 vCPU for light jobs, 8 vCPU for
+# Gradle and docs builds, 16 vCPU for jobs that compile on a cache miss.
+# Small jobs that read no Blacksmith cache use free runners on pull requests
+# too. On a GitHub-hosted Linux runner, setup-nix first frees disk space.
+#
 # `products` maps a product group name to its title (the products job name)
 # and its `path_filters` (the path-only filter syntax). nix/ci-sets.nix lists
 # the group's flake outputs as `ciSets.x86_64-linux.<group>`. ci.yml gets one
@@ -96,9 +105,9 @@ version: 1
 on_deleted_path: [lint_config, nix_eval]
 
 runners:
-  select: {pr: blacksmith-4vcpu-ubuntu-2404, merge: blacksmith-4vcpu-ubuntu-2404}
-  products: {pr: blacksmith-16vcpu-ubuntu-2404, merge: blacksmith-16vcpu-ubuntu-2404}
-  gates: {pr: blacksmith-4vcpu-ubuntu-2404, merge: blacksmith-4vcpu-ubuntu-2404}
+  select: {pr: ubuntu-24.04, merge: ubuntu-24.04}
+  products: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
+  gates: {pr: ubuntu-24.04, merge: ubuntu-24.04}
 
 shared:
   - "{flake.nix,flake.lock,rust-toolchain.toml,justfile}"
@@ -274,6 +283,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
+    runners:
+      runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       # treefmt formats and checks these file types across the repository.
       # Every tracked Rust file is under crates/ or apps/ today. This rule
@@ -359,6 +370,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
+    runners:
+      runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       # dev/tests/run finds test modules in dev/tests, dev/specs, nix/lib, and
       # the Android example fixtures and performance tools. The tests read and
@@ -407,6 +420,8 @@ suites:
     permissions: {contents: read}
     kache: [rust-clippy]
     products: []
+    runners:
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - cargo_package: ["@default-members", xmtp-sdk-bindgen]
       - "{.clippy.toml,dev/wasm.just}"
@@ -423,6 +438,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
+    runners:
+      runner: {pr: blacksmith-8vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - cargo_package: xmtp_backend
       - path_group: docker_backend
@@ -441,6 +458,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
+    runners:
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - cargo_package:
           - xmtp_backend
@@ -465,6 +484,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
+    runners:
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - cargo_package: "@default-members"
       - path_group: docker_backend
@@ -484,6 +505,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
+    runners:
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - cargo_package:
           - xmtp_mls
@@ -511,6 +534,8 @@ suites:
     covered_by: docs_site
     kache: [rust-reference]
     products: []
+    runners:
+      runner: {pr: blacksmith-8vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - cargo_package: ["@default-members", error_glossary]
       - "{docs/error_glossary.md,dev/gen-error-glossary}"
@@ -526,6 +551,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js]
+    runners:
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - path_group: js_workspace
       - path_group: js_packages
@@ -540,6 +567,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js, sdk_android]
+    runners:
+      runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -557,6 +586,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js]
+    runners:
+      runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -573,6 +604,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js]
+    runners:
+      runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -592,6 +625,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js]
+    runners:
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -609,6 +644,9 @@ suites:
     permissions: {contents: read}
     kache: [rust-reference]
     products: [sdk_js]
+    runners:
+      runner: {pr: blacksmith-8vcpu-ubuntu-2404, merge: ubuntu-24.04}
+      compose-runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -732,6 +770,8 @@ suites:
     permissions: {contents: read}
     kache: []
     products: [sdk_js]
+    runners:
+      runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - path_group: react_native
       - path_group: sdk_core

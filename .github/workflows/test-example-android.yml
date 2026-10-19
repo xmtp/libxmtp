@@ -17,7 +17,7 @@ jobs:
   messenger-build:
     name: APK, unit tests, lint, and builds (Messenger)
     if: ${{ !inputs.emulator }}
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 45
     env:
       # The slim CI shell: no Rust toolchain, no emulator.

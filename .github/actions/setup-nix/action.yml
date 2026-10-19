@@ -129,6 +129,15 @@ runs:
     # macOS patch bug (https://github.com/nixos/nix/issues/15619, fixed in
     # 2.34.6 and 2.35.0); keep any new pin outside that range. Nix 2.34
     # prints dry-run sizes with a unit per size (post-merge.yml reads them).
+    # GitHub-hosted Linux runners start with about 14 GB free. Merge, release,
+    # and deploy jobs run there and fetch dev shells and closures of several
+    # GB, so remove preinstalled toolchains that Nix replaces: .NET, the
+    # Android SDK, GHC, and CodeQL. Blacksmith and WarpBuild runners report
+    # runner.environment `self-hosted` and skip this.
+    - name: Free disk space (GitHub-hosted Linux)
+      if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
+      run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      shell: bash
     - name: Install Nix (Linux)
       if: ${{ runner.os == 'Linux' }}
       uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35

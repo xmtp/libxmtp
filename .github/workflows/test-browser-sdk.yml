@@ -1,6 +1,11 @@
 name: Test Browser SDK
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 env:
   NIX_DEVSHELL: js
   # JS jobs test the release-profile Nix products (products_sdk_js), not a
@@ -11,7 +16,7 @@ jobs:
   # of setup and backend start. check_types typechecks and lints web-chat.
   test:
     name: Test (browser-sdk)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     steps:
       - name: Checkout

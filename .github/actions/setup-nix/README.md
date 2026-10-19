@@ -20,6 +20,12 @@ Keep this path aligned with `lib.reactNativeXcode`.
 The Nix store is not persisted between jobs. Each job substitutes from Cachix
 and cache.nixos.org, and Nix checks the signature of every path it adds.
 
+On a GitHub-hosted Linux runner (`runner.environment == 'github-hosted'`), the
+action first removes .NET, the Android SDK, GHC, and CodeQL from the image.
+Those runners start with about 14 GB of free disk, and merge, release, and
+deploy jobs fetch closures of several GB there. Blacksmith and WarpBuild
+runners report `self-hosted` and skip the step.
+
 ## Cache modes
 
 Two Cachix caches hold CI outputs:
