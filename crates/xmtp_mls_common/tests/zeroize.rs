@@ -1,7 +1,8 @@
 //! Heap-canary proofs that parsing group metadata and the AppData helpers
 //! wipe every copy of the commit-log signer they make. Native only: it
 //! installs the heap-canary global allocator. No backend needed.
-#![cfg(not(target_arch = "wasm32"))]
+// The heap-canary harness is Unix-only (`libc::memmem`).
+#![cfg(unix)]
 
 use std::collections::HashMap;
 

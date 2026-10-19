@@ -1,7 +1,8 @@
 //! Heap-canary proof that validating a commit's `AppDataUpdate` proposals
 //! wipes every copy of the commit-log signer it makes. Native only: it
 //! installs the heap-canary global allocator. No backend needed.
-#![cfg(not(target_arch = "wasm32"))]
+// The heap-canary harness is Unix-only (`libc::memmem`).
+#![cfg(unix)]
 
 use openmls::messages::proposals::AppDataUpdateOperation;
 use xmtp_cryptography::secret::heap_canary::{Canary, scan};
