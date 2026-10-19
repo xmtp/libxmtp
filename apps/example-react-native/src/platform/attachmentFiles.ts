@@ -13,6 +13,7 @@ import { launchImageLibraryAsync } from "expo-image-picker";
 import { Platform } from "react-native";
 
 import { exceedsLimit, photoName, safeFileName } from "@/core/attachments.ts";
+import { errorLogText } from "@/core/errorLog.ts";
 import { isInside, joinPath, pathToUri, uriToPath } from "@/core/paths.ts";
 import {
   directoryNames,
@@ -133,7 +134,10 @@ export function removePickerCopy(uri: string): void {
       removePath(path);
     }
   } catch (error) {
-    console.warn("Cannot remove a picked file's cache copy", error);
+    console.warn(
+      "Cannot remove a picked file's cache copy",
+      errorLogText(error),
+    );
   }
 }
 

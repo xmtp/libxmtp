@@ -24,11 +24,11 @@ import {
 } from "react-native";
 
 import { normalizeBackendUrl } from "@/core/backendUrl.ts";
+import { errorLogText } from "@/core/errorLog.ts";
 import {
   type ProbeLinkConfirmation,
   probeLinkConfirmation,
 } from "@/core/probeLinks.ts";
-import { errorMessage } from "@/core/sessionError.ts";
 import type { SessionEvent } from "@/core/streamHub.ts";
 import { probeLinkCopy } from "@/features/dev/copy";
 import { settingsCopy } from "@/features/settings/copy";
@@ -247,7 +247,7 @@ export default function SessionProbe() {
           `${name} done${result === undefined ? "" : `: ${JSON.stringify(result)}`}`,
         );
       } catch (error) {
-        log(`${name} failed: ${errorMessage(error)}`);
+        log(`${name} failed: ${errorLogText(error)}`);
       }
     },
     [log],

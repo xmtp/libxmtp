@@ -3,6 +3,7 @@
 // conversations, latest activity first).
 
 import { type ConversationQueries, LOAD_FAILED } from "./conversationList.ts";
+import { errorLogText } from "./errorLog.ts";
 import { CONVERSATION_PAGE_SIZE } from "./requests.ts";
 import { Store } from "./store.ts";
 import { type TitleSource, conversationTitle } from "./titles.ts";
@@ -63,7 +64,10 @@ export class RecoveryChatsStore extends Store<RecoveryChatsState> {
       );
       if (this.#ports.admit()) this.setState({ chats });
     } catch (error) {
-      console.warn("Cannot list chats for attachment recovery", error);
+      console.warn(
+        "Cannot list chats for attachment recovery",
+        errorLogText(error),
+      );
       if (this.#ports.admit()) this.setState({ chats: [], error: LOAD_FAILED });
     } finally {
       this.#loading = false;

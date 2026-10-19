@@ -7,6 +7,7 @@
 
 import type { ChatQueries } from "./chatHistory.ts";
 import { type ChatMessage, hasOwnReaction, isDeleted } from "./chatMessages.ts";
+import { errorLogText } from "./errorLog.ts";
 import { type SendCoordinator, SendError } from "./sendJournal.ts";
 import { Store } from "./store.ts";
 
@@ -169,7 +170,7 @@ export class MessageActions extends Store<MessageActionState> {
           now: this.#ports.now,
         });
       } catch (error) {
-        console.warn("Cannot delete the message", error);
+        console.warn("Cannot delete the message", errorLogText(error));
         failed = true;
       }
       const needsReview = this.#deletionNeedsReview(row.id);
@@ -231,7 +232,7 @@ export class MessageActions extends Store<MessageActionState> {
       try {
         await work();
       } catch (error) {
-        console.warn("Message action failed", error);
+        console.warn("Message action failed", errorLogText(error));
         this.#apply((state) => ({
           ...state,
           busy: false,

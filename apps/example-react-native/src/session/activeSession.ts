@@ -10,6 +10,7 @@ import type {
 } from "@xmtp/react-native-sdk";
 
 import { normalizeBackendUrl } from "@/core/backendUrl.ts";
+import { errorLogText } from "@/core/errorLog.ts";
 import { effectiveHandleMinimum } from "@/core/handles.ts";
 import { IdentityDirectory } from "@/core/identityDirectory.ts";
 import type { ProfilePaths } from "@/core/paths.ts";
@@ -108,13 +109,13 @@ export class ActiveSession {
       // Exported copies of verified files never outlive a session.
       removePath(this.paths.exports);
     } catch (error) {
-      console.warn("Cannot remove exported files", error);
+      console.warn("Cannot remove exported files", errorLogText(error));
     }
     if (request.profile.name !== undefined) {
       try {
         this.preferences.setServerLabel(request.profile.name);
       } catch (error) {
-        console.warn("Cannot save the server name", error);
+        console.warn("Cannot save the server name", errorLogText(error));
       }
     }
     this.identities = new IdentityDirectory(

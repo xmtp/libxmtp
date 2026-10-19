@@ -31,6 +31,7 @@ import {
   type RecoveryPosition,
   isDeleted,
 } from "./chatMessages.ts";
+import { errorLogText } from "./errorLog.ts";
 import { Store } from "./store.ts";
 
 export interface TimelineState {
@@ -286,7 +287,7 @@ export class ChatTimeline extends Store<TimelineState> {
     } catch (error) {
       if (error instanceof Superseded) return;
       if (revision !== this.#revision) return;
-      console.warn("Cannot load the chat timeline", error);
+      console.warn("Cannot load the chat timeline", errorLogText(error));
       this.#apply((state) => ({
         ...state,
         loading: false,

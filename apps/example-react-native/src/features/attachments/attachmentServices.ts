@@ -6,6 +6,7 @@ import type { RemoteAttachment } from "@xmtp/react-native-sdk";
 
 import { AttachmentDraftStore } from "@/core/attachments.ts";
 import { AttachmentStore } from "@/core/attachmentStore.ts";
+import { errorLogText } from "@/core/errorLog.ts";
 import { SdkAttachmentGateway } from "@/features/attachments/sdkAttachmentGateway";
 import { type ChatServices, chatServices } from "@/features/chat/chatServices";
 import {
@@ -38,7 +39,7 @@ export function attachmentServices(session: ActiveSession): AttachmentServices {
     // Nothing stages before the first use in this session.
     removeAbandonedStaging(staging);
   } catch (error) {
-    console.warn("Cannot remove abandoned staged files", error);
+    console.warn("Cannot remove abandoned staged files", errorLogText(error));
   }
   const value: AttachmentServices = {
     session,
@@ -53,7 +54,7 @@ export function attachmentServices(session: ActiveSession): AttachmentServices {
     try {
       removePath(value.exports);
     } catch (error) {
-      console.warn("Cannot remove exported files", error);
+      console.warn("Cannot remove exported files", errorLogText(error));
     }
   });
   services.set(session, value);
@@ -104,7 +105,7 @@ export function createAttachmentStore(
       try {
         removeStaged(path, value.staging);
       } catch (error) {
-        console.warn("Cannot remove a staged file", error);
+        console.warn("Cannot remove a staged file", errorLogText(error));
       }
     },
     ...(options.changed === undefined ? {} : { changed: options.changed }),

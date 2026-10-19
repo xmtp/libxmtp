@@ -63,6 +63,7 @@ package of a merged revision whose SDK content matches:
 - Import app code through the `@/` alias (`src/`). Oxlint rejects relative parent imports in `src/`.
 - Keep copy in each feature's `copy.ts` or `src/copy/`. Keep `testID` and `accessibilityLabel` values stable: UI checks select by them.
 - Hermes has no `crypto.getRandomValues`, `TextDecoder` or `Buffer`. Pass native paths, never `file://` URIs, to the SDK. 64-bit SDK values are `bigint`; persist them as decimal strings.
+- Logs carry no full group, message or inbox ID. Log an error as `errorLogText(error)` (`src/core/errorLog.ts`), never the error itself: SDK error text can name a full ID. Log only a prefix of an ID (`id.slice(0, 8)`).
 
 ## Design system
 
