@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Copy the Nix-built browser platform fixtures to where the proofs import them:
-# the worker tree with `bridge-panic-test,conformance` and the pure tree with
-# `pure-only,conformance`. Each copy keeps its node_modules/@ubjs links, and
-# the out-links under target/sdk-fixtures keep their targets alive.
+# Copy the Nix-built browser platform fixtures to where the proofs import them.
+# `sdk` (the default): the worker tree with `bridge-panic-test,conformance` and
+# the pure tree with `pure-only,conformance`. Each copy keeps its
+# node_modules/@ubjs links. `migration`: the legacy-migration fixture host
+# (`xmtp_legacy_migration` example `fixture_host`, after wasm-bindgen). The
+# out-links under target/sdk-fixtures keep their targets alive.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -20,7 +22,15 @@ copy() {
   chmod -R u+w "$destination"
 }
 
-copy xmtp-sdk-wasm-fixture-panic target/sdk-bridge-panic-fixture/typescript-wasm
-copy xmtp-sdk-pure-fixture-codec target/sdk-pure-codec-fixture/typescript-pure
-# The worker tree imports Timestamp from the pure tree beside it.
-ln -sfn ../sdk-generated/typescript-pure target/sdk-bridge-panic-fixture/typescript-pure
+case "${1:-sdk}" in
+  sdk)
+    copy xmtp-sdk-wasm-fixture-panic target/sdk-bridge-panic-fixture/typescript-wasm
+    copy xmtp-sdk-pure-fixture-codec target/sdk-pure-codec-fixture/typescript-pure
+    # The worker tree imports Timestamp from the pure tree beside it.
+    ln -sfn ../sdk-generated/typescript-pure target/sdk-bridge-panic-fixture/typescript-pure
+    ;;
+  migration)
+    copy xmtp-legacy-migration-fixture-host target/migration-fixture-host
+    ;;
+  *) echo "Expected sdk or migration" >&2; exit 2 ;;
+esac

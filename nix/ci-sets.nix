@@ -91,6 +91,7 @@ let
               # The browser platform proofs copy these test fixtures.
               xmtp-sdk-wasm-fixture-panic
               xmtp-sdk-pure-fixture-codec
+              xmtp-legacy-migration-fixture-host
               xmtp-backend
               backend-image-x86_64-unknown-linux-musl
               ;
@@ -118,6 +119,7 @@ let
             xmtp-sdk-react-native-js
             xmtp-sdk-wasm-fixture-panic
             xmtp-sdk-pure-fixture-codec
+            xmtp-legacy-migration-fixture-host
             ;
         };
         # For the Android suites: the Kotlin tree, the JNI libraries (one ABI
