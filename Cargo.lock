@@ -12876,6 +12876,7 @@ dependencies = [
  "mockall",
  "openmls",
  "openmls_basic_credential",
+ "openmls_libcrux_crypto",
  "openmls_rust_crypto",
  "openmls_traits",
  "parking_lot",
@@ -12902,6 +12903,7 @@ dependencies = [
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
+ "xmtp_logging",
  "xmtp_proto",
  "zeroize",
 ]
