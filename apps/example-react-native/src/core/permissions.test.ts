@@ -6,6 +6,7 @@ import {
   type GroupMember,
   type GroupPolicy,
   type GroupRole,
+  KIND_LABELS,
   POLICY_LABELS,
   POLICY_ROW_TITLES,
   type PermissionWrite,
@@ -63,7 +64,7 @@ test("Current policies rows read one label or a breakdown", () => {
   // Mixed policies read as a breakdown, one "Label: Policy" per write.
   assert.equal(
     rows[2]?.value,
-    "Add admins: Super admins; Remove admins: Admins",
+    `${KIND_LABELS.addAdmin}: ${POLICY_LABELS.superAdmin}; ${KIND_LABELS.removeAdmin}: ${POLICY_LABELS.admin}`,
   );
   assert.equal(rows[3]?.value.split("; ").length, 3);
   assert.equal(policyRows([]).at(0)?.value, "—");

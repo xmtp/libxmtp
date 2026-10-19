@@ -15,8 +15,14 @@ import {
   previewText,
 } from "./conversationList.ts";
 import { timeOfDay } from "./dates.ts";
-import { CONVERSATION_PAGE_SIZE, REQUEST_COUNT_LIMIT } from "./requests.ts";
+import {
+  CONVERSATION_PAGE_SIZE,
+  DETAIL_WINDOW_EXTRA,
+  NEXT_PAGE_DISTANCE,
+  REQUEST_COUNT_LIMIT,
+} from "./requests.ts";
 import { settle } from "./testing.ts";
+import { TitleCopy } from "./titles.ts";
 
 const group = (
   id: string,
@@ -251,22 +257,25 @@ test("a failed request count hides the number but keeps the list", async () => {
   assert.equal(list.getState().error, undefined);
 });
 
-test("details fill the visible window plus 50 rows, not the whole list", async () => {
-  const queries = new FakeQueries({ allowed: 120 });
+test("details fill the visible rows and the window below them, not the whole list", async () => {
+  const queries = new FakeQueries({ allowed: 3 * page });
   const list = store("allowed", queries);
-  list.load();
+  await list.refresh();
+  const before = queries.details_.length;
+  // The last visible row is NEXT_PAGE_DISTANCE from the end: the next page loads.
+  const start = page - NEXT_PAGE_DISTANCE;
+  list.visible(start, 1);
   await list.whenIdle();
-  // First page: 50 rows, window 0..60 clamped to the 50 loaded.
-  assert.equal(queries.details_.length, 50);
-  list.visible(47, 1);
-  await list.whenIdle();
-  // Row 47 is within 3 of the end: the second page loads and reads the window 47..98.
   const state = list.getState();
-  assert.equal(state.rows.length, 100);
-  assert.equal(state.rows[47]?.title, "Group 47");
-  assert.equal(state.rows[97]?.title, "Group 97");
-  assert.equal(state.rows[98]?.title, "Group");
-  assert.equal(state.rows[47]?.record.preview, "preview 47");
+  assert.equal(state.rows.length, 2 * page);
+  // The visible row and DETAIL_WINDOW_EXTRA below it, clamped to the loaded rows.
+  const end = Math.min(state.rows.length, start + 1 + DETAIL_WINDOW_EXTRA);
+  assert.deepEqual(
+    new Set(queries.details_.slice(before)),
+    new Set(range(start, end)),
+  );
+  assert.equal(state.rows[start]?.record.preview, `preview ${String(start)}`);
+  assert.equal(state.rows[end - 1]?.title, `Group ${String(end - 1)}`);
 });
 
 test("a reload keeps known details until the window reads them again", async () => {
@@ -325,13 +334,13 @@ test("search reads unread rows of the loaded window so they can match", async ()
 });
 
 test("paging stops while searching", async () => {
-  const queries = new FakeQueries({ allowed: 120 });
+  const queries = new FakeQueries({ allowed: 3 * page });
   const list = store("allowed", queries);
   await list.refresh();
   list.setSearch("Group");
-  list.visible(49, 1);
+  list.visible(page - 1, 1);
   await list.whenIdle();
-  assert.equal(list.getState().rows.length, 50);
+  assert.equal(list.getState().rows.length, page);
 });
 
 test("a failed load shows the error", async () => {
@@ -432,7 +441,7 @@ for (const end of ["closed", "session ended"] as const) {
     if (end === "closed") list.dispose();
     else current = false;
     await held.release();
-    assert.equal(list.getState().rows[0]?.title, "Group");
+    assert.equal(list.getState().rows[0]?.title, TitleCopy.group);
   });
 }
 
@@ -473,7 +482,7 @@ test("reloads never add detail reads beyond the limit", async () => {
 });
 
 test("loading more while a load runs reads nothing extra", async () => {
-  const queries = new FakeQueries({ allowed: 120 });
+  const queries = new FakeQueries({ allowed: 3 * page });
   const list = store("allowed", queries);
   list.load();
   list.loadMore();
@@ -482,7 +491,7 @@ test("loading more while a load runs reads nothing extra", async () => {
     queries.lists.filter((read) => read.consent === "allowed").length,
     1,
   );
-  assert.equal(list.getState().rows.length, 50);
+  assert.equal(list.getState().rows.length, page);
 });
 
 test("a row's accessibility label says its title, time, preview and unread count", () => {

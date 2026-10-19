@@ -27,6 +27,12 @@ export function shortInboxId(inboxId: string, sender = false): string {
   );
 }
 
+/** Titles of conversations without a name, handle or inbox ID to show. */
+export const TitleCopy = {
+  group: "Group",
+  directMessage: "Direct message",
+} as const;
+
 const hasText = (value: string | undefined): value is string =>
   value !== undefined && value.trim().length > 0;
 
@@ -41,7 +47,7 @@ export function conversationTitle(
   if (hasText(alias)) return alias;
   if (conversation.kind === "group") {
     const name = conversation.name ?? "";
-    return name.trim().length === 0 ? "Group" : name;
+    return name.trim().length === 0 ? TitleCopy.group : name;
   }
   if (conversation.peerHandle !== undefined && conversation.peerHandle !== "") {
     return "@" + conversation.peerHandle;
@@ -52,7 +58,7 @@ export function conversationTitle(
   ) {
     return shortInboxId(conversation.peerInboxId);
   }
-  return "Direct message";
+  return TitleCopy.directMessage;
 }
 
 /**

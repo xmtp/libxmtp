@@ -13,6 +13,7 @@ import {
   shortInboxId,
   splitHandle,
   stripAt,
+  TitleCopy,
 } from "./titles.ts";
 
 const dm = {
@@ -26,23 +27,26 @@ test("a conversation's title is its alias, group name, handle or short inbox ID"
   assert.equal(conversationTitle(dm), "@nick#1234");
   assert.equal(conversationTitle(dm, "Local name"), "Local name");
   assert.equal(conversationTitle(dm, "   "), "@nick#1234");
-  assert.equal(conversationTitle({ id: "g", kind: "group" }), "Group");
+  assert.equal(conversationTitle({ id: "g", kind: "group" }), TitleCopy.group);
   assert.equal(
     conversationTitle({ id: "g", kind: "group", name: "  " }),
-    "Group",
+    TitleCopy.group,
   );
   assert.equal(
     conversationTitle({ id: "g", kind: "group", name: "Hike" }),
     "Hike",
   );
-  assert.equal(conversationTitle({ id: "d", kind: "dm" }), "Direct message");
+  assert.equal(
+    conversationTitle({ id: "d", kind: "dm" }),
+    TitleCopy.directMessage,
+  );
   assert.equal(
     conversationTitle({ id: "d", kind: "dm", peerInboxId: "123456789012345" }),
     "123456789012",
   );
   assert.equal(
     conversationTitle({ id: "d", kind: "dm", peerInboxId: "", peerHandle: "" }),
-    "Direct message",
+    TitleCopy.directMessage,
   );
 });
 

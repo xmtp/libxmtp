@@ -9,6 +9,7 @@ import {
   canRetryNotice,
 } from "./handleModel.ts";
 import {
+  DEFAULT_HANDLE_MINIMUM,
   type HandleError,
   canCheck,
   canClaim,
@@ -403,9 +404,9 @@ test("the server minimum is used only inside 1-27", () => {
     [5, 5],
     [1, 1],
     [27, 27],
-    [0, 3],
-    [28, 3],
-    [2.5, 3],
+    [0, DEFAULT_HANDLE_MINIMUM],
+    [28, DEFAULT_HANDLE_MINIMUM],
+    [2.5, DEFAULT_HANDLE_MINIMUM],
   ] as const;
   for (const [server, minimum] of cases) {
     const account = new FakeAccount();

@@ -125,7 +125,7 @@ const FIELD_LABELS: Readonly<Record<MetadataFieldKind, string>> = {
   disappearing: "Disappearing messages",
 };
 
-const KIND_LABELS: Readonly<Record<PermissionUpdateKind, string>> = {
+export const KIND_LABELS: Readonly<Record<PermissionUpdateKind, string>> = {
   addMember: "Add members",
   removeMember: "Remove members",
   addAdmin: "Add admins",
