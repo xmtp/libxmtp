@@ -118,7 +118,7 @@ function AddMemberForm({
           />
         )}
       </FormSection>
-      <DetailsErrorSection error={state.error} />
+      <DetailsErrorSection error={state.error ?? state.recipientError} />
       {state.busy ? (
         <FormSection>
           <FormRow style={styles.center}>

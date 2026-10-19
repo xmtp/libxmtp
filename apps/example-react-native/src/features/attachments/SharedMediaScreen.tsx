@@ -5,6 +5,7 @@ import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import type { AttachmentStore } from "@/core/attachmentStore.ts";
 import { type ChatMessage, messageDate } from "@/core/chatMessages.ts";
 import { messageDateTime } from "@/core/dates.ts";
+import { errorLogText } from "@/core/errorLog.ts";
 import { SharedMediaStore, mediaSections } from "@/core/sharedMedia.ts";
 import { splitHandle, stripAt } from "@/core/titles.ts";
 import { AttachmentCard } from "@/features/attachments/AttachmentCard";
@@ -108,7 +109,7 @@ function SharedMediaList({
     );
     if (missing.length === 0) return;
     session.identities.load(missing).catch((error: unknown) => {
-      console.warn("Cannot read sender handles", error);
+      console.warn("Cannot read sender handles", errorLogText(error));
     });
   }, [state.rows, session]);
 
@@ -184,8 +185,20 @@ function SharedMediaList({
       {state.error === undefined && failure === undefined ? null : (
         <FormSection>
           <FormRow>
-            <Text color="systemRed">{state.error ?? failure}</Text>
+            <Text color="systemRed" testID="shared-media.error">
+              {state.error ?? failure}
+            </Text>
           </FormRow>
+          {state.error === undefined ? null : (
+            // A failed load keeps downloads closed until Retry loads again.
+            <FormRow>
+              <GlassButton
+                title={sharedMediaCopy.retry}
+                testID="shared-media.retry"
+                onPress={() => void media.load()}
+              />
+            </FormRow>
+          )}
         </FormSection>
       )}
       <FormSection>

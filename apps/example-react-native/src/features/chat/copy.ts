@@ -6,7 +6,6 @@ export const chatCopy = {
     count === 1 ? "· 1 member" : `· ${String(count)} members`,
   olderMessages: "Older messages",
   olderPending: "Older pending messages",
-  newestPending: "Newest pending messages",
   jumpToLatest: "Jump to latest",
   retry: "Retry",
   sent: "Sent",

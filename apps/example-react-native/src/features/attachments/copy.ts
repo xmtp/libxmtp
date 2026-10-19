@@ -1,7 +1,14 @@
 // English strings of the attachment screens.
 
+import { commonCopy } from "@/copy/common";
+import { SharedMediaCopy } from "@/core/sharedMedia.ts";
+
 export { AttachmentCopy as attachmentCopy } from "@/core/attachments.ts";
-export { SharedMediaCopy as sharedMediaCopy } from "@/core/sharedMedia.ts";
+
+export const sharedMediaCopy = {
+  ...SharedMediaCopy,
+  retry: commonCopy.retry,
+} as const;
 
 export const recoveryCopy = {
   title: "Attachment recovery",
@@ -15,6 +22,7 @@ export const recoveryCopy = {
   viewChat: "View chat",
   assignTo: (title: string) => `Assign to ${title}`,
   discard: "Discard",
+  retry: commonCopy.retry,
   empty: "No files need review",
   loadFailed: "Cannot load saved files. Try again.",
 } as const;

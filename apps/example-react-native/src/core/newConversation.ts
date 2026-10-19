@@ -154,6 +154,11 @@ export interface NewConversationState {
   readonly adminOnly: boolean;
   readonly reviewing: boolean;
   readonly busy: boolean;
+  /**
+   * True while the SDK create call runs. A create already sent cannot be
+   * taken back, so the sheet cannot be dismissed until it ends.
+   */
+  readonly creating: boolean;
   readonly loadingPeople: boolean;
   readonly error?: string;
   readonly bootstrapError?: string;
@@ -170,6 +175,7 @@ export const initialNewConversationState: NewConversationState = {
   adminOnly: false,
   reviewing: false,
   busy: false,
+  creating: false,
   loadingPeople: false,
   maximumMembers: 0,
 };
@@ -210,10 +216,13 @@ export interface NewConversationOptions {
 type Step = "add" | "next" | "create";
 
 /**
- * The New message flow. Every edit cancels resolution or creation in flight
- * (its result is dropped). Add, Next and Create resolve every comma-separated
- * entry in order before any write, skip people already chosen, then check the
- * count; Next then shows the review and Create creates the conversation.
+ * The New message flow. Every edit cancels resolution in flight (its result
+ * is dropped). Add, Next and Create resolve every comma-separated entry in
+ * order before any write, skip people already chosen, then check the count;
+ * Next then shows the review and Create creates the conversation. Add, Next
+ * and Create are ignored while one of them runs. A create already sent
+ * cannot be taken back: it stays busy until it ends, also when the review is
+ * left or the people change, and then opens the new chat.
  */
 export class NewConversationStore extends Store<NewConversationState> {
   readonly #queries: NewConversationQueries;
@@ -321,18 +330,26 @@ export class NewConversationStore extends Store<NewConversationState> {
   }
 
   setName(name: string): void {
-    if (!this.#open()) return;
-    this.#update((state) => ({ ...state, name }));
+    this.#setDetails((state) => ({ ...state, name }));
   }
 
   setDescription(description: string): void {
-    if (!this.#open()) return;
-    this.#update((state) => ({ ...state, description }));
+    this.#setDetails((state) => ({ ...state, description }));
   }
 
   setAdminOnly(adminOnly: boolean): void {
-    if (!this.#open()) return;
-    this.#update((state) => ({ ...state, adminOnly }));
+    this.#setDetails((state) => ({ ...state, adminOnly }));
+  }
+
+  /**
+   * Changes the group's name, description or permissions. Ignored while busy:
+   * Create already sent them, and the sheet closes when it succeeds.
+   */
+  #setDetails(
+    change: (state: NewConversationState) => NewConversationState,
+  ): void {
+    if (!this.#open() || this.getState().busy) return;
+    this.#update(change);
   }
 
   add(): void {
@@ -347,17 +364,22 @@ export class NewConversationStore extends Store<NewConversationState> {
     this.#run("create");
   }
 
-  /** Drops work in flight, clears `busy` and `error`, then applies `change`. */
+  /**
+   * Drops work in flight, clears `busy` and `error`, then applies `change`.
+   * A running create call is kept, and stays busy.
+   */
   #cancel(change: (state: NewConversationState) => NewConversationState): void {
-    this.#revision += 1;
+    if (!this.getState().creating) this.#revision += 1;
     this.#update((state) => {
       const { error: _cleared, ...rest } = state;
-      return change({ ...rest, busy: false });
+      return change({ ...rest, busy: state.creating });
     });
   }
 
   #run(step: Step): void {
-    if (!this.#open()) return;
+    // A second tap before the disabled button renders must not start a
+    // second run: a create already sent cannot be taken back.
+    if (!this.#open() || this.getState().busy) return;
     this.#cancel((state) => ({ ...state, busy: true }));
     const revision = this.#revision;
     const { input, recipients } = this.getState();
@@ -386,13 +408,19 @@ export class NewConversationStore extends Store<NewConversationState> {
         if (step === "create") {
           check();
           const state = this.getState();
-          const id = await this.#queries.create({
-            inboxIds: resolved.map((person) => person.inboxId),
-            group: state.group,
-            name: state.name,
-            description: state.description,
-            adminOnly: state.adminOnly,
-          });
+          this.#update((current) => ({ ...current, creating: true }));
+          let id: string;
+          try {
+            id = await this.#queries.create({
+              inboxIds: resolved.map((person) => person.inboxId),
+              group: state.group,
+              name: state.name,
+              description: state.description,
+              adminOnly: state.adminOnly,
+            });
+          } finally {
+            this.#update((current) => ({ ...current, creating: false }));
+          }
           check();
           this.#update((current) => ({ ...current, busy: false }));
           this.#options.finish(id);

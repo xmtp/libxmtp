@@ -113,15 +113,30 @@ test("a failed dismissal shows the delete error; a retry clears it", () => {
   assert.deepEqual(h.outcomes, [{ kind: "chats" }]);
 });
 
-test("one consent write runs at a time", async () => {
-  const h = harness();
-  h.store.accept("c1");
-  h.store.accept("c2");
-  assert.deepEqual(h.writes, [{ id: "c1", consent: "allowed" }]);
-  await h.settle();
-  h.store.accept("c2");
-  assert.equal(h.writes.length, 2);
-});
+for (const end of ["open", "closed", "session ended"] as const) {
+  test(`a decision confirmed while a consent write runs waits for it (${end})`, async () => {
+    const h = harness();
+    h.store.accept("c1");
+    h.store.requestBlock("c2");
+    h.store.confirm(h.store.getState().confirmation);
+    assert.equal(h.writes.length, 1, "one consent write at a time");
+    assert.ok(h.store.getState().busy);
+    // The first decision's navigation may close the screen.
+    if (end === "closed") h.store.dispose();
+    if (end === "session ended") h.flags.current = false;
+    await h.settle();
+    await h.settle();
+    assert.equal(
+      h.writes.some(({ id, consent }) => id === "c2" && consent === "denied"),
+      end !== "session ended",
+    );
+    assert.equal(
+      h.outcomes.some(({ kind }) => kind === "chats"),
+      end === "open",
+    );
+    if (end === "open") assert.ok(!h.store.getState().busy);
+  });
+}
 
 test("a closed store or an ended session ignores actions and late results", async () => {
   for (const end of ["closed", "session ended"] as const) {

@@ -5,6 +5,7 @@ import {
   CONVERSATION,
   FakeConversation,
   OWN,
+  PAGE_SIZE,
   anchorOf,
   reactionRecord,
   textMessage,
@@ -15,7 +16,7 @@ import {
   TranscriptCache,
 } from "./chatHistory.ts";
 import type { ChatMessage, ConversationRecord } from "./chatMessages.ts";
-import { ChatTimeline } from "./chatTimeline.ts";
+import { ChatTimeline, PENDING_READ_ATTEMPTS } from "./chatTimeline.ts";
 import { settle } from "./testing.ts";
 
 interface Harness {
@@ -327,17 +328,35 @@ test("unreadable history rows are skipped with the Load more notice", async () =
   assert.equal(state.error, undefined);
 });
 
-/** `count` failed own rows sent after every published one. */
-function failedRows(count: number): ChatMessage[] {
+/**
+ * `count` failed own rows, sent after `start` seconds, so after every
+ * published one.
+ */
+function failedRows(count: number, start = 1000): ChatMessage[] {
   const rows: ChatMessage[] = [];
   for (let n = 1; n <= count; n += 1) {
     rows.push({
-      ...textMessage(1000 + n, { sender: OWN }),
+      ...textMessage(start + n, { sender: OWN }),
       delivery: "failed",
     });
   }
   return rows;
 }
+
+/** Adds `rows` to the outbox as rows that cannot be decoded. */
+function addUnreadable(
+  queries: FakeConversation,
+  rows: readonly ChatMessage[],
+): void {
+  for (const row of rows) {
+    queries.unpublished.push(row);
+    queries.unreadable.add(row.id);
+  }
+}
+
+/** One full unreadable page for each pending read a single load makes. */
+const unreadableLoad = (start: number) =>
+  failedRows(PENDING_READ_ATTEMPTS * PAGE_SIZE, start);
 
 test("unreadable pending rows ask to load more, or to refresh on the last page", async () => {
   const more = new FakeConversation(3);
@@ -350,10 +369,13 @@ test("unreadable pending rows ask to load more, or to refresh on the last page",
     first.timeline.getState().error,
     TimelineCopy.pendingSkippedMore,
   );
-  // "Older pending" pages to the oldest failed rows.
+  // The last page reads cleanly, but the loaded rows still miss one.
   await first.timeline.olderPending();
   assert.equal(first.timeline.getState().morePending, false);
-  assert.equal(first.timeline.getState().messages.at(-1)?.id, "m1010");
+  assert.equal(
+    first.timeline.getState().error,
+    TimelineCopy.pendingSkippedRefresh,
+  );
 
   const last = new FakeConversation(3);
   last.unpublished.push(...failedRows(3));
@@ -367,4 +389,87 @@ test("unreadable pending rows ask to load more, or to refresh on the last page",
     state.messages.slice(-2).map((row) => row.id),
     ["m1001", "m1003"],
   );
+});
+
+test("older pending pages add to the pending rows, and a refresh reads the newest again", async () => {
+  const queries = new FakeConversation(3);
+  const rows = failedRows(120);
+  queries.unpublished.push(...rows);
+  const h = harness(queries);
+  await h.timeline.load();
+  assert.equal(h.timeline.getState().morePending, true);
+  for (
+    let page = 0;
+    page < rows.length && h.timeline.getState().morePending;
+    page += 1
+  ) {
+    await h.timeline.olderPending();
+  }
+  assert.equal(h.timeline.getState().morePending, false);
+  const published = queries.published.map((row) => row.id);
+  const pending = rows.map((row) => row.id);
+  assert.deepEqual(visibleIds(h, 0), [...published, ...pending]);
+
+  // The newest failed row leaves the outbox; the refresh drops it.
+  queries.unpublished.pop();
+  await h.timeline.refresh();
+  const shown = visibleIds(h, 0);
+  assert.equal(shown.includes(pending.at(-1) ?? ""), false);
+  assert.equal(new Set(shown).size, shown.length);
+});
+
+test("a refresh past only unreadable pending pages drops the old rows, so paging shows them once", async () => {
+  const queries = new FakeConversation(3);
+  const rows = failedRows(10);
+  queries.unpublished.push(...rows);
+  const h = harness(queries);
+  await h.timeline.load();
+  // Every newer page that one refresh reads is unreadable.
+  addUnreadable(queries, unreadableLoad(5000));
+  await h.timeline.refresh();
+  assert.equal(h.timeline.getState().morePending, true);
+  assert.equal(h.timeline.getState().error, TimelineCopy.pendingSkippedMore);
+  for (
+    let page = 0;
+    page < queries.unpublished.length && h.timeline.getState().morePending;
+    page += 1
+  ) {
+    await h.timeline.olderPending();
+  }
+  const published = queries.published.map((row) => row.id);
+  assert.deepEqual(visibleIds(h, 0), [
+    ...published,
+    ...rows.map((row) => row.id),
+  ]);
+  // The rows the refresh skipped still count on the last page.
+  assert.equal(h.timeline.getState().morePending, false);
+  assert.equal(h.timeline.getState().error, TimelineCopy.pendingSkippedRefresh);
+});
+
+test("older pending pages past only unreadable rows keep the newer pending rows", async () => {
+  const queries = new FakeConversation(3);
+  const older = failedRows(10);
+  queries.unpublished.push(...older);
+  const unreadable = unreadableLoad(5000);
+  addUnreadable(queries, unreadable);
+  const newer = failedRows(PAGE_SIZE, 5000 + unreadable.length);
+  queries.unpublished.push(...newer);
+  const h = harness(queries);
+  await h.timeline.load();
+  const published = queries.published.map((row) => row.id);
+  const ids = (rows: readonly ChatMessage[]) => rows.map((row) => row.id);
+  assert.deepEqual(visibleIds(h, 0), [...published, ...ids(newer)]);
+
+  // This load reads only unreadable pages and stops before the older rows.
+  await h.timeline.olderPending();
+  assert.equal(h.timeline.getState().morePending, true);
+  assert.equal(h.timeline.getState().error, TimelineCopy.pendingSkippedMore);
+  assert.deepEqual(visibleIds(h, 0), [...published, ...ids(newer)]);
+
+  await h.timeline.olderPending();
+  assert.deepEqual(visibleIds(h, 0), [
+    ...published,
+    ...ids(older),
+    ...ids(newer),
+  ]);
 });

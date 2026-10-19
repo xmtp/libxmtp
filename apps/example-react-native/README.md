@@ -73,7 +73,8 @@ dev/nix-shell 'just example-react-native check'
 Private and loopback attachment destinations are blocked by default. For a
 trusted local backend only, launch with `XMTP_ALLOW_PRIVATE_ATTACHMENTS=1`
 (exactly `1`); it allows **all** private and loopback attachment
-destinations.
+destinations. Android reads launch settings only in a Debug build, because
+any app can start its activity with extras.
 
 ## Limitations
 

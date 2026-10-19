@@ -6,6 +6,7 @@ import {
   NewConversationCopy,
   NewConversationError,
   type NewConversationQueries,
+  type NewConversationState,
   NewConversationStore,
   type Person,
   addDisabled,
@@ -254,6 +255,7 @@ class FakeQueries implements NewConversationQueries {
   createFailure: Error | undefined;
   resolveGate: Promise<void> | undefined;
   peopleGate: Promise<void> | undefined;
+  createGate: Promise<void> | undefined;
   readonly #during = new Map<Query, () => void>();
 
   constructor(options: FakeOptions = {}) {
@@ -297,14 +299,14 @@ class FakeQueries implements NewConversationQueries {
     return { inboxId: `inbox-${value}`, handle: value };
   }
 
-  create(
+  async create(
     request: Parameters<NewConversationQueries["create"]>[0],
   ): Promise<string> {
     this.#call("create");
     this.created.push(request);
-    if (this.createFailure !== undefined)
-      return Promise.reject(this.createFailure);
-    return Promise.resolve("conversation-1");
+    if (this.createGate !== undefined) await this.createGate;
+    if (this.createFailure !== undefined) throw this.createFailure;
+    return "conversation-1";
   }
 }
 
@@ -591,6 +593,114 @@ test("Create makes a group with its name, description and permissions, then fini
   ]);
   assert.deepEqual(finished, ["conversation-1"]);
   assert.equal(store.getState().busy, false);
+});
+
+test("group details cannot change while Create sends them", async () => {
+  const queries = new FakeQueries();
+  const { store } = makeStore(queries);
+  store.load();
+  await settle();
+  store.setGroup(true);
+  store.setInput("ava");
+  store.next();
+  await settle();
+  store.setName("Book club");
+  store.setDescription("Monthly");
+  store.setAdminOnly(true);
+  let shown: NewConversationState | undefined;
+  queries.during("create", () => {
+    store.setName("Renamed");
+    store.setDescription("Weekly");
+    store.setAdminOnly(false);
+    shown = store.getState();
+  });
+  store.create();
+  await settle();
+  const sent = queries.created[0];
+  assert.deepEqual(
+    {
+      name: shown?.name,
+      description: shown?.description,
+      adminOnly: shown?.adminOnly,
+    },
+    {
+      name: sent?.name,
+      description: sent?.description,
+      adminOnly: sent?.adminOnly,
+    },
+  );
+});
+
+test("a second Create while one runs creates no second conversation", async () => {
+  const queries = new FakeQueries();
+  const { store, finished } = makeStore(queries);
+  store.load();
+  await settle();
+  store.setInput("theo");
+  store.next();
+  await settle();
+  queries.during("create", () => {
+    store.create();
+  });
+  store.create();
+  await settle();
+  assert.equal(queries.created.length, 1);
+  assert.deepEqual(finished, ["conversation-1"]);
+});
+
+test("leaving the review while Create runs keeps that create and starts no second one", async () => {
+  const queries = new FakeQueries();
+  const { store, finished } = makeStore(queries);
+  store.load();
+  await settle();
+  store.setInput("theo");
+  store.next();
+  await settle();
+  const gate = deferred();
+  queries.createGate = gate.promise;
+  store.create();
+  await settle();
+  // Back (or Android's back) while the create call runs, then Next and Create.
+  store.back();
+  store.next();
+  await settle();
+  store.create();
+  await settle();
+  gate.resolve();
+  await settle();
+  assert.equal(queries.created.length, 1);
+  assert.deepEqual(finished, ["conversation-1"]);
+});
+
+describe("the sheet stays open only while the create call runs", () => {
+  for (const failure of [undefined, new Error("network")]) {
+    test(
+      failure === undefined ? "the create succeeds" : "the create fails",
+      async () => {
+        const queries = new FakeQueries();
+        queries.createFailure = failure;
+        const { store } = makeStore(queries);
+        store.load();
+        await settle();
+        store.setInput("theo");
+        const resolving = deferred();
+        queries.resolveGate = resolving.promise;
+        store.create();
+        await settle();
+        // Resolving the typed entry sent nothing: the sheet can still close.
+        assert.equal(store.getState().busy, true);
+        assert.equal(store.getState().creating, false);
+        let sending: boolean | undefined;
+        queries.during("create", () => {
+          sending = store.getState().creating;
+        });
+        resolving.resolve();
+        await settle();
+        assert.equal(sending, true);
+        assert.equal(store.getState().creating, false);
+      },
+    );
+  }
 });
 
 test("Create for a DM resolves the typed entry first", async () => {

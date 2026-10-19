@@ -5,7 +5,9 @@
 // `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`,
 // `contend`, `allowRequests`, `handles`, `claim` (`name`) or
 // `createGroup` (`name`, `members=handle,handle`); add `&n=<anything new>` to run the
-// same action again.
+// same action again. A link that can open, end or replace the session or
+// change the account asks in the app first (`src/core/probeLinks.ts`); other
+// links are ignored until that alert closes.
 
 import type { Message } from "@xmtp/react-native-sdk";
 import { useXmtp } from "@xmtp/react-native-sdk/react";
@@ -22,8 +24,16 @@ import {
 } from "react-native";
 
 import { normalizeBackendUrl } from "@/core/backendUrl.ts";
-import { errorMessage } from "@/core/sessionError.ts";
+import { errorLogText } from "@/core/errorLog.ts";
+import { contend } from "@/core/probeContend.ts";
+import {
+  type ProbeLinkConfirmation,
+  probeLinkConfirmation,
+  probeLinkWaits,
+} from "@/core/probeLinks.ts";
 import type { SessionEvent } from "@/core/streamHub.ts";
+import { probeLinkCopy } from "@/features/dev/copy";
+import { settingsCopy } from "@/features/settings/copy";
 import { launchEnvironment } from "@/platform/messengerPlatform";
 import {
   probeBackend,
@@ -34,6 +44,7 @@ import {
   useStore,
 } from "@/session";
 import type { ActiveSession } from "@/session/activeSession";
+import { AlertDialog, type AlertDialogRequest } from "@/ui/AlertDialog";
 
 function describe(message: Message): string {
   const content = message.content;
@@ -52,6 +63,75 @@ function describeEvent(event: SessionEvent): string {
       return `deleted ${event.messageId.slice(0, 8)} in ${event.conversationId.slice(0, 8)}`;
     case "changed":
       return `changed (${event.cause})`;
+  }
+}
+
+/** The handles in a comma-separated `members` parameter. */
+function memberHandles(members: string | undefined): string[] {
+  return (members ?? "").split(",").filter((handle) => handle !== "");
+}
+
+/**
+ * The in-app confirmation a link needs (Settings' alerts for sign out and
+ * deletion). The title names the link's `action`.
+ */
+function linkConfirmation(
+  action: string,
+  confirmation: ProbeLinkConfirmation,
+  input: { url: string; name?: string; members?: string },
+  run: () => void,
+): AlertDialogRequest {
+  const ask = (
+    title: string,
+    message: string,
+    action: string,
+  ): AlertDialogRequest => ({
+    title,
+    message,
+    buttons: [
+      { text: action, style: "destructive", onPress: run },
+      { text: probeLinkCopy.cancel, style: "cancel" },
+    ],
+  });
+  const title = probeLinkCopy.title(action);
+  switch (confirmation) {
+    case "signOut":
+      return ask(
+        settingsCopy.signOutTitle,
+        settingsCopy.signOutMessage,
+        settingsCopy.signOut,
+      );
+    case "delete":
+      return ask(
+        settingsCopy.deleteTitle,
+        settingsCopy.deleteMessage,
+        settingsCopy.deleteLocalData,
+      );
+    case "connect":
+      return ask(title, probeLinkCopy.connect(input.url), probeLinkCopy.run);
+    case "join":
+      return ask(title, probeLinkCopy.join(input.url), probeLinkCopy.run);
+    case "retry":
+      return ask(title, probeLinkCopy.retry, probeLinkCopy.run);
+    case "reopen":
+      return ask(title, probeLinkCopy.reopen, probeLinkCopy.run);
+    case "allowRequests":
+      return ask(title, probeLinkCopy.allowRequests, probeLinkCopy.run);
+    case "claim":
+      return ask(
+        title,
+        probeLinkCopy.claim(input.name ?? ""),
+        probeLinkCopy.run,
+      );
+    case "createGroup":
+      return ask(
+        title,
+        probeLinkCopy.createGroup(
+          input.name ?? "",
+          memberHandles(input.members),
+        ),
+        probeLinkCopy.run,
+      );
   }
 }
 
@@ -159,6 +239,7 @@ export default function SessionProbe() {
   );
   const [token, setToken] = useState("");
   const [lines, setLines] = useState<readonly string[]>([]);
+  const [alert, setAlert] = useState<AlertDialogRequest>();
   const ran = useRef<string | undefined>(undefined);
 
   const log = useCallback((line: string) => {
@@ -176,7 +257,7 @@ export default function SessionProbe() {
           `${name} done${result === undefined ? "" : `: ${JSON.stringify(result)}`}`,
         );
       } catch (error) {
-        log(`${name} failed: ${errorMessage(error)}`);
+        log(`${name} failed: ${errorLogText(error)}`);
       }
     },
     [log],
@@ -226,12 +307,14 @@ export default function SessionProbe() {
             const current = sessionController.getState();
             if (current.kind !== "active") throw new Error("No open session");
             const { streams, client } = current.session;
-            await streams.setForeground(false);
-            const rival = client.conversations.streamAllMessages();
-            await rival.ready();
-            await streams.setForeground(true);
-            await new Promise((resolve) => setTimeout(resolve, 15_000));
-            await rival.end();
+            await contend({
+              setForeground: (active) => streams.setForeground(active),
+              openRival: () => client.conversations.streamAllMessages(),
+              sleep: (ms) =>
+                new Promise((resolve) => {
+                  setTimeout(resolve, ms);
+                }),
+            });
           });
         case "allowRequests":
           // Accepts every message request (consent unknown → allowed), for
@@ -269,19 +352,18 @@ export default function SessionProbe() {
             if (current.kind !== "active") throw new Error("No open session");
             const group =
               await current.session.client.conversations.createGroup(
-                (input.members ?? "")
-                  .split(",")
-                  .filter((handle) => handle !== "")
-                  .map((handle) => ({
-                    kind: "handle" as const,
-                    identifier: handle,
-                  })),
+                memberHandles(input.members).map((handle) => ({
+                  kind: "handle" as const,
+                  identifier: handle,
+                })),
                 { name: input.name ?? "" },
               );
-            return group.id;
+            // `run` logs the result: only an ID prefix, as the probe's other
+            // log lines do.
+            return group.id.slice(0, 8);
           });
         default:
-          log(`unknown action ${action}`);
+          log("unknown action");
           return Promise.resolve();
       }
     },
@@ -296,16 +378,28 @@ export default function SessionProbe() {
     log(
       session === undefined
         ? `session ${state.kind}`
-        : `session active inbox ${session.inboxId} generation ${String(session.generation)}`,
+        : `session active inbox ${session.inboxId.slice(0, 8)} generation ${String(session.generation)}`,
     );
   }, [log, session, state.kind]);
 
   useEffect(() => {
     const action = params.action;
     if (action === undefined) return;
+    // A link that launches the app arrives while the session starts, and
+    // one can arrive while a session opens: decide once the state settles,
+    // so the rule and the action see whether a session is open. The effect
+    // runs again when the state changes.
+    if (probeLinkWaits(state.kind)) return;
     const id = `${action}|${params.url ?? ""}|${params.n ?? ""}`;
     if (ran.current === id) return;
     ran.current = id;
+    // One link at a time: the open alert's buttons would run a newer link's
+    // action under the text of the first, and a link that runs at once could
+    // change the session the alert asks about.
+    if (alert !== undefined) {
+      log("a link: ignored while another link waits");
+      return;
+    }
     const input = {
       url: params.url ?? url,
       token: params.token ?? token,
@@ -313,15 +407,28 @@ export default function SessionProbe() {
       ...(params.members === undefined ? {} : { members: params.members }),
     };
     if (params.url !== undefined) setUrl(params.url);
+    const confirmation = probeLinkConfirmation(action, state.kind);
+    if (confirmation !== undefined) {
+      log(`${confirmation} from a link: waiting for confirmation`);
+      setAlert(
+        linkConfirmation(action, confirmation, input, () => {
+          void actions(action, input);
+        }),
+      );
+      return;
+    }
     void actions(action, input);
   }, [
     actions,
+    alert,
+    log,
     params.action,
     params.members,
     params.n,
     params.name,
     params.token,
     params.url,
+    state.kind,
     token,
     url,
   ]);
@@ -335,64 +442,74 @@ export default function SessionProbe() {
   }
   const color = scheme === "dark" ? "#fff" : "#000";
   return (
-    <ScrollView
-      contentContainerStyle={styles.container}
-      contentInsetAdjustmentBehavior="automatic"
-      testID="session-probe">
-      <Stack.Screen options={{ title: "Session probe" }} />
-      <Text style={[styles.heading, { color }]} testID="probe-state">
-        state {state.kind}
-      </Text>
-      <Text style={[styles.line, { color }]}>appearance {appearance}</Text>
-      <TextInput
-        style={[styles.input, { color }]}
-        value={url}
-        onChangeText={setUrl}
-        autoCapitalize="none"
-        autoCorrect={false}
-        testID="probe-url"
-      />
-      <TextInput
-        style={[styles.input, { color }]}
-        value={token}
-        onChangeText={setToken}
-        placeholder="Access token"
-        autoCapitalize="none"
-        autoCorrect={false}
-        testID="probe-token"
-      />
-      <View style={styles.buttons}>
-        {(
-          [
-            ["Join", "connect"],
-            ["Probe", "probe"],
-            ["Restore", "restore"],
-            ["Retry", "retry"],
-            ["Sign out", "signOut"],
-            ["Delete", "delete"],
-            ["Continue reset", "continueReset"],
-            ["Route", "handles"],
-            ["Contend", "contend"],
-          ] as const
-        ).map(([title, action]) => (
-          <Button
-            key={action}
-            title={title}
-            testID={`probe-${action}`}
-            onPress={() => void actions(action, { url, token })}
-          />
-        ))}
-      </View>
-      {session === undefined ? null : (
-        <SessionDetails session={session} log={log} />
-      )}
-      <Text style={[styles.heading, { color }]}>log</Text>
-      {lines.map((line, index) => (
-        <Text key={`${String(index)}-${line}`} style={[styles.line, { color }]}>
-          {line}
+    <>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        contentInsetAdjustmentBehavior="automatic"
+        testID="session-probe">
+        <Stack.Screen options={{ title: "Session probe" }} />
+        <Text style={[styles.heading, { color }]} testID="probe-state">
+          state {state.kind}
         </Text>
-      ))}
-    </ScrollView>
+        <Text style={[styles.line, { color }]}>appearance {appearance}</Text>
+        <TextInput
+          style={[styles.input, { color }]}
+          value={url}
+          onChangeText={setUrl}
+          autoCapitalize="none"
+          autoCorrect={false}
+          testID="probe-url"
+        />
+        <TextInput
+          style={[styles.input, { color }]}
+          value={token}
+          onChangeText={setToken}
+          placeholder="Access token"
+          autoCapitalize="none"
+          autoCorrect={false}
+          testID="probe-token"
+        />
+        <View style={styles.buttons}>
+          {(
+            [
+              ["Join", "connect"],
+              ["Probe", "probe"],
+              ["Restore", "restore"],
+              ["Retry", "retry"],
+              ["Sign out", "signOut"],
+              ["Delete", "delete"],
+              ["Continue reset", "continueReset"],
+              ["Route", "handles"],
+              ["Contend", "contend"],
+            ] as const
+          ).map(([title, action]) => (
+            <Button
+              key={action}
+              title={title}
+              testID={`probe-${action}`}
+              onPress={() => void actions(action, { url, token })}
+            />
+          ))}
+        </View>
+        {session === undefined ? null : (
+          <SessionDetails session={session} log={log} />
+        )}
+        <Text style={[styles.heading, { color }]}>log</Text>
+        {lines.map((line, index) => (
+          <Text
+            key={`${String(index)}-${line}`}
+            style={[styles.line, { color }]}>
+            {line}
+          </Text>
+        ))}
+      </ScrollView>
+      <AlertDialog
+        request={alert}
+        onDismiss={() => {
+          setAlert(undefined);
+        }}
+      />
+    </>
   );
 }
 

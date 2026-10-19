@@ -16,6 +16,7 @@ import type {
   EventKind,
 } from "@xmtp/react-native-sdk";
 
+import { errorLogText } from "./errorLog.ts";
 import { bytesToHex } from "./hex.ts";
 import { Store } from "./store.ts";
 
@@ -439,7 +440,7 @@ export class StreamHub<M, C> {
       try {
         await listener(value);
       } catch (error) {
-        console.warn("Stream listener failed", error);
+        console.warn("Stream listener failed", errorLogText(error));
       }
     }
   }
@@ -458,7 +459,7 @@ export class StreamHub<M, C> {
   }
 
   #failed(lane: string, error: unknown): void {
-    console.warn(`The ${lane} reader failed; retrying`, error);
+    console.warn(`The ${lane} reader failed; retrying`, errorLogText(error));
     this.#retrying.add(lane);
     if (lane === "messages") this.#messageState = undefined;
     this.#publish();
