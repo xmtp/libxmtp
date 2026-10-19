@@ -47,6 +47,7 @@ rand.workspace = true
 serde.workspace = true
 serde_path_to_error = { workspace = true, optional = true }
 strum.workspace = true
+subtle.workspace = true
 thiserror.workspace = true
 toml = { workspace = true, optional = true }
 tracing.workspace = true
@@ -54,6 +55,7 @@ xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
+xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["diesel"] }
 zeroize.workspace = true
 
@@ -90,7 +92,6 @@ required-features = ["bench"]
 futures.workspace = true
 mockall.workspace = true
 rstest.workspace = true
-xmtp_cryptography.workspace = true
 xmtp_db = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

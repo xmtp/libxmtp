@@ -27,8 +27,7 @@ pub struct EthereumWallet(SigningKey<k256::Secp256k1>);
 
 impl EthereumWallet {
     pub fn into_alloy(self) -> PrivateKeySigner {
-        #[allow(deprecated)]
-        PrivateKeySigner::from_slice(self.0.to_bytes().as_slice()).expect("Should never fail")
+        PrivateKeySigner::from_signing_key(self.0)
     }
 
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
@@ -114,11 +113,13 @@ impl Identity {
         let cred = XmtpInstallationCredential::new();
         let mut eth_key = [0u8; 32];
         let mut inbox_id_bytes = [0u8; 32];
+        // zeroize: none, xdbg persists keys in plaintext by design
+        #[allow(deprecated, clippy::disallowed_methods)]
         eth_key.copy_from_slice(wallet.0.to_bytes().as_slice());
         hex::decode_to_slice(inbox_id.clone(), &mut inbox_id_bytes)?;
         Ok(Identity {
             inbox_id: inbox_id_bytes,
-            installation_key: cred.private_bytes(),
+            installation_key: *cred.private_bytes(),
             eth_key,
             version_hash: crate::app::App::current_version_hash(),
             version_string: pack_version_string(&crate::get_version())?,
@@ -136,11 +137,12 @@ impl Identity {
         let mut inbox_id = [0u8; 32];
         let mut eth_key = [0u8; 32];
         hex::decode_to_slice(identity.inbox_id.clone(), &mut inbox_id)?;
-        #[allow(deprecated)]
+        // zeroize: none, xdbg persists keys in plaintext by design
+        #[allow(deprecated, clippy::disallowed_methods)]
         eth_key.copy_from_slice(wallet.0.to_bytes().as_slice());
         Ok(Identity {
             inbox_id,
-            installation_key: identity.installation_keys.private_bytes(),
+            installation_key: *identity.installation_keys.private_bytes(),
             eth_key,
             version_hash: crate::app::App::current_version_hash(),
             version_string: pack_version_string(&crate::get_version())?,

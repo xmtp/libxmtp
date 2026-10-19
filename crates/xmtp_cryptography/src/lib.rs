@@ -5,13 +5,14 @@ pub mod configuration;
 pub mod ethereum;
 pub mod hash;
 pub mod rand;
+pub mod secret;
 pub mod signature;
 pub mod utils;
 
 pub use basic_credential::*;
 pub use openmls;
 
-pub type Secret = tls_codec::SecretVLBytes; // Byte array with ZeroizeOnDrop
+pub use secret::Secret;
 
 // When upgrading to reqwest 0.13 and disabling the default aws-lc-rs crypto provider
 // some tests fail without initializing the ring crypto provider. Doing this here because

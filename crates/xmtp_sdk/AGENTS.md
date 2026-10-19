@@ -136,6 +136,8 @@ Run commands from the repository root in the Nix shell. Run
   The handle tests that claim more than once per inbox, or need another
   handle setting, also start a disposable backend (`xmtp_backend`'s
   `TestServer`). It creates its own database on this worktree's `db` service.
+- `dev/nix-shell 'just test workspace -p xmtp_sdk --features xmtp_cryptography/test-utils --test zeroize'`
+  runs the heap-canary proofs for wallet key import and export. It needs no backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
 `xmtp_sdk` to this crate root so Swift and Kotlin load `uniffi.toml`.
@@ -166,6 +168,11 @@ metadata markers, so a routine export needs no generator edit:
   then takes `#[sdk(redact)]` or `#[sdk(shown)]`. The macro implements `Debug` for the
   type through its `fn redacted_debug(&self, f)`, which redacts the same
   fields, so the type cannot also derive `Debug`.
+- A private key or other secret argument of an async export takes
+  `SecretBytes` or `SecretString` (`src/secret_input.rs`), not `Vec<u8>` or
+  `String`. UniFFI lifts it into a wiping buffer before the future exists,
+  so a call cancelled before its first poll still wipes it. The bindings
+  still see `bytes` or `string`.
 - A backend function that the Client also exposes takes
   `#[sdk_export(client_static)]`; it must be async and available on every
   target. Every SDK gets a Client static named without the trailing

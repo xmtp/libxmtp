@@ -3,7 +3,7 @@ use super::*;
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_signer_and_signature_request_register() {
     assert!(matches!(
-        crate::local_signer_from_private_key(vec![0; 31]).await,
+        crate::local_signer_from_private_key(vec![0; 31].into()).await,
         Err(XmtpError::InvalidInput(_))
     ));
     let signer = crate::generate_local_signer().await;
