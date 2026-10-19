@@ -4,7 +4,7 @@ Run from the repository root. Recipes select the iOS Nix shell.
 
 - `dev/nix-shell 'just example-ios build'` builds the simulator app and journeys.
 - `dev/nix-shell 'just example-ios test'` prepares local SDK bindings and runs host unit tests.
-- `dev/nix-shell 'just example-ios test-ui'` runs the five simulator journeys against the worktree backend.
+- `dev/nix-shell 'just example-ios test-ui'` runs the two simulator journeys (`MessagingJourneys`, `GroupJourney`) against the worktree backend.
 - `dev/nix-shell 'just example-ios lint'` checks Swift and dependency boundaries.
 - `dev/nix-shell 'just example-ios format'` formats app and package sources.
 - `dev/nix-shell 'just example-ios start'` builds and launches; append `--headless` to leave Simulator.app closed.
@@ -18,4 +18,4 @@ Use system components before custom drawing. Primary buttons use native glassPro
 
 Add light, dark and AX3 previews for screen states. Check real simulator pixels against the reference, including AX5, VoiceOver and iPad. Do not mark a manual or device check passed from source inspection, a preview or an APNs simulator compile.
 
-The build, focused host tests and five backend journeys are the test layers. Prove each new test fails under a named behavioral mutation, then restore it and show it passes. Record the mutation and manual-check results in the change description.
+The build, focused host tests and two backend journeys are the test layers. The messaging journey also covers the handle claim at join, the Accept step of a message request, and the message reader after a background kill and relaunch; keep those steps when you change it. Prove each new test fails under a named behavioral mutation, then restore it and show it passes. Record the mutation and manual-check results in the change description.
