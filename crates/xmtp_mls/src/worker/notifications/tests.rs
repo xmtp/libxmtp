@@ -1,6 +1,8 @@
 use super::*;
 use crate::{
-    client::notifications::{NotificationChannel, NotificationOverride, NotificationState},
+    client::notifications::{
+        NotificationChannel, NotificationOverride, NotificationState, encode_config,
+    },
     tester,
     utils::test::MlsGroupExt,
 };
@@ -18,7 +20,7 @@ use support::Call;
 pub(crate) fn config() -> NotificationConfig {
     NotificationConfig::new(NotificationChannel::Http {
         url: "https://127.0.0.1/push".into(),
-        signing_key: vec![7; 32],
+        signing_key: vec![7; 32].into(),
     })
 }
 
@@ -172,7 +174,7 @@ async fn notification_repair_stale_marks_survive_database_restore() {
     db.confirm_uploaded_topics(&rows, &[])?;
     let mut record = db.notification_record()?;
     record.push_state = 1;
-    record.push_config = Some(encode(&config())?);
+    record.push_config = Some(encode_config(&config())?);
     record.push_repairing = true;
     db.save_notification_record(&record)?;
     for row in &mut rows[..1000] {
@@ -753,7 +755,7 @@ async fn notification_queued_disable_cannot_unregister_a_newer_enable() {
     assert_eq!(peer.calls(Call::Unregister), 0);
     assert!(peer.state.lock().registered);
     let record = client.db().notification_record()?;
-    assert!(decode::<NotificationConfig>(record.push_config.as_deref().unwrap())?.include_commits);
+    assert!(stored_config(&record)?.include_commits);
     assert!(matches!(
         client.notification_state()?,
         NotificationState::Enabled

@@ -3,6 +3,7 @@
 use crate::db::PushChannel;
 use std::sync::Arc;
 use xmtp_common::time::Duration;
+use xmtp_cryptography::secret::Zeroizing;
 use xmtp_push_types::PushPayload;
 
 pub(crate) mod apns;
@@ -21,7 +22,8 @@ pub(crate) struct DeliveryConfig {
     pub secret_hash: Vec<u8>,
     pub channel: PushChannel,
     pub delivery: String,
-    pub signing_key: Option<Vec<u8>>,
+    /// The webhook signing key. Every clone is wiped on drop.
+    pub signing_key: Option<Zeroizing<Vec<u8>>>,
 }
 
 #[derive(Clone)]

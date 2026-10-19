@@ -44,6 +44,12 @@ impl From<Zeroizing<Vec<u8>>> for StoredSecret {
     }
 }
 
+impl From<Secret> for StoredSecret {
+    fn from(secret: Secret) -> Self {
+        Self(secret.into())
+    }
+}
+
 impl fmt::Debug for StoredSecret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StoredSecret(<{} bytes>)", self.0.len())
@@ -68,7 +74,7 @@ impl serde::Serialize for StoredSecret {
 impl<'de> serde::Deserialize<'de> for StoredSecret {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         // `Secret` decodes like `Vec<u8>` without freeing a partial copy.
-        Secret::deserialize(deserializer).map(|secret| Self(secret.into()))
+        Secret::deserialize(deserializer).map(Self::from)
     }
 }
 

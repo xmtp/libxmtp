@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use super::channel::{Delivery, DeliveryConfig};
 use crate::{db::Store, error::Error};
+use xmtp_cryptography::secret::Zeroizing;
 
 pub(crate) const PAGE_SIZE: usize = 1000;
 pub(crate) const WINDOW_ROWS: i64 = 1024;
@@ -77,7 +78,8 @@ pub(crate) async fn load(
         page.next = (sequence_id, recipient_id.clone());
         count += 1;
         let channel = row.channel.ok_or_else(missing)?.try_into()?;
-        let keys = [row.hmac_key_0, row.hmac_key_1, row.hmac_key_2];
+        let keys =
+            [row.hmac_key_0, row.hmac_key_1, row.hmac_key_2].map(|key| key.map(Zeroizing::new));
         if let Some(key) = super::suppress::key(
             row.server_ns.ok_or_else(missing)?,
             row.hmac_epoch_base,
@@ -122,7 +124,7 @@ pub(crate) async fn load(
                 secret_hash: row.secret_hash.ok_or_else(missing)?,
                 channel,
                 delivery: row.delivery.ok_or_else(missing)?,
-                signing_key: row.signing_key,
+                signing_key: row.signing_key.map(Zeroizing::new),
             },
         });
     }

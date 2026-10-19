@@ -141,6 +141,34 @@ fn unregister() -> api::UnregisterRequest {
     }
 }
 
+/// Dropping a decoded request wipes every secret field it still holds, so a
+/// handler's early return frees no copy of a credential or HMAC key.
+#[xmtp_common::test]
+fn decoded_requests_wipe_their_secret_fields() {
+    let mut register = registration();
+    register.delivery = Some(api::register_request::Delivery::Http(api::HttpDelivery {
+        url: "https://example.test/hook".into(),
+        signing_key: vec![33; 32],
+    }));
+    register.wipe_secrets();
+    assert!(register.recipient_secret.is_empty());
+    let Some(api::register_request::Delivery::Http(http)) = &register.delivery else {
+        panic!("the delivery is still HTTP");
+    };
+    assert!(http.signing_key.is_empty());
+    assert_eq!(http.url, "https://example.test/hook");
+
+    let mut unregister = unregister();
+    unregister.wipe_secrets();
+    assert!(unregister.recipient_secret.is_empty());
+
+    let mut update = update(vec![subscription(1, 3), subscription(2, 1)], vec![]);
+    update.wipe_secrets();
+    assert!(update.recipient_secret.is_empty());
+    assert!(update.adds.iter().all(|add| add.hmac_keys.is_empty()));
+    assert_eq!(update.adds.len(), 2);
+}
+
 fn status(error: Status, code: Code, message: &str) {
     assert_eq!(error.code(), code);
     assert_eq!(error.message(), message);
