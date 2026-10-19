@@ -1,6 +1,7 @@
 // Test support for the chat stores: an in-memory conversation that answers
-// `ChatQueries` like the SDK (published history pages of 50 with exclusive
-// bounds, pending pages, optimistic queue and publish). Only tests import it.
+// `ChatQueries` like the SDK (published history pages of `PAGE_SIZE` with
+// exclusive bounds, pending pages, optimistic queue and publish). Only tests
+// import it.
 
 import type {
   ChatPage,
@@ -27,6 +28,8 @@ import {
 import { deferred } from "./testing.ts";
 
 export const CONVERSATION = "chat";
+/** Rows per history or pending page, as the SDK reads them. */
+export const PAGE_SIZE = 50;
 export const OWN = "own-inbox";
 export const PEER = "peer-inbox";
 
@@ -153,7 +156,7 @@ export class FakeConversation implements ChatQueries {
       return true;
     });
     const ordered = ascending ? inRange : [...inRange].reverse();
-    const page = ordered.slice(0, 50);
+    const page = ordered.slice(0, PAGE_SIZE);
     const rows = page.filter((row) => !this.unreadable.has(row.id));
     const first = page[0]?.position;
     const last = page.at(-1)?.position;
@@ -161,7 +164,7 @@ export class FakeConversation implements ChatQueries {
       rows,
       ...(first === undefined ? {} : { first }),
       ...(last === undefined ? {} : { last }),
-      hasMore: ordered.length > 50,
+      hasMore: ordered.length > PAGE_SIZE,
       skipped: page.length - rows.length,
     };
   }
@@ -170,7 +173,7 @@ export class FakeConversation implements ChatQueries {
     const ordered = [...this.unpublished]
       .reverse()
       .filter((row) => before === undefined || row.sentAtNs < before.sentAtNs);
-    const page = ordered.slice(0, 50);
+    const page = ordered.slice(0, PAGE_SIZE);
     const rows = page.filter((row) => !this.unreadable.has(row.id));
     const last = page.at(-1);
     return Promise.resolve({
@@ -178,7 +181,7 @@ export class FakeConversation implements ChatQueries {
       ...(last === undefined
         ? {}
         : { last: { sentAtNs: last.sentAtNs, cursor: last.id } }),
-      hasMore: ordered.length > 50,
+      hasMore: ordered.length > PAGE_SIZE,
       skipped: page.length - rows.length,
     });
   }

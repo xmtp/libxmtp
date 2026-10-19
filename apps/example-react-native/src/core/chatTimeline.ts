@@ -72,6 +72,12 @@ export interface TimelinePorts {
 
 type Action = "load" | "older" | "olderPending" | "newest" | "refresh";
 
+/**
+ * Pending pages one load reads while each holds only unreadable rows. After
+ * that many, the load stops and offers "Older pending messages".
+ */
+export const PENDING_READ_ATTEMPTS = 4;
+
 /** A result that arrived after a newer action or after the chat closed. */
 class Superseded extends Error {
   constructor() {
@@ -357,7 +363,7 @@ export class ChatTimeline extends Store<TimelineState> {
     const { queries, conversationId: id } = this.#ports;
     let cursor = before;
     let skipped = before === undefined ? 0 : this.#pendingSkipped;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (let attempt = 0; attempt < PENDING_READ_ATTEMPTS; attempt += 1) {
       check();
       const page = await queries.pending(id, cursor);
       check();
