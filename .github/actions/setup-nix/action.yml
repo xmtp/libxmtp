@@ -21,7 +21,8 @@ inputs:
   cachix-pr-auth-token:
     description: >-
       Cachix token for the CI-only cache xmtp-pr. Only mode ci may receive
-      it; fork and Dependabot runs have none and push nothing.
+      it; fork runs have none and push nothing. Dependabot runs have it only
+      as a Dependabot secret.
     required: false
   kache:
     description: >-

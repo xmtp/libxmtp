@@ -49,8 +49,9 @@ when:
 - a `read` or `trusted` job receives the `xmtp-pr` token;
 - a `read` or `ci` job receives the trusted token.
 
-Fork and Dependabot runs have no
-`xmtp-pr` token: they read both caches and push nothing.
+Fork runs have no `xmtp-pr` token: they read both caches and push nothing.
+Dependabot runs get only Dependabot secrets, so they push to `xmtp-pr` once
+`CACHIX_PR_AUTH_TOKEN` is also a Dependabot secret, and push nothing before.
 
 A writer job selects the writer environment `kache-s3-writer` exactly when
 its mode is `trusted`, with the same protected-push expression in both

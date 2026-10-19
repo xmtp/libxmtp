@@ -20,9 +20,6 @@ MANIFEST = json.loads(MANIFEST_PATH.read_text())
 SUITES = MANIFEST["suites"]
 EVENT_KINDS = ("draft_pr_push", "ready_pr_push", "merge")
 LARGE_PR = 3000
-# Runs that Dependabot triggers, and their re-runs, get no Actions secrets, so
-# a products job could not push to xmtp-pr.
-DEPENDABOT = "dependabot[bot]"
 
 
 @functools.lru_cache(maxsize=None)
@@ -80,6 +77,11 @@ class Rules:
             name: self._split(suite["crates"] + suite["workflow_files"], suite["paths"])
             for name, suite in manifest["suites"].items()
         }
+        # Each list's exclusions apply to that list's matches only.
+        self.advisory = {
+            name: self._split(suite["advisory"]["crates"], suite["advisory"]["paths"])
+            for name, suite in manifest["suites"].items()
+        }
         self.products = {
             group: self._split(spec["crates"], spec["paths"])
             for group, spec in manifest.get("products", {}).items()
@@ -108,7 +110,12 @@ class Rules:
         return not self.neutral(path) and any_match(self.manifest["shared"], path)
 
     def suites_for(self, path):
+        """The suites whose blocking filters (pr_filters) match the path."""
         return self._matching(self.suites, path)
+
+    def advisory_for(self, path):
+        """The suites whose advisory_filters match the path."""
+        return self._matching(self.advisory, path)
 
     def products_for(self, path):
         return self._matching(self.products, path)
@@ -117,8 +124,17 @@ class Rules:
         return (
             self.neutral(path)
             or self.shared(path)
-            or any(any_match(include, path) for include, _ in self.suites.values())
+            or any(
+                any_match(include, path)
+                for rules in (self.suites, self.advisory)
+                for include, _ in rules.values()
+            )
         )
+
+
+def has_advisory_tier(suite):
+    advisory = suite["advisory"]
+    return bool(advisory["crates"] or advisory["paths"] or advisory["labels"])
 
 
 def json_strings(value):
@@ -139,6 +155,27 @@ def event_kind(event_name, event):
     return "ready_pr_push"
 
 
+class RequestError(ValueError):
+    """A manual run asked for a suite that the declaration does not have."""
+
+
+def requested_suites(event):
+    """The suites of a manual run's `suites` input. Empty means every suite."""
+    text = str((event.get("inputs") or {}).get("suites") or "")
+    names = [name.strip() for name in text.split(",") if name.strip()]
+    unknown = sorted(set(names) - set(SUITES))
+    if unknown:
+        # JSON quoting keeps a line break in the input on one line.
+        raise RequestError(
+            "Unknown suites in the suites input: "
+            + ", ".join(json.dumps(name) for name in unknown)
+            + ". Use suite keys of .github/ci-suites.yml: "
+            + ", ".join(SUITES)
+            + "."
+        )
+    return list(dict.fromkeys(names))
+
+
 def select_suites(
     files,
     event_name,
@@ -147,10 +184,13 @@ def select_suites(
     changed_files=None,
     metadata_error=None,
     deleted=(),
+    pr_cache_token=True,
 ):
-    """Choose suites. `files` is None when the changed-file list is unavailable.
+    """Choose suites and their tiers. `files` is None when the changed-file list
+    is unavailable.
 
     `deleted` lists changed paths that are not in the checkout.
+    `pr_cache_token` says whether the run can push to xmtp-pr.
     """
     pr = event.get("pull_request", {}) if event_name == "pull_request" else {}
     # A deleted fork has no head repository.
@@ -158,19 +198,25 @@ def select_suites(
     fork = bool(pr) and head_repo.get("full_name") != (
         event.get("repository", {}).get("full_name")
     )
-    dependabot = (event.get("sender") or {}).get("login") == DEPENDABOT
     kind = event_kind(event_name, event)
     rules = Rules(MANIFEST)
-    matched, shared, unknown, details, reasons = set(), [], [], [], []
+    # Suites matched by a blocking filter, and by an advisory filter.
+    matched, advisory_matched = set(), set()
+    shared, unknown, details, reasons = [], [], [], []
     labels = {label["name"] for label in pr.get("labels", [])}
     matched_labels = set()
     for name, suite in SUITES.items():
-        found = labels.intersection(suite["labels"])
-        if found:
-            matched.add(name)
-            matched_labels.update(found)
+        for found, into in (
+            (labels.intersection(suite["labels"]), matched),
+            (labels.intersection(suite["advisory"]["labels"]), advisory_matched),
+        ):
+            if found:
+                into.add(name)
+                matched_labels.update(found)
     matched_products = set()
+    requested = []
     if kind == "manual":
+        requested = requested_suites(event)
         reasons.append("explicit_request")
     elif kind == "merge":
         reasons.append("merge")
@@ -191,6 +237,7 @@ def select_suites(
         else:
             for path in files:
                 matched.update(rules.suites_for(path))
+                advisory_matched.update(rules.advisory_for(path))
                 matched_products.update(rules.products_for(path))
             # A deletion or rename can leave a rule that names no file.
             if deleted:
@@ -207,53 +254,91 @@ def select_suites(
         if (kind == "manual" or kind in suite["run_on"])
         and not (fork and suite["disable_on_forks"])
     }
-    selected = eligible if reasons else matched & eligible
-    selected = {name for name in selected if SUITES[name]["covered_by"] not in selected}
-    # A suite whose group does not run builds the products itself.
-    waited = {group for name in selected for group in SUITES[name]["products"]}
-    if fork or dependabot:
+    if requested:
+        selected = set(requested) & eligible
+    elif reasons:
+        selected = eligible
+    else:
+        selected = (matched | advisory_matched) & eligible
+
+    def tier(name):
+        # A suite is advisory only on a pull request where no blocking filter
+        # matched it: an advisory filter selected it, or a full run did.
+        if kind in ("merge", "manual") or name in matched:
+            return "blocking"
+        return "advisory" if has_advisory_tier(SUITES[name]) else "blocking"
+
+    tiers = {name: tier(name) for name in selected}
+
+    def covered(name):
+        # A cover replaces a suite only when it runs in the same or a
+        # stronger tier, so a blocking suite never gives way to an advisory one.
+        cover = SUITES[name]["covered_by"]
+        return cover in tiers and (
+            tiers[cover] == "blocking" or tiers[name] == "advisory"
+        )
+
+    tiers = {name: t for name, t in tiers.items() if not covered(name)}
+    # A suite whose group does not run builds the products itself. A group
+    # runs only when it can push to xmtp-pr for the suites to substitute.
+    waited = {group for name in tiers for group in SUITES[name]["products"]}
+    if not pr_cache_token:
         products = set()
     elif reasons:
         products = waited
     else:
         products = waited & matched_products
+    considered = matched | advisory_matched | set(requested)
+    if reasons and not requested:
+        considered = set(SUITES)
     return {
         "event_kind": kind,
         "fork": fork,
-        "dependabot": dependabot,
+        "pr_cache_token": pr_cache_token,
         "changed_files": changed_files,
         "reasons": reasons,
         "details": details,
+        "requested_suites": requested,
         "matched_suites": sorted(matched),
+        "advisory_matched_suites": sorted(advisory_matched - matched),
         "matched_labels": sorted(matched_labels),
         "deleted_paths": sorted(deleted),
         "shared_paths": shared,
         "unknown_paths": unknown,
-        "policy_excluded": sorted(
-            (matched | (set(SUITES) if reasons else set())) - eligible
-        ),
+        "policy_excluded": sorted(considered - eligible),
         "suites": {
-            phase: [n for n in SUITES if n in selected and SUITES[n]["phase"] == phase]
+            phase: [
+                n
+                for n in SUITES
+                if tiers.get(n) == "blocking" and SUITES[n]["phase"] == phase
+            ]
             for phase in ("lint", "test")
         },
+        "advisory": [n for n in SUITES if tiers.get(n) == "advisory"],
         "matched_products": sorted(matched_products),
         "products": [g for g in MANIFEST["products"] if g in products],
     }
 
 
+def code(text):
+    """Keep text from a path, a label, or an input as text in Markdown."""
+    text = str(text).replace("\n", "\\n").replace("\r", "\\r")
+    return "<code>" + html.escape(text).replace("|", "&#124;") + "</code>"
+
+
 def summary(result):
-    """Keep file paths as text, including quotes and line breaks."""
-
-    def code(text):
-        text = str(text).replace("\n", "\\n").replace("\r", "\\r")
-        return "<code>" + html.escape(text).replace("|", "&#124;") + "</code>"
-
+    if result["requested_suites"]:
+        selection = "requested"
+    elif result["reasons"]:
+        selection = "full"
+    else:
+        selection = "filter-selected"
     lines = ["## CI selection", "", "| Field | Value |", "| --- | --- |"]
     fields = {
         "Event": result["event_kind"],
         "Fork": str(result["fork"]).lower(),
-        "Dependabot": str(result["dependabot"]).lower(),
-        "Selection": "full" if result["reasons"] else "filter-selected",
+        "PR cache token": "present" if result["pr_cache_token"] else "absent",
+        "Selection": selection,
         "PR changed files": result["changed_files"]
         if result["changed_files"] is not None
         else "Not applicable or unavailable",
@@ -262,14 +347,17 @@ def summary(result):
     lines.extend(f"| {key} | {code(value)} |" for key, value in fields.items())
     lists = {
         "Detection details": result["details"],
-        "Suites matched by PR filters": result["matched_suites"],
+        "Requested suites": result["requested_suites"],
+        "Suites matched by blocking PR filters": result["matched_suites"],
+        "Suites matched only by advisory PR filters": result["advisory_matched_suites"],
         "Matching PR labels": result["matched_labels"],
         "Deleted or renamed paths": result["deleted_paths"],
         "Shared paths": result["shared_paths"],
         "Unknown paths": result["unknown_paths"],
         "Suites excluded by event or fork policy": result["policy_excluded"],
-        "Selected lint suites": result["suites"]["lint"],
-        "Selected test suites": result["suites"]["test"],
+        "Blocking lint suites": result["suites"]["lint"],
+        "Blocking test suites": result["suites"]["test"],
+        "Advisory suites (Lint and Test do not wait for these)": result["advisory"],
         "Product groups matched by paths": result["matched_products"],
         "Selected product groups": result["products"],
     }
@@ -328,15 +416,31 @@ def main():
     )
     files = read_files(sys.stdin.read())
     deleted = [p for p in files or [] if not (ROOT / p).exists()]
-    result = select_suites(
-        files, event_name, event, env["PATHS_OUTCOME"], total, error, deleted
-    )
+    try:
+        result = select_suites(
+            files,
+            event_name,
+            event,
+            env.get("PATHS_OUTCOME", ""),
+            total,
+            error,
+            deleted,
+            env.get("PR_CACHE_TOKEN") == "true",
+        )
+    except RequestError as problem:
+        with open(env["GITHUB_STEP_SUMMARY"], "a") as output:
+            output.write(f"## CI selection\n\n{code(problem)}\n")
+        print(f"::error title=Unknown suites::{problem}")
+        sys.exit(1)
+
+    def compact(value):
+        return json.dumps(value, separators=(",", ":"))
+
     with open(env["GITHUB_OUTPUT"], "a") as output:
         for phase, names in result["suites"].items():
-            output.write(f"{phase}_suites={json.dumps(names, separators=(',', ':'))}\n")
-        output.write(
-            f"products={json.dumps(result['products'], separators=(',', ':'))}\n"
-        )
+            output.write(f"{phase}_suites={compact(names)}\n")
+        output.write(f"advisory_suites={compact(result['advisory'])}\n")
+        output.write(f"products={compact(result['products'])}\n")
     with open(env["GITHUB_STEP_SUMMARY"], "a") as output:
         output.write(summary(result))
 

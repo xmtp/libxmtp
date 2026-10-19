@@ -48,9 +48,10 @@ host library and call the backend outside their task inputs. The job that runs
 design.
 
 Product groups (`products:` in `.github/ci-suites.yml`) each get one generated
-`products_<group>` job in `test-generated.yml`. It builds
+`products_<group>` job in `ci.yml`. It builds
 `.#ciSets.x86_64-linux.<group>` (listed in `nix/ci-sets.nix`) in mode `ci`, so
 the suites that wait for the group substitute the products from `xmtp-pr`. A
+group runs only when the run has `CACHIX_PR_AUTH_TOKEN`. A
 suite still builds every product it uses: when the group did not run, its jobs
 build the products themselves.
 
@@ -116,46 +117,79 @@ Gradle User Home, and no backend.
 
 ## CI selection
 
-`.github/ci-suites.yml` declares every CI suite: its workflow, `pr_filters` (globs, Cargo
-packages, path groups, and `pr_label` names joined with OR), Kache scopes, and policy (`run_on`, `disable_on_forks`,
-`secrets`, `permissions`, `covered_by`). Every suite key except `covered_by` is
-required; nothing has a default. `secrets` is `inherit`, `kache` (only the
-Kache keys), `cachix-pr` (only `CACHIX_PR_AUTH_TOKEN`), or `none`; use `none`
-for a suite whose workflows read no secret. Example iOS suites use `cachix-pr`
-and declare that optional secret in their reusable workflows. They receive no
-release App or trusted-cache credentials.
+`.github/ci-suites.yml` declares every CI suite: its title, workflow, filters
+(globs, Cargo packages, path groups, and `pr_label` names joined with OR),
+Kache scopes, and policy (`run_on`, `disable_on_forks`, `secrets`,
+`permissions`). `covered_by`, `runners`, `with`, and `advisory_filters` are
+optional; every other key is required and nothing has a default. `secrets` is
+`inherit`, `kache` (only the Kache keys), `cachix-pr` (only
+`CACHIX_PR_AUTH_TOKEN`), or `none`; use `none` for a suite whose workflows
+read no secret. Example iOS suites use `cachix-pr` and declare that optional
+secret in their reusable workflows. They receive no release App or
+trusted-cache credentials.
 Edit only that file. Then run
 `dev/nix-shell 'python3.11 dev/ci-suites generate'` and commit the generated
-`.github/ci-suites.json`, `lint-generated.yml`, and `test-generated.yml`.
-`just lint-config` runs `dev/ci-suites check`. It fails on stale generated
-files, a wrong Kache scope, a suite workflow that takes inputs, a tracked file
-that no rule names, and a pattern that matches no tracked file.
-`dev/ci-suites explain PATH...` shows what a path selects.
+`.github/ci-suites.json` and `.github/workflows/ci.yml`. Do not edit `ci.yml`
+by hand. `just lint-config` runs `dev/ci-suites check`. It fails on stale
+generated files, a wrong Kache scope, a missing or repeated title, a runner
+label outside its allowlist, an input that the suite workflow does not declare
+or a required one that the caller does not pass, a tracked file that no rule
+names, and a pattern that matches no tracked file.
+`dev/ci-suites explain PATH...` shows what a path selects, by tier.
 `dev/ci-suites replay [N] [REF]` replays recent commits as pull requests.
 
-Each suite is one reusable workflow without inputs. It runs all of its jobs.
-`ci.yml` lists the changed files with a pinned dorny step, and
-`dev/ci-select` selects the suites. `ci.yml` then calls `lint-generated.yml`
-with the selected lint suites and `test-generated.yml` with the selected test
-suites. Each generated workflow has one job per suite and a `required` job.
-That job fails when a selected suite did not succeed, including when it was
-skipped. The `Lint` and `Test` jobs in `ci.yml` pass only when detection and
-their call succeed. Branch protection on `main` requires them by name.
+`ci.yml` has the job `Select suites` (id `detect-changes`), the products
+jobs, one caller job per suite, and the `Lint` and `Test` gates. Branch
+protection on `main` requires `Lint` and `Test` by name. A check reads
+`<suite title> / <job name>`. `Select suites` lists the changed files with a
+pinned dorny step, and `dev/ci-select` selects the suites. Each caller runs
+when its suite is selected. A suite without `with` inputs runs all of its
+jobs. Each gate always runs. It fails unless detection passed, and fails when
+a selected blocking suite of its phase did not succeed, including when it was
+skipped.
+
+Tiers: a match in `pr_filters` (or the suite's workflow files) makes a suite
+blocking. A suite that only `advisory_filters` match runs as advisory, in a
+second caller job (`<suite>_advisory`, named `<title> (advisory)`) that no gate
+needs. A full run of a pull request runs a suite with `advisory_filters` as
+advisory unless a `pr_filters` entry matched. Merge and manual runs run every
+selected suite as blocking. The example apps follow decision D1: the app's own
+paths and its label block; the SDK the app consumes and the SDK and toolchain
+Nix inputs (`example_ios_nix`, `example_android_nix`) run it as advisory.
+
+`runners` maps a workflow input to a `{pr, merge}` pair of labels. The caller
+passes the merge label on pushes to `main` and the `pr` label on pull requests
+and manual runs; the suite workflow uses it as `runs-on: ${{ inputs.NAME }}`.
+`with` passes other inputs (for example a scope). The top-level `runners` key
+sets the runners of `Select suites`, the products jobs, and the gates.
 
 Pull request pushes run the suites whose inputs changed. Draft pushes run only
-suites with `draft_pr_push` in `run_on`; their aggregates are named `Draft lint`
-and `Draft checks`. A merge to `main` runs every suite with
-`merge` in `run_on`. A manual run runs every suite. These cases also run every
-eligible suite: a shared input, a path that no rule names, more than 3,000
-changed files, and unavailable detection. Rename-expanded path counts do not
-select a full run. Empty diffs are valid. Fork pull requests skip suites with
-`disable_on_forks`. A suite with `covered_by` does not run when its cover runs.
-A `neutral` file selects a suite only through a repository-wide glob that
-starts with `**/`, such as `**/*.md` or the formatter's file types. A pull
-request that deletes or renames a file also runs the `on_deleted_path`
+suites with `draft_pr_push` in `run_on`; test suites never do. On drafts the
+gates are named `Lint (draft)` and `Test (not run on drafts)`, so a draft run
+cannot satisfy the required checks. The Nix evaluation suite (`nix_eval`)
+skips drafts. A merge to `main` runs every suite with `merge` in `run_on`. A
+manual run takes a `suites` input, a comma-separated list of suite keys, and
+runs those suites; an empty input runs every suite, and an unknown key fails
+`Select suites`. These cases also run every eligible suite: a shared input, a
+path that no rule names, more than 3,000 changed files, and unavailable
+detection. Rename-expanded path counts do not select a full run. Empty diffs
+are valid. Fork pull requests skip suites with `disable_on_forks`. A suite
+with `covered_by` does not run when its cover runs in the same or a stronger
+tier. A `neutral` file selects a suite only through a repository-wide glob
+that starts with `**/`, such as `**/*.md` or the formatter's file types. A
+pull request that deletes or renames a file also runs the `on_deleted_path`
 suites, because `dev/ci-suites check` can then find a pattern that names no
-file. A new pull request push cancels the older run; merge runs are not
-cancelled.
+file, and a Nix file can still name it. A new pull request push cancels the
+older run. A running merge run is not cancelled, but GitHub keeps one pending
+run per concurrency group, so a newer push to `main` replaces a merge run that
+is still waiting: merge runs are latest-wins. Manual runs have their own group
+and never replace a merge run.
+
+Products need `CACHIX_PR_AUTH_TOKEN`. Fork runs have no secrets. Dependabot
+runs have only Dependabot secrets, so the token reaches them once it is added
+as a Dependabot secret. Without it, a run builds no product group and its
+suites build the products themselves. Release, deploy, and post-merge jobs
+never read `xmtp-pr`.
 
 PR label additions and removals also recalculate selection. `pr_label` matches
 the exact name in the event's `pull_request.labels`; it can select a suite
@@ -167,10 +201,12 @@ rules above still apply. Keep those Nix groups current when app packaging,
 SDK products, platform shells, or test service inputs change. Product groups
 keep path-only `path_filters`.
 
-The job summary lists the full-run reasons, matched suites and labels, shared and unknown
-paths, policy exclusions, and the selected suites. Lists show up to 200
-entries. JSON path data goes through standard input to preserve quotes and
-line breaks and avoid environment size limits.
+The job summary lists the full-run reasons, the requested suites of a manual
+run, the suites matched by blocking and by advisory filters, labels, shared
+and unknown paths, policy exclusions, the blocking suites of each phase, the
+advisory suites, and the product groups. Lists show up to 200 entries. JSON
+path data goes through standard input to preserve quotes and line breaks and
+avoid environment size limits.
 
 The `lint_deny` suite (`lint-deny.yml`) runs `just lint-deny` (cargo-deny
 bans, licenses, and sources) and the advisories check for Cargo lock and

@@ -242,9 +242,14 @@ def change_class(files):
 def pr_checkout(jobs):
     """Return the PR number and the merge, head, and base commits of a PR run.
 
-    The PR run's detect-changes job fetches and checks out refs/pull/N/merge.
+    The PR run's selection job fetches and checks out refs/pull/N/merge. It
+    is named `Select suites`; runs before the ci.yml redesign name it
+    `detect-changes`.
     """
-    job = next((job for job in jobs if job["name"] == "detect-changes"), None)
+    job = next(
+        (job for job in jobs if job["name"] in ("Select suites", "detect-changes")),
+        None,
+    )
     if job is None:
         return None
     number = None

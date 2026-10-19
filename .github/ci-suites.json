@@ -1,7 +1,8 @@
 {
   "generated_by": "dev/ci-suites generate. Edit .github/ci-suites.yml instead.",
   "on_deleted_path": [
-    "lint_config"
+    "lint_config",
+    "nix_eval"
   ],
   "shared": [
     "{flake.nix,flake.lock,rust-toolchain.toml,justfile}",
@@ -13,7 +14,7 @@
     "nix/shells/{local,rust}.nix",
     "nix/apps.nix",
     ".github/{ci-suites.yml,ci-suites.json}",
-    ".github/workflows/{ci,lint-generated,test-generated}.yml",
+    ".github/workflows/ci.yml",
     ".github/actions/setup-nix/**",
     "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run}"
   ],
@@ -30,8 +31,23 @@
     "dev/{ast-outline,bench,serena}",
     "dev/nix-up"
   ],
+  "runners": {
+    "select": {
+      "pr": "blacksmith-4vcpu-ubuntu-2404",
+      "merge": "blacksmith-4vcpu-ubuntu-2404"
+    },
+    "products": {
+      "pr": "blacksmith-16vcpu-ubuntu-2404",
+      "merge": "blacksmith-16vcpu-ubuntu-2404"
+    },
+    "gates": {
+      "pr": "blacksmith-4vcpu-ubuntu-2404",
+      "merge": "blacksmith-4vcpu-ubuntu-2404"
+    }
+  },
   "products": {
     "sdk_js": {
+      "title": "Prebuild JS SDKs (Nix)",
       "cargo_roots": [],
       "crates": [],
       "paths": [
@@ -50,6 +66,7 @@
       ]
     },
     "sdk_android": {
+      "title": "Prebuild Android SDK (Nix)",
       "cargo_roots": [],
       "crates": [],
       "paths": [
@@ -72,6 +89,7 @@
   },
   "suites": {
     "lint_workspace": {
+      "title": "Rust manifests",
       "phase": "lint",
       "workflow": "lint-workspace.yml",
       "run_on": [
@@ -87,6 +105,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -100,9 +120,16 @@
         "crates/xmtp-workspace-hack/**",
         "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "lint_js": {
+      "title": "JS source",
       "phase": "lint",
       "workflow": "lint-js.yml",
       "run_on": [
@@ -118,6 +145,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -136,9 +165,16 @@
         "sdks/{node,browser,agent,react-native}/**",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "lint_config": {
+      "title": "Format and config",
       "phase": "lint",
       "workflow": "lint-config.yml",
       "run_on": [
@@ -154,6 +190,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -174,9 +212,57 @@
         "{crates,apps}/**/*.rs",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
+    },
+    "nix_eval": {
+      "title": "Nix evaluation",
+      "phase": "lint",
+      "workflow": "nix-eval.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "none",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "products": [],
+      "runners": {},
+      "with": {},
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/nix-eval.yml"
+      ],
+      "paths": [
+        "**/*.nix",
+        "**/Cargo.toml",
+        "nix/**/*.json",
+        "sdks/android/{gradle.properties,gradle/wrapper/gradle-wrapper.properties}",
+        "sdks/react-native/package.json",
+        "sdks/react-native/test/consumers/**/*.json",
+        "{Cargo.lock,webdriver.json,package.json}"
+      ],
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "lint_proto": {
+      "title": "Protobuf",
       "phase": "lint",
       "workflow": "lint-proto.yml",
       "run_on": [
@@ -192,6 +278,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -201,9 +289,16 @@
       "paths": [
         "proto/**"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "docs_quality": {
+      "title": "Markdown and docs",
       "phase": "lint",
       "workflow": "docs-quality.yml",
       "run_on": [
@@ -219,6 +314,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -239,9 +336,16 @@
         "{apps/docs,docs}/**",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "lint_ios": {
+      "title": "iOS SDK",
       "phase": "lint",
       "workflow": "lint-ios.yml",
       "run_on": [
@@ -256,6 +360,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -270,9 +376,16 @@
         "sdks/ios/**",
         "{Package.swift,Package.resolved,.spi.yml}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "lint_deny": {
+      "title": "Rust dependencies",
       "phase": "lint",
       "workflow": "lint-deny.yml",
       "run_on": [
@@ -288,6 +401,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -298,9 +413,16 @@
         "**/Cargo.toml",
         "{Cargo.lock,deny.toml}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "lint_example_ios": {
+      "title": "iOS example app",
       "phase": "lint",
       "workflow": "lint-example-ios.yml",
       "run_on": [
@@ -315,6 +437,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -343,9 +467,16 @@
         "{Package.swift,Package.resolved,.spi.yml}",
         "!**/*.md"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "lint_example_react_native": {
+      "title": "React Native example app",
       "phase": "lint",
       "workflow": "lint-example-react-native.yml",
       "run_on": [
@@ -361,6 +492,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -373,9 +506,16 @@
       ],
       "labels": [
         "react-native"
-      ]
+      ],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_dev": {
+      "title": "Dev tools",
       "phase": "test",
       "workflow": "test-dev.yml",
       "run_on": [
@@ -390,6 +530,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -422,9 +564,16 @@
         "sdks/react-native/scripts/test-installed",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "check_rust": {
+      "title": "Rust Clippy",
       "phase": "test",
       "workflow": "check-rust.yml",
       "run_on": [
@@ -442,6 +591,8 @@
         "rust-clippy-wasm"
       ],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [
         "@default-members",
         "xmtp-sdk-bindgen"
@@ -484,9 +635,16 @@
         "Cargo.toml",
         "{.clippy.toml,dev/wasm.just}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "check_sdk_unit": {
+      "title": "xmtp_sdk crate",
       "phase": "test",
       "workflow": "check-sdk-unit.yml",
       "run_on": [
@@ -503,6 +661,8 @@
         "sdk-tests-debug"
       ],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [
         "xmtp_sdk"
       ],
@@ -550,9 +710,16 @@
         "nix/musl-docker.nix",
         "nix/package/backend.nix"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_backend": {
+      "title": "Backend",
       "phase": "test",
       "workflow": "test-backend.yml",
       "run_on": [
@@ -567,6 +734,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [
         "xmtp_backend"
       ],
@@ -608,9 +777,16 @@
         "nix/services/**",
         "nix/{ci-checks,package/backend-tests}.nix"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_validation": {
+      "title": "MLS validation",
       "phase": "test",
       "workflow": "test-validation.yml",
       "run_on": [
@@ -625,6 +801,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [
         "xmtp_id",
         "xmtp_mls_validation",
@@ -651,9 +829,16 @@
         "Cargo.toml",
         "{crates/xmtp_mls_validation/dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_workspace": {
+      "title": "Rust workspace",
       "phase": "test",
       "workflow": "test-workspace.yml",
       "run_on": [
@@ -668,6 +853,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [
         "@default-members"
       ],
@@ -718,9 +905,16 @@
         "{.config/nextest.toml,webdriver.json}",
         "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_keepalive": {
+      "title": "keepalive-probe",
       "phase": "test",
       "workflow": "test-keepalive-probe.yml",
       "run_on": [
@@ -735,6 +929,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [
         "keepalive-probe"
       ],
@@ -757,9 +953,16 @@
         "Cargo.toml",
         "{nix/package/keepalive-probe-check.nix,nix/ci-checks.nix}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_wasm": {
+      "title": "Rust WASM",
       "phase": "test",
       "workflow": "test-wasm.yml",
       "run_on": [
@@ -774,6 +977,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [
         "xmtp_api",
         "xmtp_api_backend",
@@ -832,9 +1037,16 @@
         "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
         "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_xdbg": {
+      "title": "xdbg and observability",
       "phase": "test",
       "workflow": "test-xdbg.yml",
       "run_on": [
@@ -849,6 +1061,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [
         "xdbg"
       ],
@@ -895,9 +1109,16 @@
         "nix/package/backend.nix",
         "nix/package/xdbg{,-check}.nix"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "docs_rust": {
+      "title": "Rust reference",
       "phase": "test",
       "workflow": "docs-rust-reference.yml",
       "run_on": [
@@ -914,6 +1135,8 @@
         "rust-reference"
       ],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [
         "@default-members",
         "error_glossary"
@@ -955,9 +1178,16 @@
         "Cargo.toml",
         "{docs/error_glossary.md,dev/gen-error-glossary}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "check_types": {
+      "title": "JS types",
       "phase": "test",
       "workflow": "check-types.yml",
       "run_on": [
@@ -974,6 +1204,8 @@
       "products": [
         "sdk_js"
       ],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1001,9 +1233,16 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "check_sdk": {
+      "title": "SDK packaging",
       "phase": "test",
       "workflow": "check-sdk-products.yml",
       "run_on": [
@@ -1021,6 +1260,8 @@
         "sdk_js",
         "sdk_android"
       ],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1049,9 +1290,16 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_node": {
+      "title": "Node SDK and CLI",
       "phase": "test",
       "workflow": "test-node-sdk.yml",
       "run_on": [
@@ -1068,6 +1316,8 @@
       "products": [
         "sdk_js"
       ],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1103,9 +1353,16 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_agent": {
+      "title": "Agent SDK",
       "phase": "test",
       "workflow": "test-agent-sdk.yml",
       "run_on": [
@@ -1122,6 +1379,8 @@
       "products": [
         "sdk_js"
       ],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1149,9 +1408,16 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_browser": {
+      "title": "Browser SDK",
       "phase": "test",
       "workflow": "test-browser-sdk.yml",
       "run_on": [
@@ -1168,6 +1434,8 @@
       "products": [
         "sdk_js"
       ],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1197,9 +1465,16 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_sdk_platform": {
+      "title": "Browser SDK platform",
       "phase": "test",
       "workflow": "test-sdk-platform.yml",
       "run_on": [
@@ -1216,6 +1491,8 @@
       "products": [
         "sdk_js"
       ],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1242,9 +1519,16 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "docs_site": {
+      "title": "Docs site",
       "phase": "test",
       "workflow": "deploy-docs.yml",
       "run_on": [
@@ -1263,6 +1547,8 @@
       "products": [
         "sdk_js"
       ],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1295,9 +1581,16 @@
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}",
         "!sdks/agent/src/**/*.test.ts"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_ios": {
+      "title": "iOS SDK",
       "phase": "test",
       "workflow": "test-ios.yml",
       "run_on": [
@@ -1312,6 +1605,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1337,9 +1632,16 @@
         "{Cargo.toml,Cargo.lock}",
         "{Package.swift,Package.resolved,.spi.yml}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_android": {
+      "title": "Android SDK",
       "phase": "test",
       "workflow": "test-android.yml",
       "run_on": [
@@ -1356,6 +1658,8 @@
       "products": [
         "sdk_android"
       ],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1380,9 +1684,16 @@
         "{Cargo.toml,Cargo.lock}",
         "!docs/**"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_example_android": {
+      "title": "Android example app",
       "phase": "test",
       "workflow": "test-example-android.yml",
       "run_on": [
@@ -1399,6 +1710,8 @@
       "products": [
         "sdk_android"
       ],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1407,23 +1720,33 @@
       ],
       "paths": [
         "apps/example-android/**",
-        "nix/android-packages.nix",
-        "nix/ci-sets.nix",
-        "nix/lib/android-*",
-        "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
-        "nix/musl-docker.nix",
-        "nix/package/backend.nix",
-        "nix/package/example-android-apk*",
-        "nix/package/libffi-zig-cross.site",
-        "nix/package/xmtp-sdk{,-native}.nix",
-        "nix/sdk-platforms.json",
-        "nix/shells/android{,-ci}.nix"
+        "nix/package/example-android-apk*"
       ],
       "labels": [
         "android"
-      ]
+      ],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [
+          "nix/android-packages.nix",
+          "nix/ci-sets.nix",
+          "nix/lib/android-*",
+          "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
+          "nix/musl-docker.nix",
+          "nix/package/backend.nix",
+          "nix/package/libffi-zig-cross.site",
+          "nix/package/xmtp-sdk{,-native}.nix",
+          "nix/sdk-platforms.json",
+          "nix/shells/android{,-ci}.nix",
+          "sdks/android/**",
+          "!docs/**"
+        ],
+        "labels": []
+      }
     },
     "test_example_ios": {
+      "title": "iOS example app",
       "phase": "test",
       "workflow": "test-example-ios.yml",
       "run_on": [
@@ -1438,6 +1761,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1446,20 +1771,34 @@
       ],
       "paths": [
         "apps/example-ios/**",
-        "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
-        "nix/musl-docker.nix",
-        "nix/package/backend.nix",
-        "nix/package/xmtp-sdk{,-native}.nix",
-        "nix/package/{example-ios-run,ios}.nix",
-        "nix/sdk-platforms.json",
-        "nix/services/**"
+        "nix/package/example-ios-run.nix"
       ],
       "labels": [
         "iOS"
-      ]
+      ],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [
+          "dev/check-apple-toolchain",
+          "nix/lib/ios-env.nix",
+          "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix",
+          "nix/lib/packages/{swiftformat,swiftlint}.nix",
+          "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
+          "nix/musl-docker.nix",
+          "nix/package/backend.nix",
+          "nix/package/ios.nix",
+          "nix/package/xmtp-sdk{,-native}.nix",
+          "nix/sdk-platforms.json",
+          "nix/services/**",
+          "sdks/ios/**",
+          "{Package.swift,Package.resolved,.spi.yml}"
+        ],
+        "labels": []
+      }
     },
     "test_react_native": {
+      "title": "React Native SDK",
       "phase": "test",
       "workflow": "test-react-native.yml",
       "run_on": [
@@ -1474,6 +1813,8 @@
       "covered_by": null,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1523,7 +1864,13 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     }
   }
 }

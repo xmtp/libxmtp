@@ -413,7 +413,7 @@ class KacheWorkflowWiringTests(unittest.TestCase):
     def test_linux_pilot_receives_reader_secrets_from_its_caller(self):
         # dev/ci-suites generates this caller from the `secrets: kache` suite setting.
         fields = self.fields_for_use(
-            ".github/workflows/test-generated.yml",
+            ".github/workflows/ci.yml",
             "./.github/workflows/check-rust.yml",
             "secrets",
         )

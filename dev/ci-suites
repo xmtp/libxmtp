@@ -2,9 +2,9 @@
 """Compile .github/ci-suites.yml into the files that CI reads.
 
 Commands:
-  generate          Write .github/ci-suites.json and the {lint,test}-generated.yml workflows.
+  generate          Write .github/ci-suites.json and .github/workflows/ci.yml.
   check             Fail when the generated files are stale or the declaration is wrong.
-  explain PATH...   Show which suites and product groups each path selects.
+  explain PATH...   Show the suites, by tier, and the product groups that each path selects.
   replay [N] [REF]  Replay the last N first-parent commits of REF as pull requests.
 """
 
@@ -26,12 +26,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 DECLARATION = ".github/ci-suites.yml"
 MANIFEST = ".github/ci-suites.json"
-GENERATED_WORKFLOWS = {
-    "lint": ".github/workflows/lint-generated.yml",
-    "test": ".github/workflows/test-generated.yml",
-}
+CI_WORKFLOW = ".github/workflows/ci.yml"
 WORKFLOWS = ".github/workflows"
-SUITE_KEYS = {
+# The suite keys, in the order the declaration lists them.
+SUITE_KEYS = (
+    "title",
     "phase",
     "workflow",
     "run_on",
@@ -41,8 +40,13 @@ SUITE_KEYS = {
     "covered_by",
     "kache",
     "products",
+    "runners",
+    "with",
     "pr_filters",
-}
+    "advisory_filters",
+)
+OPTIONAL_SUITE_KEYS = {"covered_by", "runners", "with", "advisory_filters"}
+REQUIRED_SUITE_KEYS = set(SUITE_KEYS) - OPTIONAL_SUITE_KEYS
 FILTER_KEYS = {"cargo_package", "path_group"}
 EVENT_KINDS = ("draft_pr_push", "ready_pr_push", "merge")
 TOP_KEYS = {
@@ -50,23 +54,64 @@ TOP_KEYS = {
     "on_deleted_path",
     "shared",
     "neutral",
+    "runners",
     "path_groups",
     "products",
     "suites",
 }
-# covered_by is the only optional suite key.
-REQUIRED_SUITE_KEYS = SUITE_KEYS - {"covered_by"}
+# The jobs that ci.yml defines itself: Select suites, the products jobs, and
+# the Lint and Test gates.
+GENERATED_RUNNERS = ("select", "products", "gates")
 KACHE_SECRETS = ("KACHE_S3_ACCESS_KEY_ID", "KACHE_S3_SECRET_ACCESS_KEY")
 # Scoped modes forward only their named cache credentials.
 SCOPED_SECRETS = {"kache": KACHE_SECRETS, "cachix-pr": ("CACHIX_PR_AUTH_TOKEN",)}
 SECRET_MODES = ("inherit", "kache", "none", "cachix-pr")
-GATE_RUNNER = "blacksmith-4vcpu-ubuntu-2404"
-# A products job compiles the group on most runs where it runs.
-PRODUCTS_RUNNER = "blacksmith-16vcpu-ubuntu-2404"
+# Runner labels a declaration may name. Blacksmith x64 Ubuntu 24.04 sizes
+# (docs.blacksmith.sh/blacksmith-runners/overview), GitHub-hosted images, and
+# the WarpBuild macOS labels in use. A new label is added here on purpose.
+RUNNER_LABELS = frozenset(
+    {
+        "blacksmith-2vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404",
+        "blacksmith-8vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404",
+        "blacksmith-32vcpu-ubuntu-2404",
+        "ubuntu-24.04",
+        "ubuntu-24.04-arm",
+        "macos-15",
+        "warp-macos-15-arm64-6x",
+        "warp-macos-15-arm64-12x",
+        "warp-macos-26-arm64-6x",
+        "warp-macos-26-arm64-12x",
+    }
+)
 PRODUCTS_SYSTEM = "x86_64-linux"
 # A group name is part of a job id and a flake attribute.
 GROUP_NAME = re.compile(r"[a-z][a-z0-9_]*\Z")
+# A suite key is a job id of ci.yml.
+SUITE_NAME = re.compile(r"[a-z][a-z0-9_]*\Z")
+INPUT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
+# A title becomes a job name, so a check reads `<title> / <job name>`. No `/`,
+# which separates those parts, and no `$`, which could start an expression.
+TITLE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9 _.,()+-]*[A-Za-z0-9)])?\Z")
+TITLE_LENGTH = 30
+ADVISORY_SUFFIX = " (advisory)"
+# Job names that ci.yml uses itself. Branch protection requires `Lint` and
+# `Test`, and a skipped job with a required name counts as passing, so no
+# caller job may take one of these names.
+RESERVED_NAMES = (
+    "Select suites",
+    "Lint",
+    "Lint (draft)",
+    "Test",
+    "Test (not run on drafts)",
+)
+GATE_NAMES = {
+    "lint": ("Lint", "Lint (draft)"),
+    "test": ("Test", "Test (not run on drafts)"),
+}
 PERMISSION_LEVELS = {"none": 0, "read": 1, "write": 2}
+CHECKOUT = "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0"
 
 
 def load_selector():
@@ -290,7 +335,7 @@ def compile_filters(filters, groups, graph, where):
 
 
 def compile_pr_filters(filters, groups, graph, where):
-    """Separate label matches from the suite's existing path filters."""
+    """Separate label matches from the path filters of one filter list."""
     if not isinstance(filters, list):
         raise DeclarationError(f"{where} must be a list")
     paths, labels = [], []
@@ -314,10 +359,70 @@ def compile_pr_filters(filters, groups, graph, where):
     }
 
 
+def compile_title(title, where):
+    if (
+        not isinstance(title, str)
+        or len(title) > TITLE_LENGTH
+        or not TITLE.match(title)
+    ):
+        raise DeclarationError(
+            f"{where} title must have 1-{TITLE_LENGTH} characters: letters, "
+            "digits, spaces, and _.,()+-, starting with a letter or digit"
+        )
+    reserved = {name.casefold() for name in RESERVED_NAMES}
+    if title.casefold() in reserved or title.endswith(ADVISORY_SUFFIX):
+        raise DeclarationError(f"{where} title {title!r} is reserved")
+    return title
+
+
+def compile_runner(value, where):
+    """A {pr, merge} pair of runner labels from the allowlist."""
+    if not isinstance(value, dict) or set(value) != {"pr", "merge"}:
+        raise DeclarationError(f"{where} needs exactly the keys pr and merge")
+    for key in ("pr", "merge"):
+        if value[key] not in RUNNER_LABELS:
+            raise DeclarationError(
+                f"{where}.{key} {value[key]!r} is not an allowed runner label: "
+                + ", ".join(sorted(RUNNER_LABELS))
+            )
+    return {"pr": value["pr"], "merge": value["merge"]}
+
+
+def compile_inputs(suite, name):
+    """The `with` values and runner inputs that the caller passes."""
+    given = suite.get("with", {})
+    if not isinstance(given, dict):
+        raise DeclarationError(f"Suite {name} with must map input names to values")
+    for key, value in given.items():
+        if not isinstance(key, str) or not INPUT_NAME.match(key):
+            raise DeclarationError(f"Suite {name} with has a bad input name {key!r}")
+        # YAML reads `yes`, numbers, and dates in surprising ways; only these
+        # types reach a workflow input unchanged.
+        if not isinstance(value, (str, bool, int, float)):
+            raise DeclarationError(
+                f"Suite {name} with.{key} must be a string, boolean, or number"
+            )
+    runners = suite.get("runners", {})
+    if not isinstance(runners, dict):
+        raise DeclarationError(
+            f"Suite {name} runners must map input names to {{pr, merge}} labels"
+        )
+    compiled = {}
+    for key, value in runners.items():
+        if not isinstance(key, str) or not INPUT_NAME.match(key):
+            raise DeclarationError(f"Suite {name} runners has a bad input name {key!r}")
+        if key in given:
+            raise DeclarationError(
+                f"Suite {name} passes input {key} in both with and runners"
+            )
+        compiled[key] = compile_runner(value, f"{name}.runners.{key}")
+    return dict(given), compiled
+
+
 def compile_products(products, groups, graph):
     if not isinstance(products, dict):
         raise DeclarationError(
-            "products must map product group names to their path_filters"
+            "products must map product group names to their title and path_filters"
         )
     compiled = {}
     for group, spec in products.items():
@@ -325,15 +430,19 @@ def compile_products(products, groups, graph):
             raise DeclarationError(
                 f"Product group {group!r} needs a name of lowercase letters, digits, and underscores"
             )
-        if not isinstance(spec, dict) or set(spec) != {"path_filters"}:
+        if not isinstance(spec, dict) or set(spec) != {"title", "path_filters"}:
             raise DeclarationError(
-                f"Product group {group} needs exactly the key path_filters"
+                f"Product group {group} needs exactly the keys title and path_filters"
             )
-        compiled[group] = compile_filters(
+        filters = compile_filters(
             spec["path_filters"], groups, graph, f"products.{group}"
         )
-        if not compiled[group]["crates"] and not compiled[group]["paths"]:
+        if not filters["crates"] and not filters["paths"]:
             raise DeclarationError(f"Product group {group} needs path_filters")
+        compiled[group] = {
+            "title": compile_title(spec["title"], f"Product group {group}"),
+            **filters,
+        }
     return compiled
 
 
@@ -343,24 +452,47 @@ def compile_declaration(root: Path = ROOT, declaration=None):
         if declaration is not None
         else yaml.safe_load((root / DECLARATION).read_text())
     )
-    # Every key except covered_by is explicit. Nothing has a default.
+    # Every key is explicit. Nothing has a default.
     if not isinstance(data, dict) or set(data) != TOP_KEYS:
         raise DeclarationError(
             f"The declaration needs exactly these keys: {sorted(TOP_KEYS)}"
         )
     if data["version"] != 1:
         raise DeclarationError("Unsupported declaration version")
+    runners = data["runners"]
+    if not isinstance(runners, dict) or set(runners) != set(GENERATED_RUNNERS):
+        raise DeclarationError(
+            f"runners needs exactly the keys {', '.join(GENERATED_RUNNERS)}"
+        )
+    runners = {
+        key: compile_runner(runners[key], f"runners.{key}") for key in GENERATED_RUNNERS
+    }
     graph = CargoGraph(root)
     groups = data["path_groups"]
     products = compile_products(data["products"], groups, graph)
     suites = {}
     for name, suite in data["suites"].items():
-        if not REQUIRED_SUITE_KEYS <= set(suite) <= SUITE_KEYS:
-            missing = sorted(REQUIRED_SUITE_KEYS - set(suite))
-            extra = sorted(set(suite) - SUITE_KEYS)
+        if (
+            not isinstance(name, str)
+            or not SUITE_NAME.match(name)
+            or name in ("lint", "test")
+            or name.startswith("products_")
+            or name.endswith("_advisory")
+        ):
+            raise DeclarationError(
+                f"Suite {name!r} needs a key of lowercase letters, digits, and "
+                "underscores that is not lint, test, products_*, or *_advisory"
+            )
+        if not isinstance(suite, dict) or not REQUIRED_SUITE_KEYS <= set(suite) <= set(
+            SUITE_KEYS
+        ):
+            keys = set(suite) if isinstance(suite, dict) else set()
+            missing = sorted(REQUIRED_SUITE_KEYS - keys)
+            extra = sorted(keys - set(SUITE_KEYS))
             raise DeclarationError(
                 f"Suite {name} is missing keys {missing} or has unknown keys {extra}"
             )
+        title = compile_title(suite["title"], f"Suite {name}")
         if suite["phase"] not in ("lint", "test") or not isinstance(
             suite["workflow"], str
         ):
@@ -371,6 +503,11 @@ def compile_declaration(root: Path = ROOT, declaration=None):
         if not run_on or set(run_on) - set(EVENT_KINDS):
             raise DeclarationError(
                 f"Suite {name} run_on must use {', '.join(EVENT_KINDS)}"
+            )
+        # The draft name of the Test gate says that no test suite runs on drafts.
+        if suite["phase"] == "test" and "draft_pr_push" in run_on:
+            raise DeclarationError(
+                f"Suite {name} is a test suite; test suites do not run on drafts"
             )
         if not isinstance(suite["disable_on_forks"], bool):
             raise DeclarationError(
@@ -396,14 +533,31 @@ def compile_declaration(root: Path = ROOT, declaration=None):
         filters = compile_pr_filters(
             suite["pr_filters"], groups, graph, f"{name}.pr_filters"
         )
+        advisory = compile_pr_filters(
+            suite.get("advisory_filters", []),
+            groups,
+            graph,
+            f"{name}.advisory_filters",
+        )
+        # A list of exclusions alone would make the suite advisory on full
+        # runs without any path that selects it.
+        if "advisory_filters" in suite and not (
+            advisory["crates"]
+            or advisory["labels"]
+            or any(not p.startswith("!") for p in advisory["paths"])
+        ):
+            raise DeclarationError(
+                f"Suite {name} advisory_filters must select something; omit an empty list"
+            )
+        given, runner_inputs = compile_inputs(suite, name)
         waits = as_list(suite["products"], f"{name}.products")
         unknown = sorted(set(waits) - set(products))
         if unknown:
             raise DeclarationError(
                 f"Suite {name} waits for unknown product groups {unknown}"
             )
-        # A lint suite runs in lint-generated.yml, which cannot need a job of
-        # test-generated.yml.
+        # The products jobs build for the test phase; the Lint gate does not
+        # wait for them.
         if waits and suite["phase"] != "test":
             raise DeclarationError(
                 f"Suite {name} is a lint suite and cannot wait for products"
@@ -418,6 +572,7 @@ def compile_declaration(root: Path = ROOT, declaration=None):
                 f"but its workflows use {sorted(scopes)}"
             )
         suites[name] = {
+            "title": title,
             "phase": suite["phase"],
             "workflow": suite["workflow"],
             "run_on": [kind for kind in EVENT_KINDS if kind in run_on],
@@ -427,12 +582,30 @@ def compile_declaration(root: Path = ROOT, declaration=None):
             "covered_by": suite.get("covered_by"),
             "kache": sorted(declared),
             "products": [group for group in products if group in waits],
+            "runners": runner_inputs,
+            "with": given,
             "cargo_roots": filters["cargo_roots"],
             "crates": filters["crates"],
             "workflow_files": workflow_files,
             "paths": filters["paths"],
             "labels": filters["labels"],
+            # A match here selects the suite as advisory, unless a filter
+            # above also matches.
+            "advisory": advisory,
         }
+    # Check names read `<title> / <job name>`, so a title names one suite or
+    # product group in its phase.
+    titles = collections.Counter(
+        [(s["phase"], s["title"].casefold()) for s in suites.values()]
+        + [("test", g["title"].casefold()) for g in products.values()]
+    )
+    repeated = sorted(
+        f"{phase} {title!r}" for (phase, title), n in titles.items() if n > 1
+    )
+    if repeated:
+        raise DeclarationError(
+            f"Titles must be unique in each phase: {', '.join(repeated)}"
+        )
     for name, suite in suites.items():
         if suite["covered_by"] and suite["covered_by"] not in suites:
             raise DeclarationError(
@@ -458,150 +631,282 @@ def compile_declaration(root: Path = ROOT, declaration=None):
         "on_deleted_path": on_deleted,
         "shared": as_list(data["shared"], "shared"),
         "neutral": as_list(data["neutral"], "neutral"),
+        "runners": runners,
         "products": products,
         "suites": suites,
     }
+
+
+def has_advisory_tier(suite):
+    advisory = suite["advisory"]
+    return bool(advisory["crates"] or advisory["paths"] or advisory["labels"])
 
 
 def render_manifest(manifest):
     return json.dumps(manifest, indent=2) + "\n"
 
 
-def render_workflow(manifest, phase):
-    """One job per suite in the phase, plus a job that requires every selected suite to pass.
+def scalar(value):
+    """A YAML scalar that reads back as `value`: plain when that is safe."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    text = str(value)
+    try:
+        if yaml.safe_load(f"key: {text}") == {"key": text}:
+            return text
+    except yaml.YAMLError:
+        pass
+    return json.dumps(text)
 
-    The test phase also gets one products job per product group. A suite that
-    waits for a group needs its job and runs when that job succeeded or was
-    skipped.
+
+def runner_value(runner):
+    """A label, or an expression that picks the merge label on a push to main.
+
+    ci.yml runs on pushes only for main, so `push` means a merge run. Pull
+    requests and manual runs use the `pr` label.
     """
+    if runner["pr"] == runner["merge"]:
+        return runner["pr"]
+    return (
+        f"${{{{ github.event_name == 'push' && '{runner['merge']}' "
+        f"|| '{runner['pr']}' }}}}"
+    )
+
+
+def caller_job(name, suite, tier):
+    """One job that calls the suite's workflow when the suite runs in `tier`."""
+    blocking = tier == "blocking"
+    job = name if blocking else f"{name}_advisory"
+    title = suite["title"] if blocking else suite["title"] + ADVISORY_SUFFIX
+    output = f"{suite['phase']}_suites" if blocking else "advisory_suites"
+    selected = f"contains(fromJSON(needs.detect-changes.outputs.{output}), '{name}')"
+    waits = [f"products_{group}" for group in suite["products"]]
+    lines = [
+        f"  {job}:",
+        f"    name: {scalar(title)}",
+        "    needs:",
+        "    - detect-changes",
+    ]
+    lines += [f"    - {need}" for need in waits]
+    if waits:
+        # Without a status function GitHub skips a job whose needed job was
+        # skipped; !cancelled() lets the suite build the products itself.
+        built = " && ".join(f"needs.{need}.result != 'failure'" for need in waits)
+        lines.append(
+            f"    if: ${{{{ !cancelled() && needs.detect-changes.result == 'success'"
+            f" && {selected} && {built} }}}}"
+        )
+    else:
+        lines.append(f"    if: {selected}")
+    lines += [f"    uses: ./{WORKFLOWS}/{suite['workflow']}", "    permissions:"]
+    lines += [f"      {key}: {value}" for key, value in suite["permissions"].items()]
+    if suite["secrets"] == "inherit":
+        lines.append("    secrets: inherit")
+    elif suite["secrets"] in SCOPED_SECRETS:
+        lines.append("    secrets:")
+        lines += [
+            f"      {secret}: ${{{{ secrets.{secret} }}}}"
+            for secret in SCOPED_SECRETS[suite["secrets"]]
+        ]
+    inputs = dict(suite["with"])
+    inputs.update((key, runner_value(r)) for key, r in suite["runners"].items())
+    if inputs:
+        lines.append("    with:")
+        lines += [f"      {key}: {scalar(value)}" for key, value in inputs.items()]
+    return lines
+
+
+# The gates fail unless detection passed, and then fail on each selected
+# blocking suite that did not pass. A failed products job skips the suites that
+# wait for it; the gate names the products job once instead of each skipped
+# suite. It counts a products job only when a selected blocking suite waits for
+# it.
+GATE_SCRIPT = r"""if [ "$DETECTED" != success ]; then
+  echo "Select suites: $DETECTED"
+  exit 1
+fi
+jq -enr \
+  --argjson selected "$SELECTED" \
+  --argjson products "$PRODUCTS" \
+  --argjson waits "$WAITS" \
+  --argjson results "$RESULTS" \
+  '[$products[] | select(. as $group | any($selected[]; any(($waits[.] // [])[]; . == $group)))
+      | "products_\(.)" | select($results[.].result != "success")] as $broken
+  | [$selected[] | select($results[.].result != "success")
+      | select(any(($waits[.] // [])[]; "products_\(.)" | IN($broken[])) | not)] as $failed
+  | ($broken[] | "\(.): \($results[.].result); the suites that wait for it did not run"),
+    ($failed[] | "\(.): \($results[.].result)"),
+    ($broken + $failed == [])'
+"""
+
+
+def gate_job(manifest, phase):
     suites = {n: s for n, s in manifest["suites"].items() if s["phase"] == phase}
     groups = list(manifest["products"]) if phase == "test" else []
+    name, draft = GATE_NAMES[phase]
+    waits = {n: s["products"] for n, s in suites.items() if s["products"]}
     lines = [
-        "# Generated by dev/ci-suites from .github/ci-suites.yml. Do not edit.",
-        f"name: {phase.capitalize()} suites",
-        "on:",
-        "  workflow_call:",
-        "    inputs:",
-        "      suites:",
-        "        description: JSON list of the suites to run.",
-        "        type: string",
-        "        required: true",
-    ]
-    if groups:
-        lines += [
-            "      products:",
-            "        description: JSON list of the product groups to build.",
-            "        type: string",
-            "        required: true",
-        ]
-    lines += [
-        "permissions:",
-        "  contents: read",
-        "jobs:",
-    ]
-    for group in groups:
-        lines += [
-            f"  products_{group}:",
-            f"    name: Products ({group})",
-            f"    if: contains(fromJSON(inputs.products), '{group}')",
-            f"    runs-on: {PRODUCTS_RUNNER}",
-            "    timeout-minutes: 60",
-            "    steps:",
-            "    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0",
-            # Mode ci pushes what the job builds to xmtp-pr, where the
-            # suites' jobs (also mode ci) substitute it.
-            "    - uses: ./.github/actions/setup-nix",
-            "      with:",
-            "        cache-mode: ci",
-            "        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}",
-            "        github-token: ${{ github.token }}",
-            f"    - name: Build the {group} products",
-            f"      run: nix build --keep-going --no-link .#ciSets.{PRODUCTS_SYSTEM}.{group}",
-        ]
-    for name, suite in suites.items():
-        selected = f"contains(fromJSON(inputs.suites), '{name}')"
-        waits = [f"products_{group}" for group in suite["products"]]
-        lines.append(f"  {name}:")
-        if waits:
-            # Without a status function GitHub skips a job whose needed job was
-            # skipped; !cancelled() lets the suite build the products itself.
-            built = " && ".join(f"needs.{job}.result != 'failure'" for job in waits)
-            lines.append(f"    if: ${{{{ !cancelled() && {selected} && {built} }}}}")
-            lines.append("    needs:")
-            lines += [f"    - {job}" for job in waits]
-        else:
-            lines.append(f"    if: {selected}")
-        lines += [
-            f"    uses: ./{WORKFLOWS}/{suite['workflow']}",
-            "    permissions:",
-        ]
-        lines += [
-            f"      {key}: {value}" for key, value in suite["permissions"].items()
-        ]
-        if suite["secrets"] == "inherit":
-            lines.append("    secrets: inherit")
-        elif suite["secrets"] in SCOPED_SECRETS:
-            lines.append("    secrets:")
-            lines += [
-                f"      {s}: ${{{{ secrets.{s} }}}}"
-                for s in SCOPED_SECRETS[suite["secrets"]]
-            ]
-    lines += [
-        "  required:",
-        "    name: Require selected suites",
+        f"  {phase}:",
+        "    name: ${{ github.event_name == 'pull_request' && "
+        f"toJSON(github.event.pull_request.draft) == 'true' && '{draft}' || '{name}' }}}}",
+        # A skipped job counts as a passing required check, so the gate always runs.
         "    if: always()",
-        f"    runs-on: {GATE_RUNNER}",
+        f"    runs-on: {scalar(runner_value(manifest['runners']['gates']))}",
         "    timeout-minutes: 5",
         "    needs:",
+        "    - detect-changes",
     ]
     lines += [f"    - products_{group}" for group in groups]
-    lines += [f"    - {name}" for name in suites]
+    lines += [f"    - {suite}" for suite in suites]
     lines += [
         "    steps:",
-        "    - name: Check that every selected suite passed",
+        f"    - name: Check detection and the selected blocking {phase} suites",
         "      env:",
-        "        SELECTED: ${{ inputs.suites }}",
-    ]
-    if not groups:
-        lines += [
-            "        RESULTS: ${{ toJSON(needs) }}",
-            "      run: |",
-            "        jq -en \\",
-            '          --argjson selected "$SELECTED" \\',
-            '          --argjson results "$RESULTS" \\',
-            "          '$selected | all(.[]; $results[.].result == \"success\")'",
-        ]
-        return "\n".join(lines) + "\n"
-    waits = {
-        name: suite["products"] for name, suite in suites.items() if suite["products"]
-    }
-    # A failed products job skips the suites that wait for it. The gate names
-    # the products job once instead of each skipped suite.
-    lines += [
-        "        PRODUCTS: ${{ inputs.products }}",
+        "        DETECTED: ${{ needs.detect-changes.result }}",
+        f"        SELECTED: ${{{{ needs.detect-changes.outputs.{phase}_suites }}}}",
+        "        PRODUCTS: "
+        + ("${{ needs.detect-changes.outputs.products }}" if groups else "'[]'"),
         f"        WAITS: '{json.dumps(waits, separators=(',', ':'))}'",
         "        RESULTS: ${{ toJSON(needs) }}",
         "      run: |",
-        "        jq -enr \\",
-        '          --argjson selected "$SELECTED" \\',
-        '          --argjson products "$PRODUCTS" \\',
-        '          --argjson waits "$WAITS" \\',
-        '          --argjson results "$RESULTS" \\',
-        """          '[$products[] | "products_\\(.)" | select($results[.].result != "success")] as $broken""",
-        """          | [$selected[] | select($results[.].result != "success")""",
-        """              | select(any(($waits[.] // [])[]; "products_\\(.)" | IN($broken[])) | not)] as $failed""",
-        """          | ($broken[] | "\\(.): \\($results[.].result); the suites that wait for it did not run"),""",
-        """            ($failed[] | "\\(.): \\($results[.].result)"),""",
-        """            ($broken + $failed == [])'""",
     ]
+    lines += [f"        {line}" if line else "" for line in GATE_SCRIPT.splitlines()]
+    return lines
+
+
+def products_job(group, spec, runner):
+    return [
+        f"  products_{group}:",
+        f"    name: {scalar(spec['title'])}",
+        "    needs:",
+        "    - detect-changes",
+        f"    if: contains(fromJSON(needs.detect-changes.outputs.products), '{group}')",
+        f"    runs-on: {scalar(runner)}",
+        "    timeout-minutes: 60",
+        "    steps:",
+        f"    - uses: {CHECKOUT}",
+        # Mode ci pushes what the job builds to xmtp-pr, where the suites'
+        # jobs (also mode ci) substitute it. Select suites picks a group only
+        # when this token is set.
+        "    - uses: ./.github/actions/setup-nix",
+        "      with:",
+        "        cache-mode: ci",
+        "        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}",
+        "        github-token: ${{ github.token }}",
+        f"    - name: Build the {group} products",
+        f"      run: nix build --keep-going --no-link .#ciSets.{PRODUCTS_SYSTEM}.{group}",
+    ]
+
+
+CI_HEADER = """\
+# Generated by dev/ci-suites from .github/ci-suites.yml. Do not edit.
+#
+# Select suites (job detect-changes) runs dev/ci-select. It picks the blocking
+# and advisory suites and the product groups. Each suite has a caller job, and
+# a suite with advisory_filters has a second one, <suite>_advisory, for runs
+# where only those filters match. The Lint and Test gates need detection, the
+# products jobs, and the blocking callers of their phase; they never wait for
+# an advisory caller.
+name: CI
+'on':
+  push:
+    branches:
+    - main
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: Comma-separated suite keys of .github/ci-suites.yml. Empty runs every suite.
+        type: string
+        required: false
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  # A pull request push cancels the older run of that pull request. Merge runs
+  # and manual runs each have their own group per ref and are never cancelled
+  # while they run. GitHub keeps at most one pending run per group, so a newer
+  # push to main replaces a merge run that is still waiting: merge runs are
+  # latest-wins, and a manual run never replaces a merge run.
+  group: ci-${{ github.event.pull_request.number || format('{0}-{1}', github.event_name, github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+"""
+
+SELECT_JOB = """\
+  detect-changes:
+    name: Select suites
+    runs-on: {runner}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      lint_suites: ${{{{ steps.select.outputs.lint_suites }}}}
+      test_suites: ${{{{ steps.select.outputs.test_suites }}}}
+      advisory_suites: ${{{{ steps.select.outputs.advisory_suites }}}}
+      products: ${{{{ steps.select.outputs.products }}}}
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        fetch-depth: 2
+    - name: List changed paths
+      id: paths
+      if: github.event_name != 'workflow_dispatch'
+      continue-on-error: true
+      uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
+      with:
+        # The action shallow-fetches event.before by exact SHA only when it is missing.
+        base: ${{{{ github.ref }}}}
+        list-files: json
+        filters: |
+          all_files:
+          - '**'
+    - name: Select suites and write summary
+      id: select
+      env:
+        PATHS_OUTCOME: ${{{{ steps.paths.outcome }}}}
+        GITHUB_TOKEN: ${{{{ github.token }}}}
+        # Whether this run can push to xmtp-pr. Only true or false reaches the
+        # script, never the token. Fork runs have no secrets, and Dependabot
+        # runs have only Dependabot secrets.
+        PR_CACHE_TOKEN: ${{{{ secrets.CACHIX_PR_AUTH_TOKEN != '' }}}}
+      # JSON encoding keeps quotes and line breaks in file paths inside data.
+      # Use standard input so large file lists do not exceed environment limits.
+      # A manual run reads its `suites` input from the event payload.
+      run: |
+        python3 dev/ci-select <<'CI_PATH_DATA'
+        {{
+          "changes": ${{{{ toJSON(steps.paths.outputs.changes) }}}},
+          "all_files_files": ${{{{ toJSON(steps.paths.outputs.all_files_files) }}}}
+        }}
+        CI_PATH_DATA
+"""
+
+
+def render_ci(manifest):
+    """ci.yml: Select suites, the products jobs, one caller per suite and tier,
+    and the Lint and Test gates."""
+    runners = manifest["runners"]
+    lines = CI_HEADER.splitlines()
+    lines += SELECT_JOB.format(
+        runner=scalar(runner_value(runners["select"]))
+    ).splitlines()
+    for group, spec in manifest["products"].items():
+        lines += products_job(group, spec, runner_value(runners["products"]))
+    for name, suite in manifest["suites"].items():
+        lines += caller_job(name, suite, "blocking")
+        if has_advisory_tier(suite):
+            lines += caller_job(name, suite, "advisory")
+    lines += gate_job(manifest, "lint")
+    lines += gate_job(manifest, "test")
     return "\n".join(lines) + "\n"
 
 
 def outputs(manifest):
-    files = {MANIFEST: render_manifest(manifest)}
-    for phase, path in GENERATED_WORKFLOWS.items():
-        files[path] = render_workflow(manifest, phase)
-    return files
+    return {MANIFEST: render_manifest(manifest), CI_WORKFLOW: render_ci(manifest)}
 
 
 # --- Validation --------------------------------------------------------------
@@ -630,6 +935,56 @@ def brace_variants(pattern):
     return variants
 
 
+def input_type_error(spec, value):
+    """Why `value` does not fit a workflow_call input, or None."""
+    kind = (spec or {}).get("type", "string")
+    if isinstance(value, str) and "${{" in value:
+        return None
+    if kind == "boolean" and not isinstance(value, bool):
+        return "a boolean"
+    if kind == "number" and (
+        isinstance(value, bool) or not isinstance(value, (int, float))
+    ):
+        return "a number"
+    if kind == "string" and not isinstance(value, str):
+        return "a string"
+    return None
+
+
+def validate_inputs(name, suite, document, triggers):
+    """The generated caller passes every required input, and only declared ones."""
+    errors = []
+    workflow = suite["workflow"]
+    inputs = (triggers["workflow_call"] or {}).get("inputs") or {}
+    given = {**suite["with"], **dict.fromkeys(suite["runners"])}
+    for key in given:
+        if key not in inputs:
+            errors.append(f"{name}: {workflow} has no workflow_call input {key}")
+    required = sorted(
+        key
+        for key, spec in inputs.items()
+        if (spec or {}).get("required") and key not in given
+    )
+    if required:
+        errors.append(
+            f"{name}: {workflow} requires inputs {required}; pass them in with"
+        )
+    for key, value in suite["with"].items():
+        wanted = input_type_error(inputs.get(key), value) if key in inputs else None
+        if wanted:
+            errors.append(f"{name}: with.{key} must be {wanted}")
+    jobs = document.get("jobs") or {}
+    for key in suite["runners"]:
+        if key not in inputs:
+            continue
+        if (inputs[key] or {}).get("type") != "string":
+            errors.append(f"{name}: {workflow} input {key} must have type string")
+        reads = re.compile(rf"\binputs\.{re.escape(key)}(?![\w-])")
+        if not any(reads.search(str(job.get("runs-on", ""))) for job in jobs.values()):
+            errors.append(f"{name}: no job of {workflow} runs on inputs.{key}")
+    return errors
+
+
 def validate(manifest, root: Path = ROOT, files=None):
     selector = load_selector()
     errors = []
@@ -640,15 +995,7 @@ def validate(manifest, root: Path = ROOT, files=None):
         if not isinstance(triggers, dict) or "workflow_call" not in triggers:
             errors.append(f"{name}: {suite['workflow']} is not a reusable workflow")
         else:
-            # The generated caller passes no inputs; an optional input keeps its default.
-            inputs = (triggers["workflow_call"] or {}).get("inputs") or {}
-            required = sorted(
-                key for key, spec in inputs.items() if (spec or {}).get("required")
-            )
-            if required:
-                errors.append(
-                    f"{name}: {suite['workflow']} must not require inputs {required}"
-                )
+            errors += validate_inputs(name, suite, document, triggers)
         # GitHub rejects the whole run when a called job asks for more than the
         # suite grants, even when that job's `if` skips it.
         for job_id, job in (document.get("jobs") or {}).items():
@@ -667,46 +1014,15 @@ def validate(manifest, root: Path = ROOT, files=None):
                         f"{name}: {suite['workflow']} job {job_id} needs {scope}: {level}"
                     )
         if suite["secrets"] in SCOPED_SECRETS:
-            declared = ((triggers or {}).get("workflow_call") or {}).get(
-                "secrets"
-            ) or {}
+            declared = (
+                (triggers if isinstance(triggers, dict) else {}).get("workflow_call")
+                or {}
+            ).get("secrets") or {}
             missing = [s for s in SCOPED_SECRETS[suite["secrets"]] if s not in declared]
             if missing:
                 errors.append(
                     f"{name}: {suite['workflow']} must declare workflow_call secrets {missing}"
                 )
-    ci_document = yaml.safe_load((root / WORKFLOWS / "ci.yml").read_text())
-    ci = ci_document["jobs"]
-    for phase, path in GENERATED_WORKFLOWS.items():
-        callers = [job for job in ci.values() if job.get("uses") == f"./{path}"]
-        if len(callers) != 1:
-            errors.append(f"ci.yml must call {path} once")
-            continue
-        # GitHub rejects the whole run when a called job asks for more than its caller grants.
-        granted = callers[0].get("permissions", ci_document.get("permissions", {}))
-        if phase == "test":
-            # test-generated.yml takes the products input only when a group exists.
-            given = (callers[0].get("with") or {}).get("products")
-            expected = (
-                "${{ needs.detect-changes.outputs.products }}"
-                if manifest["products"]
-                else None
-            )
-            if given != expected:
-                errors.append(
-                    f"ci.yml must pass {path} products: {expected}, not {given}"
-                )
-        for name, suite in manifest["suites"].items():
-            if suite["phase"] != phase:
-                continue
-            for scope, level in suite["permissions"].items():
-                have = (
-                    granted.get(scope, "none") if isinstance(granted, dict) else granted
-                )
-                if PERMISSION_LEVELS[level] > PERMISSION_LEVELS.get(have, 2):
-                    errors.append(
-                        f"{name}: needs {scope}: {level}, but ci.yml grants {phase} suites {have}"
-                    )
     files = tracked_files(root) if files is None else files
     rules = selector.Rules(manifest)
     unknown = [f for f in files if not rules.known(f)]
@@ -718,6 +1034,9 @@ def validate(manifest, root: Path = ROOT, files=None):
         patterns += [(f"products.{group}", p.lstrip("!")) for p in spec["paths"]]
     for name, suite in manifest["suites"].items():
         patterns += [(name, p.lstrip("!")) for p in suite["paths"]]
+        patterns += [
+            (f"{name} (advisory)", p.lstrip("!")) for p in suite["advisory"]["paths"]
+        ]
     stale = sorted(
         {
             f"{owner}: {variant}"
@@ -757,27 +1076,39 @@ def command_check():
     print("CI suite declaration is valid and the generated files are current.")
 
 
+def explain(rules, path):
+    """What one changed path selects, by tier."""
+    if rules.shared(path):
+        return "shared (every suite)"
+    if not rules.known(path):
+        return "unknown (every suite)"
+    blocking = rules.suites_for(path)
+    advisory = [name for name in rules.advisory_for(path) if name not in blocking]
+    parts = []
+    if blocking:
+        parts.append("blocking: " + ", ".join(blocking))
+    if advisory:
+        parts.append("advisory: " + ", ".join(advisory))
+    verdict = "; ".join(parts) or "no suite"
+    if rules.neutral(path):
+        verdict += " (neutral)"
+    # A group runs only for a suite that waits for it.
+    waited = {
+        g
+        for name in blocking + advisory
+        for g in rules.manifest["suites"][name]["products"]
+    }
+    groups = [g for g in rules.products_for(path) if g in waited]
+    if groups:
+        verdict += "; products: " + ", ".join(groups)
+    return verdict
+
+
 def command_explain(paths):
     selector = load_selector()
     rules = selector.Rules(json.loads((ROOT / MANIFEST).read_text()))
     for path in paths:
-        if rules.shared(path):
-            verdict = "shared (every suite)"
-        elif not rules.known(path):
-            verdict = "unknown (every suite)"
-        else:
-            suites = rules.suites_for(path)
-            verdict = ", ".join(suites) or "no suite"
-            if rules.neutral(path):
-                verdict += " (neutral)"
-            # A group runs only for a suite that waits for it.
-            waited = {
-                g for name in suites for g in rules.manifest["suites"][name]["products"]
-            }
-            groups = [g for g in rules.products_for(path) if g in waited]
-            if groups:
-                verdict += "; products: " + ", ".join(groups)
-        print(f"{path}: {verdict}")
+        print(f"{path}: {explain(rules, path)}")
 
 
 def command_replay(count=100, ref="origin/main"):
@@ -801,7 +1132,8 @@ def command_replay(count=100, ref="origin/main"):
         "repository": {"full_name": "r"},
         "pull_request": {"draft": False, "head": {"repo": {"full_name": "r"}}},
     }
-    full, selected = 0, collections.Counter()
+    full = 0
+    blocking, advisory = collections.Counter(), collections.Counter()
     reasons, causes = collections.Counter(), collections.Counter()
     for sha in log:
         files = subprocess.run(
@@ -825,8 +1157,9 @@ def command_replay(count=100, ref="origin/main"):
         full += bool(result["reasons"])
         reasons.update(result["reasons"])
         causes.update(result["shared_paths"] + result["unknown_paths"])
-        selected.update(result["suites"]["lint"] + result["suites"]["test"])
-        selected.update(f"products_{group}" for group in result["products"])
+        blocking.update(result["suites"]["lint"] + result["suites"]["test"])
+        blocking.update(f"products_{group}" for group in result["products"])
+        advisory.update(result["advisory"])
     total = len(log)
     print(
         f"{total} commits, {full} full runs ({100 * full / total:.0f}%), reasons {dict(reasons)}"
@@ -835,11 +1168,15 @@ def command_replay(count=100, ref="origin/main"):
         "Most common full-run paths:",
         ", ".join(f"{p} ({n})" for p, n in causes.most_common(10)),
     )
+    print(f"  {'':26} blocking advisory")
     names = list(selector.SUITES) + [
         f"products_{g}" for g in selector.MANIFEST["products"]
     ]
-    for name in sorted(names, key=lambda n: -selected[n]):
-        print(f"  {name:20} {100 * selected[name] / total:5.0f}%")
+    for name in sorted(names, key=lambda n: (-blocking[n], -advisory[n])):
+        print(
+            f"  {name:26} {100 * blocking[name] / total:7.0f}% "
+            f"{100 * advisory[name] / total:7.0f}%"
+        )
 
 
 def main(argv):
