@@ -358,24 +358,29 @@ test("a discard during the upload keeps the send from queuing, and a draft whose
 });
 
 test("a discard while the message queues stays discarded when the SDK accepts it", async () => {
-  const h = harness();
-  const draft = await staged(h);
-  const gate = deferred();
-  const queue = h.conversation.queue.bind(h.conversation);
-  h.conversation.queue = async (id, content) => {
-    await gate.promise;
-    return queue(id, content);
-  };
-  const sending = h.store.send(draft.id);
-  await settle();
-  assert.equal(h.drafts.all()[0]?.phase, "unknown");
-  await h.store.discard(draft.id);
-  gate.resolve();
-  await sending;
-  assert.deepEqual(h.drafts.all(), []);
-  assert.deepEqual(h.store.getState().drafts, []);
-  // The journal still records the accepted message for Retry.
-  assert.equal(h.journal.all()[0]?.phase, "accepted");
+  // The chat's own Discard, and one from Attachment recovery's store.
+  for (const from of ["chat", "recovery"] as const) {
+    const h = harness();
+    const draft = await staged(h);
+    const gate = deferred();
+    const queue = h.conversation.queue.bind(h.conversation);
+    h.conversation.queue = async (id, content) => {
+      await gate.promise;
+      return queue(id, content);
+    };
+    const sending = h.store.send(draft.id);
+    await settle();
+    assert.equal(h.drafts.all()[0]?.phase, "unknown", from);
+    await (from === "chat" ? h.store : h.recovery()).discard(draft.id);
+    gate.resolve();
+    await sending;
+    assert.deepEqual(h.drafts.all(), [], from);
+    assert.deepEqual(h.store.getState().drafts, [], from);
+    // Nothing publishes the discarded file; the journal still records the
+    // accepted message for Retry.
+    assert.equal(h.conversation.published.length, 0, from);
+    assert.equal(h.journal.all()[0]?.phase, "accepted", from);
+  }
 });
 
 test("a draft reload reads drafts other screens saved and imports nothing", async () => {
