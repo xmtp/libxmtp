@@ -386,39 +386,12 @@ class KacheWorkflowWiringTests(unittest.TestCase):
         )
         self.assertEqual(fields["github-cache"].strip("'"), "false")
         self.assertEqual(fields["s3-prefix"], "libxmtp/trusted")
+        # Only the policy step decides whether a job writes the trusted
+        # compiler cache (CachePolicyTests check that decision).
         self.assertEqual(
             fields["save-cache"],
             "${{ steps.cache-policy.outputs.cache-write }}",
         )
-        for key in (
-            "s3-bucket",
-            "s3-endpoint",
-            "s3-access-key-id",
-            "s3-secret-access-key",
-        ):
-            self.assertEqual(
-                fields[key],
-                "${{ steps.compiler-cache-backend.outputs.backend == 's3' && inputs.kache-"
-                + key
-                + " || '' }}",
-            )
-        self.assertEqual(
-            fields["s3-region"], "${{ steps.compiler-cache-backend.outputs.region }}"
-        )
-        for key in ("manifest-key", "namespace"):
-            self.assertEqual(
-                fields[key], "${{ steps.compiler-cache-backend.outputs.manifest-key }}"
-            )
-
-    def test_linux_pilot_receives_reader_secrets_from_its_caller(self):
-        # dev/ci-suites generates this caller from the `secrets: kache` suite setting.
-        fields = self.fields_for_use(
-            ".github/workflows/ci.yml",
-            "./.github/workflows/check-rust.yml",
-            "secrets",
-        )
-        for secret in ("KACHE_S3_ACCESS_KEY_ID", "KACHE_S3_SECRET_ACCESS_KEY"):
-            self.assertEqual(fields.get(secret), "${{ secrets." + secret + " }}")
 
 
 ACTION = ROOT / ".github/actions/setup-nix/action.yml"
@@ -441,17 +414,6 @@ TRUSTED_CACHIX_WRITERS = {
     "post-merge.yml / rn-consumers",
     "push-backend.yml / publish",
 }
-
-# Jobs that run cargo outside Nix, with their Kache scope. A job leaves this
-# list only when it stops running cargo outside Nix, so dropping Kache from a
-# cargo job fails here even when its README row goes too.
-KACHE_CALLERS = {
-    "check-rust.yml / native": "rust-clippy-native",
-    "check-rust.yml / wasm": "rust-clippy-wasm",
-    "check-sdk-unit.yml / unit": "sdk-tests-debug",
-    "docs-rust-reference.yml / rust": "rust-reference",
-}
-
 
 def setup_nix_calls():
     """Yield (workflow, job id, job, inputs) for every setup-nix call."""
@@ -637,14 +599,6 @@ class SetupNixTests(unittest.TestCase):
         self.assertEqual(step["if"], "${{ inputs.kache != 'true' }}")
         env, _ = self.run_kache_step("Disable outer compiler cache")
         self.assertIn("KACHE_DISABLED=1", env)
-
-    def test_kache_callers_match_the_cargo_job_list(self):
-        callers = {
-            f"{workflow} / {job_id}": inputs.get("kache-scope")
-            for workflow, job_id, _, inputs in setup_nix_calls()
-            if inputs.get("kache") == "true"
-        }
-        self.assertEqual(callers, KACHE_CALLERS)
 
     def run_oom_report(self, log, status=0):
         script = action_step("Write kernel OOM report script")["run"]

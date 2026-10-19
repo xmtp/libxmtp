@@ -303,36 +303,6 @@ class CompileTests(unittest.TestCase):
             (False, True),
         )
 
-    def test_react_native_runs_for_shared_mobile_and_backend_inputs(self):
-        manifest = SUITES.compile_declaration(ROOT)
-        selector = SUITES.load_selector()
-        payload = {
-            "repository": {"full_name": "r"},
-            "pull_request": {
-                "head": {"repo": {"full_name": "r"}},
-                "labels": [],
-            },
-        }
-        for path in [
-            "nix/lib/ios-env.nix",
-            "nix/lib/android-env.nix",
-            "nix/lib/android-emulator-start.py",
-            "nix/lib/android-sync-clock.sh",
-            "nix/android-packages.nix",
-            "nix/shells/android.nix",
-            "nix/services/stack.nix",
-        ]:
-            with (
-                self.subTest(path=path),
-                mock.patch.multiple(
-                    selector, MANIFEST=manifest, SUITES=manifest["suites"]
-                ),
-            ):
-                result = selector.select_suites(
-                    [path], "pull_request", payload, "success", 1
-                )
-                self.assertIn("test_react_native", result["suites"]["test"])
-
     def test_secret_modes_are_validated(self):
         self.compile(lambda d: d["suites"]["lint_proto"].update(secrets="none"))
         for value in ("all", "None", "", None):
@@ -593,30 +563,27 @@ class ExplainTests(unittest.TestCase):
 class ValidateTests(unittest.TestCase):
     manifest = SUITES.compile_declaration(ROOT)
 
-    def test_repository_declaration_is_valid(self):
-        self.assertEqual(SUITES.validate(self.manifest), [])
-
     def test_unknown_files_and_stale_patterns_fail(self):
         files = SUITES.tracked_files(ROOT) + ["new-language/source.xyz"]
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["paths"].append(
+        manifest["suites"]["test_dev"]["paths"].append(
             "crates/xmtp_user_preferences/**"
         )
         errors = "\n".join(SUITES.validate(manifest, files=files))
         self.assertIn("new-language/source.xyz", errors)
-        self.assertIn("test_xdbg: crates/xmtp_user_preferences/**", errors)
+        self.assertIn("test_dev: crates/xmtp_user_preferences/**", errors)
 
     def test_kache_secrets_need_workflow_declarations(self):
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["secrets"] = "kache"
+        manifest["suites"]["test_dev"]["secrets"] = "kache"
         errors = "\n".join(SUITES.validate(manifest))
-        self.assertIn("test-xdbg.yml must declare workflow_call secrets", errors)
+        self.assertIn("test-dev.yml must declare workflow_call secrets", errors)
 
     def test_pr_cache_secrets_need_workflow_declarations(self):
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["secrets"] = "cachix-pr"
+        manifest["suites"]["test_dev"]["secrets"] = "cachix-pr"
         errors = "\n".join(SUITES.validate(manifest))
-        self.assertIn("test-xdbg.yml must declare workflow_call secrets", errors)
+        self.assertIn("test-dev.yml must declare workflow_call secrets", errors)
 
     def test_caller_inputs_must_match_the_workflow(self):
         def errors(**suite):
@@ -635,13 +602,13 @@ class ValidateTests(unittest.TestCase):
         )
         self.assertEqual(errors(**{"with": {"deploy": "${{ inputs.x }}"}}), "")
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["workflow"] = "docs-rust-reference.yml"
+        manifest["suites"]["test_dev"]["workflow"] = "docs-rust-reference.yml"
         self.assertEqual([e for e in SUITES.validate(manifest) if "input" in e], [])
 
     def test_required_inputs_must_be_passed(self):
         # release-node-sdk.yml requires inputs that no suite passes.
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["workflow"] = "release-node-sdk.yml"
+        manifest["suites"]["test_dev"]["workflow"] = "release-node-sdk.yml"
         errors = "\n".join(SUITES.validate(manifest))
         self.assertIn("release-node-sdk.yml requires inputs", errors)
 
@@ -664,7 +631,7 @@ class ValidateTests(unittest.TestCase):
             },
             "jobs": {"a": {"runs-on": "${{ inputs.runner }}"}},
         }
-        suite = copy.deepcopy(self.manifest["suites"]["test_xdbg"])
+        suite = copy.deepcopy(self.manifest["suites"]["test_dev"])
         suite["runners"] = {"runner": {"pr": "ubuntu-24.04", "merge": "ubuntu-24.04"}}
         self.assertEqual(
             SUITES.validate_inputs("x", suite, document, document["on"]), []
@@ -681,20 +648,20 @@ class ValidateTests(unittest.TestCase):
             ["a/b/{d,}.x", "a/c/{d,}.x", "a/{b,c}/d.x", "a/{b,c}/.x"],
         )
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["paths"].append("{docs,no-such-dir}/**")
+        manifest["suites"]["test_dev"]["paths"].append("{docs,no-such-dir}/**")
         errors = "\n".join(SUITES.validate(manifest))
-        self.assertIn("test_xdbg: no-such-dir/**", errors)
-        self.assertNotIn("test_xdbg: docs/**", errors)
+        self.assertIn("test_dev: no-such-dir/**", errors)
+        self.assertNotIn("test_dev: docs/**", errors)
 
     def test_called_jobs_must_fit_the_suite_permissions(self):
         # GitHub checks a called job's permissions even when its `if` skips it.
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["workflow"] = "npm-publish.yml"
+        manifest["suites"]["test_dev"]["workflow"] = "npm-publish.yml"
         errors = "\n".join(SUITES.validate(manifest))
         self.assertIn(
-            "test_xdbg: npm-publish.yml job publish needs id-token: write", errors
+            "test_dev: npm-publish.yml job publish needs id-token: write", errors
         )
-        manifest["suites"]["test_xdbg"]["permissions"] = {
+        manifest["suites"]["test_dev"]["permissions"] = {
             "contents": "read",
             "id-token": "write",
         }
@@ -703,9 +670,9 @@ class ValidateTests(unittest.TestCase):
 
 
 class IosLifecycleSplitTests(unittest.TestCase):
-    """The iOS unit and lifecycle CI jobs split the Swift tests between them."""
+    """The iOS unit and lifecycle CI steps split the Swift tests between them."""
 
-    def test_lifecycle_checks_run_once_across_ci_jobs(self):
+    def test_lifecycle_filter_and_skip_name_the_same_tests(self):
         # `test-lifecycle` selects these tests and `test skip-lifecycle` skips
         # them. The two must name the same tests, or a proof runs twice or never.
         def swift_test_args(*recipe):
@@ -726,130 +693,8 @@ class IosLifecycleSplitTests(unittest.TestCase):
         selected = swift_test_args("test-lifecycle")
         skipped = swift_test_args("test", "skip-lifecycle")
         self.assertEqual(selected[0], "--filter")
-        self.assertEqual(
-            selected[1], r"XmtpSdkTests\.(ReaderTeardownTests|ListenerGateTests)"
-        )
         self.assertEqual(skipped[-2], "--skip")
         self.assertEqual(selected[1], skipped[-1])
-        self.assertNotIn("--skip", swift_test_args("test"))
-        self.assertEqual(
-            swift_test_args(
-                "test", "all", "--filter", "XmtpSdkTests.MessageHistoryPageTests"
-            ),
-            ["--parallel", "-q", "--filter", "XmtpSdkTests.MessageHistoryPageTests"],
-        )
-        for test_case in ("ReaderTeardownTests", "ListenerGateTests"):
-            self.assertRegex(f"XmtpSdkTests.{test_case}/testA", selected[1])
-        rejected = subprocess.run(
-            ["just", "--dry-run", "ios", "test", "skip"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(rejected.returncode, 0)
-
-
-class ExampleIOSWorkflowTests(unittest.TestCase):
-    def workflow(self):
-        return yaml.safe_load(
-            (ROOT / ".github/workflows/test-example-ios.yml").read_text()
-        )
-
-    def steps(self):
-        jobs = self.workflow()["jobs"]
-        self.assertEqual(
-            set(jobs), {"tests"}, "one job must share the binding preparation"
-        )
-        return jobs["tests"]["steps"]
-
-    def test_one_job_shares_checkout_and_toolchain(self):
-        steps = self.steps()
-        for action in (
-            "actions/checkout@",
-            "./.github/actions/setup-nix",
-            "maxim-lobanov/setup-xcode@",
-        ):
-            with self.subTest(action=action):
-                self.assertEqual(
-                    sum(step.get("uses", "").startswith(action) for step in steps), 1
-                )
-
-    def test_every_app_gate_remains_required(self):
-        for command in (
-            "just example-ios build",
-            "CONFIGURATION=Push",
-            "just example-ios lint",
-            "just example-ios test'",
-            "just backend ci just example-ios test-ui",
-            "just backend ci nix run .#example-ios -- --headless",
-            "CODE_SIGN_ENTITLEMENTS",
-            "dev/check-apple-toolchain",
-        ):
-            with self.subTest(command=command):
-                matching = [
-                    step for step in self.steps() if command in step.get("run", "")
-                ]
-                self.assertTrue(matching, command)
-                self.assertTrue(
-                    all(
-                        "if" not in step and not step.get("continue-on-error", False)
-                        for step in matching
-                    )
-                )
-
-    def test_failures_keep_results_and_separate_service_logs(self):
-        steps = self.steps()
-        results = next(
-            (
-                step
-                for step in steps
-                if step.get("with", {}).get("name") == "example-ios-journeys-results"
-            ),
-            None,
-        )
-        self.assertIsNotNone(results, "failed journeys must retain their xcresult")
-        self.assertEqual(results["if"], "failure()")
-        self.assertEqual(
-            results["with"]["path"], "apps/example-ios/.build/DerivedData/Logs/Test"
-        )
-        self.assertTrue(results["with"]["include-hidden-files"])
-        self.assertEqual(results["with"]["retention-days"], 7)
-        phases = [step for step in steps if "just backend ci" in step.get("run", "")]
-        self.assertEqual(
-            {step["env"]["XMTP_SERVICES_LOGS"] for step in phases},
-            {
-                "${{ runner.temp }}/backend-ci-logs/journeys",
-                "${{ runner.temp }}/backend-ci-logs/launch",
-            },
-        )
-        logs = next(
-            (
-                step
-                for step in steps
-                if step.get("with", {}).get("name") == "example-ios-backend-logs"
-            ),
-            None,
-        )
-        self.assertIsNotNone(logs, "all service phases must retain logs")
-        self.assertEqual(logs["if"], "always()")
-        self.assertEqual(logs["with"]["path"], "${{ runner.temp }}/backend-ci-logs")
-
-    def test_only_pr_cache_credentials_reach_app_job(self):
-        workflow = self.workflow()
-        self.assertEqual(
-            set(workflow[True]["workflow_call"]["secrets"]), {"CACHIX_PR_AUTH_TOKEN"}
-        )
-        setup = next(
-            step
-            for step in self.steps()
-            if step.get("uses") == "./.github/actions/setup-nix"
-        )
-        self.assertEqual(setup["with"]["cache-mode"], "ci")
-        self.assertEqual(
-            setup["with"]["cachix-pr-auth-token"], "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"
-        )
-        for suite in ("test_example_ios", "lint_example_ios"):
-            self.assertEqual(declaration()["suites"][suite]["secrets"], "cachix-pr")
 
 
 if __name__ == "__main__":

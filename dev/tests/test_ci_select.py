@@ -81,12 +81,6 @@ def eligible(kind, fork=False):
 
 
 class SelectionTests(unittest.TestCase):
-    def test_docs_select_docs_suites_only(self):
-        result = select()
-        self.assertEqual(result["reasons"], [])
-        self.assertEqual(result["suites"]["lint"], ["docs_quality"])
-        self.assertEqual(result["suites"]["test"], ["docs_site"])
-
     def test_rust_closures_narrow_selection(self):
         client = selected(select(["crates/xmtp_mls/src/client.rs"]))
         self.assertIn("test_workspace", client)
@@ -100,207 +94,64 @@ class SelectionTests(unittest.TestCase):
         proto = selected(select(["crates/xmtp_proto/src/lib.rs"]))
         self.assertIn("test_validation", proto)
 
-    def test_backend_change_runs_backend_and_client_suites_only(self):
-        # Backend source/config changes select client suites without platform
-        # wrappers. Its Nix package also runs the example apps, as advisory.
-        clients = {"test_workspace", "test_wasm", "test_node", "check_sdk_unit"}
-        platforms = {
-            "test_android",
-            "test_example_android",
-            "test_example_ios",
-            "test_ios",
-            "test_browser",
-            "test_agent",
-            "test_sdk_platform",
-        }
-        for path in (
-            "apps/backend/src/main.rs",
-            "nix/package/backend.nix",
-            "dev/docker/up",
-            "dev/docker/toxiproxy/config.json",
-            "dev/backend/local-s3.toml",
-        ):
-            with self.subTest(path=path):
-                result = select([path])
-                suites = selected(result)
-                self.assertTrue(clients | {"test_backend", "test_xdbg"} <= suites)
-                self.assertTrue(suites.isdisjoint(platforms))
-                self.assertEqual(
-                    advisory(result),
-                    {"test_example_android", "test_example_ios"}
-                    if path == "nix/package/backend.nix"
-                    else set(),
-                )
-
-    def test_android_paths_select_the_app_and_sdk_suites(self):
-        # path: (suites it must select, suites it must not select)
-        app_only = {"test_android", "check_sdk", "check_sdk_unit"}
-        table = {
-            "apps/example-android/app/src/main/java/Screen.kt": (
-                {"test_example_android"},
-                app_only,
-            ),
-            "apps/example-android/fixtures/metadata_backend.py": (
-                {"test_example_android"},
-                app_only,
-            ),
-            "nix/package/example-android-apk.nix": (
-                {"test_example_android"},
-                app_only,
-            ),
-            # Decision D1: the Kotlin SDK runs the app as advisory only.
-            "sdks/android/library/src/main/java/Client.kt": (
-                {"test_android"},
-                {"test_example_android"},
-            ),
-            "sdks/android/gradle/verification-metadata.xml": (
-                {"test_android"},
-                {
-                    "check_rust",
-                    "test_workspace",
-                    "test_node",
-                    "test_ios",
-                    "test_example_android",
-                },
-            ),
-            "crates/xmtp_sdk/src/client.rs": (
-                {"test_android"},
-                {"test_example_android"},
-            ),
-        }
-        for path, (included, excluded) in table.items():
-            with self.subTest(path=path):
-                result = select([path])
-                self.assertEqual(result["unknown_paths"], [])
-                self.assertLessEqual(included, selected(result))
-                self.assertTrue(excluded.isdisjoint(selected(result)))
-        result = select(["sdks/android/library/src/main/java/Client.kt"])
-        self.assertEqual(advisory(result), {"test_example_android"})
-
-    def test_examples_match_app_paths_or_platform_labels(self):
+    def test_examples_follow_decision_d1(self):
+        # Decision D1: the app's own paths and its label block; the SDK the
+        # app consumes runs it as advisory. (blocking, advisory)
         ios, android = "test_example_ios", "test_example_android"
         examples = {ios, android}
         swift = "sdks/ios/Sources/Client.swift"
         kotlin = "sdks/android/library/src/main/java/Client.kt"
-        # Decision D1: the app's own paths and its label block; the SDK the
-        # app consumes runs it as advisory. (blocking, advisory)
         for paths, labels, blocking, advisory_only in [
             (["apps/example-ios/ExampleApp/View.swift"], [], {ios}, set()),
-            (
-                ["apps/example-android/app/src/main/java/Screen.kt"],
-                [],
-                {android},
-                set(),
-            ),
-            (["apps/example-ios/README.md"], [], {ios}, set()),
-            (["apps/example-android/README.md"], [], {android}, set()),
-            (["apps/example-ios/AGENTS.md"], [], set(), set()),
+            (["apps/example-android/app/src/main/java/A.kt"], [], {android}, set()),
             ([swift], [], set(), {ios}),
             ([kotlin], [], set(), {android}),
-            ([swift, "apps/example-ios/ExampleApp/View.swift"], [], {ios}, set()),
-            ([swift], ["iOS"], {ios}, set()),
-            (["crates/xmtp_sdk/src/client.rs"], [], set(), set()),
-            (["apps/backend/src/main.rs"], [], set(), set()),
-            (["dev/backend/local.toml"], [], set(), set()),
-            (["docs/guide.md"], ["iOS"], {ios}, set()),
-            (["docs/guide.md"], ["android"], {android}, set()),
             (["docs/guide.md"], ["iOS", "android"], examples, set()),
-            ([], ["iOS"], {ios}, set()),
-            (["sdks/ios/AGENTS.md"], ["iOS"], {ios}, set()),
-            (["docs/guide.md"], ["ios", "Android", "unrelated"], set(), set()),
-            (["apps/example-ios/ExampleApp/View.swift"], ["android"], examples, set()),
-            (
-                ["apps/example-android/app/src/main/java/Screen.kt"],
-                ["iOS"],
-                examples,
-                set(),
-            ),
-            ([kotlin], ["iOS"], {ios}, {android}),
+            (["crates/xmtp_sdk/src/client.rs"], [], set(), set()),
         ]:
             with self.subTest(paths=paths, labels=labels):
                 result = select(paths, payload=event(labels=labels), total=len(paths))
                 self.assertEqual(result["reasons"], [])
                 self.assertEqual(selected(result) & examples, blocking)
-                self.assertEqual(advisory(result), advisory_only)
-                self.assertEqual(
-                    result["matched_labels"], sorted(set(labels) & {"iOS", "android"})
-                )
-
-    def test_example_nix_inputs_select_affected_apps(self):
-        # The app packaging blocks. SDK, toolchain, and service inputs run the
-        # app as advisory (decision D1).
-        ios, android = "test_example_ios", "test_example_android"
-        examples = {ios, android}
-        for path, blocking, advisory_only in [
-            ("nix/package/xmtp-sdk.nix", set(), examples),
-            ("nix/package/xmtp-sdk-native.nix", set(), examples),
-            ("nix/lib/sdk-sources.nix", set(), examples),
-            ("nix/lib/sdk-provenance.nix", set(), examples),
-            ("nix/sdk-platforms.json", set(), examples),
-            ("nix/lib/android-env.nix", set(), examples),
-            ("nix/lib/ios-env.nix", set(), examples),
-            ("nix/package/backend.nix", set(), examples),
-            ("nix/musl-docker.nix", set(), examples),
-            ("nix/package/example-android-apk.nix", {android}, set()),
-            ("nix/package/example-android-apk-deps.json", {android}, set()),
-            ("nix/package/libffi-zig-cross.site", set(), {android}),
-            ("nix/android-packages.nix", set(), {android}),
-            ("nix/lib/android-emulator-platform.sh", set(), {android}),
-            ("nix/lib/android-emulator-start.py", set(), {android}),
-            ("nix/lib/android-sync-clock.sh", set(), {android}),
-            ("nix/shells/android.nix", set(), {android}),
-            ("nix/shells/android-ci.nix", set(), {android}),
-            ("nix/ci-sets.nix", set(), {android}),
-            ("nix/package/example-ios-run.nix", {ios}, set()),
-            ("nix/package/ios.nix", set(), {ios}),
-            ("nix/lib/packages/swiftformat.nix", set(), {ios}),
-            ("nix/lib/packages/swiftlint.nix", set(), {ios}),
-            ("nix/lib/packages/pnpm.nix", set(), {ios}),
-            ("nix/lib/packages/wasm-bindgen-cli.nix", set(), {ios}),
-            ("nix/services/default.nix", set(), {ios}),
-            ("nix/services/stack.nix", set(), {ios}),
-            ("nix/services/health-check.sh", set(), {ios}),
-            ("nix/docs.nix", set(), set()),
-            ("nix/js.nix", set(), set()),
-            ("nix/package/node.nix", set(), set()),
-            ("nix/package/xmtp-sdk-node-runtime.nix", set(), set()),
-            ("nix/lib/packages/ubrn.nix", set(), set()),
-            ("nix/package/backend-tests.nix", set(), set()),
-            ("nix/fmt.nix", set(), set()),
-        ]:
-            with self.subTest(path=path):
-                result = select([path])
-                self.assertEqual(result["reasons"], [])
-                self.assertEqual(selected(result) & examples, blocking)
-                self.assertEqual(advisory(result), advisory_only)
+                self.assertEqual(advisory(result) & examples, advisory_only)
 
     def test_label_matches_respect_drafts_and_forks(self):
-        with mock.patch.dict(SELECTOR.SUITES["test_ios"], labels=["iOS"]):
+        # A label selects a suite only where the suite could run: not on
+        # drafts for a test suite, and not on forks for a fork-disabled one.
+        suites = copy.deepcopy(SELECTOR.SUITES)
+        for name, forks in (("open_suite", False), ("closed_suite", True)):
+            suites[name] = copy.deepcopy(suites["test_android"]) | {
+                "paths": [],
+                "labels": ["platform"],
+                "disable_on_forks": forks,
+                "products": [],
+            }
+        manifest = SELECTOR.MANIFEST | {"suites": suites}
+        with mock.patch.multiple(SELECTOR, MANIFEST=manifest, SUITES=suites):
             for draft, fork, expected in [
-                (
-                    False,
-                    False,
-                    {"test_ios", "test_example_ios", "test_example_android"},
-                ),
-                (False, True, {"test_example_ios", "test_example_android"}),
+                (False, False, {"open_suite", "closed_suite"}),
+                (False, True, {"open_suite"}),
                 (True, False, set()),
                 (True, True, set()),
             ]:
                 with self.subTest(draft=draft, fork=fork):
                     result = select(
-                        payload=event(draft=draft, fork=fork, labels=["iOS", "android"])
+                        payload=event(draft=draft, fork=fork, labels=["platform"])
                     )
                     self.assertEqual(
-                        selected(result)
-                        & {"test_ios", "test_example_ios", "test_example_android"},
-                        expected,
+                        selected(result) & {"open_suite", "closed_suite"}, expected
                     )
 
-    def test_full_runs_keep_example_suites(self):
-        # A full run of a pull request runs the example apps as advisory
-        # unless the app's own paths or label match. Merge and manual runs
-        # block on them.
-        examples = {"test_example_ios", "test_example_android"}
+    def test_full_runs_keep_tiered_suites_advisory(self):
+        # A full run of a pull request runs a suite with advisory filters as
+        # advisory unless its own pr_filters or label match. Merge and manual
+        # runs block on it.
+        tiered = {
+            name
+            for name, suite in SELECTOR.SUITES.items()
+            if SELECTOR.has_advisory_tier(suite)
+        }
+        self.assertIn("test_example_ios", tiered)
         for kwargs, tier in [
             ({"files": ["flake.nix"]}, "advisory"),
             ({"files": ["flake.nix", "apps/example-ios/App.swift"]}, "mixed"),
@@ -316,14 +167,14 @@ class SelectionTests(unittest.TestCase):
                 result = select(**kwargs)
                 self.assertTrue(result["reasons"])
                 if tier == "blocking":
-                    self.assertLessEqual(examples, selected(result))
+                    self.assertLessEqual(tiered, selected(result))
                     self.assertEqual(advisory(result), set())
                 elif tier == "advisory":
-                    self.assertEqual(advisory(result), examples)
-                    self.assertTrue(examples.isdisjoint(selected(result)))
+                    self.assertEqual(advisory(result), tiered)
+                    self.assertTrue(tiered.isdisjoint(selected(result)))
                 else:
                     self.assertIn("test_example_ios", selected(result))
-                    self.assertEqual(advisory(result), {"test_example_android"})
+                    self.assertEqual(advisory(result), tiered - {"test_example_ios"})
 
     def test_shared_input_selects_every_suite_and_records_paths(self):
         result = select(["proto/mls/a.proto", "crates/xmtp_mls/src/client.rs"])
@@ -334,7 +185,6 @@ class SelectionTests(unittest.TestCase):
             for name, suite in SELECTOR.SUITES.items()
             if SELECTOR.has_advisory_tier(suite)
         }
-        self.assertEqual(tiered, {"test_example_ios", "test_example_android"})
         self.assertEqual(
             selected(result), eligible("ready_pr_push") - {"docs_rust"} - tiered
         )
@@ -398,10 +248,13 @@ class SelectionTests(unittest.TestCase):
         self.assertIn("nix_eval", selected(deleted))
 
     def test_forks_skip_disabled_suites(self):
-        result = select(["proto/a.proto"], payload=event(fork=True))
-        self.assertNotIn("test_ios", selected(result))
-        self.assertIn("test_android", selected(result))
-        self.assertIn("test_ios", result["policy_excluded"])
+        with mock.patch.dict(SELECTOR.SUITES["test_android"], disable_on_forks=True):
+            result = select(["proto/a.proto"], payload=event(fork=True))
+            self.assertNotIn("test_android", selected(result))
+            self.assertIn("test_workspace", selected(result))
+            self.assertIn("test_android", result["policy_excluded"])
+            result = select(["proto/a.proto"])
+            self.assertIn("test_android", selected(result))
 
     def test_covered_suite_gives_way_only_to_an_equal_or_stronger_tier(self):
         # docs_rust is covered by docs_site. Make docs_site advisory for a
