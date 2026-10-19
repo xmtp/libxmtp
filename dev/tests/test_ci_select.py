@@ -186,12 +186,29 @@ class SelectionTests(unittest.TestCase):
             with self.subTest(paths=paths):
                 result = select(paths)
                 self.assertTrue(result["reasons"])
-                self.assertTrue(examples.isdisjoint(selected(result) | advisory(result)))
+                self.assertTrue(
+                    examples.isdisjoint(selected(result) | advisory(result))
+                )
                 self.assertEqual(advisory(result), {"test_react_native_smoke"})
         for paths, labels, blocking, advisory_only in [
-            (["flake.nix", "apps/example-ios/App.swift"], [], {"test_example_ios"}, set()),
-            (["flake.nix", ".github/workflows/test-example-ios.yml"], [], {"test_example_ios"}, set()),
-            (["flake.nix", "sdks/ios/Sources/Client.swift"], [], set(), {"test_example_ios"}),
+            (
+                ["flake.nix", "apps/example-ios/App.swift"],
+                [],
+                {"test_example_ios"},
+                set(),
+            ),
+            (
+                ["flake.nix", ".github/workflows/test-example-ios.yml"],
+                [],
+                {"test_example_ios"},
+                set(),
+            ),
+            (
+                ["flake.nix", "sdks/ios/Sources/Client.swift"],
+                [],
+                set(),
+                {"test_example_ios"},
+            ),
             (
                 ["flake.nix"],
                 ["android"],
@@ -235,7 +252,11 @@ class SelectionTests(unittest.TestCase):
     def test_products_run_only_for_blocking_suites(self):
         # The Test gate needs every products job, so a group that only
         # advisory suites wait for would hold the gate.
-        for paths in (["nix/ci-sets.nix"], ["sdks/android/library/src/A.kt"], ["justfile"]):
+        for paths in (
+            ["nix/ci-sets.nix"],
+            ["sdks/android/library/src/A.kt"],
+            ["justfile"],
+        ):
             with self.subTest(paths=paths):
                 result = select(paths)
                 waited = {
@@ -245,13 +266,14 @@ class SelectionTests(unittest.TestCase):
                 }
                 self.assertLessEqual(set(result["products"]), waited)
         self.assertNotIn("sdk_android", select(["nix/ci-sets.nix"])["products"])
-        self.assertIn(
-            "sdk_android", select(["crates/xmtp_sdk/src/lib.rs"])["products"]
-        )
+        self.assertIn("sdk_android", select(["crates/xmtp_sdk/src/lib.rs"])["products"])
 
     def test_docs_and_platform_proofs_follow_their_inputs(self):
         # The docs site builds the RN API reference from these files.
-        for path in ("sdks/react-native/src/index.ts", "sdks/react-native/package.json"):
+        for path in (
+            "sdks/react-native/src/index.ts",
+            "sdks/react-native/package.json",
+        ):
             with self.subTest(path=path):
                 self.assertIn("docs_site", selected(select([path])))
         # The platform proofs build the legacy migration fixture host.
@@ -354,6 +376,33 @@ class SelectionTests(unittest.TestCase):
         # A deleted file can leave a Nix file that names it.
         deleted = select(["dev/old-script"], deleted=["dev/old-script"])
         self.assertIn("nix_eval", selected(deleted))
+
+    def test_nix_evaluation_follows_every_data_file_that_nix_parses(self):
+        # A Nix file that parses a data file by a literal path: a broken file
+        # fails evaluation, so it must select nix_eval. Paths built from a
+        # variable (`sdk + "/package.json"`) are in the sample above.
+        reader = re.compile(
+            r"(?:readFile|importJSON|importTOML)\s+\(?\s*(\.{1,2}/[^\s;)]+)"
+        )
+        tracked = subprocess.run(
+            ["git", "ls-files", "flake.nix", "nix"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        found = []
+        for name in tracked:
+            if not name.endswith(".nix"):
+                continue
+            for target in reader.findall((ROOT / name).read_text()):
+                path = os.path.normpath(os.path.join(os.path.dirname(name), target))
+                if Path(path).suffix in (".json", ".toml", ".lock", ".properties"):
+                    found.append((name, path))
+        self.assertGreater(len(found), 5)
+        for name, path in found:
+            with self.subTest(reader=name, path=path):
+                self.assertIn("nix_eval", selected(select([path])))
 
     def test_forks_skip_disabled_suites(self):
         with mock.patch.dict(SELECTOR.SUITES["test_android"], disable_on_forks=True):
