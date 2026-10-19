@@ -593,6 +593,23 @@ test("Create makes a group with its name, description and permissions, then fini
   assert.equal(store.getState().busy, false);
 });
 
+test("a second Create while one runs creates no second conversation", async () => {
+  const queries = new FakeQueries();
+  const { store, finished } = makeStore(queries);
+  store.load();
+  await settle();
+  store.setInput("theo");
+  store.next();
+  await settle();
+  queries.during("create", () => {
+    store.create();
+  });
+  store.create();
+  await settle();
+  assert.equal(queries.created.length, 1);
+  assert.deepEqual(finished, ["conversation-1"]);
+});
+
 test("Create for a DM resolves the typed entry first", async () => {
   const queries = new FakeQueries();
   const { store, finished } = makeStore(queries);

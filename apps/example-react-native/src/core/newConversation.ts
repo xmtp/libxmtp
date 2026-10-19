@@ -214,6 +214,7 @@ type Step = "add" | "next" | "create";
  * (its result is dropped). Add, Next and Create resolve every comma-separated
  * entry in order before any write, skip people already chosen, then check the
  * count; Next then shows the review and Create creates the conversation.
+ * Add, Next and Create are ignored while one of them runs.
  */
 export class NewConversationStore extends Store<NewConversationState> {
   readonly #queries: NewConversationQueries;
@@ -357,7 +358,9 @@ export class NewConversationStore extends Store<NewConversationState> {
   }
 
   #run(step: Step): void {
-    if (!this.#open()) return;
+    // A second tap before the disabled button renders must not start a
+    // second run: a create already sent cannot be taken back.
+    if (!this.#open() || this.getState().busy) return;
     this.#cancel((state) => ({ ...state, busy: true }));
     const revision = this.#revision;
     const { input, recipients } = this.getState();
