@@ -377,11 +377,18 @@ jobs:
           PAIRS: ${{ toJSON(matrix.pairs) }}
         run: |
           set -euo pipefail
+          # The list goes through a file: bash ignores the exit status of a
+          # process substitution, so a failed jq would smoke nothing.
+          jq -r '.[] | "\(.target) \(.image)"' <<< "$PAIRS" > "$RUNNER_TEMP/smoke-pairs"
+          if [[ ! -s "$RUNNER_TEMP/smoke-pairs" ]]; then
+            echo "::error::No Linux target to smoke"
+            exit 1
+          fi
           while read -r TARGET NODE_IMAGE <&3; do
             echo "::group::$TARGET"
             docker run --rm -v "$PWD:/work" -w /work "$NODE_IMAGE" node crates/xmtp_sdk/dev/package-smoke.mjs node
             echo "::endgroup::"
-          done 3< <(jq -r '.[] | "\(.target) \(.image)"' <<< "$PAIRS")
+          done 3< "$RUNNER_TEMP/smoke-pairs"
       - name: Installed package on macOS or Windows
         if: runner.os != 'Linux'
         shell: bash

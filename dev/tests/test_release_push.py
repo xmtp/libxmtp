@@ -989,5 +989,43 @@ class XdbgImageTest(unittest.TestCase):
         self.assertNotIn("TERRAFORM_TOKEN", release.read_text())
 
 
+
+class NodeInstallSmokeTest(unittest.TestCase):
+    def test_linux_smoke_runs_each_pair_and_fails_without_pairs(self):
+        workflow = ROOT / ".github/workflows/build-sdk-node-platforms.yml"
+        run = script("Installed package on Linux without build-host libraries", workflow)
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            (temp / "bin").mkdir()
+            docker = temp / "bin/docker"
+            docker.write_text('#!/bin/sh\necho "$7" >> "$DOCKER_LOG"\n')
+            docker.chmod(0o755)
+            env = os.environ | {
+                "PATH": f"{temp / 'bin'}:{os.environ['PATH']}",
+                "RUNNER_TEMP": directory,
+                "DOCKER_LOG": str(temp / "docker.log"),
+            }
+            pairs = (
+                '[{"target":"linux-x64-gnu","image":"node:22-bookworm"},'
+                '{"target":"linux-x64-musl","image":"node:22-alpine"}]'
+            )
+            done = subprocess.run(
+                ["bash", "-c", run], env=env | {"PAIRS": pairs}, capture_output=True
+            )
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(
+                (temp / "docker.log").read_text().split(),
+                ["node:22-bookworm", "node:22-alpine"],
+            )
+            for broken in ("null", "[]", "{"):
+                with self.subTest(pairs=broken):
+                    done = subprocess.run(
+                        ["bash", "-c", run],
+                        env=env | {"PAIRS": broken},
+                        capture_output=True,
+                    )
+                    self.assertNotEqual(done.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
