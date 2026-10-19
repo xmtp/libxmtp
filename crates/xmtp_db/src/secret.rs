@@ -99,4 +99,23 @@ mod tests {
         let decoded: StoredSecret = bincode::deserialize(&encoded).unwrap();
         assert_eq!(decoded.as_slice(), bytes.as_slice());
     }
+
+    #[xmtp_common::test]
+    fn equality_compares_bytes() {
+        let key = [0x5au8; 32];
+        assert_eq!(
+            StoredSecret::from(key.to_vec()),
+            StoredSecret::from(Zeroizing::new(key.to_vec()))
+        );
+        assert_ne!(
+            StoredSecret::from(key.to_vec()),
+            StoredSecret::from(key[..31].to_vec())
+        );
+        let mut other = key;
+        other[31] ^= 1;
+        assert_ne!(
+            StoredSecret::from(key.to_vec()),
+            StoredSecret::from(other.to_vec())
+        );
+    }
 }

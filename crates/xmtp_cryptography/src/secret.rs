@@ -158,6 +158,23 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn serde_rejects_what_vec_rejects() {
+        // A string, a byte out of range, or another type is not a `Vec<u8>`.
+        for json in [
+            "\"0x01\"", "\"AQI=\"", "[256]", "[-1]", "[1,", "{}", "null", "7",
+        ] {
+            assert!(serde_json::from_str::<Vec<u8>>(json).is_err(), "{json}");
+            assert!(serde_json::from_str::<Secret>(json).is_err(), "{json}");
+        }
+        // bincode: a length prefix longer than the input.
+        let mut truncated = bincode::serialize(&KEY.to_vec()).unwrap();
+        truncated.truncate(truncated.len() - 1);
+        assert!(bincode::deserialize::<Vec<u8>>(&truncated).is_err());
+        assert!(bincode::deserialize::<Secret>(&truncated).is_err());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn equality_compares_bytes() {
         assert_eq!(Secret::new(KEY.to_vec()), Secret::from(KEY.to_vec()));
         assert_ne!(Secret::new(KEY.to_vec()), Secret::new(KEY[..31].to_vec()));

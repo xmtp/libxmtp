@@ -337,6 +337,11 @@ mod tests {
         for seed in [[0x01u8; 32], [0x7f; 32], [0xc3; 32]] {
             let credential = XmtpInstallationCredential::from_bytes(&seed).unwrap();
             let key_pair = SignatureKeyPair::from(&credential);
+            let owned = SignatureKeyPair::from(credential.clone());
+            for pair in [&key_pair, &owned] {
+                assert_eq!(pair.private(), seed);
+                assert_eq!(pair.public(), credential.public_slice());
+            }
             for payload in payloads {
                 let expected = key_pair.sign(payload).unwrap();
                 assert_eq!(Signer::sign(&credential, payload).unwrap(), expected);
