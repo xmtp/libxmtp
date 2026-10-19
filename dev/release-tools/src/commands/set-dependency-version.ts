@@ -25,7 +25,8 @@ export function builder(yargs: Argv<GlobalArgs>) {
     .option("version", {
       type: "string",
       demandOption: true,
-      describe: "New version spec to write (e.g. 1.11.0-nightly.20260604.abc)",
+      describe:
+        "New version spec to write (e.g. 8.0.0-pre.20260604120000.dev.abc1234)",
     });
 }
 

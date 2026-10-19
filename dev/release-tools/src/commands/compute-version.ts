@@ -22,7 +22,7 @@ export function builder(yargs: Argv<GlobalArgs>) {
     .option("releaseType", {
       type: "string",
       demandOption: true,
-      choices: ["dev", "rc", "final", "nightly"] as const,
+      choices: ["dev", "rc", "final"] as const,
       describe: "Release type",
     })
     .option("rcNumber", {
@@ -68,14 +68,13 @@ export function handler(
   const config = getSdkConfig(argv.sdk);
   const baseVersion =
     argv.baseVersion ?? config.manifest.readVersion(argv.repoRoot);
-  const needsSha = argv.releaseType === "dev" || argv.releaseType === "nightly";
-  const shortSha = needsSha ? getShortSha(argv.repoRoot) : undefined;
+  const shortSha =
+    argv.releaseType === "dev" ? getShortSha(argv.repoRoot) : undefined;
   const fromMain =
     (argv.sourceRef ?? "").replace(/^refs\/heads\//, "") === "main";
-  // Nightlies are schedule-cut from main by construction, so they always take
-  // the ordered pre.* timeline; devs only when the ref says they came off main.
-  const needsTimestamp =
-    argv.releaseType === "nightly" || (argv.releaseType === "dev" && fromMain);
+  // Devs take the ordered pre.* timeline only when the ref says they came off
+  // main.
+  const needsTimestamp = argv.releaseType === "dev" && fromMain;
   // The run-wide stamp when the Release workflow threaded one in; otherwise a
   // fresh one, for standalone/manual invocations.
   const timestamp = needsTimestamp

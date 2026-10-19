@@ -15,7 +15,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "ios-",
     artifactTagSuffix: "-libxmtp",
     manifest: createPodspecManifestProvider("sdks/ios/XMTP.podspec"),
-    versionTrack: "independent",
   },
   [Sdk.Android]: {
     name: "Android",
@@ -25,7 +24,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     manifest: createGradlePropertiesManifestProvider(
       "sdks/android/gradle.properties",
     ),
-    versionTrack: "independent",
   },
   [Sdk.BrowserSdk]: {
     name: "Browser SDK",
@@ -33,7 +31,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "browser-sdk-",
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("sdks/browser/package.json"),
-    versionTrack: "independent",
   },
   [Sdk.NodeSdk]: {
     name: "Node SDK",
@@ -41,7 +38,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "node-sdk-",
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("sdks/node/package.json"),
-    versionTrack: "independent",
   },
   [Sdk.AgentSdk]: {
     name: "Agent SDK",
@@ -49,7 +45,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "agent-sdk-",
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("sdks/agent/package.json"),
-    versionTrack: "independent",
   },
   [Sdk.ReactNativeSdk]: {
     name: "React Native",
@@ -59,7 +54,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     manifest: createPackageJsonManifestProvider(
       "sdks/react-native/package.json",
     ),
-    versionTrack: "independent",
   },
   [Sdk.Cli]: {
     name: "CLI",
@@ -67,7 +61,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "cli-",
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("apps/cli/package.json"),
-    versionTrack: "independent",
   },
   [Sdk.Libxmtp]: {
     name: "Libxmtp",
@@ -75,7 +68,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "v",
     artifactTagSuffix: "",
     manifest: createCargoManifestProvider("Cargo.toml"),
-    versionTrack: "follows-libxmtp",
   },
 };
 
