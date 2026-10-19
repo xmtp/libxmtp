@@ -17,6 +17,7 @@ import {
   resolvePerson,
 } from "./newConversation.ts";
 import { RecipientCopy } from "./recipients.ts";
+import { deferred, settle } from "./testing.ts";
 
 const address = "0x" + "ab".repeat(20);
 const inbox = "1".repeat(64);
@@ -307,9 +308,6 @@ class FakeQueries implements NewConversationQueries {
   }
 }
 
-/** Lets every pending promise chain finish. */
-const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
-
 function makeStore(queries: FakeQueries, admit: () => boolean = () => true) {
   const finished: string[] = [];
   const store = new NewConversationStore(queries, {
@@ -412,10 +410,8 @@ test("an unchanged input keeps its resolution", async () => {
 test("editing recipients does not cancel the initial people load", async () => {
   const peer: Person = { inboxId: "inbox-peer", handle: "person" };
   const queries = new FakeQueries({ people: [peer] });
-  let open = () => {};
-  queries.peopleGate = new Promise((resolve) => {
-    open = resolve;
-  });
+  const gate = deferred();
+  queries.peopleGate = gate.promise;
   const { store } = makeStore(queries);
   store.load();
   await settle();
@@ -424,7 +420,7 @@ test("editing recipients does not cancel the initial people load", async () => {
   store.setInput("person");
   store.toggle(peer);
   store.remove(peer.inboxId);
-  open();
+  gate.resolve();
   await settle();
   const state = store.getState();
   assert.equal(state.maximumMembers, 250);
@@ -458,17 +454,15 @@ describe("editing the input or the people drops a resolution in flight", () => {
       const queries = new FakeQueries();
       const { store } = makeStore(queries);
       if (name === "remove") store.toggle(chosen);
-      let open = () => {};
-      queries.resolveGate = new Promise((resolve) => {
-        open = resolve;
-      });
+      const gate = deferred();
+      queries.resolveGate = gate.promise;
       store.setInput("peer");
       store.add();
       assert.equal(store.getState().busy, true);
       await settle();
       edit(store);
       assert.equal(store.getState().busy, false);
-      open();
+      gate.resolve();
       await settle();
       const ids = store.getState().recipients.map((person) => person.inboxId);
       assert.equal(ids.includes("inbox-peer"), false);

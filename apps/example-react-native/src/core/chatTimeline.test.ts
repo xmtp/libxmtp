@@ -7,7 +7,6 @@ import {
   OWN,
   anchorOf,
   reactionRecord,
-  settle,
   textMessage,
 } from "./chatFakes.ts";
 import {
@@ -17,6 +16,7 @@ import {
 } from "./chatHistory.ts";
 import type { ChatMessage, ConversationRecord } from "./chatMessages.ts";
 import { ChatTimeline } from "./chatTimeline.ts";
+import { settle } from "./testing.ts";
 
 interface Harness {
   readonly queries: FakeConversation;

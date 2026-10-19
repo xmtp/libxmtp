@@ -24,6 +24,7 @@ import {
   type SendJournal,
   type SendJournalStorage,
 } from "./sendJournal.ts";
+import { deferred } from "./testing.ts";
 
 export const CONVERSATION = "chat";
 export const OWN = "own-inbox";
@@ -117,11 +118,9 @@ export class FakeConversation implements ChatQueries {
 
   /** Holds the next history read until the returned function runs. */
   hold(): () => void {
-    let release = (): void => {};
-    this.#hold = new Promise((resolve) => {
-      release = resolve;
-    });
-    return release;
+    const gate = deferred();
+    this.#hold = gate.promise;
+    return () => gate.resolve();
   }
 
   conversation(id: string): Promise<ConversationRecord> {
@@ -303,11 +302,4 @@ export class MemoryJournal implements SendJournalStorage {
   write(drafts: readonly SendDraft[]): void {
     this.drafts = drafts;
   }
-}
-
-/** Resolves after pending promise callbacks ran (one macrotask turn). */
-export function settle(): Promise<void> {
-  return new Promise((resolve) => {
-    setImmediate(resolve);
-  });
 }
