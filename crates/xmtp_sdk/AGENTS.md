@@ -298,7 +298,5 @@ Run only those checks with `dev/nix-shell 'just sdk test-browser migration'`
 after `generate`. The platform runner stages the matched Browser package. They check import, worker ownership,
 failed output, page termination, and source preservation. The small fixture
 worker uses raw legacy bytes and is not part of a public package.
-Kotlin uses `LegacyMigrationTest` in the normal JUnit target. Run
-`dev/nix-shell 'just android test --tests uniffi.xmtp_sdk.LegacyMigrationTest'`. The Android
-`sdk-build` job includes this test. Swift has no migration test; the converter
-tests in `crates/xmtp_legacy_migration` cover the same fixture.
+Swift and Kotlin have no migration test; the converter tests in
+`crates/xmtp_legacy_migration` cover the same fixture.
