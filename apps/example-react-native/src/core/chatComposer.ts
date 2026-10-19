@@ -6,7 +6,7 @@
 // the SDK call, saves the accepted message ID, then clears the text only if
 // it was not edited meanwhile, and publishes. A failure that is not a known
 // rejection leaves the journal entry, so the outcome is unknown: the composer
-// locks until Settings › Send needs review (or `clearReview`) clears it.
+// locks until Settings › Send needs review clears it.
 
 import type { ChatQueries, OutboundContent } from "./chatHistory.ts";
 import type { ComposerDraft } from "./preferences.ts";
@@ -20,7 +20,6 @@ import { Store } from "./store.ts";
 export const ComposerCopy = {
   saveFailed: "Cannot save your draft. Try again.",
   loadFailed: "Cannot load your saved draft.",
-  clearFailed: "Cannot clear saved send status.",
   acceptedPending: "Send accepted. Local recovery is pending.",
   outcomeUnknown:
     "Send outcome unknown. The original message may already exist.",
@@ -201,22 +200,6 @@ export class ChatComposer extends Store<ComposerState> {
         unknown: true,
         error: ComposerCopy.loadFailed,
       }));
-    }
-  }
-
-  /** In-chat "Clear": removes this chat's unknown sends. Never resends. */
-  clearReview(): void {
-    if (!this.#ports.admit()) return;
-    try {
-      this.#ports.journal.clearUnknownSends(this.#ports.conversationId);
-      this.setState((state) => ({
-        ...state,
-        draft: releaseDraft(state.draft),
-        unknown: false,
-      }));
-      this.#persist();
-    } catch {
-      this.setState((state) => ({ ...state, error: ComposerCopy.clearFailed }));
     }
   }
 

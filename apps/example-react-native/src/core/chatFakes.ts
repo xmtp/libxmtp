@@ -18,9 +18,11 @@ import type {
   RecoveryPosition,
 } from "./chatMessages.ts";
 import {
+  SendCoordinator,
   type SendDraft,
-  type SendJournalStorage,
   SendError,
+  type SendJournal,
+  type SendJournalStorage,
 } from "./sendJournal.ts";
 
 export const CONVERSATION = "chat";
@@ -94,6 +96,8 @@ export class FakeConversation implements ChatQueries {
   deletions: string[] = [];
   /** Runs inside `queue`, before it returns (journal checks). */
   onQueue: (() => void) | undefined;
+  /** Runs inside `delete`, before it returns (journal checks). */
+  onDelete: ((messageId: string) => void) | undefined;
   queueError: Error | undefined;
   publishError: Error | undefined;
   historyError: Error | undefined;
@@ -234,6 +238,7 @@ export class FakeConversation implements ChatQueries {
   }
 
   delete(messageId: string): Promise<string> {
+    this.onDelete?.(messageId);
     this.deletions.push(messageId);
     this.#next += 1;
     const id = `d${String(this.#next)}`;
@@ -260,6 +265,31 @@ export class FakeConversation implements ChatQueries {
         : row,
     );
   }
+}
+
+/** A send coordinator over `queries`, mapped like the SDK adapter. */
+export function coordinatorFor(
+  queries: FakeConversation,
+  journal: SendJournal,
+): SendCoordinator {
+  return new SendCoordinator(
+    journal,
+    {
+      consent: async (id) => (await queries.conversation(id)).consent,
+      message: async (id) => {
+        const row = await queries.message(id);
+        return row === undefined
+          ? undefined
+          : {
+              conversationId: row.conversationId,
+              published: row.delivery === "published",
+            };
+      },
+      publish: (conversationId, messageId) =>
+        queries.publish(conversationId, messageId),
+    },
+    () => true,
+  );
 }
 
 /** In-memory `send-drafts`. */

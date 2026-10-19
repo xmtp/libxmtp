@@ -4,6 +4,8 @@ import { test } from "node:test";
 import { OWN, PEER, textMessage } from "./chatFakes.ts";
 import { type ChatMessage, type ReactionBadgeModel } from "./chatMessages.ts";
 import {
+  type MessageMenuItem,
+  SWIPE_REPLY_DISTANCE,
   accessibilityItems,
   canReply,
   flightTarget,
@@ -26,60 +28,60 @@ const deletedPeer: ChatMessage = {
   content: { kind: "deleted" },
 };
 
-test("the menu shows Copy always, Reply and React when allowed and not deleted", () => {
-  assert.deepEqual(menuItems(peerRow, OWN, true), ["copy", "reply", "react"]);
-  assert.deepEqual(menuItems(peerRow, OWN, false), ["copy"]);
-  assert.deepEqual(menuItems(deletedPeer, OWN, true), ["copy"]);
+test("each row offers its context-menu and VoiceOver actions", () => {
+  const cases: readonly (readonly [
+    string,
+    ChatMessage,
+    boolean,
+    readonly MessageMenuItem[],
+    readonly MessageMenuItem[],
+  ])[] = [
+    [
+      "peer",
+      peerRow,
+      true,
+      ["copy", "reply", "react"],
+      ["reply", "react", "copy"],
+    ],
+    ["peer, request", peerRow, false, ["copy"], ["copy"]],
+    ["deleted peer", deletedPeer, true, ["copy"], ["copy"]],
+    [
+      "own published",
+      ownRow,
+      true,
+      ["copy", "reply", "react", "delete"],
+      ["reply", "react", "copy", "delete"],
+    ],
+    [
+      "own queued",
+      ownQueued,
+      true,
+      ["copy", "reply", "react", "retry", "edit"],
+      ["reply", "react", "copy"],
+    ],
+    [
+      "own failed",
+      ownFailed,
+      true,
+      ["copy", "reply", "react", "retry", "edit"],
+      ["reply", "react", "copy"],
+    ],
+    ["own, request", ownRow, false, ["copy"], ["copy"]],
+  ];
+  for (const [name, row, allowed, menu, voiceOver] of cases) {
+    assert.deepEqual(menuItems(row, OWN, allowed), menu, name);
+    assert.deepEqual(accessibilityItems(row, OWN, allowed), voiceOver, name);
+  }
 });
 
-test("own published rows offer Delete; own unpublished rows Retry and Edit", () => {
-  assert.deepEqual(menuItems(ownRow, OWN, true), [
-    "copy",
-    "reply",
-    "react",
-    "delete",
-  ]);
-  assert.deepEqual(menuItems(ownQueued, OWN, true), [
-    "copy",
-    "reply",
-    "react",
-    "retry",
-    "edit",
-  ]);
-  assert.deepEqual(menuItems(ownFailed, OWN, true), [
-    "copy",
-    "reply",
-    "react",
-    "retry",
-    "edit",
-  ]);
-  // A request (consent not allowed) offers Copy only, even on own rows.
-  assert.deepEqual(menuItems(ownRow, OWN, false), ["copy"]);
-  assert.ok(!menuItems(peerRow, OWN, true).includes("delete"));
-});
-
-test("VoiceOver actions: Reply, React, Copy, then Delete on own published rows", () => {
-  assert.deepEqual(accessibilityItems(ownRow, OWN, true), [
-    "reply",
-    "react",
-    "copy",
-    "delete",
-  ]);
-  assert.deepEqual(accessibilityItems(ownQueued, OWN, true), [
-    "reply",
-    "react",
-    "copy",
-  ]);
-  assert.deepEqual(accessibilityItems(peerRow, OWN, false), ["copy"]);
-});
-
-test("a swipe arms past 48 pt sideways, more horizontal than vertical, either way", () => {
-  assert.equal(swipeArmed(48, 0, true), true);
-  assert.equal(swipeArmed(-60, 10, true), true);
-  assert.equal(swipeArmed(47, 0, true), false);
-  assert.equal(swipeArmed(60, 60, true), false);
-  assert.equal(swipeArmed(60, -61, true), false);
-  assert.equal(swipeArmed(80, 0, false), false);
+test("a swipe arms past the reply distance sideways, more horizontal than vertical, either way", () => {
+  const d = SWIPE_REPLY_DISTANCE;
+  assert.equal(swipeArmed(d, 0, true), true);
+  assert.equal(swipeArmed(-(d + 12), 10, true), true);
+  assert.equal(swipeArmed(d - 1, 0, true), false);
+  assert.equal(swipeArmed(d + 12, d + 12, true), false);
+  assert.equal(swipeArmed(d + 12, -(d + 13), true), false);
+  assert.equal(swipeArmed(d + 32, 0, false), false);
   assert.equal(canReply(peerRow, true), true);
   assert.equal(canReply(deletedPeer, true), false);
   assert.equal(canReply(peerRow, false), false);

@@ -56,15 +56,6 @@ export function canDelete(
   );
 }
 
-/** Retry and Edit show for own messages that are not published (queued or failed). */
-export function canRetry(
-  row: ChatMessage,
-  own: string,
-  allowed: boolean,
-): boolean {
-  return allowed && row.sender === own && row.delivery !== "published";
-}
-
 export class MessageActions extends Store<MessageActionState> {
   readonly #ports: MessageActionPorts;
   #allowed = false;
@@ -156,13 +147,6 @@ export class MessageActions extends Store<MessageActionState> {
       const { deleteTarget: _target, ...rest } = state;
       return rest;
     });
-  }
-
-  /** Deletes the confirmed `deleteTarget`. */
-  confirmDelete(): void {
-    const target = this.getState().deleteTarget;
-    this.cancelDelete();
-    if (target !== undefined) this.deleteMessage(target);
   }
 
   /**

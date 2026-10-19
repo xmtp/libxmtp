@@ -317,7 +317,7 @@ test("deletions are journaled and an accepted deletion is retried, not repeated"
   );
 });
 
-test("review rows by state, and the in-chat clear never touches other conversations", () => {
+test("review rows by state", () => {
   const send = draft();
   const pending = draft({
     id: "2",
@@ -333,13 +333,6 @@ test("review rows by state, and the in-chat clear never touches other conversati
   assert.ok(!canRetryDeletion(unknownDelete));
   const other = draft({ id: "4", conversationId: "other" });
   assert.ok([send, pending, unknownDelete, other].every(needsReview));
-  const storage = new MemoryStorage();
-  storage.drafts = [send, pending, unknownDelete, other];
-  new SendJournal(storage).clearUnknownSends("chat");
-  assert.deepEqual(
-    storage.drafts.map((entry) => entry.id),
-    ["2", "3", "4"],
-  );
 });
 
 test("stored journals parse strictly", () => {

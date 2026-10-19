@@ -17,20 +17,28 @@ export const EmojiCopy = {
   close: "Close",
   search: "Search emoji",
   recentlyUsed: "Recently used",
+  smileysAndPeople: "Smileys and people",
+  animalsAndNature: "Animals and nature",
+  foodAndDrink: "Food and drink",
+  travelAndPlaces: "Travel and places",
+  activities: "Activities",
+  objects: "Objects",
+  symbols: "Symbols",
+  flags: "Flags",
 } as const;
 
 /** The first section's title; the boundaries below start the others. */
-const FIRST_SECTION = "Smileys and people";
+const FIRST_SECTION = EmojiCopy.smileysAndPeople;
 
 /** A new section starts at each of these emojis (`sections`). */
 const SECTION_STARTS: ReadonlyMap<string, string> = new Map([
-  ["🐵", "Animals and nature"],
-  ["🍇", "Food and drink"],
-  ["🌍", "Travel and places"],
-  ["🎃", "Activities"],
-  ["👓", "Objects"],
-  ["🏧", "Symbols"],
-  ["🏁", "Flags"],
+  ["🐵", EmojiCopy.animalsAndNature],
+  ["🍇", EmojiCopy.foodAndDrink],
+  ["🌍", EmojiCopy.travelAndPlaces],
+  ["🎃", EmojiCopy.activities],
+  ["👓", EmojiCopy.objects],
+  ["🏧", EmojiCopy.symbols],
+  ["🏁", EmojiCopy.flags],
 ]);
 
 /** "Recently used" keeps this many emojis, newest first. */

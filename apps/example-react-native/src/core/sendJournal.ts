@@ -184,22 +184,6 @@ export class SendJournal {
       this.#storage.read().filter((entry) => entry.id !== id),
     );
   }
-
-  /** In-chat "Clear": removes this conversation's unknown sends. Never resends. */
-  clearUnknownSends(conversationId: string): void {
-    this.#storage.write(
-      this.#storage
-        .read()
-        .filter(
-          (entry) =>
-            !(
-              entry.conversationId === conversationId &&
-              entry.phase === "queueing" &&
-              entry.deletionTargetId === undefined
-            ),
-        ),
-    );
-  }
 }
 
 /** The SDK reads the coordinator needs. Implementations throw `SendError` for SDK failures. */

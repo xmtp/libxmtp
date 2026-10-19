@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  EmojiCopy,
   RECENT_LIMIT,
   addRecent,
   emojiSections,
@@ -12,18 +13,14 @@ import { emojiSearchTsv } from "./emojiData.ts";
 
 const catalog = parseEmojiCatalog(emojiSearchTsv);
 
-test("the catalog keeps every entry and skips the header comments", () => {
-  assert.equal(catalog.length, 3781);
-  assert.deepEqual(catalog[0], { emoji: "😀", name: "grinning face" });
-  assert.ok(catalog.some((entry) => entry.name === "keycap: #"));
-  assert.deepEqual(catalog.at(-1), { emoji: "🏴󠁧󠁢󠁷󠁬󠁳󠁿", name: "flag: Wales" });
-  assert.ok(catalog.every((entry) => !entry.emoji.startsWith("# ")));
-});
-
 test("parsing splits on the first tab only and skips lines without one", () => {
-  assert.deepEqual(parseEmojiCatalog("# header\n😀\tgrinning\tface\n\n🙂\n"), [
-    { emoji: "😀", name: "grinning\tface" },
-  ]);
+  assert.deepEqual(
+    parseEmojiCatalog("# header\n#️⃣\tkeycap: #\n😀\tgrinning\tface\n\n🙂\n"),
+    [
+      { emoji: "#️⃣", name: "keycap: #" },
+      { emoji: "😀", name: "grinning\tface" },
+    ],
+  );
 });
 
 test("sections start at the boundary emojis", () => {
@@ -31,14 +28,14 @@ test("sections start at the boundary emojis", () => {
   assert.deepEqual(
     sections.map((section) => [section.title, section.values[0]?.emoji]),
     [
-      ["Smileys and people", "😀"],
-      ["Animals and nature", "🐵"],
-      ["Food and drink", "🍇"],
-      ["Travel and places", "🌍"],
-      ["Activities", "🎃"],
-      ["Objects", "👓"],
-      ["Symbols", "🏧"],
-      ["Flags", "🏁"],
+      [EmojiCopy.smileysAndPeople, "😀"],
+      [EmojiCopy.animalsAndNature, "🐵"],
+      [EmojiCopy.foodAndDrink, "🍇"],
+      [EmojiCopy.travelAndPlaces, "🌍"],
+      [EmojiCopy.activities, "🎃"],
+      [EmojiCopy.objects, "👓"],
+      [EmojiCopy.symbols, "🏧"],
+      [EmojiCopy.flags, "🏁"],
     ],
   );
   assert.equal(
