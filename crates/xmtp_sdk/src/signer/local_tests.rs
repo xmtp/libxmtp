@@ -85,11 +85,11 @@ async fn local_key_generation_is_exportable_and_debug_is_redacted() {
 async fn export_bytes(key: &LocalSigningKey) -> Vec<u8> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        key.to_bytes()
+        key.to_bytes().to_vec()
     }
     #[cfg(target_arch = "wasm32")]
     {
-        key.to_bytes().await
+        key.to_bytes().await.to_vec()
     }
 }
 

@@ -6,10 +6,13 @@
 use std::{mem::ManuallyDrop, sync::Arc};
 
 use alloy::signers::local::PrivateKeySigner;
-use uniffi::{Lift, Lower};
+use uniffi::{Lift, Lower, LowerReturn, RustBuffer};
 use xmtp_cryptography::secret::heap_canary::{Canary, scan, scan_async};
 use xmtp_id::InboxOwner;
-use xmtp_sdk::{LocalSigningKey, Signer, SigningRequest, UniFfiTag, local_signer_from_private_key};
+use xmtp_sdk::{
+    LocalSigningKey, SecretBytes, SecretString, Signer, SigningRequest, UniFfiTag,
+    local_signer_from_private_key,
+};
 
 xmtp_cryptography::install_heap_canary!();
 
@@ -103,7 +106,6 @@ fn cancelled_import_wipes_its_argument() {
 /// unwiped, as the builtin `Vec<u8>` lift does, leaves the key behind.
 #[xmtp_common::test(unwrap_try = true)]
 fn lift_wipes_the_host_buffer() {
-    use xmtp_sdk::{SecretBytes, SecretString};
     let canary = Canary::secp256k1(&KEY);
 
     let buffer = <Vec<u8> as Lower<UniFfiTag>>::lower(KEY.to_vec());
@@ -137,18 +139,49 @@ async fn rejected_import_leaves_no_copy_of_the_input() {
 async fn export_makes_only_the_returned_copy() {
     let key = LocalSigningKey::from_bytes(KEY.to_vec().into()).await?;
     let ((bytes, hex), hits) = scan_async(&[Canary::secp256k1(&KEY)], async {
-        (
-            ManuallyDrop::new(key.to_bytes()),
-            ManuallyDrop::new(key.to_hex()),
-        )
+        // Lower the byte export as the scaffolding does: the lowered buffer
+        // is the export the host owns, and nothing else may hold the key.
+        let bytes = <SecretBytes as LowerReturn<UniFfiTag>>::lower_return(key.to_bytes())
+            .ok()
+            .unwrap();
+        (ManuallyDrop::new(bytes), ManuallyDrop::new(key.to_hex()))
     })
     .await;
     assert_eq!(hits, [0]);
-    assert_eq!(ManuallyDrop::into_inner(bytes), KEY);
+    let lowered = ManuallyDrop::into_inner(bytes).destroy_into_vec();
+    assert_eq!(lowered[..4], 32_i32.to_be_bytes());
+    assert_eq!(lowered[4..], KEY);
     assert_eq!(
         ManuallyDrop::into_inner(hex),
         format!("0x{}", hex::encode(KEY))
     );
+}
+
+/// A malformed host buffer fails without leaving a partial copy of the key:
+/// a byte string truncated after half the key, and hex text with an invalid
+/// UTF-8 byte. The builtin readers copy before they fail.
+#[xmtp_common::test(unwrap_try = true)]
+fn malformed_inputs_leave_no_partial_copy() {
+    let half = &KEY[..16];
+    let mut truncated = 32_i32.to_be_bytes().to_vec();
+    truncated.extend_from_slice(half);
+    let buffer = RustBuffer::from_vec(truncated);
+    let (result, hits) = scan(&[Canary::new(half)], || {
+        <SecretBytes as Lift<UniFfiTag>>::try_lift(buffer).is_err()
+    });
+    assert!(result, "a truncated key must fail");
+    assert_eq!(hits, [0], "truncated SecretBytes");
+
+    let text = hex::encode(KEY);
+    let mut invalid = 65_i32.to_be_bytes().to_vec();
+    invalid.extend_from_slice(text.as_bytes());
+    invalid.push(0xff);
+    let (result, hits) = scan(&[Canary::new(text.as_bytes())], || {
+        let mut buf = invalid.as_slice();
+        <SecretString as Lift<UniFfiTag>>::try_read(&mut buf).is_err()
+    });
+    assert!(result, "invalid UTF-8 must fail");
+    assert_eq!(hits, [0], "invalid UTF-8 SecretString");
 }
 
 /// k256 wipes its scalar when a signer drops. This guards the k256 `zeroize`

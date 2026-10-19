@@ -14,11 +14,20 @@
 //! reusing that buffer, so the `Zeroizing<String>` wipes it. It lifts a
 //! `Vec<u8>` by copying out of the buffer and then freeing it, so
 //! [`SecretBytes`] takes the buffer itself, reads the copy, and wipes the
-//! buffer before it is freed.
+//! buffer before it is freed. Both readers decode into wiping storage and
+//! check the length (and UTF-8) before they build a value, so a malformed
+//! buffer leaves no partial copy.
+//!
+//! [`SecretBytes`] is also an export return type: it lowers by writing into a
+//! buffer sized up front and wiping its own storage, so the returned buffer is
+//! the only copy. The builtin `Vec<u8>` lowering frees its source unwiped.
 
 use std::{fmt, ops::Deref};
 
-use uniffi::{Lift, MetadataBuffer, RustBuffer, TypeId};
+use uniffi::{
+    Lift, Lower, LowerReturn, MetadataBuffer, RustBuffer, RustCallError, TypeId,
+    deps::bytes::{Buf, BufMut},
+};
 use xmtp_cryptography::secret::Zeroizing;
 
 macro_rules! secret_input {
@@ -62,6 +71,37 @@ secret_input!(
     SecretString(String) derefs to str
 );
 
+/// Read one length-prefixed byte string, the wire format of both `Vec<u8>`
+/// and `String`, straight into wiping storage. The length is checked before
+/// anything is copied, so a truncated buffer fails without a partial copy.
+fn read_secret(buf: &mut &[u8]) -> uniffi::Result<Zeroizing<Vec<u8>>> {
+    uniffi::check_remaining(buf, 4)?;
+    let len = usize::try_from(buf.get_i32())?;
+    uniffi::check_remaining(buf, len)?;
+    let mut out = Zeroizing::new(Vec::with_capacity(len));
+    out.extend_from_slice(&buf[..len]);
+    buf.advance(len);
+    Ok(out)
+}
+
+/// Turn the host's `RustBuffer` into `T`, wiping the buffer afterwards. Junk
+/// after the value is an error, as in the builtin lift.
+fn lift_from_buffer<T>(
+    value: RustBuffer,
+    read: impl FnOnce(&mut &[u8]) -> uniffi::Result<T>,
+) -> uniffi::Result<T> {
+    let source = Zeroizing::new(value.destroy_into_vec());
+    let mut buf = source.as_slice();
+    let lifted = read(&mut buf)?;
+    if !buf.is_empty() {
+        uniffi::deps::anyhow::bail!(
+            "junk data left in buffer after lifting (count: {})",
+            buf.len()
+        );
+    }
+    Ok(lifted)
+}
+
 // SAFETY: same FFI type and wire format as `Vec<u8>`, and `TypeId` reports the
 // builtin's metadata, so the bindings pass the argument exactly as `Vec<u8>`.
 unsafe impl<UT> Lift<UT> for SecretBytes {
@@ -70,27 +110,48 @@ unsafe impl<UT> Lift<UT> for SecretBytes {
     /// Owns the host's buffer while it reads the bytes, then wipes it. The
     /// builtin lift would free that buffer, which holds the secret, unwiped.
     fn try_lift(value: RustBuffer) -> uniffi::Result<Self> {
-        let source = Zeroizing::new(value.destroy_into_vec());
-        let mut buf = source.as_slice();
-        let lifted = <Self as Lift<UT>>::try_read(&mut buf)?;
-        if !buf.is_empty() {
-            uniffi::deps::anyhow::bail!(
-                "junk data left in buffer after lifting (count: {})",
-                buf.len()
-            );
-        }
-        Ok(lifted)
+        lift_from_buffer(value, read_secret).map(Self)
     }
 
-    /// The builtin reads into a `Vec` sized to the length prefix, so it never
-    /// reallocates; the result is wrapped at once.
     fn try_read(buf: &mut &[u8]) -> uniffi::Result<Self> {
-        <Vec<u8> as Lift<UT>>::try_read(buf).map(Self::from)
+        read_secret(buf).map(Self)
     }
 }
 
-// SAFETY: forwards to `String`'s `Lift`, with the same FFI type. That lift
-// reuses the host's buffer as the `String`, which `Zeroizing` then wipes.
+// SAFETY: same FFI type and wire format as `Vec<u8>`, and `TypeId` reports the
+// builtin's metadata, so the bindings receive the value exactly as `Vec<u8>`.
+unsafe impl<UT> Lower<UT> for SecretBytes {
+    type FfiType = RustBuffer;
+
+    /// Writes into a buffer sized up front, so it never reallocates; the
+    /// secret's own storage is wiped when `obj` drops.
+    fn write(obj: Self, buf: &mut Vec<u8>) {
+        // A secret never approaches `i32::MAX` bytes.
+        let len = i32::try_from(obj.len()).expect("secret length fits in i32");
+        buf.put_i32(len);
+        buf.put_slice(&obj);
+    }
+
+    /// The returned buffer is the export, owned by the host from here on.
+    fn lower(obj: Self) -> RustBuffer {
+        let mut buf = Vec::with_capacity(4 + obj.len());
+        <Self as Lower<UT>>::write(obj, &mut buf);
+        RustBuffer::from_vec(buf)
+    }
+}
+
+// SAFETY: returns the `Lower` value unchanged, as the derived impl does.
+unsafe impl<UT> LowerReturn<UT> for SecretBytes {
+    type ReturnType = RustBuffer;
+
+    fn lower_return(value: Self) -> Result<RustBuffer, RustCallError> {
+        Ok(<Self as Lower<UT>>::lower(value))
+    }
+}
+
+// SAFETY: same FFI type as `String`. The builtin lift reuses the host's buffer
+// as the `String`, which `Zeroizing` then wipes; the reader below decodes into
+// wiping storage and checks UTF-8 before building the `String`.
 unsafe impl<UT> Lift<UT> for SecretString {
     type FfiType = <String as Lift<UT>>::FfiType;
 
@@ -99,7 +160,10 @@ unsafe impl<UT> Lift<UT> for SecretString {
     }
 
     fn try_read(buf: &mut &[u8]) -> uniffi::Result<Self> {
-        <String as Lift<UT>>::try_read(buf).map(Self::from)
+        let mut bytes = read_secret(buf)?;
+        std::str::from_utf8(&bytes)?;
+        let text = String::from_utf8(std::mem::take(&mut *bytes)).expect("checked as UTF-8 above");
+        Ok(Self::from(text))
     }
 }
 

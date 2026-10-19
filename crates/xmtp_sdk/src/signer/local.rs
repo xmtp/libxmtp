@@ -79,8 +79,8 @@ impl LocalSigningKey {
     }
 
     // implements: IDENT-088
-    fn private_key_bytes(&self) -> Vec<u8> {
-        self.private_key().to_vec()
+    fn private_key_bytes(&self) -> SecretBytes {
+        SecretBytes::from(self.private_key().to_vec())
     }
 
     /// The returned `String` is the only heap copy: digits are written
@@ -102,7 +102,7 @@ impl LocalSigningKey {
 impl LocalSigningKey {
     /// Export a copy of the private key. Store it securely; it controls the account.
     #[sdk(immutable)]
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> SecretBytes {
         self.private_key_bytes()
     }
 
@@ -116,7 +116,7 @@ impl LocalSigningKey {
 #[xmtp_macro::sdk_export(wasm_only)]
 impl LocalSigningKey {
     /// Export a copy of the private key. Store it securely; it controls the account.
-    pub async fn to_bytes(&self) -> Vec<u8> {
+    pub async fn to_bytes(&self) -> SecretBytes {
         self.private_key_bytes()
     }
 
