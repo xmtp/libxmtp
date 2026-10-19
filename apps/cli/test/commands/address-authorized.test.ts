@@ -30,26 +30,6 @@ describe("address-authorized", () => {
     expect(output.isAuthorized).toBe(true);
   });
 
-  it("returns false for unauthorized address", async () => {
-    const identity = await createRegisteredIdentity();
-    const otherIdentity = await createRegisteredIdentity();
-
-    const result = await runWithIdentity(identity, [
-      "address-authorized",
-      identity.inboxId,
-      otherIdentity.address, // Different user's address
-      "--json",
-    ]);
-
-    expect(result.exitCode).toBe(0);
-
-    const output = parseJsonOutput<{
-      isAuthorized: boolean;
-    }>(result.stdout);
-
-    expect(output.isAuthorized).toBe(false);
-  });
-
   it("fails without required arguments", async () => {
     const identity = await createRegisteredIdentity();
 

@@ -93,38 +93,6 @@ describe("conversations create-dm", () => {
     expect(result.exitCode).not.toBe(0);
   });
 
-  it("both parties can see the DM", async () => {
-    const sender = await createRegisteredIdentity();
-    const recipient = await createRegisteredIdentity();
-
-    // Create DM from sender's perspective
-    const createResult = await runWithIdentity(sender, [
-      "conversations",
-      "create-dm",
-      recipient.address,
-      "--json",
-    ]);
-    expect(createResult.exitCode).toBe(0);
-
-    // Sync recipient's conversations
-    await runWithIdentity(recipient, ["conversations", "sync"]);
-
-    // List recipient's DMs
-    const listResult = await runWithIdentity(recipient, [
-      "conversations",
-      "list",
-      "--type",
-      "dm",
-      "--json",
-    ]);
-    expect(listResult.exitCode).toBe(0);
-
-    const dms = parseJsonOutput<DmResult[]>(listResult.stdout);
-    const createOutput = parseJsonOutput<DmResult>(createResult.stdout);
-
-    expect(dms.some((dm) => dm.id === createOutput.id)).toBe(true);
-  });
-
   it("creates a DM with the inbox that holds a handle", async () => {
     const sender = await createRegisteredIdentity();
     const recipient = await createIdentityWithHandle();

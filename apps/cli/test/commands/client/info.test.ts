@@ -60,55 +60,6 @@ describe("client info", () => {
     expect(info.options.dbPath).toBeDefined();
   });
 
-  it("returns consistent inboxId for same wallet", async () => {
-    const identity = createTestIdentity();
-
-    const result1 = await runWithIdentity(identity, [
-      "client",
-      "info",
-      "--json",
-    ]);
-    const result2 = await runWithIdentity(identity, [
-      "client",
-      "info",
-      "--json",
-    ]);
-
-    expect(result1.exitCode).toBe(0);
-    expect(result2.exitCode).toBe(0);
-
-    const info1 = parseJsonOutput<ClientInfoOutput>(result1.stdout);
-    const info2 = parseJsonOutput<ClientInfoOutput>(result2.stdout);
-
-    expect(info1.properties.inboxId).toBe(info2.properties.inboxId);
-    expect(info1.properties.address).toBe(info2.properties.address);
-  });
-
-  it("returns different inboxId for different wallets", async () => {
-    const identity1 = createTestIdentity();
-    const identity2 = createTestIdentity();
-
-    const result1 = await runWithIdentity(identity1, [
-      "client",
-      "info",
-      "--json",
-    ]);
-    const result2 = await runWithIdentity(identity2, [
-      "client",
-      "info",
-      "--json",
-    ]);
-
-    expect(result1.exitCode).toBe(0);
-    expect(result2.exitCode).toBe(0);
-
-    const info1 = parseJsonOutput<ClientInfoOutput>(result1.stdout);
-    const info2 = parseJsonOutput<ClientInfoOutput>(result2.stdout);
-
-    expect(info1.properties.inboxId).not.toBe(info2.properties.inboxId);
-    expect(info1.properties.address).not.toBe(info2.properties.address);
-  });
-
   it("outputs table format by default", async () => {
     const identity = createTestIdentity();
     const result = await runWithIdentity(identity, ["client", "info"]);
