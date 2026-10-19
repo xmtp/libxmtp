@@ -193,7 +193,9 @@ path that no rule names, more than 3,000 changed files, and unavailable
 detection. Rename-expanded path counts do not select a full run. Empty diffs
 are valid. Fork pull requests skip suites with `disable_on_forks`. A suite
 with `covered_by` does not run when its cover runs in the same or a stronger
-tier. A `neutral` file selects a suite only through a repository-wide glob
+tier. A suite with `skip_full_runs` runs in a full pull request run only when
+its own filters or labels match: the full RN device chain does, so other full
+runs get the Android smoke. A `neutral` file selects a suite only through a repository-wide glob
 that starts with `**/`, such as `**/*.md` or the formatter's file types. A
 pull request that deletes or renames a file also runs the `on_deleted_path`
 suites, because `dev/ci-suites check` can then find a pattern that names no

@@ -150,8 +150,15 @@ class SelectionTests(unittest.TestCase):
         shown = {
             name for name in tiered if SELECTOR.SUITES[name]["covered_by"] not in tiered
         }
+        # A full pull request run skips the suites with skip_full_runs, so
+        # a suite that they cover runs in their place.
+        full = {name for name in tiered if not SELECTOR.SUITES[name]["skip_full_runs"]}
+        full_shown = {
+            name for name in full if SELECTOR.SUITES[name]["covered_by"] not in full
+        }
         self.assertIn("test_example_ios", tiered)
-        self.assertIn("test_react_native_smoke", tiered - shown)
+        self.assertIn("test_react_native_smoke", full_shown - shown)
+        self.assertIn("test_react_native", shown - full_shown)
         merging = {name for name in shown if "merge" in SELECTOR.SUITES[name]["run_on"]}
         self.assertNotIn("test_react_native", merging)
         for kwargs, tier in [
@@ -175,11 +182,13 @@ class SelectionTests(unittest.TestCase):
                     self.assertLessEqual(merging if push else shown, selected(result))
                     self.assertEqual(advisory(result), set())
                 elif tier == "advisory":
-                    self.assertEqual(advisory(result), shown)
+                    self.assertEqual(advisory(result), full_shown)
                     self.assertTrue(tiered.isdisjoint(selected(result)))
                 else:
                     self.assertIn("test_example_ios", selected(result))
-                    self.assertEqual(advisory(result), shown - {"test_example_ios"})
+                    self.assertEqual(
+                        advisory(result), full_shown - {"test_example_ios"}
+                    )
 
     def test_shared_input_selects_every_suite_and_records_paths(self):
         result = select(["proto/mls/a.proto", "crates/xmtp_mls/src/client.rs"])
@@ -193,8 +202,33 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(
             selected(result), eligible("ready_pr_push") - {"docs_rust"} - tiered
         )
-        # The RN smoke gives way to the full RN chain, which runs too.
-        self.assertEqual(advisory(result), tiered - {"test_react_native_smoke"})
+        # Without an RN change the full RN chain skips the full run, and the
+        # Android smoke runs instead.
+        self.assertEqual(advisory(result), tiered - {"test_react_native"})
+
+    def test_full_runs_run_the_full_rn_chain_only_for_rn_changes(self):
+        # Decision D2: the full device chain on RN paths or the label, the
+        # Android smoke on every other pull request that selects RN.
+        for paths, labels, chain in [
+            (["flake.nix"], [], "test_react_native_smoke"),
+            (["flake.nix", "sdks/react-native/src/index.ts"], [], "test_react_native"),
+            (["flake.nix"], ["react-native"], "test_react_native"),
+            (["new-language/source.xyz"], [], "test_react_native_smoke"),
+        ]:
+            with self.subTest(paths=paths, labels=labels):
+                result = select(paths, payload=event(labels=labels), total=len(paths))
+                self.assertTrue(result["reasons"])
+                rn = {name for name in advisory(result) if "react_native" in name}
+                self.assertEqual(rn, {chain})
+        # Merge runs leave the device chain to post-merge; manual runs run
+        # the full chain.
+        self.assertFalse(
+            {"test_react_native", "test_react_native_smoke"}
+            & selected(select(["flake.nix"], name="push"))
+        )
+        manual = selected(select(name="workflow_dispatch", payload={}))
+        self.assertIn("test_react_native", manual)
+        self.assertNotIn("test_react_native_smoke", manual)
 
     def test_unknown_paths_select_every_suite_and_are_named(self):
         result = select(["new-language/source.xyz"])

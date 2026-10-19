@@ -157,6 +157,8 @@ class CompileTests(unittest.TestCase):
             lambda d: d["suites"]["test_dev"].update(
                 advisory_filters=[{"path_group": "missing"}]
             ),
+            lambda d: d["suites"]["test_dev"].update(skip_full_runs=False),
+            lambda d: d["suites"]["test_dev"].update(skip_full_runs="yes"),
             lambda d: d["suites"]["test_dev"].update(with_={}),
             lambda d: d["suites"]["test_dev"].update({"with": ["scope"]}),
             lambda d: d["suites"]["test_dev"].update({"with": {"scope": None}}),

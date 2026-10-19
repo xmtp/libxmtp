@@ -56,6 +56,9 @@
 # These keys are optional; leave them out when they do not apply:
 #   covered_by        A suite whose run makes this one unnecessary. It applies
 #                     when the cover runs in the same or a stronger tier.
+#   skip_full_runs    true: a full run of a pull request (see `shared` below)
+#                     runs the suite only when its own filters or labels
+#                     match. Merge and manual runs are unchanged.
 #   runners           Workflow inputs that set runs-on, each as
 #                     {pr: LABEL, merge: LABEL}. The caller passes the pr
 #                     label on pull requests and the merge label on merge and
@@ -784,6 +787,8 @@ suites:
     disable_on_forks: false
     secrets: cachix-pr
     permissions: {contents: read}
+    # On a full run without RN changes, the Android smoke runs instead.
+    skip_full_runs: true
     kache: []
     products: []
     with: {scope: full}

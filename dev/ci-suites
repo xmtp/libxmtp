@@ -38,6 +38,7 @@ SUITE_KEYS = (
     "secrets",
     "permissions",
     "covered_by",
+    "skip_full_runs",
     "kache",
     "products",
     "runners",
@@ -45,7 +46,13 @@ SUITE_KEYS = (
     "pr_filters",
     "advisory_filters",
 )
-OPTIONAL_SUITE_KEYS = {"covered_by", "runners", "with", "advisory_filters"}
+OPTIONAL_SUITE_KEYS = {
+    "covered_by",
+    "skip_full_runs",
+    "runners",
+    "with",
+    "advisory_filters",
+}
 REQUIRED_SUITE_KEYS = set(SUITE_KEYS) - OPTIONAL_SUITE_KEYS
 FILTER_KEYS = {"cargo_package", "path_group"}
 EVENT_KINDS = ("draft_pr_push", "ready_pr_push", "merge")
@@ -539,6 +546,10 @@ def compile_declaration(root: Path = ROOT, declaration=None):
             )
         if "covered_by" in suite and not isinstance(suite["covered_by"], str):
             raise DeclarationError(f"Suite {name} covered_by must be a suite name")
+        if suite.get("skip_full_runs", True) is not True:
+            raise DeclarationError(
+                f"Suite {name} skip_full_runs must be true; omit it otherwise"
+            )
         filters = compile_pr_filters(
             suite["pr_filters"], groups, graph, f"{name}.pr_filters"
         )
@@ -585,6 +596,7 @@ def compile_declaration(root: Path = ROOT, declaration=None):
             "secrets": suite["secrets"],
             "permissions": permissions,
             "covered_by": suite.get("covered_by"),
+            "skip_full_runs": suite.get("skip_full_runs", False),
             "kache": sorted(declared),
             "products": [group for group in products if group in waits],
             "runners": runner_inputs,
