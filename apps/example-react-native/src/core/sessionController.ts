@@ -547,6 +547,17 @@ export class SessionController<C extends SessionClient, S> extends Store<
       await endQuietly(opened);
       throw SessionError.stale();
     }
+    // Or the caller cancelled. No newer action owns the index, so this
+    // attempt clears the sign-in it saved.
+    if (isAborted(signal)) {
+      try {
+        const index = await this.#files.loadIndex();
+        await this.#files.saveIndex({ ...index, signedIn: false });
+      } finally {
+        await endQuietly(opened);
+      }
+      throw new CancelledError();
+    }
     const scope = new SessionScope();
     let session: S;
     try {

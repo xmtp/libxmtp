@@ -545,6 +545,27 @@ test("a cancelled join ends a client that opens too late", async () => {
   assert.equal(factory.opens, opens);
 });
 
+test("a join cancelled while the index records it ends the client and stays signed out", async () => {
+  const { files, factory, session } = controller();
+  await session.start();
+  const abort = new AbortController();
+  files.onSave = () => {
+    if (files.index.signedIn) abort.abort();
+  };
+  await assert.rejects(
+    session.connect({
+      url: "https://example.com",
+      token: "",
+      signal: abort.signal,
+    }),
+    CancelledError,
+  );
+  assert.ok(factory.client.ended);
+  assert.equal(session.client, undefined);
+  assert.equal(session.getState().kind, "signedOut");
+  assert.ok(!files.index.signedIn);
+});
+
 test("a failed connect with a missing secret retries with an explicit reservation", async () => {
   const { files, secrets, profile } = savedSession({
     signedIn: false,
