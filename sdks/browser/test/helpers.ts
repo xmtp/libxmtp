@@ -43,12 +43,3 @@ afterEach(async () => {
   for (const result of results)
     if (result.status === "rejected") throw result.reason;
 });
-
-// The browser clock has millisecond resolution, so messages sent within one
-// millisecond share `sentAt`, and pages order them by message id. Tests that
-// expect send order wait for the next millisecond between sends.
-export const nextMillisecond = async (): Promise<void> => {
-  const start = Date.now();
-  while (Date.now() === start)
-    await new Promise((resolve) => setTimeout(resolve, 1));
-};

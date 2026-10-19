@@ -42,7 +42,8 @@ test-bridge *args:
 
 # Browser platform proofs in sdks/browser/test/platform: real WASM workers,
 # Chromium storage, package, logging and bridge proofs, and the Vitest
-# Playwright suite. Copies the Nix-built panic and pure codec fixtures.
+# Playwright suite. Copies the Nix-built panic, pure codec, and legacy
+# migration fixtures.
 # `mode` is `all` or `migration` (only the legacy migration proofs).
 test-browser mode="all":
     "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests" {{ quote(mode) }}

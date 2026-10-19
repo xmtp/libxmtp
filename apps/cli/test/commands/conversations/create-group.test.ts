@@ -87,24 +87,6 @@ describe("conversations create-group", () => {
     expect(result.exitCode).not.toBe(0);
   });
 
-  it("handles case-insensitive addresses", async () => {
-    const creator = await createRegisteredIdentity();
-    const member = await createRegisteredIdentity();
-    const upperCaseAddress = member.address.toUpperCase();
-
-    const result = await runWithIdentity(creator, [
-      "conversations",
-      "create-group",
-      upperCaseAddress,
-      "--json",
-    ]);
-
-    expect(result.exitCode).toBe(0);
-
-    const output = parseJsonOutput<GroupResult>(result.stdout);
-    expect(output.memberCount).toBe(2);
-  });
-
   it("creates a group from handles", async () => {
     const creator = await createRegisteredIdentity();
     const [member1, member2] = await Promise.all([

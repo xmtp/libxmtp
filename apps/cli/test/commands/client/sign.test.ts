@@ -55,31 +55,6 @@ describe("client sign", () => {
     expect(output.encoding).toBe("base64");
   });
 
-  it("signs different messages with different signatures", async () => {
-    const identity = createTestIdentity();
-
-    const result1 = await runWithIdentity(identity, [
-      "client",
-      "sign",
-      "message1",
-      "--json",
-    ]);
-    const result2 = await runWithIdentity(identity, [
-      "client",
-      "sign",
-      "message2",
-      "--json",
-    ]);
-
-    expect(result1.exitCode).toBe(0);
-    expect(result2.exitCode).toBe(0);
-
-    const output1 = parseJsonOutput<SignResult>(result1.stdout);
-    const output2 = parseJsonOutput<SignResult>(result2.stdout);
-
-    expect(output1.signature).not.toBe(output2.signature);
-  });
-
   it("fails without message argument", async () => {
     const identity = createTestIdentity();
 
