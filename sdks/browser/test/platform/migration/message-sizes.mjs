@@ -8,14 +8,18 @@ import { createMigrationServer, withMigrationPage } from "./server.mjs";
 
 const limit = 64 * 1024 * 1024;
 const temporary = await mkdtemp(join(tmpdir(), "migration-row-size-"));
-const cases = ["single", "combined", "unicode", "boundary"];
+// One message row at the 64 MiB record budget, exported through the wasm32
+// sink and imported twice into a browser client. The Rust tests in
+// crates/xmtp_legacy_migration/src/native/tests/message_sizes.rs cover the
+// rejected sizes on the shared record code.
+const cases = ["boundary"];
 execFileSync("python3", [
   "-c",
   `
 import shutil, sqlite3, sys
 from pathlib import Path
 limit=64*1024*1024
-for name,content,reference,inbox in [('single',limit+1,1,'é'),('combined',limit//2,limit//2,'é'),('unicode',limit-54,1,'éé'),('boundary',limit-53,1,'é')]:
+for name,content,reference,inbox in [('boundary',limit-53,1,'é')]:
     path=Path(sys.argv[1])/(name+'.db3')
     shutil.copyfile('crates/xmtp_legacy_migration/fixtures/stable.db3',path)
     connection=sqlite3.connect(path)
@@ -38,7 +42,6 @@ try {
             fixtureCall,
             exportSourceBytes,
             assertSourceUnchanged,
-            assertFailedPreparation,
           } = await import("/sdks/browser/test/platform/migration/support.mjs");
           const source = "/row-size.db3";
           let fixture = new Uint8Array(
@@ -62,99 +65,95 @@ try {
             archiveKey: key,
             outputPath: "row-size.xmtp",
           };
-          if (name !== "boundary") {
-            await assertFailedPreparation(sdk, args, name);
-          } else {
-            for (let attempt = 0; attempt < 2; attempt++) {
-              const report = await sdk.prepareMigrationArchive(args);
-              check(
-                report.groupCount === 2n &&
-                  report.messageCount === 3n &&
-                  report.consentCount === 1n,
-                "boundary row was omitted",
-              );
-            }
-            const archive = await sdk.readMigrationArchive(args.outputPath);
-            const records = JSON.parse(
-              await fixtureCall({ operation: "sizes", bytes: archive, key }),
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const report = await sdk.prepareMigrationArchive(args);
+            check(
+              report.groupCount === 2n &&
+                report.messageCount === 3n &&
+                report.consentCount === 1n,
+              "boundary row was omitted",
             );
-            const message = records.find(
-              (record) => record.id === "01".repeat(32),
+          }
+          const archive = await sdk.readMigrationArchive(args.outputPath);
+          const records = JSON.parse(
+            await fixtureCall({ operation: "sizes", bytes: archive, key }),
+          );
+          const message = records.find(
+            (record) => record.id === "01".repeat(32),
+          );
+          check(
+            records.length === 3 &&
+              message.contentLength === limit - 53 &&
+              message.contentIsZero,
+            "boundary content changed",
+          );
+          check(
+            message.installationLength === 1 &&
+              message.senderInboxId === "é" &&
+              message.authorityId === "a" &&
+              message.referenceLength === 1,
+            "boundary fields changed",
+          );
+          const { generatePrivateKey } =
+            await import("/sdks/browser/node_modules/viem/_esm/accounts/generatePrivateKey.js");
+          const { privateKeyToAccount } =
+            await import("/sdks/browser/node_modules/viem/_esm/accounts/privateKeyToAccount.js");
+          const { toBytes } =
+            await import("/sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js");
+          const account = privateKeyToAccount(generatePrivateKey());
+          const signer = {
+            async identity() {
+              return {
+                kind: "ethereum",
+                identifier: account.address.toLowerCase(),
+              };
+            },
+            async kind() {
+              return { kind: "eoa" };
+            },
+            async sign(request) {
+              return {
+                kind: "ecdsa",
+                value: toBytes(
+                  await account.signMessage({ message: request.text }),
+                ),
+              };
+            },
+          };
+          const client = await sdk.Client.create(signer, {
+            backend: { url: `${location.origin}/backend` },
+            storage: {
+              location: {
+                dbPath: "/row-size-import.db3",
+                attachmentsDir: "row-size-attachments",
+              },
+            },
+            deviceSync: false,
+          });
+          try {
+            await client.archives.importFromBytes(archive, key);
+            await client.archives.importFromBytes(archive, key);
+            check(
+              (
+                await client.conversations.listDms({
+                  includeDuplicateDms: true,
+                })
+              ).length === 1,
+              "repeat import lost the DM",
             );
             check(
-              records.length === 3 &&
-                message.contentLength === limit - 53 &&
-                message.contentIsZero,
-              "boundary content changed",
+              (await client.conversations.listGroups(undefined)).length === 1,
+              "repeat import changed groups",
             );
-            check(
-              message.installationLength === 1 &&
-                message.senderInboxId === "é" &&
-                message.authorityId === "a" &&
-                message.referenceLength === 1,
-              "boundary fields changed",
-            );
-            const { generatePrivateKey } =
-              await import("/sdks/browser/node_modules/viem/_esm/accounts/generatePrivateKey.js");
-            const { privateKeyToAccount } =
-              await import("/sdks/browser/node_modules/viem/_esm/accounts/privateKeyToAccount.js");
-            const { toBytes } =
-              await import("/sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js");
-            const account = privateKeyToAccount(generatePrivateKey());
-            const signer = {
-              async identity() {
-                return {
-                  kind: "ethereum",
-                  identifier: account.address.toLowerCase(),
-                };
-              },
-              async kind() {
-                return { kind: "eoa" };
-              },
-              async sign(request) {
-                return {
-                  kind: "ecdsa",
-                  value: toBytes(
-                    await account.signMessage({ message: request.text }),
-                  ),
-                };
-              },
-            };
-            const client = await sdk.Client.create(signer, {
-              backend: { url: `${location.origin}/backend` },
-              storage: {
-                location: {
-                  dbPath: "/row-size-import.db3",
-                  attachmentsDir: "row-size-attachments",
-                },
-              },
-              deviceSync: false,
-            });
-            try {
-              await client.archives.importFromBytes(archive, key);
-              await client.archives.importFromBytes(archive, key);
-              check(
-                (
-                  await client.conversations.listDms({
-                    includeDuplicateDms: true,
-                  })
-                ).length === 1,
-                "repeat import lost the DM",
-              );
-              check(
-                (await client.conversations.listGroups(undefined)).length === 1,
-                "repeat import changed groups",
-              );
-            } finally {
-              await client.end();
-            }
+          } finally {
+            await client.end();
           }
           await assertSourceUnchanged(before, source);
         },
         { name, limit },
       );
       console.log(
-        `${name}: 64 MiB row budget, source/output preservation, cleanup, and retry passed`,
+        `${name}: 64 MiB row export, source preservation, and repeated import passed`,
       );
     });
   }
