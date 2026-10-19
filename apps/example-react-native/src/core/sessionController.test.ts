@@ -90,6 +90,10 @@ class Files implements ProfileFiles {
   exportRemovalAttempts = 0;
   writes = 0;
   onSave: (() => void) | undefined;
+  /** Holds a save of a matching index until the returned promise settles. */
+  holdSave: ((index: SessionIndex) => Promise<void> | undefined) | undefined;
+  /** Rejects a save of a matching index. */
+  rejectSave: ((index: SessionIndex) => boolean) | undefined;
 
   prepare(): Promise<void> {
     return this.failPrepare
@@ -104,12 +108,14 @@ class Files implements ProfileFiles {
     return Promise.resolve(this.index);
   }
 
-  saveIndex(index: SessionIndex): Promise<void> {
-    if (this.failSave) return Promise.reject(new Error("disk full"));
+  async saveIndex(index: SessionIndex): Promise<void> {
+    await this.holdSave?.(index);
+    if (this.failSave || this.rejectSave?.(index) === true) {
+      throw new Error("disk full");
+    }
     this.writes += 1;
     this.index = index;
     this.onSave?.();
-    return Promise.resolve();
   }
 
   paths(profileId: string): Promise<ProfilePaths> {
@@ -564,6 +570,92 @@ test("a join cancelled while the index records it ends the client and stays sign
   assert.equal(session.client, undefined);
   assert.equal(session.getState().kind, "signedOut");
   assert.ok(!files.index.signedIn);
+});
+
+/** A saved index that clears the sign-in `profileId` recorded with its inbox. */
+function clearsSignIn(index: SessionIndex, profileId: string): boolean {
+  return (
+    !index.signedIn &&
+    index.activeId === profileId &&
+    index.profiles.some(
+      (profile) => profile.id === profileId && profile.inboxId !== undefined,
+    )
+  );
+}
+
+test("a cancelled join cannot clear the sign-in of a newer join", async () => {
+  const { files, factory, session } = controller();
+  await session.start();
+  factory.clientFor = (request) => new Client(`inbox-${request.profile.id}`);
+  const abort = new AbortController();
+  const rollback = deferred();
+  let first: string | undefined;
+  let newer: Promise<void> | undefined;
+  files.onSave = () => {
+    if (!files.index.signedIn || first !== undefined) return;
+    // The caller cancels while the first join records its sign-in.
+    first = files.index.activeId;
+    abort.abort();
+  };
+  files.holdSave = (index) => {
+    if (first === undefined || !clearsSignIn(index, first)) return undefined;
+    // A newer join starts while the first join clears its sign-in.
+    newer ??= session.connect({ url: "https://other.example", token: "" });
+    return rollback.promise;
+  };
+  const joining = session.connect({
+    url: "https://example.com",
+    token: "",
+    signal: abort.signal,
+  });
+  await settle();
+  rollback.resolve();
+  await assert.rejects(joining, CancelledError);
+  await newer;
+  const opened = active(session).profile;
+  assert.notEqual(opened.id, first);
+  assert.equal(files.index.activeId, opened.id);
+  assert.ok(files.index.signedIn);
+});
+
+test("a cancelled join whose sign-in cannot be cleared stays open, as the index records it", async () => {
+  const { files, factory, session } = controller();
+  await session.start();
+  const abort = new AbortController();
+  files.onSave = () => {
+    if (files.index.signedIn) abort.abort();
+  };
+  files.rejectSave = (index) =>
+    files.index.signedIn && clearsSignIn(index, files.index.activeId ?? "");
+  await session.connect({
+    url: "https://example.com",
+    token: "",
+    signal: abort.signal,
+  });
+  assert.ok(files.index.signedIn);
+  assert.equal(active(session).profile.id, files.index.activeId);
+  assert.ok(!factory.client.ended);
+});
+
+test("a sign out while a join records its sign-in leaves the index signed out", async () => {
+  const { files, factory, session } = controller();
+  await session.start();
+  const commit = deferred();
+  let signingOut: Promise<void> | undefined;
+  files.holdSave = (index) => {
+    if (!index.signedIn || signingOut !== undefined) return undefined;
+    signingOut = session.signOut();
+    return commit.promise;
+  };
+  const joining = session.connect({ url: "https://example.com", token: "" });
+  await settle();
+  commit.resolve();
+  // The join may open before sign out ends it, or stop as stale.
+  await Promise.allSettled([joining]);
+  await signingOut;
+  assert.equal(session.getState().kind, "signedOut");
+  assert.ok(!files.index.signedIn);
+  assert.ok(factory.client.ended);
 });
 
 test("a failed connect with a missing secret retries with an explicit reservation", async () => {

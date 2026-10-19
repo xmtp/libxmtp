@@ -1,5 +1,13 @@
 // The session state machine, with storage, secrets and the SDK behind small
 // ports so it runs under `node --test`. `src/session` supplies the real ports.
+//
+// The profile index has one writer at a time. Every index write and every
+// fence reservation runs in an index turn (`#indexTurn`): turns run one at a
+// time, in call order, and a turn that writes reads the index first. So a
+// write never drops another, and a fence check inside a turn holds until the
+// turn ends. An explicit action reserves in the same turn as its first index
+// write, and an open records its sign-in, or clears it after a cancel, only
+// in a turn that its key owns.
 
 import { normalizeBackendUrl } from "./backendUrl.ts";
 import { bytesToHex, hexToBytes } from "./hex.ts";
@@ -165,6 +173,7 @@ export class SessionController<C extends SessionClient, S> extends Store<
   #starting: Promise<void> | undefined;
   #restoring = false;
   #recoveryProfile: BackendProfile | undefined;
+  #indexTurns: Promise<unknown> = Promise.resolve();
 
   constructor(options: SessionControllerOptions<C, S>) {
     super({ kind: "starting" });
@@ -236,7 +245,9 @@ export class SessionController<C extends SessionClient, S> extends Store<
         this.setState({ kind: "restoreFailed" });
         return;
       }
-      const generation = this.fence.reserveRestore();
+      const generation = await this.#indexTurn(() =>
+        Promise.resolve(this.fence.reserveRestore()),
+      );
       if (generation === undefined) return;
       expected = generation;
       await this.#open(profile, generation, undefined, false);
@@ -250,8 +261,10 @@ export class SessionController<C extends SessionClient, S> extends Store<
   /** "Retry" on a failed restore: an explicit action, so it wins over automatic restore. */
   async retryRestore(): Promise<void> {
     if (this.#restoring) return;
-    const generation = this.fence.reserve();
     this.#restoring = true;
+    const generation = await this.#indexTurn(() =>
+      Promise.resolve(this.fence.reserve()),
+    );
     try {
       const index = await this.#files.loadIndex();
       if (index.reset !== undefined) {
@@ -287,25 +300,36 @@ export class SessionController<C extends SessionClient, S> extends Store<
    */
   async connect(options: ConnectOptions): Promise<void> {
     const backend = normalizeBackendUrl(options.url);
-    let index = await this.#files.loadIndex();
-    if (index.reset !== undefined) {
-      throw SessionError.message(SessionCopy.finishReset);
-    }
-    const existing = profileForUrl(index, backend.value);
-    const profile: BackendProfile = existing ?? {
-      id: this.#newProfileId(),
-      url: backend.value,
-    };
-    const generation = this.fence.reserve();
-    options.onReserved?.(generation);
-    this.setState({ kind: "opening" });
+    const { profile, generation } = await this.#indexTurn(async () => {
+      const index = await this.#files.loadIndex();
+      if (index.reset !== undefined) {
+        throw SessionError.message(SessionCopy.finishReset);
+      }
+      const existing = profileForUrl(index, backend.value);
+      const profile: BackendProfile = existing ?? {
+        id: this.#newProfileId(),
+        url: backend.value,
+      };
+      const generation = this.fence.reserve();
+      options.onReserved?.(generation);
+      this.setState({ kind: "opening" });
+      try {
+        await this.#files.saveIndex({
+          ...index,
+          signedIn: false,
+          activeId: profile.id,
+          ...(existing === undefined
+            ? { profiles: [...index.profiles, profile] }
+            : {}),
+        });
+      } catch (error) {
+        this.#apply(generation, { kind: "signedOut" });
+        throw error;
+      }
+      return { profile, generation };
+    });
     let missingDatabase = false;
     try {
-      index = { ...index, signedIn: false, activeId: profile.id };
-      if (existing === undefined) {
-        index = { ...index, profiles: [...index.profiles, profile] };
-      }
-      await this.#files.saveIndex(index);
       await this.#close();
       const established = isEstablished(profile);
       const hasDatabase = await this.#files.databaseExists(profile.id);
@@ -341,13 +365,15 @@ export class SessionController<C extends SessionClient, S> extends Store<
    * inbox. A cleanup failure still signs out, then rethrows.
    */
   async signOut(): Promise<void> {
-    const index = await this.#files.loadIndex();
-    await this.#files.saveIndex({ ...index, signedIn: false });
-    const generation = this.fence.reserve();
+    // Saved before the reservation: a failed save leaves the session open.
+    const { id, generation } = await this.#indexTurn(async () => {
+      const index = await this.#files.loadIndex();
+      await this.#files.saveIndex({ ...index, signedIn: false });
+      return { id: index.activeId, generation: this.fence.reserve() };
+    });
     await this.#close();
     if (this.fence.currentGeneration() !== generation) return;
     try {
-      const id = index.activeId;
       if (id === undefined) return;
       let failure: unknown;
       try {
@@ -369,15 +395,20 @@ export class SessionController<C extends SessionClient, S> extends Store<
 
   /** "Delete local data": journals the reset, then runs it. */
   async deleteLocalData(): Promise<void> {
-    const index = await this.#files.loadIndex();
-    const id = index.activeId;
-    if (id === undefined) return;
-    await this.#files.saveIndex({
-      ...index,
-      signedIn: false,
-      reset: { profileId: id, phase: "STOPPING" },
+    const journaled = await this.#indexTurn(async () => {
+      const index = await this.#files.loadIndex();
+      const id = index.activeId;
+      if (id === undefined) return false;
+      await this.#files.saveIndex({
+        ...index,
+        signedIn: false,
+        reset: { profileId: id, phase: "STOPPING" },
+      });
+      // Like sign out: an open in flight can no longer record a sign-in.
+      this.fence.reserve();
+      return true;
     });
-    await this.continueReset();
+    if (journaled) await this.continueReset();
   }
 
   /**
@@ -385,10 +416,14 @@ export class SessionController<C extends SessionClient, S> extends Store<
    * the profile files, the secrets and the profile entry, saving each phase.
    */
   async continueReset(): Promise<void> {
-    let index = await this.#files.loadIndex();
-    const journal = index.reset;
-    if (journal === undefined) return;
-    const generation = this.fence.reserve();
+    const reset = await this.#indexTurn(async () => {
+      const journal = (await this.#files.loadIndex()).reset;
+      return journal === undefined
+        ? undefined
+        : { journal, generation: this.fence.reserve() };
+    });
+    if (reset === undefined) return;
+    const { journal, generation } = reset;
     try {
       await this.#close();
       if (this.fence.currentGeneration() !== generation) {
@@ -398,19 +433,19 @@ export class SessionController<C extends SessionClient, S> extends Store<
         removeDatabase: (id) => this.#files.removeDatabase(id),
         removeProfileFiles: (id) => this.#files.removeProfile(id),
         removeSecrets: (id) => this.#secrets.removeAll(id),
-        saveJournal: async (next) => {
-          index = { ...index, reset: next };
-          await this.#files.saveIndex(index);
-        },
-        finish: async (id) => {
-          const { reset: _reset, activeId, ...rest } = index;
-          index = {
-            ...rest,
-            profiles: index.profiles.filter((profile) => profile.id !== id),
-            ...(activeId === undefined || activeId === id ? {} : { activeId }),
-          };
-          await this.#files.saveIndex(index);
-        },
+        saveJournal: (next) =>
+          this.#updateIndex(generation, (index) => ({ ...index, reset: next })),
+        finish: (id) =>
+          this.#updateIndex(generation, (index) => {
+            const { reset: _reset, activeId, ...rest } = index;
+            return {
+              ...rest,
+              profiles: index.profiles.filter((profile) => profile.id !== id),
+              ...(activeId === undefined || activeId === id
+                ? {}
+                : { activeId }),
+            };
+          }),
       });
       this.#apply(generation, { kind: "signedOut" });
       await this.#refreshAppearance();
@@ -423,8 +458,10 @@ export class SessionController<C extends SessionClient, S> extends Store<
   /** Saves the appearance in the global index. */
   async setAppearance(value: Appearance): Promise<void> {
     try {
-      const index = await this.#files.loadIndex();
-      await this.#files.saveIndex({ ...index, appearance: value });
+      await this.#indexTurn(async () => {
+        const index = await this.#files.loadIndex();
+        await this.#files.saveIndex({ ...index, appearance: value });
+      });
     } catch {
       throw SessionError.message(SessionCopy.appearanceFailed);
     }
@@ -441,6 +478,30 @@ export class SessionController<C extends SessionClient, S> extends Store<
 
   #apply(generation: number, state: SessionState<S>): void {
     if (this.fence.currentGeneration() === generation) this.setState(state);
+  }
+
+  /**
+   * Runs `work` when the index turns before it have settled. No other index
+   * write or fence reservation runs until `work` settles, so `work` must not
+   * wait for another turn.
+   */
+  #indexTurn<T>(work: () => Promise<T>): Promise<T> {
+    const turn = this.#indexTurns.then(work);
+    this.#indexTurns = turn.catch(() => undefined);
+    return turn;
+  }
+
+  /** Saves `change` of the current index while `generation` is current. */
+  #updateIndex(
+    generation: number,
+    change: (index: SessionIndex) => SessionIndex,
+  ): Promise<void> {
+    return this.#indexTurn(async () => {
+      if (this.fence.currentGeneration() !== generation) {
+        throw SessionError.stale();
+      }
+      await this.#files.saveIndex(change(await this.#files.loadIndex()));
+    });
   }
 
   /** Ends the open session: cancels and awaits its work, then ends the client. */
@@ -530,33 +591,45 @@ export class SessionController<C extends SessionClient, S> extends Store<
       identity: opened.identity,
       ...(name === undefined || name === "" ? {} : { name }),
     };
+    let committed: "signedIn" | "cancelled";
     try {
-      const index = await this.#files.loadIndex();
-      const { name: _name, ...stored } = saved;
-      await this.#files.saveIndex({
-        ...withProfile(index, stored),
-        activeId: saved.id,
-        signedIn: true,
+      committed = await this.#indexTurn(async () => {
+        // Turns before this one may have replaced or cancelled the attempt.
+        if (!this.fence.accepts(key)) throw SessionError.stale();
+        if (isAborted(signal)) throw new CancelledError();
+        const { name: _name, ...stored } = saved;
+        const signedIn: SessionIndex = {
+          ...withProfile(await this.#files.loadIndex(), stored),
+          activeId: saved.id,
+          signedIn: true,
+        };
+        await this.#files.saveIndex(signedIn);
+        if (!isAborted(signal)) return "signedIn";
+        // The caller cancelled during the write. This turn still owns the
+        // index, so it clears the sign-in it saved. If that write fails, the
+        // index keeps the sign-in and the session opens: the state then
+        // matches the index, which the next launch restores, and Sign out
+        // stays available.
+        try {
+          await this.#files.saveIndex({ ...signedIn, signedIn: false });
+          return "cancelled";
+        } catch {
+          return "signedIn";
+        }
       });
     } catch (error) {
       await endQuietly(opened);
       throw error;
     }
-    // The index writes awaited: an explicit action may have replaced this session.
+    if (committed === "cancelled") {
+      await endQuietly(opened);
+      throw new CancelledError();
+    }
+    // An explicit action may have reserved since the turn ended. It now owns
+    // the index, which records this sign-in.
     if (!this.fence.accepts(key)) {
       await endQuietly(opened);
       throw SessionError.stale();
-    }
-    // Or the caller cancelled. No newer action owns the index, so this
-    // attempt clears the sign-in it saved.
-    if (isAborted(signal)) {
-      try {
-        const index = await this.#files.loadIndex();
-        await this.#files.saveIndex({ ...index, signedIn: false });
-      } finally {
-        await endQuietly(opened);
-      }
-      throw new CancelledError();
     }
     const scope = new SessionScope();
     let session: S;
