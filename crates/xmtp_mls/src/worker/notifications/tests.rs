@@ -276,7 +276,7 @@ async fn notification_reuploads_keys_flags_and_root_from_request_snapshot() {
         peer.state.lock().subscriptions[&topic].hmac_keys,
         group
             .hmac_keys(-1..=1)?
-            .into_iter()
+            .iter()
             .map(|key| key.key.to_vec())
             .collect::<Vec<_>>()
     );
@@ -965,7 +965,7 @@ async fn notification_request_keeps_the_root_key_snapshot() {
         .unwrap();
     assert_eq!(
         row.root_key_fingerprint,
-        xmtp_common::sha256_array(&previous)
+        xmtp_common::sha256_array(previous.as_slice())
     );
     run(&client.context).await?;
     let row = client

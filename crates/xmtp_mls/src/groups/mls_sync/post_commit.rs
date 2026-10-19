@@ -212,7 +212,7 @@ where
     pub fn hmac_keys(
         &self,
         epoch_delta_range: RangeInclusive<i64>,
-    ) -> Result<Vec<HmacKey>, StorageError> {
+    ) -> Result<Zeroizing<Vec<HmacKey>>, StorageError> {
         crate::state_tx::state_write(self.context.mls_storage(), |tx| {
             self.hmac_keys_in(tx.storage().db(), epoch_delta_range)
                 .map(Continue)
@@ -220,35 +220,49 @@ where
         .map(TransactionOutcome::into_continued)
     }
 
+    /// Derive the group's HMAC key for each epoch in `epoch_delta_range`,
+    /// relative to the current HMAC epoch. Generates and stores a root key
+    /// when none is stored.
+    ///
+    /// The vector is wiped on drop, including slots that `pop()` vacated.
+    // implements: PUSH-258
     pub(crate) fn hmac_keys_in(
         &self,
         conn: impl xmtp_db::DbQuery,
         epoch_delta_range: RangeInclusive<i64>,
-    ) -> Result<Vec<HmacKey>, StorageError> {
+    ) -> Result<Zeroizing<Vec<HmacKey>>, StorageError> {
         let preferences = StoredUserPreferences::load(&conn)?;
-        let mut ikm = match preferences.hmac_key {
-            Some(ikm) => ikm,
+        let generated;
+        let root_key = match &preferences.hmac_key {
+            Some(key) => key.as_slice(),
             None => {
-                let key = HmacKey::random_key();
-                StoredUserPreferences::store_hmac_key(&conn, &key, None)?;
-                key
+                generated = HmacKey::random_key();
+                StoredUserPreferences::store_hmac_key(&conn, generated.as_slice(), None)?;
+                generated.as_slice()
             }
         };
-        ikm.extend_from_slice(self.group_id.as_ref());
+        let group_id = self.group_id.as_ref();
+        // Sized up front: growing would free an unwiped partial copy.
+        let mut ikm = Zeroizing::new(Vec::with_capacity(root_key.len() + group_id.len()));
+        ikm.extend_from_slice(root_key);
+        ikm.extend_from_slice(group_id);
         let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm);
 
-        let mut result = vec![];
         let current_epoch = hmac_epoch();
+        let mut result = Zeroizing::new(Vec::with_capacity(epoch_delta_range.size_hint().0));
         for delta in epoch_delta_range {
             let epoch = current_epoch + delta;
 
-            let mut info = self.group_id.to_vec();
+            let mut info = group_id.to_vec();
             info.extend(&epoch.to_le_bytes());
 
-            let mut key = [0; 42];
-            hkdf.expand(&info, &mut key).expect("Length is correct");
+            let mut key = HmacKey {
+                key: [0; 42],
+                epoch,
+            };
+            hkdf.expand(&info, &mut key.key).expect("Length is correct");
 
-            result.push(HmacKey { key, epoch });
+            result.push(key);
         }
 
         Ok(result)
@@ -272,30 +286,37 @@ where
         conn: impl xmtp_db::DbQuery,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<ClientEnvelope>, GroupError> {
-        let hmac_key = self
-            .hmac_keys_in(conn, 0..=0)?
-            .pop()
-            .expect("Range of count 1 was provided.");
-        let sender_hmac =
-            Hmac::<Sha256>::new_from_slice(&hmac_key.key).expect("HMAC can take key of any size");
-
-        let mut result = vec![];
-        for (payload, should_push) in payloads {
-            let mut sender_hmac = sender_hmac.clone();
-            sender_hmac.update(payload);
-            let sender_hmac = sender_hmac.finalize();
-
-            result.push(ClientEnvelope {
-                payload: Some(Payload::GroupMessage(BackendGroupMessage {
-                    data: payload.to_vec(),
-                    sender_hmac: sender_hmac.into_bytes().to_vec(),
-                    should_push,
-                })),
-            });
-        }
-
-        Ok(result)
+        let hmac_keys = self.hmac_keys_in(conn, 0..=0)?;
+        let hmac_key = hmac_keys.last().expect("Range of count 1 was provided.");
+        Ok(group_message_envelopes(hmac_key, payloads))
     }
+}
+
+/// One group message envelope per payload, whose `sender_hmac` is the
+/// HMAC-SHA256 of the payload under `hmac_key`.
+// implements: PUSH-258
+pub(super) fn group_message_envelopes(
+    hmac_key: &HmacKey,
+    payloads: Vec<(&[u8], bool)>,
+) -> Vec<ClientEnvelope> {
+    let sender_hmac =
+        Hmac::<Sha256>::new_from_slice(&hmac_key.key).expect("HMAC can take key of any size");
+
+    let mut result = vec![];
+    for (payload, should_push) in payloads {
+        let mut sender_hmac = sender_hmac.clone();
+        sender_hmac.update(payload);
+        let sender_hmac = sender_hmac.finalize();
+
+        result.push(ClientEnvelope {
+            payload: Some(Payload::GroupMessage(BackendGroupMessage {
+                data: payload.to_vec(),
+                sender_hmac: sender_hmac.into_bytes().to_vec(),
+                should_push,
+            })),
+        });
+    }
+    result
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

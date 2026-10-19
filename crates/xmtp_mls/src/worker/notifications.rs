@@ -394,16 +394,15 @@ fn prepare_batch<Context: XmtpSharedContext>(
     state_write(context.mls_storage(), |tx| {
         let storage = tx.storage();
         let db = storage.db();
-        let mut root = StoredUserPreferences::load(&db)?.hmac_key;
-        if root.is_none() && desired.values().any(|topic| topic.group_id.is_some()) {
-            let key = HmacKey::random_key();
-            StoredUserPreferences::store_hmac_key(&db, &key, None)?;
-            root = Some(key);
-        }
-        let root_fingerprint = root
-            .as_ref()
-            .map(|key| xmtp_common::sha256_array(key).to_vec())
-            .unwrap_or_default();
+        let root_fingerprint = match StoredUserPreferences::load(&db)?.hmac_key {
+            Some(key) => xmtp_common::sha256_array(key.as_slice()).to_vec(),
+            None if desired.values().any(|topic| topic.group_id.is_some()) => {
+                let key = HmacKey::random_key();
+                StoredUserPreferences::store_hmac_key(&db, key.as_slice(), None)?;
+                xmtp_common::sha256_array(key.as_slice()).to_vec()
+            }
+            None => Vec::new(),
+        };
         let epoch = crate::utils::time::hmac_epoch();
         let (adds, removes) = diff(
             desired,
@@ -440,7 +439,8 @@ fn prepare_batch<Context: XmtpSharedContext>(
                 let keys = group.hmac_keys_in(&db, -1..=1)?;
                 subscription.hmac_epoch_base =
                     keys.first().map(|key| key.epoch).unwrap_or(epoch - 1);
-                subscription.hmac_keys = keys.into_iter().map(|key| key.key.to_vec()).collect();
+                // The request goes to the transport, which holds these copies.
+                subscription.hmac_keys = keys.iter().map(|key| key.key.to_vec()).collect();
                 (Some(subscription.hmac_epoch_base), root_fingerprint.clone())
             } else {
                 (None, Vec::new())

@@ -15,7 +15,7 @@ use xmtp_cryptography::{
 };
 use xmtp_db::{
     StoredSecret, XmtpMlsStorageProvider, XmtpOpenMlsProviderRef, XmtpTestDb,
-    identity::StoredIdentity,
+    identity::StoredIdentity, user_preferences::StoredUserPreferences,
 };
 use xmtp_id::{InboxOwner, associations::test_utils::MockSmartContractSignatureVerifier};
 use xmtp_mls::{
@@ -25,6 +25,10 @@ use xmtp_mls::{
     identity::{Identity, IdentityStrategy},
     tester,
     utils::{FullXmtpClient, register_client},
+    worker::device_sync::preference_sync::PreferenceUpdate,
+};
+use xmtp_proto::xmtp::device_sync::content::{
+    HmacKeyUpdate as HmacKeyUpdateProto, preference_update::Update as UpdateProto,
 };
 
 xmtp_cryptography::install_heap_canary!();
@@ -32,6 +36,17 @@ xmtp_cryptography::install_heap_canary!();
 const INSTALLATION_KEY: [u8; 32] = [
     0x3b, 0xd4, 0x61, 0x9e, 0x07, 0xc2, 0x58, 0xaf, 0x14, 0xe9, 0x7d, 0x30, 0x86, 0x4f, 0xb1, 0x2a,
     0xf3, 0x6c, 0x09, 0xd8, 0x45, 0x92, 0x1e, 0xbb, 0x70, 0x2d, 0xe6, 0x53, 0x8a, 0xc7, 0x1f, 0x64,
+];
+
+const HMAC_ROOT_KEY: [u8; 42] = [
+    0x6a, 0x0f, 0xc3, 0x58, 0x91, 0x2e, 0xd7, 0x44, 0xb9, 0x13, 0x7c, 0xe5, 0x20, 0x8b, 0x56, 0xfa,
+    0x37, 0xa0, 0x6d, 0xc8, 0x02, 0x9f, 0x4b, 0xe6, 0x15, 0x73, 0xde, 0x28, 0x84, 0x3a, 0xbf, 0x61,
+    0x0c, 0xf9, 0x47, 0x92, 0x2b, 0xd0, 0x7e, 0x35, 0xa8, 0x5c,
+];
+const SYNCED_HMAC_ROOT_KEY: [u8; 42] = [
+    0xd1, 0x4c, 0x87, 0x2a, 0xf0, 0x63, 0x19, 0xbe, 0x55, 0xe2, 0x08, 0x9d, 0x76, 0x31, 0xca, 0x4f,
+    0xa3, 0x1e, 0x68, 0xd5, 0x0b, 0x92, 0x3c, 0xf7, 0x40, 0xad, 0x26, 0x81, 0xe9, 0x5b, 0x14, 0xc6,
+    0x7f, 0x38, 0xb2, 0x0d, 0xe4, 0x59, 0x96, 0x23, 0xfb, 0x6e,
 ];
 
 async fn open_client(path: &str, strategy: IdentityStrategy) -> FullXmtpClient {
@@ -170,4 +185,58 @@ async fn welcome_keys_are_wiped_when_joining() {
     .await;
 
     assert_eq!(hits, [0, 0], "freed heap blocks held a Welcome private key");
+}
+
+/// Loading the preferences, deriving a group's HMAC keys, sending a group
+/// message, and converting and storing a synced root key must not free an
+/// unwiped copy of a root key or a derived key.
+///
+/// The synced-store branch of `store_preference_updates` is crate-private; its
+/// key is a `Secret`, proven by type. A generated root key cannot be a canary;
+/// `HmacKey::random_key` returns `Secret`, proven by type.
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
+async fn hmac_keys_are_wiped_on_load_derive_send_and_sync() {
+    tester!(alix, disable_workers);
+    let db = alix.context.db();
+    StoredUserPreferences::store_hmac_key(&db, &HMAC_ROOT_KEY, None)?;
+    let group = alix.create_group(None, None)?;
+    // A stack copy of the current epoch's derived key, made before arming.
+    let current_key: [u8; 42] = group.hmac_keys(0..=0)?[0].key;
+    let synced = UpdateProto::Hmac(HmacKeyUpdateProto {
+        key: SYNCED_HMAC_ROOT_KEY.to_vec(),
+        cycled_at_ns: i64::MAX - 1,
+    });
+    let canaries = [
+        Canary::new(&HMAC_ROOT_KEY),
+        Canary::new(&current_key),
+        Canary::new(&SYNCED_HMAC_ROOT_KEY),
+    ];
+
+    let ((), hits) = scan_async(&canaries, async {
+        drop(StoredUserPreferences::load(&db).unwrap());
+        drop(group.hmac_keys(-1..=1).unwrap());
+        group
+            .send_message(b"hmac", SendMessageOpts::default())
+            .await
+            .unwrap();
+
+        let update = PreferenceUpdate::try_from(synced).unwrap();
+        let PreferenceUpdate::Hmac { key, cycled_at_ns } = &update else {
+            panic!("an HMAC proto converts to an HMAC update");
+        };
+        StoredUserPreferences::store_hmac_key(&db, key.as_slice(), Some(*cycled_at_ns)).unwrap();
+        drop(update);
+    })
+    .await;
+
+    assert_eq!(
+        hits,
+        [0, 0, 0],
+        "freed heap blocks held an HMAC root key or derived key"
+    );
+    let stored = StoredUserPreferences::load(&db)?.hmac_key;
+    assert_eq!(
+        stored.as_ref().map(StoredSecret::as_slice),
+        Some(SYNCED_HMAC_ROOT_KEY.as_slice())
+    );
 }

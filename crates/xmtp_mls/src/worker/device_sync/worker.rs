@@ -851,7 +851,7 @@ mod startup_tests {
             None,
             Some(InternalEvent::PreferencesChanged {
                 updates: vec![PreferenceUpdate::Hmac {
-                    key,
+                    key: key.into(),
                     cycled_at_ns: 1,
                 }],
                 origin: PreferenceOrigin::Sync,

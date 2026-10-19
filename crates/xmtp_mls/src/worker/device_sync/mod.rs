@@ -20,7 +20,7 @@ use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
 use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
-use xmtp_content_types::encoded_content_to_bytes;
+use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_db::tasks::NewTask;
 use xmtp_db::{NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs};
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
@@ -30,6 +30,7 @@ use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_proto::xmtp::{
     device_sync::content::{
         DeviceSyncContent as DeviceSyncContentProto, device_sync_content::Content as ContentProto,
+        preference_update::Update as PreferenceUpdateProto,
     },
     mls::{
         database::{
@@ -50,11 +51,24 @@ pub use xmtp_archive::archive_options::{ArchiveOptions, BackupElementSelection};
 mod tests;
 
 /// Encode sync content as the `EncodedContent` bytes of a sync message.
-fn sync_message_bytes(content: ContentProto) -> Vec<u8> {
-    let content = DeviceSyncContentProto {
+///
+/// Sync content can hold an HMAC root key. Every buffer that holds it here is
+/// wiped: the key fields of `content` after encoding, the inner encoding, and
+/// the returned bytes when the caller drops them.
+fn sync_message_bytes(content: ContentProto) -> Zeroizing<Vec<u8>> {
+    let mut content = DeviceSyncContentProto {
         content: Some(content),
     };
-    encoded_content_to_bytes(EncodedContent {
+    // `encode_to_vec` sizes its buffer up front, so it never frees a partial copy.
+    let inner = content.encode_to_vec();
+    if let Some(ContentProto::PreferenceUpdates(updates)) = &mut content.content {
+        for update in &mut updates.updates {
+            if let Some(PreferenceUpdateProto::Hmac(hmac)) = &mut update.update {
+                hmac.key.zeroize();
+            }
+        }
+    }
+    let mut encoded = EncodedContent {
         r#type: Some(ContentTypeId {
             authority_id: "xmtp.org".to_string(),
             type_id: "application/x-protobuf".to_string(),
@@ -64,8 +78,11 @@ fn sync_message_bytes(content: ContentProto) -> Vec<u8> {
         parameters: HashMap::new(),
         fallback: None,
         compression: None,
-        content: content.encode_to_vec(),
-    })
+        content: inner,
+    };
+    let bytes = Zeroizing::new(encoded.encode_to_vec());
+    encoded.content.zeroize();
+    bytes
 }
 
 /// A sync group belongs to the own inbox only when that inbox added this

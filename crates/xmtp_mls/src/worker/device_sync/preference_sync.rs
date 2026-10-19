@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::{HashMap, HashSet};
 use xmtp_common::time::now_ns;
+use xmtp_cryptography::secret::Secret;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
 use xmtp_proto::ConversionError;
@@ -10,10 +11,11 @@ use xmtp_proto::xmtp::device_sync::content::{
     device_sync_content::Content as ContentProto, preference_update::Update as UpdateProto,
 };
 
+/// `Debug` shows the HMAC root key only as its length: `Secret` redacts it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PreferenceUpdate {
     Consent(StoredConsentRecord),
-    Hmac { key: Vec<u8>, cycled_at_ns: i64 },
+    Hmac { key: Secret, cycled_at_ns: i64 },
 }
 
 impl<Context> DeviceSyncClient<Context>
@@ -108,8 +110,10 @@ pub(super) fn store_preference_updates(
             }
             UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
                 tracing::info!("Storing new HMAC key from sync group");
+                // Wiped on drop, also when the update changes nothing.
+                let key = Secret::from(key);
                 let before = StoredUserPreferences::load(conn)?;
-                StoredUserPreferences::store_hmac_key(conn, &key, Some(cycled_at_ns))?;
+                StoredUserPreferences::store_hmac_key(conn, key.as_slice(), Some(cycled_at_ns))?;
                 let after = StoredUserPreferences::load(conn)?;
                 if before.hmac_key != after.hmac_key
                     || before.hmac_key_cycled_at_ns != after.hmac_key_cycled_at_ns
@@ -165,21 +169,28 @@ impl TryFrom<UpdateProto> for PreferenceUpdate {
     fn try_from(update: UpdateProto) -> Result<Self, Self::Error> {
         let update = match update {
             UpdateProto::Consent(consent) => Self::Consent(consent.try_into()?),
-            UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
-                Self::Hmac { key, cycled_at_ns }
-            }
+            UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => Self::Hmac {
+                // Moves the decoded buffer; no copy is made.
+                key: Secret::from(key),
+                cycled_at_ns,
+            },
         };
         Ok(update)
     }
 }
 
+/// The proto holds a plain copy of an HMAC root key. Encode it with
+/// `sync_message_bytes`, which wipes that copy.
 impl From<PreferenceUpdate> for PreferenceUpdateProto {
     fn from(update: PreferenceUpdate) -> Self {
         PreferenceUpdateProto {
             update: Some(match update {
                 PreferenceUpdate::Consent(consent) => UpdateProto::Consent(consent.into()),
                 PreferenceUpdate::Hmac { key, cycled_at_ns } => {
-                    UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns })
+                    UpdateProto::Hmac(HmacKeyUpdateProto {
+                        key: key.as_slice().to_vec(),
+                        cycled_at_ns,
+                    })
                 }
             }),
         }
@@ -195,6 +206,38 @@ mod tests {
     };
     use xmtp_db::consent_record::{ConsentState, ConsentType};
     use xmtp_db::user_preferences::StoredUserPreferences;
+
+    /// `Debug` of an HMAC update, and of the update decoded from its proto,
+    /// shows no root key bytes.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn hmac_update_debug_omits_the_root_key() {
+        let key: Vec<u8> = (0..42).map(|i| 0x80 | i).collect();
+        let decoded = PreferenceUpdate::try_from(UpdateProto::Hmac(HmacKeyUpdateProto {
+            key: key.clone(),
+            cycled_at_ns: 5,
+        }))?;
+        let built = PreferenceUpdate::Hmac {
+            key: key.clone().into(),
+            cycled_at_ns: 5,
+        };
+        assert_eq!(decoded, built);
+        let forms = [
+            hex::encode(&key),
+            hex::encode_upper(&key),
+            // How `Debug` prints a byte slice, anywhere in the list.
+            format!("{:?}", &key[..4])
+                .trim_matches(['[', ']'])
+                .to_owned(),
+        ];
+        for debug in [format!("{decoded:?}"), format!("{:?}", vec![built])] {
+            for form in &forms {
+                assert!(
+                    !debug.contains(form.as_str()),
+                    "PreferenceUpdate Debug shows the key as {form}: {debug}"
+                );
+            }
+        }
+    }
 
     // verifies: PROC-036
     #[cfg(not(target_arch = "wasm32"))]
@@ -302,7 +345,7 @@ mod tests {
         let metrics = WorkerMetrics::new(alix.context.installation_id());
         let db = alix.context.db();
         let hmac = |key: u8, cycled_at_ns| PreferenceUpdate::Hmac {
-            key: vec![key; 42],
+            key: vec![key; 42].into(),
             cycled_at_ns,
         };
         let first: Vec<_> = [hmac(1, i64::MAX - 2), hmac(2, i64::MAX - 1)]
@@ -324,7 +367,7 @@ mod tests {
         assert!(no_change.public.is_empty());
         assert_eq!(
             StoredUserPreferences::load(&db)?.hmac_key,
-            Some(vec![2; 42])
+            Some(vec![2; 42].into())
         );
 
         let mut allowed = StoredConsentRecord::new(
