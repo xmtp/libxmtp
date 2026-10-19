@@ -8,6 +8,8 @@ from io import BytesIO
 import hashlib
 import json
 from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 import tempfile
 import tarfile
@@ -18,6 +20,12 @@ spec = importlib.util.spec_from_file_location(
 )
 package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)
+build_spec = importlib.util.spec_from_file_location(
+    "rn_consumer_build",
+    Path(__file__).parents[1] / "test/consumers/build.py",
+)
+consumer_build = importlib.util.module_from_spec(build_spec)
+build_spec.loader.exec_module(consumer_build)
 
 
 class PackageTests(unittest.TestCase):
@@ -140,19 +148,35 @@ class PackageTests(unittest.TestCase):
                 )
             )
             self.components[platform] = output
+            fast = self.root / f"{platform}-fast"
+            package.component(
+                SimpleNamespace(
+                    platform=platform,
+                    js=self.js,
+                    libraries=libraries,
+                    out=fast,
+                    fast=True,
+                    toolchain_identity=toolchain_file,
+                )
+            )
+            self.components[f"{platform}-fast"] = fast
 
-    def assemble(self, version=None):
-        output = self.root / "assembled"
+    def assemble(self, version=None, partial=False, android="android", ios="ios"):
+        output = self.root / ("partial" if partial else "assembled")
         package.assemble(
             SimpleNamespace(
                 js=self.js,
-                android=self.components["android"],
-                ios=self.components["ios"],
+                android=self.components[android],
+                ios=self.components[ios],
                 out=output,
                 version=version,
+                partial=partial,
             )
         )
         return output
+
+    def tarball(self, output):
+        return output / json.loads((output / "sdk-contract.json").read_text())["tarball"]
 
     def test_real_tarball_contains_every_target_and_release_version(self):
         output = self.assemble("8.0.1-rc.1")
@@ -216,6 +240,84 @@ class PackageTests(unittest.TestCase):
         contract_path.write_text(json.dumps(contract))
         with self.assertRaisesRegex(ValueError, "missing required asset: LICENSE"):
             package.verify_package(output, "8.0.1-rc.1", "sdk-source")
+
+    def test_partial_test_package_holds_only_the_fast_targets_and_never_ships(self):
+        version = "8.0.0" + package.PARTIAL_SUFFIX
+        tarball = self.tarball(
+            self.assemble(version, True, "android-fast", "ios-fast")
+        )
+        receipt = package.verify_package(
+            tarball, version, "sdk-source", allow_partial=True
+        )
+        self.assertIs(receipt["partial"], True)
+        self.assertEqual(
+            set(receipt["components"]["android"]["native"]), {"x86_64-linux-android"}
+        )
+        self.assertEqual(
+            set(receipt["components"]["ios"]["native"]), {"aarch64-apple-ios-sim"}
+        )
+        with self.assertRaisesRegex(ValueError, "partial CI test package"):
+            package.verify_package(tarball, version, "sdk-source")
+        # The release build job runs this exact command before npm publish.
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(package.__file__)),
+                "verify-package",
+                str(tarball),
+                "--version",
+                version,
+                "--source",
+                "sdk-source",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("partial CI test package", result.stderr)
+        # A release version never admits a partial package in the consumers.
+        with self.assertRaisesRegex(ValueError, "partial CI test package"):
+            consumer_build.sdk_identity(tarball, "8.0.0", "sdk-source")
+        self.assertEqual(
+            consumer_build.sdk_identity(tarball, version, "sdk-source"),
+            package.digest(tarball),
+        )
+        # Dropping the marker from the receipt cannot turn it into a release.
+        with package.unpack(tarball) as clean:
+            contract_path = clean / "sdk-contract.json"
+            contract = json.loads(contract_path.read_text())
+            del contract["partial"]
+            contract_path.write_text(json.dumps(contract))
+            with self.assertRaisesRegex(ValueError, "exactly when it is partial"):
+                package.verify_package(clean, version, "sdk-source")
+
+    def test_partial_flag_and_version_suffix_go_together(self):
+        with self.assertRaisesRegex(ValueError, "exactly when it is partial"):
+            self.assemble("8.0.0", True, "android-fast", "ios-fast")
+        with self.assertRaisesRegex(ValueError, "exactly when it is partial"):
+            self.assemble("8.0.0" + package.PARTIAL_SUFFIX)
+        with self.assertRaisesRegex(ValueError, "android component has incomplete"):
+            self.assemble("8.0.1", android="android-fast")
+        with self.assertRaisesRegex(ValueError, "ios component has incomplete"):
+            self.assemble("8.0.1", ios="ios-fast")
+
+    def test_android_app_builds_exactly_the_package_abis(self):
+        full = package.verify_package(self.tarball(self.assemble()))
+        self.assertEqual(
+            consumer_build.android_architectures(full),
+            ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"],
+        )
+        version = "8.0.0" + package.PARTIAL_SUFFIX
+        partial = package.verify_package(
+            self.tarball(self.assemble(version, True, "android-fast", "ios-fast")),
+            version,
+            allow_partial=True,
+        )
+        self.assertEqual(consumer_build.android_architectures(partial), ["x86_64"])
+        with self.assertRaisesRegex(ValueError, "not known ABIs"):
+            consumer_build.android_architectures(
+                {"components": {"android": {"native": {"riscv64-linux-android": {}}}}}
+            )
 
     def test_corrupt_runtime_bytes_are_rejected(self):
         output = self.assemble()
