@@ -162,7 +162,7 @@ export const galleryCopy = {
   },
 } as const;
 
-/** The session probe's confirmation for a link (`src/core/probeLinks.ts`). */
+/** The probes' confirmations for a link (`src/core/probeLinks.ts`). */
 export const probeLinkCopy = {
   title: (action: string) => `Run ${action} from a link?`,
   run: "Run",
@@ -179,4 +179,11 @@ export const probeLinkCopy = {
     members.length === 0
       ? `Any app can open this link. It creates the group ${name}.`
       : `Any app can open this link. It creates the group ${name} with ${members.join(", ")}.`,
+  retryMessage:
+    "Any app can open this link. It sends an unsent message in this chat again.",
+  react: (emoji: string) =>
+    `Any app can open this link. It adds your ${emoji} reaction to a message in this chat, or removes it.`,
+  reply:
+    "Any app can open this link. It sets which message your draft in this chat replies to.",
+  edit: "Any app can open this link. It replaces the text of your draft in this chat with the text of a message.",
 } as const;

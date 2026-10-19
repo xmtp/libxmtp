@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { probeLinkConfirmation } from "./probeLinks.ts";
+import {
+  chatProbeLinkConfirmation,
+  probeLinkConfirmation,
+} from "./probeLinks.ts";
 import type { SessionState } from "./sessionController.ts";
 
 type Kind = SessionState<unknown>["kind"];
@@ -41,5 +44,24 @@ test("a probe link asks before it can end the session or change the account", ()
       confirmation,
       `${action} (${kind})`,
     );
+  }
+});
+
+test("a chat probe link asks before it changes data", () => {
+  const cases: readonly (readonly [string, string | undefined])[] = [
+    // Seen by other people.
+    ["retry", "retry"],
+    ["react", "react"],
+    ["delete", "delete"],
+    // Replace the chat's saved draft.
+    ["reply", "reply"],
+    ["edit", "edit"],
+    // Send faults for this app run only.
+    ["failNextSend", undefined],
+    ["failPublish", undefined],
+    ["allowPublish", undefined],
+  ];
+  for (const [action, confirmation] of cases) {
+    assert.equal(chatProbeLinkConfirmation(action), confirmation, action);
   }
 });
