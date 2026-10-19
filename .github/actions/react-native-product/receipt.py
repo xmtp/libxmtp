@@ -29,15 +29,20 @@ if phase == "before":
       let f = builtins.getFlake ("git+file://" + toString ./.);
           system = builtins.getEnv "RN_SYSTEM";
           stage = builtins.getEnv "RN_STAGE";
-          members = f.ciStages.${system}.${stage}.passthru.members;
+          kind = builtins.getEnv "RN_PACKAGE_KIND";
+          stages = if kind == "test" then f.legacyPackages.${system}.reactNative.testStages else f.ciStages.${system};
           version = builtins.getEnv "RN_PACKAGE_VERSION";
-          consumers = f.legacyPackages.${system}.reactNative.mkConsumers {
-            package = f.legacyPackages.x86_64-linux.reactNative.mkPackage { inherit version; };
-          };
-          roots = if stage == "components" then members // f.ciStages.${system}.native-base.passthru.members
-                  else if version == "" then members
-                  else consumers.passthru.members // { bundles = consumers; }
-                    // builtins.intersectAttrs { react-native-consumer-template-bare = null; react-native-consumer-template-expo = null; } members;
+          platform = if system == "x86_64-linux" then "android" else "ios";
+          # The bundles the action builds; see its consumers selection.
+          bundles = if version != "" then
+              f.legacyPackages.${system}.reactNative.mkConsumers {
+                package = f.legacyPackages.x86_64-linux.reactNative.mkPackage { inherit version; };
+              }
+            else f.packages.${system}.${"react-native-" + (if kind == "test" then "test-" else "")
+              + "consumer-" + platform + (if builtins.getEnv "RN_CONSUMERS" == "bare" then "-bare" else "")};
+          templates = builtins.intersectAttrs { react-native-consumer-template-bare = null; react-native-consumer-template-expo = null; } f.packages.${system};
+          roots = if stage == "components" then stages.components.passthru.members // f.ciStages.${system}.native-base.passthru.members
+                  else bundles.passthru.members // { inherit bundles; } // templates;
       in builtins.mapAttrs (_: drv: { derivationPath = drv.drvPath; outputPath = drv.outPath; }) roots
     """
     roots = eval_json(expression)

@@ -18,8 +18,12 @@ concurrency:
   group: post-merge-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  # The RN cache jobs build and push the RN stages to `xmtp`; they install and
+  # test nothing. Each stage substitutes the previous one from `xmtp`, so they
+  # exchange no artifacts. The test package and the bare Android test app are
+  # warmed too, so pull requests that do not change them substitute them.
   rn-components:
-    name: RN components (${{ matrix.system }})
+    name: Cache RN components (${{ matrix.system }})
     strategy:
       fail-fast: false
       matrix:
@@ -32,20 +36,24 @@ jobs:
     timeout-minutes: 90
     environment: kache-s3-writer
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: trusted
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Build the components
+        uses: ./.github/actions/react-native-product
         with:
           stage: components
           system: ${{ matrix.system }}
           source-sha: ${{ github.sha }}
           package-version: ""
+          exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
       - name: Finish component cache uploads
@@ -53,39 +61,49 @@ jobs:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         shell: bash
         run: |
-          jq -r '.roots[]' target/rn-exchange/components/manifest.json > "$RUNNER_TEMP/rn-roots"
+          jq -r '.[]' "$XMTP_RN_ROOTS" > "$RUNNER_TEMP/rn-roots"
           while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-roots"
 
   rn-package:
-    name: Assemble the canonical RN package
+    name: Cache RN package
     needs: rn-components
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     environment: kache-s3-writer
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: trusted
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Assemble the package
+        uses: ./.github/actions/react-native-product
         with:
           stage: package
           system: x86_64-linux
           source-sha: ${{ github.sha }}
           package-version: ""
+          exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
-      - name: Finish package cache upload
+      - name: Assemble the pull request test package
+        shell: bash
+        run: |
+          nix build --no-link --print-out-paths .#xmtp-sdk-react-native-test-package > "$RUNNER_TEMP/rn-test-package"
+      - name: Finish package cache uploads
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        run: cachix push xmtp "$XMTP_RN_PACKAGE_DIR"
+        run: |
+          cachix push xmtp "$XMTP_RN_PACKAGE_DIR"
+          cachix push xmtp "$(cat "$RUNNER_TEMP/rn-test-package")"
 
   rn-consumers:
-    name: RN installed consumers (${{ matrix.platform }})
+    name: Cache RN apps (${{ matrix.platform }})
     needs: rn-package
     strategy:
       fail-fast: false
@@ -103,26 +121,116 @@ jobs:
     env:
       SYSTEM: ${{ matrix.system }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: trusted
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Build the apps
+        uses: ./.github/actions/react-native-product
         with:
           stage: consumers
           system: ${{ matrix.system }}
           source-sha: ${{ github.sha }}
           package-version: ""
+          exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
-      - name: Finish consumer cache uploads
+      # The warm set also holds the app build inputs, so a cold pull request
+      # build downloads them instead of fetching each one again.
+      - name: Build the warm app set
+        shell: bash
+        run: |
+          options=(--no-link --print-out-paths)
+          if [[ "$RUNNER_OS" == macOS ]]; then options+=(--option sandbox relaxed); fi
+          targets=(".#ciStages.$SYSTEM.consumers")
+          if [[ "$SYSTEM" == x86_64-linux ]]; then targets+=(.#react-native-test-consumer-android-bare); fi
+          nix build "${options[@]}" "${targets[@]}" > "$RUNNER_TEMP/rn-apps"
+      - name: Finish app cache uploads
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        run: cachix push xmtp "$(nix eval --raw ".#ciStages.$SYSTEM.consumers.outPath")"
+        run: |
+          while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-apps"
+
+  # The RN device smoke of each merge: the full package's bare and Expo apps,
+  # with every journey. It reads only `xmtp`, where the cache jobs pushed the
+  # package and apps, builds nothing, and holds no token. `build` does not
+  # wait for it.
+  rn-smoke:
+    name: RN installed-app smoke (${{ matrix.platform }})
+    needs: rn-consumers
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub-hosted: KVM for the emulator (GitHub changelog 2024-04-02).
+          # Revert label: blacksmith-16vcpu-ubuntu-2404.
+          - platform: android
+            system: x86_64-linux
+            runner: ubuntu-latest
+          # Installs and runs only. Revert label: warp-macos-26-arm64-12x.
+          - platform: ios
+            system: aarch64-darwin
+            runner: warp-macos-26-arm64-6x
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      XMTP_SDK_BUILD: nix
+      XMTP_RN_JOURNEYS: full
+    steps:
+      - name: Free disk space on the GitHub-hosted runner
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Install the Node peer dependencies
+        uses: ./.github/actions/setup-js
+        with:
+          cache-mode: read
+          filter: "@xmtp/node-sdk..."
+      - name: Fetch the cached apps
+        uses: ./.github/actions/react-native-product
+        with:
+          stage: consumers
+          system: ${{ matrix.system }}
+          source-sha: ${{ github.sha }}
+          package-version: ""
+          exchange: "false"
+          substitute-only: "true"
+          artifact-prefix: rn
+          cache-mode: read
+      - name: Run the installed-app tests
+        uses: ./.github/actions/react-native-conformance
+        with:
+          platform: ${{ matrix.platform }}
+          artifact-prefix: react-native-post-merge
+
+  rn-alert:
+    name: Alert on an RN failure
+    needs: [rn-components, rn-package, rn-consumers, rn-smoke]
+    if: ${{ !cancelled() && contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Notify Slack
+        uses: ./.github/actions/slack-notify
+        with:
+          message: "Post-merge React Native failed for ${{ github.sha }}: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   build:
     needs: [rn-components, rn-package, rn-consumers]

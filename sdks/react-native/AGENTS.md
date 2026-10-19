@@ -14,6 +14,12 @@ Use the `writing-typescript` skill for JavaScript and TypeScript changes.
 - `dev/nix-shell 'just react-native test-control'` runs the real HTTP reload-settlement and final-result admission tests without a simulator or SDK build.
 - `dev/nix-shell 'just react-native check-package'` checks package admission, binary completeness, and receipt rejection using local fixtures. It does not prove native execution.
 
+## CI
+
+`check-react-native.yml` runs `check-package`, `test-react`, `test-native`, and `test-control` on Linux and blocks merges. `test-react-native.yml` is the device chain. Its `scope` input is `full` (Android and iOS, bare and Expo) or `android-smoke` (the bare Android app). Pull request runs build `.#xmtp-sdk-react-native-test-package`: `package.py assemble --partial` of the x86_64 Android and iOS simulator components, with a `-partial` version that `verify-package` rejects, so it cannot ship. Main, the post-merge smoke, and releases test the full package. The Android apps build only the ABIs that the package ships.
+
+For RN-only device proof before a pull request's own run, an agent may run `gh workflow run test-react-native.yml --ref <branch>`. Use it sparingly, only when an RN change needs device-test proof before the pull request's own run, and never instead of the pull request checks.
+
 The private `src/specs/NativeXmtpReactNative.ts` and `codegenConfig` ship in the npm product for React Native autolinking/codegen. They do not add a public SDK export. Keep them matched to the Java/Objective-C++ provider and include their hashes in the product receipt.
 
 The npm product ships matched prebuilt Rust libraries, generated C++, native adapters, and the runtime from the committed ubrn fork. Keep these inputs in the receipt. Do not replace the fork runtime with an npm release that merely shares its version number.
