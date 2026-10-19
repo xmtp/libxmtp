@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 
 import {
   allows,
@@ -161,15 +161,31 @@ function MetadataBody({
               palette,
             )
           : null}
-        <Stack.Toolbar.Button
-          icon={reloadIcon}
-          tintColor={palette.tint}
-          accessibilityLabel={metadataCopy.reload}
-          disabled={state.busy}
-          onPress={() => {
-            store.refresh();
-          }}
-        />
+        {Platform.OS === "ios" ? (
+          // SwiftUI draws this `.glass` button as a glass capsule inside the
+          // bar item's own glass; a bar button would be a single circle.
+          <Stack.Toolbar.View>
+            <GlassIconButton
+              systemImage="arrow.clockwise"
+              shape="capsule"
+              accessibilityLabel={metadataCopy.reload}
+              disabled={state.busy}
+              onPress={() => {
+                store.refresh();
+              }}
+            />
+          </Stack.Toolbar.View>
+        ) : (
+          <Stack.Toolbar.Button
+            icon={reloadIcon}
+            tintColor={palette.tint}
+            accessibilityLabel={metadataCopy.reload}
+            disabled={state.busy}
+            onPress={() => {
+              store.refresh();
+            }}
+          />
+        )}
       </Stack.Toolbar>
       <FormSection>
         <FormRow>
