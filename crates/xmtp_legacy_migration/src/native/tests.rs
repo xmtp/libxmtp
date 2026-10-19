@@ -195,6 +195,150 @@ async fn stable_history_metadata_and_exclusions() {
     }
 }
 
+// The closed SQLCipher database that the libxmtp source embedded in
+// @xmtp/react-native-sdk 5.7.0 wrote. Its producer read the expected records
+// through the old public API (fixtures/react-native-5.7.0/README.md).
+// verifies: MIG-001, MIG-002, MIG-003
+#[xmtp_common::test(unwrap_try = true)]
+async fn react_native_5_7_0_database_exports_its_independent_records() {
+    use xmtp_proto::xmtp::device_sync::consent_backup::{ConsentStateSave, ConsentTypeSave};
+
+    let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/react-native-5.7.0");
+    let expected: serde_json::Value =
+        serde_json::from_slice(&fs::read(fixture_dir.join("expected-records.json"))?)?;
+    let text = |value: &serde_json::Value| value.as_str().expect("fixture string").to_owned();
+    let (_directory, mut args) = fixture("react-native-5.7.0/react-native-5.7.0.db3");
+    args.database_key = Some(hex::decode(text(&expected["databaseKeyHex"]))?);
+    let before = source_bytes(&args);
+    assert_eq!(
+        before.keys().copied().collect::<Vec<_>>(),
+        ["", ".sqlcipher_salt"],
+        "the closed source has no WAL, SHM, or journal"
+    );
+
+    let report = prepare_migration_archive(args.clone()).await?;
+    let counts = &expected["counts"];
+    assert_eq!(
+        (
+            report.group_count,
+            report.message_count,
+            report.consent_count
+        ),
+        (
+            counts["groups"].as_u64().expect("group count"),
+            counts["messages"].as_u64().expect("message count"),
+            counts["consent"].as_u64().expect("consent count"),
+        )
+    );
+    assert_eq!(report.archive_path, args.output_path);
+    assert_eq!(source_bytes(&args), before);
+
+    let records = elements(&report.archive_path).await;
+    let mut groups = vec![];
+    let mut messages = vec![];
+    let mut consent = vec![];
+    for record in records {
+        match record {
+            Element::Group(group) => {
+                let mutable = group.mutable_metadata.expect("group metadata");
+                groups.push((
+                    hex::encode(&group.id),
+                    group.created_at_ns.to_string(),
+                    mutable.attributes["group_name"].clone(),
+                    mutable.attributes["description"].clone(),
+                ));
+            }
+            Element::GroupMessage(message) => messages.push((
+                hex::encode(&message.id),
+                hex::encode(&message.group_id),
+                message.sender_inbox_id,
+                message.sent_at_ns.to_string(),
+                hex::encode(&message.decrypted_message_bytes),
+            )),
+            Element::Consent(record) => consent.push((
+                match record.entity_type() {
+                    ConsentTypeSave::ConversationId => "conversation_id",
+                    ConsentTypeSave::InboxId => "inbox_id",
+                    other => panic!("unexpected consent entity type {other:?}"),
+                },
+                record.entity.clone(),
+                match record.state() {
+                    ConsentStateSave::Allowed => "allowed",
+                    ConsentStateSave::Denied => "denied",
+                    other => panic!("unexpected consent state {other:?}"),
+                },
+            )),
+            other => panic!("unexpected archive element {other:?}"),
+        }
+    }
+    let expected_groups = expected["groups"]
+        .as_array()
+        .expect("groups")
+        .iter()
+        .map(|group| {
+            (
+                text(&group["id"]),
+                text(&group["createdAtNs"]),
+                text(&group["name"]),
+                text(&group["description"]),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(groups, expected_groups);
+    // The archive does not promise message order; compare by message ID.
+    let mut expected_messages = expected["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .map(|message| {
+            (
+                text(&message["id"]),
+                text(&message["groupId"]),
+                text(&message["senderInboxId"]),
+                text(&message["sentAtNs"]),
+                text(&message["encodedContentHex"]),
+            )
+        })
+        .collect::<Vec<_>>();
+    messages.sort();
+    expected_messages.sort();
+    assert_eq!(messages, expected_messages);
+    let mut expected_consent = expected["consent"]
+        .as_array()
+        .expect("consent")
+        .iter()
+        .map(|record| {
+            let kind = match record["entityType"].as_str() {
+                Some("conversation_id") => "conversation_id",
+                Some("inbox_id") => "inbox_id",
+                other => panic!("unexpected fixture entity type {other:?}"),
+            };
+            let state = match record["state"].as_str() {
+                Some("allowed") => "allowed",
+                Some("denied") => "denied",
+                other => panic!("unexpected fixture state {other:?}"),
+            };
+            (kind, text(&record["entity"]), state)
+        })
+        .collect::<Vec<_>>();
+    consent.sort();
+    expected_consent.sort();
+    assert_eq!(consent, expected_consent);
+
+    // A wrong key fails as input and publishes nothing over the archive.
+    let archive = fs::read(&args.output_path)?;
+    let mut wrong = args.clone();
+    wrong.database_key = Some(vec![0; 32]);
+    wrong.output_path = format!("{}.wrong-key", args.output_path);
+    assert!(matches!(
+        prepare_migration_archive(wrong.clone()).await,
+        Err(MigrationError::InvalidInput(_))
+    ));
+    assert!(!Path::new(&wrong.output_path).exists());
+    assert_eq!(fs::read(&args.output_path)?, archive);
+    assert_eq!(source_bytes(&args), before);
+}
+
 // verifies: MIG-002, MIG-003, MIG-004
 #[xmtp_common::test(unwrap_try = true)]
 async fn encrypted_wal_keys_and_source_bytes() {

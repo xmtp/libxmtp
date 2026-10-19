@@ -10,6 +10,8 @@ The 64 SQL migrations are copied from libxmtp commit `6a8e969785c62e0923cf3d8531
 
 `appdata-producer.rs` was compiled at legacy commit `cc878025`. Its database is `appdata-seed.db3`. `appdata-context.bincode` is the stored `GroupContextGroupContext` record containing `AppData Group`. The fixture has valid name and description components and an invalid disappearing-message component. It checks that one invalid optional field does not remove independent fields.
 
+`react-native-5.7.0/` holds a closed SQLCipher database that the exact libxmtp source embedded in `@xmtp/react-native-sdk` 5.7.0 produced, with its own producer, provenance, source hashes, and independent expected records. Its `README.md` describes them. `generate.py` does not read or rewrite that directory.
+
 The producers belong in `crates/xmtp_mls_common/examples/` in a checkout of their recorded source. They are fixture sources, not examples built by the current workspace. Run them with that checkout's Nix environment. MLS key generation is random, so a new seed has new IDs and bytes. Commit the seed, expected values, and hashes together.
 
 To build either producer, add these workspace entries to the legacy package's
