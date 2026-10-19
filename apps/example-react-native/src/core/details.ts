@@ -374,7 +374,10 @@ export class DetailsStore extends Store<DetailsState> {
     });
   }
 
-  /** One poller per store: reloads every second while a change is pending. */
+  /**
+   * One poller per store: reloads every second while a change is pending.
+   * A failed reload is tried again after the next pause.
+   */
   async #pollPending(): Promise<void> {
     if (this.#polling) return;
     this.#polling = true;
@@ -385,7 +388,7 @@ export class DetailsStore extends Store<DetailsState> {
         try {
           await this.#reload();
         } catch {
-          return;
+          // The loop stops only when nothing is pending or the store closed.
         }
       }
     } finally {

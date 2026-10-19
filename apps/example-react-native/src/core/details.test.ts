@@ -334,6 +334,23 @@ test("a poll reload that started before an action cannot replace the action's ne
   );
 });
 
+test("a failed poll reload keeps polling until the group confirms the change", async () => {
+  const ticks = new Gate();
+  const fake = new FakeQueries();
+  fake.members = [member("own", "superAdmin"), member("other")];
+  const store = makeStore(fake, { pause: ticks.wait });
+  store.send({ kind: "mutate", mutation: { kind: "remove", id: "other" } });
+  await eventually(() => ticks.waiters.length === 1);
+  fake.loadFailure = true;
+  ticks.releaseAll();
+  await settle();
+  assert.ok(memberPending(store.getState(), "other"));
+  fake.loadFailure = false;
+  fake.members = [member("own", "superAdmin")];
+  ticks.releaseAll();
+  await eventually(() => !memberPending(store.getState(), "other"));
+});
+
 test("several pending actions share one poller", async () => {
   const ticks = new Gate();
   const fake = new FakeQueries();
