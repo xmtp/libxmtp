@@ -155,6 +155,9 @@ export class DetailsStore extends Store<DetailsState> {
   #disposed = false;
   #lookup = 0;
   #polling = false;
+  /** Reloads started, and the newest one whose result applied. */
+  #reloads = 0;
+  #shownReload = 0;
 
   constructor(
     queries: GroupQueries,
@@ -252,9 +255,18 @@ export class DetailsStore extends Store<DetailsState> {
     this.#run(() => this.#perform(action));
   }
 
+  /**
+   * Loads and shows the conversation. Actions and the poller reload
+   * independently, so a result older than the one shown is dropped: it
+   * could bring back a member or role that the shown one confirmed.
+   */
   async #reload(): Promise<void> {
     if (!this.#admits()) throw new Dropped();
+    this.#reloads += 1;
+    const reload = this.#reloads;
     const details = await this.#queries.load();
+    if (reload < this.#shownReload) return;
+    this.#shownReload = reload;
     this.#apply((state) => {
       const ids = new Set(details.members.map((member) => member.id));
       const roles = new Map(

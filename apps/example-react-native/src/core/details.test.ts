@@ -69,11 +69,10 @@ class FakeQueries implements GroupQueries {
   /** Lookups that fail (after their gate), by input. */
   failingInputs = new Set<string>();
 
+  /** A held load returns the group as it was when the load started. */
   async load(): Promise<ConversationDetails> {
     this.loads += 1;
-    if (this.holdLoads !== undefined) await this.holdLoads.wait();
-    if (this.loadFailure) throw new Error("load failed");
-    return {
+    const details: ConversationDetails = {
       record: { id: "group", kind: "group" },
       kind: "group",
       description: "",
@@ -86,6 +85,9 @@ class FakeQueries implements GroupQueries {
       retentionNs: 0n,
       pendingLeave: this.pendingLeave,
     };
+    if (this.holdLoads !== undefined) await this.holdLoads.wait();
+    if (this.loadFailure) throw new Error("load failed");
+    return details;
   }
 
   async resolve(input: string): Promise<DetailsMember> {
@@ -303,6 +305,33 @@ test("pending changes poll until the group confirms them, and a new change polls
   assert.equal(store.getState().pendingMembers.has("second"), true);
   store.dispose();
   ticks.releaseAll();
+});
+
+test("a poll reload that started before an action cannot replace the action's newer result", async () => {
+  const ticks = new Gate();
+  const fake = new FakeQueries();
+  fake.members = [member("own", "superAdmin"), member("other")];
+  const store = makeStore(fake, { pause: ticks.wait });
+  store.send({ kind: "mutate", mutation: { kind: "remove", id: "other" } });
+  await eventually(() => ticks.waiters.length === 1);
+  // The poll's load starts while the group still lists the member.
+  const polled = new Gate();
+  fake.holdLoads = polled;
+  ticks.releaseAll();
+  await eventually(() => polled.waiters.length === 1);
+  fake.holdLoads = undefined;
+  // The removal commits, and a refresh shows it.
+  fake.members = [member("own", "superAdmin")];
+  store.send({ kind: "refresh" });
+  await finish(store);
+  assert.equal(memberPending(store.getState(), "other"), false);
+  polled.releaseAll();
+  await settle();
+  await settle();
+  assert.deepEqual(
+    store.getState().details?.members.map((entry) => entry.id),
+    ["own"],
+  );
 });
 
 test("several pending actions share one poller", async () => {
