@@ -7,12 +7,14 @@ import type {
   ChatQueries,
   OutboundContent,
   PendingPage,
+  ReadingAnchor,
 } from "./chatHistory.ts";
 import type {
   ChatMessage,
   ConsentState,
   ConversationRecord,
   HistoryPosition,
+  ReactionRecord,
   RecoveryPosition,
 } from "./chatMessages.ts";
 import {
@@ -45,6 +47,33 @@ export function textMessage(
   };
 }
 
+/** Message `n` as its sender deleted it. */
+export function deletedMessage(n: number): ChatMessage {
+  return { ...textMessage(n), content: { kind: "deleted" } };
+}
+
+/** The reading anchor at message `n`. */
+export function anchorOf(n: number): ReadingAnchor {
+  const { id, sentAtNs } = textMessage(n);
+  return { messageId: id, position: { sentAtNs, cursor: id } };
+}
+
+/** A reaction record by `sender`, sent at `sentAt` nanoseconds. */
+export function reactionRecord(
+  sender: string,
+  emoji: string,
+  sentAt: number,
+  options: { added?: boolean; schema?: string } = {},
+): ReactionRecord {
+  return {
+    sender,
+    emoji,
+    schema: options.schema ?? "unicode",
+    added: options.added ?? true,
+    sentAtNs: BigInt(sentAt),
+  };
+}
+
 function compare(left: HistoryPosition, right: HistoryPosition): number {
   if (left.sentAtNs !== right.sentAtNs) {
     return left.sentAtNs < right.sentAtNs ? -1 : 1;
@@ -60,7 +89,6 @@ export class FakeConversation implements ChatQueries {
   published: ChatMessage[] = [];
   /** Unpublished or failed messages, oldest first. */
   unpublished: ChatMessage[] = [];
-  historyCalls = 0;
   queued: OutboundContent[] = [];
   publications: string[] = [];
   deletions: string[] = [];
@@ -69,8 +97,6 @@ export class FakeConversation implements ChatQueries {
   queueError: Error | undefined;
   publishError: Error | undefined;
   historyError: Error | undefined;
-  /** Holds history reads until released. */
-  gate: Promise<void> | undefined;
   /**
    * IDs of stored messages that cannot be decoded. Pages leave them out and
    * count them in `skipped`; the page positions still cover them, like the
@@ -78,10 +104,20 @@ export class FakeConversation implements ChatQueries {
    */
   readonly unreadable = new Set<string>();
   #next = 10_000;
+  #hold: Promise<void> | undefined;
   readonly #deletionTargets = new Map<string, string>();
 
   constructor(count = 0) {
     for (let n = 1; n <= count; n += 1) this.published.push(textMessage(n));
+  }
+
+  /** Holds the next history read until the returned function runs. */
+  hold(): () => void {
+    let release = (): void => {};
+    this.#hold = new Promise((resolve) => {
+      release = resolve;
+    });
+    return release;
   }
 
   conversation(id: string): Promise<ConversationRecord> {
@@ -102,8 +138,9 @@ export class FakeConversation implements ChatQueries {
     before?: HistoryPosition,
     after?: HistoryPosition,
   ): Promise<ChatPage> {
-    this.historyCalls += 1;
-    if (this.gate !== undefined) await this.gate;
+    const held = this.#hold;
+    this.#hold = undefined;
+    if (held !== undefined) await held;
     if (this.historyError !== undefined) throw this.historyError;
     const inRange = this.published.filter((row) => {
       const position = row.position;
@@ -238,11 +275,9 @@ export class MemoryJournal implements SendJournalStorage {
   }
 }
 
-/** Resolves after pending promise callbacks ran. */
-export async function settle(): Promise<void> {
-  for (let index = 0; index < 10; index += 1) {
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 0);
-    });
-  }
+/** Resolves after pending promise callbacks ran (one macrotask turn). */
+export function settle(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
 }

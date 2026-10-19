@@ -19,7 +19,6 @@ import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { TimelineCopy } from "@/core/chatHistory.ts";
 import type { DecisionOutcome } from "@/core/requestDecisions.ts";
 import { conversationInitials, conversationTitle } from "@/core/titles.ts";
 import {
@@ -218,16 +217,14 @@ function ChatSessionScreen({
             <Text variant="caption" testID="chat.error">
               {state.error}
             </Text>
-            {state.error === TimelineCopy.noSurvivors ? null : (
-              <GlassButton
-                title={chatCopy.retry}
-                font="caption"
-                testID="chat.retry"
-                onPress={() => {
-                  void runtime.timeline.refresh();
-                }}
-              />
-            )}
+            <GlassButton
+              title={chatCopy.retry}
+              font="caption"
+              testID="chat.retry"
+              onPress={() => {
+                void runtime.timeline.refresh();
+              }}
+            />
           </View>
         )}
         {state.loaded ? (

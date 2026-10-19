@@ -7,6 +7,7 @@ import {
   MemoryJournal,
   OWN,
   PEER,
+  reactionRecord,
   textMessage,
 } from "./chatFakes.ts";
 import type { ChatMessage } from "./chatMessages.ts";
@@ -63,21 +64,17 @@ const own = (n: number): ChatMessage => textMessage(n, { sender: OWN });
 
 test("reacting adds the emoji, and reacting again removes it", async () => {
   const h = harness();
-  const row = textMessage(1);
+  // A peer's reaction with the same emoji is not the own one.
+  const row: ChatMessage = {
+    ...textMessage(1),
+    reactions: [reactionRecord(PEER, "👍", 4)],
+  };
   h.queries.published.push(row);
   h.actions.react(row, "👍");
   await h.actions.wait();
   const mine: ChatMessage = {
     ...row,
-    reactions: [
-      {
-        sender: OWN,
-        emoji: "👍",
-        schema: "unicode",
-        added: true,
-        sentAtNs: 5n,
-      },
-    ],
+    reactions: [...row.reactions, reactionRecord(OWN, "👍", 5)],
   };
   h.actions.react(mine, "👍");
   await h.actions.wait();

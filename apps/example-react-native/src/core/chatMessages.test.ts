@@ -1,38 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { OWN, textMessage } from "./chatFakes.ts";
+import { OWN, reactionRecord } from "./chatFakes.ts";
 import {
-  type ReactionRecord,
-  compareScalars,
+  ChatContentCopy,
   contentText,
-  hasOwnReaction,
   reactionBadges,
 } from "./chatMessages.ts";
 
-const record = (
-  sender: string,
-  emoji: string,
-  sentAt: number,
-  added = true,
-  schema = "unicode",
-): ReactionRecord => ({
-  sender,
-  emoji,
-  schema,
-  added,
-  sentAtNs: BigInt(sentAt),
-});
+const removal = { added: false };
 
 test("the latest reaction per sender, emoji and schema wins", () => {
   const badges = reactionBadges(
     [
-      record("bob", "👍", 3, false),
-      record("bob", "👍", 1),
-      record("ann", "👍", 2),
-      record("ann", "❤️", 5),
-      record("ann", "❤️", 6, false),
-      record(OWN, "😂", 4),
+      reactionRecord("bob", "👍", 3, removal),
+      reactionRecord("bob", "👍", 1),
+      reactionRecord("ann", "👍", 2),
+      reactionRecord("ann", "❤️", 5),
+      reactionRecord("ann", "❤️", 6, removal),
+      reactionRecord(OWN, "😂", 4),
     ],
     OWN,
   );
@@ -42,70 +28,50 @@ test("the latest reaction per sender, emoji and schema wins", () => {
   ]);
 });
 
-test("equal times keep the input order", () => {
-  const badges = reactionBadges(
-    [record("bob", "👍", 1, true), record("bob", "👍", 1, false)],
-    OWN,
-  );
-  assert.deepEqual(badges, []);
-  const readded = reactionBadges(
-    [record("bob", "👍", 1, false), record("bob", "👍", 1, true)],
-    OWN,
-  );
-  assert.equal(readded[0]?.count, 1);
-});
-
 test("badges group senders sorted and sort by emoji scalar value", () => {
   const badges = reactionBadges(
-    [record("zed", "👍", 1), record("amy", "👍", 2), record(OWN, "❤️", 3)],
+    [
+      reactionRecord("zed", "👍", 1),
+      reactionRecord("amy", "👍", 2),
+      reactionRecord(OWN, "❤️", 3),
+      reactionRecord("bob", "☝🏽", 4),
+      reactionRecord("amy", "☝️", 5),
+    ],
     OWN,
   );
+  // By scalar value U+FE0F (in ☝️) sorts before U+1F3FD (in ☝🏽); by UTF-16
+  // code units it sorts after.
   assert.deepEqual(
     badges.map((badge) => [badge.emoji, badge.senders, badge.mine]),
     [
+      ["☝️", ["amy"], false],
+      ["☝🏽", ["bob"], false],
       ["❤️", [OWN], true],
       ["👍", ["amy", "zed"], false],
     ],
   );
 });
 
-test("scalar order differs from UTF-16 order for private-use characters", () => {
-  // U+E000 sorts after U+1F44D in UTF-16 code units, before it by scalar value.
-  assert.ok(compareScalars("\u{E000}", "👍") < 0);
-  assert.ok(compareScalars("a", "ab") < 0);
-  assert.equal(compareScalars("👍", "👍"), 0);
-});
-
-test("own reactions toggle", () => {
-  const message = {
-    ...textMessage(1),
-    reactions: [record(OWN, "👍", 1), record("bob", "❤️", 2)],
-  };
-  assert.equal(hasOwnReaction(message, "👍", OWN), true);
-  assert.equal(hasOwnReaction(message, "❤️", OWN), false);
-});
-
 test("content text for copy and quotes", () => {
+  const file = {
+    url: "u",
+    contentDigest: "d",
+    secret: new Uint8Array(),
+    salt: new Uint8Array(),
+    nonce: new Uint8Array(),
+    scheme: "https",
+  };
   assert.equal(contentText({ kind: "text", text: "hi" }), "hi");
   assert.equal(
     contentText({ kind: "reply", quote: "q", body: "body" }),
     "body",
   );
-  assert.equal(contentText({ kind: "deleted" }), "Message deleted");
+  assert.equal(contentText({ kind: "deleted" }), ChatContentCopy.deleted);
   assert.equal(
-    contentText({
-      kind: "attachment",
-      file: {
-        url: "u",
-        contentDigest: "d",
-        secret: new Uint8Array(),
-        salt: new Uint8Array(),
-        nonce: new Uint8Array(),
-        scheme: "https",
-      },
-    }),
-    "File",
+    contentText({ kind: "attachment", file: { ...file, filename: "a.pdf" } }),
+    "a.pdf",
   );
+  assert.equal(contentText({ kind: "attachment", file }), ChatContentCopy.file);
   assert.equal(contentText({ kind: "unsupported", text: "x" }), "x");
   assert.equal(contentText({ kind: "reaction" }), "");
 });

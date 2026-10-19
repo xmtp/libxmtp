@@ -5,6 +5,8 @@ import {
   CONVERSATION,
   FakeConversation,
   OWN,
+  anchorOf,
+  reactionRecord,
   settle,
   textMessage,
 } from "./chatFakes.ts";
@@ -59,12 +61,6 @@ const visibleIds = (h: Harness, from: number, to?: number) =>
     .messages.slice(from, to)
     .map((row) => row.id);
 
-const anchorOf = (n: number): ReadingAnchor => {
-  const row = textMessage(n);
-  assert.ok(row.position !== undefined);
-  return { messageId: row.id, position: row.position };
-};
-
 const foreground = { foreground: true, current: true };
 
 test("open loads the newest page, oldest first, with pending rows last", async () => {
@@ -99,20 +95,26 @@ test("older pages load at the top without duplicates", async () => {
   assert.equal(window.atNewest, true);
 });
 
-test("a stream refresh keeps loaded history and adds the new message", async () => {
-  const queries = new FakeConversation(135);
+test("a stream refresh keeps loaded history, adds the new message and re-reads changed rows", async () => {
+  const queries = new FakeConversation(100);
   const h = harness(queries);
   await h.timeline.load();
   await h.timeline.older();
-  queries.published.push(textMessage(136));
+  queries.redact("m0090");
+  queries.published.push(textMessage(101));
   await h.timeline.refresh();
-  const { messages } = h.timeline.getState();
+  const { messages, window } = h.timeline.getState();
   assert.equal(messages.length, 101);
-  assert.equal(messages.at(-1)?.id, "m0136");
-  assert.equal(messages[0]?.id, "m0036");
+  assert.equal(messages[0]?.id, "m0001");
+  assert.equal(messages.at(-1)?.id, "m0101");
+  assert.deepEqual(messages.find((row) => row.id === "m0090")?.content, {
+    kind: "deleted",
+  });
+  // All history is still loaded, so "Older messages" stays hidden.
+  assert.equal(window.hasOlder, false);
 });
 
-test("reopening restores the saved anchor in reading mode", async () => {
+test("reopening restores the saved anchor in reading mode until the target shows", async () => {
   const h = harness(new FakeConversation(135), { anchor: anchorOf(40) });
   await h.timeline.load();
   const state = h.timeline.getState();
@@ -120,45 +122,74 @@ test("reopening restores the saved anchor in reading mode", async () => {
   assert.equal(state.targetRevision, 1);
   assert.equal(state.atNewest, false);
   assert.equal(state.window.notice, undefined);
+  assert.equal(state.window.atNewest, false);
+  assert.equal(state.window.hasOlder, false);
   assert.ok(state.messages.some((row) => row.id === "m0040"));
+  // The list first reports its bottom rows; the reading position stays.
+  h.timeline.visible(["m0089", "m0090"], foreground);
+  assert.equal(h.timeline.getState().target, "m0040");
+  assert.equal(h.saved.length, 0);
+  h.timeline.visible(["m0039", "m0040", "m0041"], foreground);
+  assert.equal(h.timeline.getState().target, undefined);
+  assert.deepEqual(h.saved.at(-1), anchorOf(39));
+  // The newest loaded row is not the newest message: no read marker.
+  h.timeline.visible(visibleIds(h, -3), foreground);
+  assert.equal(h.marks.length, 0);
 });
 
-test("a deleted anchor restores to the nearest survivor with Position changed", async () => {
+test("a deleted anchor restores to the nearest surviving message with Position changed", async () => {
   const queries = new FakeConversation(135);
   queries.redact("m0040");
+  queries.published[40] = { ...textMessage(41), content: { kind: "reaction" } };
   const h = harness(queries, { anchor: anchorOf(40) });
   await h.timeline.load();
   const state = h.timeline.getState();
-  assert.equal(state.target, "m0041");
-  assert.equal(state.window.notice, "Position changed");
+  assert.equal(state.target, "m0042");
+  assert.equal(state.window.notice, TimelineCopy.positionChanged);
   assert.equal(state.atNewest, false);
 });
 
 test("an anchor without survivors near it falls back to the newest page", async () => {
-  const queries = new FakeConversation(3);
-  for (const id of ["m0001", "m0002", "m0003"]) queries.redact(id);
-  const h = harness(queries, { anchor: anchorOf(2) });
+  const queries = new FakeConversation(200);
+  for (let n = 1; n <= 150; n += 1) queries.redact(textMessage(n).id);
+  const h = harness(queries, { anchor: anchorOf(20) });
   await h.timeline.load();
   const state = h.timeline.getState();
   assert.equal(state.target, undefined);
-  assert.equal(state.window.notice, "Position changed");
-  assert.equal(state.messages.at(-1)?.id, "m0003");
+  assert.equal(state.window.notice, TimelineCopy.positionChanged);
+  assert.equal(state.window.atNewest, true);
+  assert.equal(state.messages.at(-1)?.id, "m0200");
 });
 
-test("visibility saves the topmost surviving row as the anchor", async () => {
-  const h = harness(new FakeConversation(10));
+test("visibility saves the topmost surviving row once, and unchanged frames change nothing", async () => {
+  const queries = new FakeConversation(10);
+  queries.redact("m0003");
+  const h = harness(queries);
   await h.timeline.load();
   h.timeline.visible(visibleIds(h, 2, 6), foreground);
-  assert.deepEqual(h.saved.at(-1), anchorOf(3));
-  assert.equal(h.timeline.getState().anchorId, "m0003");
+  assert.deepEqual(h.saved, [anchorOf(4)]);
+  assert.equal(h.timeline.getState().anchorId, "m0004");
   assert.equal(h.timeline.getState().atNewest, false);
-  // The same anchor is not written twice.
+  let changes = 0;
+  h.timeline.subscribe(() => {
+    changes += 1;
+  });
+  // Same topmost row, newest row still hidden: scrolling frames re-render and save nothing.
+  h.timeline.visible(visibleIds(h, 2, 6), foreground);
   h.timeline.visible(visibleIds(h, 2, 7), foreground);
+  assert.equal(changes, 0);
   assert.equal(h.saved.length, 1);
+  h.timeline.visible(visibleIds(h, 4, 10), foreground);
+  assert.ok(changes > 0);
+  assert.equal(h.timeline.getState().anchorId, "m0005");
+  assert.equal(h.timeline.getState().atNewest, true);
 });
 
 test("the read marker advances only in the foreground, current, at the newest row", async () => {
-  const h = harness(new FakeConversation(10));
+  const queries = new FakeConversation(10);
+  const late = textMessage(10).insertedAtNs + 5n;
+  queries.published[3] = { ...textMessage(4), insertedAtNs: late };
+  const h = harness(queries);
   await h.timeline.load();
   h.timeline.visible(visibleIds(h, 5, 10), {
     foreground: false,
@@ -172,56 +203,45 @@ test("the read marker advances only in the foreground, current, at the newest ro
   assert.equal(h.marks.length, 0);
   h.timeline.visible(visibleIds(h, 5, 10), foreground);
   assert.equal(h.marks.length, 1);
-  assert.equal(h.marks[0]?.marker, textMessage(10).insertedAtNs);
+  assert.equal(h.marks[0]?.marker, late);
   assert.equal(h.timeline.getState().atNewest, true);
+  // The next scrolling frame does not write the same marker again.
+  h.timeline.visible(visibleIds(h, 5, 10), foreground);
+  assert.equal(h.marks.length, 1);
 });
 
-test("an older page that is not the newest never advances the marker", async () => {
-  const h = harness(new FakeConversation(135), { anchor: anchorOf(20) });
+test("a deleted message shows as deleted at once, without reactions, even with a read in flight", async () => {
+  const queries = new FakeConversation(5);
+  queries.published[4] = {
+    ...textMessage(5),
+    reactions: [reactionRecord(OWN, "👍", 6)],
+  };
+  const cache = new TranscriptCache();
+  const h = harness(queries, { cache });
   await h.timeline.load();
-  assert.equal(h.timeline.getState().window.atNewest, false);
-  const ids = h.timeline.getState().messages.map((row) => row.id);
-  h.timeline.visible(["m0020"], foreground);
-  h.timeline.visible(ids.slice(-3), foreground);
-  assert.equal(h.marks.length, 0);
-});
-
-test("while restoring, visibility waits for the target row", async () => {
-  const h = harness(new FakeConversation(135), { anchor: anchorOf(40) });
-  await h.timeline.load();
-  // The list first reports its bottom rows; the reading position stays.
-  h.timeline.visible(["m0089", "m0090"], foreground);
-  assert.equal(h.timeline.getState().target, "m0040");
-  assert.equal(h.saved.length, 0);
-  h.timeline.visible(["m0039", "m0040", "m0041"], foreground);
-  assert.equal(h.timeline.getState().target, undefined);
-  assert.deepEqual(h.saved.at(-1), anchorOf(39));
-});
-
-test("a deleted message shows as deleted at once, even with a read in flight", async () => {
-  const queries = new FakeConversation(10);
-  const h = harness(queries);
-  await h.timeline.load();
-  let release = (): void => {};
-  queries.gate = new Promise((resolve) => {
-    release = resolve;
-  });
+  assert.equal(h.timeline.getState().messages.at(-1)?.reactions.length, 1);
+  const release = queries.hold();
   const refresh = h.timeline.refresh();
-  await settle();
-  h.timeline.messageDeleted("m0010");
+  h.timeline.messageDeleted("m0005");
   release();
   await refresh;
-  const row = h.timeline.getState().messages.find((m) => m.id === "m0010");
+  const state = h.timeline.getState();
+  const row = state.messages.find((m) => m.id === "m0005");
   assert.deepEqual(row?.content, { kind: "deleted" });
-  assert.equal(h.timeline.getState().loading, false);
+  assert.deepEqual(row?.reactions, []);
+  assert.equal(state.loading, false);
+  const cached = cache.get(CONVERSATION)?.rows.find((r) => r.id === "m0005");
+  assert.deepEqual(cached?.content, { kind: "deleted" });
+  assert.deepEqual(cached?.reactions, []);
 });
 
-test("a failed read shows Message updates stopped", async () => {
+test("a failed read shows Message updates stopped", async (t) => {
+  t.mock.method(console, "warn", () => {});
   const queries = new FakeConversation(3);
   queries.historyError = new Error("offline");
   const h = harness(queries);
   await h.timeline.load();
-  assert.equal(h.timeline.getState().error, "Message updates stopped.");
+  assert.equal(h.timeline.getState().error, TimelineCopy.updatesStopped);
   queries.historyError = undefined;
   await h.timeline.refresh();
   assert.equal(h.timeline.getState().error, undefined);
@@ -231,10 +251,7 @@ test("a failed read shows Message updates stopped", async () => {
 test("a closed chat ignores results", async () => {
   const queries = new FakeConversation(3);
   const h = harness(queries);
-  let release = (): void => {};
-  queries.gate = new Promise((resolve) => {
-    release = resolve;
-  });
+  const release = queries.hold();
   const load = h.timeline.load();
   h.open = false;
   release();
@@ -247,13 +264,9 @@ test("a newer action supersedes an older one", async () => {
   const queries = new FakeConversation(135);
   const h = harness(queries);
   await h.timeline.load();
-  let release = (): void => {};
-  queries.gate = new Promise((resolve) => {
-    release = resolve;
-  });
+  const release = queries.hold();
   const older = h.timeline.older();
   await settle();
-  queries.gate = undefined;
   await h.timeline.newest();
   release();
   await older;
@@ -267,26 +280,6 @@ test("a cached window shows at once when the chat reopens", async () => {
   const second = harness(new FakeConversation(5), { cache });
   assert.equal(second.timeline.getState().loaded, true);
   assert.equal(second.timeline.getState().messages.length, 5);
-});
-
-test("repeated visibility of the same reading position changes nothing", async () => {
-  const h = harness(new FakeConversation(10));
-  await h.timeline.load();
-  h.timeline.visible(visibleIds(h, 2, 6), foreground);
-  const before = h.timeline.getState();
-  let changes = 0;
-  h.timeline.subscribe(() => {
-    changes += 1;
-  });
-  // Same topmost row, newest row still hidden: scrolling frames re-render nothing.
-  h.timeline.visible(visibleIds(h, 2, 6), foreground);
-  h.timeline.visible(visibleIds(h, 2, 7), foreground);
-  assert.equal(changes, 0);
-  assert.equal(h.timeline.getState(), before);
-  h.timeline.visible(visibleIds(h, 3, 10), foreground);
-  assert.equal(changes, 1);
-  assert.equal(h.timeline.getState().anchorId, "m0004");
-  assert.equal(h.timeline.getState().atNewest, true);
 });
 
 test("Jump to latest drops a pending restore, so the newest rows report again", async () => {
@@ -321,42 +314,16 @@ test("a refresh while following stays at the newest row when the anchor was dele
   assert.equal(state.messages.at(-1)?.id, "m0011");
 });
 
-test("a deleted message loses its reactions, on screen and in the cache", async () => {
-  const queries = new FakeConversation(5);
-  const reacted: ChatMessage = {
-    ...textMessage(5),
-    reactions: [
-      {
-        sender: OWN,
-        emoji: "👍",
-        schema: "unicode",
-        added: true,
-        sentAtNs: 6n,
-      },
-    ],
-  };
-  queries.published[4] = reacted;
-  const cache = new TranscriptCache();
-  const h = harness(queries, { cache });
-  await h.timeline.load();
-  assert.equal(h.timeline.getState().messages.at(-1)?.reactions.length, 1);
-  h.timeline.messageDeleted("m0005");
-  const row = h.timeline.getState().messages.at(-1);
-  assert.deepEqual(row?.content, { kind: "deleted" });
-  assert.deepEqual(row?.reactions, []);
-  const cached = cache.get(CONVERSATION)?.rows.find((r) => r.id === "m0005");
-  assert.deepEqual(cached?.content, { kind: "deleted" });
-  assert.deepEqual(cached?.reactions, []);
-});
-
-test("unreadable history rows show the Load more notice", async () => {
-  const queries = new FakeConversation(10);
-  queries.unreadable.add("m0007");
+test("unreadable history rows are skipped with the Load more notice", async () => {
+  const queries = new FakeConversation(120);
+  // The whole newest page is unreadable: the read continues to the next page.
+  for (let n = 71; n <= 120; n += 1) queries.unreadable.add(textMessage(n).id);
   const h = harness(queries);
   await h.timeline.load();
   const state = h.timeline.getState();
   assert.equal(state.window.notice, TimelineCopy.historySkipped);
-  assert.equal(state.messages.length, 9);
+  assert.equal(state.messages.length, 50);
+  assert.equal(state.messages.at(-1)?.id, "m0070");
   assert.equal(state.error, undefined);
 });
 
@@ -383,6 +350,10 @@ test("unreadable pending rows ask to load more, or to refresh on the last page",
     first.timeline.getState().error,
     TimelineCopy.pendingSkippedMore,
   );
+  // "Older pending" pages to the oldest failed rows.
+  await first.timeline.olderPending();
+  assert.equal(first.timeline.getState().morePending, false);
+  assert.equal(first.timeline.getState().messages.at(-1)?.id, "m1010");
 
   const last = new FakeConversation(3);
   last.unpublished.push(...failedRows(3));

@@ -25,11 +25,8 @@ export const TimelineCopy = {
     "Some stored pending messages cannot be read. Load more to continue.",
   pendingSkippedRefresh:
     "Some stored pending messages cannot be read. Refresh to try again.",
-  noSurvivors: "No surviving messages are available.",
 } as const;
 
-/** SDK pages hold 50 messages. */
-export const HISTORY_PAGE_SIZE = 50;
 /** The transcript cache keeps this many rows per conversation… */
 export const CACHE_ROW_LIMIT = 500;
 /** …for this many conversations. */

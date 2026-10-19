@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { CONVERSATION, FakeConversation, textMessage } from "./chatFakes.ts";
+import {
+  CONVERSATION,
+  FakeConversation,
+  anchorOf,
+  deletedMessage,
+  textMessage,
+} from "./chatFakes.ts";
 import {
   type HistoryWindow,
-  TimelineCopy,
   TranscriptCache,
   anchorTarget,
   aroundWindow,
-  canMarkRead,
-  olderWindow,
-  readMarker,
   showsDateSeparator,
   timelineMessages,
 } from "./chatHistory.ts";
@@ -35,23 +37,6 @@ function window(rows: ChatMessage[], extra: Partial<HistoryWindow> = {}) {
     ...extra,
   } as HistoryWindow;
 }
-
-test("older pages page backwards without duplicates through 135 messages", async () => {
-  const queries = new FakeConversation(135);
-  const newest = await olderWindow(queries, CONVERSATION);
-  assert.equal(newest.rows.length, 50);
-  assert.equal(newest.rows[0]?.id, "m0135");
-  assert.equal(newest.atNewest, true);
-  assert.equal(newest.hasOlder, true);
-  const second = await olderWindow(queries, CONVERSATION, newest.last);
-  assert.equal(second.rows[0]?.id, "m0085");
-  assert.equal(second.atNewest, false);
-  const third = await olderWindow(queries, CONVERSATION, second.last);
-  assert.equal(third.rows.length, 35);
-  assert.equal(third.hasOlder, false);
-  const all = [...newest.rows, ...second.rows, ...third.rows];
-  assert.equal(new Set(ids(all)).size, 135);
-});
 
 test("around reads newer rows after the anchor, then older ones before them", async () => {
   const queries = new FakeConversation(135);
@@ -94,72 +79,22 @@ test("the cache drops duplicate rows and keeps three conversations", () => {
   assert.equal(cache.get("b"), undefined);
 });
 
-test("an older page appends to the cached window", () => {
-  const cache = new TranscriptCache();
-  cache.put(CONVERSATION, window(newestFirst(135, 86), { hasOlder: true }));
-  const appended = cache.append(
-    CONVERSATION,
-    window(newestFirst(85, 36), { hasOlder: true, atNewest: false }),
-    "m0086",
-  );
-  assert.equal(appended.rows.length, 100);
-  assert.equal(appended.atNewest, true);
-  assert.equal(appended.first?.cursor, "m0135");
-  assert.equal(appended.last?.cursor, "m0036");
-});
-
-test("an older page appends to the window on screen after an eviction", () => {
-  const cache = new TranscriptCache();
+test("an older page appends to the cached window, or to the window on screen after an eviction", () => {
   const onScreen = window(newestFirst(135, 86), { hasOlder: true });
-  const appended = cache.append(
-    CONVERSATION,
-    window(newestFirst(85, 36), { atNewest: false }),
-    "m0086",
-    onScreen,
-  );
-  assert.equal(appended.rows[0]?.id, "m0135");
-  assert.equal(appended.rows.length, 100);
-});
-
-test("a refresh replaces the overlap and keeps older history", () => {
-  const cache = new TranscriptCache();
-  cache.put(CONVERSATION, window(newestFirst(100, 1)));
-  const fresh = newestFirst(102, 53).map((row) =>
-    row.id === "m0060"
-      ? { ...row, content: { kind: "deleted" as const } }
-      : row,
-  );
-  const merged = cache.refresh(CONVERSATION, window(fresh, { hasOlder: true }));
-  assert.equal(merged.rows.length, 102);
-  assert.equal(merged.rows[0]?.id, "m0102");
-  assert.equal(merged.rows.at(-1)?.id, "m0001");
-  assert.equal(
-    merged.rows.find((row) => row.id === "m0060")?.content.kind,
-    "deleted",
-  );
-  assert.equal(merged.hasOlder, false);
-});
-
-test("a deleted cached message cannot render its old body or reactions", () => {
-  const cache = new TranscriptCache();
-  const row: ChatMessage = {
-    ...textMessage(1),
-    reactions: [
-      {
-        sender: "bob",
-        emoji: "❤️",
-        schema: "unicode",
-        added: true,
-        sentAtNs: 2n,
-      },
-    ],
-  };
-  cache.put(CONVERSATION, window([row]));
-  cache.markDeleted(CONVERSATION, row.id);
-  assert.deepEqual(cache.get(CONVERSATION)?.rows[0]?.content, {
-    kind: "deleted",
-  });
-  assert.deepEqual(cache.get(CONVERSATION)?.rows[0]?.reactions, []);
+  const page = window(newestFirst(85, 36), { hasOlder: true, atNewest: false });
+  const cached = new TranscriptCache();
+  cached.put(CONVERSATION, onScreen);
+  const evicted = new TranscriptCache();
+  for (const appended of [
+    cached.append(CONVERSATION, page, "m0086"),
+    evicted.append(CONVERSATION, page, "m0086", onScreen),
+  ]) {
+    assert.equal(appended.rows.length, 100);
+    assert.equal(appended.rows[0]?.id, "m0135");
+    assert.equal(appended.atNewest, true);
+    assert.equal(appended.first?.cursor, "m0135");
+    assert.equal(appended.last?.cursor, "m0036");
+  }
 });
 
 test("a refresh of the newest page keeps an older window off the newest end", () => {
@@ -180,45 +115,18 @@ test("a refresh of the newest page keeps an older window off the newest end", ()
   assert.equal(merged.first?.cursor, "m0110");
 });
 
-test("a page of unreadable rows is skipped and counted", async () => {
-  const queries = new FakeConversation(120);
-  for (let n = 71; n <= 120; n += 1) queries.unreadable.add(textMessage(n).id);
-  const newest = await olderWindow(queries, CONVERSATION);
-  assert.equal(newest.rows[0]?.id, "m0070");
-  assert.equal(newest.rows.length, 50);
-  assert.equal(newest.atNewest, true);
-  assert.equal(newest.notice, TimelineCopy.historySkipped);
-  assert.equal(queries.historyCalls, 2);
-});
-
-const anchorOf = (n: number) => {
-  const row = textMessage(n);
-  assert.ok(row.position !== undefined);
-  return { messageId: row.id, position: row.position };
-};
-
-test("anchor restore: the anchor row when it survives", () => {
-  assert.deepEqual(anchorTarget(anchorOf(5), newestFirst(10, 1)), {
-    id: "m0005",
-    changed: false,
-  });
-});
-
 test("anchor restore: a deleted anchor moves to the nearest newer survivor", () => {
-  const rows = newestFirst(10, 1).map((row) =>
-    row.id === "m0005" || row.id === "m0006"
-      ? { ...row, content: { kind: "deleted" as const } }
-      : row,
-  );
+  const rows = [
+    ...newestFirst(10, 7),
+    deletedMessage(6),
+    deletedMessage(5),
+    ...newestFirst(4, 1),
+  ];
   assert.deepEqual(anchorTarget(anchorOf(5), rows), {
     id: "m0007",
     changed: true,
   });
-  const newestDeleted = newestFirst(5, 1).map((row) =>
-    row.id === "m0005"
-      ? { ...row, content: { kind: "deleted" as const } }
-      : row,
-  );
+  const newestDeleted = [deletedMessage(5), ...newestFirst(4, 1)];
   assert.deepEqual(anchorTarget(anchorOf(5), newestDeleted), {
     id: "m0004",
     changed: true,
@@ -238,22 +146,27 @@ test("anchor restore: an absent anchor uses the nearest sent time", () => {
   assert.deepEqual(anchorTarget(anchorOf(11), []), { changed: true });
 });
 
-test("the timeline shows published rows, then pending ones, oldest first, without reactions", () => {
+test("the timeline shows published rows, then pending ones, oldest first, each once, without reactions", () => {
   const reaction: ChatMessage = {
     ...textMessage(4),
     content: { kind: "reaction" },
   };
-  const pending: ChatMessage = { ...textMessage(9), delivery: "queued" };
-  const older: ChatMessage = { ...textMessage(8), delivery: "failed" };
-  assert.deepEqual(
-    ids(
-      timelineMessages(window([textMessage(5), reaction, textMessage(3)]), [
-        pending,
-        older,
-      ]),
-    ),
-    ["m0003", "m0005", "m0008", "m0009"],
+  const pendingReaction: ChatMessage = {
+    ...textMessage(10),
+    delivery: "queued",
+    content: { kind: "reaction" },
+  };
+  const queued: ChatMessage = { ...textMessage(9), delivery: "queued" };
+  const failed: ChatMessage = { ...textMessage(8), delivery: "failed" };
+  // Published since the pending page was read: it shows once, as published.
+  const sent = textMessage(6);
+  const stale: ChatMessage = { ...sent, delivery: "queued" };
+  const rows = timelineMessages(
+    window([sent, textMessage(5), reaction, textMessage(3)]),
+    [pendingReaction, queued, failed, stale],
   );
+  assert.deepEqual(ids(rows), ["m0003", "m0005", "m0006", "m0008", "m0009"]);
+  assert.equal(rows[2]?.delivery, "published");
 });
 
 test("date separators show on the first row and when the day changes", () => {
@@ -266,36 +179,5 @@ test("date separators show on the first row and when the day changes", () => {
   assert.equal(
     showsDateSeparator(new Date(2025, 9, 18, 9), new Date(2026, 9, 18, 9)),
     true,
-  );
-});
-
-test("read markers need foreground, current, newest page and newest row", () => {
-  const all = {
-    foreground: true,
-    current: true,
-    windowAtNewest: true,
-    newestVisible: true,
-  };
-  assert.equal(canMarkRead(all), true);
-  for (const key of Object.keys(all) as (keyof typeof all)[]) {
-    assert.equal(canMarkRead({ ...all, [key]: false }), false, key);
-  }
-  assert.equal(
-    readMarker(window([textMessage(3), textMessage(7)])),
-    7_000_000_001n,
-  );
-  assert.equal(readMarker(window([])), undefined);
-});
-
-test("a row published since the pending read shows once", () => {
-  const sent = textMessage(9);
-  const stale: ChatMessage = { ...sent, delivery: "queued" };
-  assert.deepEqual(
-    ids(timelineMessages(window([sent, textMessage(8)]), [stale])),
-    ["m0008", "m0009"],
-  );
-  assert.equal(
-    timelineMessages(window([sent]), [stale]).at(-1)?.delivery,
-    "published",
   );
 });

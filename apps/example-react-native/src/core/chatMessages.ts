@@ -130,7 +130,7 @@ export function messageDate(message: ChatMessage): Date {
 }
 
 /** Orders strings by Unicode scalar values, like Swift `String <` on emoji. */
-export function compareScalars(left: string, right: string): number {
+function compareScalars(left: string, right: string): number {
   const a = Array.from(left);
   const b = Array.from(right);
   const length = Math.min(a.length, b.length);
