@@ -523,7 +523,9 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), group_context = %hex_kv(group_context)), err)]
+    // The group context is not public: its AppData dictionary holds the
+    // commit-log signer's private key. Record only the group id.
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_context<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupContext: traits::GroupContext<CURRENT_VERSION>,
@@ -1260,6 +1262,7 @@ pub(crate) fn serialize_value<T: Serialize + ?Sized>(
 
 /// Hex bincode of `v` for tracing fields. Empty string on serialize fail (field exprs can't propagate).
 /// Record only storage keys and public values: never a value that holds a private key.
+/// A `GroupContext` holds one: the commit-log signer in its AppData dictionary.
 fn hex_kv<T: Serialize + ?Sized>(v: &T) -> String {
     bincode::serialize(v).map(hex::encode).unwrap_or_default()
 }
@@ -1901,6 +1904,83 @@ pub(crate) mod tests {
             assert!(
                 !attributes.contains(&hex::encode(&**private_key)),
                 "the span records a private key"
+            );
+        }
+    }
+
+    /// The group context's AppData dictionary holds the commit-log signer, a
+    /// group-shared private key, and OpenMLS writes the context on every epoch
+    /// change. The `write_context` span records the group id, never the
+    /// context, and no other key store span records the signer.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn write_context_span_records_no_private_key() {
+        use openmls::{
+            extensions::{
+                AppDataDictionary, AppDataDictionaryExtension, Extension, ExtensionType, Extensions,
+            },
+            group::{GroupContext, MlsGroup},
+            prelude::{BasicCredential, Capabilities, CredentialWithKey},
+        };
+
+        // `ComponentId::COMMIT_LOG_SIGNER` in `xmtp_mls_common`. Its data is
+        // the raw 32-byte signer key.
+        const COMMIT_LOG_SIGNER: u16 = 0x800B;
+
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let provider = XmtpOpenMlsProvider::new(SqlKeyStore::new(store.conn()));
+        let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
+        let credential_with_key = CredentialWithKey {
+            credential: BasicCredential::new(b"group context test".to_vec()).into(),
+            signature_key: signer.to_public_vec().into(),
+        };
+        let commit_log_signer = xmtp_cryptography::rand::rand_vec::<32>();
+        let mut dictionary = AppDataDictionary::new();
+        let _ = dictionary.insert(COMMIT_LOG_SIGNER, commit_log_signer.clone());
+        let extensions = Extensions::single(Extension::AppDataDictionary(
+            AppDataDictionaryExtension::new(dictionary),
+        ))?;
+        let capabilities = Capabilities::new(
+            None,
+            None,
+            Some(&[ExtensionType::AppDataDictionary]),
+            None,
+            None,
+        );
+
+        // OpenMLS writes the context itself while it creates the group.
+        let (group, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+            MlsGroup::builder()
+                .ciphersuite(CIPHERSUITE)
+                .with_capabilities(capabilities)
+                .with_group_context_extensions(extensions)
+                .build(&provider, &signer, credential_with_key)
+        });
+        let group = group?;
+        let signer_hex = hex::encode(&commit_log_signer);
+        let stored_context: GroupContext = provider
+            .storage()
+            .group_context(group.group_id())?
+            .expect("OpenMLS stores the group context");
+        assert!(
+            hex::encode(bincode::serialize(&stored_context)?).contains(&signer_hex),
+            "the stored group context holds the commit-log signer"
+        );
+
+        let span = spans
+            .iter()
+            .find(|span| span.name == "write_context")
+            .expect("the key store exports its write_context span");
+        assert!(
+            format!("{:?}", span.attributes)
+                .contains(&hex::encode(bincode::serialize(group.group_id())?)),
+            "the span records the group id"
+        );
+        for span in &spans {
+            assert!(
+                !format!("{:?}", span.attributes).contains(&signer_hex),
+                "the {} span records the commit-log signer",
+                span.name
             );
         }
     }
