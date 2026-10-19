@@ -404,13 +404,19 @@ test("downloads re-check consent, run once per message, and verify", async () =>
   assert.equal(h.store.verified("m1")?.filename, "report.pdf");
 });
 
-test("a download failure shows Failed with the SDK retry rule", async () => {
+test("a download failure shows Failed with the SDK copy and retry rule", async () => {
   const h = harness();
   const file = remoteFile("report.pdf");
-  h.gateway.downloadError = attachmentError(false);
+  h.gateway.downloadError = new AttachmentError(
+    AttachmentCopy.unverified,
+    false,
+  );
   await h.store.download("m1", file);
   const card = h.store.card("m1", file);
-  assert.deepEqual([card.phase, card.retryable], ["failed", false]);
+  assert.deepEqual(
+    [card.phase, card.retryable, card.error],
+    ["failed", false, AttachmentCopy.unverified],
+  );
 });
 
 test("a consent change drops verified files and a running download's result", async () => {

@@ -228,7 +228,7 @@ test("an initial load failure offers Retry, and a retry clears the error", async
   assert.equal(store.getState().error, undefined);
 });
 
-test("a refreshed leave state clears the pending leave", async () => {
+test("a refreshed leave state clears the pending leave, and a block is recorded", async () => {
   const fake = new FakeQueries();
   fake.pendingLeave = true;
   const store = makeStore(fake);
@@ -239,6 +239,10 @@ test("a refreshed leave state clears the pending leave", async () => {
   store.send({ kind: "refresh" });
   await finish(store);
   assert.equal(store.getState().pendingLeave, false);
+  // Block closes Details: the store records it.
+  store.send({ kind: "mutate", mutation: { kind: "block" } });
+  await finish(store);
+  assert.equal(store.getState().blocked, true);
 });
 
 test("a role change polls until the group shows it or the member leaves", async () => {

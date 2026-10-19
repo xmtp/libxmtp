@@ -105,6 +105,11 @@ test("a changed policy or an immutable field blocks writes", () => {
     checkUnchanged(immutable, immutable);
   });
   assert.equal(canWrite({ ...immutable, componentPresent: false }), true);
+  assert.equal(canWrite({ ...immutable, id: 0xfeff }), false);
+  assert.equal(canWrite({ ...immutable, id: 0xff00 }), true);
+  rejects("changed", () => {
+    checkUnchanged(old, { ...old, shape: "bytes" });
+  });
 });
 
 test("an uppercase byte map key updates the existing entry", () => {
@@ -211,6 +216,22 @@ test("a descriptor maps to a field with its header, policies, authority and valu
   assert.equal(user.editable, false);
   assert.equal(user.canInsert, true);
   assert.equal(user.canDelete, false);
+  // An "any" policy allows when one child allows.
+  const either: MetadataPolicy = {
+    kind: "any",
+    value: [base("deny"), base("allowIfAdmin")],
+  };
+  assert.equal(
+    metadataField(
+      {
+        ...descriptor,
+        permissions: { ...descriptor.permissions, insert: either },
+      },
+      undefined,
+      "admin",
+    ).canInsert,
+    true,
+  );
   // The own-entry rule needs a user field, and an empty "and" allows no one.
   assert.equal(
     metadataField({ ...own, isUserField: false }, undefined, "admin").canInsert,
