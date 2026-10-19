@@ -212,14 +212,21 @@ export async function previewFile(
   );
 }
 
-/** Save to Files. Resolves false when the user cancelled. */
+/**
+ * Save to Files. Resolves false when the user cancelled; throws when the
+ * copy failed.
+ */
 export async function saveFile(path: string, name: string): Promise<boolean> {
   try {
-    await saveDocuments({
+    const results = await saveDocuments({
       sourceUris: [pathToUri(path)],
       copy: true,
       fileName: name,
     });
+    // Android reports a failed copy into the chosen file in its result.
+    if (results.some((result) => typeof result.error === "string")) {
+      throw new Error("The file could not be saved.");
+    }
     return true;
   } catch (error) {
     if (
