@@ -199,9 +199,8 @@ If the release branch was created before backend release support was merged,
 bring that change into the release branch before selecting `backend=true`.
 
 A backend release that publishes also builds `ghcr.io/xmtp/xdbg:<version>`
-from the same source, with the backend version as its tag, and deploys that
-tag to the testnet client monitor. A backend dry run builds the xdbg image
-without pushing or deploying it.
+from the same source and pushes it, with the backend version as its tag.
+Nothing deploys the image. A backend dry run builds it without pushing it.
 
 ## Dev releases
 

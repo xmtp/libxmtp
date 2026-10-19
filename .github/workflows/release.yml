@@ -334,12 +334,12 @@ jobs:
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
-  # The xdbg client monitor on testnet follows backend releases. The image
-  # is built from the backend's pinned source and tagged with the backend
-  # release version, and testnet deploys that tag. A dry run builds the
-  # image without pushing or deploying it.
+  # A backend release publishes the xdbg monitoring image
+  # (apps/xmtp_debug/README.md), built from the backend's pinned source and
+  # tagged with the backend release version. A dry run builds the image
+  # without pushing it. Nothing deploys it.
   release-xdbg:
-    name: xdbg image and testnet deploy
+    name: Publish xdbg image
     needs: [validate, release-backend]
     if: needs.release-backend.result == 'success'
     runs-on: ubuntu-24.04
@@ -380,20 +380,6 @@ jobs:
           push: ${{ needs.validate.outputs.dry-run != 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Deploy to testnet
-        if: needs.validate.outputs.dry-run != 'true'
-        uses: xmtp-labs/terraform-deployer@f73b5d0bb8babb24d6c4325ecdf6c099a2e020de # v1
-        timeout-minutes: 45
-        with:
-          timeout: 45m
-          terraform-token: ${{ secrets.TERRAFORM_TOKEN }}
-          terraform-org: xmtp
-          terraform-workspace: testnet
-          variable-name: "client_monitor_image"
-          variable-value: "${{ env.IMAGE }}:${{ needs.release-backend.outputs.version }}"
-          variable-value-required-prefix: "ghcr.io/xmtp/"
 
   merge-pr:
     name: Merge release PR
@@ -484,7 +470,7 @@ jobs:
             MSG="$MSG Backend ${BACKEND_VERSION:-failed} (${BACKEND_RESULT})"
           fi
           if [ -n "$XDBG_VERSION" ] || [ "$XDBG_RESULT" != "skipped" ]; then
-            MSG="$MSG xdbg ${XDBG_VERSION:-failed} (${XDBG_RESULT})"
+            MSG="$MSG xdbg image ${XDBG_VERSION:-failed} (${XDBG_RESULT})"
           fi
           echo "message=$MSG" >> "$GITHUB_OUTPUT"
       - name: Post to Slack

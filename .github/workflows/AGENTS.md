@@ -28,9 +28,9 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
 `just test dev` checks the tag transfer with a local Git HTTP remote.
 `check-release-push.yml` refuses a source commit that is not on `main`
 or a `release/**` branch; dry runs skip that check.
-There is no scheduled release. A backend release also builds the xdbg image,
-tags it with the backend version, and deploys that tag to testnet
-(`release-xdbg` in `release.yml`).
+There is no scheduled release. A backend release also builds the xdbg image
+and publishes it with the backend version as its tag (`release-xdbg` in
+`release.yml`). Nothing deploys it.
 
 Every `setup-nix` call states its Cachix cache mode (`read`, `ci`, or
 `trusted`), and `setup-js` gets the same mode. Release, publish, deploy,

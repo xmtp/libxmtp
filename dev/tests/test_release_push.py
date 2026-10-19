@@ -964,5 +964,30 @@ class ReleasePushTest(unittest.TestCase):
                     self.assertNotIn("setup", bodies)
 
 
+
+class XdbgImageTest(unittest.TestCase):
+    def test_dry_runs_build_the_image_without_pushing_and_nothing_deploys(self):
+        release = ROOT / ".github/workflows/release.yml"
+        job = yaml.safe_load(release.read_text())["jobs"]["release-xdbg"]
+        steps = {step["name"]: step for step in job["steps"]}
+        publish = "needs.validate.outputs.dry-run != 'true'"
+        self.assertEqual(steps["Log in to GHCR"]["if"], publish)
+        build = steps["Build and push image"]["with"]
+        self.assertEqual(build["push"], "${{ " + publish + " }}")
+        # The tag is the backend release version.
+        self.assertEqual(
+            steps["Extract image labels"]["with"]["tags"],
+            "type=raw,value=${{ needs.release-backend.outputs.version }}",
+        )
+        # The builder layer holds the target directory and cannot be reused
+        # across commits, so the job exports no layer cache.
+        self.assertNotIn("cache-to", build)
+        # Nothing deploys the image.
+        self.assertEqual(
+            [s for s in job["steps"] if s.get("name", "").startswith("Deploy")], []
+        )
+        self.assertNotIn("TERRAFORM_TOKEN", release.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
