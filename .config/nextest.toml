@@ -10,6 +10,17 @@ default-filter = "not package(xmtp_backend) & (not test(test_stream_all_messages
 failure-output = "immediate-final"
 fail-fast = false
 
+# The tests that call xmtp_common::toxiproxy_test share the one Toxiproxy
+# server and reset it. The helper serializes them only within a process, and
+# nextest runs each test in its own process, so this group runs them one at a
+# time. Add a new proxy test here.
+[test-groups]
+toxiproxy = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'test(/::(registration_visibility_deadline_bounds_a_severed_connection|should_reconnect|fuzz_transport_delivery_never_loses_above_the_floor|test_bad_network|test_commit_log_retriable_error|connection_state_across_toxiproxy_drop)$/)'
+test-group = "toxiproxy"
+
 # nix/lib/junit.nix installs this report in the test derivations
 [profile.ci.junit]
 path = "junit.xml"
