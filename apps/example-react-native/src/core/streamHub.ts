@@ -42,7 +42,7 @@ export type SessionEvent =
   | { readonly kind: "changed"; readonly cause: "consent" | "lagged" };
 
 /** The session event for an SDK event, or undefined for kinds the app ignores. */
-export function sessionEvent(event: ClientEvent): SessionEvent | undefined {
+function sessionEvent(event: ClientEvent): SessionEvent | undefined {
   switch (event.kind) {
     case "handle.changed":
       return {

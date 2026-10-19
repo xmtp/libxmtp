@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { SessionCopy, SessionError } from "./sessionError.ts";
 import { type SettingsPorts, SettingsModel } from "./settingsModel.ts";
+import { deferred } from "./testing.ts";
 
 function ports(overrides: Partial<SettingsPorts> = {}): SettingsPorts & {
   calls: string[];
@@ -28,19 +29,14 @@ function ports(overrides: Partial<SettingsPorts> = {}): SettingsPorts & {
 }
 
 test("one device action runs at a time", async () => {
-  let release = () => {};
-  const fake = ports({
-    signOut: () =>
-      new Promise<void>((resolve) => {
-        release = resolve;
-      }),
-  });
+  const signOut = deferred();
+  const fake = ports({ signOut: () => signOut.promise });
   const model = new SettingsModel(fake);
   const first = model.signOut();
   assert.equal(model.getState().busy, true);
   await model.deleteLocalData();
   assert.deepEqual(fake.calls, [], "ignored while busy");
-  release();
+  signOut.resolve();
   await first;
   assert.equal(model.getState().busy, false);
   assert.equal(model.getState().error, undefined);
