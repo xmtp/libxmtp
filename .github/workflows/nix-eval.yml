@@ -1,4 +1,4 @@
-name: Nix evaluation
+name: "Lint: Nix evaluation"
 on:
   workflow_call:
 jobs:
@@ -6,13 +6,14 @@ jobs:
   # request that breaks their evaluation would pass. Evaluating every drvPath
   # catches that in about 2.5 minutes.
   ci-sets:
-    name: Evaluate the warm sets
+    name: Evaluate CI build sets
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           github-token: ${{ github.token }}

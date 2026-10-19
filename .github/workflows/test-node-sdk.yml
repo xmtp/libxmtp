@@ -1,4 +1,4 @@
-name: Test Node SDK
+name: "Test: Node SDK, Agent SDK, CLI"
 on:
   workflow_call:
     inputs:
@@ -14,31 +14,33 @@ env:
 jobs:
   # One job and one backend start for the Node SDK, CLI, and Agent SDK tests.
   test:
-    name: Test (node-sdk, cli, agent-sdk)
+    name: Tests
     runs-on: ${{ inputs.runner }}
     # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
     timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: ci
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/setup-js
+      - name: Install JS dependencies (pnpm)
+        uses: ./.github/actions/setup-js
         with:
           cache-mode: ci
-      - name: Start backend
+      - name: dev/nix-shell 'just backend up'
         run: dev/nix-shell 'just backend up'
-      - name: Run node-sdk tests
+      - name: dev/nix-shell 'just js test-node-sdk-ci --exclude test/streamRecovery.test.ts'
         id: node
         run: dev/nix-shell 'just js test-node-sdk-ci --exclude test/streamRecovery.test.ts'
       # The CLI and agent tests also run when an earlier test step failed, so
       # one run reports all three. They do not run when setup failed.
-      - name: Run CLI tests
+      - name: dev/nix-shell 'just cli test'
         if: ${{ !cancelled() && steps.node.outcome != 'skipped' }}
         run: dev/nix-shell 'just cli test'
-      - name: Run agent-sdk tests
+      - name: dev/nix-shell 'just js test-agent-sdk-ci'
         if: ${{ !cancelled() && steps.node.outcome != 'skipped' }}
         run: dev/nix-shell 'just js test-agent-sdk-ci'

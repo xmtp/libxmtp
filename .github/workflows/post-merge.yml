@@ -5,7 +5,7 @@
 #
 # Trusted: only pushes to trunk start this workflow, and only the writer
 # environment holds the trusted Cachix token.
-name: Post-merge
+name: "Post-merge: caches and docs"
 on:
   push:
     branches:
@@ -231,15 +231,17 @@ jobs:
 
   build:
     needs: [rn-components, rn-package, rn-consumers]
-    name: Build (${{ matrix.system }})
+    name: Cache dev and release outputs (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - system: x86_64-linux
+            os: Linux
             runner: blacksmith-16vcpu-ubuntu-2404
           # The macOS image of the iOS test and release jobs.
           - system: aarch64-darwin
+            os: macOS
             runner: warp-macos-15-arm64-12x
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -247,17 +249,20 @@ jobs:
     env:
       SYSTEM: ${{ matrix.system }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
       # and a build with another fails, so select it before the build.
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         if: runner.os == 'macOS'
         with:
           xcode-version: "26.3"
       - name: Show the Xcode version
         if: runner.os == 'macOS'
         run: xcodebuild -version
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "trusted"
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -297,23 +302,28 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/setup-js
+      - name: Install JS dependencies (pnpm)
+        uses: ./.github/actions/setup-js
         with:
           cache-mode: trusted
 
   closure:
-    name: Check that the warm sets substitute
+    name: Verify cached dev and release outputs
     # Waits for both build jobs, after their post steps finish the uploads.
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
       # An empty-store dry run reads the narinfo of each path from the
@@ -422,26 +432,30 @@ jobs:
     env:
       NIX_DEVSHELL: ios
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix),
       # and sdks/ios/dev/bindings fails in CI with another. The image default is
       # older.
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: "26.3"
       - name: Show the Xcode version
         run: xcodebuild -version
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: read
           github-token: ${{ github.token }}
-      - name: Build the Swift reference
+      - name: dev/nix-shell 'just ios docs apps/docs/generated/reference/swift'
         run: dev/nix-shell 'just ios docs apps/docs/generated/reference/swift'
       - name: Archive Swift reference
         env:
           COPYFILE_DISABLE: "1"
         run: tar -cf "${RUNNER_TEMP}/docs-swift.tar" -C apps/docs/generated/reference/swift .
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - name: Upload docs-swift
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: docs-swift
           path: ${{ runner.temp }}/docs-swift.tar
@@ -454,14 +468,17 @@ jobs:
     env:
       NIX_DEVSHELL: android
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: read
           github-token: ${{ github.token }}
-      - name: Build the Kotlin reference
+      - name: dev/nix-shell 'just android docs-generated'
         run: dev/nix-shell 'just android docs-generated'
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - name: Upload docs-kotlin
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: docs-kotlin
           path: sdks/android/library/build/dokka/html
@@ -469,7 +486,7 @@ jobs:
   # The docs compose job downloads the docs-swift and docs-kotlin artifacts of
   # this run, so it waits for both references.
   docs:
-    name: Docs
+    name: Docs site
     needs: [closure, docs-swift, docs-kotlin]
     uses: ./.github/workflows/deploy-docs.yml
     with:

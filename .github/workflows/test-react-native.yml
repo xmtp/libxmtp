@@ -5,7 +5,7 @@
 # Pull request runs assemble the partial test package (x86_64 Android, iOS
 # simulator); every other event assembles the full release package. Release
 # consumers still test the exact versioned tarball before npm publish.
-name: React Native SDK
+name: "Test: React Native SDK"
 on:
   workflow_dispatch:
     inputs:

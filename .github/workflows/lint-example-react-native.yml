@@ -1,4 +1,4 @@
-name: Lint React Native example
+name: "Lint: React Native example app"
 on:
   workflow_call:
     secrets:
@@ -11,15 +11,17 @@ env:
   NIX_DEVSHELL: js-node
 jobs:
   lint:
-    name: Lint (React Native example)
+    name: Typecheck, lint, unit tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-      - name: Check React Native example
+      - name: dev/nix-shell 'just example-react-native check'
         run: dev/nix-shell 'just example-react-native check'

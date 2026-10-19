@@ -37,7 +37,7 @@ jobs:
     secrets: inherit
 
   components:
-    name: RN components (${{ matrix.system }})
+    name: Build RN components (${{ matrix.system }})
     needs: [check-push-permissions]
     strategy:
       fail-fast: false
@@ -70,7 +70,7 @@ jobs:
           cache-mode: "read"
 
   build:
-    name: Assemble the canonical RN package
+    name: Assemble npm package
     needs: [components, check-push-permissions]
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
@@ -112,7 +112,7 @@ jobs:
           retention-days: 1
 
   consumers:
-    name: RN installed consumers (${{ matrix.platform }})
+    name: Installed-app tests (${{ matrix.platform }})
     needs: [build, check-push-permissions]
     strategy:
       fail-fast: false

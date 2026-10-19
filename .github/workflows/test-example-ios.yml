@@ -1,4 +1,4 @@
-name: Test iOS example
+name: "Test: iOS example app"
 on:
   workflow_call:
     secrets:
@@ -12,26 +12,29 @@ jobs:
   # The fast job: lint first, then the ExampleKit unit tests and the Debug and
   # Push builds. The journeys run in their own job, in parallel.
   tests:
-    name: Lint, unit tests, and builds (iOS example)
+    name: Lint, unit tests, builds
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: "26.3"
-      - name: Check native Apple toolchain
+      - name: dev/nix-shell 'bash dev/check-apple-toolchain'
         run: dev/nix-shell 'bash dev/check-apple-toolchain'
-      - name: Lint and unit tests
+      - name: dev/nix-shell 'just example-ios lint && just example-ios test'
         run: dev/nix-shell 'just example-ios lint && just example-ios test'
-      - name: Build Debug
+      - name: dev/nix-shell 'just example-ios build'
         run: dev/nix-shell 'just example-ios build'
-      - name: Compile Push configuration
+      - name: CONFIGURATION=Push dev/nix-shell 'just example-ios build'
         run: CONFIGURATION=Push dev/nix-shell 'just example-ios build'
       - name: Check configuration entitlements
         run: |
@@ -45,23 +48,26 @@ jobs:
           push_settings=$(dev/nix-shell "env -u LD xcodebuild -showBuildSettings -project apps/example-ios/ExampleApp.xcodeproj -scheme ExampleApp -configuration Push -sdk iphonesimulator")
           printf '%s\n' "$push_settings" | grep -Eq '^[[:space:]]*CODE_SIGN_ENTITLEMENTS = ExampleApp/Resources/ExampleApp-Push.entitlements[[:space:]]*$'
   journeys:
-    name: Simulator journeys (iOS example)
+    name: Simulator journeys
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: "26.3"
-      - name: Check native Apple toolchain
+      - name: dev/nix-shell 'bash dev/check-apple-toolchain'
         run: dev/nix-shell 'bash dev/check-apple-toolchain'
       # `test-ui` builds Debug first.
-      - name: Run simulator journeys
+      - name: dev/nix-shell 'just backend ci just example-ios test-ui'
         env:
           XMTP_SERVICES_LOGS: ${{ runner.temp }}/backend-ci-logs/journeys
           XMTP_BACKEND_URL: http://127.0.0.1:5050

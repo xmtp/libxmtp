@@ -1,4 +1,4 @@
-name: Check Rust compiler lint
+name: "Test: Rust Clippy"
 on:
   workflow_call:
     inputs:
@@ -17,7 +17,7 @@ jobs:
   # Native and WASM Clippy in one job and one Kache scope. `wasm` is an alias
   # of the rust shell (flake.nix), so one shell serves every step.
   clippy:
-    name: Check (native all-feature and WASM Clippy)
+    name: Clippy (native, SDK generator, WASM)
     runs-on: ${{ inputs.runner }}
     # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
     timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
@@ -26,8 +26,10 @@ jobs:
     env:
       NIX_DEVSHELL: rust
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'ci' }}
           github-token: ${{ github.token }}
@@ -39,15 +41,15 @@ jobs:
           kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
           kache-scope: rust-clippy
           kache-readonly: "false"
-      - name: Run native all-feature Clippy
+      - name: dev/nix-shell 'dev/agent-run cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings'
         id: native
         run: dev/nix-shell 'dev/agent-run cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings'
       # The later checks also run when native Clippy fails, so one run reports
       # every Clippy failure. They do not run when setup failed.
-      - name: Run SDK generator Clippy
+      - name: dev/nix-shell 'dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings'
         # The generator is not a default workspace member.
         if: ${{ !cancelled() && steps.native.outcome != 'skipped' }}
         run: dev/nix-shell 'dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings'
-      - name: Run WASM Clippy
+      - name: dev/nix-shell 'just wasm lint'
         if: ${{ !cancelled() && steps.native.outcome != 'skipped' }}
         run: dev/nix-shell 'just wasm lint'

@@ -1,4 +1,4 @@
-name: Test Browser SDK
+name: "Test: Browser SDK"
 on:
   workflow_call:
     inputs:
@@ -15,25 +15,27 @@ jobs:
   # One job: the tests take about 20 s per former shard against about 2 min
   # of setup and backend start. check_types typechecks and lints web-chat.
   test:
-    name: Test (browser-sdk)
+    name: Tests and xmtp.chat
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: ci
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/setup-js
+      - name: Install JS dependencies (pnpm)
+        uses: ./.github/actions/setup-js
         with:
           cache-mode: ci
-      - name: Start backend
+      - name: dev/nix-shell 'just backend up'
         run: dev/nix-shell 'just backend up'
-      - name: Run browser-sdk tests
+      - name: dev/nix-shell 'just js test-browser-sdk-ci'
         run: dev/nix-shell 'just js test-browser-sdk-ci'
-      - name: Build web-chat
+      - name: dev/nix-shell 'just web-chat build'
         run: dev/nix-shell 'just web-chat build'
-      - name: Test web-chat
+      - name: dev/nix-shell 'just web-chat test'
         run: dev/nix-shell 'just web-chat test'

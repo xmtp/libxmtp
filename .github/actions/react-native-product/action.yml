@@ -82,7 +82,7 @@ runs:
       with:
         name: ${{ inputs.artifact-prefix }}-package-closure
         path: target/rn-exchange/package
-    - name: Record the initial product identities
+    - name: dev/nix-shell --shell js-node --command python3.11 "$GITHUB_ACTION_PATH/receipt.py" "$RN_STAGE" "$RN_SYSTEM" "$RN_PACKAGE_VERSION" '${{ inputs.cache-mode }}' before
       if: (inputs.debug == 'true' || runner.debug == '1') && inputs.stage != 'package'
       id: before
       shell: bash
@@ -228,7 +228,7 @@ runs:
             ;;
           *) exit 1 ;;
         esac
-    - name: Record realized product identities
+    - name: dev/nix-shell --shell js-node --command python3.11 "$GITHUB_ACTION_PATH/receipt.py" "$RN_STAGE" "$RN_SYSTEM" "$RN_PACKAGE_VERSION" '${{ inputs.cache-mode }}' after
       if: always() && steps.before.outcome == 'success' && inputs.stage != 'package'
       shell: bash
       env:

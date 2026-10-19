@@ -1,4 +1,4 @@
-name: Test dev tools
+name: "Test: Dev tools"
 on:
   workflow_call:
     inputs:
@@ -10,19 +10,21 @@ env:
   NIX_DEVSHELL: rust
 jobs:
   test:
-    name: Test (dev tools)
+    name: Python and release-tool tests
     runs-on: ${{ inputs.runner }}
     # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
     timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 40 || 20 }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/setup-js
+      - name: Install JS dependencies (pnpm)
+        uses: ./.github/actions/setup-js
         with:
           cache-mode: "ci"
-      - name: Run the dev tool tests
+      - name: dev/nix-shell 'just test dev'
         run: dev/nix-shell 'just test dev'

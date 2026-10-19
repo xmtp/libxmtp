@@ -1,4 +1,4 @@
-name: Lint Deny
+name: "Lint: Rust dependency advisories"
 on:
   # Advisories appear without a change in this repository. The daily run on
   # the default branch reports them and fails on one. Pull requests and
@@ -11,15 +11,16 @@ env:
   NIX_DEVSHELL: rust
 jobs:
   deny:
-    name: Lint (cargo-deny advisories)
+    name: cargo deny advisories
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           github-token: ${{ github.token }}
-      - name: Check advisories
+      - name: dev/nix-shell 'cargo deny --locked check advisories'
         run: dev/nix-shell 'cargo deny --locked check advisories'

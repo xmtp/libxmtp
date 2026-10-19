@@ -1,4 +1,4 @@
-name: Test Android
+name: "Test: Android SDK"
 'on':
   workflow_call:
 permissions:
@@ -8,20 +8,23 @@ jobs:
   # test-example-android.yml: setup-gradle keys its entries by job id and the
   # calling workflow, so a shared id would mix two Gradle User Homes.
   sdk-build:
-    name: Build, unit tests, and consumers (Android)
+    name: Build, JVM tests, lint (Gradle)
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 40
     env:
       # The slim CI shell: no Rust toolchain, no emulator.
       NIX_DEVSHELL: android-ci
     steps:
-    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-    - uses: ./.github/actions/setup-nix
+    - name: Check out the source
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    - name: Set up Nix
+      uses: ./.github/actions/setup-nix
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
         github-token: ${{ github.token }}
-    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       with:
         # CI-only Gradle cache: protected trunk pushes write it, and every
         # other run only reads it. Release and deploy jobs never restore it.
@@ -29,13 +32,13 @@ jobs:
         # check-consumers compiles fail by design, so clean up the trunk
         # entry even when a Gradle build in this job failed.
         cache-cleanup: always
-    - name: Start backend
+    - name: dev/nix-shell 'just backend up'
       run: dev/nix-shell 'just backend up'
     # One Gradle call: `gradlew build` (unit tests, Android Lint, Spotless,
     # both AARs) and the instrumented test APK, then the AAR package checks.
-    - name: Build and test the SDK
+    - name: dev/nix-shell 'just android check'
       run: dev/nix-shell 'just android check'
-    - name: Check Kotlin consumers
+    - name: dev/nix-shell 'just android check-consumers'
       run: dev/nix-shell 'just android check-consumers'
     - name: Retain backend startup diagnostics
       if: failure()
@@ -46,32 +49,35 @@ jobs:
         if-no-files-found: ignore
         retention-days: 7
   sdk-emulator:
-    name: Emulator tests, API 34 and API 23 (Android)
+    name: ${{ github.event_name == 'pull_request' && 'Emulator tests (API 34)' || 'Emulator tests (API 34, API 23)' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 60
     env:
       # The slim CI shell with the emulator; no Rust toolchain.
       NIX_DEVSHELL: android-ci-emulator
     steps:
-    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-    - uses: ./.github/actions/setup-nix
+    - name: Check out the source
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    - name: Set up Nix
+      uses: ./.github/actions/setup-nix
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
         github-token: ${{ github.token }}
-    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       with:
         # CI-only Gradle cache: protected trunk pushes write it, and every
         # other run only reads it. Release and deploy jobs never restore it.
         cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main') }}
-    - name: Start backend
+    - name: dev/nix-shell 'just backend up'
       run: dev/nix-shell 'just backend up'
     - name: Enable KVM
       run: |
         echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
-    - name: Run integration tests (API 34)
+    - name: dev/nix-shell 'just android test-integration'
       timeout-minutes: 30
       env:
         NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/android-emulator-startup
@@ -93,7 +99,7 @@ jobs:
     # The API 23 smoke boots its own emulator after the API 34 run ends. It
     # runs on merge and manual runs only, not on pull requests: a minimum SDK
     # break shows on the merge run. It also runs when the API 34 tests fail.
-    - name: Run the minimum SDK smoke (API 23)
+    - name: dev/nix-shell 'just android test-min-sdk'
       if: ${{ !cancelled() && github.event_name != 'pull_request' }}
       timeout-minutes: 30
       env:

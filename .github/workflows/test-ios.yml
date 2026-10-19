@@ -1,4 +1,4 @@
-name: Test iOS
+name: "Test: iOS SDK"
 
 on:
   workflow_call:
@@ -11,26 +11,29 @@ jobs:
   # copy when the store path is unchanged) and runs every iOS check.
   tests:
     runs-on: warp-macos-15-arm64-6x
-    name: Tests (iOS)
+    name: Lint and tests (macOS, simulator)
     timeout-minutes: 60
     env:
       NIX_DEVSHELL: ios
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
       # The Xcode of the iOS outputs (`xcode` in nix/lib/ios-env.nix).
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: "26.3"
-      - name: Check native Apple toolchain
+      - name: dev/nix-shell 'dev/check-apple-toolchain'
         run: dev/nix-shell 'dev/check-apple-toolchain'
       # SwiftLint and SwiftFormat take seconds, so they run here instead of in
       # a macOS lint job of their own.
-      - name: Lint the iOS SDK
+      - name: dev/nix-shell 'just ios lint'
         run: dev/nix-shell 'just ios lint'
       # The tracked Swift under sdks/ios/Sources must match the generated
       # Swift: a changed, deleted, or new file fails.
@@ -44,11 +47,11 @@ jobs:
             git diff --stat -- sdks/ios/Sources
             exit 1
           fi
-      - name: Run iOS unit tests
+      - name: dev/nix-shell 'just backend ci just ios test'
         run: dev/nix-shell 'just backend ci just ios test'
-      - name: Check Swift consumers
+      - name: dev/nix-shell 'just ios check-consumer'
         run: dev/nix-shell 'just ios check-consumer'
-      - name: Run iOS simulator tests
+      - name: dev/nix-shell 'just backend ci just ios test-simulator'
         run: dev/nix-shell 'just backend ci just ios test-simulator'
       - name: Retain native service logs
         timeout-minutes: 2

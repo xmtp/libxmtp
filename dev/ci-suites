@@ -797,13 +797,21 @@ def products_job(group, spec, runner):
         "    - detect-changes",
         f"    if: contains(fromJSON(needs.detect-changes.outputs.products), '{group}')",
         f"    runs-on: {scalar(runner)}",
-        "    timeout-minutes: 60",
+        # A GitHub-hosted runner (merge and manual runs) has 4 vCPU.
+        "    timeout-minutes: "
+        + (
+            "${{ github.event_name == 'pull_request' && 60 || 120 }}"
+            if "${{" in runner
+            else "60"
+        ),
         "    steps:",
-        f"    - uses: {CHECKOUT}",
+        "    - name: Check out the source",
+        f"      uses: {CHECKOUT}",
         # Mode ci pushes what the job builds to xmtp-pr, where the suites'
         # jobs (also mode ci) substitute it. Select suites picks a group only
         # when this token is set.
-        "    - uses: ./.github/actions/setup-nix",
+        "    - name: Set up Nix",
+        "      uses: ./.github/actions/setup-nix",
         "      with:",
         "        cache-mode: ci",
         "        cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}",
@@ -862,7 +870,8 @@ SELECT_JOB = """\
       advisory_suites: ${{{{ steps.select.outputs.advisory_suites }}}}
       products: ${{{{ steps.select.outputs.products }}}}
     steps:
-    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    - name: Check out the source
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       with:
         fetch-depth: 2
     - name: List changed paths

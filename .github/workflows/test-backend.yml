@@ -1,4 +1,4 @@
-name: Test self-hosted backend
+name: "Test: Backend Docker image"
 on:
   workflow_dispatch:
   workflow_call:
@@ -19,7 +19,7 @@ jobs:
   # then the full stack passes the observability check. The backend's own
   # tests run in test-nix-checks.yml.
   backend-image:
-    name: Backend image and observability (${{ matrix.arch }})
+    name: Image smoke and observability (${{ matrix.arch }})
     strategy:
       fail-fast: true
       matrix:
@@ -30,12 +30,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - name: Build backend image
+      - name: dev/nix-shell 'just backend image'
         run: dev/nix-shell 'just backend image'
       - name: Load backend image
         run: docker load --input result-backend-image
@@ -72,11 +73,11 @@ jobs:
           dev/nix-shell 'just backend down'
       # `just backend up` loads the image built above. The check builds xdbg
       # as a traffic client and checks the traces, metrics, and dashboard.
-      - name: Verify observability
+      - name: dev/nix-shell 'just backend up && just backend observe-check'
         run: dev/nix-shell 'just backend up && just backend observe-check'
-      - name: Stack logs
+      - name: dev/nix-shell 'just backend logs' || true
         if: failure()
         run: dev/nix-shell 'just backend logs' || true
-      - name: Stop the stack
+      - name: dev/nix-shell 'just backend down'
         if: always()
         run: dev/nix-shell 'just backend down'

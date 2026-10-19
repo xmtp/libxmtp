@@ -1,7 +1,7 @@
 # The blocking React Native unit checks: package admission, the React
 # ownership tests, and the native helper compile. They need no device, no
 # mobile build, and no products job. The device chain is test-react-native.yml.
-name: React Native unit checks
+name: "Test: React Native unit checks"
 on:
   workflow_call:
     inputs:
@@ -34,14 +34,14 @@ jobs:
         with:
           cache-mode: ci
           filter: "@xmtp/react-native-sdk..."
-      - name: Check package admission and receipts
+      - name: dev/nix-shell 'just react-native check-package'
         run: dev/nix-shell 'just react-native check-package'
-      - name: Run the React ownership tests
+      - name: dev/nix-shell 'just react-native test-react'
         run: dev/nix-shell 'just react-native test-react'
-      - name: Compile and run the native helpers
+      - name: dev/nix-shell 'just react-native test-native'
         run: dev/nix-shell 'just react-native test-native'
       # Reload settlement needs no device. The journey trim may delete this
       # test; the step then has nothing to run.
-      - name: Run the reload-settlement controller tests
+      - name: dev/nix-shell 'just react-native test-control'
         if: hashFiles('sdks/react-native/test/conformance/peer-runtime.test.mjs') != ''
         run: dev/nix-shell 'just react-native test-control'

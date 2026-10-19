@@ -23,12 +23,14 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+    - name: Set up Node.js (host)
+      uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
       if: ${{ inputs.nix != 'true' }}
       with:
         node-version-file: ".node-version"
     # This reads the exact pnpm version from the root packageManager field.
-    - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+    - name: Set up pnpm (host)
+      uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       if: ${{ inputs.nix != 'true' }}
 
     - name: Find pnpm store path (Nix)
@@ -67,7 +69,7 @@ runs:
         restore-keys: |
           pnpm-${{ runner.os }}-${{ runner.arch }}-
 
-    - name: Install workspace dependencies (Nix)
+    - name: dev/nix-shell --shell js-node 'pnpm install --frozen-lockfile --prefer-offline ${PNPM_FILTER:+--filter "$PNPM_FILTER"} ${PNPM_IGNORE_SCRIPTS:+--ignore-scripts}'
       if: ${{ inputs.nix == 'true' }}
       shell: bash
       env:
