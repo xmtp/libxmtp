@@ -3,7 +3,7 @@ title: React Native and Expo
 description: Set up the native XMTP SDK, storage, and optional React helpers on iOS and Android.
 ---
 
-Use `@xmtp/react-native-sdk@8.0.0` for a React Native app connected to your
+Use `@xmtp/react-native-sdk@8.0.0-rc3` for a React Native app connected to your
 self-hosted XMTP backend. It exposes the native v8 TypeScript API through a
 Hermes JSI TurboModule. Import app APIs from the package root. The raw generated
 bindings are private.
@@ -42,7 +42,7 @@ and are not advertised as supported.
 Add the package to a native React Native app with Hermes and New Architecture:
 
 ```sh
-npm install --save-exact @xmtp/react-native-sdk@8.0.0
+npm install --save-exact @xmtp/react-native-sdk@8.0.0-rc3
 ```
 
 For iOS, install the app's pods after adding the package:
@@ -62,7 +62,7 @@ Use an Expo development build or a prebuilt native project. Expo Go does not
 include the XMTP native module.
 
 ```sh
-npx expo install @xmtp/react-native-sdk@8.0.0
+npx expo install @xmtp/react-native-sdk@8.0.0-rc3
 npx expo prebuild
 npx expo run:ios
 ```
