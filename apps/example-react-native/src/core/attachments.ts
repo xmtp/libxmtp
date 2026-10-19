@@ -203,8 +203,11 @@ export function defaultCard(id: string, file: RemoteAttachment): FileCard {
   };
 }
 
+/** `value` with at most `digits` fraction digits: "1.20" → "1.2", "10" stays. */
 function trimFraction(value: number, digits: number): string {
-  return value.toFixed(digits).replace(/\.?0+$/u, "");
+  const text = value.toFixed(digits);
+  // Without a fraction there is nothing to trim: "10" keeps its zero.
+  return digits === 0 ? text : text.replace(/\.?0+$/u, "");
 }
 
 /**
