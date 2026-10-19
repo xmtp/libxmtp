@@ -201,3 +201,97 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
         }
     }
 }
+
+// The real database from @xmtp/react-native-sdk 5.7.0 converts and imports
+// into a client with its group metadata, messages, and consent.
+// verifies: MIG-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn react_native_5_7_0_database_imports_into_a_client() {
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../xmtp_legacy_migration/fixtures/react-native-5.7.0"
+    );
+    let expected: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(format!("{fixture}/expected-records.json"))?)?;
+    let text = |value: &serde_json::Value| value.as_str().expect("fixture string").to_owned();
+    let directory = tempfile::tempdir()?;
+    for suffix in ["", ".sqlcipher_salt"] {
+        let name = format!("react-native-5.7.0.db3{suffix}");
+        std::fs::copy(format!("{fixture}/{name}"), directory.path().join(name))?;
+    }
+    let output = directory.path().join("migration.xmtp");
+    prepare_migration_archive(PrepareMigrationArchiveArgs {
+        database_path: directory
+            .path()
+            .join("react-native-5.7.0.db3")
+            .to_str()
+            .unwrap()
+            .into(),
+        database_key: Some(hex::decode(text(&expected["databaseKeyHex"]))?),
+        archive_key: KEY.to_vec(),
+        output_path: output.to_str().unwrap().into(),
+    })
+    .await?;
+
+    tester!(destination, disable_workers);
+    let mut importer = ArchiveImporter::from_file(&output, &KEY).await?;
+    insert_importer(&mut importer, &destination.context).await?;
+
+    let [record] = expected["groups"].as_array().expect("groups").as_slice() else {
+        panic!("the fixture has one group");
+    };
+    let group_id: xmtp_proto::types::GroupId = text(&record["id"]).parse()?;
+    let group = destination.group(&group_id)?;
+    assert_eq!(group.group_name()?, text(&record["name"]));
+    assert_eq!(group.group_description()?, text(&record["description"]));
+    let messages: Vec<StoredGroupMessage> = destination.db().raw_query(|conn| {
+        group_messages::table
+            .filter(group_messages::group_id.eq(&group_id))
+            .order(group_messages::sent_at_ns)
+            .select(StoredGroupMessage::as_select())
+            .load(conn)
+    })?;
+    let mut expected_messages = expected["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .map(|message| {
+            (
+                text(&message["id"]),
+                text(&message["senderInboxId"]),
+                text(&message["sentAtNs"]),
+                text(&message["encodedContentHex"]),
+            )
+        })
+        .collect::<Vec<_>>();
+    expected_messages.sort_by(|a, b| a.2.cmp(&b.2));
+    assert_eq!(
+        messages
+            .iter()
+            .map(|message| (
+                hex::encode(&message.id),
+                message.sender_inbox_id.clone(),
+                message.sent_at_ns.to_string(),
+                hex::encode(&message.decrypted_message_bytes),
+            ))
+            .collect::<Vec<_>>(),
+        expected_messages
+    );
+    for record in expected["consent"].as_array().expect("consent") {
+        let kind = match record["entityType"].as_str() {
+            Some("conversation_id") => ConsentType::ConversationId,
+            Some("inbox_id") => ConsentType::InboxId,
+            other => panic!("unexpected fixture entity type {other:?}"),
+        };
+        let state = match record["state"].as_str() {
+            Some("allowed") => ConsentState::Allowed,
+            Some("denied") => ConsentState::Denied,
+            other => panic!("unexpected fixture state {other:?}"),
+        };
+        let consent = destination
+            .db()
+            .get_consent_record(text(&record["entity"]), kind)?
+            .expect("imported consent record");
+        assert_eq!(consent.state, state);
+    }
+}
