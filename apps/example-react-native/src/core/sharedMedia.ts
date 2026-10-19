@@ -33,7 +33,7 @@ export interface SharedMediaState {
 }
 
 /** True for a file message under "Photos and videos". */
-export function isVisualRow(row: ChatMessage): boolean {
+function isVisualRow(row: ChatMessage): boolean {
   return (
     row.content.kind === "attachment" && isVisualFile(row.content.file.filename)
   );

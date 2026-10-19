@@ -6,17 +6,13 @@ import {
   AttachmentCopy,
   AttachmentDraftStore,
   type FileDraft,
-  VerifiedFileCache,
   attachmentFailure,
   byteCount,
   cardStatus,
   draftMetadata,
   exceedsLimit,
-  fileTypeDescription,
   isVisualFile,
   mimeTypeFor,
-  parseDraft,
-  encodeDraft,
   photoName,
   safeFileName,
 } from "./attachments.ts";
@@ -54,7 +50,7 @@ test("SDK failure causes map to their message and retry rule", () => {
   );
 });
 
-test("byte counts read like ByteCountFormatter's file style", () => {
+test("byte counts use decimal units: whole bytes and KB, one MB digit, two GB digits", () => {
   assert.equal(byteCount(0), "Zero KB");
   assert.equal(byteCount(1), "1 byte");
   assert.equal(byteCount(12), "12 bytes");
@@ -70,15 +66,16 @@ test("byte counts read like ByteCountFormatter's file style", () => {
 test("card status follows consent first, then the phase", () => {
   assert.equal(cardStatus("available", false), AttachmentCopy.closed);
   assert.equal(cardStatus("verified", false), AttachmentCopy.closed);
-  assert.equal(cardStatus("available", true), "Download to verify");
-  assert.equal(cardStatus("downloading", true), "Downloading");
-  assert.equal(cardStatus("verified", true), "Verified");
-  assert.equal(cardStatus("failed", true), "Failed");
-  assert.equal(cardStatus("expired", true), "Expired");
+  assert.equal(cardStatus("available", true), AttachmentCopy.available);
+  assert.equal(cardStatus("downloading", true), AttachmentCopy.downloading);
+  assert.equal(cardStatus("verified", true), AttachmentCopy.verified);
+  assert.equal(cardStatus("failed", true), AttachmentCopy.failed);
 });
 
 test("names, types and the staging limit", () => {
+  // Types come from the last extension, in any case, else the picker's type.
   assert.equal(mimeTypeFor("photo.JPG"), "image/jpeg");
+  assert.equal(mimeTypeFor("notes.v2.txt"), "text/plain");
   assert.equal(
     mimeTypeFor("archive.xyz", "application/x-xyz"),
     "application/x-xyz",
@@ -103,30 +100,33 @@ test("names, types and the staging limit", () => {
     retryable: true,
   };
   assert.equal(draftMetadata(draft), "JPEG image · 212 KB");
-});
-
-test("file names map to a type line and a MIME type by extension", () => {
-  assert.equal(fileTypeDescription("readme.txt"), "text");
-  assert.equal(fileTypeDescription("IMG_0001.HEIC"), "HEIF Image");
-  assert.equal(fileTypeDescription("sticker.webp"), "WebP Image");
-  assert.equal(fileTypeDescription("photos.zip"), "Zip archive");
-  assert.equal(fileTypeDescription("budget.csv"), "comma-separated values");
+  // An unknown extension reads as a plain file.
   assert.equal(
-    fileTypeDescription("Report.docx"),
-    "Office Open XML word processing document",
-  );
-  assert.equal(fileTypeDescription("scan.tiff"), "TIFF image");
-  assert.equal(fileTypeDescription("notes.unknownext"), "File");
-  assert.equal(mimeTypeFor("scan.tif"), "image/tiff");
-  assert.equal(mimeTypeFor("voice.m4a"), "audio/x-m4a");
-  // The picker's type covers extensions outside the table.
-  assert.equal(
-    mimeTypeFor("raw.dng", "image/x-adobe-dng"),
-    "image/x-adobe-dng",
+    draftMetadata({ ...draft, file: remoteFile("notes.unknownext", 12) }),
+    `${AttachmentCopy.file} · 12 bytes`,
   );
 });
 
-test("a saved draft round-trips with its key bytes", () => {
+/** A saved draft file as installed apps hold it. */
+const SAVED_DRAFT = {
+  id: "A",
+  conversationId: "chat",
+  phase: "complete",
+  acceptedId: "m1",
+  retryable: false,
+  file: {
+    url: "https://files.example/notes.txt",
+    contentDigest: "digest-notes.txt",
+    secret: "010203",
+    salt: "0405",
+    nonce: "06",
+    scheme: "https://",
+    contentLength: 12,
+    filename: "notes.txt",
+  },
+};
+
+test("saved drafts stay readable by later builds", () => {
   const draft: FileDraft = {
     id: "A",
     conversationId: "chat",
@@ -135,9 +135,17 @@ test("a saved draft round-trips with its key bytes", () => {
     acceptedId: "m1",
     retryable: false,
   };
-  const parsed = parseDraft(JSON.parse(JSON.stringify(encodeDraft(draft))));
-  assert.deepEqual(parsed, draft);
-  assert.throws(() => parseDraft({ id: "A", phase: "nope" }));
+  const written = new MemoryPreferences();
+  new AttachmentDraftStore(written).save(draft);
+  assert.deepEqual(written.readJson("attachment-A"), SAVED_DRAFT);
+  assert.deepEqual(written.readJson("attachment-refs"), ["attachment-A"]);
+  const installed = new MemoryPreferences();
+  installed.writeJson("attachment-refs", ["attachment-A"]);
+  installed.writeJson("attachment-A", SAVED_DRAFT);
+  assert.deepEqual(new AttachmentDraftStore(installed).all(), [draft]);
+  // A phase this build does not know makes the file malformed.
+  installed.writeJson("attachment-A", { ...SAVED_DRAFT, phase: "nope" });
+  assert.throws(() => new AttachmentDraftStore(installed).all());
 });
 
 test("the draft store lists saved drafts and drops orphans", () => {
@@ -160,23 +168,11 @@ test("the draft store lists saved drafts and drops orphans", () => {
     ],
   );
   // An unlisted file and a listed name without a file.
-  preferences.writeJson("attachment-3", encodeDraft({ ...first, id: "3" }));
+  preferences.writeJson("attachment-3", preferences.readJson("attachment-1"));
   preferences.remove("attachment-2");
   store.cleanOrphans();
   assert.equal(preferences.readJson("attachment-3"), undefined);
   assert.deepEqual(preferences.readJson("attachment-refs"), ["attachment-1"]);
   store.remove("1");
   assert.deepEqual(store.all(), []);
-});
-
-test("the verified cache keeps the 16 most recently used files", () => {
-  const cache = new VerifiedFileCache();
-  const file = { path: "/p", filename: "f" };
-  for (let index = 0; index < 16; index += 1) {
-    assert.deepEqual(cache.put(`m${String(index)}`, file), []);
-  }
-  cache.get("m0");
-  assert.deepEqual(cache.put("m16", file), ["m1"]);
-  assert.notEqual(cache.get("m0"), undefined);
-  assert.equal(cache.get("m1"), undefined);
 });

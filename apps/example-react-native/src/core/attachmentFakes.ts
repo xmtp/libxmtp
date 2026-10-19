@@ -5,6 +5,7 @@
 import type { RemoteAttachment } from "@xmtp/react-native-sdk";
 
 import {
+  AttachmentCopy,
   AttachmentError,
   type DraftPreferences,
   type FilePhase,
@@ -123,10 +124,7 @@ export class FakeGateway implements AttachmentGateway {
 
 /** A failure the SDK would call retryable or not. */
 export function attachmentError(retryable: boolean): AttachmentError {
-  return new AttachmentError(
-    "The file operation failed. Try again.",
-    retryable,
-  );
+  return new AttachmentError(AttachmentCopy.operationFailed, retryable);
 }
 
 /** A conversation whose queued file messages appear as unpublished rows. */

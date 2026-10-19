@@ -64,35 +64,45 @@ test("a reload closes downloads until the new consent read finishes", async () =
 });
 
 test("only the latest load applies, and a failure shows the load error", async () => {
-  const slow = deferred();
-  let calls = 0;
+  let rows: readonly ChatMessage[] = [];
+  let hold: Promise<void> | undefined;
   let fail = false;
   const store = new SharedMediaStore(
     CONVERSATION,
     {
-      conversation: (id) =>
-        Promise.resolve({ id, kind: "dm", consent: "allowed" }),
-      media: async () => {
-        calls += 1;
-        if (calls === 1) {
-          await slow.promise;
-          return [fileMessage(1, "old.pdf")];
-        }
-        if (fail) throw new Error("offline");
-        return [fileMessage(2, "new.pdf")];
+      conversation: async (id) => {
+        const held = hold;
+        hold = undefined;
+        if (held !== undefined) await held;
+        return { id, kind: "dm", consent: "allowed" };
       },
+      media: () =>
+        fail ? Promise.reject(new Error("offline")) : Promise.resolve(rows),
     },
     () => true,
   );
+  const slow = deferred();
+  hold = slow.promise;
   const first = store.load();
+  rows = [fileMessage(2, "new.pdf")];
   await store.load();
+  // The first load ends last, with the rows from before the second.
+  rows = [fileMessage(1, "old.pdf")];
   slow.resolve();
   await first;
   assert.deepEqual(
     store.getState().rows.map((row) => row.id),
     ["m0002"],
   );
+  // A superseded load that fails shows no error; the latest failure does.
+  const late = deferred();
+  hold = late.promise;
+  const stale = store.load();
+  await store.load();
   fail = true;
+  late.resolve();
+  await stale;
+  assert.equal(store.getState().error, undefined);
   await store.load();
   assert.equal(store.getState().error, SharedMediaCopy.loadFailed);
 });

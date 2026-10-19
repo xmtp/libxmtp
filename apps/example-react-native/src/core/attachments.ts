@@ -235,7 +235,7 @@ export function byteCount(bytes: number): string {
 }
 
 /** The lowercase extension of a file name, without the dot ("" when none). */
-export function fileExtension(name: string): string {
+function fileExtension(name: string): string {
   const base = name.slice(name.lastIndexOf("/") + 1);
   const dot = base.lastIndexOf(".");
   return dot <= 0 ? "" : base.slice(dot + 1).toLowerCase();
@@ -320,7 +320,7 @@ const fileTypes: Partial<
 };
 
 /** The staged preview's type line ("JPEG image"; "File" when unknown). */
-export function fileTypeDescription(name: string): string {
+function fileTypeDescription(name: string): string {
   return fileTypes[fileExtension(name)]?.description ?? AttachmentCopy.file;
 }
 
@@ -443,7 +443,7 @@ const phases: ReadonlySet<string> = new Set<FilePhase>([
   "expired",
 ]);
 
-export function encodeDraft(draft: FileDraft): SavedDraft {
+function encodeDraft(draft: FileDraft): SavedDraft {
   const { file } = draft;
   return {
     id: draft.id,
@@ -487,7 +487,7 @@ function bytes(record: Record<string, unknown>, key: string): Uint8Array {
 }
 
 /** Reads a saved draft. Throws on malformed data. */
-export function parseDraft(value: unknown): FileDraft {
+function parseDraft(value: unknown): FileDraft {
   if (!isRecord(value) || !isRecord(value["file"])) {
     throw new Error("A saved attachment is malformed.");
   }
