@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "inspectionUsesTemporaryCopy": true,
+  "sourceHashesBefore": {
+    "react-native-5.7.0.db3": {
+      "sha256": "afc019dc8b184e53cfbcae3d03d148f414c1f66a138d87239bfa60b43e37a93f",
+      "bytes": 294912
+    },
+    "react-native-5.7.0.db3.sqlcipher_salt": {
+      "sha256": "46f614be2782988231ebf693263158487d6c5e3d1a2477f2a70036f01357be77",
+      "bytes": 32
+    }
+  },
+  "sourceHashesAfter": {
+    "react-native-5.7.0.db3": {
+      "sha256": "afc019dc8b184e53cfbcae3d03d148f414c1f66a138d87239bfa60b43e37a93f",
+      "bytes": 294912
+    },
+    "react-native-5.7.0.db3.sqlcipher_salt": {
+      "sha256": "46f614be2782988231ebf693263158487d6c5e3d1a2477f2a70036f01357be77",
+      "bytes": 32
+    }
+  },
+  "absentSidecars": [
+    "react-native-5.7.0.db3-wal",
+    "react-native-5.7.0.db3-shm",
+    "react-native-5.7.0.db3-journal"
+  ],
+  "acceptedMigrationPrefixLength": 62,
+  "acceptedMigrationPrefixMatches": true,
+  "integrityCheck": "ok",
+  "query": "SELECT json_object(\n  'migrationVersions', json((SELECT json_group_array(version) FROM (SELECT version FROM __diesel_schema_migrations ORDER BY version))),\n  'groups', (SELECT count(*) FROM groups),\n  'applicationMessages', (SELECT count(*) FROM group_messages WHERE kind = 1),\n  'expiringApplicationMessages', (SELECT count(*) FROM group_messages WHERE kind = 1 AND expire_at_ns IS NOT NULL),\n  'consent', (SELECT count(*) FROM consent_records)\n);",
+  "observed": {
+    "migrationVersions": [
+      "20240506192337",
+      "20240511004236",
+      "20240515145138",
+      "20240614220622",
+      "20240807213816",
+      "20240822044745",
+      "20240909231735",
+      "20240916221459",
+      "20240918185314",
+      "20241003004750",
+      "20241105191238",
+      "20241113145830",
+      "20241205185829",
+      "20241206212729",
+      "20241211183736",
+      "20241218175338",
+      "20241220143210",
+      "20241220214747",
+      "20250103002434",
+      "20250116143131",
+      "20250116200246",
+      "20250219210727",
+      "20250303072233",
+      "20250305045206",
+      "20250317193321",
+      "20250401185622",
+      "20250422121314",
+      "20250509144408",
+      "20250513125624",
+      "20250520195531",
+      "20250527201031",
+      "20250530232319",
+      "20250606161143",
+      "20250614004145",
+      "20250708010431",
+      "20250715231627",
+      "20250717111748",
+      "20250722185838",
+      "20250807025914",
+      "20250811185550",
+      "20250812223606",
+      "20250819141841",
+      "20250820174800",
+      "20250820175213",
+      "20250820182831",
+      "20250825153518",
+      "20250828000637",
+      "20250912232253",
+      "20250916222143",
+      "20251007180046",
+      "20251008154142",
+      "202510281759200000",
+      "202511141850540000",
+      "20251115232503",
+      "202511252132230000",
+      "202512010000000000",
+      "202512081602150000",
+      "202512191539560000",
+      "202601091523960000",
+      "202601271910000000",
+      "202602042033570000",
+      "202602050125540000"
+    ],
+    "groups": 1,
+    "applicationMessages": 2,
+    "expiringApplicationMessages": 0,
+    "consent": 2
+  }
+}
