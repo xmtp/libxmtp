@@ -428,7 +428,7 @@ suites:
       - cargo_package: xmtp_backend
       - path_group: docker_backend
       # apps/backend tests embed these files.
-      - "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}"
+      - "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md,specs/CONF-backend-configuration.md}"
       - path_group: native_backend
       - "nix/{ci-checks,package/backend-tests}.nix"
   test_validation:

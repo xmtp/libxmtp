@@ -7,10 +7,18 @@ use xmtp_common::time::{Duration, Instant, sleep, timeout};
 use xmtp_logging::test_logging::OtlpCollector;
 
 const CHILD_CONFIG: &str = "XMTP_BACKEND_STARTUP_TEST_CONFIG";
-const TEST_NAME: &str = "tests::startup_preserves_metrics_export_and_shutdown_across_log_settings";
+const CHILD_TEST: &str = "startup_preserves_metrics_export_and_shutdown_across_log_settings";
 const CHILD_ARGS: &str = "XMTP_BACKEND_STARTUP_TEST_ARGS";
 const SECRET: &str = "private-config-sentinel";
 const DRAIN_MS: u64 = 1_000;
+
+/// The libtest filter for the test that the child process runs.
+fn child_test_name() -> String {
+    let (_, module) = module_path!()
+        .split_once("::")
+        .expect("a test module below the crate root");
+    format!("{module}::{CHILD_TEST}")
+}
 
 struct Process {
     child: Child,
@@ -35,7 +43,7 @@ impl Process {
         let output = std::fs::File::create(directory.join("output")).unwrap();
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
-            .args(["--exact", TEST_NAME, "--nocapture"])
+            .args(["--exact", &child_test_name(), "--nocapture"])
             .env(CHILD_CONFIG, &path)
             .env_remove("XMTP_CONFIG")
             .env_remove(CHILD_ARGS)
@@ -58,8 +66,12 @@ impl Process {
         }
     }
 
+    /// The child's output. libtest exits successfully when its filter
+    /// matches no test, so the output must show that the one test ran.
     fn output(&self) -> String {
-        std::fs::read_to_string(self.directory.join("output")).unwrap()
+        let output = std::fs::read_to_string(self.directory.join("output")).unwrap();
+        assert!(output.contains("running 1 test\n"), "{output}");
+        output
     }
 
     async fn terminate(&mut self) {
@@ -340,10 +352,98 @@ async fn inline_sources_start_and_serve() {
     }
 }
 
+/// Which push credentials `secret_values` adds.
+#[derive(Clone, Copy)]
+enum PushSecrets {
+    None,
+    Apns,
+    Fcm,
+}
+
+/// Secret values in every secret key. The store URL carries a password and
+/// names a database that does not exist, so the connection fails. With push
+/// credentials, startup stops at them instead.
+fn secret_values(push: PushSecrets) -> String {
+    let mut store = url::Url::parse(
+        &std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into()),
+    )
+    .expect("DATABASE_URL is a URL");
+    store
+        .set_password(Some(SECRET))
+        .expect("a store URL takes a password");
+    store.set_path("xmtp_missing_database");
+    let mut config = format!(
+        "[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n\
+         [telemetry]\nmetrics_listen = {metrics:?}\notlp_endpoint = 'http://127.0.0.1:9/{SECRET}'\n\
+         [database]\nurl = '{store}'\nreplica_url = '{store}'\n\
+         [chains]\n\"eip155:1\" = 'https://127.0.0.1:9/{SECRET}'\n\
+         [attachments]\nbase_url = 'https://files.example.org'\n\
+         [attachments.target.S3]\nendpoint = 'https://127.0.0.1:9/{SECRET}'\nregion = 'us-east-1'\nbucket = 'attachments'\n\
+         [attachments.target.S3.credentials]\nkind = 'static'\naccess_key_id = '{SECRET}-id'\nsecret_access_key = 'env:XMTP_STARTUP_TEST_SECRET'\nsession_token = '{SECRET}-token'\n",
+        grpc = address(),
+        metrics = address(),
+    );
+    match push {
+        PushSecrets::None => {}
+        PushSecrets::Apns => config.push_str(
+            "[push.apns]\nkey = 'env:XMTP_STARTUP_TEST_SECRET'\nkey_id = 'ABC123DEFG'\nteam_id = 'DEF123GHIJ'\nbundle_id = 'org.example.app'\nenvironment = 'production'\n",
+        ),
+        // Every field but the key is valid, so the sender reaches the key.
+        PushSecrets::Fcm => {
+            let account = serde_json::json!({
+                "type": "service_account",
+                "project_id": "example-project",
+                "client_email": "push@example-project.iam.gserviceaccount.com",
+                "private_key": SECRET,
+                "token_uri": "https://oauth2.googleapis.com/token",
+            });
+            config.push_str(&format!("[push.fcm]\nservice_account = '{account}'\n"));
+        }
+    }
+    config
+}
+
+// verifies: CONF-082, CONF-085
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 fn configuration_source_errors_and_help_omit_secrets() {
     let invalid_value = "[database]\nurl = 'env:XMTP_STARTUP_TEST_SECRET'\n";
+    // TOML v1.1.0 lets an inline table span lines. The document parses, so
+    // the refusal comes from a check, not from the parser.
+    let multiline_table = "[database]\nurl = 'env:XMTP_STARTUP_TEST_SECRET'\n[telemetry]\nresource_attributes = {\n  name = 'value',\n}\n";
+    let unreadable = std::env::temp_dir()
+        .join(format!("xmtp-missing-{}", uuid::Uuid::new_v4()))
+        .join("backend.toml");
+    let unreadable = unreadable.to_str()?;
+    let secrets = secret_values(PushSecrets::None);
+    let apns_secrets = secret_values(PushSecrets::Apns);
+    let fcm_secrets = secret_values(PushSecrets::Fcm);
     for (args, env, expected, success) in [
+        (vec!["--config-file", unreadable], None, vec!["Read"], false),
+        (
+            vec!["--config", multiline_table],
+            None,
+            vec!["Invalid"],
+            false,
+        ),
+        (
+            vec!["--config", secrets.as_str()],
+            None,
+            vec!["Database"],
+            false,
+        ),
+        (
+            vec!["--config", apns_secrets.as_str()],
+            None,
+            vec!["push.apns.key"],
+            false,
+        ),
+        (
+            vec!["--config", fcm_secrets.as_str()],
+            None,
+            vec!["push.fcm.service_account"],
+            false,
+        ),
         (
             vec!["--config", SECRET, "--config-file", "unused"],
             None,
@@ -387,8 +487,9 @@ fn configuration_source_errors_and_help_omit_secrets() {
         ),
     ] {
         let mut process = Process::start_with_args("", None, Some(&args), env);
-        assert_eq!(process.child.wait()?.success(), success);
+        let status = process.child.wait()?;
         let output = process.output();
+        assert_eq!(status.success(), success, "{output}");
         assert!(!output.contains(SECRET), "{output}");
         for text in expected {
             assert!(output.contains(text), "{output}");
@@ -396,6 +497,7 @@ fn configuration_source_errors_and_help_omit_secrets() {
     }
 }
 
+// verifies: CONF-082
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 fn missing_configuration_source_is_a_clap_usage_error() {
     let mut process = Process::start_with_args("", None, Some(&[]), None);
