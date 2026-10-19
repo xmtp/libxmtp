@@ -21,6 +21,9 @@
     "apps/docs/test-results/**",
     // Xcode and Gradle own these files.
     "apps/example-react-native/{ios,android}/**",
+    // Markdownlint (docs_quality) checks the app's Markdown, and the app's
+    // CI suite does not run for Markdown-only changes.
+    "apps/example-react-native/**/*.md",
     "apps/web-chat/dist/**",
     "sdks/*/dist/**",
     // Stock ubrn output has any and as casts; see apps/xmtp_sdk_bindgen/GENERATED_LINT.md.

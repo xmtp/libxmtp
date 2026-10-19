@@ -4,7 +4,7 @@ Run from the repository root. Recipes select the `react-native-local` Nix
 shell, which uses the selected Xcode. The canonical `react-native` shell
 requires `/Applications/Xcode_27.0.app`. On Linux the two are the same.
 
-- `dev/nix-shell 'just example-react-native check'` typechecks, lints, checks formatting and runs the unit tests. It links the JS-only SDK when no SDK is linked. CI runs it on pull request pushes that change the app (not only Markdown) or carry the `react-native` label, drafts included, and on every merge to main.
+- `dev/nix-shell 'just example-react-native check'` typechecks, lints, checks formatting and runs the unit tests. It links the JS-only SDK when no SDK is linked. CI runs it on pull request pushes that change the app (not only Markdown) or carry the `react-native` label, drafts included, on full runs, and on every merge to main. Markdownlint checks the app's Markdown; Oxfmt skips it.
 - `dev/nix-shell 'just example-react-native format'` formats the JS, TS and JSON sources.
 - `dev/nix-shell 'just example-react-native sdk'` links and verifies the native SDK package. `sdk-js` links the JS-only product.
 - `dev/nix-shell 'just example-react-native install'` installs JS dependencies from the lockfile and the pods.
