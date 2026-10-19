@@ -277,6 +277,18 @@ class ReactNativeProductTests(unittest.TestCase):
             ],
         )
 
+    def test_exchange_runs_take_the_roots_from_the_checked_manifest(self):
+        self.run_stage("components")
+        self.assertEqual([args[0] for args in self.exchanges()], ["export"])
+        self.assertNotIn(
+            "roots",
+            [args[0] for command, args, *_ in self.events() if command == "exchange"],
+        )
+        (path,) = re.findall(r"^XMTP_RN_ROOTS=(.*)$", self.output(), re.MULTILINE)
+        self.assertEqual(
+            json.loads(Path(path).read_text()), {"component": "/nix/store/c"}
+        )
+
     def test_substitute_only_allows_no_builder(self):
         self.run_stage("consumers", RN_EXCHANGE="false", RN_SUBSTITUTE_ONLY="true")
         builds = self.builds()

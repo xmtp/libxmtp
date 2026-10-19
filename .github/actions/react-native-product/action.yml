@@ -125,10 +125,19 @@ runs:
         # Bash 3.2 treats an empty array as unset under nounset.
         version_args=()
         if [[ -n "$RN_PACKAGE_VERSION" ]]; then version_args=(--version "$RN_PACKAGE_VERSION"); fi
-        # The declared roots of a stage, for the Cachix pushes and the package path.
+        # The declared roots of a stage, for the Cachix pushes and the package
+        # path. An exchange manifest already holds them: export and import
+        # check them against this checkout.
         mkdir -p target/rn-roots
         write_roots() {
-          exchange roots --system "$1" --stage "$2" ${version_args[@]+"${version_args[@]}"} > "target/rn-roots/$2.json"
+          if [[ "$RN_EXCHANGE" == true ]]; then
+            jq -e .roots "$3" > "target/rn-roots/$2.json"
+          else
+            exchange roots --system "$1" --stage "$2" ${version_args[@]+"${version_args[@]}"} > "target/rn-roots/$2.json"
+          fi
+        }
+        package_root() {
+          jq -er 'to_entries | if length == 1 then .[0].value else error("expected one package root") end' target/rn-roots/package.json
         }
         options=(--option log-lines 100 --no-link)
         if [[ "$RUNNER_OS" == macOS ]]; then options+=(--option sandbox relaxed); fi
@@ -146,7 +155,7 @@ runs:
               exchange export --system "$RN_SYSTEM" --stage components --directory target/rn-exchange/components
             fi
             version_args=()
-            write_roots "$RN_SYSTEM" components
+            write_roots "$RN_SYSTEM" components target/rn-exchange/components/manifest.json
             echo "XMTP_RN_ROOTS=$PWD/target/rn-roots/components.json" >> "$GITHUB_ENV"
             ;;
           package|consumers)
@@ -157,11 +166,12 @@ runs:
                   exchange import --system "$producer" --stage components --directory "target/rn-exchange/$RN_ARTIFACT_PREFIX-components-$producer"
                 done
               fi
-            elif [[ "$RN_EXCHANGE" == true ]]; then
-              exchange import --system x86_64-linux --stage package --directory target/rn-exchange/package ${version_args[@]+"${version_args[@]}"}
+            else
+              if [[ "$RN_EXCHANGE" == true ]]; then
+                exchange import --system x86_64-linux --stage package --directory target/rn-exchange/package ${version_args[@]+"${version_args[@]}"}
+              fi
+              write_roots x86_64-linux package target/rn-exchange/package/manifest.json
             fi
-            write_roots x86_64-linux package
-            package_dir=$(jq -er 'to_entries | if length == 1 then .[0].value else error("expected one package root") end' target/rn-roots/package.json)
             platform=$([[ "$RN_SYSTEM" == x86_64-linux ]] && echo android || echo ios)
             if [[ -n "$RN_PACKAGE_VERSION" ]]; then
               # Both phases construct the package with the same exact version.
@@ -194,11 +204,11 @@ runs:
             build_started=$SECONDS
             product=$("${build[@]}" 2> >(tee "$RUNNER_TEMP/rn-build.log" >&2) | jq -er '.[0].outputs.out')
             echo "RN_BUILD_SECONDS=$((SECONDS - build_started))" >> "$GITHUB_ENV"
-            test -d "$package_dir"
             if [[ "$RN_STAGE" == package ]]; then
               if [[ "$RN_EXCHANGE" == true ]]; then
                 exchange export --system x86_64-linux --stage package --directory target/rn-exchange/package ${version_args[@]+"${version_args[@]}"}
               fi
+              write_roots x86_64-linux package target/rn-exchange/package/manifest.json
               echo "XMTP_RN_ROOTS=$PWD/target/rn-roots/package.json" >> "$GITHUB_ENV"
             else
               echo "XMTP_RN_CONSUMER_BUNDLES=$product" >> "$GITHUB_ENV"
@@ -206,6 +216,8 @@ runs:
                 echo "DEVELOPER_DIR=$(nix eval --raw .#lib.reactNativeXcode.developerDir)" >> "$GITHUB_ENV"
               fi
             fi
+            package_dir=$(package_root)
+            test -d "$package_dir"
             version=${RN_PACKAGE_VERSION:-$(jq -er .version sdks/react-native/package.json)}
             if [[ "$RN_PACKAGE_KIND" == test ]]; then version+=-partial; fi
             {
