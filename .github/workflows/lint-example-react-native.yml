@@ -1,0 +1,26 @@
+name: Lint React Native example
+on:
+  workflow_call:
+    secrets:
+      CACHIX_PR_AUTH_TOKEN:
+        required: false
+permissions:
+  contents: read
+env:
+  # The check needs Node and pnpm only, not the native React Native toolchain.
+  NIX_DEVSHELL: js-node
+jobs:
+  lint:
+    name: Lint (React Native example)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
+      - name: Check React Native example
+        run: dev/nix-shell 'just example-react-native check'

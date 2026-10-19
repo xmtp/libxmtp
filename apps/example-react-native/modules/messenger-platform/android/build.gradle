@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'org.xmtp.example.reactnative'
+version = '1.0.0'
+
+android {
+  namespace "org.xmtp.example.reactnative.platform"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}

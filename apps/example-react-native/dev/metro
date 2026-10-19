@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Start Metro for this app on XMTP_RN_METRO_PORT (default 8081). Extra
+# arguments go to `expo start`.
+set -euo pipefail
+app="$(cd "$(dirname "$0")/.." && pwd -P)"
+port="${XMTP_RN_METRO_PORT:-8081}"
+if [[ ! -x "$app/node_modules/.bin/expo" ]]; then
+  "$app/dev/install" --js-only
+fi
+cd "$app"
+export EXPO_NO_TELEMETRY=1
+exec ./node_modules/.bin/expo start --port "$port" --offline "$@"

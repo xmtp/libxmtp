@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "XMTP Messenger",
+    "slug": "example-react-native",
+    "scheme": "xmtp-messenger-rn",
+    "version": "1.0.0",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "org.xmtp.example.reactnative",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "org.xmtp.example.reactnative"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Typecheck, lint, check formatting and run the unit tests. Needs only the
+# SDK's JS and types: it links the JS-only product when no SDK is linked.
+set -euo pipefail
+app="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ ! -f "$app/.build/sdk/package/package.json" ]]; then
+  "$app/dev/sdk" js
+fi
+"$app/dev/install" --js-only
+cd "$app"
+pnpm run typecheck
+pnpm run lint
+pnpm run format:check
+pnpm run test

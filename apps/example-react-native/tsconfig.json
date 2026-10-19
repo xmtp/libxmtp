@@ -1,0 +1,16 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "strict": true,
+    "types": [],
+    "verbatimModuleSyntax": true
+  },
+  "include": ["app", "src"],
+  "exclude": ["node_modules", "src/**/*.test.ts"]
+}

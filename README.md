@@ -70,6 +70,8 @@ Each version 8 RC SDK has source, an installation guide, and an API reference.
 
 - [iOS examples](https://github.com/xmtp/libxmtp/tree/main/apps/example-ios): Build a mobile client with the local Swift package.
 
+- [React Native Messenger](https://github.com/xmtp/libxmtp/tree/main/apps/example-react-native): Build an iOS and Android client with the React Native SDK.
+
 - [Agent demos](https://github.com/xmtp/libxmtp/tree/main/sdks/agent/src/demo): Explore message handlers and app-specific behavior.
 
 For more Agent SDK examples, see [XMTP Agent Examples](https://github.com/xmtplabs/xmtp-agent-examples).

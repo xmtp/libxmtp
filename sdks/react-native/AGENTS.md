@@ -18,6 +18,6 @@ The private `src/specs/NativeXmtpReactNative.ts` and `codegenConfig` ship in the
 
 The npm product ships matched prebuilt Rust libraries, generated C++, native adapters, and the runtime from the committed ubrn fork. Keep these inputs in the receipt. Do not replace the fork runtime with an npm release that merely shares its version number.
 
-`src/react` is optional. It imports the public root and never creates a second native runtime. Expose `/react` only when its compiled entry and types are present. Internal consumers are test fixtures. Do not add a maintained public example before the three implementation PRs merge.
+`src/react` is optional. It imports the public root and never creates a second native runtime. Expose `/react` only when its compiled entry and types are present. Internal consumers are test fixtures. The maintained public example is `apps/example-react-native`; it installs the SDK package the same way an app does.
 
 RN staging always checks generated source/render identities. Declared Nix inputs supply the paired private build values `XMTP_SDK_EXPECTED_SOURCE` and `XMTP_SDK_EXPECTED_RENDER`; other routes compare with the current checkout. An explicit generated directory does not bypass admission. Generated, runtime, and checkout fork revisions must agree.
