@@ -6,10 +6,12 @@
 // allowed again), `reply`, `retry`, `edit`, `delete`, `react` (`&e=<emoji>`).
 // The probe runs the action on the mounted chat, then goes back to it. Any app
 // can open the URL scheme, so a link that changes data asks in the app first
-// (`src/core/probeLinks.ts`); other links are ignored until that alert closes.
+// (`src/core/probeLinks.ts`); other chat probe links are ignored until that
+// alert closes.
 
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useLocalSearchParams, useNavigation, useRoute } from "expo-router";
+import { StackActions } from "expo-router/react-navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MessageMenuCopy } from "@/core/messageInteractions.ts";
 import {
@@ -21,10 +23,6 @@ import { chatDebug } from "@/features/chat/sdkChatQueries";
 import { probeLinkCopy } from "@/features/dev/copy";
 import { useActiveSession } from "@/session";
 import { AlertDialog, type AlertDialogRequest } from "@/ui/AlertDialog";
-
-function goBack(): void {
-  if (router.canGoBack()) router.back();
-}
 
 /** The in-app confirmation a link needs (the chat's alert for Delete). */
 function linkConfirmation(
@@ -74,6 +72,20 @@ export default function ChatProbe() {
   }>();
   const ran = useRef<string | undefined>(undefined);
   const [alert, setAlert] = useState<AlertDialogRequest>();
+  const navigation = useNavigation();
+  const routeKey = useRoute().key;
+  // Pops this probe's own route, also when a link to another screen pushed
+  // it over the probe while the alert waited.
+  const leave = useCallback(() => {
+    const stack = navigation.getState();
+    if (stack === undefined) return;
+    if (stack.routes.findIndex((route) => route.key === routeKey) <= 0) return;
+    navigation.dispatch({
+      ...StackActions.pop(),
+      source: routeKey,
+      target: stack.key,
+    });
+  }, [navigation, routeKey]);
 
   useEffect(() => {
     if (!__DEV__ || session === undefined || params.action === undefined) {
@@ -140,14 +152,23 @@ export default function ChatProbe() {
     const confirmation = chatProbeLinkConfirmation(params.action);
     if (confirmation === undefined) {
       run();
-      goBack();
+      leave();
       return;
     }
     console.log(
       `[chat-probe] ${params.action} from a link: waiting for confirmation`,
     );
     setAlert(linkConfirmation(confirmation, emoji, run));
-  }, [alert, params.action, params.c, params.e, params.m, params.n, session]);
+  }, [
+    alert,
+    leave,
+    params.action,
+    params.c,
+    params.e,
+    params.m,
+    params.n,
+    session,
+  ]);
 
   // The root layout registers this route for Debug builds only, with its
   // title. The probe goes back once its action ran or its alert closed.
@@ -156,7 +177,7 @@ export default function ChatProbe() {
       request={alert}
       onDismiss={() => {
         setAlert(undefined);
-        goBack();
+        leave();
       }}
     />
   );
