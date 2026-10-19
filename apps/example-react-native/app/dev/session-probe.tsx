@@ -346,7 +346,9 @@ export default function SessionProbe() {
                 })),
                 { name: input.name ?? "" },
               );
-            return group.id;
+            // `run` logs the result: only an ID prefix, as the probe's other
+            // log lines do.
+            return group.id.slice(0, 8);
           });
         default:
           log(`unknown action ${action}`);
