@@ -3,7 +3,7 @@ import { Image } from "expo-image";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 
-import { byteCount, cardStatus, defaultCard } from "@/core/attachments.ts";
+import { byteCount, cardStatus } from "@/core/attachments.ts";
 import type { AttachmentStore } from "@/core/attachmentStore.ts";
 import { pathToUri } from "@/core/paths.ts";
 import { attachmentCopy } from "@/features/attachments/copy";
@@ -73,8 +73,9 @@ export function AttachmentCard({
   appearance,
 }: AttachmentCardProps) {
   const session = useActiveSession();
-  const state = useStore(store);
-  const card = state.cards[messageId] ?? defaultCard(messageId, file);
+  // Re-render on store changes; `card` reads the current state.
+  useStore(store);
+  const card = store.card(messageId, file);
   const verified =
     card.phase === "verified" ? store.verified(messageId) : undefined;
   const [failure, setFailure] = useState<string>();

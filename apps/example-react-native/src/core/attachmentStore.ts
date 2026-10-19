@@ -120,13 +120,6 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     this.#ports = ports;
   }
 
-  /** The drafts of this store's chat. */
-  ownDrafts(): readonly FileDraft[] {
-    return this.getState().drafts.filter(
-      (draft) => draft.conversationId === this.#ports.conversationId,
-    );
-  }
-
   /** A message's card: its download state, or "available". */
   card(messageId: string, file: RemoteAttachment): FileCard {
     return this.getState().cards[messageId] ?? defaultCard(messageId, file);
