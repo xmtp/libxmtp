@@ -21,7 +21,7 @@ import {
   safeFileName,
 } from "./attachments.ts";
 
-test("SDK failure causes map to the iOS copy and retry rule", () => {
+test("SDK failure causes map to their message and retry rule", () => {
   const cases: [string, string, boolean, number?][] = [
     ["notOffered", AttachmentCopy.notOffered, false],
     ["tooLarge", AttachmentCopy.sizeLimit, false],
@@ -105,9 +105,8 @@ test("names, types and the staging limit", () => {
   assert.equal(draftMetadata(draft), "JPEG image · 212 KB");
 });
 
-test("type lines and MIME types read like UTType", () => {
-  // UTType values on the iOS 27 simulator.
-  assert.equal(fileTypeDescription("l6-proof.txt"), "text");
+test("file names map to a type line and a MIME type by extension", () => {
+  assert.equal(fileTypeDescription("readme.txt"), "text");
   assert.equal(fileTypeDescription("IMG_0001.HEIC"), "HEIF Image");
   assert.equal(fileTypeDescription("sticker.webp"), "WebP Image");
   assert.equal(fileTypeDescription("photos.zip"), "Zip archive");
