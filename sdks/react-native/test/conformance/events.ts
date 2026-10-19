@@ -14,7 +14,7 @@ export async function listenerJourney(client: Client): Promise<string[]> {
   const first = "a".repeat(64);
   const later = "b".repeat(64);
   const observed = new Mailbox<ClientEvent>();
-  const stopped = deferred<unknown>();
+  const stopped = deferred<Error | undefined>();
   let calls = 0;
   const observerId = await client.startListener(filter, (event) => {
     observed.push(event);
@@ -38,7 +38,9 @@ export async function listenerJourney(client: Client): Promise<string[]> {
       await client.stopListener(listenerId);
       stopped.resolve(undefined);
     } catch (error) {
-      stopped.resolve(error);
+      stopped.resolve(
+        error instanceof Error ? error : new Error(String(error)),
+      );
     }
   });
   const write = (inboxId: string) =>
@@ -62,10 +64,13 @@ export async function listenerJourney(client: Client): Promise<string[]> {
       stopped.promise,
       "listener stops itself from its callback",
     );
-    if (failure !== undefined) throw failure;
+    if (failure) throw failure;
     await observe(first);
     await write(later);
     await observe(later);
+    // Listeners are not ordered against each other, so the observer is not a
+    // barrier for the stopped listener. Allow a bounded window for a late call.
+    await new Promise<void>((settle) => setTimeout(() => settle(), 1000));
     equal(calls, 1, "a stopped listener must not receive a later change");
     return [
       "native consent event reaches a JS listener that re-enters the SDK and stops itself; a later change reaches only the observer",
