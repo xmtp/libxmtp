@@ -2,6 +2,8 @@
 // membership changes (ExampleCore/Details/DetailsStore.swift and
 // DetailsModels.swift). The SDK side is a `GroupQueries` port.
 
+import type { GroupPolicyType } from "@xmtp/react-native-sdk";
+
 import {
   type Authority,
   canChangePermissionPreset,
@@ -32,8 +34,8 @@ export interface ConversationDetails extends Authority {
   readonly description: string;
   readonly members: readonly DetailsMember[];
   readonly policies: readonly PermissionWrite[];
-  /** "All members", "Admins only" or "Custom". */
-  readonly preset: string;
+  /** The preset the group's policies match (`custom` for a DM). */
+  readonly presetType: GroupPolicyType;
   readonly retentionNs: bigint;
   readonly pendingLeave: boolean;
 }

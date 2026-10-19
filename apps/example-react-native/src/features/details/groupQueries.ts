@@ -19,7 +19,6 @@ import {
   type GroupRole,
   type PermissionWrite,
   policiesFromSet,
-  presetLabel,
   sdkPermissionPolicy,
 } from "@/core/permissions.ts";
 import {
@@ -159,7 +158,7 @@ export class SdkGroupQueries implements GroupQueries {
         description: state.description,
         members,
         policies: policiesFromSet(state.permissions.policySet),
-        preset: presetLabel(state.permissions.policyType),
+        presetType: state.permissions.policyType,
         retentionNs: state.common.disappearingSettings?.retentionNs ?? 0n,
         pendingLeave: state.membershipState === "pendingRemove",
       };
@@ -177,7 +176,7 @@ export class SdkGroupQueries implements GroupQueries {
       description: "",
       members,
       policies: [],
-      preset: "Custom",
+      presetType: "custom",
       retentionNs: state.disappearingSettings?.retentionNs ?? 0n,
       pendingLeave: false,
     };

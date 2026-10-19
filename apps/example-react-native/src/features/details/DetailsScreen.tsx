@@ -8,7 +8,7 @@ import {
   initialLoadError,
   memberPending,
 } from "@/core/details.ts";
-import { canLeave } from "@/core/permissions.ts";
+import { canLeave, presetLabel } from "@/core/permissions.ts";
 import { conversationTitle, detailsAvatarLabel } from "@/core/titles.ts";
 import {
   detailsCopy,
@@ -258,7 +258,7 @@ function DetailsBody({
             <DetailsNavigationRow
               title={detailsCopy.permissions}
               systemImage="lock.shield"
-              value={details.preset}
+              value={presetLabel(details.presetType)}
               onPress={() => {
                 push("/permissions/[conversationId]");
               }}

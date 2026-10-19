@@ -82,7 +82,7 @@ class FakeQueries implements GroupQueries {
         member("other", "superAdmin"),
       ],
       policies: [...this.writes],
-      preset: "Custom",
+      presetType: "custom",
       retentionNs: 0n,
       pendingLeave: this.pendingLeave,
     };

@@ -49,17 +49,21 @@ function PermissionsBody({
 }) {
   const store = useOwnDetailsStore(session, conversationId);
   const state = useStore(store);
-  const preset = state.details?.preset;
+  const presetType = state.details?.presetType;
   const disabled = state.busy || !store.canChangePermissionPreset;
-  const presetRow = (title: string, detail: string, adminOnly: boolean) => (
+  const presetRow = (
+    title: string,
+    detail: string,
+    type: "allMembers" | "adminOnly",
+  ) => (
     <PresetRow
       key={title}
       title={title}
       detail={detail}
-      selected={preset === title}
+      selected={presetType === type}
       disabled={disabled}
       onPress={() => {
-        store.send({ kind: "preset", adminOnly });
+        store.send({ kind: "preset", adminOnly: type === "adminOnly" });
       }}
     />
   );
@@ -72,19 +76,19 @@ function PermissionsBody({
         {presetRow(
           permissionsCopy.allMembers,
           permissionsCopy.allMembersDetail,
-          false,
+          "allMembers",
         )}
         {presetRow(
           permissionsCopy.adminsOnly,
           permissionsCopy.adminsOnlyDetail,
-          true,
+          "adminOnly",
         )}
         <PresetRow
           title={permissionsCopy.custom}
           detail={permissionsCopy.customDetail}
-          selected={preset === permissionsCopy.custom}
+          selected={presetType === "custom"}
           disabled
-          dimmed={preset !== permissionsCopy.custom}
+          dimmed={presetType !== "custom"}
         />
       </FormSection>
       <FormSection
