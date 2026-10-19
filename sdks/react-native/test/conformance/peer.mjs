@@ -20,12 +20,17 @@ if (!sdkDirectory)
 const manifest = JSON.parse(
   await readFile(join(sdkDirectory, "package.json"), "utf8"),
 );
-const { Client, Group, metadataFieldRef } = await import(
+const { Client } = await import(
   pathToFileURL(resolve(sdkDirectory, manifest.main ?? "index.js"))
 );
 const backendUrl = process.env.XMTP_BACKEND_URL;
 if (!backendUrl)
   throw new Error("XMTP_BACKEND_URL must select this worktree's backend");
+// `pr` (the default) runs the RN-only journeys; `full` adds runtime reload and
+// the cold background launch.
+const journeys = process.env.XMTP_RN_JOURNEYS || "pr";
+if (journeys !== "pr" && journeys !== "full")
+  throw new Error("XMTP_RN_JOURNEYS must be pr or full");
 const resultFile = process.env.XMTP_RN_RESULT;
 if (!resultFile)
   throw new Error("XMTP_RN_RESULT must select the assertion report");
@@ -81,10 +86,10 @@ if (
   throw new Error(
     "runner must admit exact mode, harness identity and required phases",
   );
+if (requestedMode === "background" && journeys !== "full")
+  throw new Error("the cold background launch belongs to the full journey set");
 let runtimeResumed = false;
 let backgroundForegroundRequested = false;
-let groupVerified = false;
-let attachmentVerified = false;
 let setupUsed = false;
 let replySent = false;
 let resultWritten = false;
@@ -135,6 +140,7 @@ const server = createServer(async (request, response) => {
           peerInboxId: peer.inboxId,
           outboundText,
           inboundText,
+          journeys,
         };
         break;
       case "/sign":
@@ -167,81 +173,6 @@ const server = createServer(async (request, response) => {
         replySent = true;
         break;
       }
-      case "/verify-group": {
-        await peer.conversations.sync();
-        const group = await peer.conversations.getById(input.conversationId);
-        if (!(group instanceof Group))
-          throw new Error("Node sibling did not receive native group");
-        await group.sync();
-        const state = await group.state();
-        if (
-          state.name !== "RN metadata" ||
-          state.permissions.policySet.addMember !== "admin" ||
-          !(await group.isAdmin(peer.inboxId))
-        )
-          throw new Error(
-            "Node sibling group metadata, permission or admin mismatch",
-          );
-        const members = (await group.members()).map((member) => member.inboxId);
-        if (
-          !members.includes(peer.inboxId) ||
-          !members.includes(input.senderInboxId)
-        )
-          throw new Error("Node sibling group membership mismatch");
-        const field = await group.metadataValue(metadataFieldRef("groupName"));
-        if (
-          field?.kind !== "scalar" ||
-          field.value.kind !== "string" ||
-          field.value.value !== "RN metadata"
-        )
-          throw new Error("Node sibling metadata field mismatch");
-        const text = await peer.conversations.getMessageById(input.textId);
-        if (
-          text?.content.kind !== "text" ||
-          text.content.value !== "RN feature history"
-        )
-          throw new Error("Node sibling standard content mismatch");
-        const custom = await peer.conversations.getMessageById(input.customId);
-        if (
-          custom?.encoded?.content.length !== 3 ||
-          [0, 128, 255].some(
-            (value, index) => custom.encoded.content[index] !== value,
-          )
-        )
-          throw new Error("Node sibling custom sliced bytes mismatch");
-        groupVerified = true;
-        output = { verified: true };
-        break;
-      }
-      case "/verify-attachment": {
-        await peer.conversations.syncAll(undefined);
-        const message = await peer.conversations.getMessageById(
-          input.messageId,
-        );
-        if (message?.content.kind !== "remoteAttachment")
-          throw new Error("Node sibling attachment message missing");
-        const file = await peer.attachments.download(message.content.value);
-        const metadata = await peer.archives.metadataFromFile(
-          file.path,
-          new Uint8Array(input.archiveKey),
-        );
-        if (
-          file.filename !== "history.xmtp" ||
-          metadata.elements.length === 0 ||
-          (await readFile(file.path)).length <= 32
-        )
-          throw new Error("Node sibling downloaded invalid archive attachment");
-        await peer.attachments.deleteLocal(message.content.value);
-        if (
-          (await peer.attachments.listLocal()).some(
-            (entry) => entry.path === file.path,
-          )
-        )
-          throw new Error("Node sibling attachment deletion failed");
-        attachmentVerified = true;
-        output = { verified: true };
-        break;
-      }
       case "/result":
         if (resultWritten) throw new Error("duplicate native result");
         if (input.status === "passed") {
@@ -259,14 +190,17 @@ const server = createServer(async (request, response) => {
             throw new Error(
               "native foundation omitted independently verified DM exchange",
             );
+          if (requestedMode === "conformance" && input.journeys !== journeys)
+            throw new Error("native conformance ran a different journey set");
           if (
             requestedMode === "conformance" &&
-            (!groupVerified || !attachmentVerified || !runtimeResumed)
+            runtimeResumed !== (journeys === "full")
           )
             throw new Error(
-              "native conformance omitted independently observed feature/reload phases",
+              "native conformance runtime reload does not match the journey set",
             );
-          if (requestedMode === "conformance") runtime.assertObservation();
+          if (requestedMode === "conformance" && journeys === "full")
+            runtime.assertObservation();
           if (requestedMode === "background" && !backgroundForegroundRequested)
             throw new Error(
               "native background omitted independently observed OS foreground request",

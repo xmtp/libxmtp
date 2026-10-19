@@ -4,10 +4,6 @@ import { Linking, Platform, Text, View } from "react-native";
 import { assert } from "./assertions";
 import { backgroundJourney } from "./background";
 import { installedHarnessSha256 } from "./build-identity";
-import {
-  InstalledReactSmokeHost,
-  runInstalledReactSmoke,
-} from "./installed-react";
 import { foundationJourney, type JourneyControl } from "./journey";
 import { claimLaunch } from "./launch";
 import {
@@ -82,24 +78,23 @@ async function run(url: string): Promise<void> {
       conformance && parameters.get("phase") === "reloaded"
         ? await resumeAfterRuntimeReload(control)
         : await foundationJourney(control, conformance);
-    if (conformance && parameters.get("phase") !== "reloaded") {
+    if (
+      conformance &&
+      result.journeys === "full" &&
+      parameters.get("phase") !== "reloaded"
+    ) {
       await prepareRuntimeReload(control, url, result);
     }
-    const reactAssertions = conformance
-      ? await runInstalledReactSmoke(control)
-      : [];
     await control.call("result", {
       status: "passed",
       platform: Platform.OS,
       ...result,
       mode,
       harnessSha256: installedHarnessSha256,
-      phases: [...result.phases, ...(conformance ? ["react"] : [])],
       assertions: [
         "Hermes runtime",
         "New Architecture Fabric runtime",
         ...result.assertions,
-        ...reactAssertions,
       ],
     });
   } catch (error) {
@@ -135,7 +130,6 @@ export default function App() {
   return (
     <View>
       <Text testID="xmtp-result">{status}</Text>
-      <InstalledReactSmokeHost />
     </View>
   );
 }

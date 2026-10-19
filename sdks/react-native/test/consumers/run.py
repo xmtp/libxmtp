@@ -56,16 +56,24 @@ def wait_ready(peer, timeout):
         selector.close()
 
 
+def journey_set():
+    """`pr` (the default) runs the RN-only journeys; `full` adds runtime reload and cold background."""
+    journeys = os.environ.get("XMTP_RN_JOURNEYS") or "pr"
+    if journeys not in ("pr", "full"):
+        raise ValueError("XMTP_RN_JOURNEYS must be pr or full")
+    return journeys
+
+
 def required_phases(mode):
     return {
         "foundation": ["foundation"],
         "conformance": [
             "foundation",
-            "features",
-            "migration",
-            "advanced",
-            "runtime-reload",
+            "content",
+            "boundary",
+            "listener",
             "react",
+            *(["runtime-reload"] if journey_set() == "full" else []),
         ],
         "background": ["cold-background"],
     }[mode]
@@ -590,6 +598,10 @@ def main():
     args = parser.parse_args()
     if os.environ.get("XMTP_NIX_ENV") != "yes" and not os.environ.get("IN_NIX_SHELL"):
         parser.error("run installed-package proofs through dev/nix-shell")
+    try:
+        background = args.conformance and journey_set() == "full"
+    except ValueError as error:
+        parser.error(str(error))
     if not os.environ.get("XMTP_NODE_SDK_DIR") or not os.environ.get(
         "XMTP_BACKEND_URL"
     ):
@@ -622,7 +634,7 @@ def main():
     for consumer in ["bare", "expo"] if args.selection == "all" else [args.selection]:
         if args.built_root:
             execute(args, consumer, package, args.built_root.resolve() / consumer)
-            if args.conformance:
+            if background:
                 execute(
                     args,
                     consumer,
@@ -655,7 +667,7 @@ def main():
                     build_command.append("--offline")
                 command(build_command)
                 execute(args, consumer, package, root / "output")
-                if args.conformance:
+                if background:
                     execute(args, consumer, package, root / "output", background=True)
 
 
