@@ -55,7 +55,41 @@ private final class FailingSigner: Signer, @unchecked Sendable {
 	}
 }
 
-/// Swift callbacks that cross the FFI: a credential source and a signer. A
+/// A pre-authentication handler that counts its runs and always fails.
+private final class FailingPreAuthenticate: PreAuthenticate, @unchecked Sendable {
+	let calls = Shared(0)
+
+	func run() async throws {
+		calls.update { $0 += 1 }
+		throw PreAuthenticateError.Failed
+	}
+}
+
+/// A signer that counts its signatures.
+private final class CountingSigner: Signer, @unchecked Sendable {
+	let inner: Signer
+	let signatures = Shared(0)
+
+	init(_ inner: Signer) {
+		self.inner = inner
+	}
+
+	func identity() async throws -> PublicIdentity {
+		try await inner.identity()
+	}
+
+	func kind() async throws -> SignerKind {
+		try await inner.kind()
+	}
+
+	func sign(request: SigningRequest) async throws -> Signature {
+		signatures.update { $0 += 1 }
+		return try await inner.sign(request: request)
+	}
+}
+
+/// Swift callbacks that cross the FFI: a credential source, a
+/// pre-authentication handler and a signer. A
 /// callback failure is typed, and its text never reaches the app error.
 final class AuthenticationCallbackTests: XCTestCase {
 	func testCredentialSourceSuppliesTheBackendCredential() async throws {
@@ -97,6 +131,25 @@ final class AuthenticationCallbackTests: XCTestCase {
 			XCTAssertEqual(details.category, .callback)
 			assertHidden(XmtpError.Signer(details), details)
 		}
+	}
+
+	func testPreAuthenticateFailureIsTypedAndStopsRegistration() async throws {
+		let preAuthenticate = FailingPreAuthenticate()
+		let signer = await CountingSigner(generateLocalSigner())
+		var options = liveOptions()
+		options.handlers = ClientHandlers(preAuthenticate: preAuthenticate)
+		do {
+			try await withClients { scope in
+				_ = try await scope.create(signer: signer, options: options)
+				XCTFail("A failed preAuthenticate handler allowed registration")
+			}
+		} catch let XmtpError.CallbackFailed(details) {
+			XCTAssertEqual(details.code, "CallbackFailed")
+			XCTAssertEqual(details.category, .callback)
+			XCTAssertFalse(details.retryable)
+		}
+		XCTAssertEqual(preAuthenticate.calls.value, 1)
+		XCTAssertEqual(signer.signatures.value, 0, "The signer ran after preAuthenticate failed")
 	}
 
 	private func assertHidden(_ error: Error, _ details: ErrorDetails, line: UInt = #line) {
