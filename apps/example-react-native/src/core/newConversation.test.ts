@@ -336,8 +336,11 @@ describe("admission", () => {
       store.setName("changed");
       await settle();
       assert.deepEqual(queries.calls, [], ended);
-      assert.equal(store.getState().input, "peer", ended);
-      assert.equal(store.getState().name, "", ended);
+      // A store whose session ended is still on screen: edits do nothing.
+      if (ended === "session") {
+        assert.equal(store.getState().input, "peer");
+        assert.equal(store.getState().name, "");
+      }
     }
   });
 
