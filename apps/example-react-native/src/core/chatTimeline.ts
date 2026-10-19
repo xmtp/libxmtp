@@ -70,13 +70,7 @@ export interface TimelinePorts {
   readonly markRead: (conversation: ConversationRecord, marker: bigint) => void;
 }
 
-type Action =
-  | "load"
-  | "older"
-  | "olderPending"
-  | "newestPending"
-  | "newest"
-  | "refresh";
+type Action = "load" | "older" | "olderPending" | "newest" | "refresh";
 
 /** A result that arrived after a newer action or after the chat closed. */
 class Superseded extends Error {
@@ -123,6 +117,8 @@ export class ChatTimeline extends Store<TimelineState> {
   #job: Promise<void> = Promise.resolve();
   #savedAnchor: ReadingAnchor | undefined;
   #savedMarker: bigint | undefined;
+  /** Unreadable rows in the loaded pending pages. */
+  #pendingSkipped = 0;
 
   constructor(ports: TimelinePorts) {
     // A cached window shows at once while the first load runs.
@@ -140,12 +136,9 @@ export class ChatTimeline extends Store<TimelineState> {
     return this.#start("older");
   }
 
+  /** "Older pending messages": adds the page before the oldest pending row. */
   olderPending(): Promise<void> {
     return this.#start("olderPending");
-  }
-
-  newestPending(): Promise<void> {
-    return this.#start("newestPending");
   }
 
   /** "Jump to latest": leaves reading mode and loads the newest page. */
@@ -241,11 +234,8 @@ export class ChatTimeline extends Store<TimelineState> {
     try {
       const conversation = await queries.conversation(id);
       check();
-      if (action === "olderPending" || action === "newestPending") {
-        await this.#loadPending(
-          action === "olderPending" ? this.getState().pendingBefore : undefined,
-          check,
-        );
+      if (action === "olderPending") {
+        await this.#loadPending(this.getState().pendingBefore, check);
         this.#apply((state) => ({
           ...state,
           conversation,
@@ -356,21 +346,28 @@ export class ChatTimeline extends Store<TimelineState> {
     return olderWindow(queries, id, undefined, check);
   }
 
+  /**
+   * Reads the pending page before `before` and adds it to the pending rows;
+   * without `before`, reads the newest page and replaces them.
+   */
   async #loadPending(
     before: RecoveryPosition | undefined,
     check: () => void,
   ): Promise<void> {
     const { queries, conversationId: id } = this.#ports;
     let cursor = before;
-    let skipped = 0;
+    let skipped = before === undefined ? 0 : this.#pendingSkipped;
     for (let attempt = 0; attempt < 4; attempt += 1) {
       check();
       const page = await queries.pending(id, cursor);
       check();
       skipped += page.skipped;
       if (page.rows.length > 0 || !page.hasMore) {
+        this.#pendingSkipped = skipped;
         this.#apply((state) => {
           const { error: _error, pendingBefore: _before, ...rest } = state;
+          const pending =
+            before === undefined ? page.rows : [...state.pending, ...page.rows];
           const error =
             skipped > 0
               ? page.hasMore
@@ -379,11 +376,11 @@ export class ChatTimeline extends Store<TimelineState> {
               : undefined;
           return {
             ...rest,
-            pending: page.rows,
+            pending,
             ...(page.last === undefined ? {} : { pendingBefore: page.last }),
             morePending: page.hasMore,
             ...(error === undefined ? {} : { error }),
-            messages: timelineMessages(state.window, page.rows),
+            messages: timelineMessages(state.window, pending),
           };
         });
         return;
@@ -392,12 +389,18 @@ export class ChatTimeline extends Store<TimelineState> {
       if (cursor === undefined) throw new Error("No pending position.");
     }
     const last = cursor;
-    this.#apply((state) => ({
-      ...state,
-      ...(last === undefined ? {} : { pendingBefore: last }),
-      morePending: true,
-      ...(skipped > 0 ? { error: TimelineCopy.pendingSkippedMore } : {}),
-    }));
+    this.#pendingSkipped = skipped;
+    this.#apply((state) => {
+      const pending = before === undefined ? [] : state.pending;
+      return {
+        ...state,
+        pending,
+        ...(last === undefined ? {} : { pendingBefore: last }),
+        morePending: true,
+        ...(skipped > 0 ? { error: TimelineCopy.pendingSkippedMore } : {}),
+        messages: timelineMessages(state.window, pending),
+      };
+    });
   }
 
   #publish(

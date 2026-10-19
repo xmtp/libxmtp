@@ -350,10 +350,13 @@ test("unreadable pending rows ask to load more, or to refresh on the last page",
     first.timeline.getState().error,
     TimelineCopy.pendingSkippedMore,
   );
-  // "Older pending" pages to the oldest failed rows.
+  // The last page reads cleanly, but the loaded rows still miss one.
   await first.timeline.olderPending();
   assert.equal(first.timeline.getState().morePending, false);
-  assert.equal(first.timeline.getState().messages.at(-1)?.id, "m1010");
+  assert.equal(
+    first.timeline.getState().error,
+    TimelineCopy.pendingSkippedRefresh,
+  );
 
   const last = new FakeConversation(3);
   last.unpublished.push(...failedRows(3));
@@ -367,4 +370,63 @@ test("unreadable pending rows ask to load more, or to refresh on the last page",
     state.messages.slice(-2).map((row) => row.id),
     ["m1001", "m1003"],
   );
+});
+
+test("older pending pages add to the pending rows, and a refresh reads the newest again", async () => {
+  const queries = new FakeConversation(3);
+  const rows = failedRows(120);
+  queries.unpublished.push(...rows);
+  const h = harness(queries);
+  await h.timeline.load();
+  assert.equal(h.timeline.getState().morePending, true);
+  for (
+    let page = 0;
+    page < rows.length && h.timeline.getState().morePending;
+    page += 1
+  ) {
+    await h.timeline.olderPending();
+  }
+  assert.equal(h.timeline.getState().morePending, false);
+  const published = queries.published.map((row) => row.id);
+  const pending = rows.map((row) => row.id);
+  assert.deepEqual(visibleIds(h, 0), [...published, ...pending]);
+
+  // The newest failed row leaves the outbox; the refresh drops it.
+  queries.unpublished.pop();
+  await h.timeline.refresh();
+  const shown = visibleIds(h, 0);
+  assert.equal(shown.includes(pending.at(-1) ?? ""), false);
+  assert.equal(new Set(shown).size, shown.length);
+});
+
+test("a refresh past only unreadable pending pages drops the old rows, so paging shows them once", async () => {
+  const queries = new FakeConversation(3);
+  const rows = failedRows(10);
+  queries.unpublished.push(...rows);
+  const h = harness(queries);
+  await h.timeline.load();
+  // More newer rows than one refresh reads, none of them readable.
+  for (let n = 1; n <= 1000; n += 1) {
+    const row: ChatMessage = {
+      ...textMessage(5000 + n, { sender: OWN }),
+      delivery: "failed",
+    };
+    queries.unpublished.push(row);
+    queries.unreadable.add(row.id);
+  }
+  await h.timeline.refresh();
+  assert.equal(h.timeline.getState().morePending, true);
+  assert.equal(h.timeline.getState().error, TimelineCopy.pendingSkippedMore);
+  for (
+    let page = 0;
+    page < queries.unpublished.length && h.timeline.getState().morePending;
+    page += 1
+  ) {
+    await h.timeline.olderPending();
+  }
+  const published = queries.published.map((row) => row.id);
+  assert.deepEqual(visibleIds(h, 0), [
+    ...published,
+    ...rows.map((row) => row.id),
+  ]);
 });
