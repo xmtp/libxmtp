@@ -44,8 +44,9 @@ permissions:
   contents: read
 env:
   RN_CACHE_WRITER: ${{ secrets.CACHIX_PR_AUTH_TOKEN != '' }}
-  # The test package exists only for pull requests and explicit requests.
-  RN_PACKAGE_KIND: ${{ (inputs.package == 'test' || ((inputs.package || 'auto') == 'auto' && github.event_name == 'pull_request')) && 'test' || 'release' }}
+  # The test package exists only for pull requests, the Android smoke (only
+  # the test package has a bare-only Android app), and explicit requests.
+  RN_PACKAGE_KIND: ${{ (inputs.package == 'test' || ((inputs.package || 'auto') == 'auto' && (github.event_name == 'pull_request' || inputs.scope == 'android-smoke'))) && 'test' || 'release' }}
   RN_DEBUG: ${{ inputs.debug == true }}
 jobs:
   components:
@@ -64,6 +65,17 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
+      # Before any build: a bad scope fails at once.
+      - name: Check the scope
+        env:
+          SCOPE: ${{ inputs.scope }}
+          KIND: ${{ env.RN_PACKAGE_KIND }}
+        run: |
+          case "$SCOPE" in full|android-smoke) ;; *) echo "::error::unknown scope: $SCOPE"; exit 1 ;; esac
+          # Only the test package has a bare-only Android app output.
+          if [[ "$SCOPE" == android-smoke && "$KIND" != test ]]; then
+            echo "::error::scope android-smoke needs the test package"; exit 1
+          fi
       - name: Check out the source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -148,16 +160,6 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - name: Check the scope
-        env:
-          SCOPE: ${{ inputs.scope }}
-          KIND: ${{ env.RN_PACKAGE_KIND }}
-        run: |
-          case "$SCOPE" in full|android-smoke) ;; *) echo "::error::unknown scope: $SCOPE"; exit 1 ;; esac
-          # Only the test package has a bare-only Android app output.
-          if [[ "$SCOPE" == android-smoke && "$KIND" != test ]]; then
-            echo "::error::scope android-smoke needs the test package"; exit 1
-          fi
       - name: Set up Nix
         uses: ./.github/actions/setup-nix
         with:

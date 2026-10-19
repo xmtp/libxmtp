@@ -458,22 +458,33 @@ class ReactNativeWorkflowTests(unittest.TestCase):
     def test_pull_requests_get_the_test_package_and_forks_the_exchange(self):
         document = workflow("test-react-native.yml")
         kind = inner(document["env"]["RN_PACKAGE_KIND"])
-        for event, package, expected in (
-            ("pull_request", "auto", "test"),
-            ("pull_request", "", "test"),
-            ("pull_request", "release", "release"),
-            ("push", "auto", "release"),
-            ("workflow_dispatch", "auto", "release"),
-            ("workflow_dispatch", "test", "test"),
+        for event, package, scope, expected in (
+            ("pull_request", "auto", "full", "test"),
+            ("pull_request", "", "full", "test"),
+            ("pull_request", "release", "full", "release"),
+            ("push", "auto", "full", "release"),
+            ("workflow_dispatch", "auto", "full", "release"),
+            ("workflow_dispatch", "test", "full", "test"),
+            # The Android smoke has a bare-only app only in the test package.
+            ("workflow_dispatch", "auto", "android-smoke", "test"),
+            ("workflow_dispatch", "", "android-smoke", "test"),
+            ("push", "auto", "android-smoke", "test"),
         ):
-            with self.subTest(event=event, package=package):
+            with self.subTest(event=event, package=package, scope=scope):
                 self.assertEqual(
                     expression(
                         kind,
-                        {"inputs.package": package, "github.event_name": event},
+                        {
+                            "inputs.package": package,
+                            "inputs.scope": scope,
+                            "github.event_name": event,
+                        },
                     ),
                     expected,
                 )
+        # A bad scope fails before any build.
+        steps = document["jobs"]["components"]["steps"]
+        self.assertEqual(steps[0]["name"], "Check the scope")
         writer = inner(document["env"]["RN_CACHE_WRITER"])
         self.assertEqual(writer, "secrets.CACHIX_PR_AUTH_TOKEN != ''")
         for job_id, job, inputs in product_calls(document):
