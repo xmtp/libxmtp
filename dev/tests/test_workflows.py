@@ -124,6 +124,24 @@ class GateTests(unittest.TestCase):
         self.assertGreaterEqual(gates, 2)
 
 
+class PagesDeployTests(unittest.TestCase):
+    def test_only_the_pages_deploy_is_serialized_and_never_cancelled(self):
+        jobs = yaml.safe_load(
+            (ROOT / ".github/workflows/post-merge.yml").read_text()
+        )["jobs"]
+        grouped = {job for job, spec in jobs.items() if "concurrency" in spec}
+        self.assertEqual(grouped, {"deploy"})
+        # One fixed group for the one Pages site. A pending deploy waits in
+        # the queue and is never replaced, and a running one is never
+        # cancelled: a cancelled job makes the post-merge run cancelled.
+        self.assertEqual(
+            jobs["deploy"]["concurrency"],
+            {"group": "pages", "cancel-in-progress": False, "queue": "max"},
+        )
+        # actions/deploy-pages gives up after 10 minutes by default.
+        self.assertGreater(jobs["deploy"].get("timeout-minutes", 0), 10)
+
+
 class ActionPinTests(unittest.TestCase):
     def test_every_external_action_is_pinned_by_commit(self):
         """A tag can move; a 40-hex commit cannot."""

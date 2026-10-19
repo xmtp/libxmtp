@@ -158,12 +158,15 @@ jobs:
           while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-apps"
 
   # The RN device smoke of each merge: the full package's bare and Expo apps,
-  # with every journey. It reads only `xmtp`, where the cache jobs pushed the
-  # package and apps, builds nothing, and holds no token. `build` does not
-  # wait for it.
+  # with every journey. It reads only `xmtp` and holds no token. The cache
+  # jobs pushed the package and apps; `build` pushed the backend and the test
+  # services that the journeys start, so the smoke waits for it and builds
+  # nothing. If `build` fails, the smoke still runs and builds what it
+  # misses. `build` does not wait for the smoke.
   rn-smoke:
     name: RN installed-app smoke (${{ matrix.platform }})
-    needs: rn-consumers
+    needs: [rn-consumers, build]
+    if: ${{ !cancelled() && needs.rn-consumers.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -214,10 +217,12 @@ jobs:
           platform: ${{ matrix.platform }}
           artifact-prefix: react-native-post-merge
 
+  # A job that hits its timeout ends as cancelled while the run goes on, so
+  # a cancelled result alerts too. A cancelled run alerts on nothing.
   rn-alert:
     name: Alert on an RN failure
     needs: [rn-components, rn-package, rn-consumers, rn-smoke]
-    if: ${{ !cancelled() && contains(needs.*.result, 'failure') }}
+    if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
