@@ -1,11 +1,10 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { useLocalSearchParams } from "expo-router";
+
+import { DisappearingScreen } from "@/features/disappearing/DisappearingScreen";
 
 export default function DisappearingRoute() {
-  return (
-    <PlaceholderScreen
-      title={routeTitles.disappearing}
-      route="disappearing/[conversationId]"
-    />
-  );
+  const { conversationId } = useLocalSearchParams<{
+    conversationId: string;
+  }>();
+  return <DisappearingScreen conversationId={conversationId} />;
 }

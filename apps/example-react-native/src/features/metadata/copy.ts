@@ -1,0 +1,30 @@
+/** Developer tools strings. */
+export const metadataCopy = {
+  groupFields: "Group fields",
+  myFields: "My fields",
+  ownIntro:
+    "These values apply to this conversation. Only your entry can change.",
+  groupIntro: "Fields come from this conversation's committed registry.",
+  otherMembers: "Other members",
+  absent: "Absent",
+  offered: "Offered, not registered",
+  offeredDetail:
+    "These fields are offered by the server but are not registered in this conversation.",
+  save: "Save changed fields",
+  reload: "Reload fields",
+  immutable: "Immutable field: this component is already set.",
+  unsupported: "Unsupported field type or policy.",
+  changed: "Changed",
+  saved: "Saved",
+  setEmpty: "Set empty",
+  clear: "Clear",
+  currentValue: "Current value",
+  set: "Set",
+  edit: "Edit",
+  deleteEntry: "Delete entry",
+  inboxId: "Inbox ID",
+  keyInHex: "Key in hex",
+  valueInHex: "Value in hex",
+  add: "Add",
+  update: "Update",
+} as const;

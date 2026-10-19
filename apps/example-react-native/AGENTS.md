@@ -79,6 +79,9 @@ package of a merged revision whose SDK content matches:
 - `Stack.Toolbar.Button` icons go through `useToolbarIcon()`, because Android
   needs an image. A titled toolbar button (Next, Create) is
   `ToolbarTextButton`: Android draws no titled `Stack.Toolbar.Button`.
+  Pass `confirmation` for a confirming action (semibold Save, Add). A
+  toolbar that also holds icons uses `toolbarTextItem()`, because
+  `Stack.Toolbar` reads only its direct `Stack.Toolbar.*` children on iOS.
   `NavigationSubtitle` sets the iOS navigation subtitle.
 - List rows with a long-press menu use `ContextMenu` (a UIKit context menu
   in `modules/messenger-platform`; Android renders the children only).
@@ -103,10 +106,10 @@ package of a merged revision whose SDK content matches:
 
 - Screens use `@/session`: `useSessionState()`, `useActiveSession()` and the `sessionController` actions (`connect`, `retryRestore`, `signOut`, `deleteLocalData`, `continueReset`, `setAppearance`). `SessionProvider` starts the session and lends the open client to the SDK's `XmtpProvider`.
 - An `ActiveSession` carries the client, `preferences`, `streams` (the one default message reader, plus conversation and event readers), `identities` and `ownHandles`. Register session-owned work in `session.scope`; sign out cancels and awaits it before `client.end()`. Drop async results unless `session.isCurrent()`.
-- `app/_layout.tsx` mounts `SessionProvider` and `SessionRouter` (`src/features/startup`). The router owns the root screen: when the session state changes it pops the root stack and replaces it with the startup gate, Connect or the session's first screen (`src/core/sessionRoute.ts`). Screens never navigate to Connect or Chats after a sign-in or sign-out themselves. A launch deep link is pushed again on top of Chats; `/dev/*` routes are never redirected.
+- `app/_layout.tsx` mounts `SessionProvider` and `SessionRouter` (`src/features/startup`). The router owns the root screen: when the session state changes it pops the root stack and replaces it with the startup gate, Connect or the session's first screen (`src/core/sessionRoute.ts`). Screens never navigate to Connect or Chats after a sign-in or sign-out themselves. A launch deep link is pushed again on top of Chats; `/dev/*` routes are never redirected. Register every `app/dev` route in the root layout's `Stack.Protected guard={__DEV__}`, with a `routeTitles` title: a Release build then redirects a link to it to the startup gate, which the router leaves for the session's screen.
 - The session machine and stream hub live in `src/core` behind ports, so `node --test` covers them; `src/session` wires the device and the SDK.
 - Fast Refresh keeps the running session: reload the app after editing `src/session` or the core modules it uses. Running `install` (or `build-android`) under a live Metro removes the SDK package briefly; relaunch the app afterwards.
-- `app/dev/session-probe.tsx` (Debug only) drives the session: `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/session-probe?action=connect&url=http%3A%2F%2F127.0.0.1%3A5150"`. Other actions: `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`, `handles`, `contend`, `allowRequests` (accepts every message request); add `&n=<new value>` to repeat one.
+- `app/dev/session-probe.tsx` (Debug only) drives the session: `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/session-probe?action=connect&url=http%3A%2F%2F127.0.0.1%3A5150"`. Other actions: `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`, `handles`, `contend`, `allowRequests` (accepts every message request), `claim` (claims the handle in `name`), `createGroup` (a group named `name` with the comma-separated handles in `members`); add `&n=<new value>` to repeat one.
 - `app/dev/chat-probe.tsx` (Debug only) acts on the open chat, then returns to it: `xmtp-messenger-rn:///dev/chat-probe?action=<action>&c=<conversation>&m=<message>&n=<new value>`. Actions: `failNextSend` (the next send fails after it may have queued: Send outcome unknown), `failPublish` and `allowPublish` (publishing fails until allowed: the message stays Sending), `reply`, `retry`, `edit`, `delete`, `react` (`&e=<emoji>`). Without `m`, `retry` and `edit` use the newest own unpublished row.
 
 ## Chat
@@ -120,6 +123,17 @@ The request bar takes its Accept, Delete request and Block decisions from the sa
 ## New message
 
 `features/new-conversation` is a page sheet with its own stack: step 1 (`index`) and the review (`review`) share one `NewConversationStore` (`src/core/newConversation.ts`, recipient resolution and its tests) that `NewConversationSheet` owns in the sheet's layout (`useNewConversation()`). Create closes the sheet and pushes the new chat. `useScrollEdge()` (`scrollEdge.ts`) gives a form in a sheet SwiftUI's top edge: none at rest, the hard edge once content is under the bar. A static `scrollEdgeEffects: { top: "hard" }` draws the edge at rest too.
+
+## Details
+
+`src/core/details.ts` (`DetailsStore`: loads, ordered group writes, pending members and one poller) and `src/core/metadata.ts` (field rules and `MetadataStore`) are pure stores tested in `node --test`. `src/features/details/detailsStores.ts` gives Details, Edit group and Add member one shared store per conversation (`useSharedDetailsStore`), so errors and pending members show on Details after a sheet closes; Member, Permissions and Disappearing each own a store (`useOwnDetailsStore`). A sheet at a partial detent draws glass behind translucent cards: `useSheetFormProps()` (`sheetDetent.tsx`) returns the `FormScreen` props for the sheet's current detent. Block, Leave group and Remove from group confirm with `PopoverConfirmation` over the list.
+
+## Attachments
+
+The upload drafts and downloads are one pure store, `src/core/attachmentStore.ts` (with `attachments.ts` for models, copy, failure mapping and the saved drafts, and `sharedMedia.ts`), tested against `attachmentFakes.ts`. `src/features/attachments` wires it to the SDK (`sdkAttachmentGateway.ts`) and the send journal: a send uploads first, then queues `sendRemoteAttachment` with the draft ID as the journal ID. Each open chat has one store (`chatAttachments.ts`), shared by the composer slots and the file cards in `MessageContent.tsx`. Picked files are copied into `<profile>/temp/attachment-staging/<uuid>` within the server limit and removed after `attachments.create`; Open and Save copy a verified file to `<profile>/exports/<uuid>/`, which the session removes when it ends. Image previews use a memory-only cache, so decrypted files stay in protected storage. Attachment recovery (`/attachment-recovery`, opened from Settings › Developer tools and from a staged file's "Review send") and Media and files (`/shared-media/<conversation>`, opened from Details) live in the same folder.
+
+- `app/dev/attachment-probe.tsx` (Debug only): `xmtp-messenger-rn:///dev/attachment-probe?action=<action>&n=<new value>`. Actions: `limit` (`&bytes=<n>`: the upload limit a chat reads when it opens, for the "File exceeds the server upload limit" check), `clearLimit`, `holdUploads` (uploads wait, so the app can be stopped mid-upload) and `releaseUploads`.
+- Launch with `XMTP_ALLOW_PRIVATE_ATTACHMENTS=1` for the local object store, and with `XMTP_UI_TEST_ATTACHMENT=<name>:<base64>` (Debug, at most 64 KiB) for the attach menu's "Test file".
 
 ## Native projects
 

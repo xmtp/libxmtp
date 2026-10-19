@@ -1,7 +1,7 @@
 import { StyleSheet, View } from "react-native";
 
 import { type ChatMessage, contentText } from "@/core/chatMessages.ts";
-import { AttachmentPlaceholder } from "@/features/chat/AttachmentPlaceholder";
+import { ChatAttachmentCard } from "@/features/attachments/ChatAttachmentCard";
 import { BubbleText } from "@/ui/Bubble";
 import { useColors } from "@/ui/colors";
 import { Text } from "@/ui/Text";
@@ -41,7 +41,7 @@ export function MessageContent({
       );
     case "attachment":
       return (
-        <AttachmentPlaceholder
+        <ChatAttachmentCard
           row={row}
           file={content.file}
           isOutgoing={isOutgoing}

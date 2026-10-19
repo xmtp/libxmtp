@@ -1,11 +1,8 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { useLocalSearchParams } from "expo-router";
+
+import { SharedMediaScreen } from "@/features/attachments/SharedMediaScreen";
 
 export default function SharedMediaRoute() {
-  return (
-    <PlaceholderScreen
-      title={routeTitles.sharedMedia}
-      route="shared-media/[conversationId]"
-    />
-  );
+  const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+  return <SharedMediaScreen conversationId={conversationId} />;
 }

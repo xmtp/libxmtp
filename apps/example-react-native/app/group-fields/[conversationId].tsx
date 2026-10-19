@@ -1,11 +1,10 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { useLocalSearchParams } from "expo-router";
+
+import { MetadataScreen } from "@/features/metadata/MetadataScreen";
 
 export default function GroupFieldsRoute() {
-  return (
-    <PlaceholderScreen
-      title={routeTitles.groupFields}
-      route="group-fields/[conversationId]"
-    />
-  );
+  const { conversationId } = useLocalSearchParams<{
+    conversationId: string;
+  }>();
+  return <MetadataScreen conversationId={conversationId} own={false} />;
 }

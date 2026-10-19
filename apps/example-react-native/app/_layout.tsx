@@ -100,7 +100,10 @@ export default function RootLayout() {
                 name="member"
                 options={formSheet([0.7, 1], accessibilitySize ? 1 : 0)}
               />
-              <Stack.Screen name="add-member" options={formSheet([0.5, 1])} />
+              <Stack.Screen
+                name="add-member"
+                options={formSheet([mediumDetent, 1])}
+              />
               <Stack.Screen
                 name="reactions"
                 options={formSheet([mediumDetent, 1])}
@@ -121,6 +124,10 @@ export default function RootLayout() {
                 <Stack.Screen
                   name="dev/chat-probe"
                   options={inline(routeTitles.chatProbe)}
+                />
+                <Stack.Screen
+                  name="dev/attachment-probe"
+                  options={inline(routeTitles.attachmentProbe)}
                 />
               </Stack.Protected>
             </Stack>

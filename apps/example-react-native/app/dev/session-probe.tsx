@@ -3,7 +3,8 @@
 // `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/session-probe"`.
 // Query parameters run an action: `?action=connect&url=…&token=…&name=…`,
 // `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`,
-// `contend`, `allowRequests` or `handles`; add `&n=<anything new>` to run the
+// `contend`, `allowRequests`, `handles`, `claim` (`name`) or
+// `createGroup` (`name`, `members=handle,handle`); add `&n=<anything new>` to run the
 // same action again.
 
 import type { Message } from "@xmtp/react-native-sdk";
@@ -150,6 +151,7 @@ export default function SessionProbe() {
     url?: string;
     token?: string;
     name?: string;
+    members?: string;
     n?: string;
   }>();
   const [url, setUrl] = useState(
@@ -181,7 +183,15 @@ export default function SessionProbe() {
   );
 
   const actions = useCallback(
-    (action: string, input: { url: string; token: string; name?: string }) => {
+    (
+      action: string,
+      input: {
+        url: string;
+        token: string;
+        name?: string;
+        members?: string;
+      },
+    ) => {
       switch (action) {
         case "start":
           return run("start", () => startSession());
@@ -243,6 +253,33 @@ export default function SessionProbe() {
             if (current.kind !== "active") throw new Error("No open session");
             return current.session.initialRoute();
           });
+        case "claim":
+          // Claims the handle in `name` (before Choose handle exists).
+          return run("claim", async () => {
+            const current = sessionController.getState();
+            if (current.kind !== "active") throw new Error("No open session");
+            await current.session.client.claimHandle(input.name ?? "");
+            return current.session.refreshOwnHandles();
+          });
+        case "createGroup":
+          // Creates a group named `name` with the comma-separated handles
+          // in `members`, so the app user is its super admin.
+          return run("createGroup", async () => {
+            const current = sessionController.getState();
+            if (current.kind !== "active") throw new Error("No open session");
+            const group =
+              await current.session.client.conversations.createGroup(
+                (input.members ?? "")
+                  .split(",")
+                  .filter((handle) => handle !== "")
+                  .map((handle) => ({
+                    kind: "handle" as const,
+                    identifier: handle,
+                  })),
+                { name: input.name ?? "" },
+              );
+            return group.id;
+          });
         default:
           log(`unknown action ${action}`);
           return Promise.resolve();
@@ -273,12 +310,14 @@ export default function SessionProbe() {
       url: params.url ?? url,
       token: params.token ?? token,
       ...(params.name === undefined ? {} : { name: params.name }),
+      ...(params.members === undefined ? {} : { members: params.members }),
     };
     if (params.url !== undefined) setUrl(params.url);
     void actions(action, input);
   }, [
     actions,
     params.action,
+    params.members,
     params.n,
     params.name,
     params.token,

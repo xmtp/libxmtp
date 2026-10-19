@@ -1,11 +1,11 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { useLocalSearchParams } from "expo-router";
+
+import { MemberScreen } from "@/features/member/MemberScreen";
 
 export default function MemberRoute() {
-  return (
-    <PlaceholderScreen
-      title={routeTitles.member}
-      route="member/[conversationId]/[inboxId]"
-    />
-  );
+  const { conversationId, inboxId } = useLocalSearchParams<{
+    conversationId: string;
+    inboxId: string;
+  }>();
+  return <MemberScreen conversationId={conversationId} inboxId={inboxId} />;
 }
