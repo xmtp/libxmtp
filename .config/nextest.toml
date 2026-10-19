@@ -10,7 +10,7 @@ default-filter = "not package(xmtp_backend) & (not test(test_stream_all_messages
 failure-output = "immediate-final"
 fail-fast = false
 
-# consumed by .github/workflows/ignored-tests-tracker.yml
+# nix/lib/junit.nix installs this report in the test derivations
 [profile.ci.junit]
 path = "junit.xml"
 
