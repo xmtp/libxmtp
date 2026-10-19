@@ -120,7 +120,10 @@ with open(os.environ["EVENTS"], "a") as output:
     output.write(json.dumps(["exchange", args]) + "\\n")
 kind = args[args.index("--kind") + 1]
 stage = args[args.index("--stage") + 1]
-name = "xmtp-sdk-react-native-" + ("test-package" if kind == "test" else "package")
+name = "xmtp-sdk-react-native-" + {
+    "test": "test-package",
+    "test-android": "test-package-android",
+}.get(kind, "package")
 roots = {name: os.environ["PACKAGE"]} if stage == "package" else {"component": "/nix/store/c"}
 if args[0] == "roots":
     print(json.dumps(roots))
@@ -264,31 +267,56 @@ class ReactNativeProductTests(unittest.TestCase):
                 )
 
     def test_token_runs_substitute_the_test_package_instead_of_exchanging(self):
-        env = {"RN_EXCHANGE": "false", "RN_PACKAGE_KIND": "test"}
-        self.run_stage("components", **env)
-        self.run_stage("package", **env)
-        self.run_stage("consumers", RN_CONSUMERS="bare", **env)
-        self.assertEqual(self.exchanges(), [])
-        self.assertFalse((self.directory / "target/rn-exchange").exists())
-        components, package, package_fetch, apps = self.builds()
-        stages = ".#legacyPackages.x86_64-linux.reactNative.testStages"
-        self.assertIn(f"{stages}.components", components)
-        self.assertIn(f"{stages}.package", package)
-        self.assertIn(
-            ".#packages.x86_64-linux.xmtp-sdk-react-native-test-package", package_fetch
-        )
-        self.assertIn(".#react-native-test-consumer-android-bare", apps)
-        output = self.output()
-        self.assertIn(f"XMTP_RN_PACKAGE_DIR={self.store}\n", output)
-        self.assertIn("XMTP_RN_EXPECTED_VERSION=8.0.0-partial\n", output)
-        # The pushes read the declared roots, not an export manifest.
-        roots = re.findall(r"^XMTP_RN_ROOTS=(.*)$", output, re.MULTILINE)
+        for kind, consumers, stages, package, app in (
+            (
+                "test",
+                "all",
+                "testStages",
+                "xmtp-sdk-react-native-test-package",
+                ".#react-native-test-consumer-android",
+            ),
+            # The Android smoke: the Android-only package and the bare app.
+            (
+                "test-android",
+                "bare",
+                "androidTestStages",
+                "xmtp-sdk-react-native-test-package-android",
+                ".#react-native-test-consumer-android-bare",
+            ),
+        ):
+            with self.subTest(kind=kind):
+                for path in ("events", "output"):
+                    (self.directory / path).unlink(missing_ok=True)
+                env = {"RN_EXCHANGE": "false", "RN_PACKAGE_KIND": kind}
+                self.run_stage("components", **env)
+                self.run_stage("package", **env)
+                self.run_stage("consumers", RN_CONSUMERS=consumers, **env)
+                self.assertEqual(self.exchanges(), [])
+                self.assertFalse((self.directory / "target/rn-exchange").exists())
+                components, built, package_fetch, apps = self.builds()
+                prefix = f".#legacyPackages.x86_64-linux.reactNative.{stages}"
+                self.assertIn(f"{prefix}.components", components)
+                self.assertIn(f"{prefix}.package", built)
+                self.assertIn(f".#packages.x86_64-linux.{package}", package_fetch)
+                self.assertEqual(apps[-1], app)
+                output = self.output()
+                self.assertIn(f"XMTP_RN_PACKAGE_DIR={self.store}\n", output)
+                self.assertIn("XMTP_RN_EXPECTED_VERSION=8.0.0-partial\n", output)
+                # The pushes read the declared roots, not an export manifest.
+                roots = re.findall(r"^XMTP_RN_ROOTS=(.*)$", output, re.MULTILINE)
+                self.assertEqual(
+                    [json.loads(Path(path).read_text()) for path in roots],
+                    [{"component": "/nix/store/c"}, {package: str(self.store)}],
+                )
+
+    def test_android_only_package_imports_only_linux_components(self):
+        path = self.directory / "target/rn-exchange/same-run-components-x86_64-linux"
+        path.mkdir(parents=True)
+        (path / "manifest.json").write_text("{}")
+        self.run_stage("package", RN_PACKAGE_KIND="test-android")
+        imports = [args for args in self.exchanges() if args[0] == "import"]
         self.assertEqual(
-            [json.loads(Path(path).read_text()) for path in roots],
-            [
-                {"component": "/nix/store/c"},
-                {"xmtp-sdk-react-native-test-package": str(self.store)},
-            ],
+            [args[args.index("--system") + 1] for args in imports], ["x86_64-linux"]
         )
 
     def test_exchange_runs_take_the_roots_from_the_checked_manifest(self):
@@ -315,6 +343,11 @@ class ReactNativeProductTests(unittest.TestCase):
         for env in (
             {"RN_PACKAGE_KIND": "test", "RN_PACKAGE_VERSION": "8.0.1"},
             {"RN_PACKAGE_KIND": "release", "RN_CONSUMERS": "bare"},
+            # The bare app comes only from the Android-only package, which has
+            # no other app and no Darwin stage.
+            {"RN_PACKAGE_KIND": "test", "RN_CONSUMERS": "bare"},
+            {"RN_PACKAGE_KIND": "test-android", "RN_CONSUMERS": "all"},
+            {"RN_PACKAGE_KIND": "test-android", "RN_SYSTEM": "aarch64-darwin"},
         ):
             with self.subTest(env=env):
                 result = subprocess.run(
@@ -463,10 +496,14 @@ class ReactNativeWorkflowTests(unittest.TestCase):
             ("push", "auto", "full", "release"),
             ("workflow_dispatch", "auto", "full", "release"),
             ("workflow_dispatch", "test", "full", "test"),
-            # The Android smoke has a bare-only app only in the test package.
-            ("workflow_dispatch", "auto", "android-smoke", "test"),
-            ("workflow_dispatch", "", "android-smoke", "test"),
-            ("push", "auto", "android-smoke", "test"),
+            # The Android smoke uses the Android-only test package on every
+            # event; an explicit release request fails the scope check.
+            ("pull_request", "auto", "android-smoke", "test-android"),
+            ("workflow_dispatch", "auto", "android-smoke", "test-android"),
+            ("workflow_dispatch", "", "android-smoke", "test-android"),
+            ("workflow_dispatch", "test", "android-smoke", "test-android"),
+            ("push", "auto", "android-smoke", "test-android"),
+            ("workflow_dispatch", "release", "android-smoke", "release"),
         ):
             with self.subTest(event=event, package=package, scope=scope):
                 self.assertEqual(
@@ -495,6 +532,32 @@ class ReactNativeWorkflowTests(unittest.TestCase):
                         ),
                         not token,
                     )
+
+    def test_android_smoke_runs_no_macos_job(self):
+        # The Android smoke builds no iOS part, so no job of the chain runs on
+        # a macOS label. The full scope keeps its macOS jobs.
+        jobs = workflow("test-react-native.yml")["jobs"]
+
+        def labels(scope):
+            found = []
+            for job in jobs.values():
+                include = job.get("strategy", {}).get("matrix", {}).get("include")
+                if isinstance(include, str):
+                    raw = inner(include).removeprefix("fromJSON(").removesuffix(")")
+                    rows = json.loads(expression(raw, {"inputs.scope": scope}))
+                else:
+                    rows = include or [{}]
+                for row in rows:
+                    runner = job["runs-on"]
+                    if "${{" in runner:
+                        runner = row[inner(runner).removeprefix("matrix.")]
+                    found.append(runner)
+            return found
+
+        self.assertFalse(
+            [label for label in labels("android-smoke") if "macos" in label]
+        )
+        self.assertTrue([label for label in labels("full") if "macos" in label])
 
     def test_android_smoke_runs_only_the_bare_android_app(self):
         matrix = workflow("test-react-native.yml")["jobs"]["consumers"]["strategy"][

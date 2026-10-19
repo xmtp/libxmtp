@@ -167,7 +167,7 @@ class PackageTests(unittest.TestCase):
             SimpleNamespace(
                 js=self.js,
                 android=self.components[android],
-                ios=self.components[ios],
+                ios=None if ios is None else self.components[ios],
                 out=output,
                 version=version,
                 partial=partial,
@@ -290,6 +290,67 @@ class PackageTests(unittest.TestCase):
             contract_path.write_text(json.dumps(contract))
             with self.assertRaisesRegex(ValueError, "exactly when it is partial"):
                 package.verify_package(clean, version, "sdk-source")
+
+    def test_android_only_partial_package_has_no_ios_and_never_ships(self):
+        # The Android smoke's package: the x86_64 Android component only.
+        version = "8.0.0" + package.PARTIAL_SUFFIX
+        output = self.assemble(version, True, "android-fast", None)
+        tarball = self.tarball(output)
+        receipt = package.verify_package(
+            tarball, version, "sdk-source", allow_partial=True
+        )
+        self.assertEqual(set(receipt["components"]), {"android"})
+        self.assertEqual(
+            set(receipt["components"]["android"]["native"]), {"x86_64-linux-android"}
+        )
+        self.assertFalse(
+            [name for name in receipt["assets"] if name.startswith(package.XCFRAMEWORK)]
+        )
+        self.assertEqual(consumer_build.android_architectures(receipt), ["x86_64"])
+        self.assertEqual(
+            consumer_build.sdk_identity(tarball, version, "sdk-source"),
+            package.digest(tarball),
+        )
+        # Every release path rejects it: the publish check and a release version.
+        with self.assertRaisesRegex(ValueError, "partial CI test package"):
+            package.verify_package(tarball, version, "sdk-source")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(package.__file__)),
+                "verify-package",
+                str(tarball),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("partial CI test package", result.stderr)
+        with self.assertRaisesRegex(ValueError, "partial CI test package"):
+            consumer_build.sdk_identity(tarball, "8.0.0", "sdk-source")
+        # Dropping the marker cannot turn it into a release package.
+        with package.unpack(tarball) as clean:
+            contract_path = clean / "sdk-contract.json"
+            contract = json.loads(contract_path.read_text())
+            del contract["partial"]
+            contract_path.write_text(json.dumps(contract))
+            with self.assertRaisesRegex(ValueError, "exactly when it is partial"):
+                package.verify_package(clean, version, "sdk-source")
+
+    def test_only_a_partial_package_may_leave_out_ios(self):
+        with self.assertRaisesRegex(
+            ValueError, "without an iOS component must be partial"
+        ):
+            self.assemble("8.0.1", False, "android", None)
+        self.assertFalse((self.root / "assembled").exists())
+        # A receipt that drops the iOS component of a full package is rejected.
+        output = self.assemble("8.0.1")
+        contract_path = output / "package/sdk-contract.json"
+        contract = json.loads(contract_path.read_text())
+        del contract["components"]["ios"]
+        contract_path.write_text(json.dumps(contract))
+        with self.assertRaisesRegex(ValueError, "ios component has incomplete"):
+            package.verify_package(output / "package", "8.0.1")
 
     def test_partial_flag_and_version_suffix_go_together(self):
         with self.assertRaisesRegex(ValueError, "exactly when it is partial"):

@@ -131,6 +131,10 @@ class StageTests(unittest.TestCase):
             ".#legacyPackages.x86_64-linux.reactNative.testStages.package",
             self.evaluated("x86_64-linux", "package", None, "test"),
         )
+        self.assertIn(
+            ".#legacyPackages.x86_64-linux.reactNative.androidTestStages.package",
+            self.evaluated("x86_64-linux", "package", None, "test-android"),
+        )
 
     def test_release_version_never_names_a_test_package(self):
         with self.assertRaisesRegex(ValueError, "release package stage"):

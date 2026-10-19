@@ -333,7 +333,9 @@ CI jobs. Trusted writers receive only exports from the same main run.
 Jobs with a Cachix token skip the exchange; `react-native-exchange.py roots`
 prints a stage's roots. `--kind test` selects
 `legacyPackages.<system>.reactNative.testStages`, the stages of the partial
-`xmtp-sdk-react-native-test-package`.
+`xmtp-sdk-react-native-test-package`; `--kind test-android` selects
+`androidTestStages`, the Linux-only stages of
+`xmtp-sdk-react-native-test-package-android` (the Android smoke).
 
 Check export admission with
 `dev/nix-shell 'python3.11 -B nix/lib/test_react_native_exchange.py'`.

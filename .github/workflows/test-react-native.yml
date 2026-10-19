@@ -3,8 +3,10 @@
 # that need no device run in check-react-native.yml.
 #
 # Pull request runs assemble the partial test package (x86_64 Android, iOS
-# simulator); every other event assembles the full release package. Release
-# consumers still test the exact versioned tarball before npm publish.
+# simulator); every other event assembles the full release package. The
+# Android smoke assembles the partial package without iOS, so it runs no macOS
+# job. Release consumers still test the exact versioned tarball before npm
+# publish.
 name: "Test: React Native SDK"
 on:
   workflow_dispatch:
@@ -44,9 +46,10 @@ permissions:
   contents: read
 env:
   RN_CACHE_WRITER: ${{ secrets.CACHIX_PR_AUTH_TOKEN != '' }}
-  # The test package exists only for pull requests, the Android smoke (only
-  # the test package has a bare-only Android app), and explicit requests.
-  RN_PACKAGE_KIND: ${{ (inputs.package == 'test' || ((inputs.package || 'auto') == 'auto' && (github.event_name == 'pull_request' || inputs.scope == 'android-smoke'))) && 'test' || 'release' }}
+  # The Android smoke always uses the Android-only test package (test-android),
+  # unless a run asks for release, which the scope check rejects. The test
+  # package exists only for pull requests and explicit requests.
+  RN_PACKAGE_KIND: ${{ inputs.scope == 'android-smoke' && inputs.package != 'release' && 'test-android' || (inputs.package == 'test' || ((inputs.package || 'auto') == 'auto' && github.event_name == 'pull_request')) && 'test' || 'release' }}
   RN_DEBUG: ${{ inputs.debug == true }}
 jobs:
   components:
@@ -54,14 +57,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - system: x86_64-linux
-            name: Build JS and Android parts (Linux)
-            runner: blacksmith-16vcpu-ubuntu-2404
-          # Trial 2026-10-19: was warp-macos-26-arm64-12x.
-          - system: aarch64-darwin
-            name: Build iOS parts (macOS)
-            runner: warp-macos-26-arm64-6x
+        # android-smoke builds no iOS part. The macOS row is a trial since
+        # 2026-10-19: it was warp-macos-26-arm64-12x.
+        include: ${{ fromJSON(inputs.scope == 'android-smoke' && '[{"system":"x86_64-linux","name":"Build JS and Android parts (Linux)","runner":"blacksmith-16vcpu-ubuntu-2404"}]' || '[{"system":"x86_64-linux","name":"Build JS and Android parts (Linux)","runner":"blacksmith-16vcpu-ubuntu-2404"},{"system":"aarch64-darwin","name":"Build iOS parts (macOS)","runner":"warp-macos-26-arm64-6x"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
@@ -72,9 +70,13 @@ jobs:
           KIND: ${{ env.RN_PACKAGE_KIND }}
         run: |
           case "$SCOPE" in full|android-smoke) ;; *) echo "::error::unknown scope: $SCOPE"; exit 1 ;; esac
-          # Only the test package has a bare-only Android app output.
-          if [[ "$SCOPE" == android-smoke && "$KIND" != test ]]; then
+          # Only the Android-only test package has the bare-only Android app,
+          # and only the Android smoke uses that package.
+          if [[ "$SCOPE" == android-smoke && "$KIND" != test-android ]]; then
             echo "::error::scope android-smoke needs the test package"; exit 1
+          fi
+          if [[ "$SCOPE" == full && "$KIND" == test-android ]]; then
+            echo "::error::scope full needs the iOS parts"; exit 1
           fi
       - name: Check out the source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -149,7 +151,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # android-smoke: the bare Android app of the test package only.
+        # android-smoke: the bare Android app of the Android-only test package.
         include: ${{ fromJSON(inputs.scope == 'android-smoke' && '[{"platform":"android","system":"x86_64-linux","runner":"blacksmith-16vcpu-ubuntu-2404","consumers":"bare","name":"Installed-app tests (Android bare)"}]' || '[{"platform":"android","system":"x86_64-linux","runner":"blacksmith-16vcpu-ubuntu-2404","consumers":"all","name":"Installed-app tests (Android)"},{"platform":"ios","system":"aarch64-darwin","runner":"warp-macos-26-arm64-12x","consumers":"all","name":"Installed-app tests (iOS)"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90

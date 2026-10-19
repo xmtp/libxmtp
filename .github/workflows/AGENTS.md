@@ -290,7 +290,9 @@ See the setup action's README for settings.
 package, and the installed bare/Expo apps. Its `scope` input is `full` or
 `android-smoke` (the bare Android app). Pull request runs build the partial test
 package (x86_64 Android, iOS simulator, version `-partial`, rejected by
-`verify-package`); other events build the full package. Jobs with the `xmtp-pr`
+`verify-package`); other events build the full package. The Android smoke
+builds the partial package without iOS (package kind `test-android`) on every
+event, so it runs no macOS job. Jobs with the `xmtp-pr`
 token push each stage and the next stage substitutes it; forks and releases
 exchange signed same-run closures (zstd). Receipts run only with the `debug`
 input or a debug re-run.

@@ -30,7 +30,9 @@ if phase == "before":
           system = builtins.getEnv "RN_SYSTEM";
           stage = builtins.getEnv "RN_STAGE";
           kind = builtins.getEnv "RN_PACKAGE_KIND";
-          stages = if kind == "test" then f.legacyPackages.${system}.reactNative.testStages else f.ciStages.${system};
+          stages = if kind == "test" then f.legacyPackages.${system}.reactNative.testStages
+                   else if kind == "test-android" then f.legacyPackages.${system}.reactNative.androidTestStages
+                   else f.ciStages.${system};
           version = builtins.getEnv "RN_PACKAGE_VERSION";
           platform = if system == "x86_64-linux" then "android" else "ios";
           # The bundles the action builds; see its consumers selection.
@@ -38,7 +40,7 @@ if phase == "before":
               f.legacyPackages.${system}.reactNative.mkConsumers {
                 package = f.legacyPackages.x86_64-linux.reactNative.mkPackage { inherit version; };
               }
-            else f.packages.${system}.${"react-native-" + (if kind == "test" then "test-" else "")
+            else f.packages.${system}.${"react-native-" + (if kind != "release" then "test-" else "")
               + "consumer-" + platform + (if builtins.getEnv "RN_CONSUMERS" == "bare" then "-bare" else "")};
           templates = builtins.intersectAttrs { react-native-consumer-template-bare = null; react-native-consumer-template-expo = null; } f.packages.${system};
           roots = if stage == "components" then stages.components.passthru.members // f.ciStages.${system}.native-base.passthru.members

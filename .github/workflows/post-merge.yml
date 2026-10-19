@@ -20,8 +20,9 @@ concurrency:
 jobs:
   # The RN cache jobs build and push the RN stages to `xmtp`; they install and
   # test nothing. Each stage substitutes the previous one from `xmtp`, so they
-  # exchange no artifacts. The test package and the bare Android test app are
-  # warmed too, so pull requests that do not change them substitute them.
+  # exchange no artifacts. The test packages (with and without iOS) and the
+  # bare Android test app are warmed too, so pull requests that do not change
+  # them substitute them.
   rn-components:
     name: Cache RN components (${{ matrix.system }})
     strategy:
@@ -91,16 +92,18 @@ jobs:
           exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
-      - name: Assemble the pull request test package
+      - name: Assemble the pull request test packages
         shell: bash
         run: |
-          nix build --no-link --print-out-paths .#xmtp-sdk-react-native-test-package > "$RUNNER_TEMP/rn-test-package"
+          nix build --no-link --print-out-paths \
+            .#xmtp-sdk-react-native-test-package \
+            .#xmtp-sdk-react-native-test-package-android > "$RUNNER_TEMP/rn-test-packages"
       - name: Finish package cache uploads
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
           cachix push xmtp "$XMTP_RN_PACKAGE_DIR"
-          cachix push xmtp "$(cat "$RUNNER_TEMP/rn-test-package")"
+          while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-test-packages"
 
   rn-consumers:
     name: Cache RN apps (${{ matrix.platform }})

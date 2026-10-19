@@ -6,7 +6,8 @@ transport bytes; the same-run workflow and its source determine their authority.
 PR imports stay in CI jobs. Trusted writers accept only their own main run.
 Jobs with a Cachix token skip the exchange and substitute instead; `roots`
 prints the declared products for them. `--kind test` selects the stages of
-the partial CI test package.
+the partial CI test package, and `--kind test-android` those of the same
+package without iOS (the Android smoke).
 """
 
 import argparse
@@ -33,6 +34,7 @@ def run(*args, **kwargs):
 STAGES = {
     "release": "ciStages.{system}",
     "test": "legacyPackages.{system}.reactNative.testStages",
+    "test-android": "legacyPackages.{system}.reactNative.androidTestStages",
 }
 
 

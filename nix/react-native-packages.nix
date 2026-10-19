@@ -3,8 +3,10 @@
 #
 # Pull requests test a partial package instead: `xmtp-sdk-react-native-test-package`
 # holds only the fast components (x86_64 Android, iOS simulator), its version
-# ends with `-partial`, and `package.py verify-package` rejects it. Main, the
-# post-merge smoke, and releases keep the full package.
+# ends with `-partial`, and `package.py verify-package` rejects it. The Android
+# smoke uses `xmtp-sdk-react-native-test-package-android`, the same package
+# without iOS, so it needs no macOS build. Main, the post-merge smoke, and
+# releases keep the full package.
 { self, ... }:
 {
   perSystem =
@@ -180,17 +182,22 @@
           };
       # partial: the CI test package of the fast components. Its version gets
       # package.py's PARTIAL_SUFFIX, which no release version carries.
+      # ios = false leaves out the iOS component; only a partial package may.
       mkPackage =
         {
           version ? (lib.importJSON (sdk + "/package.json")).version,
           partial ? false,
+          ios ? true,
         }:
+        assert lib.assertMsg (ios || partial) "only a partial RN package may leave out iOS";
         let
           packageVersion = version + lib.optionalString partial "-partial";
           components =
             if partial then
               {
                 android = self.packages.x86_64-linux.xmtp-sdk-react-native-android-fast;
+              }
+              // lib.optionalAttrs ios {
                 ios = self.packages.aarch64-darwin.xmtp-sdk-react-native-ios-simulator;
               }
             else
@@ -199,7 +206,8 @@
                 ios = self.packages.aarch64-darwin.xmtp-sdk-react-native-ios;
               };
         in
-        pkgs.runCommand "xmtp-sdk-react-native-package-${packageVersion}"
+        pkgs.runCommand
+          "xmtp-sdk-react-native-package-${packageVersion}${lib.optionalString (!ios) "-android"}"
           {
             nativeBuildInputs = [
               pkgs.python311
@@ -212,13 +220,15 @@
           ''
             export HOME="$TMPDIR/home"
             mkdir -p "$HOME"
-            # These are immutable foreign-system bytes. Producers must finish
-            # exporting/importing them before this Linux derivation is built.
-            test -f ${components.ios}/sdk-contract.json
+            ${lib.optionalString ios ''
+              # These are immutable foreign-system bytes. Producers must finish
+              # exporting/importing them before this Linux derivation is built.
+              test -f ${components.ios}/sdk-contract.json
+            ''}
             python3 ${packageTools}/sdks/react-native/scripts/package.py assemble \
               --js ${self.packages.x86_64-linux.xmtp-sdk-react-native-js} \
               --android ${components.android} \
-              --ios ${components.ios} \
+              ${lib.optionalString ios "--ios ${components.ios}"} \
               --version ${lib.escapeShellArg packageVersion} ${lib.optionalString partial "--partial "}--out "$TMPDIR/package"
             cp -R "$TMPDIR/package" "$out"
           '';
@@ -245,9 +255,30 @@
           }
         );
       };
+      # The stages of the Android-only test package (the Android smoke). No
+      # stage has a Darwin member.
+      androidTestStages = {
+        components = stage "android-components" (
+          lib.optionalAttrs (system == "x86_64-linux") {
+            inherit (p) xmtp-sdk-react-native-js xmtp-sdk-react-native-android-fast;
+          }
+        );
+        package = stage "android-package" (
+          lib.optionalAttrs (system == "x86_64-linux") {
+            inherit (p) xmtp-sdk-react-native-test-package-android;
+          }
+        );
+      };
     in
     {
-      legacyPackages.reactNative = { inherit mkPackage mkConsumers testStages; };
+      legacyPackages.reactNative = {
+        inherit
+          mkPackage
+          mkConsumers
+          testStages
+          androidTestStages
+          ;
+      };
       packages = {
         xmtp-sdk-react-native-js = js;
         react-native-js-tools = jsTools;
@@ -264,13 +295,17 @@
         ) androidEntries) true;
         xmtp-sdk-react-native-package = mkPackage { };
         xmtp-sdk-react-native-test-package = mkPackage { partial = true; };
+        xmtp-sdk-react-native-test-package-android = mkPackage {
+          partial = true;
+          ios = false;
+        };
         react-native-consumer-android = mkConsumers { package = p.xmtp-sdk-react-native-package; };
         react-native-test-consumer-android = mkConsumers {
           package = p.xmtp-sdk-react-native-test-package;
         };
-        # The pull request smoke: the bare app only.
+        # The Android smoke: the bare app of the Android-only test package.
         react-native-test-consumer-android-bare = mkConsumers {
-          package = p.xmtp-sdk-react-native-test-package;
+          package = p.xmtp-sdk-react-native-test-package-android;
           names = [ "bare" ];
         };
         react-native-consumer-native-deps-android = pkgs.linkFarm "rn-android-native-dependencies" (

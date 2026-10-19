@@ -4,8 +4,8 @@
 Native compilers never run here. Component receipts bind the binaries to the
 rendered JS/runtime; assembly needs both complete platform products. A partial
 CI test package (`assemble --partial`) also accepts the fast components (x86_64
-Android, iOS simulator); its version carries PARTIAL_SUFFIX and every release
-check rejects it.
+Android, iOS simulator), and may leave out iOS entirely (the Android smoke); its
+version carries PARTIAL_SUFFIX and every release check rejects it.
 """
 
 import argparse
@@ -35,6 +35,9 @@ FAST = {
 # Release tooling never computes this version suffix, so a partial package
 # cannot carry a release version.
 PARTIAL_SUFFIX = "-partial"
+# The iOS component's directory in the package. An Android-only partial
+# package has nothing under it.
+XCFRAMEWORK = "ios/XmtpSdkFFI.xcframework/"
 NAME = "@xmtp/react-native-sdk"
 CODEGEN = {
     "name": "XmtpReactNativeSpec",
@@ -284,11 +287,17 @@ def validate_package(directory, version=None, allow_partial=False):
         )
     if partial and not allow_partial:
         raise ValueError("RN package is a partial CI test package; it cannot ship")
+    # Only a partial package may leave out iOS; Android is always required.
+    platforms = ("android", "ios")
+    if partial and set(receipt.get("components", {})) == {"android"}:
+        platforms = ("android",)
+        if any(name.startswith(XCFRAMEWORK) for name in receipt["assets"]):
+            raise ValueError("RN Android-only package holds iOS native files")
     mappings = {
         platform: receipt_mapping(
             receipt.get("components", {}).get(platform, {}), platform, partial
         )
-        for platform in ("android", "ios")
+        for platform in platforms
     }
     if version and manifest["version"] != version:
         raise ValueError(
@@ -320,8 +329,9 @@ def validate_package(directory, version=None, allow_partial=False):
         "android/src/main/java/org/xmtp/reactnative/XmtpReactNativePackage.java",
         "react-native.config.cjs",
         "XmtpReactNative.podspec",
-        "ios/XmtpSdkFFI.xcframework/Info.plist",
     ]
+    if "ios" in mappings:
+        required.append(XCFRAMEWORK + "Info.plist")
     required += [
         binary_path(platform, name).as_posix()
         for platform, mapping in mappings.items()
@@ -332,9 +342,10 @@ def validate_package(directory, version=None, allow_partial=False):
             raise ValueError(f"RN package missing required asset: {name}")
     if digest(directory / "LICENSE") != digest(ROOT / "LICENSE"):
         raise ValueError("RN package XMTP license mismatch")
-    with (directory / "ios/XmtpSdkFFI.xcframework/Info.plist").open("rb") as stream:
-        if plistlib.load(stream) != ios_metadata(mappings["ios"]):
-            raise ValueError("RN package iOS XCFramework slice metadata mismatch")
+    if "ios" in mappings:
+        with (directory / XCFRAMEWORK / "Info.plist").open("rb") as stream:
+            if plistlib.load(stream) != ios_metadata(mappings["ios"]):
+                raise ValueError("RN package iOS XCFramework slice metadata mismatch")
     if not any(name.startswith("cpp/runtime/") for name in receipt["assets"]):
         raise ValueError("RN package omits pinned C++ runtime")
     core = read(directory / "dist/runtime/core/package.json")
@@ -409,8 +420,15 @@ def verify_package(path, version=None, source=None, allow_partial=False):
 def assemble(args):
     partial = getattr(args, "partial", False)
     js = validate(args.js, "react-native-js")
-    android = validate_platform(args.android, "android", js["identity"], partial)
-    ios = validate_platform(args.ios, "ios", js["identity"], partial)
+    directories = {"android": args.android}
+    if args.ios is not None:
+        directories["ios"] = args.ios
+    elif not partial:
+        raise ValueError("RN package without an iOS component must be partial")
+    components = {
+        platform: validate_platform(directory, platform, js["identity"], partial)
+        for platform, directory in directories.items()
+    }
     version = args.version or read(args.js / "package.json")["version"]
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version):
         raise ValueError(f"invalid package version: {version}")
@@ -424,7 +442,7 @@ def assemble(args):
         for path in [product, *product.rglob("*")]:
             path.chmod(0o755 if path.is_dir() else 0o644)
         (product / "sdk-contract.json").unlink()
-        for platform, directory in (("android", args.android), ("ios", args.ios)):
+        for platform, directory in directories.items():
             shutil.copytree(
                 directory / platform, product / platform, dirs_exist_ok=True
             )
@@ -436,7 +454,7 @@ def assemble(args):
             "react-native-package",
             js["identity"],
             packageVersion=version,
-            components={"android": android, "ios": ios},
+            components=components,
             **({"partial": True} if partial else {}),
         )
         validate_package(product, version, partial)
@@ -486,8 +504,11 @@ def main():
     native.add_argument("--toolchain-identity", required=True, type=Path)
     native.add_argument("--fast", action="store_true")
     assembly = commands.add_parser("assemble")
-    for key in ("js", "android", "ios", "out"):
+    for key in ("js", "android", "out"):
         assembly.add_argument(f"--{key}", required=True, type=Path)
+    assembly.add_argument(
+        "--ios", type=Path, help="the iOS component; only --partial may omit it"
+    )
     assembly.add_argument("--version")
     assembly.add_argument(
         "--partial",

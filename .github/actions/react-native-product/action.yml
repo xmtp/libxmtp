@@ -15,11 +15,13 @@ inputs:
     default: ""
   package-kind:
     description: >-
-      release (the full package of every ABI and slice) or test (the partial
-      pull request package of the fast components; it cannot ship)
+      release (the full package of every ABI and slice), test (the partial
+      pull request package of the fast components; it cannot ship), or
+      test-android (the same partial package without iOS, for the Android
+      smoke; it has only the bare Android app and no Darwin stage)
     default: release
   consumers:
-    description: Consumers stage only. all (bare and Expo) or bare (test Android only)
+    description: Consumers stage only. all (bare and Expo) or bare (test-android only)
     default: all
   exchange:
     description: >-
@@ -119,6 +121,10 @@ runs:
           release) stages=".#ciStages.$RN_SYSTEM" ;;
           # The partial package has no release version.
           test) [[ -z "$RN_PACKAGE_VERSION" ]] || exit 1; stages=".#legacyPackages.$RN_SYSTEM.reactNative.testStages" ;;
+          # The Android-only partial package has no Darwin stage.
+          test-android)
+            [[ -z "$RN_PACKAGE_VERSION" && "$RN_SYSTEM" == x86_64-linux ]] || exit 1
+            stages=".#legacyPackages.$RN_SYSTEM.reactNative.androidTestStages" ;;
           *) exit 1 ;;
         esac
         exchange() { dev/nix-shell --shell js-node --command python3.11 nix/react-native-exchange.py "$@" --kind "$RN_PACKAGE_KIND"; }
@@ -162,7 +168,9 @@ runs:
             if [[ "$RN_STAGE" == package ]]; then
               test "$RN_SYSTEM" = x86_64-linux
               if [[ "$RN_EXCHANGE" == true ]]; then
-                for producer in x86_64-linux aarch64-darwin; do
+                producers=(x86_64-linux aarch64-darwin)
+                if [[ "$RN_PACKAGE_KIND" == test-android ]]; then producers=(x86_64-linux); fi
+                for producer in "${producers[@]}"; do
                   exchange import --system "$producer" --stage components --directory "target/rn-exchange/$RN_ARTIFACT_PREFIX-components-$producer"
                 done
               fi
@@ -189,10 +197,11 @@ runs:
               # Only the app bundles the device test installs; on a cache hit
               # this downloads no app build inputs.
               consumer=react-native-consumer-$platform
-              if [[ "$RN_PACKAGE_KIND" == test ]]; then consumer=react-native-test-consumer-$platform; fi
+              if [[ "$RN_PACKAGE_KIND" == test* ]]; then consumer=react-native-test-consumer-$platform; fi
+              # The Android-only package has only the bare Android app.
               case "$RN_CONSUMERS" in
-                all) ;;
-                bare) [[ "$RN_PACKAGE_KIND/$platform" == test/android ]] || exit 1; consumer+=-bare ;;
+                all) [[ "$RN_PACKAGE_KIND" != test-android ]] || exit 1 ;;
+                bare) [[ "$RN_PACKAGE_KIND/$platform" == test-android/android ]] || exit 1; consumer+=-bare ;;
                 *) exit 1 ;;
               esac
               if [[ "$RN_EXCHANGE" == false ]]; then
@@ -219,7 +228,7 @@ runs:
             package_dir=$(package_root)
             test -d "$package_dir"
             version=${RN_PACKAGE_VERSION:-$(jq -er .version sdks/react-native/package.json)}
-            if [[ "$RN_PACKAGE_KIND" == test ]]; then version+=-partial; fi
+            if [[ "$RN_PACKAGE_KIND" == test* ]]; then version+=-partial; fi
             {
               echo "XMTP_RN_PACKAGE_DIR=$package_dir"
               echo "XMTP_RN_EXPECTED_SOURCE=$(nix eval --raw .#sdkProvenance.source)"
