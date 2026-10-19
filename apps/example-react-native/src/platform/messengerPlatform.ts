@@ -18,9 +18,9 @@ const platform =
   requireNativeModule<MessengerPlatformModule>("MessengerPlatform");
 
 /**
- * Launch settings: iOS process environment (`SIMCTL_CHILD_<NAME>`) or Android
- * launch intent extras (`am start --es <NAME> <value>`). JS cannot read the
- * process environment directly.
+ * Launch settings: iOS process environment (`SIMCTL_CHILD_<NAME>`) or, in a
+ * debuggable Android build only, launch intent extras (`am start --es <NAME>
+ * <value>`). JS cannot read the process environment directly.
  */
 export function launchEnvironment(): LaunchEnvironment {
   return parseLaunchEnvironment(platform.launchEnvironment());

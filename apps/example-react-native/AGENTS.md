@@ -34,8 +34,12 @@ JS cannot read the process environment. `src/platform/messengerPlatform.ts`
 reads `XMTP_BACKEND_URL`, `XMTP_ALLOW_PRIVATE_ATTACHMENTS` and
 `XMTP_UI_TEST_ATTACHMENT` through the local module: on iOS from
 `SIMCTL_CHILD_<NAME>` at `simctl launch`, on Android from `am start --es`
-extras. The start recipes pass this worktree's backend unless
-`XMTP_BACKEND_URL` is set. Private attachment access needs exactly `1`.
+extras. Another app cannot set an iOS process environment, but it can start
+the exported Android activity with any extras, so Android reads them only in
+a debuggable (Debug) build. A Release APK ignores them: it opens Connect at
+the default address and never allows private attachment hosts. The start
+recipes pass this worktree's backend unless `XMTP_BACKEND_URL` is set.
+Private attachment access needs exactly `1`.
 Android reaches the host backend and object store with `adb reverse`; set
 `XMTP_S3_PORT` when the backend belongs to another worktree.
 

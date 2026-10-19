@@ -1,11 +1,15 @@
 package org.xmtp.example.reactnative.platform
 
+import android.content.pm.ApplicationInfo
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 // The launch variables the app reads. `adb shell am start --es <NAME> <value>`
-// passes them as launch intent extras.
+// passes them as launch intent extras. Any app can start the exported
+// activity with extras, so only a debuggable build reads them: a build that
+// can ship never takes its backend address or the private attachment opt-in
+// from another app.
 private val launchKeys =
     listOf(
         "XMTP_BACKEND_URL",
@@ -19,7 +23,9 @@ class MessengerPlatformModule : Module() {
             Name("MessengerPlatform")
 
             Function("launchEnvironment") {
-                val extras = appContext.currentActivity?.intent?.extras
+                val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+                val debuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                val extras = if (debuggable) appContext.currentActivity?.intent?.extras else null
                 launchKeys.mapNotNull { key -> extras?.getString(key)?.let { key to it } }.toMap()
             }
 
