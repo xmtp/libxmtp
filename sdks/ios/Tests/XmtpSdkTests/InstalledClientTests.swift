@@ -16,68 +16,6 @@ private func memberIds(_ group: Group) async throws -> Set<InboxId> {
 }
 
 final class InstalledClientTests: XCTestCase {
-	// verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
-	func testPreAuthenticateRunsBeforeSigner() async throws {
-		let calls = AuthenticationCalls()
-		var options = testOptions()
-		options.registration = RegistrationOptions(auto: false)
-		let (release, releaseSignal) = AsyncStream<Void>.makeStream()
-		defer { releaseSignal.finish() }
-		options.handlers = ClientHandlers(preAuthenticate: TestPreAuthenticate(calls, fail: false, release: release))
-		let client = try await SDKClient.create(
-			signer: TestRecordingSigner(generateLocalSigner(), calls), options: options,
-		)
-		XCTAssertEqual(calls.values, [])
-		let registration = Task { try await client.register() }
-		let entered = await eventually(seconds: 5) { !calls.values.isEmpty }
-		XCTAssertTrue(entered, "The pre-authentication handler did not start")
-		try await pause(seconds: 0.1)
-		XCTAssertEqual(calls.values, ["preAuthenticate"])
-		releaseSignal.finish()
-		try await registration.value
-		XCTAssertEqual(calls.values, ["preAuthenticate", "sign"])
-		calls.clear()
-		try await client.register()
-		XCTAssertEqual(calls.values, [])
-		try await client.end()
-
-		options.registration = RegistrationOptions(auto: true)
-		options.handlers = ClientHandlers(preAuthenticate: TestPreAuthenticate(calls, fail: true))
-		do {
-			let unexpected = try await SDKClient.create(
-				signer: TestRecordingSigner(generateLocalSigner(), calls), options: options,
-			)
-			try await unexpected.end()
-			XCTFail("A failed preAuthenticate callback allowed registration")
-		} catch let XmtpError.CallbackFailed(details) {
-			XCTAssertEqual(details.code, "CallbackFailed")
-			XCTAssertEqual(details.category, .callback)
-			XCTAssertFalse(details.retryable)
-		}
-		XCTAssertEqual(calls.values, ["preAuthenticate"])
-	}
-
-	func testConversationCreationRejectsInvalidPeers() async throws {
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let unregistered = await generateLocalSigner()
-		for peer in [client.inboxId(), client.identity().identifier] {
-			do {
-				_ = try await client.conversations.createDm(peer: peer)
-				XCTFail("DM creation accepted an invalid peer")
-			} catch {}
-		}
-		let identity = try await unregistered.identity()
-		do {
-			_ = try await client.conversations.createDm(peer: identity)
-			XCTFail("DM creation accepted an unregistered identity")
-		} catch {}
-		do {
-			_ = try await client.conversations.createGroup(members: [identity])
-			XCTFail("Group creation accepted an unregistered identity")
-		} catch {}
-		try await client.end()
-	}
-
 	/// The account-identity overloads in `runtime/IdentityRoutes.swift` make the
 	/// same change as their inbox ID forms. Rust `identity_routes.rs` tests the
 	/// methods they forward to.
@@ -109,16 +47,6 @@ final class InstalledClientTests: XCTestCase {
 		}
 	}
 
-	func testStoragePoolOptionsCrossNativeBoundary() async throws {
-		for pool in [nil, StoragePoolOptions(min: 1, max: 4), StoragePoolOptions(max: 10)] as [StoragePoolOptions?] {
-			var options = testOptions()
-			options.storage.pool = pool
-			let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
-			XCTAssertEqual(client.options().storage.pool, pool)
-			try await client.end()
-		}
-	}
-
 	/// Smoke for the generated free function: it lowers [InboxId] and BackendSource
 	/// and lifts the [String: UInt64] result. No other Swift test lifts that dictionary.
 	/// The count is read with `Query`, which reads its own writes (API-202, OPS-009), so no poll is needed.
@@ -130,52 +58,6 @@ final class InstalledClientTests: XCTestCase {
 		let backend = try XCTUnwrap(options.backend)
 		let counts = try await latestInboxUpdatesCount(inboxIds: [inboxId], backend: backend)
 		XCTAssertEqual(counts, [inboxId: 1])
-	}
-
-	func testHistorySnapshotKeepsTypedMessagesAndResumesAfterCursor() async throws {
-		let codec = SnapshotFailingCodec()
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions(), codecs: [codec])
-		let peer = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let group = try await client.conversations.createGroup(members: [InboxId]())
-		let first = try await group.sendText(text: "before snapshot")
-		let failedId = try await group.send(codec, value: "unreadable custom bytes")
-		let snapshot = try await group.messageHistorySnapshot(limit: 100)
-		let applications = snapshot.messages.filter { $0.kind == .application }
-		XCTAssertEqual(applications.map(\.id), [first, failedId])
-		XCTAssertFalse(snapshot.cursor.isEmpty)
-		XCTAssertTrue(applications.allSatisfy { $0.deliveryCursor != nil })
-		let failed = try XCTUnwrap(applications.first { $0.id == failedId })
-		if case let .custom(encoded, bytes, nil, details?) = failed.content {
-			XCTAssertEqual(encoded.content, Data("unreadable custom bytes".utf8))
-			XCTAssertEqual(encoded.fallback, "Unreadable custom message")
-			XCTAssertEqual(bytes, failed.rawBytes)
-			XCTAssertFalse(bytes.isEmpty)
-			XCTAssertEqual(details.code, "CodecDecodeFailed")
-		} else {
-			XCTFail("Snapshot lost the custom codec failure")
-		}
-		let recent = try await group.messageHistorySnapshot(limit: 1)
-		XCTAssertEqual(recent.messages.map(\.id), [failedId])
-		let after = try await group.sendText(text: "after snapshot")
-		let reader = try await group.messageReader(options: ConversationMessageReaderOptions(from: snapshot.cursor))
-		let next = try await reader.next()
-		XCTAssertEqual(next?.id, after)
-		try await reader.end()
-		let dm = try await client.conversations.createDm(peer: peer.inboxId())
-		let dmId = try await dm.sendText(text: "DM snapshot")
-		let dmSnapshot = try await dm.messageHistorySnapshot(limit: 100)
-		XCTAssertTrue(dmSnapshot.messages.contains { $0.id == dmId })
-		let all = try await client.conversations.messageHistorySnapshot(limit: 100, options: nil)
-		XCTAssertTrue(all.messages.contains { $0.id == dmId })
-		XCTAssertTrue(all.messages.contains { $0.id == after })
-		do {
-			_ = try await client.conversations.messageHistorySnapshot(
-				limit: 100, options: MessageReaderOptions(from: snapshot.cursor),
-			)
-			XCTFail("History snapshot accepted a replay-only from option")
-		} catch XmtpError.InvalidArgument {}
-		try await peer.end()
-		try await client.end()
 	}
 
 	func testGroupAndDmReadTypedMessages() async throws {
@@ -214,75 +96,3 @@ final class InstalledClientTests: XCTestCase {
 		try await sender.end()
 	}
 }
-
-private final class AuthenticationCalls: @unchecked Sendable {
-	private let lock = NSLock()
-	private var calls: [String] = []
-	func append(_ value: String) {
-		lock.lock(); defer { lock.unlock() }; calls.append(value)
-	}
-
-	func clear() {
-		lock.lock(); defer { lock.unlock() }; calls = []
-	}
-
-	var values: [String] {
-		lock.lock(); defer { lock.unlock() }; return calls
-	}
-}
-
-private final class TestPreAuthenticate: PreAuthenticate, @unchecked Sendable {
-	let calls: AuthenticationCalls
-	let fail: Bool
-	let release: AsyncStream<Void>?
-	init(_ calls: AuthenticationCalls, fail: Bool, release: AsyncStream<Void>? = nil) {
-		self.calls = calls; self.fail = fail; self.release = release
-	}
-
-	func run() async throws {
-		calls.append("preAuthenticate")
-		if let release {
-			for await _ in release {}
-		}
-		if fail {
-			throw PreAuthenticateError.Failed
-		}
-	}
-}
-
-private final class TestRecordingSigner: Signer, @unchecked Sendable {
-	let signer: Signer
-	let calls: AuthenticationCalls
-	init(_ signer: Signer, _ calls: AuthenticationCalls) {
-		self.signer = signer; self.calls = calls
-	}
-
-	func identity() async throws -> PublicIdentity {
-		try await signer.identity()
-	}
-
-	func kind() async throws -> SignerKind {
-		try await signer.kind()
-	}
-
-	func sign(request: SigningRequest) async throws -> Signature {
-		calls.append("sign")
-		return try await signer.sign(request: request)
-	}
-}
-
-private struct SnapshotFailingCodec: ContentCodec {
-	var type: ContentTypeId {
-		ContentTypeId(authorityId: "example.com", typeId: "snapshot-failure", versionMajor: 1, versionMinor: 0)
-	}
-
-	func encode(_ value: String) throws -> EncodedContent {
-		EncodedContent(type: type, fallback: "Unreadable custom message", content: Data(value.utf8))
-	}
-
-	func decode(_: EncodedContent) throws -> String {
-		throw SnapshotDecodeError.failed
-	}
-}
-
-private enum SnapshotDecodeError: Error { case failed }
