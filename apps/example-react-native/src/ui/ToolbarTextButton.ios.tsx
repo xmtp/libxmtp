@@ -6,8 +6,8 @@ import type { ToolbarTextButtonProps } from "@/ui/ToolbarTextButton.types";
 export type { ToolbarTextButtonProps };
 
 /**
- * A titled navigation bar button (`ToolbarItem { Button("Next") }`). It
- * renders its own `Stack.Toolbar`, so a screen uses one per placement.
+ * A titled navigation bar button, such as Next. It renders its own
+ * `Stack.Toolbar`, so a screen uses one per placement.
  */
 export function ToolbarTextButton({
   title,

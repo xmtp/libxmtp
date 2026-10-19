@@ -118,7 +118,7 @@ const pairs = {
     ios: "quaternarySystemFill",
   },
   /**
-   * A `List` row on a sheet's glass (Reactions): measured on iOS 27 as
+   * A list row on a sheet's glass (Reactions): measured on iOS 27 as
    * tertiary fill in light and quaternary fill in dark mode.
    */
   sheetRowFill: {

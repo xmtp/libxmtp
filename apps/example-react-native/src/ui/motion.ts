@@ -20,9 +20,9 @@ export const springConfig = {
 } as const;
 
 /**
- * Reduce Motion: `.easeInOut(duration: 0.2)`. It is the Reduce Motion design
- * itself, so it always runs: Reanimated would otherwise skip it when the
- * setting is on.
+ * Reduce Motion: a 0.2 s ease-in-out. It is the Reduce Motion design itself,
+ * so it always runs: Reanimated would otherwise skip it when the setting is
+ * on.
  */
 export const reducedTiming = {
   duration: 200,

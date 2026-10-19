@@ -213,7 +213,7 @@ export function MessageAccessibility({
 
 /**
  * The widest a bubble gets: the screen less the list's 16 pt sides, the
- * opposite side's `Spacer(minLength: 42)` and 6 pt spacing, and a group
+ * opposite side's 42 pt gap and 6 pt spacing, and a group
  * sender's 24 pt avatar with its 6 pt spacing. The SwiftUI context menu
  * hosts the bubble without a width proposal, so it needs this bound to wrap.
  */

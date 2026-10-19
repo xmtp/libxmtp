@@ -64,7 +64,7 @@ export interface IdentityPort {
 /**
  * The inbox of one recipient entry. An inbox ID is accepted as is (no network
  * check). A handle or an address is looked up; an address must also still be
- * listed on that inbox (`inboxStates(refreshFromNetwork: true)`). A missing
+ * listed on that inbox (`inboxStates([inboxId], true)`). A missing
  * inbox gives the not-found copy.
  */
 export async function resolveInboxId(
@@ -101,7 +101,7 @@ export async function resolveInboxId(
 
 /**
  * One recipient entry as a person: its inbox and its handle
- * (`inboxStates(refreshFromNetwork: false)`; a failed read gives no handle).
+ * (`inboxStates([inboxId], false)`; a failed read gives no handle).
  * Parse and lookup failures throw `NewConversationError` with the
  * `RecipientCopy` message.
  */

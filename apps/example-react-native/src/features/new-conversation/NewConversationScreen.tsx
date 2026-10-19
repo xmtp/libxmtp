@@ -202,7 +202,7 @@ function ChoosePeople({
 }
 
 const styles = StyleSheet.create({
-  // The picker sits in a full-width 52 pt list row (`listRowInsets(EdgeInsets())`).
+  // The picker sits in a full-width 52 pt list row with no row insets.
   picker: { justifyContent: "center", marginHorizontal: 16, minHeight: 52 },
   // Measured on iOS 27: 15.5 pt from the picker row, 31.9 pt from the footer.
   recipients: { paddingTop: 15.5 },

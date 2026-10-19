@@ -163,8 +163,8 @@ function ReactionBadges({
 
 const styles = StyleSheet.create({
   row: { alignItems: "flex-end", flexDirection: "row", gap: 6 },
-  // `Spacer(minLength: 42)` plus the row's 6 pt spacing: bubbles are at most
-  // 322 pt wide on a 402 pt screen.
+  // A 42 pt gap on the opposite side plus the row's 6 pt spacing: bubbles are
+  // at most 322 pt wide on a 402 pt screen.
   outgoing: { justifyContent: "flex-end", paddingLeft: 48 },
   incoming: { justifyContent: "flex-start", paddingRight: 48 },
   reacted: { paddingVertical: 6 },

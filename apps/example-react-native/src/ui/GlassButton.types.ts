@@ -21,7 +21,7 @@ export interface GlassButtonProps {
   size?: "regular" | "large";
   /**
    * The label font. Default `headline` for large, `body` otherwise. `caption`
-   * is a button inside a `.font(.caption)` row (the chat's Retry).
+   * is a button inside a caption-size row (the chat's Retry).
    */
   font?: "body" | "headline" | "subheadline" | "caption";
   /**

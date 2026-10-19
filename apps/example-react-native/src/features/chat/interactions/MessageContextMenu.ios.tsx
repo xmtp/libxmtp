@@ -42,10 +42,10 @@ const itemSymbols: Partial<Record<MessageMenuItem, SymbolName>> = {
   delete: "trash",
 };
 
-/** The preview's corner radius (`RoundedRectangle(cornerRadius: 20)`). */
+/** The preview's corner radius in pt. */
 const PREVIEW_RADIUS = 20;
 
-/** `.primary.opacity(…)`: the label color at the stroke's opacity. */
+/** The stroke: the label color at 20 percent, or 60 percent with Increase Contrast. */
 const strokeColors = {
   regular: DynamicColorIOS({
     light: "rgba(0,0,0,0.2)",

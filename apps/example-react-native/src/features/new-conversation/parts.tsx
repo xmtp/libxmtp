@@ -17,7 +17,7 @@ import { IdentityText } from "@/ui/Identity";
 import { Symbol } from "@/ui/Symbol";
 import { Text } from "@/ui/Text";
 
-/** Separator start of an avatar row: under the initial (`HStack(spacing: 12)` + 44 pt avatar). */
+/** Separator start of an avatar row: under the 44 pt avatar's initial. */
 const AVATAR_ROW_SEPARATOR = 32.5;
 
 /** The principal title: "New message" or "New group" over "Step N of 2". */
@@ -144,7 +144,7 @@ MemberRow.separatorInset = (): number => AVATAR_ROW_SEPARATOR;
 
 /**
  * The progress row while loading or busy, the bootstrap error with Retry,
- * and (in the review) the action error (`loadingAndError`).
+ * and (in the review) the action error.
  */
 export function LoadingAndError({
   state,

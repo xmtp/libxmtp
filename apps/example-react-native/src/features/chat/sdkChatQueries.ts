@@ -28,7 +28,7 @@ import {
 import type { IdentityDirectory } from "@/core/identityDirectory.ts";
 import { SendError } from "@/core/sendJournal.ts";
 
-/** The text of a reply body or quoted parent (`coreBody`). */
+/** The text of a reply body or quoted parent. */
 function bodyText(body: MessageBody, fallback: string | undefined): string {
   switch (body.kind) {
     case "text":
@@ -41,7 +41,7 @@ function bodyText(body: MessageBody, fallback: string | undefined): string {
   }
 }
 
-/** What a message row shows (`coreContent`). */
+/** What a message row shows. */
 export function chatContent(message: Message): ChatContent {
   const content = message.content;
   switch (content.kind) {
@@ -86,7 +86,7 @@ function delivery(message: Message): MessageDelivery {
   }
 }
 
-/** The chat row of an SDK message (`coreMessage`). */
+/** The chat row of an SDK message. */
 export function chatMessage(message: Message): ChatMessage {
   const cursor = message.deliveryCursor;
   return {

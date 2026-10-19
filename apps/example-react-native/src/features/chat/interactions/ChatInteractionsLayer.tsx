@@ -38,8 +38,8 @@ export function ChatInteractionsLayer() {
 
 /**
  * Starts a flight when the newest row becomes the own row with the submitted
- * text (`onChange(of: timeline.messages.last?.id)`). It runs in the timeline
- * subscription, so the row first renders already hidden.
+ * text. It runs in the timeline subscription, so the row first renders
+ * already hidden.
  */
 function useFlightTrigger(): void {
   const { runtime } = useChatContext();

@@ -182,7 +182,7 @@ export function MessageList({
     if (Date.now() < settleUntil.current) center();
   }, [center]);
 
-  // New last row while following: scroll to it (`proxy.scrollTo("latest")`).
+  // New last row while following: scroll to it.
   const lastId = messages.at(-1)?.id;
   const previousLast = useRef(lastId);
   useEffect(() => {
@@ -294,14 +294,14 @@ function PageButtons({ state }: { readonly state: TimelineState }) {
 
 const styles = StyleSheet.create({
   list: { flex: 1 },
-  // LazyVStack spacing 10 + the 1 pt "latest" sentinel + 16 pt padding.
+  // 27 pt under the last row: the 10 pt row spacing plus 17 pt of padding.
   content: { paddingBottom: 27, paddingHorizontal: 16 },
   spaced: { paddingTop: 10 },
   separator: { paddingBottom: 22, paddingTop: 12 },
   pageButtons: { alignItems: "center", gap: 10 },
 });
 
-/** `proxy.scrollTo("latest", anchor: .bottom)`: the end of the list. */
+/** Scrolls to the end of the list, where the newest row is. */
 export function scrollToLatest(
   list: LegendListRef | null,
   animated: boolean,
