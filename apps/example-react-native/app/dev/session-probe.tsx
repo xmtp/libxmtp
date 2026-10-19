@@ -366,7 +366,7 @@ export default function SessionProbe() {
     log(
       session === undefined
         ? `session ${state.kind}`
-        : `session active inbox ${session.inboxId} generation ${String(session.generation)}`,
+        : `session active inbox ${session.inboxId.slice(0, 8)} generation ${String(session.generation)}`,
     );
   }, [log, session, state.kind]);
 
