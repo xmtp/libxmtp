@@ -219,7 +219,9 @@ class CompileTests(unittest.TestCase):
         self.compile(title("A" * 30))
         # Titles repeat across phases: test_dev may take the title of the
         # lint suite lint_config.
-        self.assertEqual(declaration()["suites"]["lint_config"]["title"], "Repository lint")
+        self.assertEqual(
+            declaration()["suites"]["lint_config"]["title"], "Repository lint"
+        )
         self.compile(title("Repository lint"))
         for change in [
             lambda d: d["suites"]["test_dev"].pop("title"),
@@ -387,7 +389,9 @@ class RenderTests(unittest.TestCase):
                 ("workflow_dispatch", None, "test_dev", subset),
                 ("workflow_dispatch", None, "test_dev,lint_config", subset),
             ):
-                with self.subTest(gate=gate, event=event, draft=is_draft, suites=suites):
+                with self.subTest(
+                    gate=gate, event=event, draft=is_draft, suites=suites
+                ):
                     values = {
                         "github.event_name": event,
                         # toJSON of a missing draft field is 'null'.

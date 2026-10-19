@@ -48,9 +48,7 @@ def status_expression(raw, results, cancelled):
         lambda m: "true" if m[1] in results.values() else "false",
         text,
     )
-    text = re.sub(
-        r"needs\.([\w-]+)\.result", lambda m: repr(results[m[1]]), text
-    )
+    text = re.sub(r"needs\.([\w-]+)\.result", lambda m: repr(results[m[1]]), text)
     return bool(expression(text, {}))
 
 

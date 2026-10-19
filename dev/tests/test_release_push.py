@@ -964,7 +964,6 @@ class ReleasePushTest(unittest.TestCase):
                     self.assertNotIn("setup", bodies)
 
 
-
 class XdbgImageTest(unittest.TestCase):
     def test_dry_runs_build_the_image_without_pushing_and_nothing_deploys(self):
         release = ROOT / ".github/workflows/release.yml"
@@ -989,11 +988,12 @@ class XdbgImageTest(unittest.TestCase):
         self.assertNotIn("TERRAFORM_TOKEN", release.read_text())
 
 
-
 class NodeInstallSmokeTest(unittest.TestCase):
     def test_linux_smoke_runs_each_pair_and_fails_without_pairs(self):
         workflow = ROOT / ".github/workflows/build-sdk-node-platforms.yml"
-        run = script("Installed package on Linux without build-host libraries", workflow)
+        run = script(
+            "Installed package on Linux without build-host libraries", workflow
+        )
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
             (temp / "bin").mkdir()

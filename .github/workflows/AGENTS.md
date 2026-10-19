@@ -313,7 +313,10 @@ outside Nix. `react-native-conformance` executes fresh installed bare/Expo
 proofs in test, post-merge, and release jobs. Post-merge `rn-*` cache jobs build
 and push the RN stages, the test package, and the bare Android test app;
 `rn-smoke` runs every journey (`XMTP_RN_JOURNEYS=full`) in mode `read` without a
-token, and `rn-alert` posts a Slack message when an RN job fails. The final
-`build` jobs wait for the RN cache jobs, not the smoke. Docs wait for the
+token, and `rn-alert` posts a Slack message when an RN job fails or times out.
+The final `build` jobs wait for the RN cache jobs, not the smoke; the smoke
+waits for `build`, which pushes the backend and test services that it starts.
+The test package outputs (`testStages`) are not set members: the cache jobs
+warm the test package and the bare Android test app only. Docs wait for the
 completed empty-store closure check. Keep every RN stage member in the
 dev/release declarations in `nix/ci-sets.nix`.

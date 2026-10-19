@@ -126,9 +126,9 @@ class GateTests(unittest.TestCase):
 
 class PagesDeployTests(unittest.TestCase):
     def test_only_the_pages_deploy_is_serialized_and_never_cancelled(self):
-        jobs = yaml.safe_load(
-            (ROOT / ".github/workflows/post-merge.yml").read_text()
-        )["jobs"]
+        jobs = yaml.safe_load((ROOT / ".github/workflows/post-merge.yml").read_text())[
+            "jobs"
+        ]
         grouped = {job for job, spec in jobs.items() if "concurrency" in spec}
         self.assertEqual(grouped, {"deploy"})
         # One fixed group for the one Pages site. A pending deploy waits in
