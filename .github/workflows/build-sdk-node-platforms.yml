@@ -113,13 +113,14 @@ jobs:
           fi
           # The Nix pairs and the smoke tests run one job per runner label, so
           # the four Linux pairs, all cross outputs of x86_64-linux, share one
-          # job. `os` and `label` name the job; `pairs` lists its targets.
+          # job. `os` and `label` name the job; `pairs` lists its targets
+          # (`target:library` words for the build, which runs on macOS too).
           {
             echo "build=$(jq -c '
               [.node[] | select(.nixSystems != [])] | group_by(.runner)
-              | map({runner: .[0].runner,
+              | map({runner: .[0].runner, first: .[0].target,
                   os: (if (.[0].runner | test("macos")) then "macOS" else "Linux" end),
-                  pairs: map({target, library})})' nix/sdk-platforms.json)"
+                  pairs: (map("\(.target):\(.library)") | join(" "))})' nix/sdk-platforms.json)"
             echo "cargo=$(jq -c '[.node[] | select(.nixSystems == []) | {target, rustTarget, library, runner}]' nix/sdk-platforms.json)"
             echo "load=$(jq -c '
               [.node[] | {target, runner: .loadRunner, image: (.loadImage // "")}]
@@ -155,25 +156,28 @@ jobs:
           github-token: ${{ github.token }}
       - name: Build matched SDK and pinned runtime pairs
         env:
-          PAIRS: ${{ toJSON(matrix.pairs) }}
+          PAIRS: ${{ matrix.pairs }}
         run: |
           set -euo pipefail
+          # The plan job allowlists every target and library, so the words
+          # split safely. macOS runs this with bash 3.2.
+          installables=()
+          for pair in $PAIRS; do
+            installables+=(".#xmtp-sdk-node-${pair%%:*}")
+          done
           # One build for every pair, so Nix substitutes or builds them in
-          # parallel; the per-pair builds below only add the links. The plan
-          # job allowlists the targets, so the word splitting is safe. (macOS
-          # runs this with bash 3.2, which has no mapfile.)
-          # shellcheck disable=SC2046
-          nix build --no-link $(jq -r '.[] | ".#xmtp-sdk-node-" + .target' <<< "$PAIRS")
-          # fd 3, not stdin: dev/nix-shell must not read the remaining pairs.
-          while read -r TARGET LIBRARY <&3; do
+          # parallel; the per-pair builds below only add the links.
+          nix build --no-link "${installables[@]}"
+          for pair in $PAIRS; do
+            TARGET="${pair%%:*}" LIBRARY="${pair#*:}"
             export TARGET LIBRARY
             nix build .#xmtp-sdk-node-"$TARGET" --out-link target/sdk-node-pair-"$TARGET"
             dev/nix-shell --shell js-node 'python3.11 crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-pair-"$TARGET"/lib/"$LIBRARY" --addon target/sdk-node-pair-"$TARGET"/runtime/uniffi-runtime-napi."$TARGET".node --native-provenance target/sdk-node-pair-"$TARGET"/native-provenance.json --runtime-provenance target/sdk-node-pair-"$TARGET"/runtime/runtime-provenance.json'
-          done 3< <(jq -r '.[] | "\(.target) \(.library)"' <<< "$PAIRS")
+          done
       - name: Store the built pairs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: sdk_node_pair_${{ matrix.pairs[0].target }}
+          name: sdk_node_pair_${{ matrix.first }}
           path: target/sdk-node-platforms
           retention-days: 1
 
@@ -302,7 +306,7 @@ jobs:
   assemble:
     name: Assemble Node package
     needs: [unix, windows]
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       NIX_DEVSHELL: js-node

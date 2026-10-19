@@ -34,7 +34,10 @@ jobs:
   publish:
     name: Build and publish to Maven Central
     needs: [check-push-permissions]
-    runs-on: ubuntu-24.04
+    # Paid Linux: the android-ci shell closure is about 3 GiB plus an Android
+    # SDK closure of 6 to 11 GiB, before the APK build and Gradle downloads,
+    # which is more than the 14 GB disk of a free hosted runner.
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     env:
       # The slim Android shell: the release builds no Rust.
       NIX_DEVSHELL: android-ci
