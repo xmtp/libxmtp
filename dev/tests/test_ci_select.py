@@ -209,7 +209,7 @@ class SelectionTests(unittest.TestCase):
         result = select(["proto/a.proto"], payload=event(draft=True))
         self.assertEqual(result["event_kind"], "draft_pr_push")
         self.assertEqual(selected(result), eligible("draft_pr_push"))
-        self.assertIn("lint_workspace", selected(result))
+        self.assertIn("lint_config", selected(result))
         self.assertEqual(result["suites"]["test"], [])
         self.assertEqual(result["advisory"], [])
 
@@ -369,7 +369,7 @@ class ManualRunTests(unittest.TestCase):
     def test_suites_input_runs_exactly_the_listed_suites_as_blocking(self):
         for text, lint, test in [
             ("test_ios", [], ["test_ios"]),
-            (" test_ios ,lint_proto,test_ios", ["lint_proto"], ["test_ios"]),
+            (" test_ios ,lint_config,test_ios", ["lint_config"], ["test_ios"]),
             # Manual runs ignore run_on and the advisory tier.
             ("nix_eval,test_example_ios", ["nix_eval"], ["test_example_ios"]),
         ]:
@@ -505,7 +505,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(json.loads(values["advisory_suites"]), [])
         # The path is not in the checkout, so it counts as deleted.
         lint = json.loads(values["lint_suites"])
-        self.assertEqual(set(lint), {"docs_quality", "lint_config", "nix_eval"})
+        self.assertEqual(set(lint), {"lint_config", "nix_eval"})
         self.assertIn("docs_site", text)
         outputs = self.jobs["detect-changes"]["outputs"]
         self.assertEqual(
@@ -626,10 +626,10 @@ class WorkflowTests(unittest.TestCase):
         # Unselected suites are skipped and do not count.
         self.assertEqual(self.gate("test", [], {}).returncode, 0)
         self.assertEqual(
-            self.gate("lint", ["lint_proto"], {"lint_proto": "success"}).returncode, 0
+            self.gate("lint", ["lint_config"], {"lint_config": "success"}).returncode, 0
         )
         self.assertEqual(
-            self.gate("lint", ["lint_proto"], {"lint_proto": "skipped"}).returncode, 1
+            self.gate("lint", ["lint_config"], {"lint_config": "skipped"}).returncode, 1
         )
         for detected in ("failure", "cancelled", "skipped"):
             with self.subTest(detected=detected):

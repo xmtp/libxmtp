@@ -137,7 +137,7 @@ class CompileTests(unittest.TestCase):
             lambda d: d["suites"]["test_dev"].update(covered_by="test_dev"),
             lambda d: d.update(extra=[]),
             lambda d: with_groups(d)["suites"]["test_ios"].update(products=["gamma"]),
-            lambda d: with_groups(d)["suites"]["lint_proto"].update(products=["alpha"]),
+            lambda d: with_groups(d)["suites"]["lint_config"].update(products=["alpha"]),
             lambda d: with_groups(d)["products"].update(
                 gamma={"path_filters": ["docs/**"]}
             ),
@@ -304,14 +304,14 @@ class CompileTests(unittest.TestCase):
         )
 
     def test_secret_modes_are_validated(self):
-        self.compile(lambda d: d["suites"]["lint_proto"].update(secrets="none"))
+        self.compile(lambda d: d["suites"]["lint_config"].update(secrets="none"))
         for value in ("all", "None", "", None):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(
                     SUITES.DeclarationError, "inherit, kache, none, cachix-pr"
                 ):
                     self.compile(
-                        lambda d: d["suites"]["lint_proto"].update(secrets=value)
+                        lambda d: d["suites"]["lint_config"].update(secrets=value)
                     )
 
 
@@ -555,7 +555,7 @@ class ExplainTests(unittest.TestCase):
             ),
             ("flake.nix", "shared (every suite)"),
             ("new-language/source.xyz", "unknown (every suite)"),
-            ("AGENTS.md", "blocking: docs_quality (neutral)"),
+            ("AGENTS.md", "blocking: lint_config (neutral)"),
         ]:
             with self.subTest(path=path):
                 self.assertEqual(SUITES.explain(self.rules, path), expected)

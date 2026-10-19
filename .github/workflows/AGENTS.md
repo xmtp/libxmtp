@@ -216,11 +216,13 @@ advisory suites, and the product groups. Lists show up to 200 entries. JSON
 path data goes through standard input to preserve quotes and line breaks and
 avoid environment size limits.
 
-The `lint_deny` suite (`lint-deny.yml`) runs `just lint-deny` (cargo-deny
-bans, licenses, and sources) and the advisories check for Cargo lock and
-manifest or deny configuration changes, on drafts too, and on every merge. An
-advisory does not fail a pull request or merge; the daily scheduled run on the
-default branch fails on one. A backend change selects the backend suites and
+The `lint_config` suite (`lint-config.yml`) is the one Linux lint job: hakari,
+`just lint-deny` (cargo-deny bans, licenses, and sources), buf, treefmt with
+the CI declaration check and the release tools, Oxlint, Oxfmt, the docs script
+tests, markdownlint, and the docs source check. It runs on drafts too, and on
+every merge. Each check step runs even when an earlier one failed. The cargo-deny
+advisories check runs only in the daily `lint-deny.yml` schedule on the
+default branch, so a new advisory never fails a pull request or merge. A backend change selects the backend suites and
 the client suites `test_workspace`, `test_wasm`, and `test_node`; the Android,
 browser, and SDK platform suites run on the merge. `test_workspace` builds
 with the `ci-test` Cargo profile: release speed with overflow checks and

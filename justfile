@@ -74,14 +74,13 @@ _check-crate +crates:
 
 # --- LINT ---
 
-# The CI lint suites lint_workspace, lint_js, lint_config, lint_proto,
-# lint_deny, and docs_quality, the WASM and SDK generator Clippy of check_rust,
-# and `spec-check`. It skips lint_ios, lint_example_ios, and the Android example
-# lint (a job of test_example_android), which need mobile toolchains, the
-# cargo-deny advisories check, which does not block, and
-# lint_example_react_native, a standalone pnpm project with its own install
-# (run `just example-react-native check`), and nix_eval, which evaluates the
-# CI build sets of every system.
+# The checks of the CI lint suite lint_config, the Clippy of check_rust, and
+# `spec-check`. It skips the Swift lint of test_ios and test_example_ios and
+# the Android example lint (a job of test_example_android), which need mobile
+# toolchains, the cargo-deny advisories check, which runs only on a daily
+# schedule, lint_example_react_native, a standalone pnpm project with its own
+# install (run `just example-react-native check`), and nix_eval, which
+# evaluates the CI build sets of every system.
 # The checks run in parallel; `just --jobs 1 lint` runs them one at a time.
 [parallel]
 lint: _js-deps && lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto lint-deny docs::test docs::check-source spec-check

@@ -109,24 +109,8 @@ jobs:
         github-token: ${{ github.token }}
     - name: Build the sdk_android products
       run: nix build --keep-going --no-link .#ciSets.x86_64-linux.sdk_android
-  lint_workspace:
-    name: Rust manifests
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'lint_workspace')
-    uses: ./.github/workflows/lint-workspace.yml
-    permissions:
-      contents: read
-  lint_js:
-    name: JS source
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'lint_js')
-    uses: ./.github/workflows/lint-js.yml
-    permissions:
-      contents: read
   lint_config:
-    name: Format and config
+    name: Repository lint
     needs:
     - detect-changes
     if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'lint_config')
@@ -139,33 +123,6 @@ jobs:
     - detect-changes
     if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'nix_eval')
     uses: ./.github/workflows/nix-eval.yml
-    permissions:
-      contents: read
-  lint_proto:
-    name: Protobuf
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'lint_proto')
-    uses: ./.github/workflows/lint-proto.yml
-    permissions:
-      contents: read
-  docs_quality:
-    name: Markdown and docs
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'docs_quality')
-    uses: ./.github/workflows/docs-quality.yml
-    permissions:
-      contents: read
-    secrets:
-      KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-      KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-  lint_deny:
-    name: Rust dependencies
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'lint_deny')
-    uses: ./.github/workflows/lint-deny.yml
     permissions:
       contents: read
   lint_example_react_native:
@@ -411,13 +368,8 @@ jobs:
     timeout-minutes: 5
     needs:
     - detect-changes
-    - lint_workspace
-    - lint_js
     - lint_config
     - nix_eval
-    - lint_proto
-    - docs_quality
-    - lint_deny
     - lint_example_react_native
     steps:
     - name: Check detection and the selected blocking lint suites

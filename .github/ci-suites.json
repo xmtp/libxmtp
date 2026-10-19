@@ -88,95 +88,8 @@
     }
   },
   "suites": {
-    "lint_workspace": {
-      "title": "Rust manifests",
-      "phase": "lint",
-      "workflow": "lint-workspace.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-workspace.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "**/Cargo.toml",
-        ".config/hakari.toml",
-        "apps/chaos/chaos.just",
-        "crates/xmtp-workspace-hack/**",
-        "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
-    "lint_js": {
-      "title": "JS source",
-      "phase": "lint",
-      "workflow": "lint-js.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-js/**",
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-js.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "apps/{cli,web-chat,docs}/**",
-        "dev/js/{lint-source.mjs,test-lint-source.mjs}",
-        "dev/js/{sdk-*,tsconfig.*.json}",
-        "dev/release-tools/**",
-        "nix/lib/packages/pnpm.nix",
-        "nix/{js,js-node}.nix",
-        "sdks/js.just",
-        "sdks/{node,browser,agent,react-native}/**",
-        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
     "lint_config": {
-      "title": "Format and config",
+      "title": "Repository lint",
       "phase": "lint",
       "workflow": "lint-config.yml",
       "run_on": [
@@ -203,15 +116,29 @@
       ],
       "workflow_tier": "blocking",
       "paths": [
+        "**/*.md",
         "**/*.{nix,py,sh,toml,kt,swift}",
+        "**/Cargo.toml",
+        ".config/hakari.toml",
         ".github/**",
+        "apps/chaos/chaos.just",
+        "apps/{cli,web-chat,docs}/**",
+        "crates/xmtp-workspace-hack/**",
+        "dev/js/sdk-package",
+        "dev/js/{lint-source.mjs,test-lint-source.mjs}",
         "dev/js/{sdk-*,tsconfig.*.json}",
         "dev/release-tools/**",
+        "nix/docs.nix",
         "nix/fmt.nix",
         "nix/lib/packages/pnpm.nix",
         "nix/{js,js-node}.nix",
+        "sdks/*/package.json",
+        "sdks/agent/src/**",
         "sdks/js.just",
+        "sdks/{node,browser,agent,react-native}/**",
         "{.editorconfig,sdks/ios/.swiftformat,apps/example-ios/.swiftformat}",
+        "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}",
+        "{apps/docs,docs}/**",
         "{crates,apps}/**/*.rs",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
@@ -256,129 +183,6 @@
         "sdks/react-native/package.json",
         "sdks/react-native/test/consumers/**/*.json",
         "{Cargo.lock,webdriver.json,package.json}"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
-    "lint_proto": {
-      "title": "Protobuf",
-      "phase": "lint",
-      "workflow": "lint-proto.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-proto.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "proto/**"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
-    "docs_quality": {
-      "title": "Markdown and docs",
-      "phase": "lint",
-      "workflow": "docs-quality.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "kache",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-js/**",
-        ".github/actions/setup-nix/**",
-        ".github/workflows/docs-quality.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "**/*.md",
-        "dev/js/sdk-package",
-        "dev/js/{sdk-*,tsconfig.*.json}",
-        "nix/docs.nix",
-        "nix/lib/packages/pnpm.nix",
-        "nix/{js,js-node}.nix",
-        "sdks/*/package.json",
-        "sdks/agent/src/**",
-        "sdks/js.just",
-        "{apps/docs,docs}/**",
-        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
-    "lint_deny": {
-      "title": "Rust dependencies",
-      "phase": "lint",
-      "workflow": "lint-deny.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-deny.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "**/Cargo.toml",
-        "{Cargo.lock,deny.toml}"
       ],
       "labels": [],
       "advisory": {

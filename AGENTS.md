@@ -35,7 +35,7 @@ just test                    # test default members
 just test crate <name>       # test one crate
 just test workspace -p <name> <args> # focused nextest options and filters
 just test dev                # dev tool tests: dev/tests/run, Fly dashboard, release tools
-just lint                    # CI lint except lint_ios/example_ios/example_react_native/android/example_android, plus spec-check
+just lint                    # CI Linux lint and Clippy (no Swift, Android, or RN example lint), plus spec-check
 dev/nix-shell 'just lint-js-source' # source Oxlint without generated SDK products
 dev/nix-shell 'just lint-rust-source' # Rust manifests, without Clippy
 just backend up              # shared services

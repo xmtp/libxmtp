@@ -259,44 +259,13 @@ products:
 
 suites:
   # --- Lint ------------------------------------------------------------------
-  lint_workspace:
-    title: Rust manifests
-    phase: lint
-    workflow: lint-workspace.yml
-    run_on: [draft_pr_push, ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: none
-    permissions: {contents: read}
-    kache: []
-    products: []
-    pr_filters:
-      # `just lint-rust-source` checks the workspace manifests; treefmt in
-      # lint_config checks Rust format.
-      - "**/Cargo.toml"
-      - "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
-      - ".config/hakari.toml"
-      - "crates/xmtp-workspace-hack/**"
-      # No other suite owns this module; any `just` run parses it.
-      - "apps/chaos/chaos.just"
-  lint_js:
-    title: JS source
-    phase: lint
-    workflow: lint-js.yml
-    run_on: [draft_pr_push, ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: none
-    permissions: {contents: read}
-    kache: []
-    products: []
-    pr_filters:
-      - path_group: js_workspace
-      - path_group: js_packages
-      - "dev/js/{lint-source.mjs,test-lint-source.mjs}"
-      # Source lint and format. lint_config type-checks these tools, so
-      # check_types does not select them.
-      - "dev/release-tools/**"
+  # One Linux job runs every Linux lint: hakari, cargo-deny (bans, licenses,
+  # and sources; the advisories run daily in lint-deny.yml), buf, treefmt with
+  # the CI declaration check and the release tools, Oxlint, Oxfmt, the docs
+  # script tests, markdownlint, and the docs source check. Its filters are the
+  # union of each check's inputs, so it runs on almost every pull request.
   lint_config:
-    title: Format and config
+    title: Repository lint
     phase: lint
     workflow: lint-config.yml
     run_on: [draft_pr_push, ready_pr_push, merge]
@@ -317,9 +286,25 @@ suites:
       - "nix/fmt.nix"
       # `dev/ci-suites check` reads every workflow and action.
       - ".github/**"
-      # `just lint-config` type-checks and lints the release tools.
-      - "dev/release-tools/**"
+      # `just lint-rust-source` (hakari) and cargo-deny read the manifests.
+      - "**/Cargo.toml"
+      - "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
+      - ".config/hakari.toml"
+      - "crates/xmtp-workspace-hack/**"
+      # No other suite owns this module; any `just` run parses it.
+      - "apps/chaos/chaos.just"
+      # Oxlint, Oxfmt, and the release-tools type check and lint.
       - path_group: js_workspace
+      - path_group: js_packages
+      - "dev/js/{lint-source.mjs,test-lint-source.mjs}"
+      - "dev/release-tools/**"
+      # markdownlint reads every Markdown file; the docs checks read these.
+      - "**/*.md"
+      - "nix/docs.nix"
+      - "{apps/docs,docs}/**"
+      - "sdks/agent/src/**"
+      - "sdks/*/package.json"
+      - "dev/js/sdk-package"
   # post-merge.yml is the first job that builds the Darwin build sets, so a
   # pull request that breaks their evaluation would pass. This suite
   # evaluates every ciSets drvPath. It skips drafts: a draft that breaks
@@ -345,51 +330,6 @@ suites:
       - "sdks/android/{gradle.properties,gradle/wrapper/gradle-wrapper.properties}"
       - "sdks/react-native/package.json"
       - "sdks/react-native/test/consumers/**/*.json"
-  lint_proto:
-    title: Protobuf
-    phase: lint
-    workflow: lint-proto.yml
-    run_on: [draft_pr_push, ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: none
-    permissions: {contents: read}
-    kache: []
-    products: []
-    pr_filters:
-      - "proto/**"
-  docs_quality:
-    title: Markdown and docs
-    phase: lint
-    workflow: docs-quality.yml
-    run_on: [draft_pr_push, ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: kache
-    permissions: {contents: read}
-    kache: []
-    products: []
-    pr_filters:
-      - path_group: js_workspace
-      # markdownlint reads every Markdown file.
-      - "**/*.md"
-      - "nix/docs.nix"
-      - "{apps/docs,docs}/**"
-      - "sdks/agent/src/**"
-      - "sdks/*/package.json"
-      - "dev/js/sdk-package"
-  lint_deny:
-    title: Rust dependencies
-    phase: lint
-    workflow: lint-deny.yml
-    run_on: [draft_pr_push, ready_pr_push, merge]
-    disable_on_forks: false
-    secrets: none
-    permissions: {contents: read}
-    kache: []
-    products: []
-    pr_filters:
-      - "{Cargo.lock,deny.toml}"
-      - "**/Cargo.toml"
-
   # Typecheck, Oxlint, Oxfmt and unit tests of the React Native example. It
   # runs on drafts too: native builds are local (see the app's AGENTS.md).
   lint_example_react_native:
