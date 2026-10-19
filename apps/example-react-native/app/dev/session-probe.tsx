@@ -5,7 +5,7 @@
 // `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`,
 // `contend`, `allowRequests`, `handles`, `claim` (`name`) or
 // `createGroup` (`name`, `members=handle,handle`); add `&n=<anything new>` to run the
-// same action again.
+// same action again. A link to `signOut` or `delete` asks in the app first.
 
 import type { Message } from "@xmtp/react-native-sdk";
 import { useXmtp } from "@xmtp/react-native-sdk/react";
@@ -22,8 +22,13 @@ import {
 } from "react-native";
 
 import { normalizeBackendUrl } from "@/core/backendUrl.ts";
+import {
+  type ProbeLinkConfirmation,
+  probeLinkConfirmation,
+} from "@/core/probeLinks.ts";
 import { errorMessage } from "@/core/sessionError.ts";
 import type { SessionEvent } from "@/core/streamHub.ts";
+import { settingsCopy } from "@/features/settings/copy";
 import { launchEnvironment } from "@/platform/messengerPlatform";
 import {
   probeBackend,
@@ -34,6 +39,7 @@ import {
   useStore,
 } from "@/session";
 import type { ActiveSession } from "@/session/activeSession";
+import { AlertDialog, type AlertDialogRequest } from "@/ui/AlertDialog";
 
 function describe(message: Message): string {
   const content = message.content;
@@ -53,6 +59,26 @@ function describeEvent(event: SessionEvent): string {
     case "changed":
       return `changed (${event.cause})`;
   }
+}
+
+/** The in-app confirmation for a link to `signOut` or `delete` (Settings' copy). */
+function linkConfirmation(
+  confirmation: ProbeLinkConfirmation,
+  run: () => void,
+): AlertDialogRequest {
+  const signOut = confirmation === "signOut";
+  return {
+    title: signOut ? settingsCopy.signOutTitle : settingsCopy.deleteTitle,
+    message: signOut ? settingsCopy.signOutMessage : settingsCopy.deleteMessage,
+    buttons: [
+      {
+        text: signOut ? settingsCopy.signOut : settingsCopy.deleteLocalData,
+        style: "destructive",
+        onPress: run,
+      },
+      { text: settingsCopy.cancel, style: "cancel" },
+    ],
+  };
 }
 
 function SessionDetails({
@@ -159,6 +185,7 @@ export default function SessionProbe() {
   );
   const [token, setToken] = useState("");
   const [lines, setLines] = useState<readonly string[]>([]);
+  const [alert, setAlert] = useState<AlertDialogRequest>();
   const ran = useRef<string | undefined>(undefined);
 
   const log = useCallback((line: string) => {
@@ -313,9 +340,20 @@ export default function SessionProbe() {
       ...(params.members === undefined ? {} : { members: params.members }),
     };
     if (params.url !== undefined) setUrl(params.url);
+    const confirmation = probeLinkConfirmation(action);
+    if (confirmation !== undefined) {
+      log(`${action} from a link: waiting for confirmation`);
+      setAlert(
+        linkConfirmation(confirmation, () => {
+          void actions(action, input);
+        }),
+      );
+      return;
+    }
     void actions(action, input);
   }, [
     actions,
+    log,
     params.action,
     params.members,
     params.n,
@@ -335,64 +373,74 @@ export default function SessionProbe() {
   }
   const color = scheme === "dark" ? "#fff" : "#000";
   return (
-    <ScrollView
-      contentContainerStyle={styles.container}
-      contentInsetAdjustmentBehavior="automatic"
-      testID="session-probe">
-      <Stack.Screen options={{ title: "Session probe" }} />
-      <Text style={[styles.heading, { color }]} testID="probe-state">
-        state {state.kind}
-      </Text>
-      <Text style={[styles.line, { color }]}>appearance {appearance}</Text>
-      <TextInput
-        style={[styles.input, { color }]}
-        value={url}
-        onChangeText={setUrl}
-        autoCapitalize="none"
-        autoCorrect={false}
-        testID="probe-url"
-      />
-      <TextInput
-        style={[styles.input, { color }]}
-        value={token}
-        onChangeText={setToken}
-        placeholder="Access token"
-        autoCapitalize="none"
-        autoCorrect={false}
-        testID="probe-token"
-      />
-      <View style={styles.buttons}>
-        {(
-          [
-            ["Join", "connect"],
-            ["Probe", "probe"],
-            ["Restore", "restore"],
-            ["Retry", "retry"],
-            ["Sign out", "signOut"],
-            ["Delete", "delete"],
-            ["Continue reset", "continueReset"],
-            ["Route", "handles"],
-            ["Contend", "contend"],
-          ] as const
-        ).map(([title, action]) => (
-          <Button
-            key={action}
-            title={title}
-            testID={`probe-${action}`}
-            onPress={() => void actions(action, { url, token })}
-          />
-        ))}
-      </View>
-      {session === undefined ? null : (
-        <SessionDetails session={session} log={log} />
-      )}
-      <Text style={[styles.heading, { color }]}>log</Text>
-      {lines.map((line, index) => (
-        <Text key={`${String(index)}-${line}`} style={[styles.line, { color }]}>
-          {line}
+    <>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        contentInsetAdjustmentBehavior="automatic"
+        testID="session-probe">
+        <Stack.Screen options={{ title: "Session probe" }} />
+        <Text style={[styles.heading, { color }]} testID="probe-state">
+          state {state.kind}
         </Text>
-      ))}
-    </ScrollView>
+        <Text style={[styles.line, { color }]}>appearance {appearance}</Text>
+        <TextInput
+          style={[styles.input, { color }]}
+          value={url}
+          onChangeText={setUrl}
+          autoCapitalize="none"
+          autoCorrect={false}
+          testID="probe-url"
+        />
+        <TextInput
+          style={[styles.input, { color }]}
+          value={token}
+          onChangeText={setToken}
+          placeholder="Access token"
+          autoCapitalize="none"
+          autoCorrect={false}
+          testID="probe-token"
+        />
+        <View style={styles.buttons}>
+          {(
+            [
+              ["Join", "connect"],
+              ["Probe", "probe"],
+              ["Restore", "restore"],
+              ["Retry", "retry"],
+              ["Sign out", "signOut"],
+              ["Delete", "delete"],
+              ["Continue reset", "continueReset"],
+              ["Route", "handles"],
+              ["Contend", "contend"],
+            ] as const
+          ).map(([title, action]) => (
+            <Button
+              key={action}
+              title={title}
+              testID={`probe-${action}`}
+              onPress={() => void actions(action, { url, token })}
+            />
+          ))}
+        </View>
+        {session === undefined ? null : (
+          <SessionDetails session={session} log={log} />
+        )}
+        <Text style={[styles.heading, { color }]}>log</Text>
+        {lines.map((line, index) => (
+          <Text
+            key={`${String(index)}-${line}`}
+            style={[styles.line, { color }]}>
+            {line}
+          </Text>
+        ))}
+      </ScrollView>
+      <AlertDialog
+        request={alert}
+        onDismiss={() => {
+          setAlert(undefined);
+        }}
+      />
+    </>
   );
 }
 
