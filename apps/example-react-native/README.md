@@ -92,6 +92,9 @@ Deliberate differences:
 - A chat stays mounted behind sheets and pushed screens; iOS tears it down
   and shows a spinner.
 - Opening Add member starts with an empty field; iOS keeps the last lookup.
+- The copy of a file opened in Quick Look stays in the profile's protected
+  storage until the next Open or Save, or until the chat closes; iOS removes
+  it when Quick Look closes. Expo's preview reports no dismissal.
 - Toolbar buttons carry the iOS accessibility labels but not the iOS
   identifiers (`member.close`, `newConversation.next` and others), because
   React Native toolbar items take no test ID.
