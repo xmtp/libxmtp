@@ -29,7 +29,7 @@ fn assert_redacted(diagnostic: String) {
     assert!(diagnostic.contains("<redacted>"));
 }
 
-// verifies: LOG-010
+// verifies: LOG-014
 #[xmtp_common::test(unwrap_try = true)]
 fn attachment_diagnostics_hide_sdk_remote_secret() {
     let remote = remote_attachment();
@@ -43,7 +43,7 @@ fn attachment_diagnostics_hide_sdk_remote_secret() {
     assert!(format!("{remote:?}").contains("attachment.txt"));
 }
 
-// verifies: LOG-010
+// verifies: LOG-014
 #[xmtp_common::test(unwrap_try = true)]
 fn attachment_diagnostics_hide_sdk_nested_secret() {
     let remote = remote_attachment();
@@ -81,7 +81,7 @@ fn attachment_diagnostics_hide_sdk_nested_secret() {
     assert_eq!(remote.secret, secret());
 }
 
-// verifies: LOG-010
+// verifies: LOG-014
 #[xmtp_common::test(unwrap_try = true)]
 fn attachment_diagnostics_hide_core_keys_secret() {
     use xmtp_content_types::encryption::{EncryptedEncodedContent, EncryptionKeys};
@@ -104,7 +104,7 @@ fn attachment_diagnostics_hide_core_keys_secret() {
     assert_eq!(keys.length, 64);
 }
 
-// verifies: LOG-010
+// verifies: LOG-014
 #[xmtp_common::test(unwrap_try = true)]
 fn attachment_diagnostics_hide_core_encrypted_attachment_secret() {
     use xmtp_content_types::remote_attachment::EncryptedAttachment;
@@ -123,7 +123,7 @@ fn attachment_diagnostics_hide_core_encrypted_attachment_secret() {
     assert_eq!(encrypted.payload, vec![4; 64]);
 }
 
-// verifies: LOG-010
+// verifies: LOG-014
 #[xmtp_common::test(unwrap_try = true)]
 fn encoded_content_diagnostics_hide_secret_parameter() {
     let canary = "encoded-content-decryption-secret";
@@ -200,4 +200,30 @@ fn encoded_content_diagnostics_hide_signed_attachment_url() {
     };
     assert_eq!(decoded.url, remote.url);
     assert_eq!(decoded.secret, remote.secret);
+}
+
+/// A commit-log signer change in a message stored by an older client keeps
+/// its key out of `Debug`; other fields still show their values.
+// verifies: LOG-014
+#[xmtp_common::test(unwrap_try = true)]
+fn metadata_change_diagnostics_hide_the_commit_log_signer() {
+    let signer = MetadataFieldChange {
+        field_name: "_commit_log_signer".into(),
+        old_value: Some("ab".repeat(32)),
+        new_value: Some("cd".repeat(32)),
+    };
+    let name = MetadataFieldChange {
+        field_name: "group_name".into(),
+        old_value: Some("old name".into()),
+        new_value: Some("new name".into()),
+    };
+    let diagnostic = format!("{signer:?}");
+    assert!(!diagnostic.contains(&"ab".repeat(32)), "{diagnostic}");
+    assert!(!diagnostic.contains(&"cd".repeat(32)), "{diagnostic}");
+    assert!(diagnostic.contains("<redacted>"), "{diagnostic}");
+    let diagnostic = format!("{name:?}");
+    assert!(
+        diagnostic.contains("old name") && diagnostic.contains("new name"),
+        "{diagnostic}"
+    );
 }

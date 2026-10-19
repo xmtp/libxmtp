@@ -19,10 +19,11 @@ use prost::Message;
 use serde::Serialize;
 use thiserror::Error;
 use xmtp_common::RetryableError;
+use xmtp_cryptography::secret::Zeroizing;
 use xmtp_mls_common::{
     app_data::{component_id::ComponentId, component_source::ComponentSourceError},
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
-    group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError},
+    group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
 };
 use xmtp_proto::xmtp::{
@@ -925,7 +926,8 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     //   trait method to call — but registry-policy enforcement still
     //   gates the write, so deny-by-default applies.
     let component = lookup_component(component_id);
-    let changes = if let Some(component) = component {
+    // The expanded values can hold the commit-log signer's private key.
+    let changes = Zeroizing::new(if let Some(component) = component {
         component
             .expand_to_changes(operation, old_value)
             .map_err(|e| {
@@ -957,7 +959,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
                 return Err(CommitRuleError::InsufficientPermissions);
             }
         }
-    };
+    });
 
     // A DM may add its other participant even though its add-member policy
     // denies general additions. Use the same exception as MLS Add validation.
@@ -970,7 +972,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
             .iter()
             .any(|member| member.as_str() == proposer_inbox_id)
     });
-    for change in &changes {
+    for change in changes.iter() {
         if dm_participant_insert
             && change.op == xmtp_mls_common::app_data::component_registry::ComponentOp::Insert
         {
@@ -1013,7 +1015,8 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     // type-aware compatibility path and therefore cannot add invariants
     // beyond their registry policy.
     if let Some(component) = component {
-        let post_value = match operation {
+        // The post-state can be the commit-log signer's private key.
+        let post_value = Zeroizing::new(match operation {
             openmls::messages::proposals::AppDataUpdateOperation::Update(payload) => component
                 .apply_update_payload(payload.as_slice(), old_value)
                 .map_err(|e| {
@@ -1026,7 +1029,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
                     CommitRuleError::InsufficientPermissions
                 })?,
             openmls::messages::proposals::AppDataUpdateOperation::Remove => Vec::new(),
-        };
+        });
         let invariant_change = ComponentChange::builder()
             .component_id(component_id)
             .op(match operation {
@@ -1392,9 +1395,12 @@ pub fn build_inbox_with_proposer(
     }
 }
 
-/**
- * Extracts the changes to the mutable metadata in the commit.
- */
+/// Extracts the changes to the mutable metadata in the commit.
+///
+/// A commit-log signer change is never recorded: its value is the group's
+/// private signing key, and the changes go into stored transcripts, app
+/// records and logs.
+// implements: META-074
 fn mutable_metadata_field_changes(
     old_metadata: &GroupMutableMetadata,
     new_metadata: &GroupMutableMetadata,
@@ -1403,6 +1409,7 @@ fn mutable_metadata_field_changes(
         .attributes
         .keys()
         .chain(new_metadata.attributes.keys())
+        .filter(|key| key.as_str() != MetadataField::CommitLogSigner.as_str())
         .fold(HashSet::new(), |mut key_set, key| {
             key_set.insert(key);
             key_set

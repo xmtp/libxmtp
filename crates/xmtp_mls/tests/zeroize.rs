@@ -10,7 +10,10 @@ use openmls::prelude::KeyPackageBundle;
 use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
 use xmtp_cryptography::{
     XmtpInstallationCredential,
-    secret::heap_canary::{Canary, scan_async},
+    secret::{
+        Secret,
+        heap_canary::{Canary, scan, scan_async},
+    },
     utils::generate_local_wallet,
 };
 use xmtp_db::{
@@ -21,7 +24,7 @@ use xmtp_id::{InboxOwner, associations::test_utils::MockSmartContractSignatureVe
 use xmtp_mls::{
     Client,
     context::XmtpSharedContext,
-    groups::send_message_opts::SendMessageOpts,
+    groups::{intents::UpdateMetadataIntentData, send_message_opts::SendMessageOpts},
     identity::{Identity, IdentityStrategy},
     tester,
     utils::{FullXmtpClient, register_client},
@@ -47,6 +50,11 @@ const SYNCED_HMAC_ROOT_KEY: [u8; 42] = [
     0xd1, 0x4c, 0x87, 0x2a, 0xf0, 0x63, 0x19, 0xbe, 0x55, 0xe2, 0x08, 0x9d, 0x76, 0x31, 0xca, 0x4f,
     0xa3, 0x1e, 0x68, 0xd5, 0x0b, 0x92, 0x3c, 0xf7, 0x40, 0xad, 0x26, 0x81, 0xe9, 0x5b, 0x14, 0xc6,
     0x7f, 0x38, 0xb2, 0x0d, 0xe4, 0x59, 0x96, 0x23, 0xfb, 0x6e,
+];
+
+const COMMIT_LOG_SIGNER: [u8; 32] = [
+    0x92, 0x3e, 0xd5, 0x08, 0x6c, 0xb1, 0x47, 0xfa, 0x2d, 0x80, 0x5b, 0xe4, 0x19, 0xc6, 0x73, 0x0a,
+    0xbe, 0x61, 0x34, 0xd9, 0x8f, 0x02, 0xa7, 0x56, 0xeb, 0x18, 0xcd, 0x45, 0x7a, 0x93, 0x2f, 0xf6,
 ];
 
 async fn open_client(path: &str, strategy: IdentityStrategy) -> FullXmtpClient {
@@ -239,4 +247,50 @@ async fn hmac_keys_are_wiped_on_load_derive_send_and_sync() {
         stored.as_ref().map(StoredSecret::as_slice),
         Some(SYNCED_HMAC_ROOT_KEY.as_slice())
     );
+}
+
+/// Building an update-commit-log-signer intent, encoding it, and decoding the
+/// stored bytes again free no unwiped copy of the signer, raw or hex. The
+/// encoded bytes are the stored intent, the one allowed copy, so the test
+/// leaks them instead of freeing them inside the scan.
+#[xmtp_common::test(unwrap_try = true)]
+fn commit_log_signer_intent_wipes_its_copies() {
+    let signer = Secret::new(COMMIT_LOG_SIGNER.to_vec());
+    let signer_hex = hex::encode(COMMIT_LOG_SIGNER);
+
+    let ((), hits) = scan(&[Canary::new(&COMMIT_LOG_SIGNER)], || {
+        let intent = UpdateMetadataIntentData::new_update_commit_log_signer(signer);
+        let encoded = Vec::<u8>::from(intent);
+        let decoded = UpdateMetadataIntentData::try_from(encoded.clone()).unwrap();
+        assert!(decoded.field_value == signer_hex);
+        drop(decoded);
+        std::mem::forget(encoded);
+    });
+    drop(signer_hex);
+
+    assert_eq!(hits, [0], "freed heap blocks held the commit-log signer");
+}
+
+/// `Debug` of an update intent shows the field name but no value.
+#[xmtp_common::test(unwrap_try = true)]
+fn metadata_intent_debug_redacts_values() {
+    let intent = UpdateMetadataIntentData::new_update_commit_log_signer(Secret::new(
+        COMMIT_LOG_SIGNER.to_vec(),
+    ));
+    let guarded = UpdateMetadataIntentData::new_update_app_data(
+        "private app data".to_owned(),
+        Some("prior app data".to_owned()),
+    );
+    let debug = format!("{intent:?} {guarded:?}");
+    assert!(debug.contains("_commit_log_signer"), "{debug}");
+    for form in [
+        hex::encode(COMMIT_LOG_SIGNER),
+        "private app data".to_owned(),
+        "prior app data".to_owned(),
+    ] {
+        assert!(
+            !debug.contains(&form),
+            "UpdateMetadataIntentData Debug shows {form}: {debug}"
+        );
+    }
 }

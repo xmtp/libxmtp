@@ -30,6 +30,9 @@ xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
 xmtp_proto.workspace = true
 
+[features]
+test-utils = ["xmtp_cryptography/test-utils"]
+
 [dev-dependencies]
 openmls_rust_crypto.workspace = true
 proptest.workspace = true
@@ -38,3 +41,7 @@ xmtp_configuration = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test.workspace = true
+
+[[test]]
+name = "zeroize"
+required-features = ["test-utils"]

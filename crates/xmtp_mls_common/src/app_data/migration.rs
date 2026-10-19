@@ -2,6 +2,7 @@
 //! migration synthesis path.
 
 use std::collections::{BTreeMap, BTreeSet};
+use xmtp_cryptography::secret::Zeroize;
 
 use openmls::{
     extensions::Extensions,
@@ -178,12 +179,38 @@ pub enum MigrationError {
 ///   determined) but not to add ones the legacy state never contained.
 ///   Validator semantics: every per-inbox `failed_installations`
 ///   entry must be 32 bytes AND present in this set.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// [`Self::strict`] holds the commit-log signer's private key under
+/// `COMMIT_LOG_SIGNER`. Every strict payload is wiped on drop, and `Debug`
+/// shows only the strict component ids.
+#[derive(Clone, PartialEq)]
 pub struct CanonicalBootstrapExpectation {
     pub strict: BTreeMap<ComponentId, (AppDataUpdateOperationType, Vec<u8>)>,
     pub expected_registry: BTreeMap<ComponentId, ComponentMetadata>,
     pub membership_sequence_ids: BTreeMap<InboxId, u64>,
     pub allowed_failed_installations: BTreeSet<[u8; 32]>,
+}
+
+impl std::fmt::Debug for CanonicalBootstrapExpectation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CanonicalBootstrapExpectation")
+            .field("strict", &self.strict.keys().collect::<Vec<_>>())
+            .field("expected_registry", &self.expected_registry)
+            .field("membership_sequence_ids", &self.membership_sequence_ids)
+            .field(
+                "allowed_failed_installations",
+                &self.allowed_failed_installations,
+            )
+            .finish()
+    }
+}
+
+impl Drop for CanonicalBootstrapExpectation {
+    fn drop(&mut self) {
+        for (_, payload) in self.strict.values_mut() {
+            payload.zeroize();
+        }
+    }
 }
 
 /// Compute the [`CanonicalBootstrapExpectation`] from a pre-flip
@@ -257,12 +284,15 @@ pub fn synthesize_canonical_subset_from_extensions(
     // legacy form is hex-encoded; the AppData wire form is the raw
     // 32-byte private key.
     if let Some(hex_str) = gmm.attributes.get(MetadataField::CommitLogSigner.as_str()) {
-        let raw = hex::decode(hex_str).map_err(|e| MigrationError::InvalidCommitLogSignerHex {
-            reason: e.to_string(),
-        })?;
+        let mut raw =
+            hex::decode(hex_str).map_err(|e| MigrationError::InvalidCommitLogSignerHex {
+                reason: e.to_string(),
+            })?;
         if raw.len() != xmtp_cryptography::configuration::ED25519_KEY_LENGTH {
+            let actual = raw.len();
+            raw.zeroize();
             return Err(MigrationError::InvalidCommitLogSignerLength {
-                actual: raw.len(),
+                actual,
                 expected: xmtp_cryptography::configuration::ED25519_KEY_LENGTH,
             });
         }

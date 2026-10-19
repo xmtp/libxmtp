@@ -169,10 +169,11 @@ fn group_save(
         metadata: Some(ImmutableMetadataSave {
             creator_inbox_id: immutable.creator_inbox_id,
         }),
+        // The archive is a deliberate export, so it owns these values.
         mutable_metadata: Some(MutableMetadataSave {
-            attributes: mutable.attributes,
-            admin_list: mutable.admin_list,
-            super_admin_list: mutable.super_admin_list,
+            attributes: std::mem::take(&mut mutable.attributes),
+            admin_list: std::mem::take(&mut mutable.admin_list),
+            super_admin_list: std::mem::take(&mut mutable.super_admin_list),
         }),
     })
 }

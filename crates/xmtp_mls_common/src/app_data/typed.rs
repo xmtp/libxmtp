@@ -220,6 +220,9 @@ impl<C: Component> ErasedComponent for C {
 /// `value` is the new value bytes for an Insert or Update, and the
 /// element for a set Delete. It is `None` for a map Delete and a
 /// whole-component `Remove`.
+///
+/// `value` can be the commit-log signer's private key. Hold a list of changes
+/// in `Zeroizing`, which wipes `key` and `value` on drop.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpandedComponentChange {
     /// Whether this entry is an Insert, Update, or Delete.
@@ -228,6 +231,13 @@ pub struct ExpandedComponentChange {
     pub key: Option<Vec<u8>>,
     /// The new value bytes, or the removed set element.
     pub value: Option<Vec<u8>>,
+}
+
+impl xmtp_cryptography::secret::Zeroize for ExpandedComponentChange {
+    fn zeroize(&mut self) {
+        self.key.zeroize();
+        self.value.zeroize();
+    }
 }
 
 /// Errors surfaced by [`Component`] trait methods.

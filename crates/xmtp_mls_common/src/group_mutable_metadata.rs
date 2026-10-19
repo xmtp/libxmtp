@@ -5,7 +5,7 @@ use openmls::{
 use prost::Message;
 use std::{collections::HashMap, fmt};
 use thiserror::Error;
-use xmtp_cryptography::Secret;
+use xmtp_cryptography::secret::{Secret, Zeroize, Zeroizing};
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes as InboxesProto,
 };
@@ -128,7 +128,13 @@ impl MessageDisappearingSettings {
 /// Represents the mutable metadata for a group.
 ///
 /// This struct is stored as an MLS Unknown Group Context Extension.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// The `_commit_log_signer` attribute holds the group's commit-log private key
+/// as hex. `Debug` redacts it and it is wiped on drop. Change attributes
+/// through [`GroupMutableMetadata::insert_attribute`] and
+/// [`GroupMutableMetadata::remove_attribute`], which wipe the value they
+/// replace or remove.
+#[derive(Clone, PartialEq)]
 pub struct GroupMutableMetadata {
     /// Map to store various metadata attributes (e.g., group name, description).
     /// Allows libxmtp to receive attributes from updated versions not yet captured in MetadataField.
@@ -285,11 +291,67 @@ impl GroupMutableMetadata {
 
     /// Retrieves the commit log signer secret from the metadata attributes.
     /// Returns None if the field is not present or if hex decoding fails.
+    ///
+    /// The hex decodes straight into the zeroizing buffer that the `Secret`
+    /// takes over.
     pub fn commit_log_signer(&self) -> Option<Secret> {
-        self.attributes
-            .get(&MetadataField::CommitLogSigner.to_string())
-            .and_then(|hex_str| hex::decode(hex_str).ok())
-            .map(Secret::new)
+        let hex_str = self
+            .attributes
+            .get(MetadataField::CommitLogSigner.as_str())?;
+        let mut key = Zeroizing::new(vec![0; hex_str.len() / 2]);
+        hex::decode_to_slice(hex_str, key.as_mut_slice()).ok()?;
+        Some(Secret::new(std::mem::take(&mut *key)))
+    }
+
+    /// Set an attribute, wiping the value it replaces.
+    pub fn insert_attribute(&mut self, key: String, value: String) {
+        if let Some(mut replaced) = self.attributes.insert(key, value) {
+            replaced.zeroize();
+        }
+    }
+
+    /// Remove an attribute, wiping its value.
+    pub fn remove_attribute(&mut self, key: &str) {
+        if let Some(mut removed) = self.attributes.remove(key) {
+            removed.zeroize();
+        }
+    }
+}
+
+impl fmt::Debug for GroupMutableMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        struct Attributes<'a>(&'a HashMap<String, String>);
+        impl fmt::Debug for Attributes<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_map()
+                    .entries(self.0.iter().map(|(key, value)| {
+                        let value: &dyn fmt::Debug =
+                            if key == MetadataField::CommitLogSigner.as_str() {
+                                &"<redacted>"
+                            } else {
+                                value
+                            };
+                        (key, value)
+                    }))
+                    .finish()
+            }
+        }
+        f.debug_struct("GroupMutableMetadata")
+            .field("attributes", &Attributes(&self.attributes))
+            .field("admin_list", &self.admin_list)
+            .field("super_admin_list", &self.super_admin_list)
+            .finish()
+    }
+}
+
+impl Drop for GroupMutableMetadata {
+    fn drop(&mut self) {
+        if let Some(signer) = self
+            .attributes
+            .get_mut(MetadataField::CommitLogSigner.as_str())
+        {
+            signer.zeroize();
+        }
     }
 }
 
@@ -297,19 +359,27 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
     type Error = GroupMutableMetadataError;
 
     /// Converts GroupMutableMetadata to a byte vector for storage as an MLS Unknown Group Context Extension.
-    fn try_from(value: GroupMutableMetadata) -> Result<Self, Self::Error> {
-        let mut buf = Vec::new();
-        let proto_val = GroupMutableMetadataProto {
-            attributes: value.attributes.clone(),
+    ///
+    /// The attributes move into the proto, whose signer value is wiped after
+    /// encoding. The returned bytes are the extension handed to OpenMLS.
+    fn try_from(mut value: GroupMutableMetadata) -> Result<Self, Self::Error> {
+        let mut proto_val = GroupMutableMetadataProto {
+            attributes: std::mem::take(&mut value.attributes),
             admin_list: Some(InboxesProto {
-                inbox_ids: value.admin_list,
+                inbox_ids: std::mem::take(&mut value.admin_list),
             }),
             super_admin_list: Some(InboxesProto {
-                inbox_ids: value.super_admin_list,
+                inbox_ids: std::mem::take(&mut value.super_admin_list),
             }),
         };
-        proto_val.encode(&mut buf)?;
-
+        // Sized up front, so encoding never frees a partial copy.
+        let buf = proto_val.encode_to_vec();
+        if let Some(signer) = proto_val
+            .attributes
+            .get_mut(MetadataField::CommitLogSigner.as_str())
+        {
+            signer.zeroize();
+        }
         Ok(buf)
     }
 }
@@ -339,11 +409,8 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
             .ok_or(GroupMutableMetadataError::MissingMetadataField)?
             .inbox_ids;
 
-        Ok(Self::new(
-            value.attributes.clone(),
-            admin_list,
-            super_admin_list,
-        ))
+        // Move the attributes: a clone would leave the proto's signer copy unwiped.
+        Ok(Self::new(value.attributes, admin_list, super_admin_list))
     }
 }
 
@@ -429,8 +496,7 @@ pub fn merge_dict_into_mutable_metadata(
     for (field, id) in METADATA_FIELD_COMPONENT_MAP {
         if let Some(bytes) = dict.get(&id.as_u16()) {
             let legacy_value = decode_metadata_component(*id, bytes)?;
-            base.attributes
-                .insert(field.as_str().to_string(), legacy_value);
+            base.insert_attribute(field.as_str().to_string(), legacy_value);
         }
     }
 
@@ -474,10 +540,10 @@ pub fn merge_dict_into_mutable_metadata_lossy(
             };
             match value {
                 Ok(value) => {
-                    base.attributes.insert(field.as_str().to_string(), value);
+                    base.insert_attribute(field.as_str().to_string(), value);
                 }
                 Err(error) => {
-                    base.attributes.remove(field.as_str());
+                    base.remove_attribute(field.as_str());
                     unavailable.push(*field);
                     errors.push(error);
                 }

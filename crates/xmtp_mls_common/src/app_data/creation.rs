@@ -7,6 +7,7 @@
 
 use tls_codec::Serialize;
 use xmtp_configuration::ApplicationComponentDefinition;
+use xmtp_cryptography::secret::Zeroize;
 use xmtp_proto::types::ConversationType;
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentMetadata, ComponentPermissions, ComponentType,
@@ -387,18 +388,18 @@ pub fn encode_metadata_attribute_value(
     legacy_value: &str,
 ) -> Result<Vec<u8>, MigrationError> {
     match component_id {
+        // The returned key bytes go to OpenMLS as an AppData payload.
         ComponentId::COMMIT_LOG_SIGNER => {
-            let raw = hex::decode(legacy_value).map_err(|error| {
+            let mut raw = hex::decode(legacy_value).map_err(|error| {
                 MigrationError::InvalidCommitLogSignerHex {
                     reason: error.to_string(),
                 }
             })?;
             let expected = xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
             if raw.len() != expected {
-                return Err(MigrationError::InvalidCommitLogSignerLength {
-                    expected,
-                    actual: raw.len(),
-                });
+                let actual = raw.len();
+                raw.zeroize();
+                return Err(MigrationError::InvalidCommitLogSignerLength { expected, actual });
             }
             Ok(raw)
         }
