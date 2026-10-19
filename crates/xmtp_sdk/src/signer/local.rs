@@ -68,14 +68,22 @@ impl LocalSigningKey {
         Ok(Arc::new(Self(signer)))
     }
 
+    /// The one copy of the private key that export makes. alloy has no
+    /// borrowing accessor for the scalar.
+    fn private_key(&self) -> Zeroizing<[u8; PRIVATE_KEY_LENGTH]> {
+        // zeroize: the copy is held in the returned `Zeroizing`
+        #[allow(clippy::disallowed_methods)]
+        Zeroizing::new(self.0.to_bytes().0)
+    }
+
     // implements: IDENT-088
     fn private_key_bytes(&self) -> Vec<u8> {
-        self.0.to_bytes().to_vec()
+        self.private_key().to_vec()
     }
 
     // implements: IDENT-088
     fn private_key_hex(&self) -> String {
-        format!("0x{}", hex::encode(self.0.to_bytes()))
+        format!("0x{}", hex::encode(*self.private_key()))
     }
 }
 

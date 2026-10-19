@@ -135,10 +135,10 @@ impl XmtpInstallationCredential {
         Ok(Self(Box::new(key)))
     }
 
-    /// private key for this credential
+    /// private key for this credential, wiped when the returned value drops
     #[cfg(feature = "exposed-keys")]
-    pub fn private_bytes(&self) -> [u8; 32] {
-        self.0.to_bytes()
+    pub fn private_bytes(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(*self.0.as_bytes())
     }
 }
 
@@ -195,7 +195,7 @@ impl From<XmtpInstallationCredential> for SignatureKeyPair {
     fn from(key: XmtpInstallationCredential) -> SignatureKeyPair {
         SignatureKeyPair::from_raw(
             key.signature_scheme(),
-            key.0.to_bytes().into(),
+            key.0.as_bytes().to_vec(),
             key.0.verifying_key().to_bytes().into(),
         )
     }
@@ -205,7 +205,7 @@ impl<'a> From<&'a XmtpInstallationCredential> for SignatureKeyPair {
     fn from(key: &'a XmtpInstallationCredential) -> SignatureKeyPair {
         SignatureKeyPair::from_raw(
             key.signature_scheme(),
-            key.0.to_bytes().into(),
+            key.0.as_bytes().to_vec(),
             key.0.verifying_key().to_bytes().into(),
         )
     }
@@ -284,7 +284,7 @@ mod tests {
 
         keypair.tls_serialize(&mut serialized).unwrap();
         let x_kp = XmtpInstallationCredential::tls_deserialize(&mut serialized.as_slice()).unwrap();
-        assert_eq!(keypair.private(), &x_kp.0.to_bytes());
+        assert_eq!(keypair.private(), x_kp.0.as_bytes());
         assert_eq!(keypair.public(), &x_kp.0.verifying_key().to_bytes());
     }
 
@@ -296,7 +296,7 @@ mod tests {
 
         keypair.tls_serialize(&mut serialized).unwrap();
         let mls_kp = SignatureKeyPair::tls_deserialize(&mut serialized.as_slice()).unwrap();
-        assert_eq!(mls_kp.private(), &keypair.0.to_bytes());
+        assert_eq!(mls_kp.private(), keypair.0.as_bytes());
         assert_eq!(mls_kp.public(), &keypair.0.verifying_key().to_bytes());
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());
     }
@@ -310,7 +310,7 @@ mod tests {
         let serialized: Vec<u8> = bincode::serialize(&keypair).unwrap();
 
         let x_kp: XmtpInstallationCredential = bincode::deserialize(serialized.as_slice()).unwrap();
-        assert_eq!(keypair.private(), &x_kp.0.to_bytes());
+        assert_eq!(keypair.private(), x_kp.0.as_bytes());
         assert_eq!(keypair.public(), &x_kp.0.verifying_key().to_bytes());
     }
 
@@ -321,7 +321,7 @@ mod tests {
         let serialized: Vec<u8> = bincode::serialize(&keypair).unwrap();
 
         let mls_kp: SignatureKeyPair = bincode::deserialize(serialized.as_slice()).unwrap();
-        assert_eq!(mls_kp.private(), &keypair.0.to_bytes());
+        assert_eq!(mls_kp.private(), keypair.0.as_bytes());
         assert_eq!(mls_kp.public(), &keypair.0.verifying_key().to_bytes());
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());
     }
@@ -334,6 +334,6 @@ mod tests {
 
         assert_ne!(keypair.public_bytes(), secret.as_bytes());
         assert_ne!(keypair.public_slice(), secret.as_bytes());
-        assert_ne!(keypair.verifying_key().as_bytes(), &secret.to_bytes());
+        assert_ne!(keypair.verifying_key().as_bytes(), secret.as_bytes());
     }
 }

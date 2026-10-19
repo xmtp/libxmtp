@@ -2,6 +2,7 @@ use crate::foreign;
 use alloy::signers::local::PrivateKeySigner;
 use std::{collections::HashMap, sync::Arc};
 use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_cryptography::secret::Zeroizing;
 use xmtp_id::{
     InboxOwner,
     associations::{handle::Handle, unverified::UnverifiedSignature},
