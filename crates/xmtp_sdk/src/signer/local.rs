@@ -21,15 +21,13 @@ pub async fn generate_keys() -> Arc<LocalSigningKey> {
 impl LocalSigningKey {
     /// Restore a 32-byte secp256k1 private key. The input is copied.
     #[uniffi::constructor]
-    pub async fn from_bytes(key: Vec<u8>) -> Result<Arc<Self>, XmtpError> {
-        let key = Zeroizing::new(key);
+    pub async fn from_bytes(key: SecretBytes) -> Result<Arc<Self>, XmtpError> {
         Self::parse_bytes(&key)
     }
 
     /// Restore a private key encoded as 0x followed by exactly 64 hexadecimal digits.
     #[uniffi::constructor]
-    pub async fn from_hex(key: String) -> Result<Arc<Self>, XmtpError> {
-        let key = Zeroizing::new(key);
+    pub async fn from_hex(key: SecretString) -> Result<Arc<Self>, XmtpError> {
         let encoded = key
             .strip_prefix("0x")
             .filter(|text| text.len() == PRIVATE_KEY_HEX_LENGTH)

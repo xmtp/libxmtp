@@ -161,7 +161,7 @@ async fn client_log_secrets_are_redacted() {
         .await;
         assert!(result.is_err());
         assert!(
-            crate::local_signer_from_private_key(signing_key.to_vec())
+            crate::local_signer_from_private_key(signing_key.to_vec().into())
                 .await
                 .is_err()
         );

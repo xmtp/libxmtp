@@ -168,6 +168,11 @@ metadata markers, so a routine export needs no generator edit:
   then takes `#[sdk(redact)]` or `#[sdk(shown)]`. The macro implements `Debug` for the
   type through its `fn redacted_debug(&self, f)`, which redacts the same
   fields, so the type cannot also derive `Debug`.
+- A private key or other secret argument of an async export takes
+  `SecretBytes` or `SecretString` (`src/secret_input.rs`), not `Vec<u8>` or
+  `String`. UniFFI lifts it into a wiping buffer before the future exists,
+  so a call cancelled before its first poll still wipes it. The bindings
+  still see `bytes` or `string`.
 - A backend function that the Client also exposes takes
   `#[sdk_export(client_static)]`; it must be async and available on every
   target. Every SDK gets a Client static named without the trailing

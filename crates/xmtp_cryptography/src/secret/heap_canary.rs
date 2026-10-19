@@ -11,8 +11,15 @@
 //! - Build the secret and its canary before arming. A copy freed before the
 //!   scan is not seen, and the canary itself lives on the stack.
 //! - Frees on every thread count while armed, so tokio workers are covered.
-//! - `realloc` keeps the default `alloc` + copy + `dealloc`, so a block that
-//!   grows while it holds the secret is scanned too.
+//! - Every block is zero-filled at allocation, so every byte the scanner reads
+//!   was initialized. `System.alloc` may return uninitialized bytes, and reading
+//!   one through a `&[u8]` is undefined behavior. One gap remains: the
+//!   abstract machine treats struct padding written by a typed copy as
+//!   uninitialized again. This test-only allocator accepts that gap.
+//! - `realloc` keeps the default `alloc` + copy + `dealloc`. The new block is
+//!   zero-filled like any other, and a block that grows while it holds the
+//!   secret is scanned when the old block is freed. Never forward `realloc` to
+//!   `System.realloc`: the grown tail would be uninitialized.
 //! - Stack and register copies are invisible to a heap scan.
 //! - Arming takes a process-wide lock, so concurrent scans in one process
 //!   run one after another.
@@ -156,11 +163,12 @@ static HITS: [AtomicUsize; MAX_CANARIES] = [const { AtomicUsize::new(0) }; MAX_C
 /// [`install_heap_canary!`](crate::install_heap_canary).
 pub struct Scanner;
 
-// SAFETY: every allocation is delegated to `System`; `dealloc` only reads the
-// block before handing it back.
+// SAFETY: every allocation is delegated to `System`, zero-filled; `dealloc`
+// only reads the block before handing it back.
 unsafe impl GlobalAlloc for Scanner {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe { System.alloc(layout) }
+        // Zero-filled, so the scan in `dealloc` reads only initialized bytes.
+        unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
@@ -174,8 +182,9 @@ unsafe impl GlobalAlloc for Scanner {
             let armed = unsafe { &*FORMS.0.get() };
             if layout.size() >= armed.min_len {
                 // SAFETY: the block is still allocated and `layout.size()`
-                // bytes long. Bytes the program never wrote may be read here;
-                // the scan only compares them.
+                // bytes long. `alloc`, `alloc_zeroed` and the default
+                // `realloc` zero-fill every block, so every byte was
+                // initialized (see the module notes for padding).
                 let block = unsafe { std::slice::from_raw_parts(pointer, layout.size()) };
                 scan_block(armed, block);
             }

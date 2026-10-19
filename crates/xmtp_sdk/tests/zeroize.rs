@@ -6,9 +6,10 @@
 use std::{mem::ManuallyDrop, sync::Arc};
 
 use alloy::signers::local::PrivateKeySigner;
-use xmtp_cryptography::secret::heap_canary::{Canary, scan_async};
+use uniffi::{Lift, Lower};
+use xmtp_cryptography::secret::heap_canary::{Canary, scan, scan_async};
 use xmtp_id::InboxOwner;
-use xmtp_sdk::{LocalSigningKey, Signer, SigningRequest, local_signer_from_private_key};
+use xmtp_sdk::{LocalSigningKey, Signer, SigningRequest, UniFfiTag, local_signer_from_private_key};
 
 xmtp_cryptography::install_heap_canary!();
 
@@ -35,21 +36,21 @@ async fn imports_leave_no_copy_of_the_key() {
 
     let bytes = KEY.to_vec();
     let ((), hits) = scan_async(&[canary], async move {
-        sign_and_drop(local_signer_from_private_key(bytes).await.unwrap()).await;
+        sign_and_drop(local_signer_from_private_key(bytes.into()).await.unwrap()).await;
     })
     .await;
     assert_eq!(hits, [0], "local_signer_from_private_key");
 
     let bytes = KEY.to_vec();
     let ((), hits) = scan_async(&[canary], async move {
-        sign_and_drop(LocalSigningKey::from_bytes(bytes).await.unwrap()).await;
+        sign_and_drop(LocalSigningKey::from_bytes(bytes.into()).await.unwrap()).await;
     })
     .await;
     assert_eq!(hits, [0], "LocalSigningKey::from_bytes");
 
     let lower = format!("0x{}", hex::encode(KEY));
     let ((), hits) = scan_async(&[canary], async move {
-        sign_and_drop(LocalSigningKey::from_hex(lower).await.unwrap()).await;
+        sign_and_drop(LocalSigningKey::from_hex(lower.into()).await.unwrap()).await;
     })
     .await;
     assert_eq!(hits, [0], "LocalSigningKey::from_hex, lowercase");
@@ -59,10 +60,42 @@ async fn imports_leave_no_copy_of_the_key() {
     let upper_canary = Canary::new(upper_digits.as_bytes());
     let upper = format!("0x{upper_digits}");
     let ((), hits) = scan_async(&[canary, upper_canary], async move {
-        sign_and_drop(LocalSigningKey::from_hex(upper).await.unwrap()).await;
+        sign_and_drop(LocalSigningKey::from_hex(upper.into()).await.unwrap()).await;
     })
     .await;
     assert_eq!(hits, [0, 0], "LocalSigningKey::from_hex, uppercase");
+}
+
+/// Lower `value` as a host argument, then lift it into the parameter type of
+/// the function under test, as the UniFFI scaffolding does before it builds
+/// the function's future.
+fn lift<B, T>(value: B) -> T
+where
+    B: Lower<UniFfiTag>,
+    T: Lift<UniFfiTag, FfiType = B::FfiType>,
+{
+    T::try_lift(B::lower(value)).unwrap()
+}
+
+/// A host can cancel an import before its first poll; UniFFI then drops the
+/// future unpolled. The key argument that the future owns is wiped. UniFFI's
+/// own buffer, freed inside the lift, is outside this proof, so the lift runs
+/// before the scan.
+#[xmtp_common::test(unwrap_try = true)]
+fn cancelled_import_wipes_its_argument() {
+    let canary = Canary::secp256k1(&KEY);
+
+    let future = local_signer_from_private_key(lift(KEY.to_vec()));
+    let ((), hits) = scan(&[canary], || drop(future));
+    assert_eq!(hits, [0], "local_signer_from_private_key");
+
+    let future = LocalSigningKey::from_bytes(lift(KEY.to_vec()));
+    let ((), hits) = scan(&[canary], || drop(future));
+    assert_eq!(hits, [0], "LocalSigningKey::from_bytes");
+
+    let future = LocalSigningKey::from_hex(lift(format!("0x{}", hex::encode(KEY))));
+    let ((), hits) = scan(&[canary], || drop(future));
+    assert_eq!(hits, [0], "LocalSigningKey::from_hex");
 }
 
 /// An invalid scalar is wiped on the error path too.
@@ -71,7 +104,7 @@ async fn rejected_import_leaves_no_copy_of_the_input() {
     const INVALID: [u8; 32] = [0xff; 32];
     let bytes = INVALID.to_vec();
     let (result, hits) = scan_async(&[Canary::secp256k1(&INVALID)], async move {
-        LocalSigningKey::from_bytes(bytes).await.map(|_| ())
+        LocalSigningKey::from_bytes(bytes.into()).await.map(|_| ())
     })
     .await;
     assert!(result.is_err());
@@ -81,7 +114,7 @@ async fn rejected_import_leaves_no_copy_of_the_input() {
 /// Export makes exactly one copy: the returned value.
 #[xmtp_common::test(unwrap_try = true)]
 async fn export_makes_only_the_returned_copy() {
-    let key = LocalSigningKey::from_bytes(KEY.to_vec()).await?;
+    let key = LocalSigningKey::from_bytes(KEY.to_vec().into()).await?;
     let ((bytes, hex), hits) = scan_async(&[Canary::secp256k1(&KEY)], async {
         (
             ManuallyDrop::new(key.to_bytes()),

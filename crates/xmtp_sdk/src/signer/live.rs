@@ -1,4 +1,4 @@
-use crate::foreign;
+use crate::{SecretBytes, SecretString, foreign};
 use alloy::signers::local::PrivateKeySigner;
 use std::{collections::HashMap, sync::Arc};
 use xmtp_common::{MaybeSend, MaybeSync};
@@ -221,8 +221,7 @@ pub async fn generate_local_signer() -> Arc<dyn Signer> {
 }
 
 #[xmtp_macro::sdk_export]
-pub async fn local_signer_from_private_key(key: Vec<u8>) -> Result<Arc<dyn Signer>, XmtpError> {
-    let key = Zeroizing::new(key);
+pub async fn local_signer_from_private_key(key: SecretBytes) -> Result<Arc<dyn Signer>, XmtpError> {
     Ok(LocalSigningKey::parse_bytes(&key)?)
 }
 

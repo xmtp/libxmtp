@@ -52,6 +52,8 @@ mod migration;
 mod notifications;
 #[cfg(not(feature = "pure-only"))]
 mod preferences;
+#[cfg(not(feature = "pure-only"))]
+mod secret_input;
 mod signer;
 #[cfg(not(feature = "pure-only"))]
 mod state;
@@ -162,6 +164,8 @@ pub use notifications::{
 };
 #[cfg(not(feature = "pure-only"))]
 pub use preferences::{ConsentEntity, ConsentRecord, ConsentState, Preferences};
+#[cfg(not(feature = "pure-only"))]
+pub use secret_input::{SecretBytes, SecretString};
 #[cfg(not(feature = "pure-only"))]
 pub use signer::{
     LocalSigningKey, Signature, Signer, SignerError, SignerKind, SigningRequest, generate_keys,
