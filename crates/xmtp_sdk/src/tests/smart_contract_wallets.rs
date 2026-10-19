@@ -140,6 +140,25 @@ async fn smart_contract_wallet_signer_creates_builds_and_messages() {
     assert_eq!(text_of(&received), Some("smart contract wallet message"));
     assert_eq!(received.0.sender_inbox_id, inbox_id);
 
+    // The wallet is the recovery identity, so its signature removes an
+    // account it added. The backend verifies that signature on chain too.
+    let added = crate::generate_local_signer().await;
+    let added_identity = signer::identity(added.clone()).await?;
+    let has_added = |state: &crate::InboxState| {
+        state
+            .identities
+            .iter()
+            .any(|identity| identity.identifier == added_identity.identifier)
+    };
+    wallet.unsafe_add_account(added, false).await?;
+    assert!(has_added(&wallet.inbox_state(true).await?));
+    wallet
+        .remove_account(signer.clone(), added_identity.clone())
+        .await?;
+    let state = wallet.inbox_state(true).await?;
+    assert!(!has_added(&state));
+    assert_eq!(state.recovery_identity.identifier, identity.identifier);
+
     wallet.end().await?;
     peer.end().await?;
     std::fs::remove_dir_all(root)?;
