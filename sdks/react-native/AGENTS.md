@@ -12,7 +12,7 @@ Use the `writing-typescript` skill for JavaScript and TypeScript changes.
 - `dev/nix-shell 'just react-native test-native'` compiles production native lifecycle and owner helpers against a controlled ABI. It complements the installed Hermes proofs.
 - `dev/nix-shell 'just react-native test-react'` stages Node's sibling public classes and runs the React ownership tests without a simulator. They own the React proofs. The installed Hermes run checks only that the `/react` entry resolves.
 - `dev/nix-shell 'just react-native test-control'` runs the real HTTP reload-settlement and final-result admission tests without a simulator or SDK build.
-- `dev/nix-shell 'just react-native check-package'` checks package admission, binary completeness, and receipt rejection using local fixtures. It does not prove native execution.
+- `dev/nix-shell 'just react-native check-package'` checks package admission, binary completeness, and receipt rejection using local fixtures, and which phases `XMTP_RN_JOURNEYS` selects. It does not prove native execution.
 
 The private `src/specs/NativeXmtpReactNative.ts` and `codegenConfig` ship in the npm product for React Native autolinking/codegen. They do not add a public SDK export. Keep them matched to the Java/Objective-C++ provider and include their hashes in the product receipt.
 
