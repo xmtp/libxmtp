@@ -72,15 +72,26 @@ package of a merged revision whose SDK content matches:
 - Buttons are `GlassButton` and `GlassIconButton` (native SwiftUI glass on
   iOS). Grouped screens use `FormScreen` + `FormSection` + the rows in
   `FormRows.tsx`; make `FormScreen` the route's first view so the large
-  title collapses.
+  title collapses. A form with text fields passes `avoidsKeyboard`, not
+  `automaticallyAdjustKeyboardInsets`: React Native clamps that offset
+  without the bar's inset, so any keyboard change moves a resting form
+  under the bar.
 - `Stack.Toolbar.Button` icons go through `useToolbarIcon()`, because Android
-  needs an image. `NavigationSubtitle` sets the iOS navigation subtitle.
+  needs an image. A titled toolbar button (Next, Create) is
+  `ToolbarTextButton`: Android draws no titled `Stack.Toolbar.Button`.
+  `NavigationSubtitle` sets the iOS navigation subtitle.
 - List rows with a long-press menu use `ContextMenu` (a UIKit context menu
   in `modules/messenger-platform`; Android renders the children only).
   Confirmations that SwiftUI shows as popovers (`.confirmationDialog` on a
   list) use `PopoverConfirmation`. SwiftUI `.alert`s use `AlertDialog`, so
   Cancel and default buttons take the app tint; React Native's
   `showAlert` (UIAlertController) draws them in the label color.
+- A single-line `TextInput` in body text sets
+  `lineBreakModeIOS={singleLineBreakMode}` (`TextFieldRow` does): Fabric
+  reuses native text input views, and a reused multiline view leaves a long
+  placeholder clipped at a word with no ellipsis. A multiline `TextInput`
+  reads its placeholder as its label while empty: set `accessibilityLabel`
+  only when it has text, or VoiceOver reads the label twice.
 - Text that wraps uses `WrappedText` (SwiftUI's wrapped line height once
   it wraps) or `BubbleText` in message bubbles. Inside a List or Form keep
   the default; elsewhere (scroll views, cards) pass `leading="standard"`.
@@ -96,6 +107,19 @@ package of a merged revision whose SDK content matches:
 - The session machine and stream hub live in `src/core` behind ports, so `node --test` covers them; `src/session` wires the device and the SDK.
 - Fast Refresh keeps the running session: reload the app after editing `src/session` or the core modules it uses. Running `install` (or `build-android`) under a live Metro removes the SDK package briefly; relaunch the app afterwards.
 - `app/dev/session-probe.tsx` (Debug only) drives the session: `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/session-probe?action=connect&url=http%3A%2F%2F127.0.0.1%3A5150"`. Other actions: `restore`, `retry`, `signOut`, `delete`, `continueReset`, `probe`, `handles`, `contend`, `allowRequests` (accepts every message request); add `&n=<new value>` to repeat one.
+- `app/dev/chat-probe.tsx` (Debug only) acts on the open chat, then returns to it: `xmtp-messenger-rn:///dev/chat-probe?action=<action>&c=<conversation>&m=<message>&n=<new value>`. Actions: `failNextSend` (the next send fails after it may have queued: Send outcome unknown), `failPublish` and `allowPublish` (publishing fails until allowed: the message stays Sending), `reply`, `retry`, `edit`, `delete`, `react` (`&e=<emoji>`). Without `m`, `retry` and `edit` use the newest own unpublished row.
+
+## Chat
+
+The chat stores are pure TypeScript in `src/core` (`chatTimeline.ts`, `chatComposer.ts`, `messageActions.ts`, with `chatHistory.ts` and `chatMessages.ts`) and are tested against the in-memory conversation in `chatFakes.ts`. `src/features/chat/chatRuntime.ts` wires them to the SDK (`sdkChatQueries.ts`), the send journal and the stream hub; views call its actions (`startReply`, `cancelReply`, `retry`, `edit`, `react`, `requestDelete`, `deleteMessage`, `copyText`, `submit`). A new content kind adds a `ChatContent` case, its SDK mapping in `chatContent` and a renderer in `MessageContent.tsx`. `MessageBubbleWrapper.tsx` delegates to `features/chat/interactions` (SwiftUI context menu with the quick-reaction preview, swipe to reply, VoiceOver actions, the send flight and the "Delete message?" alert); their rules are in `src/core/messageInteractions.ts`. `ComposerSlots.tsx` (attach menu, staged attachments) is a slot for later features. Settings renders `<SendReviewSection session={session} />` (`src/features/settings/sendReviewSlot.tsx`) directly in its `FormScreen`; the section brings its own `FormSection` and reloads on focus. Inside the context menu the bubble is hosted by SwiftUI without a width proposal, so `MessageInteractions` bounds it with the row's maximum bubble width. The SwiftUI host also takes no touches outside its frame, so on a row with reaction badges the hosted view grows 12 pt up to cover the badges' overhang. The quick-reaction buttons in the menu preview do not receive taps (the preview is one accessibility element); use the React item.
+
+The Reactions sheet (`features/reactions`) and the emoji picker (`features/emoji`, catalog in `src/core/emojiData.ts`) draw their own headers. react-native-screens lays out a form sheet whose content root has a scroll view as a direct child as a scrolling sheet (warning "FormSheet with ScrollView expects at most 2 subviews"), and the list draws over the header: give the screen one `<View collapsable={false}>` root.
+
+The request bar takes its Accept, Delete request and Block decisions from the same `RequestDecisionsStore` as Message requests (`useRequestDecisions`). Accept leaves Chats below the open chat and keeps it mounted.
+
+## New message
+
+`features/new-conversation` is a page sheet with its own stack: step 1 (`index`) and the review (`review`) share one `NewConversationStore` (`src/core/newConversation.ts`, recipient resolution and its tests) that `NewConversationSheet` owns in the sheet's layout (`useNewConversation()`). Create closes the sheet and pushes the new chat. `useScrollEdge()` (`scrollEdge.ts`) gives a form in a sheet SwiftUI's top edge: none at rest, the hard edge once content is under the bar. A static `scrollEdgeEffects: { top: "hard" }` draws the edge at rest too.
 
 ## Native projects
 

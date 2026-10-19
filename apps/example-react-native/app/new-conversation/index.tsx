@@ -1,11 +1,5 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { NewConversationScreen } from "@/features/new-conversation/NewConversationScreen";
 
 export default function NewConversationRoute() {
-  return (
-    <PlaceholderScreen
-      title={routeTitles.newConversation}
-      route="new-conversation/index"
-    />
-  );
+  return <NewConversationScreen />;
 }

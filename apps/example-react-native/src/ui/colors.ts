@@ -117,6 +117,14 @@ const pairs = {
     dark: "rgba(118,118,128,0.18)",
     ios: "quaternarySystemFill",
   },
+  /**
+   * A list row on a sheet's glass (Reactions): measured on iOS 27 as
+   * tertiary fill in light and quaternary fill in dark mode.
+   */
+  sheetRowFill: {
+    light: "rgba(118,118,128,0.12)",
+    dark: "rgba(118,118,128,0.18)",
+  },
   /** Row highlight while pressed (UITableViewCell selection). */
   rowHighlight: { light: "#D1D1D6", dark: "#3A3A3C", ios: "systemGray4" },
   /** A swiped plain-list row that keeps the default row background. */
@@ -132,6 +140,8 @@ const pairs = {
    * iOS 27: #C6C6C8 on white, #3E3E41 on #1C1C1E (darker than `separator`).
    */
   divider: { light: "rgba(60,60,67,0.29)", dark: "rgba(84,84,88,0.6)" },
+  /** The title of a prominent toolbar button (SwiftUI picks black in dark mode). */
+  onTintToolbar: { light: "#FFFFFF", dark: "#000000" },
 } as const satisfies Record<string, Pair>;
 
 export type ColorName = keyof typeof pairs;

@@ -38,6 +38,8 @@ export const routeTitles = {
   gallery: "Design gallery",
   /** Debug builds only: the session probe. */
   sessionProbe: "Session probe",
+  /** The Debug chat probe. */
+  chatProbe: "Chat probe",
   /** The edit-group and add-member sheets. */
   editGroup: "Edit group",
   addMember: "Add member",

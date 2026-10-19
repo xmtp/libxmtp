@@ -7,7 +7,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { routeTitles } from "@/copy/foundation";
 import { SessionRouter } from "@/features/startup/SessionRouter";
 import { SessionProvider } from "@/session";
-import { useIsAccessibilitySize } from "@/ui/accessibility";
+import { useIsAccessibilitySize, useReducedMotion } from "@/ui/accessibility";
 import { useNavigationTheme, useStackScreenOptions } from "@/ui/navigation";
 
 // Reanimated scroll handlers log this on every scroll in Debug builds.
@@ -26,6 +26,7 @@ export default function RootLayout() {
   const theme = useNavigationTheme();
   const screenOptions = useStackScreenOptions();
   const accessibilitySize = useIsAccessibilitySize();
+  const reduceMotion = useReducedMotion();
   return (
     <GestureHandlerRootView style={styles.root}>
       <KeyboardProvider>
@@ -90,15 +91,24 @@ export default function RootLayout() {
                 name="my-fields/[conversationId]"
                 options={inline(routeTitles.myFields)}
               />
-              <Stack.Screen name="new-conversation" options={pageSheet} />
+              <Stack.Screen
+                name="new-conversation"
+                options={reduceMotion ? reducedMotionSheet : pageSheet}
+              />
               <Stack.Screen name="edit-group" options={pageSheet} />
               <Stack.Screen
                 name="member"
                 options={formSheet([0.7, 1], accessibilitySize ? 1 : 0)}
               />
               <Stack.Screen name="add-member" options={formSheet([0.5, 1])} />
-              <Stack.Screen name="reactions" options={formSheet([0.5, 1])} />
-              <Stack.Screen name="emoji-picker" options={formSheet([0.5, 1])} />
+              <Stack.Screen
+                name="reactions"
+                options={formSheet([mediumDetent, 1])}
+              />
+              <Stack.Screen
+                name="emoji-picker"
+                options={formSheet([mediumDetent, 1])}
+              />
               <Stack.Protected guard={__DEV__}>
                 <Stack.Screen
                   name="dev/gallery"
@@ -107,6 +117,10 @@ export default function RootLayout() {
                 <Stack.Screen
                   name="dev/session-probe"
                   options={inline(routeTitles.sessionProbe)}
+                />
+                <Stack.Screen
+                  name="dev/chat-probe"
+                  options={inline(routeTitles.chatProbe)}
                 />
               </Stack.Protected>
             </Stack>
@@ -125,8 +139,27 @@ function inline(title: string) {
   return { title, headerLargeTitleEnabled: false } as const;
 }
 
+/**
+ * SwiftUI `.medium`: 459 of the 813 pt a large sheet has on a 402 x 874 pt
+ * iPhone (measured on iOS 27). Fractions here are of the large height.
+ */
+const mediumDetent = 0.565;
+
 /** SwiftUI's default sheet: a page sheet at the large detent. */
 const pageSheet = { presentation: "modal", headerShown: false } as const;
+
+/**
+ * New message with Reduce Motion: the sheet appears and leaves without the
+ * slide, cannot be swiped away, and its content cross-fades
+ * (`NewConversationSheet`).
+ */
+const reducedMotionSheet = {
+  ...pageSheet,
+  animation: "none",
+  gestureEnabled: false,
+  // A clear background: the faded content is the whole sheet.
+  contentStyle: { backgroundColor: "transparent" },
+} as const;
 
 /**
  * A sheet with detents (`.presentationDetents`). SwiftUI shows the grabber

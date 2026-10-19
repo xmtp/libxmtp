@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import {
   Easing,
   type EntryExitAnimationFunction,
+  ReduceMotion,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
@@ -18,10 +19,15 @@ export const springConfig = {
   mass: 1,
 } as const;
 
-/** Reduce Motion: `.easeInOut(duration: 0.2)`. */
+/**
+ * Reduce Motion: a 0.2 s ease-in-out. It is the Reduce Motion design itself,
+ * so it always runs: Reanimated would otherwise skip it when the setting is
+ * on.
+ */
 export const reducedTiming = {
   duration: 200,
   easing: Easing.bezier(0.42, 0, 0.58, 1),
+  reduceMotion: ReduceMotion.Never,
 } as const;
 
 /** A view that appears scales from 0.96 while it fades in. */

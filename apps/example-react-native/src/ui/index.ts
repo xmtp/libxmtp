@@ -142,3 +142,7 @@ export { type ReadableStore, useStore } from "@/ui/useStore";
 export { WrappedText } from "@/ui/WrappedText";
 export { stackScreenOptions, useStackScreenOptions } from "@/ui/navigation";
 export { type ToolbarIcon, useToolbarIcon } from "@/ui/toolbarIcon";
+export {
+  ToolbarTextButton,
+  type ToolbarTextButtonProps,
+} from "@/ui/ToolbarTextButton";

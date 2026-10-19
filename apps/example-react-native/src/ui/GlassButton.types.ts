@@ -19,14 +19,30 @@ export interface GlassButtonProps {
   role?: "destructive" | "cancel";
   /** `.controlSize(.large)` for footer buttons. Default `regular`. */
   size?: "regular" | "large";
-  /** The label font. Default `headline` for large, `body` otherwise. */
-  font?: "body" | "headline" | "subheadline";
+  /**
+   * The label font. Default `headline` for large, `body` otherwise. `caption`
+   * is a button inside a caption-size row (the chat's Retry).
+   */
+  font?: "body" | "headline" | "subheadline" | "caption";
   /**
    * The label color of a `glass` button when a parent sets
    * `.foregroundStyle` (Connect's red status Retry). Default the tint.
    */
   labelColor?: ColorInput;
   systemImage?: SymbolName;
+  /**
+   * A symbol at the trailing edge of a full-width button, after the leading
+   * title (`HStack { Text; Spacer(); Image }`, the request bar's "Sender
+   * details ›").
+   */
+  trailingSystemImage?: SymbolName;
+  /**
+   * With `fullWidth`: the title itself fills the width
+   * (`Text(title).frame(maxWidth: .infinity)`) instead of sitting between two
+   * Spacers, so a long title in a narrow button keeps one line (the request
+   * bar's "Delete request").
+   */
+  labelFills?: boolean;
   /** Stretches to the container width with a centered label. */
   fullWidth?: boolean;
   disabled?: boolean;
@@ -45,6 +61,12 @@ export interface GlassIconButtonProps {
   variant?: "glass" | "glassProminent";
   /** `regular` is a 44 pt circle (toolbar size); `large` is the 48 pt composer size. */
   size?: "regular" | "large";
+  /**
+   * `circle` (`.buttonBorderShape(.circle)`, default), or `capsule`: the
+   * glass styles' own shape with no border shape, about 42 x 32 pt (the
+   * composer's Send and Cancel reply).
+   */
+  shape?: "circle" | "capsule";
   disabled?: boolean;
   testID?: string;
   style?: StyleProp<ViewStyle>;

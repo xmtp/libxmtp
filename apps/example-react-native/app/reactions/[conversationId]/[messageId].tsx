@@ -1,11 +1,18 @@
-import { routeTitles } from "@/copy/foundation";
-import { PlaceholderScreen } from "@/ui/PlaceholderScreen";
+import { useLocalSearchParams } from "expo-router";
+
+import { ReactionsScreen } from "@/features/reactions/ReactionsScreen";
 
 export default function ReactionsRoute() {
+  const { conversationId, messageId, emoji } = useLocalSearchParams<{
+    conversationId: string;
+    messageId: string;
+    emoji?: string;
+  }>();
   return (
-    <PlaceholderScreen
-      title={routeTitles.reactions}
-      route="reactions/[conversationId]/[messageId]"
+    <ReactionsScreen
+      conversationId={conversationId}
+      messageId={messageId}
+      emoji={emoji ?? ""}
     />
   );
 }
