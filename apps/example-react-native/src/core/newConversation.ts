@@ -322,18 +322,26 @@ export class NewConversationStore extends Store<NewConversationState> {
   }
 
   setName(name: string): void {
-    if (!this.#open()) return;
-    this.#update((state) => ({ ...state, name }));
+    this.#setDetails((state) => ({ ...state, name }));
   }
 
   setDescription(description: string): void {
-    if (!this.#open()) return;
-    this.#update((state) => ({ ...state, description }));
+    this.#setDetails((state) => ({ ...state, description }));
   }
 
   setAdminOnly(adminOnly: boolean): void {
-    if (!this.#open()) return;
-    this.#update((state) => ({ ...state, adminOnly }));
+    this.#setDetails((state) => ({ ...state, adminOnly }));
+  }
+
+  /**
+   * Changes the group's name, description or permissions. Ignored while busy:
+   * Create already sent them, and the sheet closes when it succeeds.
+   */
+  #setDetails(
+    change: (state: NewConversationState) => NewConversationState,
+  ): void {
+    if (!this.#open() || this.getState().busy) return;
+    this.#update(change);
   }
 
   add(): void {

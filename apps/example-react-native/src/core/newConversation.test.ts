@@ -6,6 +6,7 @@ import {
   NewConversationCopy,
   NewConversationError,
   type NewConversationQueries,
+  type NewConversationState,
   NewConversationStore,
   type Person,
   addDisabled,
@@ -591,6 +592,42 @@ test("Create makes a group with its name, description and permissions, then fini
   ]);
   assert.deepEqual(finished, ["conversation-1"]);
   assert.equal(store.getState().busy, false);
+});
+
+test("group details cannot change while Create sends them", async () => {
+  const queries = new FakeQueries();
+  const { store } = makeStore(queries);
+  store.load();
+  await settle();
+  store.setGroup(true);
+  store.setInput("ava");
+  store.next();
+  await settle();
+  store.setName("Book club");
+  store.setDescription("Monthly");
+  store.setAdminOnly(true);
+  let shown: NewConversationState | undefined;
+  queries.during("create", () => {
+    store.setName("Renamed");
+    store.setDescription("Weekly");
+    store.setAdminOnly(false);
+    shown = store.getState();
+  });
+  store.create();
+  await settle();
+  const sent = queries.created[0];
+  assert.deepEqual(
+    {
+      name: shown?.name,
+      description: shown?.description,
+      adminOnly: shown?.adminOnly,
+    },
+    {
+      name: sent?.name,
+      description: sent?.description,
+      adminOnly: sent?.adminOnly,
+    },
+  );
 });
 
 test("a second Create while one runs creates no second conversation", async () => {
