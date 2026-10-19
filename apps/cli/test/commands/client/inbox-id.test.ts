@@ -43,6 +43,26 @@ describe("client inbox-id", () => {
     expect(output.kind).toBe("ethereum");
   });
 
+  it("returns null for unregistered address", async () => {
+    const identity = await createRegisteredIdentity();
+    const unregisteredAddress = "0x" + "0".repeat(40);
+
+    const result = await runWithIdentity(identity, [
+      "client",
+      "inbox-id",
+      "--identifier",
+      unregisteredAddress,
+      "--json",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+
+    const output = parseJsonOutput<InboxIdOutput>(result.stdout);
+
+    expect(output.found).toBe(false);
+    expect(output.inboxId).toBeNull();
+  });
+
   it("uses short flag -i for identifier", async () => {
     const identity = await createRegisteredIdentity();
 
