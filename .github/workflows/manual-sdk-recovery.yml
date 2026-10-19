@@ -1,4 +1,4 @@
-name: Manual public SDK recovery
+name: "Test: Node SDK stream recovery (manual)"
 'on':
   workflow_dispatch: null
 permissions:
@@ -10,17 +10,23 @@ env:
   XMTP_SDK_BUILD: nix
 jobs:
   recovery:
-    name: Test (node-sdk) recovery
+    name: Stream recovery tests
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     steps:
     - name: Checkout
       uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-    - uses: ./.github/actions/setup-nix
+    - name: Set up Nix
+      uses: ./.github/actions/setup-nix
       with:
+        cache-mode: read
         github-token: ${{ github.token }}
-    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
-    - uses: ./.github/actions/setup-js
+    - name: Install just
+      uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
+    - name: Set up JavaScript
+      uses: ./.github/actions/setup-js
+      with:
+        cache-mode: read
     - name: Start backend
       run: dev/nix-shell 'just backend up'
     - name: Build backend for graceful restart

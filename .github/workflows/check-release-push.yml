@@ -1,4 +1,4 @@
-name: Check release push permissions
+name: "Release: pin source"
 
 on:
   workflow_call:
@@ -21,6 +21,7 @@ permissions:
 
 jobs:
   verify:
+    name: Pin commit, check release App
     runs-on: ubuntu-latest
     # Every job that reads GH_APP_ID and GH_APP_PK runs in the `release`
     # environment, whose deployment policy admits only main and
@@ -29,7 +30,8 @@ jobs:
     outputs:
       source-sha: ${{ steps.source.outputs.sha }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false

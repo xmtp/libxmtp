@@ -130,9 +130,11 @@ dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 test group-sync --iteratio
 
 ## Docker Image
 
-A unified Docker image is published as `ghcr.io/xmtp/xdbg`. It packages the
-`xdbg` binary with a monitoring entrypoint for continuous environment health
-checks.
+A unified Docker image is published as `ghcr.io/xmtp/xdbg:<version>`. It
+packages the `xdbg` binary with a monitoring entrypoint for continuous
+environment health checks. A backend release (`backend=true` in **Actions >
+Release**) builds the image from the release source, tags it with the backend
+version, and deploys that tag to testnet. No other run publishes it.
 
 ### Building locally
 
@@ -157,7 +159,7 @@ docker run -d \
   -e XMTP_BACKEND_URL=http://backend:5050 \
   -e XDBG_LOOP_PAUSE=300 \
   -e PUSHGATEWAY_URL=http://pushgateway:9091 \
-  ghcr.io/xmtp/xdbg
+  ghcr.io/xmtp/xdbg:<version>
 ```
 
 | Variable | Default | Description |

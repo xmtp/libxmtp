@@ -1,4 +1,4 @@
-name: Push release tag
+name: "Release: push tag"
 
 on:
   workflow_call:
@@ -17,6 +17,7 @@ permissions: {}
 
 jobs:
   push:
+    name: Push tag
     runs-on: ubuntu-latest
     # GH_APP_ID and GH_APP_PK belong in this environment, whose deployment
     # policy admits only protected branches; a same-repository pull request
@@ -37,9 +38,7 @@ jobs:
           GIT_CONFIG_GLOBAL: /dev/null
         run: |
           set -euo pipefail
-          # The libxmtp hub tag (release.yml) is v<version>.
           case "$SDK" in
-            libxmtp) TAG_REF="refs/tags/v${VERSION}" ;;
             ios|android|node-sdk|browser-sdk|agent-sdk|react-native-sdk|cli) TAG_REF="refs/tags/${SDK}-${VERSION}" ;;
             *) exit 1 ;;
           esac
@@ -87,7 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$EVENT_NAME" in
-            push|schedule|workflow_dispatch) ;;
+            push|workflow_dispatch) ;;
             *) echo "::error title=Release tag::A $EVENT_NAME run cannot push a release tag"; exit 1 ;;
           esac
           case "$CALLER_REF" in
@@ -132,10 +131,7 @@ jobs:
           set -euo pipefail
           AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::$AUTH_HEADER"
-          case "$SDK" in
-            libxmtp) TAG_REF="refs/tags/v${VERSION}" ;;
-            *) TAG_REF="refs/tags/${SDK}-${VERSION}" ;;
-          esac
+          TAG_REF="refs/tags/${SDK}-${VERSION}"
           GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" \
             GIT_CONFIG_VALUE_0="$AUTH_HEADER" \
