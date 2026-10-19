@@ -22,7 +22,6 @@ import { deferred, settle } from "./testing.ts";
 
 function harness(
   options: {
-    conversationId?: string | null;
     conversation?: FileConversation;
     preferences?: MemoryPreferences;
     journal?: MemoryJournal;
@@ -44,15 +43,11 @@ function harness(
     authorize?: () => Promise<boolean>;
   } = { admitted: true, allowed: true, authorized: true, changes: 0 };
   let next = 0;
-  const conversationId =
-    options.conversationId === null
-      ? undefined
-      : (options.conversationId ?? CONVERSATION);
   const store = new AttachmentStore({
     gateway,
     drafts,
     coordinator,
-    ...(conversationId === undefined ? {} : { conversationId }),
+    conversationId: CONVERSATION,
     admit: () => env.admitted,
     acceptsSession: () => true,
     allowed: () => env.allowed,
@@ -249,7 +244,7 @@ test("upload failures follow the SDK retry rule, and a reload while the upload r
   assert.equal(h.gateway.uploads.length, 2);
 });
 
-test("a discard during the upload keeps the send from queuing, also when the SDK delete fails", async () => {
+test("a discard during the upload keeps the send from queuing, and a draft whose SDK delete failed can still be sent", async () => {
   const h = harness();
   const gone = await staged(h, "gone.txt");
   const kept = await staged(h, "kept.txt");
@@ -275,6 +270,8 @@ test("a discard during the upload keeps the send from queuing, also when the SDK
     h.drafts.all().map((draft) => draft.id),
     [kept.id],
   );
+  await h.store.send(kept.id);
+  assert.equal(h.conversation.queued.length, 1);
 });
 
 test("a focus reload reads drafts other screens saved and imports nothing", async () => {
@@ -311,7 +308,8 @@ test("load imports SDK pending uploads as unassigned drafts, skips saved and dis
     retryable: true,
   };
   new AttachmentDraftStore(preferences).save(saved);
-  const h = harness({ preferences, conversationId: null });
+  // The chat is open, and its load still assigns an import to no chat.
+  const h = harness({ preferences });
   h.gateway.pendingFiles = [remoteFile("photo.jpg"), remoteFile("orphan.pdf")];
   await h.store.load();
   const drafts = h.store.getState().drafts;

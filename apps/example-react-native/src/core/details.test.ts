@@ -285,6 +285,7 @@ test("pending changes poll until the group confirms them, and a new change polls
   ticks.releaseAll();
   await eventually(() => ticks.waiters.length === 1);
   assert.ok(store.getState().pendingRemoval.has("other"));
+  assert.ok(memberPending(store.getState(), "other"));
   assert.ok(store.getState().pendingMembers.has("first"));
   // Confirmed: both clear and polling stops.
   fake.members = [member("own", "superAdmin"), member("first")];
