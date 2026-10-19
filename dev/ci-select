@@ -73,13 +73,23 @@ class Rules:
 
     def __init__(self, manifest):
         self.manifest = manifest
+
+        def workflows(suite, tier):
+            # The workflow files count in the suite's strongest PR tier.
+            return suite["workflow_files"] if suite["workflow_tier"] == tier else []
+
         self.suites = {
-            name: self._split(suite["crates"] + suite["workflow_files"], suite["paths"])
+            name: self._split(
+                suite["crates"] + workflows(suite, "blocking"), suite["paths"]
+            )
             for name, suite in manifest["suites"].items()
         }
         # Each list's exclusions apply to that list's matches only.
         self.advisory = {
-            name: self._split(suite["advisory"]["crates"], suite["advisory"]["paths"])
+            name: self._split(
+                suite["advisory"]["crates"] + workflows(suite, "advisory"),
+                suite["advisory"]["paths"],
+            )
             for name, suite in manifest["suites"].items()
         }
         self.products = {

@@ -113,6 +113,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/lint-workspace.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "**/Cargo.toml",
         ".config/hakari.toml",
@@ -154,6 +155,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/lint-js.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/{cli,web-chat,docs}/**",
         "dev/js/{lint-source.mjs,test-lint-source.mjs}",
@@ -199,6 +201,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/lint-config.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "**/*.{nix,py,sh,toml,kt,swift}",
         ".github/**",
@@ -244,6 +247,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/nix-eval.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "**/*.nix",
         "**/Cargo.toml",
@@ -286,6 +290,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/lint-proto.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "proto/**"
       ],
@@ -323,6 +328,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/docs-quality.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "**/*.md",
         "dev/js/sdk-package",
@@ -368,6 +374,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/lint-ios.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "dev/check-apple-toolchain",
         "nix/lib/ios-env.nix",
@@ -409,6 +416,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/lint-deny.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "**/Cargo.toml",
         "{Cargo.lock,deny.toml}"
@@ -445,6 +453,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/lint-example-ios.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/example-ios/**",
         "apps/xmtp_sdk_bindgen/**",
@@ -500,6 +509,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/lint-example-react-native.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/example-react-native/**",
         "!**/*.md"
@@ -539,6 +549,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-dev.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "**/*.{nix,py,sh,toml}",
         "**/dev/**",
@@ -630,6 +641,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/check-rust.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
@@ -697,6 +709,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/check-sdk-unit.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         ".config/nextest.toml",
         "Cargo.lock",
@@ -760,6 +773,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-backend.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
@@ -824,6 +838,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-validation.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
@@ -889,6 +904,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-workspace.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
@@ -948,6 +964,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-keepalive-probe.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
@@ -1022,6 +1039,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-wasm.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
@@ -1093,6 +1111,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-xdbg.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
@@ -1173,6 +1192,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/docs-rust-reference.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
@@ -1213,6 +1233,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/check-types.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
         "apps/{cli,web-chat,docs}/**",
@@ -1269,6 +1290,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/check-sdk-products.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_sdk/**",
@@ -1325,6 +1347,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-node-sdk.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/backend/**",
         "apps/cli/**",
@@ -1388,6 +1411,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-agent-sdk.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/cli/**",
         "apps/xmtp_sdk_bindgen/**",
@@ -1443,6 +1467,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-browser-sdk.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/web-chat/**",
         "apps/xmtp_sdk_bindgen/**",
@@ -1500,6 +1525,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-sdk-platform.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_sdk/**",
@@ -1557,6 +1583,7 @@
         ".github/workflows/deploy-docs.yml",
         ".github/workflows/docs-rust-reference.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/docs/**",
         "apps/xmtp_sdk_bindgen/**",
@@ -1613,6 +1640,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-ios.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_sdk/**",
@@ -1666,6 +1694,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-android.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_sdk/**",
@@ -1718,6 +1747,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-example-android.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/example-android/**",
         "nix/package/example-android-apk*"
@@ -1769,6 +1799,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-example-ios.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/example-ios/**",
         "nix/package/example-ios-run.nix"
@@ -1824,6 +1855,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-react-native.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         ".github/actions/react-native-{product,conformance}/**",
         "apps/backend/**",

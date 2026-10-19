@@ -359,6 +359,15 @@ def compile_pr_filters(filters, groups, graph, where):
     }
 
 
+def selects(filters):
+    """Whether a compiled filter list can select anything."""
+    return bool(
+        filters["crates"]
+        or filters["labels"]
+        or any(not p.startswith("!") for p in filters["paths"])
+    )
+
+
 def compile_title(title, where):
     if (
         not isinstance(title, str)
@@ -541,11 +550,7 @@ def compile_declaration(root: Path = ROOT, declaration=None):
         )
         # A list of exclusions alone would make the suite advisory on full
         # runs without any path that selects it.
-        if "advisory_filters" in suite and not (
-            advisory["crates"]
-            or advisory["labels"]
-            or any(not p.startswith("!") for p in advisory["paths"])
-        ):
+        if "advisory_filters" in suite and not selects(advisory):
             raise DeclarationError(
                 f"Suite {name} advisory_filters must select something; omit an empty list"
             )
@@ -587,6 +592,12 @@ def compile_declaration(root: Path = ROOT, declaration=None):
             "cargo_roots": filters["cargo_roots"],
             "crates": filters["crates"],
             "workflow_files": workflow_files,
+            # The workflow files select the suite in its strongest pull request
+            # tier: advisory only when pr_filters select nothing, so an
+            # always-advisory suite stays advisory when its workflow changes.
+            "workflow_tier": "advisory"
+            if not selects(filters) and selects(advisory)
+            else "blocking",
             "paths": filters["paths"],
             "labels": filters["labels"],
             # A match here selects the suite as advisory, unless a filter

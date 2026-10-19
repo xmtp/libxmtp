@@ -148,8 +148,9 @@ jobs. Each gate always runs. It fails unless detection passed, and fails when
 a selected blocking suite of its phase did not succeed, including when it was
 skipped.
 
-Tiers: a match in `pr_filters` (or the suite's workflow files) makes a suite
-blocking. A suite that only `advisory_filters` match runs as advisory, in a
+Tiers: a match in `pr_filters` makes a suite blocking. The suite's workflow
+files count as `pr_filters`, or as `advisory_filters` for a suite whose
+`pr_filters` select nothing. A suite that only `advisory_filters` match runs as advisory, in a
 second caller job (`<suite>_advisory`, named `<title> (advisory)`) that no gate
 needs. A full run of a pull request runs a suite with `advisory_filters` as
 advisory unless a `pr_filters` entry matched. Merge and manual runs run every

@@ -567,26 +567,6 @@ class MatchTests(unittest.TestCase):
             with self.subTest(pattern=pattern, path=path):
                 self.assertEqual(SELECTOR.glob_match(pattern, path), expected)
 
-    def rules(self):
-        return SELECTOR.Rules(
-            {
-                "shared": ["proto/**"],
-                "neutral": ["**/AGENTS.md"],
-                "suites": {
-                    "rust": {
-                        "crates": ["crates/a/**"],
-                        "workflow_files": [".github/workflows/rust.yml"],
-                        "paths": ["Cargo.lock", "!crates/a/fixtures/**"],
-                    },
-                    "markdown": {
-                        "crates": [],
-                        "workflow_files": [],
-                        "paths": ["**/*.md"],
-                    },
-                },
-            }
-        )
-
 
 class MetadataTests(unittest.TestCase):
     def test_api_total_is_checked_against_the_event_head(self):

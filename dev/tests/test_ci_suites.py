@@ -268,6 +268,41 @@ class CompileTests(unittest.TestCase):
                     )
                 self.assertEqual("test_xdbg" in result["suites"]["test"], expected)
 
+    def test_workflow_files_select_in_the_strongest_tier(self):
+        # An always-advisory suite stays advisory when its own workflow or a
+        # local action it uses changes; a suite that can block, blocks.
+        def tiers(path, **suite):
+            manifest = self.compile(lambda d: d["suites"]["test_xdbg"].update(suite))
+            selector = SUITES.load_selector()
+            payload = {
+                "repository": {"full_name": "r"},
+                "pull_request": {"head": {"repo": {"full_name": "r"}}, "labels": []},
+            }
+            with mock.patch.multiple(
+                selector, MANIFEST=manifest, SUITES=manifest["suites"]
+            ):
+                result = selector.select_suites(
+                    [path], "pull_request", payload, "success", 1
+                )
+            return (
+                "test_xdbg" in result["suites"]["test"],
+                "test_xdbg" in result["advisory"],
+            )
+
+        workflow = ".github/workflows/test-xdbg.yml"
+        self.assertEqual(
+            tiers(workflow, pr_filters=[], advisory_filters=["docs/**"]), (False, True)
+        )
+        self.assertEqual(
+            tiers(workflow, pr_filters=["apps/**"], advisory_filters=["docs/**"]),
+            (True, False),
+        )
+        self.assertEqual(tiers(workflow, pr_filters=[]), (True, False))
+        self.assertEqual(
+            tiers("docs/guide.md", pr_filters=[], advisory_filters=["docs/**"]),
+            (False, True),
+        )
+
     def test_react_native_runs_for_shared_mobile_and_backend_inputs(self):
         manifest = SUITES.compile_declaration(ROOT)
         selector = SUITES.load_selector()

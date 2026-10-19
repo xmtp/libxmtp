@@ -18,7 +18,8 @@
 # request (see `shared` below) runs a suite with advisory_filters as advisory
 # unless a pr_filters entry matched. Merge runs and manual runs run every
 # selected suite as blocking. The suite's workflow file and every local
-# workflow and action it uses count as pr_filters.
+# workflow and action it uses count as pr_filters, or as advisory_filters for
+# a suite whose pr_filters select nothing.
 #
 # Each filter is one of:
 #   "glob"                A path glob. `**` crosses directories, `*` does not.
