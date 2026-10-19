@@ -1232,8 +1232,7 @@
       "phase": "test",
       "workflow": "deploy-docs.yml",
       "run_on": [
-        "ready_pr_push",
-        "merge"
+        "ready_pr_push"
       ],
       "disable_on_forks": false,
       "secrets": "kache",

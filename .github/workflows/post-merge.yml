@@ -306,13 +306,66 @@ jobs:
           fi
           echo "Every set member and dependency layer substitutes ($fetched paths)."
 
-  # Pages content comes only from trusted trunk pushes. docs builds the site
-  # and native references after every warm member and dependency substitutes.
-  # A failed warm, upload, pin, or closure gate holds back deployment.
+  # Pages content comes only from trusted trunk pushes. The native references
+  # and docs build after every warm member and dependency substitutes. A
+  # failed warm, upload, pin, or closure gate holds back deployment.
+  docs-swift:
+    name: Swift reference
+    needs: closure
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: ios
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix),
+      # and sdks/ios/dev/bindings fails in CI with another. The image default is
+      # older.
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: "26.3"
+      - name: Show the Xcode version
+        run: xcodebuild -version
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Build the Swift reference
+        run: dev/nix-shell 'just ios docs apps/docs/generated/reference/swift'
+      - name: Archive Swift reference
+        env:
+          COPYFILE_DISABLE: "1"
+        run: tar -cf "${RUNNER_TEMP}/docs-swift.tar" -C apps/docs/generated/reference/swift .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-swift
+          path: ${{ runner.temp }}/docs-swift.tar
+          if-no-files-found: error
+  docs-kotlin:
+    name: Kotlin reference
+    needs: closure
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    env:
+      NIX_DEVSHELL: android
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Build the Kotlin reference
+        run: dev/nix-shell 'just android docs-generated'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-kotlin
+          path: sdks/android/library/build/dokka/html
+          if-no-files-found: error
+  # The docs compose job downloads the docs-swift and docs-kotlin artifacts of
+  # this run, so it waits for both references.
   docs:
     name: Docs
-    needs: closure
-    if: ${{ !cancelled() && needs.closure.result == 'success' }}
+    needs: [closure, docs-swift, docs-kotlin]
     uses: ./.github/workflows/deploy-docs.yml
     with:
       deploy: true

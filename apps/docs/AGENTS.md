@@ -53,8 +53,9 @@ the Agent SDK can add `Agent` as the last tab. Package manager tabs
 use `syncKey="pkg"`. Verify React Native examples against the generated public declarations, including the optional `/react` entry. The docs route stages declarations without the full mobile build closure.
 
 The post-merge workflow (`post-merge.yml`) deploys the public site on each push to `main` and
-builds the Kotlin and Swift references. Pull requests and merge runs skip them
-with `DOCS_SKIP_NATIVE_REFERENCES=1`.
+builds the Kotlin and Swift references in its own jobs. The CI merge run does
+not build the site. Pull requests skip the native references with
+`DOCS_SKIP_NATIVE_REFERENCES=1`.
 Use `dev/nix-shell 'DOCS_SKIP_NATIVE_REFERENCES=1 just docs test-browser'`
 when testing that composed site.
 

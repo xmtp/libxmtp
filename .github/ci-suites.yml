@@ -656,11 +656,14 @@ suites:
       - path_group: js_workspace
       - path_group: sdk_core
       - "sdks/browser/**"
+  # Post-merge builds and deploys the docs after every merge, so the CI merge
+  # run does not build them; docs_rust then runs there and writes the
+  # rust-reference Kache scope.
   docs_site:
     title: Docs site
     phase: test
     workflow: deploy-docs.yml
-    run_on: [ready_pr_push, merge]
+    run_on: [ready_pr_push]
     disable_on_forks: false
     secrets: kache
     permissions: {contents: read}
