@@ -2,7 +2,11 @@
 //! storage target from them.
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{self, MapAccess, Visitor},
+};
+use std::{fmt, marker::PhantomData};
 use url::{Host, Url};
 use xmtp_configuration::{
     AttachmentConfigurationError, BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
@@ -10,7 +14,7 @@ use xmtp_configuration::{
     check_max_upload_bytes, check_retention_seconds,
 };
 
-use super::{ConfigError, invalid, schema::with_environment};
+use super::{ConfigError, Step, invalid, key_path, schema::with_environment};
 
 pub const DEFAULT_PRESIGN_TTL_SECONDS: u32 = 900;
 pub const MIN_PRESIGN_TTL_SECONDS: u32 = 300;
@@ -154,9 +158,8 @@ impl AttachmentsConfig {
     }
 
     /// Reject settings that cannot be published or enforced.
-    /// Building a storage target calls it too.
     // implements: ATCH-002, ATCH-003, ATCH-004
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    pub(crate) fn validate(&self) -> Result<(), ConfigError> {
         check_base_url(&self.base_url).map_err(shared)?;
         check_max_upload_bytes(self.upload_ceiling()).map_err(shared)?;
         check_retention_seconds(self.retention_seconds.unwrap_or_default()).map_err(shared)?;
@@ -167,9 +170,28 @@ impl AttachmentsConfig {
 }
 
 /// A storage target. The variant name is an operator config key.
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, JsonSchema)]
 pub enum TargetConfig {
     S3(S3Config),
+}
+
+/// Decode through a table with one optional key per target, so a key that
+/// names no target is refused by name. Serde decodes an externally tagged
+/// enum from a table that holds exactly one key, and refuses a second key as
+/// a type error at the table.
+impl<'de> Deserialize<'de> for TargetConfig {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct TargetTable {
+            #[serde(rename = "S3")]
+            s3: Option<S3Config>,
+        }
+        match table_only::<TargetTable, D>(deserializer)?.s3 {
+            Some(s3) => Ok(Self::S3(s3)),
+            None => Err(de::Error::missing_field("S3")),
+        }
+    }
 }
 
 impl std::fmt::Debug for TargetConfig {
@@ -223,8 +245,7 @@ impl S3Config {
             .unwrap_or(DEFAULT_PRESIGN_TTL_SECONDS)
     }
 
-    /// Reject target settings that cannot be signed for. Building a target calls it.
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    pub(crate) fn validate(&self) -> Result<(), ConfigError> {
         if self.endpoint.bytes().any(|byte| {
             !byte.is_ascii()
                 || byte.is_ascii_control()
@@ -378,99 +399,157 @@ impl std::fmt::Debug for CredentialsConfig {
     }
 }
 
-/// Decode through `StrictCredentials`, so a kind that takes no keys refuses
-/// every key but `kind`. Serde drops the other keys of a unit variant of an
-/// internally tagged enum, even with `deny_unknown_fields`.
+/// Decode `T` from a table only. toml decodes a struct from an array by
+/// position, and this decoder refuses an array as a value of the wrong type.
+/// The table's keys still pass through the caller's map, so a refusal inside
+/// it names its key.
+fn table_only<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<T, D::Error> {
+    struct Table<T>(PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for Table<T> {
+        type Value = T;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a table")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
+            T::deserialize(de::value::MapAccessDeserializer::new(map))
+        }
+    }
+    deserializer.deserialize_map(Table(PhantomData))
+}
+
+/// Decode through `CredentialsTable`, so a key that the kind does not take is
+/// refused by name. Serde drops the other keys of a unit variant of an
+/// internally tagged enum, even with `deny_unknown_fields`, and it buffers the
+/// table, so a refusal inside it loses the key.
 // implements: CONF-083
 impl<'de> Deserialize<'de> for CredentialsConfig {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        StrictCredentials::deserialize(deserializer).map(Into::into)
-    }
-}
-
-/// `CredentialsConfig` as decoded. Each kind that takes no keys is a struct
-/// variant with no fields, so serde refuses an extra key next to its tag.
-#[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum StrictCredentials {
-    Static {
-        access_key_id: String,
-        secret_access_key: String,
-        session_token: Option<String>,
-    },
-    DefaultChain {},
-    Environment {},
-    Profile {
-        name: String,
-    },
-    Sso {
-        account_id: String,
-        region: String,
-        role_name: String,
-        start_url: String,
-        session_name: Option<String>,
-    },
-    Process {
-        command: String,
-    },
-    WebIdentity {},
-    Container {},
-    Instance {},
-    AssumeRole {
-        role_arn: String,
-        external_id: Option<String>,
-        session_name: Option<String>,
-    },
-}
-
-impl From<StrictCredentials> for CredentialsConfig {
-    fn from(credentials: StrictCredentials) -> Self {
-        match credentials {
-            StrictCredentials::Static {
-                access_key_id,
-                secret_access_key,
-                session_token,
-            } => Self::Static {
-                access_key_id,
-                secret_access_key,
-                session_token,
+        let mut table: CredentialsTable = table_only(deserializer)?;
+        let required = |value: Option<String>, key| -> Result<String, D::Error> {
+            value.ok_or_else(|| de::Error::missing_field(key))
+        };
+        let credentials = match table.kind {
+            CredentialKind::Static => Self::Static {
+                access_key_id: required(table.access_key_id.take(), "access_key_id")?,
+                secret_access_key: required(table.secret_access_key.take(), "secret_access_key")?,
+                session_token: table.session_token.take(),
             },
-            StrictCredentials::DefaultChain {} => Self::DefaultChain,
-            StrictCredentials::Environment {} => Self::Environment,
-            StrictCredentials::Profile { name } => Self::Profile { name },
-            StrictCredentials::Sso {
-                account_id,
-                region,
-                role_name,
-                start_url,
-                session_name,
-            } => Self::Sso {
-                account_id,
-                region,
-                role_name,
-                start_url,
-                session_name,
+            CredentialKind::DefaultChain => Self::DefaultChain,
+            CredentialKind::Environment => Self::Environment,
+            CredentialKind::Profile => Self::Profile {
+                name: required(table.name.take(), "name")?,
             },
-            StrictCredentials::Process { command } => Self::Process { command },
-            StrictCredentials::WebIdentity {} => Self::WebIdentity,
-            StrictCredentials::Container {} => Self::Container,
-            StrictCredentials::Instance {} => Self::Instance,
-            StrictCredentials::AssumeRole {
-                role_arn,
-                external_id,
-                session_name,
-            } => Self::AssumeRole {
-                role_arn,
-                external_id,
-                session_name,
+            CredentialKind::Sso => Self::Sso {
+                account_id: required(table.account_id.take(), "account_id")?,
+                region: required(table.region.take(), "region")?,
+                role_name: required(table.role_name.take(), "role_name")?,
+                start_url: required(table.start_url.take(), "start_url")?,
+                session_name: table.session_name.take(),
             },
+            CredentialKind::Process => Self::Process {
+                command: required(table.command.take(), "command")?,
+            },
+            CredentialKind::WebIdentity => Self::WebIdentity,
+            CredentialKind::Container => Self::Container,
+            CredentialKind::Instance => Self::Instance,
+            CredentialKind::AssumeRole => Self::AssumeRole {
+                role_arn: required(table.role_arn.take(), "role_arn")?,
+                external_id: table.external_id.take(),
+                session_name: table.session_name.take(),
+            },
+        };
+        match table.left_over() {
+            Some(key) => Err(de::Error::custom(format_args!("unknown field `{key}`"))),
+            None => Ok(credentials),
         }
     }
 }
 
+/// The credentials table as decoded: its kind, and every key that any kind
+/// takes. Serde refuses a key that no kind takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CredentialsTable {
+    #[serde(deserialize_with = "kind_name")]
+    kind: CredentialKind,
+    access_key_id: Option<String>,
+    secret_access_key: Option<String>,
+    session_token: Option<String>,
+    name: Option<String>,
+    account_id: Option<String>,
+    region: Option<String>,
+    role_name: Option<String>,
+    start_url: Option<String>,
+    session_name: Option<String>,
+    command: Option<String>,
+    role_arn: Option<String>,
+    external_id: Option<String>,
+}
+
+impl CredentialsTable {
+    /// The first key that the kind did not take.
+    fn left_over(&self) -> Option<&'static str> {
+        [
+            ("access_key_id", &self.access_key_id),
+            ("secret_access_key", &self.secret_access_key),
+            ("session_token", &self.session_token),
+            ("name", &self.name),
+            ("account_id", &self.account_id),
+            ("region", &self.region),
+            ("role_name", &self.role_name),
+            ("start_url", &self.start_url),
+            ("session_name", &self.session_name),
+            ("command", &self.command),
+            ("role_arn", &self.role_arn),
+            ("external_id", &self.external_id),
+        ]
+        .into_iter()
+        .find_map(|(key, value)| value.is_some().then_some(key))
+    }
+}
+
+/// Decode a credential kind from a string only. toml offers a one-key table
+/// as an enum, which the derived decoder alone would take as its variant.
+fn kind_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<CredentialKind, D::Error> {
+    struct Name;
+    impl<'de> Visitor<'de> for Name {
+        type Value = CredentialKind;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a credential kind")
+        }
+
+        fn visit_str<E: de::Error>(self, name: &str) -> Result<CredentialKind, E> {
+            CredentialKind::deserialize(de::value::StrDeserializer::<E>::new(name))
+        }
+    }
+    deserializer.deserialize_str(Name)
+}
+
+/// The `kind` of a credentials table, one per `CredentialsConfig` variant.
+/// Decode it with `kind_name`.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CredentialKind {
+    Static,
+    DefaultChain,
+    Environment,
+    Profile,
+    Sso,
+    Process,
+    WebIdentity,
+    Container,
+    Instance,
+    AssumeRole,
+}
+
 impl CredentialsConfig {
     fn validate(&self) -> Result<(), ConfigError> {
-        let required = |field: &'static str, value: &str| {
+        let required = |field: &str, value: &str| {
             if value.is_empty() {
                 Err(invalid(field, "must not be empty"))
             } else {
@@ -518,13 +597,10 @@ impl CredentialsConfig {
 
 /// Name the key of a shared attachment rule's refusal.
 fn shared(error: AttachmentConfigurationError) -> ConfigError {
-    let field = match error.field() {
-        "base_url" => "attachments.base_url",
-        "max_upload_bytes" => "attachments.max_upload_bytes",
-        "retention_seconds" => "attachments.retention_seconds",
-        _ => unreachable!("shared attachment configuration field"),
-    };
-    invalid(field, error.reason())
+    invalid(
+        key_path("attachments", Step::Key(error.field())),
+        error.reason(),
+    )
 }
 
 #[cfg(test)]

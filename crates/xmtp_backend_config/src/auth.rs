@@ -1,10 +1,10 @@
 //! Optional caller authentication settings. Key values and URLs stay out of diagnostics.
-use super::{ConfigError, invalid, schema};
+use super::{ConfigError, Step, invalid, key_path, schema};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 pub const MAX_KID_BYTES: usize = 256;
@@ -50,6 +50,7 @@ pub struct AuthConfig {
     #[schemars(range(min = MIN_JWKS_REFRESH_SECONDS))]
     pub jwks_refresh_seconds: u64,
     /// Must be at least the refresh interval plus the ten-second fetch timeout.
+    #[schemars(range(max = super::MAX_U32_KEY))]
     pub jwks_max_stale_seconds: u64,
 }
 
@@ -84,11 +85,6 @@ impl Default for AuthConfig {
 }
 
 impl AuthConfig {
-    /// Whether this deployment checks credentials. Only valid after validation.
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.unwrap_or(false)
-    }
-
     /// Reject invalid key sources, keys, RPC names, and timer relationships.
     /// Key errors identify the entry but never include the key value.
     ///
@@ -107,12 +103,12 @@ impl AuthConfig {
         match (&self.jwks_url, &self.keys) {
             (Some(_), Some(_)) => {
                 return Err(invalid(
-                    "auth.jwks_url/auth.keys",
-                    "set exactly one key source",
+                    "auth.keys",
+                    "must not be set together with auth.jwks_url",
                 ));
             }
             (None, None) if self.api_keys.is_empty() => {
-                return Err(invalid("auth", "set api_keys, jwks_url, or keys"));
+                return Err(invalid("auth.enabled", "set api_keys, jwks_url, or keys"));
             }
             (_, Some(keys)) if keys.is_empty() => {
                 return Err(invalid("auth.keys", "must not be empty"));
@@ -121,7 +117,7 @@ impl AuthConfig {
         }
         for (name, value) in &self.api_keys {
             let error = |reason| ConfigError::Auth {
-                field: format!("auth.api_keys.{name}"),
+                field: key_path("auth.api_keys", Step::Key(name)),
                 reason,
             };
             if name.is_empty()
@@ -150,7 +146,11 @@ impl AuthConfig {
         for (name, value) in &self.api_keys {
             if let Some(previous) = names_by_value.insert(value, name) {
                 return Err(ConfigError::Auth {
-                    field: format!("auth.api_keys.{previous}/{name}"),
+                    field: format!(
+                        "{}/{}",
+                        key_path("auth.api_keys", Step::Key(previous)),
+                        key_path("", Step::Key(name))
+                    ),
                     reason: "values must be unique across names",
                 });
             }
@@ -171,20 +171,21 @@ impl AuthConfig {
         }
         let mut kids = BTreeSet::new();
         for (index, key) in self.keys.iter().flatten().enumerate() {
-            let field = format!("auth.keys[{index}]");
-            let error = |reason| ConfigError::Auth {
-                field: field.clone(),
+            let entry = key_path("auth.keys", Step::Entry(index));
+            let error = |name, reason| ConfigError::Auth {
+                field: key_path(&entry, Step::Key(name)),
                 reason,
             };
             if key.kid.is_empty() || key.kid.len() > MAX_KID_BYTES || !kids.insert(&key.kid) {
                 return Err(error(
+                    "kid",
                     "kid must be non-empty, unique, and at most 256 bytes",
                 ));
             }
             // The backend parses each key for its algorithm when it builds
             // authentication at startup.
             SigningAlgorithm::from_name(&key.alg)
-                .ok_or_else(|| error("alg must be a supported asymmetric algorithm"))?;
+                .ok_or_else(|| error("alg", "alg must be a supported asymmetric algorithm"))?;
         }
         if self.leeway_seconds > MAX_LEEWAY_SECONDS {
             return Err(invalid("auth.leeway_seconds", "must not exceed 300"));
@@ -206,13 +207,10 @@ impl AuthConfig {
                 "must cover jwks_refresh_seconds plus its jitter plus 10",
             ));
         }
-        if Instant::now()
-            .checked_add(Duration::from_secs(self.jwks_max_stale_seconds))
-            .is_none()
-        {
+        if self.jwks_max_stale_seconds > super::MAX_U32_KEY {
             return Err(invalid(
                 "auth.jwks_max_stale_seconds",
-                "deadline cannot be represented on this host",
+                "must not exceed 4294967295",
             ));
         }
         Ok(())
@@ -222,7 +220,7 @@ impl AuthConfig {
 impl std::fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthConfig")
-            .field("enabled", &self.is_enabled())
+            .field("enabled", &self.enabled.unwrap_or(false))
             .field(
                 "mode",
                 &if self.jwks_url.is_some() {

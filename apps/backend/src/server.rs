@@ -8,13 +8,12 @@ use crate::{
         publish_service_server::PublishServiceServer, query_service_server::QueryServiceServer,
         subscription_service_server::SubscriptionServiceServer,
     },
-    config::Config,
+    config::ValidatedConfig,
     db::Store,
     published::{self, MAX_CONFIGURATION_RESPONSE_BYTES},
 };
 use std::{
     collections::HashMap,
-    num::NonZeroUsize,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -35,24 +34,23 @@ pub(crate) mod telemetry;
 #[cfg(test)]
 mod tests;
 
-/// Validate startup configuration and construct storage and signature services.
+/// Construct storage and signature services from a validated configuration.
 ///
 /// The primary database is migrated before the backend is returned. A verifier
 /// cache is created with the configured non-zero capacity, and cryptography is
 /// installed before any chain-RPC client is built. Auth keys load before storage:
 /// an inline key that does not parse returns `ConfigError::Auth` naming its
-/// entry, and an exhausted JWKS startup fetch returns a host-only error. The
+/// key under `auth.keys[N]`, and an exhausted JWKS startup fetch returns a host-only error. The
 /// published configuration is then built and its size checked, also before
 /// storage, so every refusal comes before the caller binds a listener.
 pub async fn initialize(
-    config: Config,
+    config: ValidatedConfig,
 ) -> Result<Backend, Box<dyn std::error::Error + Send + Sync>> {
-    config.validate()?;
     xmtp_cryptography::install_crypto_provider();
     let push_senders = crate::push::channel::Senders::new(&config.push)?;
     // A disabled section loads no keys and fetches no JWKS. Only an enabled
     // one reaches key material at all.
-    let auth = match config.auth.as_ref().filter(|auth| auth.is_enabled()) {
+    let auth = match config.auth.as_ref().filter(|_| config.auth_enabled()) {
         Some(auth) => Some(std::sync::Arc::new(
             crate::auth::Authentication::initialize(auth).await?,
         )),
@@ -72,22 +70,21 @@ pub async fn initialize(
         .map(|(chain, url)| Ok((chain.clone(), url.parse()?)))
         .collect::<Result<HashMap<_, _>, url::ParseError>>()?;
     let chains = std::sync::Arc::new(MultiSmartContractSignatureVerifier::new(routes)?);
-    let capacity = NonZeroUsize::new(config.validation.max_scw_cache_entries)
-        .ok_or("signature cache cannot be empty")?;
-    let verifier = CachedSmartContractSignatureVerifier::new(chains.clone(), capacity)?;
+    let verifier =
+        CachedSmartContractSignatureVerifier::new(chains.clone(), config.scw_cache_entries())?;
     let store = Store::connect(&config).await?;
     config.retention.validate_at(store.clock_ns().await?)?;
     config
         .push
         .expires_at(store.clock_ns().await?)
-        .ok_or(crate::config::ConfigError::Invalid {
-            field: "push.recipient_ttl_seconds",
+        .ok_or_else(|| crate::config::ConfigError::Invalid {
+            field: "push.recipient_ttl_seconds".into(),
             reason: "expiry cannot be represented at the database clock",
         })?;
     let streams =
         crate::stream::StreamHub::start(store.primary.clone(), store.read.clone(), &config).await?;
     let mut backend = Backend::new(store, config, verifier, chains, configuration);
-    if let Some(attachments) = &backend.config.attachments {
+    if let Some(attachments) = backend.config.attachments() {
         backend.attachments = Some(xmtp_attachments_server::build_target(attachments).await?);
     }
     let push = &backend.config.push;
@@ -128,12 +125,7 @@ pub async fn serve(
     listener: TcpListener,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<(), ServeError> {
-    let expects_auth = backend
-        .config
-        .auth
-        .as_ref()
-        .is_some_and(crate::config::auth::AuthConfig::is_enabled);
-    if expects_auth != backend.auth.is_some() {
+    if backend.config.auth_enabled() != backend.auth.is_some() {
         return Err(ServeError::AuthNotInitialized);
     }
     let limits = &backend.config.limits;
@@ -206,7 +198,7 @@ pub async fn serve(
     let shutdown = async {
         tokio::select! { biased; _ = stale => {}, _ = shutdown => {} }
     };
-    let identifier: Arc<str> = Arc::from(backend.config.server.identifier());
+    let identifier: Arc<str> = Arc::from(backend.config.identifier());
     let auth_layer = tower::ServiceBuilder::new().option_layer(backend.auth.as_ref().map(|auth| {
         auth::AuthLayer {
             verifier: auth.verifier.clone(),

@@ -44,10 +44,7 @@ fn the_backend_and_the_client_judge_identifiers_alike() {
         config.server.identifier = Some(identifier.clone());
         let backend_refuses = match config.server.validate() {
             Ok(()) => false,
-            Err(ConfigError::Invalid {
-                field: "server.identifier",
-                ..
-            }) => true,
+            Err(error) if error.field() == Some("server.identifier") => true,
             Err(other) => panic!("{identifier:?} failed another check: {other}"),
         };
         let client_refuses = xmtp_configuration::validate_server_identifier(&identifier).is_err();

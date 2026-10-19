@@ -8,14 +8,14 @@ mod publish;
 mod query;
 mod subscription;
 
-use crate::{config::Config, db::Store};
+use crate::{config::ValidatedConfig, db::Store};
 use std::sync::Arc;
 use xmtp_id::scw_verifier::{CachedSmartContractSignatureVerifier, ChainBlocks};
 
 #[derive(Clone)]
 pub struct Backend {
     pub store: Arc<Store>,
-    pub config: Arc<Config>,
+    pub config: Arc<ValidatedConfig>,
     pub verifier: Arc<CachedSmartContractSignatureVerifier>,
     /// Chain heads for admission freshness, routed like `verifier`.
     pub chains: Arc<dyn ChainBlocks>,
@@ -36,7 +36,7 @@ impl Backend {
     /// the published response that `server::initialize` built and size-checked.
     pub fn new(
         store: Store,
-        config: Config,
+        config: ValidatedConfig,
         verifier: CachedSmartContractSignatureVerifier,
         chains: Arc<dyn ChainBlocks>,
         configuration: crate::api::GetConfigurationResponse,

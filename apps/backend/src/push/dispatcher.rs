@@ -14,7 +14,7 @@ use super::{
     work::{Attempt, Completion, Work},
 };
 use crate::{
-    config::Config,
+    config::ValidatedConfig,
     db::{self, Store},
     error::Error,
     telemetry,
@@ -31,7 +31,7 @@ pub(crate) struct PushHub {
 impl PushHub {
     pub fn start(
         store: Store,
-        config: &Config,
+        config: &ValidatedConfig,
         maintenance: Arc<Notify>,
         senders: Senders,
     ) -> Arc<Self> {
@@ -40,7 +40,7 @@ impl PushHub {
 
     pub(super) fn with_senders(
         store: Store,
-        config: &Config,
+        config: &ValidatedConfig,
         maintenance: Arc<Notify>,
         senders: Senders,
     ) -> Arc<Self> {
@@ -104,7 +104,7 @@ impl Drop for HolderGauge {
 
 async fn supervise(
     store: Store,
-    config: Config,
+    config: ValidatedConfig,
     maintenance: Arc<Notify>,
     senders: Senders,
     mut stop: watch::Receiver<Option<Instant>>,
@@ -171,7 +171,7 @@ struct Loader {
 /// separate tasks; permit waits and DNS cannot block later window reads.
 async fn hold(
     store: &Store,
-    config: &Config,
+    config: &ValidatedConfig,
     maintenance: &Notify,
     senders: &Senders,
     connection: &mut PgConnection,

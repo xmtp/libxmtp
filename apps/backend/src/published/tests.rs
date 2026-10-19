@@ -1,6 +1,9 @@
 use super::*;
 use crate::{
-    config::application_components::{ComponentTypeConfig, PolicyConfig},
+    config::{
+        Config,
+        application_components::{ComponentTypeConfig, PolicyConfig},
+    },
     server,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -21,8 +24,8 @@ fn entry(component_id: u32, name: &str) -> String {
     )
 }
 
-fn load(entries: &[String]) -> Result<Config, ConfigError> {
-    Config::load_str(&format!("{MINIMAL}{}", entries.concat()))
+fn load(entries: &[String]) -> Result<ValidatedConfig, ConfigError> {
+    ValidatedConfig::load_str(&format!("{MINIMAL}{}", entries.concat()))
 }
 
 trait Published {
@@ -30,7 +33,7 @@ trait Published {
     fn published(&self) -> api::GetConfigurationResponse;
 }
 
-impl Published for Config {
+impl Published for ValidatedConfig {
     fn published(&self) -> api::GetConfigurationResponse {
         response(self, &[])
     }
@@ -46,13 +49,14 @@ fn base(policy: MetadataBasePolicy) -> mls::MetadataPolicy {
 /// A refusal that comes before storage returns at once; one that comes after
 /// would wait on the connection, so the timeout fails the test.
 async fn initialize_without_storage(
-    mut config: Config,
+    config: ValidatedConfig,
 ) -> Result<crate::Backend, Box<dyn std::error::Error + Send + Sync>> {
     let closed = std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?;
+    let mut config = config.into_config();
     config.database.url = format!("postgres://xmtp:xmtp@{closed}/xmtp");
     xmtp_common::time::timeout(
         std::time::Duration::from_secs(10),
-        server::initialize(config),
+        server::initialize(config.validate()?),
     )
     .await
     .map_err(|_| "initialize reached storage")?
@@ -156,7 +160,7 @@ fn every_type_and_policy_name_maps_to_its_wire_tag() {
 // verifies: CONF-068
 #[xmtp_common::test(unwrap_try = true)]
 fn a_disabled_auth_section_publishes_an_empty_summary() {
-    let config = Config::load_str(&format!(
+    let config = ValidatedConfig::load_str(&format!(
         "{MINIMAL}\n[auth]\nenabled = false\naudiences = []\nissuers = []\n"
     ))?;
     assert_eq!(
@@ -170,12 +174,13 @@ fn a_disabled_auth_section_publishes_an_empty_summary() {
 #[xmtp_common::test(unwrap_try = true)]
 fn the_minimum_client_version_is_published_as_written() {
     assert!(
-        Config::load_str(MINIMAL)?
+        ValidatedConfig::load_str(MINIMAL)?
             .published()
             .min_libxmtp_version
             .is_empty()
     );
-    let config = Config::load_str(&format!("{MINIMAL}min_libxmtp_version = '1.2.3-beta.1'\n"))?;
+    let config =
+        ValidatedConfig::load_str(&format!("{MINIMAL}min_libxmtp_version = '1.2.3-beta.1'\n"))?;
     assert_eq!(config.published().min_libxmtp_version, "1.2.3-beta.1");
 }
 
@@ -192,25 +197,18 @@ async fn an_oversized_published_response_stops_startup() {
             .collect();
     };
     chains(&mut config, 1_000);
-    check_size(&config.published())?;
+    check_size(&config.clone().validate()?.published())?;
     chains(&mut config, 10_000);
+    let config = config.validate()?;
     // The bound is on the encoded response, not on any one list.
     assert!(
         prost::Message::encoded_len(&config.published()) > MAX_CONFIGURATION_RESPONSE_BYTES,
         "the fixture must exceed the bound"
     );
-    config.validate()?;
     let error = initialize_without_storage(config).await.err()?;
-    assert!(
-        matches!(
-            error.downcast_ref::<ConfigError>(),
-            Some(ConfigError::Invalid {
-                field: "configuration response",
-                ..
-            })
-        ),
-        "{error}"
-    );
+    let error = error.downcast_ref::<ConfigError>()?;
+    assert!(matches!(error, ConfigError::Invalid { .. }), "{error}");
+    assert_eq!(error.field(), Some("configuration response"), "{error}");
 }
 
 /// The catalogue is part of the public answer, so it counts toward the size
@@ -227,14 +225,7 @@ async fn the_catalogue_counts_toward_the_published_size_bound() {
     let error = initialize_without_storage(load(&entries(600))?)
         .await
         .err()?;
-    assert!(
-        matches!(
-            error.downcast_ref::<ConfigError>(),
-            Some(ConfigError::Invalid {
-                field: "configuration response",
-                ..
-            })
-        ),
-        "{error}"
-    );
+    let error = error.downcast_ref::<ConfigError>()?;
+    assert!(matches!(error, ConfigError::Invalid { .. }), "{error}");
+    assert_eq!(error.field(), Some("configuration response"), "{error}");
 }

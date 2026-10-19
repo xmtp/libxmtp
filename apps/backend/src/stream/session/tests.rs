@@ -5,7 +5,7 @@ use futures::stream;
 // verifies: API-259
 #[xmtp_common::test(unwrap_try = true)]
 async fn ping_drain_half_close_returns_completion_without_an_error() {
-    let config: Config = toml::from_str(
+    let config = ValidatedConfig::load_str(
         "[database]\nurl = 'postgres://localhost/test'\n[server]\nidentifier = 'org.xmtp.test'",
     )?;
     let config = Arc::new(config);
@@ -79,7 +79,7 @@ async fn ping_drain_half_close_returns_completion_without_an_error() {
 // verifies: API-256, API-259
 #[xmtp_common::test(unwrap_try = true)]
 async fn ping_drain_half_close_answers_a_buffered_client_ping() {
-    let config: Config = toml::from_str(
+    let config = ValidatedConfig::load_str(
         "[database]\nurl = 'postgres://localhost/test'\n[server]\nidentifier = 'org.xmtp.test'",
     )?;
     let config = Arc::new(config);
@@ -234,13 +234,16 @@ async fn buffered_input_rejects_malformed_frames_before_half_close() {
     for (name, invalid) in cases {
         for deferred in [false, true] {
             let legal_capacity = name == "legal queued capacity";
-            let mut config: Config = toml::from_str(
+            let mut config = crate::config::Config::from_toml_str(
                 "[database]\nurl = 'postgres://localhost/test'\n[server]\nidentifier = 'org.xmtp.test'",
             )?;
             if legal_capacity {
+                // A valid configuration adds at most as many topics in one
+                // update as a stream may hold.
                 config.limits.max_stream_topics = 1;
+                config.limits.max_update_adds = 1;
             }
-            let config = Arc::new(config);
+            let config = Arc::new(config.validate()?);
             let registry = Arc::new(Registry::default());
             registry.ready();
             let mailbox = Arc::new(Mailbox::default());

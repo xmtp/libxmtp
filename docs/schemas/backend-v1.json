@@ -624,6 +624,7 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0,
+          "maximum": 4294967295,
           "default": 3600
         }
       },
@@ -762,7 +763,7 @@
         "max_drain_duration_ms": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 10000
         }
       },
@@ -951,7 +952,7 @@
         "poll_interval_ms": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 100
         },
         "max_gap_ranges": {
@@ -969,7 +970,7 @@
         "max_pong_wait_ms": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 90000
         }
       },
@@ -1165,37 +1166,37 @@
         "max_query_topics": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 1000
         },
         "default_query_limit": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 9223372036854775806,
+          "maximum": 4294967295,
           "default": 100
         },
         "max_query_limit": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 9223372036854775806,
+          "maximum": 4294967295,
           "default": 1000
         },
         "max_newest_metadata_topics": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 1000
         },
         "max_newest_full_topics": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 100
         },
         "max_publish_topics": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 1000
         },
         "max_envelope_bytes": {
@@ -1219,43 +1220,43 @@
         "max_update_adds": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 100000
         },
         "max_update_removes": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 100000
         },
         "max_stream_topics": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 100000
         },
         "max_static_topics": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 10000
         },
         "max_lookup_identifiers": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 250
         },
         "max_scw_signatures": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 100
         },
         "max_identity_entries": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 18446744073709551615,
+          "maximum": 4294967295,
           "default": 256
         },
         "max_http2_streams": {

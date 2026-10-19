@@ -98,16 +98,8 @@ async fn startup_refuses_signing_keys_that_are_not_p256() {
         })
         .err()
         .expect("a key that is not P-256 must be refused");
-        assert!(
-            matches!(
-                error,
-                ConfigError::Invalid {
-                    field: "push.apns.key",
-                    ..
-                }
-            ),
-            "{error}"
-        );
+        assert!(matches!(error, ConfigError::Invalid { .. }), "{error}");
+        assert_eq!(error.field(), Some("push.apns.key"), "{error}");
         assert!(!format!("{error} {error:?}").contains(&key));
     }
     ApnsSender::new(&config())?;

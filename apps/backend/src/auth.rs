@@ -16,7 +16,8 @@ pub(crate) struct Authentication {
 impl Authentication {
     /// Load keys before any listener binds. Startup fetch errors contain only the host.
     /// An inline key that does not parse for its algorithm returns
-    /// `ConfigError::Auth` naming its entry, without the key.
+    /// `ConfigError::Auth` naming its key under `auth.keys[N]`, without the
+    /// key material.
     pub async fn initialize(
         config: &crate::config::auth::AuthConfig,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {

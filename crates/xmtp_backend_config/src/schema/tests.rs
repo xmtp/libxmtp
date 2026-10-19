@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::Config;
+use crate::{Config, ValidatedConfig};
 
 /// Use the published artifact and standard format assertions, as a schema consumer does.
 fn validator() -> jsonschema::Validator {
@@ -171,14 +171,14 @@ fn compose_config_loads_attachment_settings() {
     assert!(load_dev_config(s3)?.attachments.is_some());
 }
 
-fn load_dev_config(contents: &str) -> Result<Config, crate::ConfigError> {
+fn load_dev_config(contents: &str) -> Result<ValidatedConfig, crate::ConfigError> {
     let contents = contents
         .replace("env:XMTP_DATABASE_URL", "postgres://localhost/xmtp")
         .replace("env:XMTP_REPLICA_URL", "postgres://localhost/xmtp")
         .replace("env:XMTP_CHAIN_31337_URL", "http://127.0.0.1:8545")
         .replace("env:XMTP_S3_BASE_URL", "http://127.0.0.1:9067/attachments")
         .replace("env:XMTP_S3_URL", "http://127.0.0.1:9067");
-    Config::load_str(&contents)
+    ValidatedConfig::load_str(&contents)
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -201,18 +201,31 @@ fn published_schema_enforces_every_numeric_scalar_range() {
                 ("push", "max_attempts") => 10,
                 ("limits", "max_push_topics") => i32::MAX as u64,
                 ("database", "max_connections")
-                | ("streams", "keepalive_interval_ms")
+                | ("server", "max_drain_duration_ms")
+                | ("streams", "keepalive_interval_ms" | "poll_interval_ms" | "max_pong_wait_ms")
                 | (
                     "limits",
                     "max_http2_streams"
                     | "max_update_frames_per_second"
                     | "max_update_burst"
                     | "max_ping_frames_per_second"
-                    | "max_ping_burst",
+                    | "max_ping_burst"
+                    | "max_query_topics"
+                    | "default_query_limit"
+                    | "max_query_limit"
+                    | "max_newest_metadata_topics"
+                    | "max_newest_full_topics"
+                    | "max_publish_topics"
+                    | "max_update_adds"
+                    | "max_update_removes"
+                    | "max_stream_topics"
+                    | "max_static_topics"
+                    | "max_lookup_identifiers"
+                    | "max_scw_signatures"
+                    | "max_identity_entries",
                 ) => u32::MAX as u64,
                 ("database", "max_statement_timeout_ms") | ("publishing", _) => i32::MAX as u64,
                 ("retention", _) => i64::MAX as u64 / 1_000_000_000,
-                ("limits", "max_query_limit" | "default_query_limit") => i64::MAX as u64 - 1,
                 ("mls", _) => super::super::MAX_MLS_LIMIT as u64,
                 ("handles", "min_name_length") => 27,
                 _ => u64::MAX,
@@ -242,6 +255,20 @@ fn published_schema_enforces_every_numeric_scalar_range() {
                 );
             }
         }
+    }
+    // The baseline has no `[auth]` table, so its bounded timer is checked here.
+    for (value, accepted) in [
+        (json!(0), true),
+        (json!(u32::MAX), true),
+        (json!(u64::from(u32::MAX) + 1), false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["auth"] = json!({"enabled": false, "jwks_max_stale_seconds": value});
+        assert_eq!(
+            validator.is_valid(&instance),
+            accepted,
+            "auth.jwks_max_stale_seconds = {value}"
+        );
     }
 }
 
@@ -738,10 +765,9 @@ fn keepalive_interval_fits_the_started_wire_field() {
         "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'",
     )?;
     config.streams.keepalive_interval_ms = u32::MAX as u64;
-    config.streams.max_pong_wait_ms = u32::MAX as u64 + 2;
-    config.validate()?;
+    config.clone().validate()?;
     config.streams.keepalive_interval_ms += 1;
-    assert!(config.validate().is_err());
+    assert!(config.clone().validate().is_err());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

@@ -5,7 +5,7 @@
 use crate::{
     api,
     config::{
-        Config, ConfigError, application_components::ApplicationComponentConfig,
+        ConfigError, ValidatedConfig, application_components::ApplicationComponentConfig,
         auth::SigningAlgorithm,
     },
 };
@@ -23,7 +23,7 @@ pub(crate) const MAX_CONFIGURATION_RESPONSE_BYTES: usize = 64 * 1024;
 /// database, telemetry, or listener setting.
 // implements: CONF-011, CONF-070
 pub(crate) fn response(
-    config: &Config,
+    config: &ValidatedConfig,
     jwks_keys: &[(String, SigningAlgorithm)],
 ) -> api::GetConfigurationResponse {
     let limits = &config.limits;
@@ -32,7 +32,7 @@ pub(crate) fn response(
     // than wrapping it into a smaller, wrong promise.
     let count = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
     api::GetConfigurationResponse {
-        identifier: config.server.identifier().to_owned(),
+        identifier: config.identifier().to_owned(),
         server_version: env!("CARGO_PKG_VERSION").to_owned(),
         min_libxmtp_version: config
             .server
@@ -92,10 +92,10 @@ pub(crate) fn response(
 /// A credential-free deployment publishes an otherwise empty section.
 // implements: CONF-068
 fn auth_configuration(
-    config: &Config,
+    config: &ValidatedConfig,
     jwks_keys: &[(String, SigningAlgorithm)],
 ) -> api::AuthConfiguration {
-    let Some(auth) = config.auth.as_ref().filter(|auth| auth.is_enabled()) else {
+    let Some(auth) = config.auth.as_ref().filter(|_| config.auth_enabled()) else {
         return api::AuthConfiguration::default();
     };
     let keys = match &auth.keys {
@@ -144,7 +144,7 @@ fn application_components(
 pub(crate) fn check_size(response: &api::GetConfigurationResponse) -> Result<(), ConfigError> {
     if prost::Message::encoded_len(response) > MAX_CONFIGURATION_RESPONSE_BYTES {
         return Err(ConfigError::Invalid {
-            field: "configuration response",
+            field: "configuration response".into(),
             reason: "must not exceed 64 KiB once encoded",
         });
     }

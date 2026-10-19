@@ -142,8 +142,9 @@ fn inline_keys_are_parsed_as_spki_for_the_exact_algorithm() {
     for alg in ["ES384", "EdDSA", "RS256"] {
         let mut config = key.auth_config();
         config.keys.as_mut()?[0].alg = alg.into();
-        let error = inline(&config).err()?.to_string();
-        assert!(error.contains("auth.keys[0]"), "{error}");
+        let error = inline(&config).err()?;
+        assert_eq!(error.field(), Some("auth.keys[0].public_key"), "{error}");
+        let error = error.to_string();
         assert!(
             error.contains("public_key must be SubjectPublicKeyInfo for alg"),
             "{error}"
@@ -154,15 +155,15 @@ fn inline_keys_are_parsed_as_spki_for_the_exact_algorithm() {
     let mut config = key.auth_config();
     config.keys.as_mut()?[0].public_key = "private-key-sentinel".into();
     let error = inline(&config).err()?;
+    assert_eq!(error.field(), Some("auth.keys[0].public_key"), "{error}");
     for message in [error.to_string(), format!("{error:?}")] {
-        assert!(message.contains("auth.keys[0]"), "{message}");
         assert!(!message.contains(&key.kid));
         assert!(!message.contains("private-key-sentinel"));
     }
 }
 
 /// Of three inline keys, the second is an RSA key under ES256. Startup refuses
-/// that entry by position while it builds authentication, before storage.
+/// that entry's `public_key` while it builds authentication, before storage.
 // verifies: AUTH-017
 #[xmtp_common::test(unwrap_try = true)]
 async fn startup_refuses_the_first_inline_key_that_does_not_parse() {
@@ -180,10 +181,11 @@ async fn startup_refuses_the_first_inline_key_that_does_not_parse() {
     };
     let error = inline(&auth).err()?;
     assert!(
-        matches!(&error, ConfigError::Auth { field, reason }
-            if field == "auth.keys[1]" && *reason == "public_key must be SubjectPublicKeyInfo for alg"),
+        matches!(&error, ConfigError::Auth { reason, .. }
+            if *reason == "public_key must be SubjectPublicKeyInfo for alg"),
         "{error}"
     );
+    assert_eq!(error.field(), Some("auth.keys[1].public_key"), "{error}");
     for message in [error.to_string(), format!("{error:?}")] {
         assert!(!message.contains(&rsa.kid), "{message}");
         assert!(!message.contains(&rsa.public_key), "{message}");
@@ -197,13 +199,12 @@ async fn startup_refuses_the_first_inline_key_that_does_not_parse() {
     config.auth = Some(auth);
     let error = xmtp_common::time::timeout(
         std::time::Duration::from_secs(10),
-        crate::server::initialize(config),
+        crate::server::initialize(config.validate()?),
     )
     .await
     .expect("initialize refuses before storage")
     .err()?;
-    assert!(
-        matches!(error.downcast_ref::<ConfigError>(), Some(ConfigError::Auth { field, .. }) if field == "auth.keys[1]"),
-        "{error}"
-    );
+    let error = error.downcast_ref::<ConfigError>()?;
+    assert!(matches!(error, ConfigError::Auth { .. }), "{error}");
+    assert_eq!(error.field(), Some("auth.keys[1].public_key"), "{error}");
 }

@@ -41,10 +41,7 @@ async fn restarted(
     server: &RunningServer,
     change: impl FnOnce(&mut Config),
 ) -> support::TestResult<RunningServer> {
-    let mut config = (*server.backend.config).clone();
-    change(&mut config);
-    config.validate()?;
-    RunningServer::new(config).await
+    server.restart_with(change).await
 }
 
 /// The `ClaimHandle` signature bytes of `update`, changed so they no longer

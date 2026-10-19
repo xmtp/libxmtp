@@ -26,11 +26,19 @@ Pass inline TOML with `--config` or `XMTP_CONFIG`. For a mounted file, use
 `--config-file` instead. Supply exactly one source. `server.identifier` and
 `database.url` are required. Other sections have defaults or their own required
 fields. Unknown keys, invalid values, and inconsistent size relationships
-fail startup.
+fail startup, and the error names the key. The
+[configuration field table](/specs/conf-backend-configuration/#12-keys-and-checks)
+gives the type, default, and checks of every key.
 
 A string of the form `env:NAME` reads the environment variable `NAME` at startup.
-A missing variable fails startup. Keep secrets in environment variables. Resolved
-values never appear in errors or logs.
+A missing variable fails startup, and the error names the key and the variable.
+Keep secrets in environment variables. Secret values, such as database URLs and
+credentials, never appear in errors or logs, whether the file or an environment
+variable supplies them. Of a secret URL, only the host can appear. A value that
+is not secret can appear even when it comes from the environment: the deployment
+identifier is on logs and spans. See
+[The configuration file](/specs/conf-backend-configuration/#11-the-configuration-file)
+for the keys that hold secret values.
 
 A minimal file needs the deployment identifier and the database URL:
 
@@ -134,12 +142,12 @@ dedicated primary connection for the push dispatcher. See the
 
 ### `[streams]`
 
-| Key                     | Type    | Default | Purpose                                                                                        |
-| ----------------------- | ------- | ------- | ---------------------------------------------------------------------------------------------- |
-| `poll_interval_ms`      | integer | `100`   | Interval between tailer polls of the read database. Polls do not overlap.                      |
-| `max_gap_ranges`        | integer | `10000` | Unresolved gap ranges the tailer keeps before it fails affected streams.                       |
-| `keepalive_interval_ms` | integer | `30000` | Send-idle time before the server sends a Ping.                                                 |
-| `max_pong_wait_ms`      | integer | `90000` | How long the server waits for the matching Pong. Must be greater than `keepalive_interval_ms`. |
+| Key                     | Type    | Default | Purpose                                                                     |
+| ----------------------- | ------- | ------- | --------------------------------------------------------------------------- |
+| `poll_interval_ms`      | integer | `100`   | Interval between tailer polls of the read database. Polls do not overlap.   |
+| `max_gap_ranges`        | integer | `10000` | Unresolved gap ranges the tailer keeps before it fails affected streams.    |
+| `keepalive_interval_ms` | integer | `30000` | Send-idle time before the server sends a Ping.                              |
+| `max_pong_wait_ms`      | integer | `90000` | How long the server waits for the matching Pong before it fails the stream. |
 
 ### `[retention]`
 

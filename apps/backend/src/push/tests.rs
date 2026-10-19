@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
-    config::Config,
+    config::{Config, ValidatedConfig},
     db::{PushChannel, Store},
-    test_support::{TestDatabase, TestResult},
+    test_support::{TestDatabase, TestResult, config_for},
 };
 use channel::{Delivery, DeliveryConfig, Outcome, Sender, Senders};
 use parking_lot::Mutex;
@@ -19,6 +19,7 @@ mod window;
 
 struct Fixture {
     store: Store,
+    /// The file layer. A test changes it, and each hub validates it.
     config: Config,
     _database: TestDatabase,
 }
@@ -26,11 +27,10 @@ struct Fixture {
 impl Fixture {
     async fn new() -> TestResult<Self> {
         let database = TestDatabase::new()?;
-        let mut config: Config =
-            toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+        let mut config = config_for(database.url());
         config.streams.poll_interval_ms = 25;
         config.push.max_attempts = 3;
-        let store = Store::connect(&config).await?;
+        let store = Store::connect(&config.clone().validate()?).await?;
         Ok(Self {
             store,
             config,
@@ -83,6 +83,14 @@ impl Fixture {
             .unwrap()
     }
 
+    /// The fixture's configuration as it is now, validated.
+    fn validated(&self) -> ValidatedConfig {
+        self.config
+            .clone()
+            .validate()
+            .expect("the fixture configuration is valid")
+    }
+
     fn hub(&self, sender: Arc<dyn Sender>) -> Arc<PushHub> {
         self.hub_with(sender.clone(), sender, Arc::new(Notify::new()))
     }
@@ -95,7 +103,7 @@ impl Fixture {
     ) -> Arc<PushHub> {
         PushHub::with_senders(
             self.store.clone(),
-            &self.config,
+            &self.validated(),
             maintenance,
             Senders([Some(other), None, Some(http)]),
         )

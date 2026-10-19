@@ -1,7 +1,7 @@
 use clap::{ArgGroup, Parser};
 use std::path::PathBuf;
 use xmtp_backend::{
-    config::{Config, ConfigError, IDENTIFIER_ATTRIBUTE, LogFormat, LogLevel},
+    config::{Config, ConfigError, IDENTIFIER_ATTRIBUTE, LogFormat, LogLevel, ValidatedConfig},
     server, telemetry,
 };
 
@@ -25,15 +25,17 @@ struct Args {
 }
 
 impl Args {
-    /// Load the configuration and apply the command-line overrides.
-    fn config(&self) -> Result<Config, Box<dyn std::error::Error + Send + Sync>> {
+    /// Load the configuration, apply the command-line overrides to the file
+    /// layer, and validate the result.
+    fn config(&self) -> Result<ValidatedConfig, Box<dyn std::error::Error + Send + Sync>> {
         let mut config = self.load_config()?;
         if let Some(level) = self.log_level {
             config.server.log_level = level;
         }
-        Ok(config)
+        Ok(config.validate()?)
     }
 
+    /// The file layer of the configuration source, before any check.
     fn load_config(&self) -> Result<Config, Box<dyn std::error::Error + Send + Sync>> {
         match &self.config {
             Some(contents) => {
@@ -42,10 +44,10 @@ impl Args {
                         "--config contains a file path; use --config-file for a TOML file".into(),
                     );
                 }
-                Ok(Config::load_str(contents)?)
+                Ok(Config::from_toml_str(contents)?)
             }
             None => {
-                Ok(Config::load(self.config_file.as_ref().expect(
+                Ok(Config::from_path(self.config_file.as_ref().expect(
                     "clap requires --config-file when --config is absent",
                 ))?)
             }
@@ -62,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 /// Install telemetry before database startup, then flush export after the transport drain.
 async fn run(
-    config: Config,
+    config: ValidatedConfig,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let otlp = otlp_export(&config)?;
@@ -106,13 +108,15 @@ fn logging_level(level: LogLevel) -> xmtp_logging::Level {
 
 /// The OTLP export, if any. The endpoint is resolved before any exporter is
 /// built, and every exported signal names this deployment.
-fn otlp_export(config: &Config) -> Result<Option<xmtp_logging::TelemetryConfig>, ConfigError> {
+fn otlp_export(
+    config: &ValidatedConfig,
+) -> Result<Option<xmtp_logging::TelemetryConfig>, ConfigError> {
     let telemetry = &config.telemetry;
     Ok(telemetry.otlp_endpoint_from_env()?.map(|endpoint| {
         let mut resource_attributes = telemetry.resource_attributes.clone();
         resource_attributes.insert(
             IDENTIFIER_ATTRIBUTE.to_owned(),
-            config.server.identifier().to_owned(),
+            config.identifier().to_owned(),
         );
         xmtp_logging::TelemetryConfig {
             endpoint: Some(endpoint),

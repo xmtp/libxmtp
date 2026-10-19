@@ -56,10 +56,8 @@ impl DisposableBackend {
         &self,
         change: impl FnOnce(&mut xmtp_backend::config::Config),
     ) -> Result<xmtp_backend::test_support::RunningServer, XmtpError> {
-        let mut config = (*self.0.backend.config).clone();
-        change(&mut config);
-        config.validate().map_err(XmtpError::unknown)?;
-        xmtp_backend::test_support::RunningServer::new(config)
+        self.0
+            .restart_with(change)
             .await
             .map_err(XmtpError::unknown)
     }
