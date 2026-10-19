@@ -18,7 +18,6 @@ jobs:
       with:
         cache-mode: ci
         github-token: ${{ github.token }}
-    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
     - uses: ./.github/actions/setup-js
       with:
         cache-mode: ci

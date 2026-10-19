@@ -21,6 +21,5 @@ jobs:
           github-token: ${{ github.token }}
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - name: Check React Native example
         run: dev/nix-shell 'just example-react-native check'

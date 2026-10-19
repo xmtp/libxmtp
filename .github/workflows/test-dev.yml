@@ -15,9 +15,8 @@ jobs:
         with:
           cache-mode: "ci"
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - uses: ./.github/actions/setup-js
         with:
           cache-mode: "ci"
       - name: Run the dev tool tests
-        run: just test dev
+        run: dev/nix-shell 'just test dev'

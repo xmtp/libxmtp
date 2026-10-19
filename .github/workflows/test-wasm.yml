@@ -44,9 +44,8 @@ jobs:
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - name: Run WASM tests
-        run: just wasm nix-test-part ${{ matrix.part }}
+        run: dev/nix-shell 'just wasm nix-test-part ${{ matrix.part }}'
       # The JUnit report of the slice, also when the result came from the
       # cache; a test that passed on retry shows as `flakyFailure`.
       - name: Upload JUnit
