@@ -76,12 +76,15 @@ test("each failed device action shows its error", async () => {
 });
 
 test("results after the screen closes are dropped, and the reopened screen takes the next action", async () => {
+  const late = () => Promise.reject(new Error("late"));
   const model = new SettingsModel(
-    ports({ signOut: () => Promise.reject(new Error("late")) }),
+    ports({ signOut: late, continueReset: late }),
   );
   const running = model.signOut();
+  const resetting = model.continueReset();
   model.dispose();
   await running;
+  await resetting;
   assert.equal(model.getState().error, undefined);
   // A React effect runs again after its cleanup, with the same model.
   model.appear();
