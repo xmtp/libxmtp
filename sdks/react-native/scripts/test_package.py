@@ -176,7 +176,9 @@ class PackageTests(unittest.TestCase):
         return output
 
     def tarball(self, output):
-        return output / json.loads((output / "sdk-contract.json").read_text())["tarball"]
+        return (
+            output / json.loads((output / "sdk-contract.json").read_text())["tarball"]
+        )
 
     def test_real_tarball_contains_every_target_and_release_version(self):
         output = self.assemble("8.0.1-rc.1")
@@ -243,9 +245,7 @@ class PackageTests(unittest.TestCase):
 
     def test_partial_test_package_holds_only_the_fast_targets_and_never_ships(self):
         version = "8.0.0" + package.PARTIAL_SUFFIX
-        tarball = self.tarball(
-            self.assemble(version, True, "android-fast", "ios-fast")
-        )
+        tarball = self.tarball(self.assemble(version, True, "android-fast", "ios-fast"))
         receipt = package.verify_package(
             tarball, version, "sdk-source", allow_partial=True
         )
