@@ -84,7 +84,7 @@ Per-connection lines as they die, then a summary: established / died / closed / 
 
 Excluded from `default-members` (like `xdbg`), so it doesn't build in the default workspace CI. Instead:
 
-- **clippy gate:** `nix/package/keepalive-probe-check.nix`, run by `.github/workflows/test-keepalive-probe.yml` on changes to the crate or its deps.
+- **clippy gate:** `nix/package/keepalive-probe-check.nix`, run by the Rust Nix checks suite (`.github/workflows/test-nix-checks.yml`) on changes to the crate or its deps.
 - **image:** `apps/keepalive-probe/docker/Dockerfile`, built + pushed to `ghcr.io/xmtp/keepalive-probe` by `.github/workflows/push-keepalive-probe.yml` (sha + `latest` tags).
 
 Run commands from the repository root through `dev/nix-shell`.

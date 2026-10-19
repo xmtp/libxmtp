@@ -105,8 +105,8 @@ What a clear keeps (name, key, tokens, settings) is not verified; ask Cachix
 support first (Task 1 step 10 of the Nix build plan asks the same for `xmtp`).
 The Gradle cache is not part of `setup-nix`. Android CI jobs in mode `ci` add
 `gradle/actions/setup-gradle` after it: protected trunk pushes write that
-CI-only cache, and every other run only reads it. Release, deploy, benchmark,
-and trusted jobs do not restore it (`CacheModeWiringTests`).
+CI-only cache, and every other run only reads it. Release, deploy, and
+trusted jobs do not restore it (`CacheModeWiringTests`).
 
 ## CI compiler cache
 
@@ -215,8 +215,8 @@ separates build variants to keep their prefetch lists useful.
 Scopes follow outer Cargo build families. The JavaScript test, type, SDK
 product, and docs site jobs build no SDK with cargo: they copy the Nix products
 (`XMTP_SDK_BUILD=nix`), so they leave Kache off, and so do the npm release
-jobs and the xmtp.chat deploy, which ship the same products. Default SDK tests, backend tests, Clippy (native and WASM in one
-job), Cargo check, and Rust docs retain distinct scopes.
+jobs and the xmtp.chat deploy, which ship the same products. Clippy (native
+and WASM in one job) and the Rust reference keep distinct scopes.
 
 A scope selects prefetch manifests and dependency shard indexes. It does not
 partition compiled artifacts: all callers share matching artifacts under

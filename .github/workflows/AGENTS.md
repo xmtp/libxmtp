@@ -2,10 +2,7 @@
 
 Validate workflow edits with `dev/nix-shell 'just lint-config'` and
 `dev/nix-shell 'just test dev'`.
-Messenger benchmarks run only through `benchmark-example-android.yml` with
-`workflow_dispatch`, or the explicit Android Just command. Do not add benchmark
-jobs or dependencies to normal test workflows. Keep host runner validators in
-the dev tool tests.
+Keep host runner validators in the dev tool tests.
 
 SDK release tags use `GH_APP_ID` and `GH_APP_PK` for the release App.
 The App installation must grant Contents write and Workflows write.
@@ -46,8 +43,7 @@ Android CI jobs in mode `ci` restore Gradle User Home with
 `gradle/actions/setup-gradle` (pinned by SHA), placed after `setup-nix`. Its
 `cache-read-only` is the negated protected-push expression: protected trunk
 pushes save the CI-only Gradle cache, and every other run only reads it.
-Release, deploy, benchmark, and trusted jobs do not use it. The AAR that
-`sdk-build` stages for the benchmarks is a CI artifact and never ships. Under `CI`, the Android recipes pass `--build-cache` and never
+Release, deploy, and trusted jobs do not use it. Under `CI`, the Android recipes pass `--build-cache` and never
 `--configuration-cache`; `Test` tasks are not cacheable, because they load the
 host library and call the backend outside their task inputs. The job that runs
 `check-consumers` sets `cache-cleanup: always`, because those compiles fail by
@@ -94,9 +90,8 @@ build the products themselves.
   then `just example-android check-all`: unit tests, lint, and every variant in
   one Gradle call, with no backend) and `integration-tests`. Its `emulator`
   input picks one job, so two suites call the file:
-  `test_example_android` (blocking on the app's own paths) and
-  `test_example_android_emulator` (advisory on every pull request, blocking on
-  merges). App lint is in the test phase so that it can wait for the
+  `test_example_android` and `test_example_android_emulator`. Both follow
+  decision D1 (see Tiers below) and block on merges. App lint is in the test phase so that it can wait for the
   `sdk_android` products job.
 - `test-android.yml` has two jobs: `sdk-build` (`just android check`, one
   Gradle call for `gradlew build` and the instrumented test APK, then
@@ -110,13 +105,8 @@ build the products themselves.
 - `lint-example-react-native.yml` owns the React Native example's typecheck,
   Oxlint, Oxfmt and unit tests (`just example-react-native check` against the
   JS-only SDK product). It runs on drafts. Native builds are local.
-- Benchmark workloads require an explicit command or a `workflow_dispatch`
-  workflow. Do not include them in normal test suites or generated CI suites.
-  `benchmark-example-android.yml` owns the manual Messenger benchmark.
-
 - Migration uses the normal SDK test targets. Browser platform proofs include
-  migration. The iOS and Android unit jobs include their
-  migration tests.
+  migration; the Rust SDK tests cover the iOS and Android migration paths.
 
 `release-android.yml` builds the example with
 `dev/nix-shell 'just example-android apk'` before Maven publication.
@@ -166,10 +156,15 @@ files count as `pr_filters`, or as `advisory_filters` for a suite whose
 `pr_filters` select nothing. A suite that only `advisory_filters` match runs as advisory, in a
 second caller job (`<suite>_advisory`, named `<title> (advisory)`) that no gate
 needs. A full run of a pull request runs a suite with `advisory_filters` as
-advisory unless a `pr_filters` entry matched. Merge and manual runs run every
-selected suite as blocking. The example apps follow decision D1: the app's own
-paths and its label block; the SDK the app consumes and the SDK and toolchain
-Nix inputs (`example_ios_nix`, `example_android_nix`) run it as advisory.
+advisory unless a `pr_filters` entry matched. When detection fails or a pull
+request has more than 3,000 files, a suite that `pr_filters` can select
+blocks. Merge and manual runs run every selected suite as blocking. The
+example apps follow decision D1: the app's own paths, its workflow, and its
+label block; the SDK the app consumes and the SDK and toolchain Nix inputs
+(`example_ios_nix`, `example_android_nix`) run it as advisory; nothing else
+selects it, so backend and service inputs and full runs leave it out
+(`skip_full_runs`). A products job runs only for blocking suites, so the
+Test gate never waits for advisory work.
 
 `runners` maps a workflow input to a `{pr, merge}` pair of labels. The caller
 passes the `pr` label on pull requests and the merge label on merge and manual
@@ -188,14 +183,15 @@ cannot satisfy the required checks. The Nix evaluation suite (`nix_eval`)
 skips drafts. A merge to `main` runs every suite with `merge` in `run_on`. A
 manual run takes a `suites` input, a comma-separated list of suite keys, and
 runs those suites; an empty input runs every suite, and an unknown key fails
-`Select suites`. These cases also run every eligible suite: a shared input, a
+`Select suites`. A run of a subset names its gates `Lint (manual subset)` and
+`Test (manual subset)`, so it cannot satisfy the required checks. These cases also run every eligible suite: a shared input, a
 path that no rule names, more than 3,000 changed files, and unavailable
 detection. Rename-expanded path counts do not select a full run. Empty diffs
 are valid. Fork pull requests skip suites with `disable_on_forks`. A suite
 with `covered_by` does not run when its cover runs in the same or a stronger
 tier. A suite with `skip_full_runs` runs in a full pull request run only when
-its own filters or labels match: the full RN device chain does, so other full
-runs get the Android smoke. A `neutral` file selects a suite only through a repository-wide glob
+its own filters or labels match: the full RN device chain and the example
+apps do, so other full runs get the Android smoke and no example app. A `neutral` file selects a suite only through a repository-wide glob
 that starts with `**/`, such as `**/*.md` or the formatter's file types. A
 pull request that deletes or renames a file also runs the `on_deleted_path`
 suites, because `dev/ci-suites check` can then find a pattern that names no

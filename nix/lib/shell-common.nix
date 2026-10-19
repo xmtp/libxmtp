@@ -249,7 +249,7 @@ rec {
     gh
     jq
     curl
-    git-cliff # changelog generation + print-only version oracle (release flow)
+    git-cliff # local changelog generation (cliff.toml)
     toxiproxy
   ];
 }
