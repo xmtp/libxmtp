@@ -28,6 +28,7 @@ xmtp_events.workspace = true
 xmtp_id.workspace = true
 xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
+zeroize.workspace = true
 
 
 # test utils

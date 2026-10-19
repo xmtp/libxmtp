@@ -12472,6 +12472,7 @@ dependencies = [
  "xmtp_id",
  "xmtp_mls_validation",
  "xmtp_proto",
+ "zeroize",
 ]
 
 [[package]]
