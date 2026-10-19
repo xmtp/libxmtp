@@ -111,7 +111,8 @@ async fn smart_contract_wallet_signer_creates_builds_and_messages() {
 
     let peer = Client::create(crate::generate_local_signer().await, options()).await?;
     let unknown = signer::identity(crate::generate_local_signer().await).await?;
-    let key = |identity: &PublicIdentity| format!("ethereum:{}", identity.identifier.to_lowercase());
+    let key =
+        |identity: &PublicIdentity| format!("ethereum:{}", identity.identifier.to_lowercase());
     assert_eq!(
         wallet
             .can_message(vec![peer.identity(), unknown.clone()])
