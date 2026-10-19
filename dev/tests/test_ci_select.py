@@ -146,7 +146,16 @@ class SelectionTests(unittest.TestCase):
             for name, suite in SELECTOR.SUITES.items()
             if SELECTOR.has_advisory_tier(suite)
         }
+        # A tiered suite whose cover is tiered too gives way to it.
+        shown = {
+            name for name in tiered if SELECTOR.SUITES[name]["covered_by"] not in tiered
+        }
         self.assertIn("test_example_ios", tiered)
+        self.assertIn("test_react_native_smoke", tiered - shown)
+        merging = {
+            name for name in shown if "merge" in SELECTOR.SUITES[name]["run_on"]
+        }
+        self.assertNotIn("test_react_native", merging)
         for kwargs, tier in [
             ({"files": ["flake.nix"]}, "advisory"),
             ({"files": ["flake.nix", "apps/example-ios/App.swift"]}, "mixed"),
@@ -162,14 +171,17 @@ class SelectionTests(unittest.TestCase):
                 result = select(**kwargs)
                 self.assertTrue(result["reasons"])
                 if tier == "blocking":
-                    self.assertLessEqual(tiered, selected(result))
+                    # Merge runs run only the suites with `merge` in run_on;
+                    # manual runs ignore run_on.
+                    push = kwargs.get("name") == "push"
+                    self.assertLessEqual(merging if push else shown, selected(result))
                     self.assertEqual(advisory(result), set())
                 elif tier == "advisory":
-                    self.assertEqual(advisory(result), tiered)
+                    self.assertEqual(advisory(result), shown)
                     self.assertTrue(tiered.isdisjoint(selected(result)))
                 else:
                     self.assertIn("test_example_ios", selected(result))
-                    self.assertEqual(advisory(result), tiered - {"test_example_ios"})
+                    self.assertEqual(advisory(result), shown - {"test_example_ios"})
 
     def test_shared_input_selects_every_suite_and_records_paths(self):
         result = select(["proto/mls/a.proto", "crates/xmtp_mls/src/client.rs"])
@@ -183,7 +195,8 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(
             selected(result), eligible("ready_pr_push") - {"docs_rust"} - tiered
         )
-        self.assertEqual(advisory(result), tiered)
+        # The RN smoke gives way to the full RN chain, which runs too.
+        self.assertEqual(advisory(result), tiered - {"test_react_native_smoke"})
 
     def test_unknown_paths_select_every_suite_and_are_named(self):
         result = select(["new-language/source.xyz"])
@@ -382,7 +395,13 @@ class ManualRunTests(unittest.TestCase):
         self.assertEqual(result["products"], ["sdk_android"])
 
     def test_empty_suites_input_runs_every_suite(self):
-        everything = set(SELECTOR.SUITES) - {"docs_rust"}
+        # Every suite runs as blocking, so each covered suite gives way.
+        everything = {
+            name for name, suite in SELECTOR.SUITES.items() if not suite["covered_by"]
+        }
+        self.assertEqual(
+            set(SELECTOR.SUITES) - everything, {"docs_rust", "test_react_native_smoke"}
+        )
         for payload in (dispatch(""), dispatch(" , "), {"inputs": {}}, {}):
             with self.subTest(payload=payload):
                 result = select(name="workflow_dispatch", payload=payload)

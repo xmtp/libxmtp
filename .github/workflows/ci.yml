@@ -351,6 +351,15 @@ jobs:
       contents: read
     secrets:
       CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+  check_react_native:
+    name: React Native unit checks
+    needs:
+    - detect-changes
+    - products_sdk_js
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && contains(fromJSON(needs.detect-changes.outputs.test_suites), 'check_react_native') && needs.products_sdk_js.result != 'failure' }}
+    uses: ./.github/workflows/check-react-native.yml
+    permissions:
+      contents: read
   test_react_native:
     name: React Native SDK
     needs:
@@ -361,6 +370,44 @@ jobs:
       contents: read
     secrets:
       CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+    with:
+      scope: full
+  test_react_native_advisory:
+    name: React Native SDK (advisory)
+    needs:
+    - detect-changes
+    if: contains(fromJSON(needs.detect-changes.outputs.advisory_suites), 'test_react_native')
+    uses: ./.github/workflows/test-react-native.yml
+    permissions:
+      contents: read
+    secrets:
+      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+    with:
+      scope: full
+  test_react_native_smoke:
+    name: React Native Android smoke
+    needs:
+    - detect-changes
+    if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_react_native_smoke')
+    uses: ./.github/workflows/test-react-native.yml
+    permissions:
+      contents: read
+    secrets:
+      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+    with:
+      scope: android-smoke
+  test_react_native_smoke_advisory:
+    name: React Native Android smoke (advisory)
+    needs:
+    - detect-changes
+    if: contains(fromJSON(needs.detect-changes.outputs.advisory_suites), 'test_react_native_smoke')
+    uses: ./.github/workflows/test-react-native.yml
+    permissions:
+      contents: read
+    secrets:
+      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+    with:
+      scope: android-smoke
   lint:
     name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Lint (draft)' || 'Lint' }}
     if: always()
@@ -423,14 +470,16 @@ jobs:
     - test_example_android
     - test_example_android_emulator
     - test_example_ios
+    - check_react_native
     - test_react_native
+    - test_react_native_smoke
     steps:
     - name: Check detection and the selected blocking test suites
       env:
         DETECTED: ${{ needs.detect-changes.result }}
         SELECTED: ${{ needs.detect-changes.outputs.test_suites }}
         PRODUCTS: ${{ needs.detect-changes.outputs.products }}
-        WAITS: '{"check_types":["sdk_js"],"check_sdk":["sdk_js","sdk_android"],"test_node":["sdk_js"],"test_browser":["sdk_js"],"test_sdk_platform":["sdk_js"],"docs_site":["sdk_js"],"test_android":["sdk_android"],"test_example_android":["sdk_android"],"test_example_android_emulator":["sdk_android"]}'
+        WAITS: '{"check_types":["sdk_js"],"check_sdk":["sdk_js","sdk_android"],"test_node":["sdk_js"],"test_browser":["sdk_js"],"test_sdk_platform":["sdk_js"],"docs_site":["sdk_js"],"test_android":["sdk_android"],"test_example_android":["sdk_android"],"test_example_android_emulator":["sdk_android"],"check_react_native":["sdk_js"]}'
         RESULTS: ${{ toJSON(needs) }}
       run: |
         if [ "$DETECTED" != success ]; then

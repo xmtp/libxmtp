@@ -1369,46 +1369,38 @@
         "labels": []
       }
     },
-    "test_react_native": {
-      "title": "React Native SDK",
+    "check_react_native": {
+      "title": "React Native unit checks",
       "phase": "test",
-      "workflow": "test-react-native.yml",
+      "workflow": "check-react-native.yml",
       "run_on": [
         "ready_pr_push",
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "cachix-pr",
+      "secrets": "none",
       "permissions": {
         "contents": "read"
       },
       "covered_by": null,
       "kache": [],
-      "products": [],
+      "products": [
+        "sdk_js"
+      ],
       "runners": {},
       "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
-        ".github/actions/react-native-conformance/**",
-        ".github/actions/react-native-product/**",
         ".github/actions/setup-js/**",
         ".github/actions/setup-nix/**",
-        ".github/workflows/test-react-native.yml"
+        ".github/workflows/check-react-native.yml"
       ],
       "workflow_tier": "blocking",
       "paths": [
         ".github/actions/react-native-{product,conformance}/**",
-        "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
-        "crates/xmtp_attachments_server/**",
-        "crates/xmtp_backend_config/**",
         "crates/xmtp_sdk/**",
-        "dev/backend/**",
-        "dev/backend/{local.toml,local-s3.toml}",
-        "dev/docker/s3/**",
-        "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
-        "dev/docker/{postgres,s3,toxiproxy}/**",
         "dev/js/{sdk-*,tsconfig.*.json}",
         "nix/android-packages.nix",
         "nix/ci-sets.nix",
@@ -1419,16 +1411,13 @@
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
         "nix/lib/{react-native-env,sdk-native-toolchain}.nix",
         "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
-        "nix/musl-docker.nix",
         "nix/node-packages.nix",
-        "nix/package/backend.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/react-native-*",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/react-native-*",
         "nix/sdk-platforms.json",
-        "nix/services/**",
         "nix/shells/android{,-ci}.nix",
         "nix/shells/react-native.nix",
         "nix/{js,js-node}.nix",
@@ -1442,6 +1431,124 @@
         "cargo_roots": [],
         "crates": [],
         "paths": [],
+        "labels": []
+      }
+    },
+    "test_react_native": {
+      "title": "React Native SDK",
+      "phase": "test",
+      "workflow": "test-react-native.yml",
+      "run_on": [
+        "ready_pr_push"
+      ],
+      "disable_on_forks": false,
+      "secrets": "cachix-pr",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "products": [],
+      "runners": {},
+      "with": {
+        "scope": "full"
+      },
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/react-native-conformance/**",
+        ".github/actions/react-native-product/**",
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-react-native.yml"
+      ],
+      "workflow_tier": "advisory",
+      "paths": [],
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [
+          ".github/actions/react-native-{product,conformance}/**",
+          "nix/android-packages.nix",
+          "nix/ci-sets.nix",
+          "nix/lib/android-*",
+          "nix/lib/ios-env.nix",
+          "nix/lib/{react-native-env,sdk-native-toolchain}.nix",
+          "nix/package/react-native-*",
+          "nix/react-native-*",
+          "nix/shells/android{,-ci}.nix",
+          "nix/shells/react-native.nix",
+          "sdks/react-native/**"
+        ],
+        "labels": [
+          "react-native"
+        ]
+      }
+    },
+    "test_react_native_smoke": {
+      "title": "React Native Android smoke",
+      "phase": "test",
+      "workflow": "test-react-native.yml",
+      "run_on": [
+        "ready_pr_push"
+      ],
+      "disable_on_forks": false,
+      "secrets": "cachix-pr",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": "test_react_native",
+      "kache": [],
+      "products": [],
+      "runners": {},
+      "with": {
+        "scope": "android-smoke"
+      },
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/react-native-conformance/**",
+        ".github/actions/react-native-product/**",
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-react-native.yml"
+      ],
+      "workflow_tier": "advisory",
+      "paths": [],
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [
+          "apps/backend/**",
+          "apps/xmtp_sdk_bindgen/**",
+          "crates/xmtp_attachments_server/**",
+          "crates/xmtp_backend_config/**",
+          "crates/xmtp_sdk/**",
+          "dev/backend/**",
+          "dev/backend/{local.toml,local-s3.toml}",
+          "dev/docker/s3/**",
+          "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
+          "dev/docker/{postgres,s3,toxiproxy}/**",
+          "dev/js/{sdk-*,tsconfig.*.json}",
+          "nix/lib/packages/napi-rs-cli/**",
+          "nix/lib/packages/pnpm.nix",
+          "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+          "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
+          "nix/musl-docker.nix",
+          "nix/node-packages.nix",
+          "nix/package/backend.nix",
+          "nix/package/libffi-zig-cross.site",
+          "nix/package/node.nix",
+          "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+          "nix/sdk-platforms.json",
+          "nix/services/**",
+          "nix/{js,js-node}.nix",
+          "sdks/js.just",
+          "{Cargo.toml,Cargo.lock}",
+          "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+        ],
         "labels": []
       }
     }

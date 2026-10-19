@@ -716,19 +716,56 @@ suites:
       - path_group: swift
       - path_group: example_ios_nix
 
+  # React Native, decision D2. The unit checks (package admission, React
+  # ownership, native helpers) run on Linux with no device and block. The
+  # device chain is advisory on pull requests: the full chain (Android and
+  # iOS, bare and Expo) on RN paths or the `react-native` label, and only the
+  # bare Android app on the other paths that can break RN. Merge runs leave
+  # the device chain to post-merge, which alerts on a failure.
+  check_react_native:
+    title: React Native unit checks
+    phase: test
+    workflow: check-react-native.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: [sdk_js]
+    pr_filters:
+      - path_group: react_native
+      - path_group: sdk_core
+      - path_group: js_workspace
   test_react_native:
     title: React Native SDK
     phase: test
     workflow: test-react-native.yml
-    run_on: [ready_pr_push, merge]
+    run_on: [ready_pr_push]
     disable_on_forks: false
     secrets: cachix-pr
     permissions: {contents: read}
     kache: []
     products: []
-    pr_filters:
+    with: {scope: full}
+    pr_filters: []
+    advisory_filters:
+      - path_group: react_native
+      - pr_label: "react-native"
+  test_react_native_smoke:
+    title: React Native Android smoke
+    phase: test
+    workflow: test-react-native.yml
+    run_on: [ready_pr_push]
+    disable_on_forks: false
+    secrets: cachix-pr
+    permissions: {contents: read}
+    covered_by: test_react_native
+    kache: []
+    products: []
+    with: {scope: android-smoke}
+    pr_filters: []
+    advisory_filters:
       - path_group: sdk_core
       - path_group: js_workspace
-      - path_group: react_native
       - path_group: native_backend
       - path_group: docker_backend

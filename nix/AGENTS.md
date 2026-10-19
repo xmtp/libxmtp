@@ -330,6 +330,10 @@ both immutable component inputs. Export/import them with
 `python3.11 nix/react-native-exchange.py` through the RN recipes. Assembly must
 follow both producers; consumer bundles follow assembly. PR exports stay in
 CI jobs. Trusted writers receive only exports from the same main run.
+Jobs with a Cachix token skip the exchange; `react-native-exchange.py roots`
+prints a stage's roots. `--kind test` selects
+`legacyPackages.<system>.reactNative.testStages`, the stages of the partial
+`xmtp-sdk-react-native-test-package`.
 
 Check export admission with
 `dev/nix-shell 'python3.11 -B nix/lib/test_react_native_exchange.py'`.

@@ -282,28 +282,36 @@ Keep credentials out of global `AWS_*` settings and Nix derivations.
 selector, and write policy without keys, a compiler daemon, or cloud access.
 See the setup action's README for settings.
 
-`test-react-native.yml` owns the RN producer, exchange, canonical package,
-and installed bare/Expo consumer gates on both platforms. It has no privileged
-writer environment. Forks use the same-run exports when no PR cache token is
-available. Select it through the `react_native` and shared SDK path groups.
-The Linux consumer job also runs the portable package, controller, React, and
-native-helper contracts before its installed-app journeys.
+`check-react-native.yml` runs the RN unit checks (`check-package`, `test-react`,
+`test-native`, `test-control`) on Linux with no device and blocks merges.
+`test-react-native.yml` is the advisory device chain: components, the npm
+package, and the installed bare/Expo apps. Its `scope` input is `full` or
+`android-smoke` (the bare Android app). Pull request runs build the partial test
+package (x86_64 Android, iOS simulator, version `-partial`, rejected by
+`verify-package`); other events build the full package. Jobs with the `xmtp-pr`
+token push each stage and the next stage substitutes it; forks and releases
+exchange signed same-run closures (zstd). Receipts run only with the `debug`
+input or a debug re-run.
 
-Once GitHub registers the workflow, `gh workflow run test-react-native.yml --ref REF`
-runs only the RN gates. Platform jobs retain `target/react-native-results/*.json`
-in `react-native-proof-PLATFORM`; release jobs use
-`react-native-release-proof-PLATFORM`. Do not upload peer logs with these reports.
-The test and release consumer builds retain 100 Nix failure lines so CocoaPods
-hook exceptions remain visible before their Ruby stack traces.
+Once GitHub registers the workflow, `gh workflow run test-react-native.yml --ref
+REF` runs only the RN chain. Platform jobs retain
+`target/react-native-results/*.json` in `react-native-proof-PLATFORM`; release
+jobs use `react-native-release-proof-PLATFORM`, post-merge
+`react-native-post-merge-proof-PLATFORM`. Do not upload peer logs with these
+reports. The consumer builds retain 100 Nix failure lines so CocoaPods hook
+exceptions remain visible before their Ruby stack traces.
 
-The shared `react-native-product` action owns RN component exchange, canonical
-package assembly, and consumer builds. Callers pass the fixed source SHA,
-package version (empty for the default), artifact prefix, and cache mode.
-Cache setup, credentials, explicit uploads, and trusted writer environments
-stay in the calling workflows. Native derivations select their declared Xcode;
-the consumer action sets `DEVELOPER_DIR` for simulator commands outside Nix.
-`react-native-conformance` executes fresh installed bare/Expo proofs in test
-and release jobs. Post-merge builds consumers without repeating those journeys.
-Its final `build` jobs wait for RN stages before building, pushing, and pinning
-dev/release. Docs wait for the completed empty-store closure check. Keep every
-RN stage member in the dev/release declarations in `nix/ci-sets.nix`.
+The shared `react-native-product` action owns RN component exchange, package
+assembly, and consumer builds. Callers pass the fixed source SHA, package
+version (empty for the default), package kind, exchange choice, artifact prefix,
+and cache mode. Cache setup, credentials, explicit uploads, and trusted writer
+environments stay in the calling workflows. Native derivations select their
+declared Xcode; the consumer action sets `DEVELOPER_DIR` for simulator commands
+outside Nix. `react-native-conformance` executes fresh installed bare/Expo
+proofs in test, post-merge, and release jobs. Post-merge `rn-*` cache jobs build
+and push the RN stages, the test package, and the bare Android test app;
+`rn-smoke` runs every journey (`XMTP_RN_JOURNEYS=full`) in mode `read` without a
+token, and `rn-alert` posts a Slack message when an RN job fails. The final
+`build` jobs wait for the RN cache jobs, not the smoke. Docs wait for the
+completed empty-store closure check. Keep every RN stage member in the
+dev/release declarations in `nix/ci-sets.nix`.
