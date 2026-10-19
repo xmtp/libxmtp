@@ -141,32 +141,72 @@ fn unregister() -> api::UnregisterRequest {
     }
 }
 
-/// Dropping a decoded request wipes every secret field it still holds, so a
-/// handler's early return frees no copy of a credential or HMAC key.
+/// Whether every byte of `buffer`'s allocation is zero. A wipe keeps the
+/// allocation, so these are the bytes its later free releases; `clear` would
+/// leave them in place.
+///
+/// The buffer must have been built with its whole capacity written, as
+/// `vec![byte; len]` does.
+fn allocation_is_zero(buffer: &mut Vec<u8>) -> bool {
+    buffer.capacity() > 0
+        && buffer.iter().all(|&byte| byte == 0)
+        && buffer.spare_capacity_mut().iter().all(|byte| {
+            // SAFETY: the whole capacity was written when the buffer was
+            // built, and a wipe or `clear` only overwrites or shortens it, so
+            // every spare byte is initialized.
+            unsafe { byte.assume_init() == 0 }
+        })
+}
+
+/// Wiping a decoded request overwrites the whole allocation of each secret
+/// field it still holds, and leaves the other fields alone.
 #[xmtp_common::test]
-fn decoded_requests_wipe_their_secret_fields() {
+fn wiping_a_request_overwrites_every_secret_buffer() {
     let mut register = registration();
     register.delivery = Some(api::register_request::Delivery::Http(api::HttpDelivery {
         url: "https://example.test/hook".into(),
         signing_key: vec![33; 32],
     }));
     register.wipe_secrets();
-    assert!(register.recipient_secret.is_empty());
-    let Some(api::register_request::Delivery::Http(http)) = &register.delivery else {
+    assert!(allocation_is_zero(&mut register.recipient_secret));
+    let Some(api::register_request::Delivery::Http(http)) = &mut register.delivery else {
         panic!("the delivery is still HTTP");
     };
-    assert!(http.signing_key.is_empty());
+    assert!(allocation_is_zero(&mut http.signing_key));
     assert_eq!(http.url, "https://example.test/hook");
 
     let mut unregister = unregister();
     unregister.wipe_secrets();
-    assert!(unregister.recipient_secret.is_empty());
+    assert!(allocation_is_zero(&mut unregister.recipient_secret));
 
     let mut update = update(vec![subscription(1, 3), subscription(2, 1)], vec![]);
     update.wipe_secrets();
-    assert!(update.recipient_secret.is_empty());
-    assert!(update.adds.iter().all(|add| add.hmac_keys.is_empty()));
-    assert_eq!(update.adds.len(), 2);
+    assert!(allocation_is_zero(&mut update.recipient_secret));
+    let keys: Vec<_> = update
+        .adds
+        .iter_mut()
+        .flat_map(|add| &mut add.hmac_keys)
+        .collect();
+    assert_eq!(keys.len(), 4);
+    assert!(keys.into_iter().all(allocation_is_zero));
+}
+
+/// A secret buffer the test keeps after the request that wipes it drops.
+struct KeptSecret<'a>(&'a mut Vec<u8>);
+
+impl SecretFields for KeptSecret<'_> {
+    fn wipe_secrets(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+/// Dropping a `Wiped` request wipes it, so a handler's early return frees no
+/// copy of a credential or HMAC key.
+#[xmtp_common::test]
+fn dropping_a_wiped_request_wipes_its_secrets() {
+    let mut secret = vec![44; 32];
+    drop(Wiped(KeptSecret(&mut secret)));
+    assert!(allocation_is_zero(&mut secret));
 }
 
 fn status(error: Status, code: Code, message: &str) {

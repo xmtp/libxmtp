@@ -30,6 +30,8 @@ const MALFORMED_SUBSCRIPTION: &str = "subscription is malformed";
 
 /// The secret fields of a decoded notification request.
 trait SecretFields {
+    /// Overwrite every secret byte in place. Each buffer keeps its
+    /// allocation until the request drops.
     fn wipe_secrets(&mut self);
 }
 
@@ -51,8 +53,8 @@ impl SecretFields for api::UnregisterRequest {
 impl SecretFields for api::UpdateSubscriptionsRequest {
     fn wipe_secrets(&mut self) {
         self.recipient_secret.zeroize();
-        for add in &mut self.adds {
-            add.hmac_keys.zeroize();
+        for key in self.adds.iter_mut().flat_map(|add| &mut add.hmac_keys) {
+            key.zeroize();
         }
     }
 }
