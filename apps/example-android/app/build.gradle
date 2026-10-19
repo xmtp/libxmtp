@@ -23,7 +23,6 @@ String androidBackendURL() {
     return "http://10.0.2.2:${port ?: '5050'}"
 }
 
-boolean performanceTests = providers.gradleProperty('android.testInstrumentationRunnerArguments.messengerPerformance').map { it == 'true' }.getOrElse(false)
 // The Nix download uses a public testing key and must not replace normal app installs.
 boolean testingApk = providers.gradleProperty('xmtpExampleTestingApk').map { it.toBoolean() }.getOrElse(false)
 
@@ -42,9 +41,6 @@ android {
         buildConfigField "String", "XMTP_BACKEND_URL", "\"${androidBackendURL()}\""
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        if (!performanceTests) {
-            testInstrumentationRunnerArguments notClass: 'org.xmtp.android.example.messenger.MessengerPerformanceInstrumentedTest'
-        }
         vectorDrawables {
             useSupportLibrary true
         }
