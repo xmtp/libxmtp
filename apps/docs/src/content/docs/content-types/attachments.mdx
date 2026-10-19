@@ -18,14 +18,14 @@ To send several remote attachments in one message, see [Support multiple remote 
 
 ## Native attachment uploads and downloads
 
-The SDK has built-in file transfers through `client.attachments` on Browser and
-Node, and `client.attachments()` on Kotlin and Swift. These calls encrypt,
+The SDK has built-in file transfers through `client.attachments` on Browser, Node, and
+React Native, and `client.attachments()` on Kotlin and Swift. These calls encrypt,
 stage, upload, verify, and decrypt files. An upload callback is not required.
 The Agent SDK uses the same transfer service for `ctx.sendRemoteAttachment`.
 
 For uploads, the operator must configure
 [attachment storage](/deploy/attachment-storage/). Check
-`client.attachments.offered` on Browser and Node or
+`client.attachments.offered` on Browser, Node, and React Native or
 `client.attachments().offered()` on Kotlin and Swift before you show the upload
 action. Downloads can use any permitted HTTPS host, including
 another deployment or app-owned storage. They do not require an attachment
@@ -45,7 +45,10 @@ source for large native files. Path creation and transfers stream the file;
 a byte source already holds the file in application memory.
 
 The following examples use an existing `client` and `group`. The path must name
-a readable file in the application's filesystem. Browser paths name OPFS entries.
+a readable file in the application's filesystem. Browser paths name OPFS entries. React Native paths are native filesystem
+paths, not `content://` or photo-library URIs. The app selects media, requests
+OS permission, and copies or exports the selected item to an app-accessible
+file before calling `create`.
 
 <div data-pagefind-weight="0.5">
 <Tabs syncKey="sdk">
@@ -59,6 +62,13 @@ a readable file in the application's filesystem. Browser paths name OPFS entries
 <TabItem label="Node">
 
 ```ts source="attachments-node.ts" region="upload"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="attachments-react-native.ts" region="upload"
 
 ```
 
@@ -130,6 +140,13 @@ Decode the received content with `RemoteAttachmentCodec` to get a
 <TabItem label="Node">
 
 ```ts source="attachments-node.ts" region="download"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="attachments-react-native.ts" region="download"
 
 ```
 
@@ -242,7 +259,7 @@ The upload callback's `attachment.payload` contains encrypted bytes. The downloa
 
 ### Inline attachment
 
-Type ID: `xmtp.org/attachment:1.0`. Its fallback is `Can't display <filename>. This app doesn't support attachments.`. `shouldPush` defaults to `true` on all four platforms.
+Type ID: `xmtp.org/attachment:1.0`. Its fallback is `Can't display <filename>. This app doesn't support attachments.`. `shouldPush` defaults to `true` on all five platforms.
 
 | Field      | Type   | Wire location        | Required |
 | ---------- | ------ | -------------------- | -------- |
@@ -252,7 +269,7 @@ Type ID: `xmtp.org/attachment:1.0`. Its fallback is `Can't display <filename>. T
 
 ### Remote attachment
 
-Type ID: `xmtp.org/remoteStaticAttachment:1.0`. Its fallback names the unsupported file. `shouldPush` defaults to `true` on all four platforms.
+Type ID: `xmtp.org/remoteStaticAttachment:1.0`. Its fallback names the unsupported file. `shouldPush` defaults to `true` on all five platforms.
 
 | Field           | Type                 | Wire location                                       | Required |
 | --------------- | -------------------- | --------------------------------------------------- | -------- |
@@ -267,7 +284,7 @@ Type ID: `xmtp.org/remoteStaticAttachment:1.0`. Its fallback names the unsupport
 
 ### Multiple remote attachments
 
-Type ID: `xmtp.org/multiRemoteStaticAttachment:1.0`. The payload is a `MultiRemoteAttachment` protobuf with repeated `RemoteAttachmentInfo` entries. The fallback says that the app does not support multiple remote attachments. `shouldPush` defaults to `true` on all four platforms.
+Type ID: `xmtp.org/multiRemoteStaticAttachment:1.0`. The payload is a `MultiRemoteAttachment` protobuf with repeated `RemoteAttachmentInfo` entries. The fallback says that the app does not support multiple remote attachments. `shouldPush` defaults to `true` on all five platforms.
 
 Each `RemoteAttachmentInfo` contains `url`, `contentDigest`, `secret`, `salt`, `nonce`, `scheme`, optional encrypted `contentLength`, and optional `filename`. Each new encrypted file has separate encryption material. The SDK record uses byte arrays for `secret`, `salt`, and `nonce`; the single-attachment codec writes those arrays as hexadecimal parameters.
 

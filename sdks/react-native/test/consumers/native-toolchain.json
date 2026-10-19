@@ -1,0 +1,29 @@
+{
+  "reactNative": "0.88.0",
+  "react": "19.3.0",
+  "expo": "58.0.14",
+  "expoTemplate": "58.0.23",
+  "gradle": {
+    "version": "9.4.1",
+    "url": "https://services.gradle.org/distributions/gradle-9.4.1-bin.zip",
+    "sha256": "2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb"
+  },
+  "android": {
+    "minSdk": 24,
+    "compileSdk": 37,
+    "targetSdk": 36,
+    "buildTools": "37.0.0",
+    "ndk": "27.1.12297006",
+    "agp": "9.2.1",
+    "kotlin": "2.2.0",
+    "abis": ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"],
+    "cmake": "3.22.1",
+    "cmakeScope": "Consumer app and SDK JNI adapter; pinned RN Android is prebuilt, not built from ReactAndroid source"
+  },
+  "ios": {
+    "bareDeploymentTarget": "15.1",
+    "expoDeploymentTarget": "16.4",
+    "architectures": ["arm64"],
+    "sdks": ["iphoneos", "iphonesimulator"]
+  }
+}

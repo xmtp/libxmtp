@@ -31,9 +31,11 @@
   "devDependencies": {
     "@playwright/test": "catalog:",
     "@types/node": "catalog:node26",
+    "@types/react": "19.3.0",
     "@xmtp/agent-sdk": "workspace:*",
     "@xmtp/browser-sdk": "workspace:*",
     "@xmtp/node-sdk": "workspace:*",
+    "@xmtp/react-native-sdk": "workspace:*",
     "chrome-launcher": "^1.2.1",
     "expressive-code": "0.41.7",
     "expressive-code-twoslash": "^0.6.1",
@@ -43,6 +45,7 @@
     "playwright": "catalog:",
     "prettier": "catalog:",
     "prettier-plugin-astro": "^0.14.1",
+    "react": "19.3.0",
     "typescript": "6.0.3",
     "viem": "catalog:"
   },

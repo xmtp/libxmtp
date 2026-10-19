@@ -411,6 +411,8 @@ class ScreenScaleInstrumentedTest {
                 control(hasContentDescription("New message")).performClick()
                 until("Create did not open") { model.state.value.screen == Screen.CREATE }
                 control(click("Direct message"))
+                input("To", other.inboxId())
+                control(click("Continue"))
                 control(click("Group")).performClick()
                 input("Handle, Ethereum address, or inbox ID", other.inboxId())
                 control(click("Check and add")).performClick()
@@ -420,6 +422,7 @@ class ScreenScaleInstrumentedTest {
                 control(click("Continue")).performClick()
                 input("Group name", "Scale proof group")
                 input("Description (optional)", "A real group for all screen bounds")
+                control(click("Advanced options")).performClick()
                 control(click("All members"))
                 control(click("Admins only"))
                 capture(Screen.CREATE)

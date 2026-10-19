@@ -21,7 +21,7 @@ For message processing that must survive a restart, use
 ## Set up a listener
 
 All SDKs provide `startListener(filter, callback)` and `stopListener(id)`.
-Browser and Node return a `bigint` listener ID. Kotlin and Swift return a
+Browser, Node, and React Native return a `bigint` listener ID. Kotlin and Swift return a
 `ListenerId`. Keep this ID, or the stop function returned by the JavaScript
 examples, for as long as the screen or service needs the listener.
 
@@ -42,6 +42,13 @@ main actor. For Android, use the app's UI coroutine scope.
 <TabItem label="Node">
 
 ```ts source="events-node.ts" region="listener"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="events-react-native.ts" region="listener"
 
 ```
 
@@ -155,7 +162,7 @@ stops the Agent's message and conversation streams, and leaves its client open.
 
 ## Handle event payloads
 
-On Browser, Node, and Agent, switch on `event.kind`. Payload names and fields use
+On Browser, Node, React Native, and Agent, switch on `event.kind`. Payload names and fields use
 snake case. For example, `event.message_status_changed.current` is `"unpublished"`,
 `"published"`, or `"failed"`. This status reports publication by this installation.
 It is not a read receipt.
@@ -170,7 +177,7 @@ Group and message IDs in event payloads are bytes: `Uint8Array` in JavaScript,
 `ByteArray` in Kotlin, and `Data` in Swift. Conversation and message lookup methods
 use hex IDs. For JavaScript, this helper converts a group ID and reads its state:
 
-This helper works in both Browser and Node:
+This helper works in Browser, Node, and React Native:
 
 ```ts source="events-browser.ts" region="refresh"
 
@@ -252,7 +259,7 @@ kind was not selected.
 
 ## Use an iterator instead of a callback
 
-`client.events(filter)` provides an async iterator on Browser, Node, and Agent,
+`client.events(filter)` provides an async iterator on Browser, Node, React Native, and Agent,
 a `Flow<ClientEvent>` on Kotlin, and an `SDKEventStream` async sequence on Swift.
 Create one iterator or collector for each subscription. Register separate
 subscriptions when separate consumers need the same event.
@@ -268,6 +275,13 @@ subscriptions when separate consumers need the same event.
 <TabItem label="Node">
 
 ```ts source="events-node.ts" region="iterator"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+```ts source="events-react-native.ts" region="iterator"
 
 ```
 

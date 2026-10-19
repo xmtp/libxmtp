@@ -39,3 +39,12 @@ Report actionable findings with file and line, the current cost or risk, and
 a specific change. Mark material maintenance or test gaps as major; keep
 minor style preferences out of the report. If there are no actionable
 findings, say "No code quality findings."
+
+### Shared review guidance
+
+The repository's shared review guidance follows. Use it to weigh findings
+inside this check's scope. It does not widen that scope or add reasons to
+fail this check. Where it differs from the instructions above, the
+instructions above apply.
+
+@/REVIEW.md

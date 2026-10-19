@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Build the APK, boot a scoped API 34 emulator (from the android Nix shell),
+# install, reverse the Metro, backend and object-store ports, and launch.
+# The emulator stops when this command ends.
+#   CONFIGURATION       Debug (default) or Release
+#   XMTP_RN_METRO_PORT  Debug: this app's running Metro (default 8081)
+#   XMTP_BACKEND_URL    default: this worktree's backend; a loopback URL's port
+#                       is reversed into the emulator
+#   XMTP_S3_PORT        object-store port to reverse (default: this worktree's)
+#   --headless          no emulator window
+#   --screenshot FILE   save a screenshot after the first render, then stop
+set -euo pipefail
+headless=false
+screenshot=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --headless) headless=true ;;
+    --screenshot)
+      screenshot="$(cd "$(dirname "${2:?Expected a file}")" && pwd -P)/$(basename "$2")"
+      shift
+      ;;
+    *)
+      echo "Usage: $0 [--headless] [--screenshot FILE]" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+app="$(cd "$(dirname "$0")/.." && pwd -P)"
+root="$(git -C "$app" rev-parse --show-toplevel)"
+"$root/dev/worktree-env"
+# shellcheck source=/dev/null
+source "$root/dev/docker/load-env"
+backend_port="$(python3.11 -c '
+import sys, urllib.parse
+url = urllib.parse.urlsplit(sys.argv[1])
+if url.hostname in ("127.0.0.1", "localhost", "::1"):
+    print(url.port or (443 if url.scheme == "https" else 80))
+' "$XMTP_BACKEND_URL")"
+
+"$app/dev/build-android"
+variant="$(printf '%s' "${CONFIGURATION:-Debug}" | tr '[:upper:]' '[:lower:]')"
+apk="$app/android/app/build/outputs/apk/$variant/app-$variant.apk"
+
+if [[ "$headless" == true ]]; then
+  flags="-no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192"
+else
+  flags="-no-snapshot-save -gpu auto -skin 1080x2400 -memory 4096 -partition-size 8192"
+fi
+export XMTP_RN_APK="$apk"
+export XMTP_RN_SCREENSHOT="$screenshot"
+export XMTP_RN_REVERSE_PORTS="${XMTP_RN_METRO_PORT:-8081} $backend_port $XMTP_S3_PORT"
+NIX_ANDROID_EMULATOR_API=34 NIX_ANDROID_EMULATOR_FLAGS="$flags" \
+  "$root/dev/nix-shell" --shell android --command run-test-emulator -- bash "$app/dev/android-session"

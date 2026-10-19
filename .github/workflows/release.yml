@@ -44,6 +44,11 @@ on:
         required: false
         type: boolean
         default: false
+      react-native-sdk:
+        description: "Release React Native SDK"
+        required: false
+        type: boolean
+        default: false
       cli:
         description: "Release CLI"
         required: false
@@ -65,7 +70,7 @@ on:
         type: string
         default: "main"
       dry-run:
-        description: "Build npm packages and selected backend images; skip mobile jobs, publishing, and tags"
+        description: "Build selected artifacts and verify React Native consumers; skip publishing, tags, merges, and notifications"
         required: false
         type: boolean
         default: false
@@ -79,12 +84,14 @@ jobs:
     outputs:
       release-type: ${{ steps.resolve.outputs.release-type }}
       ref: ${{ steps.resolve.outputs.ref }}
+      source-sha: ${{ steps.source.outputs.sha }}
       timestamp: ${{ steps.timestamp.outputs.timestamp }}
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
       node-sdk: ${{ steps.resolve.outputs.node-sdk }}
       browser-sdk: ${{ steps.resolve.outputs.browser-sdk }}
       agent-sdk: ${{ steps.resolve.outputs.agent-sdk }}
+      react-native-sdk: ${{ steps.resolve.outputs.react-native-sdk }}
       cli: ${{ steps.resolve.outputs.cli }}
       backend: ${{ steps.resolve.outputs.backend }}
       dry-run: ${{ steps.resolve.outputs.dry-run }}
@@ -102,6 +109,7 @@ jobs:
           INPUT_NODE_SDK: ${{ inputs.node-sdk }}
           INPUT_BROWSER_SDK: ${{ inputs.browser-sdk }}
           INPUT_AGENT_SDK: ${{ inputs.agent-sdk }}
+          INPUT_REACT_NATIVE_SDK: ${{ inputs.react-native-sdk }}
           INPUT_CLI: ${{ inputs.cli }}
           INPUT_BACKEND: ${{ inputs.backend }}
           INPUT_DRY_RUN: ${{ inputs.dry-run }}
@@ -114,6 +122,7 @@ jobs:
             echo "node-sdk=true" >> "$GITHUB_OUTPUT"
             echo "browser-sdk=true" >> "$GITHUB_OUTPUT"
             echo "agent-sdk=true" >> "$GITHUB_OUTPUT"
+            echo "react-native-sdk=true" >> "$GITHUB_OUTPUT"
             echo "cli=true" >> "$GITHUB_OUTPUT"
             echo "backend=false" >> "$GITHUB_OUTPUT"
             echo "dry-run=false" >> "$GITHUB_OUTPUT"
@@ -125,6 +134,7 @@ jobs:
             echo "node-sdk=$INPUT_NODE_SDK" >> "$GITHUB_OUTPUT"
             echo "browser-sdk=$INPUT_BROWSER_SDK" >> "$GITHUB_OUTPUT"
             echo "agent-sdk=$INPUT_AGENT_SDK" >> "$GITHUB_OUTPUT"
+            echo "react-native-sdk=$INPUT_REACT_NATIVE_SDK" >> "$GITHUB_OUTPUT"
             echo "cli=$INPUT_CLI" >> "$GITHUB_OUTPUT"
             echo "backend=$INPUT_BACKEND" >> "$GITHUB_OUTPUT"
             echo "dry-run=${INPUT_DRY_RUN:-false}" >> "$GITHUB_OUTPUT"
@@ -171,16 +181,24 @@ jobs:
             echo "::error::RC releases require a positive integer rc-number"
             exit 1
           fi
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
+          persist-credentials: false
+      - name: Resolve release source
+        id: source
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Skip-if-no-new-commits (nightly only)
         id: skip-check
         if: steps.resolve.outputs.release-type == 'nightly'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REF: ${{ steps.resolve.outputs.ref }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          HEAD_SHA=$(gh api "repos/${REPO}/commits/${REF}" --jq '.sha[0:7]')
+          HEAD_SHA=${SOURCE_SHA:0:7}
           LAST_TAG=$(gh api "repos/${REPO}/git/matching-refs/tags/ios-" \
             --jq '[.[] | .ref | sub("refs/tags/"; "")] | map(select(test("-pre\\..*\\.nightly\\."))) | sort | last // ""')
           if [ -n "$LAST_TAG" ]; then
@@ -205,7 +223,7 @@ jobs:
     if: needs.validate.outputs.release-type == 'nightly' && needs.validate.outputs.skip != 'true'
     uses: ./.github/workflows/release-gate-plan.yml
     with:
-      ref: ${{ needs.validate.outputs.ref }}
+      ref: ${{ needs.validate.outputs.source-sha }}
     secrets: inherit
 
   release-ios:
@@ -221,6 +239,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      source-sha: ${{ needs.validate.outputs.source-sha }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
@@ -241,6 +260,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      source-sha: ${{ needs.validate.outputs.source-sha }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
@@ -258,6 +278,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      source-sha: ${{ needs.validate.outputs.source-sha }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
@@ -276,6 +297,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      source-sha: ${{ needs.validate.outputs.source-sha }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
@@ -297,8 +319,28 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      source-sha: ${{ needs.validate.outputs.source-sha }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
+      pending-version: ${{ needs.plan.outputs.version }}
+      pending-kind: ${{ needs.plan.outputs.kind }}
+      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
+    secrets: inherit
+
+  release-react-native-sdk:
+    needs: [validate, plan]
+    if: >-
+      !cancelled() && !contains(needs.*.result, 'failure')
+      && needs.validate.outputs.react-native-sdk == 'true' && needs.validate.outputs.skip != 'true'
+      && (needs.validate.outputs.release-type != 'nightly'
+          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
+    uses: ./.github/workflows/release-react-native-sdk.yml
+    with:
+      release-type: ${{ needs.validate.outputs.release-type }}
+      rc-number: ${{ inputs.rc-number }}
+      ref: ${{ needs.validate.outputs.ref }}
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
@@ -318,6 +360,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      source-sha: ${{ needs.validate.outputs.source-sha }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
       pending-version: ${{ needs.plan.outputs.version }}
@@ -338,6 +381,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ format('{0}', inputs.rc-number) }}
       ref: ${{ needs.validate.outputs.ref }}
+      source-sha: ${{ needs.validate.outputs.source-sha }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
@@ -347,7 +391,7 @@ jobs:
     # and delete the release branch even though the release-* jobs were skipped
     # (skipped ≠ failure, so the !contains(failure) check alone lets it through).
     if: needs.validate.outputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure') && needs.validate.outputs.dry-run != 'true'
-    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, release-backend]
+    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli, release-backend]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -383,7 +427,7 @@ jobs:
   # Do NOT drop any of the three; they jointly make non-nightly run and nightly
   # block-on-not-green / block-on-error.
   hub:
-    needs: [validate, plan, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, release-backend]
+    needs: [validate, plan, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli, release-backend]
     if: >-
       needs.validate.outputs.release-type == 'nightly'
       && needs.plan.outputs.gate-skip != 'true'
@@ -408,7 +452,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.validate.outputs.ref }}
+          ref: ${{ needs.validate.outputs.source-sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/setup-release-tools
@@ -424,9 +468,10 @@ jobs:
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
           NODE_VERSION: ${{ needs.release-node-sdk.outputs.version }}
           BROWSER_VERSION: ${{ needs.release-browser-sdk.outputs.version }}
+          REACT_NATIVE_VERSION: ${{ needs.release-react-native-sdk.outputs.version }}
         run: |
           set -euo pipefail
-          if [ -z "${IOS_VERSION}${ANDROID_VERSION}${NODE_VERSION}${BROWSER_VERSION}" ]; then
+          if [ -z "${IOS_VERSION}${ANDROID_VERSION}${NODE_VERSION}${BROWSER_VERSION}${REACT_NATIVE_VERSION}" ]; then
             echo "should-release=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No SDK shipped a version; skipping the empty hub release."
           else
@@ -519,7 +564,7 @@ jobs:
     secrets: inherit
 
   hub-release:
-    needs: [plan, hub, hub-tag, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli]
+    needs: [plan, hub, hub-tag, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli]
     if: >-
       !cancelled() && needs.hub.outputs.should-release == 'true'
       && needs.hub-tag.result == 'success'
@@ -545,6 +590,7 @@ jobs:
           NODE_VERSION: ${{ needs.release-node-sdk.outputs.version }}
           BROWSER_VERSION: ${{ needs.release-browser-sdk.outputs.version }}
           AGENT_VERSION: ${{ needs.release-agent-sdk.outputs.version }}
+          REACT_NATIVE_VERSION: ${{ needs.release-react-native-sdk.outputs.version }}
           CLI_VERSION: ${{ needs.release-cli.outputs.version }}
         run: |
           set -euo pipefail
@@ -560,6 +606,7 @@ jobs:
           | Node | ${NODE_VERSION:-—} |
           | Browser | ${BROWSER_VERSION:-—} |
           | Agent | ${AGENT_VERSION:-—} |
+          | React Native | ${REACT_NATIVE_VERSION:-—} |
           | CLI | ${CLI_VERSION:-—} |
 
           See per-SDK release notes under \`docs/release-notes/\`.
@@ -588,8 +635,8 @@ jobs:
           fi
 
   notify:
-    needs: [validate, plan, hub, hub-tag, hub-release, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, release-backend, merge-pr]
-    if: always() && needs.validate.outputs.skip != 'true'
+    needs: [validate, plan, hub, hub-tag, hub-release, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli, release-backend, merge-pr]
+    if: always() && inputs.dry-run != true && needs.validate.outputs.skip != 'true' && needs.validate.outputs.dry-run != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -605,7 +652,9 @@ jobs:
           BROWSER_VERSION: ${{ needs.release-browser-sdk.outputs.version }}
           AGENT_RESULT: ${{ needs.release-agent-sdk.result }}
           AGENT_VERSION: ${{ needs.release-agent-sdk.outputs.version }}
+          REACT_NATIVE_RESULT: ${{ needs.release-react-native-sdk.result }}
           CLI_RESULT: ${{ needs.release-cli.result }}
+          REACT_NATIVE_VERSION: ${{ needs.release-react-native-sdk.outputs.version }}
           CLI_VERSION: ${{ needs.release-cli.outputs.version }}
           BACKEND_RESULT: ${{ needs.release-backend.result }}
           BACKEND_VERSION: ${{ needs.release-backend.outputs.version }}
@@ -630,6 +679,9 @@ jobs:
           fi
           if [ -n "$AGENT_VERSION" ] || [ "$AGENT_RESULT" != "skipped" ]; then
             MSG="$MSG Agent ${AGENT_VERSION:-failed} (${AGENT_RESULT})"
+          fi
+          if [ -n "$REACT_NATIVE_VERSION" ] || [ "$REACT_NATIVE_RESULT" != "skipped" ]; then
+            MSG="$MSG React Native ${REACT_NATIVE_VERSION:-failed} (${REACT_NATIVE_RESULT})"
           fi
           if [ -n "$CLI_VERSION" ] || [ "$CLI_RESULT" != "skipped" ]; then
             MSG="$MSG CLI ${CLI_VERSION:-failed} (${CLI_RESULT})"

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Runs inside `run-test-emulator --` (dev/start-android): install, reverse the
+# ports, launch, then wait. With XMTP_RN_SCREENSHOT, it saves a screenshot
+# after the first render and returns, which stops the emulator.
+set -euo pipefail
+: "${ANDROID_SERIAL:?The emulator launcher must select a device}"
+: "${XMTP_RN_APK:?Set by dev/start-android}"
+adb=(adb -s "$ANDROID_SERIAL")
+"${adb[@]}" install -r "$XMTP_RN_APK"
+for port in ${XMTP_RN_REVERSE_PORTS:-}; do
+  "${adb[@]}" reverse "tcp:$port" "tcp:$port"
+done
+launch=(shell am start -W -n org.xmtp.example.reactnative/.MainActivity
+  --es XMTP_BACKEND_URL "$XMTP_BACKEND_URL")
+# Private attachment access is an explicit caller opt-in.
+if [[ "${XMTP_ALLOW_PRIVATE_ATTACHMENTS:-}" == 1 ]]; then
+  launch+=(--es XMTP_ALLOW_PRIVATE_ATTACHMENTS 1)
+fi
+"${adb[@]}" logcat -c
+"${adb[@]}" "${launch[@]}"
+
+if [[ -n "${XMTP_RN_SCREENSHOT:-}" ]]; then
+  for _ in $(seq 120); do
+    if "${adb[@]}" logcat -d -s ReactNativeJS:I | grep -q 'Running "main"'; then
+      break
+    fi
+    sleep 1
+  done
+  # Let the first screen lay out and draw.
+  sleep 8
+  "${adb[@]}" exec-out screencap -p >"$XMTP_RN_SCREENSHOT"
+  "${adb[@]}" logcat -d -s ReactNativeJS:* AndroidRuntime:E | tail -n 40
+  printf 'Saved %s\n' "$XMTP_RN_SCREENSHOT"
+  exit 0
+fi
+
+printf '\nXMTP Messenger is running on %s with backend %s.\n' "$ANDROID_SERIAL" "$XMTP_BACKEND_URL"
+printf 'Press Enter to stop the emulator.\n'
+read -r _ || true

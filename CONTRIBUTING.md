@@ -18,7 +18,7 @@ Request a feature using [GitHub Issues](https://github.com/xmtp/libxmtp/issues).
 
 PRs are welcome. For new features, we encourage you to open an issue first to discuss the problem and proposed approach. If the PR involves a major change to the protocol, the work should be fleshed out as an [XMTP Improvement Proposal](https://community.xmtp.org/t/xip-0-xip-purpose-process-guidelines/475) before work begins.
 
-After a pull request is submitted, a single approval is required to merge it.
+After a pull request is submitted, a single approval is required to merge it. [REVIEW.md](REVIEW.md) says what reviewers weigh and what blocks a PR.
 
 ### AI-assisted contributions
 

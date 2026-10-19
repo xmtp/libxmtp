@@ -32,6 +32,7 @@ let
       (fileFilter (file: file.hasExt "json") (root + /crates))
       # trybuild compares compiler errors with checked-in output.
       (fileFilter (file: file.hasExt "stderr") (root + /crates/xmtp_macro/tests/ui))
+      (fileFilter (file: file.hasExt "stderr") (root + /crates/xmtp_backend_config/tests/ui))
     ];
   };
 

@@ -41,8 +41,8 @@ override module shell selection. Humans, the Codex hook, Murmur, Zed, and direnv
 The wrapper caches each evaluated environment (`nix print-dev-env`) under
 `${XDG_CACHE_HOME:-~/.cache}/xmtp/nix-shell`. The key is the system, the shell,
 and the files that the shells read (`key_paths` in `dev/nix-shell`: `nix/`,
-`flake.nix`, `flake.lock`, the root `package.json`, `webdriver.json`, and the
-Kache helpers). A Rust, Cargo, or nested `package.json` edit keeps the cached
+`flake.nix`, `flake.lock`, the root `package.json`, `webdriver.json`,
+`sdks/react-native/test/consumers/native-toolchain.json`, and the Kache helpers). A Rust, Cargo, or nested `package.json` edit keeps the cached
 environment, so entry takes about 0.1 s. An edit to a key file evaluates
 again. `dev/nix-shell --refresh ...` evaluates again on request, for example
 after a change that the key cannot see. A shell file that reads a new file

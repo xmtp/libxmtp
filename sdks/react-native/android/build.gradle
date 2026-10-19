@@ -1,0 +1,33 @@
+apply plugin: 'com.android.library'
+apply plugin: 'com.facebook.react'
+
+react {
+    libraryName = 'XmtpReactNativeSpec'
+    codegenJavaPackageName = 'org.xmtp.reactnative'
+}
+
+android {
+    namespace 'org.xmtp.reactnative'
+    compileSdk rootProject.ext.has('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 37
+    buildToolsVersion rootProject.ext.has('buildToolsVersion') ? rootProject.ext.buildToolsVersion : '37.0.0'
+    ndkVersion rootProject.ext.has('ndkVersion') ? rootProject.ext.ndkVersion : '27.1.12297006'
+    defaultConfig {
+        minSdk 24
+        externalNativeBuild {
+            cmake { arguments '-DANDROID_STL=c++_shared' }
+        }
+    }
+    externalNativeBuild {
+        cmake { path 'CMakeLists.txt'; version '3.22.1' }
+    }
+    buildFeatures { prefab true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.facebook.react:react-android'
+    implementation 'androidx.lifecycle:lifecycle-process:2.9.4'
+}

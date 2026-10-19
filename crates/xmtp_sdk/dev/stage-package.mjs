@@ -3,15 +3,12 @@ import { execFileSync } from "node:child_process";
 // Compile matched generated trees and retain their runtime assets.
 import { createHash } from "node:crypto";
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   symlinkSync,
   readFileSync,
-  readdirSync,
   realpathSync,
-  renameSync,
   rmSync,
   copyFileSync,
   cpSync,
@@ -26,6 +23,17 @@ import {
   stageNodePlatforms,
   usePlatformPackages,
 } from "./node-platforms.mjs";
+import {
+  files,
+  hash,
+  makeWritable,
+  readJson,
+  removeTree,
+  rewriteImports,
+  stagePackage,
+  writeEntry,
+  writeJson,
+} from "./package-staging.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const generated = resolve(
@@ -36,20 +44,28 @@ const output = resolve(
 );
 const target = process.argv[2];
 const publicPackage = process.argv.includes("--public");
+if (target === "react-native") {
+  execFileSync(
+    process.execPath,
+    [join(root, "sdks/react-native/scripts/stage-package.mjs")],
+    { cwd: root, stdio: "inherit" },
+  );
+  process.exit(0);
+}
 const platformDirectory = process.env.XMTP_SDK_NODE_PLATFORMS_DIR;
 if (platformDirectory && (target !== "node" || !publicPackage))
   throw new Error("Node platform assembly requires a public Node product");
 if (!["node", "browser"].includes(target))
   throw new Error("expected node or browser");
 const sourceManifest = publicPackage
-  ? JSON.parse(readFileSync(join(root, "sdks", target, "package.json")))
+  ? readJson(join(root, "sdks", target, "package.json"))
   : undefined;
 const trees =
   target === "node"
     ? ["typescript-napi"]
     : ["typescript-wasm", "typescript-pure"];
 const contracts = trees.map((tree) =>
-  JSON.parse(readFileSync(join(generated, tree, "sdk-contract.json"))),
+  readJson(join(generated, tree, "sdk-contract.json")),
 );
 // Each tree's contract digests its own library, so the browser's worker and
 // pure trees match on the generator and the source, profile, and Rust target
@@ -100,47 +116,11 @@ trees.forEach((tree, i) => {
       `SDK generated ${tree} has features ${features}, expected "${productFeatures[tree]}"`,
     );
 });
-const hash = (path) =>
-  createHash("sha256").update(readFileSync(path)).digest("hex");
-function files(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((item) => {
-    if (item.name === "node_modules") return [];
-    const path = join(directory, item.name);
-    return item.isDirectory() ? files(path) : [path];
-  });
-}
-// Copies of Nix store paths keep their read-only modes.
-function makeWritable(directory) {
-  chmodSync(directory, 0o755);
-  for (const item of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, item.name);
-    if (item.isSymbolicLink())
-      throw new Error(`copied SDK input has a symbolic link: ${path}`);
-    if (item.isDirectory()) makeWritable(path);
-    else chmodSync(path, 0o644);
-  }
-}
-// Removal needs write access to each directory. Restore it without following
-// links, so cleanup after a failed copy does not hide the first error.
-function removeTree(directory) {
-  if (!existsSync(directory)) return;
-  const open = (path) => {
-    chmodSync(path, 0o755);
-    for (const item of readdirSync(path, { withFileTypes: true }))
-      if (item.isDirectory()) open(join(path, item.name));
-  };
-  open(directory);
-  rmSync(directory, { recursive: true, force: true });
-}
 for (let i = 0; i < trees.length; i++) {
   checkGeneratedAssets(generated, trees[i], contracts[i]);
 }
-mkdirSync(output, { recursive: true });
-const staging = mkdtempSync(join(output, ".sdk-stage-"));
-const destination = join(staging, target);
 const product = join(output, target);
-const previous = join(staging, "previous");
-try {
+const contract = stagePackage(product, (destination) => {
   mkdirSync(destination, { recursive: true });
   const compiler = resolve(
     process.env.XMTP_SDK_TSDOWN_CLI ??
@@ -182,10 +162,10 @@ try {
     makeWritable(runtime);
     rmSync(join(runtime, "dist/cjs"), { recursive: true, force: true });
     const manifestFile = join(runtime, "package.json");
-    const manifest = JSON.parse(readFileSync(manifestFile));
+    const manifest = readJson(manifestFile);
     if (manifest.exports?.["."]?.require) delete manifest.exports["."].require;
     if (manifest.module) manifest.main = manifest.module;
-    writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
+    writeJson(manifestFile, manifest, true);
   }
   let nodePlatforms;
   if (platformDirectory) {
@@ -229,32 +209,26 @@ try {
       join(compile, "node_modules"),
     );
     const tsconfig = join(compile, "tsconfig.json");
-    writeFileSync(
-      tsconfig,
-      JSON.stringify({
-        compilerOptions: {
-          target: "ES2022",
-          module: "ESNext",
-          moduleResolution: "Bundler",
-          skipLibCheck: true,
-          strict: true,
-          allowImportingTsExtensions: true,
-          lib: ["ES2022", "DOM", "DOM.Iterable"],
-          types: [],
-        },
-        include: ["**/*.ts"],
-      }),
-    );
+    writeJson(tsconfig, {
+      compilerOptions: {
+        target: "ES2022",
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        skipLibCheck: true,
+        strict: true,
+        allowImportingTsExtensions: true,
+        lib: ["ES2022", "DOM", "DOM.Iterable"],
+        types: [],
+      },
+      include: ["**/*.ts"],
+    });
     for (const tree of trees) {
       const source = join(compile, tree);
       const sourceManifest = join(source, "package.json");
-      writeFileSync(
-        sourceManifest,
-        JSON.stringify({
-          ...JSON.parse(readFileSync(sourceManifest)),
-          type: "module",
-        }),
-      );
+      writeJson(sourceManifest, {
+        ...readJson(sourceManifest),
+        type: "module",
+      });
       const dest = target === "node" ? destination : join(destination, tree);
       mkdirSync(dest, { recursive: true });
       const entries = files(source).filter(
@@ -282,17 +256,14 @@ try {
         mkdirSync(dirname(to), { recursive: true });
         copyFileSync(path, to);
       }
-      writeFileSync(
+      writeJson(
         join(dest, "package.json"),
-        JSON.stringify(
-          {
-            private: true,
-            type: "module",
-            imports: { "#xmtp/binding": "./xmtp_sdk.js" },
-          },
-          null,
-          2,
-        ) + "\n",
+        {
+          private: true,
+          type: "module",
+          imports: { "#xmtp/binding": "./xmtp_sdk.js" },
+        },
+        true,
       );
     }
   } finally {
@@ -308,17 +279,9 @@ try {
   }
   const entry = target === "node" ? "./index.js" : "./typescript-wasm/index.js";
   // Public entries expose the compiled package roots.
-  writeFileSync(join(destination, "entry.js"), `export * from '${entry}';\n`);
-  writeFileSync(join(destination, "entry.d.ts"), `export * from '${entry}';\n`);
+  writeEntry(destination, "entry", entry);
   if (target === "browser") {
-    writeFileSync(
-      join(destination, "pure.js"),
-      "export * from './typescript-pure/index.js';\n",
-    );
-    writeFileSync(
-      join(destination, "pure.d.ts"),
-      "export * from './typescript-pure/index.js';\n",
-    );
+    writeEntry(destination, "pure", "./typescript-pure/index.js");
   }
   const manifest = {
     name: target === "node" ? "xmtp-sdk" : "xmtp-sdk-browser",
@@ -338,11 +301,8 @@ try {
     dependencies: Object.fromEntries(
       runtimes.map((name) => [
         `@ubjs/${name}`,
-        JSON.parse(
-          readFileSync(
-            join(destination, "node_modules/@ubjs", name, "package.json"),
-          ),
-        ).version,
+        readJson(join(destination, "node_modules/@ubjs", name, "package.json"))
+          .version,
       ]),
     ),
     bundledDependencies: runtimes.map((name) => `@ubjs/${name}`),
@@ -396,28 +356,15 @@ try {
       for (const path of files(directory).filter((item) =>
         item.endsWith(".js"),
       )) {
-        let source = readFileSync(path, "utf8");
-        for (const [name, entry] of Object.entries(bindings)) {
-          let specifier = relative(dirname(path), entry).replaceAll("\\", "/");
-          if (!specifier.startsWith(".")) specifier = `./${specifier}`;
-          source = source
-            .replaceAll(`"${name}"`, JSON.stringify(specifier))
-            .replaceAll(`'${name}'`, JSON.stringify(specifier));
-        }
-        if (!path.includes("node_modules")) {
-          const tree = path.includes("typescript-pure")
-            ? "typescript-pure"
-            : "typescript-wasm";
-          let binding = relative(
-            dirname(path),
-            join(destination, tree, "xmtp_sdk.js"),
-          );
-          if (!binding.startsWith(".")) binding = `./${binding}`;
-          source = source
-            .replaceAll('"#xmtp/binding"', JSON.stringify(binding))
-            .replaceAll("'#xmtp/binding'", JSON.stringify(binding));
-        }
-        writeFileSync(path, source);
+        const tree = path.includes("typescript-pure")
+          ? "typescript-pure"
+          : "typescript-wasm";
+        rewriteImports(path, {
+          ...bindings,
+          ...(!path.includes("node_modules")
+            ? { "#xmtp/binding": join(destination, tree, "xmtp_sdk.js") }
+            : {}),
+        });
       }
     }
     rewrite(destination);
@@ -464,8 +411,8 @@ try {
       const runtimeFiles = [...shipped].filter((path) =>
         path.startsWith(prefix),
       );
-      const runtimeManifest = JSON.parse(
-        readFileSync(join(destination, prefix, "package.json")),
+      const runtimeManifest = readJson(
+        join(destination, prefix, "package.json"),
       );
       const entries = [];
       function collectEntries(value) {
@@ -509,46 +456,23 @@ try {
       }
     }
   }
-  writeFileSync(
+  writeJson(
     join(destination, "sdk-contract.json"),
-    JSON.stringify(
-      {
-        contract,
-        generator: contracts[0].generator,
-        proof_origin: contracts[0].proof_origin,
-        final_gate: contracts[0].final_gate,
-        platform_scope: nodePlatforms
-          ? "supported-matrix"
-          : target === "node"
-            ? "development-host"
-            : "browser",
-        platforms: nodePlatforms?.platforms,
-        assets,
-      },
-      null,
-      2,
-    ) + "\n",
+    {
+      contract,
+      generator: contracts[0].generator,
+      proof_origin: contracts[0].proof_origin,
+      final_gate: contracts[0].final_gate,
+      platform_scope: nodePlatforms
+        ? "supported-matrix"
+        : target === "node"
+          ? "development-host"
+          : "browser",
+      platforms: nodePlatforms?.platforms,
+      assets,
+    },
+    true,
   );
-  // Keep the prior product until compilation and all package checks succeed.
-  if (existsSync(product)) renameSync(product, previous);
-  try {
-    renameSync(destination, product);
-  } catch (error) {
-    if (existsSync(previous)) {
-      try {
-        renameSync(previous, product);
-      } catch (rollbackError) {
-        throw new AggregateError(
-          [error, rollbackError],
-          `Previous SDK product remains at ${previous}`,
-        );
-      }
-    }
-    throw error;
-  }
-  rmSync(previous, { recursive: true, force: true });
-  console.log(`SDK staged ${target} ${contract} at ${product}`);
-} finally {
-  // Preserve the backup if a filesystem error prevents rollback.
-  if (!existsSync(previous)) removeTree(staging);
-}
+  return contract;
+});
+console.log(`SDK staged ${target} ${contract} at ${product}`);

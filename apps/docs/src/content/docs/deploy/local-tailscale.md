@@ -105,7 +105,7 @@ services:
       retries: 20
 
   backend:
-    image: ghcr.io/xmtp/backend:8.0.0-rc2
+    image: ghcr.io/xmtp/backend:8.0.0-rc3
     restart: unless-stopped
     stop_grace_period: 30s
     depends_on:
@@ -177,7 +177,7 @@ Use Serve for this private node. Tailscale Funnel publishes a service to the int
 
 ## Step 5 Connect from a remote device
 
-Connect the remote device to Tailscale. Test from a different network, such as a phone hotspot. In the SDK [client setup](/sdk/client/#create-a-client), set the backend URL to the full HTTPS URL that Serve printed. Use that URL for Browser, Node, Agent, Kotlin, and Swift clients.
+Connect the remote device to Tailscale. Test from a different network, such as a phone hotspot. In the SDK [client setup](/sdk/client/#create-a-client), set the backend URL to the full HTTPS URL that Serve printed. Use that URL for Browser, Node, React Native, Agent, Kotlin, and Swift clients.
 
 Use the full `*.ts.net` name. A short host name or a `100.x.y.z` address does not match the HTTPS certificate. `127.0.0.1` on the remote device refers to that device, not to the node.
 

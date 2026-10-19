@@ -73,7 +73,7 @@ schema:
     set -euo pipefail
     schema_tmp="$(mktemp docs/schemas/backend-v1.XXXXXX)"
     trap 'rm -f "$schema_tmp"' EXIT
-    cargo run --locked --quiet -p xmtp_backend --example config_schema > "$schema_tmp"
+    cargo run --locked --quiet -p xmtp_backend_config --example config_schema > "$schema_tmp"
     mv "$schema_tmp" docs/schemas/backend-v1.json
 
 # Load the `image` build under this worktree's own tag, XMTP_BACKEND_IMAGE.

@@ -63,6 +63,12 @@ describe("create-release-branch", () => {
       '{"name":"@xmtp/agent-sdk","version":"8.0.0"}\n',
     );
 
+    fs.mkdirSync(path.join(tmpDir, "sdks/react-native"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "sdks/react-native/package.json"),
+      '{"name":"@xmtp/react-native-sdk","version":"8.0.0"}\n',
+    );
+
     // Create release notes directory
     fs.mkdirSync(path.join(tmpDir, "docs/release-notes"), { recursive: true });
 
@@ -393,7 +399,14 @@ describe("create-release-branch", () => {
     const { handler } =
       await import("../../src/commands/create-release-branch");
     const { getSdkConfig } = await import("../../src/lib/sdk-config");
-    const sdks = ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk"];
+    const sdks = [
+      "ios",
+      "android",
+      "node-sdk",
+      "browser-sdk",
+      "agent-sdk",
+      "react-native-sdk",
+    ];
     for (const sdk of sdks) {
       getSdkConfig(sdk).manifest.writeVersion(tmpDir, "8.0.0");
     }
@@ -431,6 +444,7 @@ describe("create-release-branch", () => {
       nodeSdk: "keep",
       browserSdk: "keep",
       agentSdk: "keep",
+      reactNativeSdk: "keep",
       _: [],
       $0: "test",
     });
@@ -513,6 +527,7 @@ describe("create-release-branch", () => {
       ios: "none",
       android: "none",
       agentSdk: "keep",
+      reactNativeSdk: "keep",
       _: [],
       $0: "test",
     });
@@ -522,6 +537,12 @@ describe("create-release-branch", () => {
     );
     expect(notes).toContain(`previous_release_tag = "${root}"`);
     expect(notes).not.toContain("previous_release_version");
+    const rnNotes = fs.readFileSync(
+      path.join(tmpDir, "docs/release-notes/react-native-sdk/8.0.0.md"),
+      "utf-8",
+    );
+    expect(rnNotes).toContain(`previous_release_tag = "${root}"`);
+    expect(rnNotes).not.toContain("previous_release_version");
   });
 
   it("sets the Rust workspace version only with an explicit option", async () => {

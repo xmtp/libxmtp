@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     api,
-    config::{Config, DELIVERY_FRAME_BYTES},
+    config::{DELIVERY_FRAME_BYTES, ValidatedConfig},
     db,
     stream::StreamEnd,
     stream::fetch::Request,
@@ -53,7 +53,7 @@ struct Session {
     request_id: uuid::Uuid,
     hub: Arc<StreamHub>,
     id: u64,
-    config: Arc<Config>,
+    config: Arc<ValidatedConfig>,
     mailbox: Arc<Mailbox>,
     output: mpsc::Sender<Frame>,
     topics: HashMap<Vec<u8>, Registration>,
@@ -83,7 +83,7 @@ impl Drop for Session {
 /// cancels pending fetches, and removes every shared registration.
 pub(crate) fn native(
     hub: Arc<StreamHub>,
-    config: Arc<Config>,
+    config: Arc<ValidatedConfig>,
     input: Streaming<api::SubscribeRequest>,
     request_id: uuid::Uuid,
 ) -> Result<impl futures::Stream<Item = Result<api::SubscribeResponse, Status>> + Send, Status> {
@@ -101,7 +101,7 @@ pub(crate) fn native(
 /// request's end is not connected to the native half-close signal.
 pub(crate) fn static_subscription(
     hub: Arc<StreamHub>,
-    config: Arc<Config>,
+    config: Arc<ValidatedConfig>,
     topics: Vec<api::TopicQuery>,
     request_id: uuid::Uuid,
 ) -> Result<impl futures::Stream<Item = Result<api::SubscribeStaticResponse, Status>> + Send, Status>
@@ -126,7 +126,7 @@ pub(crate) fn static_subscription(
 
 fn start(
     hub: Arc<StreamHub>,
-    config: Arc<Config>,
+    config: Arc<ValidatedConfig>,
     input: BoxStream<'static, Result<api::SubscribeRequest, Status>>,
     request_id: uuid::Uuid,
     initial: Option<Vec<api::TopicQuery>>,

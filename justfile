@@ -5,6 +5,8 @@ mod example-android 'apps/example-android/example-android.just'
 mod ios 'sdks/ios/ios.just'
 mod example-ios 'apps/example-ios/example-ios.just'
 mod sdk 'crates/xmtp_sdk/sdk.just'
+mod react-native 'sdks/react-native/react-native.just'
+mod example-react-native 'apps/example-react-native/example-react-native.just'
 mod wasm 'dev/wasm.just'
 mod js 'sdks/js.just'
 mod docs 'apps/docs/docs.just'
@@ -75,8 +77,10 @@ _check-crate +crates:
 # The CI lint suites lint_workspace, lint_js, lint_config, lint_proto,
 # lint_deny, and docs_quality, the WASM and SDK generator Clippy of check_rust,
 # and `spec-check`. It skips lint_ios, lint_example_ios, and the Android example
-# lint (a job of test_example_android), which need mobile toolchains, and the
-# cargo-deny advisories check, which does not block.
+# lint (a job of test_example_android), which need mobile toolchains, the
+# cargo-deny advisories check, which does not block, and
+# lint_example_react_native, a standalone pnpm project with its own install
+# (run `just example-react-native check`).
 # The checks run in parallel; `just --jobs 1 lint` runs them one at a time.
 [parallel]
 lint: _js-deps && lint-rust wasm::lint lint-js-source lint-js-format lint-config lint-markdown lint-proto lint-deny docs::test docs::check-source spec-check
@@ -117,9 +121,10 @@ lint-config: _js-deps lint-treefmt
 lint-treefmt:
     nix fmt -- --fail-on-change
 
-# Exclude the generated error glossary and release changelogs.
+# Exclude the generated error glossary, release changelogs and CocoaPods
+# sources, which `just example-react-native install` writes into the tree.
 lint-markdown:
-    markdownlint "**/*.md" ".agents/**/*.md" --ignore "**/CLAUDE.md" --ignore "**/node_modules/**" --ignore "target/**" --ignore "**/dist/**" --ignore "**/_site/**" --ignore "apps/docs/generated/**" --ignore "apps/docs/src/content/docs/reference/*-sdk/**" --ignore "docs/error_glossary.md" --ignore "apps/cli/CHANGELOG.md" --ignore "sdks/{node,browser,agent}/CHANGELOG.md" --disable MD001 MD013
+    markdownlint "**/*.md" ".agents/**/*.md" --ignore "**/CLAUDE.md" --ignore "**/node_modules/**" --ignore "**/Pods/**" --ignore "target/**" --ignore "**/dist/**" --ignore "**/_site/**" --ignore "apps/docs/generated/**" --ignore "apps/docs/src/content/docs/reference/*-sdk/**" --ignore "docs/error_glossary.md" --ignore "apps/cli/CHANGELOG.md" --ignore "sdks/{node,browser,agent}/CHANGELOG.md" --disable MD001 MD013
 
 # --- FORMAT ---
 

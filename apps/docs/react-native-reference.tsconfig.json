@@ -1,0 +1,7 @@
+{
+  "extends": "../../dev/js/tsconfig.web.json",
+  "compilerOptions": {
+    "types": ["node", "react"]
+  },
+  "include": ["../../sdks/react-native/dist/**/*.d.ts"]
+}

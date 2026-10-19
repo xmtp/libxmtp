@@ -12,6 +12,11 @@ on:
         description: "Path to the npm package directory"
         required: true
         type: string
+      package-tarball:
+        description: "Checked React Native tarball; publish these exact bytes without stamping or repacking"
+        required: false
+        type: string
+        default: ""
       sdk:
         description: "SDK name for release tools (e.g. node-sdk, browser-sdk)"
         required: true
@@ -111,6 +116,7 @@ jobs:
         run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name-2 }}" --version "${{ inputs.dep-version-2 }}"
 
       - name: Set the packed product version
+        if: inputs.package-tarball == ''
         env:
           PACKAGE_DIRECTORY: ${{ inputs.package-dir }}
           PACKAGE_VERSION: ${{ inputs.version }}
@@ -132,7 +138,30 @@ jobs:
       - name: Update npm
         run: npm install -g npm@11
 
+      - uses: ./.github/actions/setup-nix
+        if: inputs.package-tarball != ''
+        with:
+          cache-mode: "read"
+          github-token: ${{ github.token }}
+
+      - name: Verify the checked React Native tarball
+        if: inputs.package-tarball != ''
+        env:
+          PACKAGE_TARBALL_INPUT: ${{ inputs.package-tarball }}
+          PACKAGE_VERSION: ${{ inputs.version }}
+          SDK: ${{ inputs.sdk }}
+        run: |
+          set -euo pipefail
+          if [ "$SDK" != react-native-sdk ]; then
+            echo "::error::Prepacked publication is supported only for the checked React Native product"
+            exit 1
+          fi
+          source=$(nix eval --raw .#sdkProvenance.source)
+          python3 sdks/react-native/scripts/package.py verify-package "$PACKAGE_TARBALL_INPUT" --version "$PACKAGE_VERSION" --source "$source"
+          echo "PACKAGE_TARBALL=$(realpath "$PACKAGE_TARBALL_INPUT")" >> "$GITHUB_ENV"
+
       - name: Pack package
+        if: inputs.package-tarball == ''
         env:
           IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
         run: |

@@ -1,6 +1,6 @@
 ---
 title: Install the XMTP SDK
-description: Install an XMTP SDK for Browser, Node, Kotlin, or Swift.
+description: Install an XMTP SDK for Browser, Node, React Native, Kotlin, or Swift.
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
@@ -9,49 +9,51 @@ Install the SDK for your platform. All SDKs use a backend URL. See [Create a cli
 
 ## Install a package
 
-Use **8.0.0-rc2** for Browser, Node, Android, iOS, and Agent clients. Use
-`ghcr.io/xmtp/backend:8.0.0-rc2` for the backend. Pin the exact release candidate
+Use **8.0.0-rc3** for Browser, Node, React Native, Android, iOS, and Agent clients. Use
+`ghcr.io/xmtp/backend:8.0.0-rc3` for the backend. Pin the exact release candidate
 version. The published Browser 7 and Node 6 packages use an earlier backend API.
 
-### Browser, Node, and Agent packages
+### Browser, Node, React Native, and Agent packages
 
 Use the package for your platform:
 
-| Platform | Package                       |
-| -------- | ----------------------------- |
-| Browser  | `@xmtp/browser-sdk@8.0.0-rc2` |
-| Node     | `@xmtp/node-sdk@8.0.0-rc2`    |
-| Agent    | `@xmtp/agent-sdk@8.0.0-rc2`   |
+| Platform     | Package                            |
+| ------------ | ---------------------------------- |
+| Browser      | `@xmtp/browser-sdk@8.0.0-rc3`      |
+| Node         | `@xmtp/node-sdk@8.0.0-rc3`         |
+| React Native | `@xmtp/react-native-sdk@8.0.0-rc3` |
+| Agent        | `@xmtp/agent-sdk@8.0.0-rc3`        |
 
 Run one command from your app directory. These commands install the Browser SDK.
-For Node or Agent, replace `@xmtp/browser-sdk` with the package name in the table.
+For Node, React Native, or Agent, replace the entire package specifier
+`@xmtp/browser-sdk@8.0.0-rc3` with its package and version from the table.
 
 <Tabs syncKey="pkg">
 <TabItem label="npm">
 
 ```sh
-npm install --save-exact @xmtp/browser-sdk@8.0.0-rc2
+npm install --save-exact @xmtp/browser-sdk@8.0.0-rc3
 ```
 
 </TabItem>
 <TabItem label="pnpm">
 
 ```sh
-pnpm add --save-exact @xmtp/browser-sdk@8.0.0-rc2
+pnpm add --save-exact @xmtp/browser-sdk@8.0.0-rc3
 ```
 
 </TabItem>
 <TabItem label="yarn">
 
 ```sh
-yarn add --exact @xmtp/browser-sdk@8.0.0-rc2
+yarn add --exact @xmtp/browser-sdk@8.0.0-rc3
 ```
 
 </TabItem>
 <TabItem label="bun">
 
 ```sh
-bun add --exact @xmtp/browser-sdk@8.0.0-rc2
+bun add --exact @xmtp/browser-sdk@8.0.0-rc3
 ```
 
 </TabItem>
@@ -73,7 +75,7 @@ android {
     }
 }
 dependencies {
-    implementation("org.xmtp:android:8.0.0-rc2")
+    implementation("org.xmtp:android:8.0.0-rc3")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 ```
@@ -84,12 +86,12 @@ the same release. An older network SDK cannot use this backend.
 ### Swift package
 
 Add [libxmtp](https://github.com/xmtp/libxmtp) as a Swift package in Xcode. Select
-the `ios-8.0.0-rc2` tag and add the `XmtpSdk` product to your app. For a Swift
+the `ios-8.0.0-rc3` tag and add the `XmtpSdk` product to your app. For a Swift
 package, add these dependency and target entries:
 
 ```swift
 // In Package.dependencies:
-.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc2")
+.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc3")
 
 // In your app target's dependencies:
 .product(name: "XmtpSdk", package: "libxmtp")
@@ -112,6 +114,18 @@ Do not pass `storage.encryptionKey`; the Browser SDK rejects it.
 Use Node.js 22.12.0 or later. If you use database encryption, pass a 32-byte
 `storage.encryptionKey`. Keep that key and the database location stable between
 launches. Omitting the key selects unencrypted storage.
+
+</TabItem>
+<TabItem label="React Native">
+
+Use Hermes and New Architecture. Bare React Native requires iOS 15.1 or
+Android API 24. Expo development builds require iOS 16.4 on iOS. The package
+ships arm64 iOS device/simulator libraries and all four Android ABIs.
+See [React Native and Expo](/get-started/react-native/) for consumer validation
+targets, native setup, and rebuild steps. Expo Go is not supported.
+
+The app owns secure key persistence. Reuse the same optional 32-byte
+`storage.encryptionKey` and native database location between launches.
 
 </TabItem>
 <TabItem label="Kotlin">

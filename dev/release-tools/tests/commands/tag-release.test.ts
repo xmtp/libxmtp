@@ -43,58 +43,69 @@ describe("buildTag", () => {
 });
 
 describe("tag-release CLI", () => {
-  it.each([false, true])("creates a tag with push disabled: %s", (noPush) => {
-    const repoRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "release-local-tag-"),
-    );
-    try {
-      const git = (...args: string[]) =>
-        execFileSync("git", args, { cwd: repoRoot, encoding: "utf-8" }).trim();
-      git("init", "--initial-branch=main");
-      git("config", "user.name", "Test");
-      git("config", "user.email", "test@example.com");
-      git("config", "tag.gpgSign", "false");
-      git(
-        "-c",
-        "commit.gpgSign=false",
-        "commit",
-        "--allow-empty",
-        "-m",
-        "source",
+  it.each([
+    { sdk: "ios", version: "1.2.3", noPush: false },
+    { sdk: "ios", version: "1.2.3", noPush: true },
+    { sdk: "react-native-sdk", version: "8.0.0-rc1", noPush: true },
+  ])(
+    "creates $sdk $version with noPush=$noPush",
+    ({ sdk, version, noPush }) => {
+      const tag = `${sdk}-${version}`;
+      const repoRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "release-local-tag-"),
       );
-      const remote = path.join(repoRoot, "remote");
-      if (!noPush) {
-        git("init", "--bare", remote);
-      }
-      git("remote", "add", "origin", remote);
-      const output = execFileSync(
-        path.resolve("node_modules/.bin/tsx"),
-        [
-          "--tsconfig",
-          path.resolve("tsconfig.json"),
-          path.resolve("src/cli.ts"),
-          "tag-release",
-          "--sdk",
-          "ios",
-          "--version",
-          "1.2.3",
-          "--repo-root",
-          repoRoot,
-          ...(noPush ? ["--no-push"] : []),
-        ],
-        { cwd: repoRoot, encoding: "utf-8" },
-      );
-      expect(output.trim()).toBe("ios-1.2.3");
-      expect(git("rev-parse", "ios-1.2.3")).toBe(git("rev-parse", "HEAD"));
-      if (noPush) {
-        expect(fs.existsSync(remote)).toBe(false);
-      } else {
-        expect(git("--git-dir=" + remote, "rev-parse", "ios-1.2.3")).toBe(
-          git("rev-parse", "HEAD"),
+      try {
+        const git = (...args: string[]) =>
+          execFileSync("git", args, {
+            cwd: repoRoot,
+            encoding: "utf-8",
+          }).trim();
+        git("init", "--initial-branch=main");
+        git("config", "user.name", "Test");
+        git("config", "user.email", "test@example.com");
+        git("config", "tag.gpgSign", "false");
+        git(
+          "-c",
+          "commit.gpgSign=false",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "source",
         );
+        const remote = path.join(repoRoot, "remote");
+        if (!noPush) {
+          git("init", "--bare", remote);
+        }
+        git("remote", "add", "origin", remote);
+        const output = execFileSync(
+          path.resolve("node_modules/.bin/tsx"),
+          [
+            "--tsconfig",
+            path.resolve("tsconfig.json"),
+            path.resolve("src/cli.ts"),
+            "tag-release",
+            "--sdk",
+            sdk,
+            "--version",
+            version,
+            "--repo-root",
+            repoRoot,
+            ...(noPush ? ["--no-push"] : []),
+          ],
+          { cwd: repoRoot, encoding: "utf-8" },
+        );
+        expect(output.trim()).toBe(tag);
+        expect(git("rev-parse", tag)).toBe(git("rev-parse", "HEAD"));
+        if (noPush) {
+          expect(fs.existsSync(remote)).toBe(false);
+        } else {
+          expect(git("--git-dir=" + remote, "rev-parse", tag)).toBe(
+            git("rev-parse", "HEAD"),
+          );
+        }
+      } finally {
+        fs.rmSync(repoRoot, { recursive: true, force: true });
       }
-    } finally {
-      fs.rmSync(repoRoot, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 });

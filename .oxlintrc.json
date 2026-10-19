@@ -94,7 +94,9 @@
       // These standalone Node tools load runtime data and have no TS project.
       // Keep correctness and promise checks.
       "files": [
-        "crates/xmtp_sdk/dev/{stage-package,package-smoke,package-smoke-browser}.mjs",
+        "crates/xmtp_sdk/dev/{stage-package,package-staging,test-package-staging,package-smoke,package-smoke-browser}.mjs",
+        "sdks/react-native/scripts/stage-package.mjs",
+        "apps/example-react-native/metro.config.js",
         ".agents/skills/smoke-check/scripts/{ping-bot,bleep-bot,run-bot}.mjs"
       ],
       "rules": {
@@ -131,7 +133,11 @@
       }
     },
     {
-      "files": ["**/*.cjs"],
+      "files": [
+        "**/*.cjs",
+        "apps/example-react-native/metro.config.js",
+        "sdks/react-native/test/consumers/{bare,expo}/metro.config.js"
+      ],
       "rules": {
         "typescript/no-require-imports": "off"
       }

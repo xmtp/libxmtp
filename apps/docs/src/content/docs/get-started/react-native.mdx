@@ -1,0 +1,177 @@
+---
+title: React Native and Expo
+description: Set up the native XMTP SDK, storage, and optional React helpers on iOS and Android.
+---
+
+Use `@xmtp/react-native-sdk@8.0.0-rc3` for a React Native app connected to your
+self-hosted XMTP backend. It exposes the native v8 TypeScript API through a
+Hermes JSI TurboModule. Import app APIs from the package root. The raw generated
+bindings are private.
+
+## Native prerequisites
+
+Enable Hermes and React Native New Architecture. React Native 0.88.0 requires
+Node `^22.13.0 || ^24.3.0 || >=26.0.0` for app tooling.
+The package contains prebuilt
+Rust libraries. App builds need the normal React Native Android or iOS tools;
+app developers do not need Rust or Nix.
+
+| Platform                    | Deployment floor | Native targets                      |
+| --------------------------- | ---------------- | ----------------------------------- |
+| Bare React Native, iOS      | iOS 15.1         | arm64 device and arm64 simulator    |
+| Expo development build, iOS | iOS 16.4         | arm64 device and arm64 simulator    |
+| Android                     | API 24           | arm64-v8a, armeabi-v7a, x86, x86_64 |
+
+Intel iOS simulators, React Native Web, desktop React Native, and Expo Go cannot
+load this package. Package peer dependency ranges are not a tested support matrix.
+
+### Verified consumer configurations
+
+Bare React Native 0.88.0 with React 19.3.0 and Expo SDK 58.0.14 with React Native
+0.88.0 and React 19.3.0 have passed installed-package builds and Hermes runtime
+checks on both arm64 iOS simulators and Android emulators. These checks do not
+cover physical devices, APNs delivery, or system-triggered cold process wake.
+
+Older candidate versions require separate platform checks before being listed
+as supported. React Native 0.79.7, 0.80.3, 0.81.6, 0.82.1, 0.83.10, 0.84.1,
+0.85.3, 0.86.3, and 0.87.1 currently have skipped validation on both platforms
+and are not advertised as supported.
+
+## Bare React Native
+
+Add the package to a native React Native app with Hermes and New Architecture:
+
+```sh
+npm install --save-exact @xmtp/react-native-sdk@8.0.0-rc3
+```
+
+For iOS, install the app's pods after adding the package:
+
+```sh
+cd ios
+bundle exec pod install
+```
+
+Build the native app with its normal Xcode or Gradle workflow. Autolinking adds
+the XMTP native module. Reloading Metro alone does not install native code.
+Rebuild after installing or changing the SDK version.
+
+## Expo development builds
+
+Use an Expo development build or a prebuilt native project. Expo Go does not
+include the XMTP native module.
+
+```sh
+npx expo install @xmtp/react-native-sdk@8.0.0-rc3
+npx expo prebuild
+npx expo run:ios
+```
+
+Use `npx expo run:android` for Android. Keep the Expo SDK, React Native, and React
+versions aligned. Rebuild the development client when the native dependency
+changes. An over-the-air JavaScript update cannot add or replace the native SDK.
+
+## Connect and send
+
+Supply a backend URL the device can reach. A phone's `localhost` is the phone,
+not your development computer. Use your deployment's HTTPS URL, or configure a
+reachable development backend and the app's local network policy.
+
+The app supplies a signer and a saved 32-byte database encryption key. This
+complete TypeScript example connects, receives text, sends to another inbox,
+and releases its client. Apply [consent](/sdk/consent/) and your app's display
+policy in the incoming-message callback before showing content:
+
+```ts source="quickstart-react-native.ts" region="app"
+
+```
+
+Save the signing key and database key in the app's secret store. Reuse them and
+the database location on later launches. `Client.generateKeys()` creates a local
+signer; generating a new one on every launch creates a different identity. The
+SDK does not choose a Keychain or Android Keystore policy for your app.
+See [Signer](/sdk/signer/) and [Create a client](/sdk/client/).
+
+`storage.location: "default"` uses the native app storage directory. Explicit
+paths must be app-accessible native filesystem paths. Omitting `encryptionKey`
+selects unencrypted storage. A wrong key produces a typed storage error. End
+clients before moving, converting, or deleting database files.
+
+## Optional React helpers
+
+The `/react` entry exports `XmtpProvider`, `XmtpContext`, `useXmtp`, `useClient`,
+and their public v8 types. It uses the same native runtime as the package root.
+Place one provider around the components that share a client:
+
+```ts source="react-native-react.ts" region="provider"
+
+```
+
+`useXmtp()` reads the context. `useClient(onError?)` reads it and can report
+command errors to a mounted component. Both expose `client`, `error`,
+`isLoading`, `initialize({ signer, options })`, and `disconnect()`. Both hooks
+must run inside `XmtpProvider`.
+
+```ts source="react-native-react.ts" region="initialize"
+
+```
+
+Call `connect` from an app action and handle its rejected promise. Calls made
+while initialization is pending share that operation. Calling `initialize`
+while connected returns the current client; disconnect before changing the
+signer or options. `disconnect()` cancels pending initialization and releases a
+client created by the provider. Unmounting also releases a provider-created
+client. A late initialization result is closed before it can enter context.
+The pending promise rejects with `XmtpError.Cancelled`. Cancellation does not
+abort an external wallet callback or native creation. A new attempt can encounter
+a normal storage conflict until the old creation settles.
+If release fails, handle the error and retry `disconnect()` before initializing
+again.
+
+For an existing client, pass the instance as a prop:
+
+```ts source="react-native-react.ts" region="borrowed"
+
+```
+
+The caller owns this client and must call `end()` when finished with it. A prop
+change updates context. Passing a provider-created client back as a prop does
+not change its ownership. The helpers do not export legacy generic client types,
+`setClient`, message hooks, or conversation hooks. Use the normal client readers
+and events, and clean them up when their owner changes.
+
+## App lifecycle and operating system integration
+
+Native lifecycle observation is installed before the first client starts and
+uses the process's actual initial state, including a background launch. It
+suspends and resumes stream work with the native lifecycle. Do not add a second
+JavaScript `AppState` driver for the same SDK streams. Await message processing
+before requesting the next reader value. Release readers and clients when their
+app owner is finished. See [Streams](/sdk/stream/) and [Events](/sdk/events/).
+
+The app owns notification permissions and token acquisition, media selection,
+and secret-key persistence. Use the SDK's integrated [attachment
+workflow](/content-types/attachments/) with native file paths and its
+[notification API](/sdk/push-notifications/) with APNs or FCM tokens. A JavaScript
+listener cannot process a push while the operating system has suspended or
+terminated its runtime. Native background handlers and notification extensions
+need their own bounded processing and storage access.
+
+## Troubleshooting
+
+- **Native module missing:** rebuild the native app, install iOS pods, and confirm
+  autolinking. Metro reloads and Expo Go do not add the TurboModule.
+- **Engine or architecture error:** enable Hermes and New Architecture, and use
+  a packaged target from the table above.
+- **Backend unreachable:** use a device-reachable URL. Check credentials, TLS,
+  and the app's network permissions.
+- **Database cannot open:** keep the same database path and encryption key.
+  Do not open an active database from two runtimes or processes.
+- **Push arrives without a message:** treat it as a sync hint. Process welcomes,
+  sync the conversation, then apply consent and display rules. Normal foreground
+  sync still handles delayed or missed pushes.
+- **Metro reports private import failures:** import from `@xmtp/react-native-sdk`
+  or `@xmtp/react-native-sdk/react`, never from `dist` or generated binding paths.
+
+For pre-8.0.0 apps, follow the [React Native upgrade
+guide](/get-started/migrate-to-self-hosted/react-native-sdk-upgrade-guide/).

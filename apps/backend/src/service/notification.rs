@@ -39,7 +39,7 @@ impl api::notification_service_server::NotificationService for Backend {
         }
         let (channel, delivery, signing_key) = self.validate_delivery(&request).await?;
         let renewed_ns = self.store.clock_ns().await?;
-        self.config.push.expires_at(renewed_ns)?;
+        crate::push::recipient_expiry(&self.config.push, renewed_ns)?;
         let record = PushRecipientRecord {
             recipient_id: request.recipient_id,
             secret_hash: hash.to_vec(),
@@ -92,7 +92,7 @@ impl api::notification_service_server::NotificationService for Backend {
         authenticate(&recipient, &hash)?;
         let adds = validate_subscriptions(&request)?;
         let renewed_ns = self.store.clock_ns().await?;
-        self.config.push.expires_at(renewed_ns)?;
+        crate::push::recipient_expiry(&self.config.push, renewed_ns)?;
         let changes = self
             .store
             .apply_subscriptions(
@@ -115,7 +115,7 @@ impl Backend {
         Ok(api::RecipientState {
             topic_count: state.topic_count as u64,
             channel: state.channel as i32,
-            expires_at_ns: self.config.push.expires_at(state.renewed_ns)?,
+            expires_at_ns: crate::push::recipient_expiry(&self.config.push, state.renewed_ns)?,
         })
     }
 

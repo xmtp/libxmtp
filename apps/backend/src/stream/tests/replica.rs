@@ -172,7 +172,7 @@ async fn startup_waits_for_fresh_schema_to_reach_the_selected_replica() {
     database.wait_for_replica(read_url).await?;
     let read = sqlx::PgPool::connect(read_url).await?;
     assert!(!allocation_schema_exists(&read).await?);
-    let mut initialization = std::pin::pin!(RunningServer::new(config));
+    let mut initialization = std::pin::pin!(RunningServer::new(config.validate()?));
     with_paused_replay(&read, async {
         wait_for_replay_pause(&read).await?;
         let migrated = xmtp_common::wait_for_eq(

@@ -35,10 +35,16 @@ let
   // lib.optionalAttrs android { buildInputs = [ ]; }
   // lib.optionalAttrs stdenv.hostPlatform.isMusl { RUSTFLAGS = "-C target-feature=-crt-static"; };
   command =
-    lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global "
+    lib.optionalString stdenv.hostPlatform.isDarwin (
+      xmtp.iosEnv.nativeBuildEnv {
+        cc = "${stdenv.cc}/bin/cc";
+        cxx = "${stdenv.cc}/bin/c++";
+      }
+    )
+    + lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global "
     + "cargo ${
       if isGnu then "zigbuild" else "build"
-    } --release --locked -p xmtp_sdk --lib --target ${buildTarget}";
+    } --release --locked${lib.optionalString stdenv.hostPlatform.isDarwin " ${xmtp.iosEnv.nativeCargoArgs}"} -p xmtp_sdk --lib --target ${buildTarget}";
   compilation = rust.buildPackage (
     xmtp.base.commonArgs
     // special
@@ -75,6 +81,13 @@ let
       # need no NDK at run time. strip keeps it: the text is in .rodata.
       + lib.optionalString android ''
         remove-references-to -t ${stdenv.cc} $out/lib/libxmtp_sdk.so $out/lib/libxmtp_sdk.a
+      '';
+    }
+    # The strip hook rebuilds archive indexes. LLVM ranlib's deterministic
+    # default keeps the build user's UID out of the index header.
+    // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
+      preFixup = ''
+        export RANLIB=${buildPackages.llvmPackages.llvm}/bin/llvm-ranlib
       '';
     }
     # Reject the NDK wrapper and the paths it wraps: the unwrapped toolchain,

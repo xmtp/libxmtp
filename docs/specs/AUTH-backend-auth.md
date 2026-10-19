@@ -26,13 +26,13 @@ flowchart TD
 
 ## Scope
 
-In scope: which paths need a credential and which never do; the bearer form; how an API key is matched; how a JWT is verified, including the accepted algorithms, key selection, the claim types, and the time, audience, issuer, and scope claims; how the key set is loaded, refreshed, bounded, and retired; the checks an enabled `[auth]` table must pass at startup; the rejection vocabulary; how the client obtains, attaches, refreshes, and replaces a credential; when the client stops trying; and what the backend records about a credential.
+In scope: which paths need a credential and which never do; the bearer form; how an API key is matched; how a JWT is verified, including the accepted algorithms, key selection, the claim types, and the time, audience, issuer, and scope claims; how the key set is loaded, refreshed, bounded, and retired; the checks of an enabled `[auth]` table that this spec's rows state; the rejection vocabulary; how the client obtains, attaches, refreshes, and replaces a credential; when the client stops trying; and what the backend records about a credential.
 
-Out of scope: the presence rule for `auth.enabled` and what is published about auth (`CONF`); the general status code table ([API section 7](API-backend-api.md#7-bounds-errors-and-transport)); what an operator's identity provider does; and the metric families themselves (`OPS`).
+Out of scope: the types, presence, and standard checks of the `[auth]` keys, the presence rule for `auth.enabled`, and what is published about auth (`CONF`); the general status code table ([API section 7](API-backend-api.md#7-bounds-errors-and-transport)); what an operator's identity provider does; and the metric families themselves (`OPS`).
 
 | Related | Relation |
 | --- | --- |
-| `CONF` | Owns whether an `[auth]` table must state `enabled` (CONF-005), that a disabled table is not validated (CONF-066), the published auth summary (CONF-068), the unauthenticated configuration read (CONF-010, CONF-029), and the deployment identifier (CONF-002). This spec owns every other check of an enabled table. |
+| `CONF` | Owns whether an `[auth]` table must state `enabled` (CONF-005), that the values of a disabled table are not checked (CONF-066), the published auth summary (CONF-068), the unauthenticated configuration read (CONF-010, CONF-029), and the deployment identifier (CONF-002). This spec owns the checks of an enabled table that its rows state. CONF section 1.2 owns the types, presence, and standard checks of every `[auth]` key. |
 | [API section 7](API-backend-api.md#7-bounds-errors-and-transport) | Owns general gRPC status codes. This spec owns the auth-specific `UNAUTHENTICATED` and `PERMISSION_DENIED` conditions under AUTH-014. |
 | `OPS` | Owns the metric catalogue, including `xmtp_auth_rejections_total` (OPS-017), and the drain that AUTH-019 triggers (OPS-007, OPS-008). This spec owns the reason vocabulary. |
 | `EVENT` | EVENT-001 reports entry to and exit from credential lockout. |
@@ -75,7 +75,7 @@ A stream is admitted once, when it opens. Nothing that happens to the credential
 
 An API key is a shared secret an operator hands to a caller it runs itself, such as a bot or a bridge. It is checked before any JWT work, so its value does not have to look like a JWT, and it carries no scopes: the required scopes apply to JWTs only. The match compares SHA-256 digests in constant time, so response timing does not depend on how much of a key a caller guessed.
 
-An enabled table must name at least one mechanism, and a key value must be a usable secret: long enough that it cannot be guessed, made of bytes a header can carry, and distinct from every other key so that the recorded principal is unambiguous. The name syntax, the map layout, and the number of keys a table may hold are documentation of the backend.
+An enabled table must name at least one mechanism, and a key value must be a usable secret: long enough that it cannot be guessed, made of bytes a header can carry, and distinct from every other key so that the recorded principal is unambiguous. CONF section 1.2 states the name syntax, the map layout, and the number of keys a table may hold.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

@@ -1,0 +1,121 @@
+name: React Native SDK
+on:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      CACHIX_PR_AUTH_TOKEN:
+        required: false
+permissions:
+  contents: read
+env:
+  RN_CACHE_WRITER: ${{ secrets.CACHIX_PR_AUTH_TOKEN != '' }}
+jobs:
+  components:
+    name: RN components (${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: blacksmith-16vcpu-ubuntu-2404
+          - system: aarch64-darwin
+            runner: warp-macos-26-arm64-12x
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: ci
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+          github-token: ${{ github.token }}
+      - uses: ./.github/actions/react-native-product
+        with:
+          stage: components
+          system: ${{ matrix.system }}
+          source-sha: ${{ github.sha }}
+          package-version: ""
+          artifact-prefix: rn
+          cache-mode: ci
+      - name: Finish component cache uploads
+        if: ${{ env.RN_CACHE_WRITER == 'true' }}
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          jq -r '.roots[]' target/rn-exchange/components/manifest.json > "$RUNNER_TEMP/rn-roots"
+          while IFS= read -r path; do cachix push xmtp-pr "$path"; done < "$RUNNER_TEMP/rn-roots"
+
+  package:
+    name: Assemble the canonical RN package
+    needs: components
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: ci
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+          github-token: ${{ github.token }}
+      - uses: ./.github/actions/react-native-product
+        with:
+          stage: package
+          system: x86_64-linux
+          source-sha: ${{ github.sha }}
+          package-version: ""
+          artifact-prefix: rn
+          cache-mode: ci
+      - name: Finish package cache upload
+        if: ${{ env.RN_CACHE_WRITER == 'true' }}
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+        run: cachix push xmtp-pr "$XMTP_RN_PACKAGE_DIR"
+
+  consumers:
+    name: RN installed consumers (${{ matrix.platform }})
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            system: x86_64-linux
+            runner: blacksmith-16vcpu-ubuntu-2404
+          - platform: ios
+            system: aarch64-darwin
+            runner: warp-macos-26-arm64-12x
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      XMTP_SDK_BUILD: nix
+      NIX_DEVSHELL: ${{ matrix.platform == 'android' && 'android' || 'ios' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: ci
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+          github-token: ${{ github.token }}
+      - uses: ./.github/actions/setup-js
+        with:
+          cache-mode: ci
+      - uses: ./.github/actions/react-native-product
+        with:
+          stage: consumers
+          system: ${{ matrix.system }}
+          source-sha: ${{ github.sha }}
+          package-version: ""
+          artifact-prefix: rn
+          cache-mode: ci
+      - uses: ./.github/actions/react-native-conformance
+        with:
+          platform: ${{ matrix.platform }}
+          artifact-prefix: react-native
+          portable-contracts: "true"

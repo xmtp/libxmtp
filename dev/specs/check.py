@@ -130,7 +130,16 @@ PENDING_REF_RE = re.compile(r"\?([A-Z]{3,5})\b")
 EXAMPLE_FILES = {"SPEC-spec-format.md", "README.md"}
 
 # Tokens that match the identifier shape but are not identifiers.
-NOT_IDS = {"SHA-256", "SHA-512", "UTF-8", "BASE-64", "RFC-2119"}
+NOT_IDS = {
+    "SHA-256",
+    "SHA-512",
+    "UTF-8",
+    "BASE-64",
+    "RFC-2119",
+    # External standards the CONF spec cites by name.
+    "ECMA-262",
+    "EIP-155",
+}
 
 # SPEC-032: a prefix inherited from a legacy document keeps that document's
 # number space, so a new requirement never reuses a string that already meant

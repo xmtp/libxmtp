@@ -180,12 +180,12 @@ async fn key_package_admission_accepts_the_existing_credential_shape() {
         key_package_envelope("not-a-hex-inbox", KeyPackageOptions::default()),
         minimal_key_package_envelope(
             "minimal-capabilities",
-            xmtp_configuration::CIPHERSUITE,
+            xmtp_cryptography::configuration::CIPHERSUITE,
             None,
         ),
         minimal_key_package_envelope(
             "long-lifetime",
-            xmtp_configuration::CIPHERSUITE,
+            xmtp_cryptography::configuration::CIPHERSUITE,
             Some(openmls::key_packages::Lifetime::new(twenty_years)),
         ),
         minimal_key_package_envelope(

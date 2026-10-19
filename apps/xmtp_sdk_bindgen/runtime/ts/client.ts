@@ -1,8 +1,6 @@
 import { ClientForwarders } from "../client-forwarding.gen";
 import {
   Client as RawClient,
-  StorageLocation,
-  StorageLocation_Tags,
   type ClientLike,
   type ClientOptions,
   type ClientEvent,
@@ -22,7 +20,12 @@ import {
 import { EventStream } from "./events/reader";
 export type { ContentCodec } from "./codec-type";
 
-declare const process: { cwd(): string } | undefined;
+import {
+  resolvedOptions,
+  retainPlatformClient,
+  releasePlatformClient,
+  discardPlatformClient,
+} from "./platform";
 
 export type SDKClientOptions = ClientOptions & {
   codecs?: readonly AnyCodec[];
@@ -38,20 +41,6 @@ class CodecRegistry {
   decode(encoded: EncodedContent): DecodedCustom | undefined {
     return decodeCustom(this.codecs, encoded);
   }
-}
-
-function resolvedOptions(options: ClientOptions): ClientOptions {
-  if (options.storage.location.tag !== StorageLocation_Tags.Default)
-    return options;
-  const directory =
-    typeof process === "undefined" ? "xmtp-sdk" : `${process.cwd()}/xmtp`;
-  return {
-    ...options,
-    storage: {
-      ...options.storage,
-      location: new StorageLocation.Directory({ directory }),
-    },
-  };
 }
 
 export class ClientRegistry {
@@ -92,12 +81,32 @@ export class Client extends ClientForwarders {
   private readonly pendingListeners = new Set<{ stopped: boolean }>();
   private readonly codecs: CodecRegistry;
 
-  private constructor(raw: ClientLike, codecs: readonly AnyCodec[]) {
+  private constructor(raw: ClientLike, codecs: CodecRegistry) {
     super();
+    retainPlatformClient(raw);
     bindings.set(this, raw);
     this.key = raw.clientKey();
-    this.codecs = new CodecRegistry(codecs);
+    this.codecs = codecs;
     ClientRegistry.set(this.key, this);
+  }
+
+  private static async wrap(
+    raw: ClientLike,
+    codecs: CodecRegistry,
+  ): Promise<Client> {
+    try {
+      return new Client(raw, codecs);
+    } catch (error) {
+      // No caller can reach this native client. Preserve the wrapping error
+      // even if cleanup also fails, and release the native runtime owner once.
+      try {
+        await discardPlatformClient(raw);
+      } catch {}
+      try {
+        releasePlatformClient(raw);
+      } catch {}
+      throw error;
+    }
   }
 
   static async create(
@@ -105,9 +114,10 @@ export class Client extends ClientForwarders {
     options: SDKClientOptions,
   ): Promise<Client> {
     const { codecs = [], ...rustOptions } = options;
-    return new Client(
+    const registry = new CodecRegistry(codecs);
+    return Client.wrap(
       await RawClient.create(signer, resolvedOptions(rustOptions)),
-      codecs,
+      registry,
     );
   }
 
@@ -117,9 +127,10 @@ export class Client extends ClientForwarders {
     inboxId?: InboxId,
   ): Promise<Client> {
     const { codecs = [], ...rustOptions } = options;
-    return new Client(
+    const registry = new CodecRegistry(codecs);
+    return Client.wrap(
       await RawClient.build(identity, resolvedOptions(rustOptions), inboxId),
-      codecs,
+      registry,
     );
   }
 
@@ -176,6 +187,7 @@ export class Client extends ClientForwarders {
     this.listeners.clear();
     try {
       await this.binding().end();
+      releasePlatformClient(this.binding());
     } finally {
       ClientRegistry.delete(this.key);
     }

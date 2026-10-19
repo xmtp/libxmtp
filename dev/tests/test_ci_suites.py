@@ -184,6 +184,36 @@ class CompileTests(unittest.TestCase):
                     )
                 self.assertEqual("test_xdbg" in result["suites"]["test"], expected)
 
+    def test_react_native_runs_for_shared_mobile_and_backend_inputs(self):
+        manifest = SUITES.compile_declaration(ROOT)
+        selector = SUITES.load_selector()
+        payload = {
+            "repository": {"full_name": "r"},
+            "pull_request": {
+                "head": {"repo": {"full_name": "r"}},
+                "labels": [],
+            },
+        }
+        for path in [
+            "nix/lib/ios-env.nix",
+            "nix/lib/android-env.nix",
+            "nix/lib/android-emulator-start.py",
+            "nix/lib/android-sync-clock.sh",
+            "nix/android-packages.nix",
+            "nix/shells/android.nix",
+            "nix/services/stack.nix",
+        ]:
+            with (
+                self.subTest(path=path),
+                mock.patch.multiple(
+                    selector, MANIFEST=manifest, SUITES=manifest["suites"]
+                ),
+            ):
+                result = selector.select_suites(
+                    [path], "pull_request", payload, "success", 1
+                )
+                self.assertIn("test_react_native", result["suites"]["test"])
+
     def test_secret_modes_are_validated(self):
         self.compile(lambda d: d["suites"]["lint_proto"].update(secrets="none"))
         for value in ("all", "None", "", None):

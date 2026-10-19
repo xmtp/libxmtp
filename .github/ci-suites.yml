@@ -103,6 +103,7 @@ path_groups:
   docker_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
+    - "crates/xmtp_backend_config/**"
     - "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}"
     - "dev/docker/{postgres,s3,toxiproxy}/**"
     - "dev/backend/{local.toml,local-s3.toml}"
@@ -115,6 +116,7 @@ path_groups:
   native_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
+    - "crates/xmtp_backend_config/**"
     - "dev/backend/**"
     - "dev/docker/s3/**"
     - "nix/package/backend.nix"
@@ -137,7 +139,7 @@ path_groups:
     - "nix/package/libffi-zig-cross.site"
     - "nix/package/node.nix"
     - "nix/node-packages.nix"
-    - "nix/lib/{sdk-sources,sdk-provenance,napiTarget}.nix"
+    - "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix"
     - "nix/sdk-platforms.json"
     - "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix"
     - "nix/lib/packages/napi-rs-cli/**"
@@ -157,6 +159,11 @@ path_groups:
   example_ios:
     - "apps/example-ios/**"
     - "nix/package/example-ios-run.nix"
+    - "!**/*.md"
+  # The React Native example is a standalone pnpm project. Root JS checks do
+  # not see it; lint_example_react_native checks it against the JS-only SDK.
+  example_react_native:
+    - "apps/example-react-native/**"
     - "!**/*.md"
   # Nix inputs of both example suites, without selecting SDK/backend source
   # changes. The common shell toolchain reads both mobile platform definitions.
@@ -180,8 +187,20 @@ path_groups:
     # The iOS/default shell inherits pnpm and WASM tools from the Rust shell.
     - "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix"
     - "nix/services/**"
+  react_native:
+    - ".github/actions/react-native-{product,conformance}/**"
+    - "sdks/react-native/**"
+    - "nix/react-native-*"
+    - "nix/package/react-native-*"
+    - "nix/lib/{react-native-env,sdk-native-toolchain}.nix"
+    - "nix/shells/react-native.nix"
+    - "nix/lib/ios-env.nix"
+    - "nix/lib/android-*"
+    - "nix/android-packages.nix"
+    - "nix/shells/android{,-ci}.nix"
+    - "nix/ci-sets.nix"
   js_packages:
-    - "sdks/{node,browser,agent}/**"
+    - "sdks/{node,browser,agent,react-native}/**"
     - "apps/{cli,web-chat,docs}/**"
 
 products:
@@ -329,6 +348,21 @@ suites:
       - path_group: swift
       - path_group: sdk_core
 
+  # Typecheck, Oxlint, Oxfmt and unit tests of the React Native example. It
+  # runs on drafts too: native builds are local (see the app's AGENTS.md).
+  lint_example_react_native:
+    phase: lint
+    workflow: lint-example-react-native.yml
+    run_on: [draft_pr_push, ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: cachix-pr
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - path_group: example_react_native
+      - pr_label: "react-native"
+
   # --- Dev tools -------------------------------------------------------------
   # `just test dev`: the dev/tests/run modules, the Fly dashboard test, and the
   # release-tools tests. lint_config keeps the lints of these files.
@@ -370,6 +404,7 @@ suites:
       - "**/dev/**"
       - "sdks/browser/test/platform/object-store/with-object-store"
       - "sdks/android/android.just"
+      - "sdks/react-native/scripts/test-installed"
       - "apps/example-android/{dev/apk,example-android.just,app/build.gradle}"
       # test_script_lint.py reads the shellcheck exclusions.
       - "nix/fmt.nix"
@@ -415,7 +450,7 @@ suites:
       - cargo_package: xmtp_backend
       - path_group: docker_backend
       # apps/backend tests embed these files.
-      - "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}"
+      - "docs/{backend-observability.md,specs/OPS-backend-operations.md}"
       - path_group: native_backend
       - "nix/{ci-checks,package/backend-tests}.nix"
   test_validation:
@@ -443,6 +478,8 @@ suites:
       - cargo_package: "@default-members"
       - path_group: docker_backend
       - "{.config/nextest.toml,webdriver.json}"
+      # xmtp_backend_config tests embed these files.
+      - "docs/{schemas/backend-v1.json,specs/CONF-backend-configuration.md}"
       - "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
       # The derivation starts these services.
       - "nix/services/**"
@@ -677,3 +714,19 @@ suites:
       - "apps/example-ios/**"
       - path_group: example_ios_nix
       - pr_label: "iOS"
+
+  test_react_native:
+    phase: test
+    workflow: test-react-native.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: cachix-pr
+    permissions: {contents: read}
+    kache: []
+    products: []
+    pr_filters:
+      - path_group: sdk_core
+      - path_group: js_workspace
+      - path_group: react_native
+      - path_group: native_backend
+      - path_group: docker_backend

@@ -4,7 +4,7 @@ title: Transaction references
 
 A transaction reference points to a transaction that was submitted on a chain.
 
-Type ID: `xmtp.org/transactionReference:1.0`. The payload is JSON-encoded `TransactionReference`. Its fallback includes the transaction reference, or `Crypto transaction` when the reference is empty. `shouldPush` defaults to `true` on Browser, Node, Kotlin, and Swift.
+Type ID: `xmtp.org/transactionReference:1.0`. The payload is JSON-encoded `TransactionReference`. Its fallback includes the transaction reference, or `Crypto transaction` when the reference is empty. `shouldPush` defaults to `true` on Browser, Node, React Native, Kotlin, and Swift.
 
 | Field       | Meaning                        |
 | ----------- | ------------------------------ |

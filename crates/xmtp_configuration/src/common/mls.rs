@@ -1,13 +1,8 @@
 //! Common configuration values between dev & prod
-use openmls::versions::ProtocolVersion;
-
-use xmtp_common::{NS_IN_30_DAYS, NS_IN_SEC};
-pub use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
+use crate::ns::{NS_IN_30_DAYS, NS_IN_SEC};
 
 /// Duration to wait before restarting workers in case of an error.
 pub const WORKER_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
-
-pub const MLS_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::Mls10;
 
 pub const WELCOME_HPKE_LABEL: &str = "MLS_WELCOME";
 

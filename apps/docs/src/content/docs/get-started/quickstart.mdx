@@ -13,7 +13,8 @@ backend. This gives the client an inbox ID, which is a stable identifier that
 other clients send messages to.
 
 You need [Docker](https://docs.docker.com/get-docker/) with Docker Compose. For
-Browser and Node, you also need Node.js 22.18.0 or later.
+Browser and Node, you also need Node.js 22.18.0 or later. For React Native,
+use the [native app tooling requirements](/get-started/react-native/#native-prerequisites).
 
 ## 1. Start a local backend
 
@@ -61,7 +62,7 @@ services:
       retries: 30
 
   backend:
-    image: ghcr.io/xmtp/backend:8.0.0-rc2
+    image: ghcr.io/xmtp/backend:8.0.0-rc3
     depends_on:
       db:
         condition: service_healthy
@@ -94,7 +95,7 @@ configuration.
 
 ## 2. Install the SDK
 
-Use SDK **8.0.0-rc2**, which matches the backend image. See
+Use SDK **8.0.0-rc3** for Browser, Node, React Native, Kotlin, and Swift. See
 [Install the XMTP SDK](/get-started/install/) for other package managers.
 
 <Tabs syncKey="sdk">
@@ -106,7 +107,7 @@ Create a Vite app in the `xmtp-quickstart` directory and install the SDK:
 npm create vite@latest web -- --template vanilla-ts --no-interactive
 cd web
 npm install
-npm install --save-exact @xmtp/browser-sdk@8.0.0-rc2
+npm install --save-exact @xmtp/browser-sdk@8.0.0-rc3
 ```
 
 </TabItem>
@@ -118,8 +119,16 @@ SDK:
 ```sh
 npm init -y
 npm pkg set type=module
-npm install --save-exact @xmtp/node-sdk@8.0.0-rc2
+npm install --save-exact @xmtp/node-sdk@8.0.0-rc3
 ```
+
+</TabItem>
+<TabItem label="React Native">
+
+Follow [React Native and Expo setup](/get-started/react-native/). Add
+`@xmtp/react-native-sdk@8.0.0-rc3` to a native app with Hermes and New Architecture,
+install iOS pods, and rebuild the native app. Use an Expo development build;
+Expo Go cannot load the module.
 
 </TabItem>
 <TabItem label="Kotlin">
@@ -136,7 +145,7 @@ Follow the [Swift installation instructions](/get-started/install/).
 
 ## 3. Write the app
 
-The Browser and Node examples come from complete source files. They are checked
+The Browser, Node, and React Native examples come from complete source files. They are checked
 against the SDK types during the docs build.
 
 <Tabs syncKey="sdk">
@@ -163,6 +172,17 @@ Create `send.ts`. It creates a second client and sends one message to the inbox
 ID you pass to it:
 
 ```ts source="quickstart-node-send.ts" region="send" title="send.ts"
+
+```
+
+</TabItem>
+<TabItem label="React Native">
+
+Use this function from your app. Supply a saved signer and 32-byte database key,
+a backend URL reachable from the device, and callbacks for incoming text and
+stream errors. Save the returned inbox ID to share with the other app.
+
+```ts source="quickstart-react-native.ts" region="app"
 
 ```
 
@@ -307,6 +327,15 @@ The first terminal prints `New message: Hello from XMTP`. Run `send.ts` again to
 send more messages. Press Ctrl+C to stop the listener.
 
 </TabItem>
+<TabItem label="React Native">
+
+Build and run the native app on a supported device or simulator. Connect two
+app installations to the same reachable backend. Display one installation's
+`inboxId` and pass it to the other installation's `send` action. The receiver's
+`onText` callback receives the text. Call `disconnect` when that app owner is
+finished. Reuse its signer, database key, and storage on later launches.
+
+</TabItem>
 <TabItem label="Kotlin">
 
 Run the app. The stream prints the message that the first client sent.
@@ -327,8 +356,11 @@ Run the app. The stream prints the message that the first client sent.
   starts is `unknown` until you allow it. See [Consent](/sdk/consent/).
 - When the stream opens, it first delivers the messages that arrived while the
   client was offline.
-- These examples use randomly generated keys that get thrown away as soon as the
-  process ends, and in-memory databases. Each run is a new inbox. A real app must
+- The Browser, Node, Kotlin, and Swift examples discard their generated keys and
+  in-memory databases when the process ends. Each run is a new inbox. The React
+  Native example uses the app's saved signer, database key, and default native
+  storage. Reuse them between launches.
+- A persistent app must
   [save and restore its signing key](/sdk/signer/#save-and-restore-a-local-key)
   and keep the same database between launches. In Node, pass a 32-byte
   `storage.encryptionKey` to encrypt the database.
