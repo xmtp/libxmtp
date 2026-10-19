@@ -454,6 +454,8 @@ const sameValue = (
 export interface OwnFieldDraft {
   readonly baseline: ReadonlyMap<number, OwnFieldValue>;
   readonly values: ReadonlyMap<number, OwnFieldValue>;
+  /** Fields a running save writes (`markSaving`); the next merge clears it. */
+  readonly saving?: ReadonlySet<number>;
 }
 
 export const emptyDraft: OwnFieldDraft = {
@@ -499,6 +501,9 @@ function matchesCommitted(
 /**
  * Takes committed values for writable own fields, keeping an unsaved edit
  * that still differs from both its old baseline and the new committed value.
+ * A field the running save sent keeps any value the group did not commit,
+ * so input changed back to the old value during the save is not lost. The
+ * new baseline is the committed value, which a kept edit is compared with.
  */
 export function mergeDraft(
   draft: OwnFieldDraft,
@@ -513,16 +518,15 @@ export function mergeDraft(
       : ABSENT;
     const old = draft.baseline.get(field.id);
     const edited = draft.values.get(field.id);
+    baseline.set(field.id, committed);
     if (
       old !== undefined &&
       edited !== undefined &&
-      !sameValue(edited, old) &&
+      (draft.saving?.has(field.id) === true || !sameValue(edited, old)) &&
       !matchesCommitted(edited, committed, field.shape)
     ) {
-      baseline.set(field.id, old);
       values.set(field.id, edited);
     } else {
-      baseline.set(field.id, committed);
       values.set(field.id, committed);
     }
   }
@@ -539,6 +543,11 @@ export function draftChanges(
     changes.set(id, value.kind === "value" ? value.text : undefined);
   }
   return changes;
+}
+
+/** Records the changed fields as sent when Save starts. */
+export function markSaving(draft: OwnFieldDraft): OwnFieldDraft {
+  return { ...draft, saving: new Set(draftChanges(draft).keys()) };
 }
 
 // The metadata store.

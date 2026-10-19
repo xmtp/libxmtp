@@ -14,6 +14,7 @@ import {
   entryAction,
   fieldHeader,
   isImmutable,
+  markSaving,
   type MetadataEdit,
   type MetadataField,
   MetadataStore,
@@ -155,7 +156,9 @@ function MetadataBody({
                 prominent: true,
                 disabled: state.busy || changes.size === 0,
                 onPress: () => {
-                  if (changes.size > 0) send({ kind: "own", changes });
+                  if (changes.size === 0) return;
+                  setDraftState(markSaving);
+                  send({ kind: "own", changes });
                 },
               },
               palette,
