@@ -77,14 +77,15 @@ pub struct XmtpInstallationCredential(Box<SigningKey>);
 
 impl Default for XmtpInstallationCredential {
     fn default() -> Self {
-        Self(Box::new(SigningKey::from_bytes(&crate::rand::rand_array())))
+        Self::new()
     }
 }
 
 impl XmtpInstallationCredential {
     /// Create a new [`XmtpInstallationCredential`] with [`rand_chacha::ChaCha20Rng`]
     pub fn new() -> Self {
-        Self(Box::new(SigningKey::from_bytes(&crate::rand::rand_array())))
+        let seed = Zeroizing::new(crate::rand::rand_array());
+        Self(Box::new(SigningKey::from_bytes(&seed)))
     }
 
     /// Get a reference to the public [`ed25519_dalek::VerifyingKey`]
@@ -148,10 +149,13 @@ impl From<XmtpInstallationCredential> for SignaturePublicKey {
     }
 }
 
-/// The signer here must maintain compatibility with `SignatureKeyPair`
+/// Signs with the held key and returns the same bytes as `SignatureKeyPair::sign`:
+/// OpenMLS's Ed25519 signer makes the same deterministic `ed25519_dalek` call.
 impl Signer for XmtpInstallationCredential {
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, signatures::SignerError> {
-        SignatureKeyPair::from(self).sign(payload)
+        Ok(ed25519_dalek::Signer::sign(&*self.0, payload)
+            .to_bytes()
+            .to_vec())
     }
 
     fn signature_scheme(&self) -> SignatureScheme {
@@ -162,7 +166,7 @@ impl Signer for XmtpInstallationCredential {
 // The signer here must maintain compatibility with `SignatureKeyPair`
 impl Signer for &XmtpInstallationCredential {
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, signatures::SignerError> {
-        SignatureKeyPair::from(*self).sign(payload)
+        <XmtpInstallationCredential as Signer>::sign(self, payload)
     }
 
     fn signature_scheme(&self) -> SignatureScheme {
@@ -324,6 +328,21 @@ mod tests {
         assert_eq!(mls_kp.private(), keypair.0.as_bytes());
         assert_eq!(mls_kp.public(), &keypair.0.verifying_key().to_bytes());
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn signs_like_signature_key_pair() {
+        let payloads: [&[u8]; 3] = [b"", b"an mls payload", &[0xa5; 1024]];
+        for seed in [[0x01u8; 32], [0x7f; 32], [0xc3; 32]] {
+            let credential = XmtpInstallationCredential::from_bytes(&seed).unwrap();
+            let key_pair = SignatureKeyPair::from(&credential);
+            for payload in payloads {
+                let expected = key_pair.sign(payload).unwrap();
+                assert_eq!(Signer::sign(&credential, payload).unwrap(), expected);
+                assert_eq!(Signer::sign(&&credential, payload).unwrap(), expected);
+            }
+        }
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

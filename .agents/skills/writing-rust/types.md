@@ -87,6 +87,9 @@ secret. Every heap copy libxmtp owns is wiped before it is freed. Import from
 - `Zeroizing<T>` wraps a transient buffer where it is created: a serialization
   output, a `to_vec()`, a decoded hex string, an FFI argument. Its `Debug`
   prints the bytes, so never format it.
+- `xmtp_db::StoredSecret` is the column type for a client secret. It stores
+  the same `BLOB` and serde bytes as `Vec<u8>`, and a row struct keeps its
+  derives: every move, clone and builder copy is wiped on drop.
 - Dependency key types that already wipe on drop stay as they are:
   `ed25519_dalek::SigningKey`, `k256::ecdsa::SigningKey`, alloy
   `PrivateKeySigner`, OpenMLS `SignatureKeyPair` and `HpkePrivateKey`.

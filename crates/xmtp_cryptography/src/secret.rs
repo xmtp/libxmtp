@@ -52,6 +52,12 @@ impl From<Vec<u8>> for Secret {
     }
 }
 
+impl From<Secret> for Zeroizing<Vec<u8>> {
+    fn from(secret: Secret) -> Self {
+        secret.0
+    }
+}
+
 impl fmt::Debug for Secret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Secret(<{} bytes>)", self.0.len())

@@ -34,7 +34,7 @@ use xmtp_db::sql_key_store::{
     KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
 };
 use xmtp_db::{ConnectionExt, MlsProviderExt, TransactionOutcome};
-use xmtp_db::{Fetch, StorageError};
+use xmtp_db::{Fetch, StorageError, StoredSecret};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
@@ -408,7 +408,9 @@ impl TryFrom<&Identity> for StoredIdentity {
     fn try_from(identity: &Identity) -> Result<Self, Self::Error> {
         StoredIdentity::builder()
             .inbox_id(identity.inbox_id.clone())
-            .installation_keys(xmtp_db::db_serialize(&identity.installation_keys)?)
+            .installation_keys(StoredSecret::from(xmtp_db::db_serialize(
+                &identity.installation_keys,
+            )?))
             .credential_bytes(xmtp_db::db_serialize(&identity.credential())?)
             .next_key_package_rotation_ns(now_ns() + KEY_PACKAGE_ROTATION_INTERVAL_NS)
             .build()
@@ -421,7 +423,7 @@ impl TryFrom<StoredIdentity> for Identity {
     fn try_from(identity: StoredIdentity) -> Result<Self, Self::Error> {
         Ok(Identity {
             inbox_id: identity.inbox_id.clone(),
-            installation_keys: xmtp_db::db_deserialize(&identity.installation_keys)?,
+            installation_keys: xmtp_db::db_deserialize(identity.installation_keys.as_slice())?,
             credential: xmtp_db::db_deserialize(&identity.credential_bytes)?,
             signature_request: None,
             is_ready: AtomicBool::new(true),
@@ -534,39 +536,71 @@ impl Identity {
                     "Inbox ID doesn't match nonce & address".to_string(),
                 ));
             }
-            let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-            builder = builder.create_inbox(identifier.clone(), nonce);
-
-            let mut signature_request = builder
-                .add_association(
-                    MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
-                    identifier.clone().into(),
-                )
-                .build();
-
-            // We can pre-sign the request with an installation key signature, since we have access to the key
-            let sig = installation_keys
-                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
-            signature_request
-                .add_signature(
-                    UnverifiedSignature::new_installation_key(
-                        sig,
-                        installation_keys.verifying_key(),
-                    ),
-                    &scw_signature_verifier,
-                )
-                .await?;
-
-            let identity = Self {
-                inbox_id: inbox_id.clone(),
+            Self::create_inbox(
+                identifier,
+                nonce,
                 installation_keys,
-                credential: create_credential(inbox_id.clone())?,
-                signature_request: Some(signature_request),
-                is_ready: AtomicBool::new(false),
-            };
-
-            Ok(identity)
+                &scw_signature_verifier,
+            )
+            .await
         }
+    }
+
+    /// An unregistered identity that creates the inbox of `identifier` and
+    /// `nonce` with `installation_keys`. The request is pre-signed with the
+    /// installation key; the caller adds the wallet signature.
+    async fn create_inbox(
+        identifier: Identifier,
+        nonce: u64,
+        installation_keys: XmtpInstallationCredential,
+        scw_signature_verifier: impl SmartContractSignatureVerifier,
+    ) -> Result<Self, IdentityError> {
+        let inbox_id = identifier.inbox_id(nonce)?;
+        let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
+        builder = builder.create_inbox(identifier.clone(), nonce);
+
+        let mut signature_request = builder
+            .add_association(
+                MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
+                identifier.into(),
+            )
+            .build();
+
+        // We can pre-sign the request with an installation key signature, since we have access to the key
+        let sig = installation_keys
+            .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
+        signature_request
+            .add_signature(
+                UnverifiedSignature::new_installation_key(sig, installation_keys.verifying_key()),
+                &scw_signature_verifier,
+            )
+            .await?;
+
+        Ok(Self {
+            credential: create_credential(inbox_id.clone())?,
+            inbox_id,
+            installation_keys,
+            signature_request: Some(signature_request),
+            is_ready: AtomicBool::new(false),
+        })
+    }
+
+    /// An unregistered identity for a new inbox that uses the given
+    /// installation key. Use it with [`IdentityStrategy::ExternalIdentity`],
+    /// then register with the owner of `identifier`.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn new_inbox_with_installation_keys(
+        identifier: Identifier,
+        nonce: u64,
+        installation_keys: XmtpInstallationCredential,
+    ) -> Result<Self, IdentityError> {
+        Self::create_inbox(
+            identifier,
+            nonce,
+            installation_keys,
+            xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier::new(true),
+        )
+        .await
     }
 
     pub fn inbox_id(&self) -> InboxIdRef<'_> {

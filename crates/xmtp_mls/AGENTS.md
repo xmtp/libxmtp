@@ -9,6 +9,7 @@ just check crate xmtp_mls
 just test crate xmtp_mls                # needs `just backend up` (anvil)
 just test workspace -p xmtp_mls test_valid_deletion_by_sender
 just test workspace -p xmtp_mls messages::   # one module
+just test workspace -p xmtp_mls --features test-utils --test zeroize   # heap-canary proofs; needs `just backend up`
 ```
 
 ## Gotchas

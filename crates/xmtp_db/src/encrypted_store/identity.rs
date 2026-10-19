@@ -1,6 +1,6 @@
 use crate::encrypted_store::schema::identity;
 use crate::schema::identity::dsl;
-use crate::{ConnectionExt, DbConnection, StorageError, impl_fetch, impl_store};
+use crate::{ConnectionExt, DbConnection, StorageError, StoredSecret, impl_fetch, impl_store};
 use derive_builder::Builder;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,8 @@ use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
 #[builder(setter(into), build_fn(error = "crate::StorageError"))]
 pub struct StoredIdentity {
     pub inbox_id: String,
-    pub installation_keys: Vec<u8>,
+    /// The serialized installation key pair.
+    pub installation_keys: StoredSecret,
     pub credential_bytes: Vec<u8>,
     #[builder(setter(skip))]
     rowid: Option<i32>,
@@ -31,10 +32,14 @@ impl StoredIdentity {
         StoredIdentityBuilder::default()
     }
 
-    pub fn new(inbox_id: String, installation_keys: Vec<u8>, credential_bytes: Vec<u8>) -> Self {
+    pub fn new(
+        inbox_id: String,
+        installation_keys: impl Into<StoredSecret>,
+        credential_bytes: Vec<u8>,
+    ) -> Self {
         Self {
             inbox_id,
-            installation_keys,
+            installation_keys: installation_keys.into(),
             credential_bytes,
             rowid: None,
             next_key_package_rotation_ns: None,
@@ -333,6 +338,28 @@ pub(crate) mod tests {
             // Lower-only: a later queue call never raises the deadline.
             conn.queue_key_package_rotation().unwrap();
             assert_eq!(conn.next_key_package_rotation_ns().unwrap().unwrap(), v);
+        })
+    }
+
+    /// The column holds exactly the bytes the caller stored, as a plain
+    /// `Vec<u8>` column did.
+    #[xmtp_common::test]
+    fn installation_keys_column_holds_the_input_bytes() {
+        use crate::schema::identity::dsl;
+        use crate::test_utils::with_connection;
+        use crate::{ConnectionExt, Fetch};
+        use diesel::prelude::*;
+        with_connection(|conn| {
+            let keys = rand_vec::<64>();
+            StoredIdentity::new("".to_string(), keys.clone(), rand_vec::<24>())
+                .store(conn)
+                .unwrap();
+            let raw: Vec<u8> = conn
+                .raw_query(|c| dsl::identity.select(dsl::installation_keys).first(c))
+                .unwrap();
+            assert_eq!(raw, keys);
+            let fetched: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+            assert_eq!(fetched.installation_keys.as_slice(), keys.as_slice());
         })
     }
 
