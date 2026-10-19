@@ -235,8 +235,13 @@ export async function saveFile(
       // one. The name's extension decides first, as when the file was sent.
       mimeType: mimeTypeFor(name, mimeType),
     });
-    // Android reports a failed copy into the chosen file in its result.
-    if (results.some((result) => typeof result.error === "string")) {
+    // Android reports a failed copy into the chosen file in its result. It
+    // reports an empty file the same way ("No data was copied"), but the
+    // dialog created the chosen file empty, so an empty file is saved.
+    if (
+      results.some((result) => typeof result.error === "string") &&
+      new File(pathToUri(path)).size > 0
+    ) {
       throw new Error("The file could not be saved.");
     }
     return true;
