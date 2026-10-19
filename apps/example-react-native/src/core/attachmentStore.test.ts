@@ -56,12 +56,15 @@ function harness(
   let next = 0;
   const activeSends = new Set<string>();
   const scope = new SessionScope();
-  const ports = (conversationId?: string): AttachmentStorePorts => ({
+  const ports = (
+    conversationId?: string,
+    admit = () => env.admitted,
+  ): AttachmentStorePorts => ({
     gateway,
     drafts,
     coordinator,
     ...(conversationId === undefined ? {} : { conversationId }),
-    admit: () => env.admitted,
+    admit,
     acceptsSession: () => env.session,
     run: (job) => {
       void scope.add(() => job());
@@ -94,6 +97,9 @@ function harness(
     store,
     /** Attachment recovery's store in the same session. */
     recovery: () => new AttachmentStore(ports()),
+    /** Another chat screen of the same conversation, open while `admit` holds. */
+    chat: (admit: () => boolean) =>
+      new AttachmentStore(ports(CONVERSATION, admit)),
     gateway,
     conversation,
     drafts,
@@ -242,7 +248,7 @@ test("upload failures follow the SDK retry rule, and a reload while the upload r
     [h.drafts.all()[0]?.phase, h.drafts.all()[0]?.retryable],
     ["failed", true],
   );
-  // Retry uploads again; the chat regains focus and a full load runs meanwhile.
+  // Retry uploads again; the chat attaches again and a full load runs meanwhile.
   h.gateway.uploadPhase = "complete";
   const gate = holdUploads(h);
   const sending = h.store.send(draft.id);
@@ -283,6 +289,39 @@ test("recovery opened during a chat's upload keeps it uploading and cannot send 
   // The unknown outcome stays: nothing can queue the file again.
   assert.equal(h.drafts.all()[0]?.phase, "unknown");
   assert.equal(h.conversation.queued.length, 0);
+});
+
+test("a chat opened again during an upload shows each draft change another screen saves", async () => {
+  const h = harness();
+  const draft = await staged(h);
+  const gate = holdUploads(h);
+  const sending = h.store.send(draft.id);
+  await settle();
+  // The chat closes while the upload runs, and a new screen of it opens.
+  h.env.admitted = false;
+  const reopened = h.chat(() => true);
+  const stop = reopened.watchDrafts();
+  await reopened.load();
+  assert.equal(reopened.getState().drafts[0]?.phase, "uploading");
+  // The closed chat's send saves the finished upload and stops.
+  gate.resolve();
+  await sending;
+  assert.equal(reopened.getState().drafts[0]?.phase, "complete");
+  await reopened.send(draft.id);
+  assert.equal(h.gateway.uploads.length, 1);
+  assert.equal(h.conversation.queued.length, 1);
+  // A draft that Attachment recovery discards leaves this screen too.
+  await reopened.stage("/temp/attachment-staging/b.txt", "b.txt");
+  // A watching screen shows its own staged file once.
+  assert.deepEqual(
+    reopened.getState().drafts.map((entry) => entry.file.filename),
+    ["b.txt"],
+  );
+  const other = reopened.getState().drafts.at(-1);
+  assert.ok(other);
+  await h.recovery().discard(other.id);
+  stop();
+  assert.deepEqual(reopened.getState().drafts, []);
 });
 
 test("a discard during the upload keeps the send from queuing, and a draft whose SDK delete failed can still be sent", async () => {
@@ -336,7 +375,7 @@ test("a discard while the message queues stays discarded when the SDK accepts it
   assert.equal(h.journal.all()[0]?.phase, "accepted");
 });
 
-test("a focus reload reads drafts other screens saved and imports nothing", async () => {
+test("a draft reload reads drafts other screens saved and imports nothing", async () => {
   const h = harness();
   await h.store.load();
   // Recovery assigned a draft to this chat; the SDK also holds an orphan.

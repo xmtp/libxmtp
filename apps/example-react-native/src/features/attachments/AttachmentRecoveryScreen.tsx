@@ -53,10 +53,13 @@ function RecoveryList({ session }: { readonly session: ActiveSession }) {
   const { chats, error: chatsError } = useStore(choices);
   useEffect(() => {
     mounted.current = true;
+    // A chat's send can finish, stop or remove a draft while this is open.
+    const stopDrafts = store.watchDrafts();
     return () => {
       mounted.current = false;
+      stopDrafts();
     };
-  }, []);
+  }, [store]);
   useFocusEffect(
     useCallback(() => {
       void store.load();

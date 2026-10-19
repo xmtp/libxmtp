@@ -542,12 +542,28 @@ export interface DraftPreferences {
 const DRAFT_PREFIX = "attachment-";
 const REFERENCES = "attachment-refs";
 
-/** Saved upload drafts. */
+/** Saved upload drafts, shared by every attachment store of a session. */
 export class AttachmentDraftStore {
   readonly #preferences: DraftPreferences;
+  readonly #listeners = new Set<() => void>();
 
   constructor(preferences: DraftPreferences) {
     this.#preferences = preferences;
+  }
+
+  /**
+   * Calls `listener` after each saved or removed draft, until the returned
+   * function runs.
+   */
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  }
+
+  #changed(): void {
+    for (const listener of Array.from(this.#listeners)) listener();
   }
 
   #references(): string[] {
@@ -582,6 +598,7 @@ export class AttachmentDraftStore {
     if (!references.includes(name)) {
       this.#preferences.writeJson(REFERENCES, [...references, name]);
     }
+    this.#changed();
   }
 
   remove(id: string): void {
@@ -591,6 +608,7 @@ export class AttachmentDraftStore {
       REFERENCES,
       this.#references().filter((entry) => entry !== name),
     );
+    this.#changed();
   }
 
   /** Removes draft files nobody lists and listed names whose file is gone. */

@@ -1,5 +1,4 @@
-import { router, useFocusEffect } from "expo-router";
-import { useCallback } from "react";
+import { router } from "expo-router";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 import { type FileDraft, draftMetadata } from "@/core/attachments.ts";
@@ -154,12 +153,6 @@ export function StagedAttachments({
   const store = useChatAttachments(runtime);
   const state = useStore(store);
   const composerError = useStore(runtime.composer).error;
-  // Recovery may have discarded or assigned drafts while the chat was covered.
-  useFocusEffect(
-    useCallback(() => {
-      if (store.getState().loaded) store.reloadDrafts();
-    }, [store]),
-  );
   const drafts = state.drafts.filter(
     (draft) => draft.conversationId === conversationId,
   );

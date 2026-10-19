@@ -164,8 +164,8 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
 
   /**
    * Re-reads the saved drafts only: no SDK import and no reset of interrupted
-   * uploads, so a running send keeps its phase. The chat calls it on focus,
-   * after recovery may have discarded or assigned a draft.
+   * uploads, so a running send keeps its phase. A chat calls it when it
+   * attaches again, as drafts may have changed while it was detached.
    */
   reloadDrafts(): void {
     try {
@@ -178,6 +178,17 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   #reloadDrafts(): void {
     const drafts = this.#ports.drafts.all();
     this.#apply((state) => ({ ...state, drafts }));
+  }
+
+  /**
+   * Shows each draft any store of the session saves or removes, until the
+   * returned function runs. A screen watches while it shows drafts: another
+   * screen's send can finish, stop or remove a draft meanwhile.
+   */
+  watchDrafts(): () => void {
+    return this.#ports.drafts.onChange(() => {
+      this.reloadDrafts();
+    });
   }
 
   /**
@@ -281,10 +292,7 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
           retryable: true,
         };
         this.#ports.drafts.save(draft);
-        this.#apply((state) => ({
-          ...state,
-          drafts: [...state.drafts, draft],
-        }));
+        this.#reloadDrafts();
       } finally {
         this.#ports.removeStaged(path);
       }
