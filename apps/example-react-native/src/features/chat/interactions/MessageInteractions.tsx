@@ -51,10 +51,9 @@ export interface MessageInteractionsProps {
 }
 
 /**
- * The interactions on one bubble (`ChatMessages.swift` `messageBubble`): the
- * long-press context menu with quick reactions, swipe to reply (a light
- * haptic when it arms at 48 pt; the bubble does not move), and hiding the
- * bubble while its send flight runs.
+ * The interactions on one bubble: the long-press context menu with quick
+ * reactions, swipe to reply (a light haptic when it arms at 48 pt; the bubble
+ * does not move), and hiding the bubble while its send flight runs.
  */
 export function MessageInteractions({
   row,
@@ -99,7 +98,7 @@ export function MessageInteractions({
 
   const flying = mode === "fly";
   const fading = mode === "fade";
-  // Reduce Motion: the sent row fades in (`.opacity` transition, 0.2 s).
+  // Reduce Motion: the sent row fades in over 0.2 s.
   const opacity = useSharedValue(fading ? 0 : 1);
   useEffect(() => {
     if (!fading) return;
@@ -114,9 +113,8 @@ export function MessageInteractions({
   const fadeStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   // Swipe to reply: arms once per drag, replies on release while armed.
-  // Unlike iOS's simultaneous DragGesture, the pan fails once a drag moves
-  // 12 pt vertically before 12 pt sideways, so the list scrolls smoothly and
-  // a drag that starts vertically never arms.
+  // The pan fails once a drag moves 12 pt vertically before 12 pt sideways,
+  // so the list scrolls smoothly and a drag that starts vertically never arms.
   const replyable = canReply(row, allowed);
   const armed = useRef(false);
   const pan = usePanGesture({
@@ -183,9 +181,9 @@ export interface MessageAccessibilityProps {
 }
 
 /**
- * The bubble as one VoiceOver element with the menu's actions
- * (`messageAccessibilityActions`): Reply, React, Copy and Delete. Attachment
- * bubbles stay a group, so their card buttons remain reachable.
+ * The bubble as one VoiceOver element with the menu's actions: Reply, React,
+ * Copy and Delete. Attachment bubbles stay a group, so their card buttons
+ * remain reachable.
  */
 export function MessageAccessibility({
   row,
@@ -223,7 +221,7 @@ function bubbleMaxWidth(windowWidth: number, hasAvatar: boolean): number {
   return windowWidth - 32 - 48 - (hasAvatar ? 30 : 0);
 }
 
-/** How far the reaction badges reach above the bubble (`.offset(y: -12)`). */
+/** How far the reaction badges reach above the bubble, in points. */
 const BADGE_OVERHANG = 12;
 
 const styles = StyleSheet.create({

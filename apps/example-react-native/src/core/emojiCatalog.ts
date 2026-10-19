@@ -1,5 +1,4 @@
-// The emoji picker's catalog, sections, search and recents
-// (App/Features/Chat/EmojiPickerFeatureView.swift).
+// The emoji picker's catalog, sections, search and recents.
 
 /** One catalog entry: the emoji and its Unicode name. */
 export interface EmojiEntry {

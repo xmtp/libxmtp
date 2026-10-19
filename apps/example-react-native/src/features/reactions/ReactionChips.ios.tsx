@@ -11,8 +11,8 @@ import { useColors } from "@/ui/colors";
 
 /**
  * The filter chips (`ScrollView(.horizontal) { HStack { Button … } }`): glass
- * buttons with no visible selected style. Like iOS, only the emoji chips
- * carry the selected trait; "All" never does.
+ * buttons with no visible selected style. Only the emoji chips carry the
+ * selected trait; "All" never does.
  */
 export function ReactionChips({
   chips,

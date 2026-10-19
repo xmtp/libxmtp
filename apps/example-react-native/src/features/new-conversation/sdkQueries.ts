@@ -15,7 +15,7 @@ const PEOPLE_CONVERSATIONS = 20;
 const PEOPLE_MEMBERS = 50;
 const PEOPLE_LIMIT = 100;
 
-/** `SDKIdentityQueries`: the identity reads for recipient resolution. */
+/** The identity reads for recipient resolution. */
 export function identityPort(session: ActiveSession): IdentityPort {
   const client = session.client;
   return {
@@ -26,7 +26,7 @@ export function identityPort(session: ActiveSession): IdentityPort {
   };
 }
 
-/** `SDKNewConversationQueries` for one session. */
+/** The New message SDK queries for one session. */
 export function newConversationQueries(
   session: ActiveSession,
 ): NewConversationQueries {

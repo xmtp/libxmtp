@@ -1,6 +1,4 @@
-// Chat history windows, pages, the transcript cache and the reading anchor
-// (ExampleCore/Chat/HistoryPages.swift, TranscriptCache.swift,
-// AnchorRestore.swift, ChatTimelineStore.swift).
+// Chat history windows, pages, the transcript cache and the reading anchor.
 //
 // Window rows are newest first, like the SDK's descending pages; the timeline
 // reverses them for display.
@@ -15,7 +13,7 @@ import {
   isDeleted,
 } from "./chatMessages.ts";
 
-/** Copy the timeline emits (`ChatTimelineStore.swift`, `HistoryPages.swift`). */
+/** Copy the timeline emits. */
 export const TimelineCopy = {
   positionChanged: "Position changed",
   historySkipped: "Some stored history cannot be read. Load more to continue.",
@@ -400,8 +398,8 @@ export interface ReadingAnchor {
 }
 
 /**
- * The row to scroll to for a saved anchor (`AnchorRestore.target`), given the
- * window rows newest first without reactions:
+ * The row to scroll to for a saved anchor, given the window rows newest first
+ * without reactions:
  * 1. the anchor row, if present and not deleted (unchanged);
  * 2. if present but deleted, the nearest newer surviving row, else the nearest
  *    older one (changed);

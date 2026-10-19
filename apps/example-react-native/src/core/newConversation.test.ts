@@ -127,7 +127,7 @@ function lookupPort(
   };
 }
 
-test("resolves handles, addresses and inbox IDs (recipientLookupFailures)", async () => {
+test("resolves handles, addresses and inbox IDs", async () => {
   const port = lookupPort(
     {
       lena: "a".repeat(64),
@@ -319,7 +319,7 @@ function makeStore(queries: FakeQueries, admit: () => boolean = () => true) {
   return { store, finished };
 }
 
-describe("admission (NewConversationAdmissionTests)", () => {
+describe("admission", () => {
   test("stale actions do not call queries", async () => {
     for (const ended of ["session", "dispose"] as const) {
       const queries = new FakeQueries();
@@ -406,7 +406,7 @@ test("an unchanged input keeps its resolution", async () => {
   assert.equal(store.getState().input, "");
 });
 
-test("editing recipients does not cancel the initial people load (editingRecipientsDoesNotCancelInitialPeopleLoad)", async () => {
+test("editing recipients does not cancel the initial people load", async () => {
   const peer: Person = { inboxId: "inbox-peer", handle: "person" };
   const queries = new FakeQueries({ people: [peer] });
   let open = () => {};

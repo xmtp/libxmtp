@@ -14,10 +14,10 @@ import { useStore } from "@/ui/useStore";
 
 /**
  * The message request card that replaces the composer while consent is
- * unknown (`ChatRequestBar.swift`): opaque `IncomingBubble`, radius 24,
- * Sender details, Accept, Delete request and Block. The decisions are the
- * Requests decisions (`graph.requests`); Delete and Block ask "Confirm
- * request action" first, in a popover that points at the card.
+ * unknown: opaque `incomingBubble`, radius 24, Sender details, Accept, Delete
+ * request and Block. The decisions come from the same `RequestDecisionsStore`
+ * as Message requests; Delete and Block ask "Confirm request action" first,
+ * in a popover that points at the card.
  */
 export function RequestBar({
   decisions,
@@ -45,8 +45,8 @@ export function RequestBar({
   );
 
   return (
-    // `.padding(.horizontal, 16).padding(.bottom, 12)` comes before the
-    // dialog modifier, so the popover points at the padded frame.
+    // The popover below points at this padded frame (16 pt sides, 12 pt
+    // bottom), not at the card.
     <View style={styles.frame}>
       <View
         testID="chat.request-bar"

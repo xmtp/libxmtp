@@ -1,6 +1,5 @@
-// The send flight of one open chat (App/Features/Chat/MessageFlight.swift,
-// ChatContentView.swift): which row is in flight, and where each mounted
-// bubble is, so the overlay can measure its target.
+// The send flight of one open chat: which row is in flight, and where each
+// mounted bubble is, so the overlay can measure its target.
 
 import type { ComponentRef } from "react";
 import type { View } from "react-native";

@@ -1,6 +1,6 @@
-// Composer slots the attachments lane fills (`ChatComposer.swift`): the "+"
-// attach menu at the start of the input row, and the staged attachment cards
-// above the error line. Both receive the chat from `useChatContext()`.
+// Composer slots the attachments lane fills: the "+" attach menu at the start
+// of the input row, and the staged attachment cards above the error line. Both
+// receive the chat from `useChatContext()`.
 
 export interface ComposerSlotProps {
   readonly conversationId: string;

@@ -21,13 +21,13 @@ import { Text } from "@/ui/Text";
 import { fontOf } from "@/ui/typography";
 import { useStore } from "@/ui/useStore";
 
-/** The grid's columns (`LazyVGrid` with 8 flexible columns). */
+/** The grid has 8 columns of equal width. */
 const COLUMNS = 8;
 
-/** "Recently used": in memory for the process, like the iOS static array. */
+/** "Recently used": kept in memory for the life of the process. */
 let recent: readonly string[] = [];
 
-/** The catalog, parsed once (`emoji-search.tsv`). */
+/** The catalog, parsed once (`emojiData.ts`). */
 let catalog: readonly EmojiEntry[] | undefined;
 function loadCatalog(): readonly EmojiEntry[] {
   catalog ??= parseEmojiCatalog(emojiSearchTsv);
@@ -60,7 +60,7 @@ function rows(key: string, values: readonly EmojiEntry[]): Item[] {
   return items;
 }
 
-/** The scroll content (`EmojiPickerFeatureView` body) as list items. */
+/** The scroll content as list items. */
 function pickerItems(
   entries: readonly EmojiEntry[],
   search: string,
@@ -100,10 +100,9 @@ export interface EmojiPickerScreenProps {
 }
 
 /**
- * The emoji picker sheet (`EmojiPickerFeatureView`): "Choose a reaction", a
- * Close button, an emoji search field, then "Recently used" and the catalog
- * sections in an 8-column grid. Choosing an emoji toggles that reaction on
- * the message and closes the sheet.
+ * The emoji picker sheet: "Choose a reaction", a Close button, an emoji search
+ * field, then "Recently used" and the catalog sections in an 8-column grid.
+ * Choosing an emoji toggles that reaction on the message and closes the sheet.
  */
 export function EmojiPickerScreen({
   conversationId,

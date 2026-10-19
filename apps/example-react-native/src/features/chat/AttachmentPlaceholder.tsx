@@ -15,9 +15,9 @@ export interface AttachmentContentProps {
 }
 
 /**
- * A file message's card frame (`AttachmentCardView`: padding 12, max width
- * 260, `doc.fill` label). The attachments lane replaces this with the full
- * card: size, status, Download, Open and Save.
+ * A file message's card frame (padding 12, max width 260, `doc.fill` label).
+ * The attachments lane replaces this with the full card: size, status,
+ * Download, Open and Save.
  */
 export function AttachmentPlaceholder({
   file,

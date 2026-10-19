@@ -1,7 +1,7 @@
-// Per-session chat services (App/Features/Chat/ChatServices.swift): the SDK
-// queries, the transcript cache, the send journal and its coordinator. Every
-// chat screen, the Settings "Send needs review" section and the sheets of one
-// session share them; a new session gets new ones.
+// Per-session chat services: the SDK queries, the transcript cache, the send
+// journal and its coordinator. Every chat screen, the Settings "Send needs
+// review" section and the sheets of one session share them; a new session
+// gets new ones.
 
 import { TranscriptCache } from "@/core/chatHistory.ts";
 import type { ChatQueries } from "@/core/chatHistory.ts";
@@ -16,7 +16,7 @@ export interface ChatServices {
   readonly cache: TranscriptCache;
   readonly journal: SendJournal;
   readonly coordinator: SendCoordinator;
-  /** A new journal entry ID (an uppercase UUID, like iOS). */
+  /** A new journal entry ID (an uppercase UUID). */
   readonly newId: () => string;
   readonly now: () => number;
   /** Runs work as session work: sign out waits for it before ending the client. */
@@ -51,7 +51,7 @@ export function chatServices(session: ActiveSession): ChatServices {
   );
   const cache = new TranscriptCache();
   // Every deletion marks the cache, also for chats that are closed, so a
-  // reopened chat never shows a deleted body (AppGraph `projectEvent`).
+  // reopened chat never shows a deleted body.
   const stopDeletions = session.streams.onEvent((event) => {
     if (event.kind !== "messageDeleted" || !session.isCurrent()) return;
     cache.markDeleted(event.conversationId, event.messageId);

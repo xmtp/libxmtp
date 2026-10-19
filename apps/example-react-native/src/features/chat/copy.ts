@@ -1,4 +1,4 @@
-/** Chat strings (`Features/Chat/Chat.xcstrings` and the chat views). */
+/** Chat strings. */
 export const chatCopy = {
   fallbackTitle: "Conversation",
   /** "· 1 member" / "· N members". */
@@ -28,7 +28,7 @@ export const chatCopy = {
   block: "Block",
   confirmRequestAction: "Confirm request action",
   confirm: "Confirm",
-  // Settings › Send needs review (`SendReview.xcstrings`; the rest is `SendReviewCopy`).
+  // Settings › Send needs review (the rest is `SendReviewCopy`).
   sendReviewTitle: "Send needs review",
   // Attachment placeholder (the attachments lane replaces the card).
   attachmentFallback: "File",

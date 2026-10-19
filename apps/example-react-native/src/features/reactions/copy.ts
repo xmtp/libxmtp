@@ -1,4 +1,4 @@
-/** Reactions sheet strings (`Features/Chat/Chat.xcstrings`). */
+/** Reactions sheet strings. */
 export const reactionsCopy = {
   title: "Reactions",
   close: "Close",

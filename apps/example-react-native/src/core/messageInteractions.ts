@@ -1,8 +1,6 @@
-// Rules for the interactions on one message bubble
-// (App/Features/Chat/ChatMessages.swift, ChatContentView.swift,
-// ReactionsFeatureView.swift): which context-menu items show, when a swipe
-// arms a reply, which new row a send flight lands on, and what the Reactions
-// sheet lists.
+// Rules for the interactions on one message bubble: which context-menu items
+// show, when a swipe arms a reply, which new row a send flight lands on, and
+// what the Reactions sheet lists.
 
 import {
   type ChatMessage,
@@ -37,11 +35,11 @@ export type MessageMenuItem =
   | "edit";
 
 /**
- * The context-menu items for `row` (`ChatMessages.swift` `menu(_:)`): Copy
- * always; Reply and React when allowed and not deleted; then, for own rows
- * when allowed, Delete once published, else Retry and Edit. Like iOS, Delete
- * also shows on an own deleted row, where tapping it does nothing
- * (`requestDelete` rejects deleted rows, so no confirmation appears).
+ * The context-menu items for `row`: Copy always; Reply and React when allowed
+ * and not deleted; then, for own rows when allowed, Delete once published,
+ * else Retry and Edit. Delete also shows on an own deleted row, where tapping
+ * it does nothing (`requestDelete` rejects deleted rows, so no confirmation
+ * appears).
  */
 export function menuItems(
   row: ChatMessage,
@@ -58,8 +56,8 @@ export function menuItems(
 }
 
 /**
- * The VoiceOver actions (`messageAccessibilityActions`): Reply and React when
- * allowed and not deleted, Copy, and Delete for own published rows.
+ * The VoiceOver actions: Reply and React when allowed and not deleted, Copy,
+ * and Delete for own published rows.
  */
 export function accessibilityItems(
   row: ChatMessage,
@@ -77,7 +75,7 @@ export function accessibilityItems(
 
 /** A swipe arms at 48 pt. */
 export const SWIPE_REPLY_DISTANCE = 48;
-/** `DragGesture(minimumDistance: 12)`. */
+/** The swipe pan starts after 12 pt sideways and fails after 12 pt vertically. */
 export const SWIPE_MINIMUM_DISTANCE = 12;
 
 /**
@@ -99,8 +97,8 @@ export function canReply(row: ChatMessage, allowed: boolean): boolean {
 }
 
 /**
- * The row a send flight lands on (`ChatContentView` `onChange(of: last id)`):
- * the newest row, when it is own and shows the submitted text.
+ * The row a send flight lands on when the newest row changes: the newest row,
+ * when it is own and shows the submitted text.
  */
 export function flightTarget(
   messages: readonly ChatMessage[],

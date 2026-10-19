@@ -7,8 +7,8 @@ import { AlertDialog } from "@/ui/AlertDialog";
 import { useStore } from "@/ui/useStore";
 
 /**
- * `.alert("Delete message?", isPresented: deleteTarget != nil)`, a SwiftUI
- * alert on iOS, so its buttons take the app tint like the native one.
+ * The "Delete message?" alert while `deleteTarget` is set: a SwiftUI alert on
+ * iOS, so its buttons take the app tint.
  */
 export function DeleteMessageAlert({
   runtime,

@@ -76,10 +76,10 @@ function useSheetReducedMotion(): boolean {
 
 /**
  * The New message sheet around its own stack. It owns one
- * `NewConversationStore` for both steps (a fresh one per presentation, like
- * `AppGraph.navigate(.newConversation)`). Create closes the sheet and pushes
- * the new chat. With Reduce Motion the sheet appears without the slide and
- * its content cross-fades in and out over 0.2 s (`ReducedMotionSheet`).
+ * `NewConversationStore` for both steps (a fresh one per presentation).
+ * Create closes the sheet and pushes the new chat. With Reduce Motion the
+ * sheet appears without the slide and its content cross-fades in and out
+ * over 0.2 s.
  */
 export function NewConversationSheet({
   children,
@@ -105,7 +105,7 @@ function SheetBody({
   const navigation = useNavigation();
   const palette = useColors();
   const reduceMotion = useSheetReducedMotion();
-  // `ReducedMotionSheet.present` commits the sheet transparent, then fades in.
+  // With Reduce Motion the sheet commits transparent, then fades in.
   const opacity = useSharedValue(reduceMotion ? 0 : 1);
   const [closing, setClosing] = useState(false);
   const closingRef = useRef(false);
@@ -130,8 +130,7 @@ function SheetBody({
         leave();
         return;
       }
-      // Like `ReducedMotionSheet`: block input, fade out, then dismiss
-      // without animation.
+      // Reduce Motion: block input, fade out, then dismiss without animation.
       setClosing(true);
       opacity.value = withTiming(0, fadeTiming);
       timer.current = setTimeout(leave, reducedTiming.duration);

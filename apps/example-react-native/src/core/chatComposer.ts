@@ -1,5 +1,4 @@
-// The composer of one open chat (ExampleCore/Chat/ComposerStore.swift,
-// Send/ComposerDraftStore.swift).
+// The composer of one open chat.
 //
 // Every edit is saved at once. A send reserves the draft (its request ID and
 // the submitted revision) and saves it, journals a `queueing` entry before
@@ -64,7 +63,7 @@ export interface ComposerState {
   readonly error?: string;
 }
 
-/** Typing and sending are possible (`ComposerState.enabled`). */
+/** Typing and sending are possible. */
 export function composerEnabled(state: ComposerState): boolean {
   return (
     state.allowed &&
@@ -186,8 +185,8 @@ export class ChatComposer extends Store<ComposerState> {
       const draft = saved;
       const unknown = composerOutcomeUnknown(references, id);
       this.setState((state) => {
-        // The chat stays mounted while Settings clears the outcome (iOS
-        // rebuilds it): drop the lock's message with the lock.
+        // The chat stays mounted while Settings clears the outcome: drop the
+        // lock's message with the lock.
         if (!unknown && state.error === ComposerCopy.outcomeUnknown) {
           const { error: _error, ...rest } = state;
           return { ...rest, draft, unknown };

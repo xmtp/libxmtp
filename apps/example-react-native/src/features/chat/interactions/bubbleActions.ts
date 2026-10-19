@@ -4,7 +4,7 @@ import type { MessageMenuItem } from "@/core/messageInteractions.ts";
 import type { ChatRuntime } from "@/features/chat/chatRuntime";
 import { copyText } from "@/platform/clipboard";
 
-/** Opens the emoji picker sheet for a message (`.emojiPicker`). */
+/** Opens the emoji picker sheet for a message. */
 export function openEmojiPicker(
   conversationId: string,
   messageId: string,
@@ -16,9 +16,9 @@ export function openEmojiPicker(
 }
 
 /**
- * Runs a context-menu or VoiceOver item on a row of the open chat
- * (`ChatMessages.swift` `menu(_:)`). Delete only asks for the confirmation;
- * the chat's interactions layer shows the "Delete message?" alert.
+ * Runs a context-menu or VoiceOver item on a row of the open chat. Delete only
+ * asks for the confirmation; the chat's interactions layer shows the "Delete
+ * message?" alert.
  */
 export function runMenuItem(
   runtime: ChatRuntime,

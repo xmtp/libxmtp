@@ -26,7 +26,7 @@ export interface BubbleProps {
 /** Width the tail adds on its side. */
 const tailWidth = 6;
 
-/** The tail tip in its box (`BubbleShape`), outgoing 23 x 14, incoming 17 x 14. */
+/** The tail tip in its box: outgoing 23 x 14, incoming 17 x 14. */
 const tip = {
   outgoing: "M3 0 Q14 13 23 13 Q9 14 0 11 Z",
   incoming: "M14 0 Q9 13 0 13 Q8 14 17 11 Z",
@@ -34,10 +34,9 @@ const tip = {
 
 /**
  * The incoming body's rounded bottom corner in its tail box (radius 18; the
- * box bottom is 1 pt below the body). SwiftUI fills `BubbleShape` with the
- * non-zero rule, and mirroring the incoming tip reverses its winding, so
- * where it overlaps the body nothing is drawn: the background shows through
- * as a sliver inside every incoming tail. Outgoing tips wind with the body.
+ * box bottom is 1 pt below the body). Inside it the incoming tip is painted
+ * again in the background color, so every incoming tail shows a sliver of
+ * background where it overlaps the body. Outgoing tails have no sliver.
  */
 const incomingCorner = "M6 -5 A18 18 0 0 0 24 13 L30 13 L30 -6 L6 -6 Z";
 

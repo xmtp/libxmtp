@@ -16,10 +16,10 @@ export interface ChatHeaderProps {
 }
 
 /**
- * The principal toolbar item (`ChatHeader.swift`): a 30 pt avatar above the
- * caption-semibold title, "· N members" for groups and a chevron. Opens
- * Details. One accessibility element (`chat.details`). Navigation bar items
- * keep their default size at every text size.
+ * The principal toolbar item: a 30 pt avatar above the caption-semibold title,
+ * "· N members" for groups and a chevron. Opens Details. One accessibility
+ * element (`chat.details`). Navigation bar items keep their default size at
+ * every text size.
  */
 export function ChatHeader({
   conversationId,

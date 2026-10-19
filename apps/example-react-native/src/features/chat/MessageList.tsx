@@ -44,9 +44,9 @@ const SETTLE_DELAY_MS = 50;
 const SETTLE_WINDOW_MS = 1000;
 
 /**
- * The bottom-anchored timeline (`ChatContentView` ScrollView): the older and
- * pending page buttons on top, a date separator above the first row and at
- * each new day, rows 10 pt apart, 16 pt side and bottom padding.
+ * The bottom-anchored timeline: the older and pending page buttons on top, a
+ * date separator above the first row and at each new day, rows 10 pt apart,
+ * 16 pt side and bottom padding.
  */
 export function MessageList({
   state,

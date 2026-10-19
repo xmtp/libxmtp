@@ -1,7 +1,4 @@
-/**
- * New message strings (`Features/NewConversation/NewConversation.xcstrings`,
- * `NewConversationView.swift`). Store copy lives in `@/core/newConversation.ts`.
- */
+/** New message strings. Store copy lives in `@/core/newConversation.ts`. */
 export const newConversationCopy = {
   newMessage: "New message",
   newGroup: "New group",

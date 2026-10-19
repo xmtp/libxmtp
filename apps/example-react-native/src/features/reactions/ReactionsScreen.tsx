@@ -29,9 +29,9 @@ export interface ReactionsScreenProps {
 }
 
 /**
- * The Reactions sheet (`ReactionsFeatureView`): its own header with a glass
- * Close button, "All N" and per-emoji glass chips, the senders of the
- * selected reactions, and "Remove my reaction" when the filter holds yours.
+ * The Reactions sheet: its own header with a glass Close button, "All N" and
+ * per-emoji glass chips, the senders of the selected reactions, and "Remove my
+ * reaction" when the filter holds yours.
  */
 export function ReactionsScreen(props: ReactionsScreenProps) {
   const session = useActiveSession();

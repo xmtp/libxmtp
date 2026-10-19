@@ -1,5 +1,4 @@
-// Chat message values and the rules that map them for display
-// (ExampleCore/Chat/MessageMapper.swift, ConversationModels.swift).
+// Chat message values and the rules that map them for display.
 //
 // The SDK adapter (`features/chat/sdkChatQueries.ts`) builds these values; the
 // timeline, composer and action stores and every view read only these.
@@ -8,7 +7,7 @@ import type { RemoteAttachment } from "@xmtp/react-native-sdk";
 
 import type { ConversationKind } from "./titles.ts";
 
-/** Copy the mapping emits (`ExampleSDK/ChatQueries.swift`, Chat.xcstrings). */
+/** Copy the mapping emits. */
 export const ChatContentCopy = {
   deleted: "Message deleted",
   file: "File",
@@ -39,7 +38,7 @@ export interface RecoveryPosition {
  */
 export type ChatContent =
   | { readonly kind: "text"; readonly text: string }
-  /** Shown as plain text, like iOS (no markdown rendering). */
+  /** Shown as plain text (no markdown rendering). */
   | { readonly kind: "markdown"; readonly text: string }
   | {
       readonly kind: "reply";
@@ -143,9 +142,9 @@ function compareScalars(left: string, right: string): number {
 }
 
 /**
- * Reaction badges (`MessageMapper.reactions`): the latest record per sender,
- * emoji and schema wins (ties keep input order), removals drop out, badges
- * group by emoji with sorted senders and sort by emoji.
+ * Reaction badges: the latest record per sender, emoji and schema wins (ties
+ * keep input order), removals drop out, badges group by emoji with sorted
+ * senders and sort by emoji.
  */
 export function reactionBadges(
   records: readonly ReactionRecord[],

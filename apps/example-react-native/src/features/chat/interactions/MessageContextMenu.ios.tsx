@@ -58,9 +58,9 @@ const strokeColors = {
 };
 
 /**
- * `messengerGlass(in:)` (`DesignSystem/Glass.swift`) for the preview: Liquid
- * Glass, or with Reduce Transparency the system background and a 1 pt stroke
- * in the label color at 20 percent (60 percent with Increase Contrast).
+ * The preview's glass: Liquid Glass, or with Reduce Transparency the system
+ * background and a 1 pt stroke in the label color at 20 percent (60 percent
+ * with Increase Contrast).
  */
 function useMessengerGlass(palette: Palette) {
   const reduceTransparency = useReduceTransparency();
@@ -90,10 +90,9 @@ function useMessengerGlass(palette: Palette) {
 }
 
 /**
- * The bubble's long-press menu (`ChatMessages.swift`
- * `.contextMenu { menu(row) } preview: { messagePreview(row) }`): SwiftUI's
- * own context menu around the React Native bubble, with the glass preview
- * of quick reactions over the message text.
+ * The bubble's long-press menu: SwiftUI's own context menu around the React
+ * Native bubble, with the glass preview of quick reactions over the message
+ * text.
  */
 export function MessageContextMenu({
   items,

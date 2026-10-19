@@ -149,15 +149,15 @@ const mediumDetent = 0.565;
 const pageSheet = { presentation: "modal", headerShown: false } as const;
 
 /**
- * New message with Reduce Motion (`ReducedMotionSheet`): the sheet appears and
- * leaves without the slide, cannot be swiped away, and its content
- * cross-fades (`NewConversationSheet`).
+ * New message with Reduce Motion: the sheet appears and leaves without the
+ * slide, cannot be swiped away, and its content cross-fades
+ * (`NewConversationSheet`).
  */
 const reducedMotionSheet = {
   ...pageSheet,
   animation: "none",
   gestureEnabled: false,
-  // `presentationBackground(.clear)`: the faded content is the whole sheet.
+  // A clear background: the faded content is the whole sheet.
   contentStyle: { backgroundColor: "transparent" },
 } as const;
 

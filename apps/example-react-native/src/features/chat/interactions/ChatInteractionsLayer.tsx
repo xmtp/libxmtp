@@ -21,9 +21,9 @@ import { springConfig } from "@/ui/motion";
 import { useStore } from "@/ui/useStore";
 
 /**
- * Chat-wide pieces of the message interactions (`ChatContentView`): the
- * "Delete message?" alert for `actions.deleteTarget`, and the send flight
- * from the composer to the new row. Render it once, last, in the chat screen.
+ * Chat-wide pieces of the message interactions: the "Delete message?" alert for
+ * `actions.deleteTarget`, and the send flight from the composer to the new row.
+ * Render it once, last, in the chat screen.
  */
 export function ChatInteractionsLayer() {
   const { runtime } = useChatContext();
@@ -106,10 +106,10 @@ function measure(
 }
 
 /**
- * `MessageFlightView`: an outgoing bubble that starts at the composer's
- * center at 92 % size and springs to its row's bubble, which stays hidden
- * until it lands. The target is measured every frame, so it follows the
- * list's scroll to the newest row.
+ * The send flight: an outgoing bubble that starts at the composer's center at
+ * 92 % size and springs to its row's bubble, which stays hidden until it lands.
+ * The target is measured every frame, so it follows the list's scroll to the
+ * newest row.
  */
 function FlightOverlay() {
   const { runtime, composerRef } = useChatContext();

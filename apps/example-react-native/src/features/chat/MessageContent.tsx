@@ -14,7 +14,7 @@ export interface MessageContentProps {
 }
 
 /**
- * What a bubble holds, by content kind (`ChatMessages.swift` `messageContent`).
+ * What a bubble holds, by content kind.
  * A new content kind adds its case to `ChatContent` (`core/chatMessages.ts`),
  * the SDK mapping (`sdkChatQueries.ts` `chatContent`) and a renderer here.
  */

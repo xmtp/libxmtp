@@ -1,4 +1,4 @@
-// The chat timeline of one open chat (ExampleCore/Chat/ChatTimelineStore.swift).
+// The chat timeline of one open chat.
 //
 // It loads published history in pages of 50 (newest first, or around the
 // saved reading anchor), the pending (unpublished or failed) rows after them,
@@ -7,9 +7,8 @@
 // action cancels the one in flight; results apply only while the chat is open
 // in the current session (`admit`).
 //
-// Simplification of iOS (`ios-core-messaging.md` §14): one `around` read when
-// restoring the anchor; when no surviving row is in it, the newest page loads
-// with the "Position changed" notice.
+// Restoring the anchor reads one `around` window; when no surviving row is in
+// it, the newest page loads with the "Position changed" notice.
 
 import {
   type ChatQueries,

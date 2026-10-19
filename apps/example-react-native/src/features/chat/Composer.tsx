@@ -36,10 +36,10 @@ function fieldMetrics(bodyScale: number) {
 }
 
 /**
- * The composer (`ChatComposer.swift`): staged attachments, the error line,
- * "Review send" when a send outcome is unknown, the reply preview, then the
- * input row: attach menu, the glass "Message" field (1 to 5 lines) and the
- * prominent send arrow, shown only while the field has text.
+ * The composer: staged attachments, the error line, "Review send" when a send
+ * outcome is unknown, the reply preview, then the input row: attach menu, the
+ * glass "Message" field (1 to 5 lines) and the prominent send arrow, shown only
+ * while the field has text.
  */
 export function Composer() {
   const { runtime, conversationId, composerRef } = useChatContext();

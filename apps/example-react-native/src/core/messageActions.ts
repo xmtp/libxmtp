@@ -1,4 +1,4 @@
-// Message actions: react, delete, retry (ExampleCore/Chat/MessageActionStore.swift).
+// Message actions: react, delete, retry.
 //
 // Reactions and deletions go through the send journal like texts. A deletion
 // journals its target before the SDK call and publishes the deletion's

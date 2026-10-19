@@ -40,7 +40,7 @@ import { useMotion } from "@/ui/motion";
 import { Text } from "@/ui/Text";
 import { useStore } from "@/ui/useStore";
 
-/** The chat route (`ChatFeatureView`): one runtime per session and conversation. */
+/** The chat route: one runtime per session and conversation. */
 export function ChatScreen({ conversationId }: { conversationId: string }) {
   const palette = useColors();
   const session = useActiveSession();
@@ -112,9 +112,8 @@ function ChatSessionScreen({
     report(lastVisible.current);
   }, [focused, report, runtime]);
 
-  // The request bar's decisions (`RequestsStore`). Accept leaves Chats below
-  // the chat (`setPath([.chat(id)])`); Delete request and Block return to
-  // Chats (`replace(.chats)`). Both only while the chat is on top.
+  // The request bar's decisions. Accept leaves Chats below the chat; Delete
+  // request and Block return to Chats. Both only while the chat is on top.
   const navigation = useNavigation();
   const routeKey = useRoute().key;
   const onOutcome = useCallback(

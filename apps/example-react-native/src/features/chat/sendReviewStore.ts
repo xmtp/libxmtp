@@ -1,5 +1,5 @@
-// Settings › Send needs review (App/Features/Settings/SendReviewSection.swift):
-// journal entries whose outcome is unknown, or deletions not yet confirmed.
+// Settings › Send needs review: journal entries whose outcome is unknown, or
+// deletions not yet confirmed.
 // Clearing removes the entry (and releases the chat's composer); it never
 // resends. Retry deletion publishes the accepted deletion operation again.
 

@@ -14,10 +14,9 @@ export interface MessageBubbleWrapperProps {
 }
 
 /**
- * The interaction layer around one bubble (`ChatMessages.swift`
- * `messageBubble` modifiers): long-press context menu with the quick-reaction
- * preview, swipe to reply, and hiding the bubble while its send flight runs.
- * See `features/chat/interactions`.
+ * The interaction layer around one bubble: long-press context menu with the
+ * quick-reaction preview, swipe to reply, and hiding the bubble while its send
+ * flight runs. See `features/chat/interactions`.
  */
 export function MessageBubbleWrapper(props: MessageBubbleWrapperProps) {
   return <MessageInteractions {...props} />;

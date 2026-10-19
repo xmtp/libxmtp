@@ -1,4 +1,4 @@
-// The chat stores' SDK reads and writes (ExampleSDK/ChatQueries.swift).
+// The chat stores' SDK reads and writes.
 
 import {
   type Client,

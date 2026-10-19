@@ -1,5 +1,4 @@
-// The stores of one open chat (App/Features/Chat/ChatServices.swift
-// `ChatRuntime`, ChatFeatureView.swift) and the actions the chat's views call.
+// The stores of one open chat and the actions the chat's views call.
 //
 // The screen creates one runtime per conversation and session, then attaches
 // it while mounted: attaching registers the stream listeners and loads;
@@ -52,7 +51,7 @@ export class ChatRuntime {
   /**
    * The last text the user submitted, with an increasing count, for the send
    * flight: when the newest row is own with this text, it flies from the
-   * composer (`ChatContentView` `submittedText`).
+   * composer.
    */
   readonly submissions = new ValueStore<
     { readonly text: string; readonly count: number } | undefined

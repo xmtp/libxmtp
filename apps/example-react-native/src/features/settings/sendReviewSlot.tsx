@@ -23,9 +23,9 @@ export interface SendReviewSectionProps {
 }
 
 /**
- * Settings › "Send needs review" (`SendReviewSection.swift`): sends with an
- * unknown outcome and deletions that are not confirmed, each with View chat,
- * Retry deletion (accepted deletions) and Clear. Clearing never resends.
+ * Settings › "Send needs review": sends with an unknown outcome and deletions
+ * that are not confirmed, each with View chat, Retry deletion (accepted
+ * deletions) and Clear. Clearing never resends.
  * Settings renders `<SendReviewSection session={session} />` directly in its
  * `FormScreen`; the section brings its own `FormSection`.
  */

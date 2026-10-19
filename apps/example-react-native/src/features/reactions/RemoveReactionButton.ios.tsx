@@ -6,8 +6,8 @@ import type { RemoveReactionButtonProps } from "@/features/reactions/RemoveReact
 import { useColors } from "@/ui/colors";
 
 /**
- * "Remove my reaction" (`ReactionsFeatureView`): a full-width destructive
- * glass button tinted red, at least 44 pt tall.
+ * "Remove my reaction": a full-width destructive glass button tinted red, at
+ * least 44 pt tall.
  */
 export function RemoveReactionButton({
   title,

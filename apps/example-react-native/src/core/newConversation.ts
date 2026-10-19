@@ -1,7 +1,4 @@
-// New message: recipient resolution and the two-step flow
-// (ExampleCore/NewConversation/NewConversationStore.swift,
-// ExampleCore/Identity/IdentityInput.swift `resolve`,
-// ExampleSDK/IdentityQueries.swift and NewConversationQueries.swift `resolve`).
+// New message: recipient resolution and the two-step flow.
 
 import {
   RecipientError,
@@ -17,7 +14,7 @@ export interface Person {
   readonly handle?: string;
 }
 
-/** `@handle`, else the first 12 inbox ID characters (`Recipient.label`). */
+/** `@handle`, else the first 12 inbox ID characters. */
 export function personLabel(person: Person): string {
   return person.handle === undefined
     ? person.inboxId.slice(0, 12)
@@ -32,7 +29,7 @@ export const NewConversationCopy = {
   loadFailed: "Cannot load people. Try again.",
 } as const;
 
-/** An error whose message is the copy to show (`NewConversationError.input`). */
+/** An error whose message is the copy to show. */
 export class NewConversationError extends Error {
   constructor(message: string) {
     super(message);
@@ -105,7 +102,8 @@ export async function resolveInboxId(
 /**
  * One recipient entry as a person: its inbox and its handle
  * (`inboxStates(refreshFromNetwork: false)`; a failed read gives no handle).
- * Parse and lookup failures throw `NewConversationError` with the iOS copy.
+ * Parse and lookup failures throw `NewConversationError` with the
+ * `RecipientCopy` message.
  */
 export async function resolvePerson(
   input: string,
@@ -129,7 +127,7 @@ export async function resolvePerson(
   return handle === undefined ? { inboxId } : { inboxId, handle };
 }
 
-/** What the store needs from the SDK (`NewConversationQueries`). */
+/** What the store needs from the SDK. */
 export interface NewConversationQueries {
   /** Members of up to 20 allowed conversations, without you, at most 100. */
   people(): Promise<readonly Person[]>;

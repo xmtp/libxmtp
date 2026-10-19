@@ -51,10 +51,10 @@ function openReactions(
 }
 
 /**
- * One message row (`ChatMessages.swift` `message(_:)`): outgoing rows on the
- * trailing side with a delivery label, incoming rows on the leading side with
- * the sender's 24 pt avatar and caption2 name in groups. Every bubble has a
- * tail; reaction badges overlap its top-trailing corner.
+ * One message row: outgoing rows on the trailing side with a delivery label,
+ * incoming rows on the leading side with the sender's 24 pt avatar and caption2
+ * name in groups. Every bubble has a tail; reaction badges overlap its
+ * top-trailing corner.
  */
 export const MessageRow = memo(function MessageRow({
   row,
