@@ -9,6 +9,8 @@ import {
   textMessage,
 } from "./chatFakes.ts";
 import {
+  CACHE_CONVERSATION_LIMIT,
+  CACHE_ROW_LIMIT,
   type HistoryWindow,
   TranscriptCache,
   anchorTarget,
@@ -54,29 +56,36 @@ test("around reads newer rows after the anchor, then older ones before them", as
   assert.equal(around.hasOlder, true);
 });
 
-test("the cache keeps 500 rows around the anchor", () => {
+test("the cache keeps its row limit centered on the anchor", () => {
   const cache = new TranscriptCache();
-  const rows = newestFirst(800, 1);
-  const kept = cache.put(CONVERSATION, window(rows), "m0300");
-  assert.equal(kept.rows.length, 500);
-  // The anchor m0300 sits at index 500; the window starts 250 rows newer.
-  assert.equal(kept.rows[0]?.id, "m0550");
+  const limit = CACHE_ROW_LIMIT;
+  // Twice the limit, newest first: row n sits at index 2 × limit − n, so
+  // the anchor row `limit` sits in the middle.
+  const rows = newestFirst(2 * limit, 1);
+  const kept = cache.put(CONVERSATION, window(rows), textMessage(limit).id);
+  assert.equal(kept.rows.length, limit);
+  // The window starts half the limit newer than the anchor.
+  const newest = textMessage(limit + limit / 2).id;
+  const oldest = textMessage(limit / 2 + 1).id;
+  assert.equal(kept.rows[0]?.id, newest);
   assert.equal(kept.atNewest, false);
   assert.equal(kept.hasOlder, true);
-  assert.equal(kept.first?.cursor, "m0550");
-  assert.equal(kept.last?.cursor, "m0051");
+  assert.equal(kept.first?.cursor, newest);
+  assert.equal(kept.last?.cursor, oldest);
 });
 
-test("the cache drops duplicate rows and keeps three conversations", () => {
+test("the cache drops duplicate rows and evicts the least recent conversation", () => {
   const cache = new TranscriptCache();
   const rows = [textMessage(2), textMessage(2), textMessage(1)];
   assert.deepEqual(ids(cache.put("a", window(rows)).rows), ["m0002", "m0001"]);
-  cache.put("b", window([textMessage(1)]));
-  cache.put("c", window([textMessage(1)]));
+  // Fill the cache; reading "a" leaves "b1" the least recent.
+  for (let n = 1; n < CACHE_CONVERSATION_LIMIT; n += 1) {
+    cache.put(`b${String(n)}`, window([textMessage(1)]));
+  }
   cache.get("a");
-  cache.put("d", window([textMessage(1)]));
+  cache.put("new", window([textMessage(1)]));
   assert.ok(cache.get("a") !== undefined);
-  assert.equal(cache.get("b"), undefined);
+  assert.equal(cache.get("b1"), undefined);
 });
 
 test("an older page appends to the cached window, or to the window on screen after an eviction", () => {
