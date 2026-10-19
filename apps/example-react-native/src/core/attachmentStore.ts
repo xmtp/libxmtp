@@ -73,6 +73,8 @@ export interface AttachmentStorePorts {
   readonly admit: () => boolean;
   /** False once the session ended (cleanup still runs after the screen left). */
   readonly acceptsSession: () => boolean;
+  /** Runs work as session work: sign-out waits for it before ending the client. */
+  readonly run: (job: () => Promise<void>) => void;
   /** The conversation's consent is allowed (sends and downloads). */
   readonly allowed: () => boolean;
   /** Re-reads consent right before a download. */
@@ -137,6 +139,13 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     if (this.#ports.admit()) this.setState(change);
   }
 
+  /** Starts `work` as session work, so sign-out waits for its SDK calls. */
+  #session(work: () => Promise<void>): Promise<void> {
+    const job = work();
+    this.#ports.run(() => job);
+    return job;
+  }
+
   #canSend(id: string, generation: number): boolean {
     if (
       !this.#ports.admit() ||
@@ -176,7 +185,11 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
    * as unassigned drafts, drops orphans, adopts accepted sends from the
    * journal, removes published ones and resets interrupted uploads.
    */
-  async load(): Promise<void> {
+  load(): Promise<void> {
+    return this.#session(() => this.#load());
+  }
+
+  async #load(): Promise<void> {
     try {
       const { gateway, drafts } = this.#ports;
       if (!this.#ports.admit() || !this.#ports.acceptsSession()) return;
@@ -234,10 +247,14 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
    * Hands a staged copy to the SDK and saves it as a draft of this chat. The
    * MIME type comes from the name, else the picker's type (`pickerType`).
    */
-  async stage(
+  stage(path: string, filename: string, pickerType?: string): Promise<void> {
+    return this.#session(() => this.#stage(path, filename, pickerType));
+  }
+
+  async #stage(
     path: string,
     filename: string,
-    pickerType?: string,
+    pickerType: string | undefined,
   ): Promise<void> {
     try {
       try {
@@ -289,8 +306,13 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   }
 
   /** Deletes the SDK's copy and the draft. A queued send cannot start after this. */
-  async discard(id: string): Promise<void> {
+  discard(id: string): Promise<void> {
+    return this.#session(() => this.#discard(id));
+  }
+
+  async #discard(id: string): Promise<void> {
     try {
+      if (!this.#ports.acceptsSession()) return;
       const draft = this.#ports.drafts.all().find((entry) => entry.id === id);
       if (draft === undefined) return;
       this.#generations.set(id, (this.#generations.get(id) ?? 0) + 1);
@@ -318,9 +340,19 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
    * (unless already complete), queues the message, publishes, and removes the
    * draft once the message is published.
    */
-  async send(id: string): Promise<void> {
+  send(id: string): Promise<void> {
+    return this.#session(() => this.#send(id));
+  }
+
+  async #send(id: string): Promise<void> {
     const { activeSends } = this.#ports;
-    if (this.#discarded.has(id) || activeSends.has(id)) return;
+    if (
+      !this.#ports.acceptsSession() ||
+      this.#discarded.has(id) ||
+      activeSends.has(id)
+    ) {
+      return;
+    }
     activeSends.add(id);
     try {
       const generation = this.#generations.get(id) ?? 0;
@@ -512,7 +544,14 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
    * Downloads and verifies a message's file. One download per message runs at
    * a time; consent is re-read first; an invalidation drops the result.
    */
-  async download(messageId: string, file: RemoteAttachment): Promise<void> {
+  download(messageId: string, file: RemoteAttachment): Promise<void> {
+    return this.#session(() => this.#downloadOnce(messageId, file));
+  }
+
+  async #downloadOnce(
+    messageId: string,
+    file: RemoteAttachment,
+  ): Promise<void> {
     if (this.#admissions.has(messageId)) return;
     const token = {};
     this.#admissions.set(messageId, token);

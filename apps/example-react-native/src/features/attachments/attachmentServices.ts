@@ -91,6 +91,9 @@ export function createAttachmentStore(
       : { conversationId: options.conversationId }),
     admit: () => options.admit() && session.isCurrent(),
     acceptsSession: () => session.isCurrent(),
+    run: (job) => {
+      void session.scope.add(() => job());
+    },
     allowed: options.allowed,
     ...(options.authorizeDownload === undefined
       ? {}

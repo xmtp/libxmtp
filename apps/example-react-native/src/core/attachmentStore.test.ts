@@ -21,6 +21,7 @@ import {
 } from "./attachmentStore.ts";
 import { CONVERSATION, MemoryJournal, coordinatorFor } from "./chatFakes.ts";
 import { SendError, SendJournal } from "./sendJournal.ts";
+import { SessionScope } from "./sessionScope.ts";
 import { deferred, settle } from "./testing.ts";
 
 function harness(
@@ -54,6 +55,7 @@ function harness(
   };
   let next = 0;
   const activeSends = new Set<string>();
+  const scope = new SessionScope();
   const ports = (conversationId?: string): AttachmentStorePorts => ({
     gateway,
     drafts,
@@ -61,6 +63,9 @@ function harness(
     ...(conversationId === undefined ? {} : { conversationId }),
     admit: () => env.admitted,
     acceptsSession: () => env.session,
+    run: (job) => {
+      void scope.add(() => job());
+    },
     allowed: () => env.allowed,
     authorizeDownload: () =>
       env.authorize?.() ?? Promise.resolve(env.authorized),
@@ -97,6 +102,7 @@ function harness(
     preferences,
     removed,
     env,
+    scope,
   };
 }
 
@@ -537,6 +543,61 @@ test("an upload that ends after consent was revoked is saved complete, so Send o
   gate.resolve();
   await ending;
   assert.equal(h.drafts.all()[0]?.phase, "uploading");
+});
+
+type GatewayCall = "create" | "pending" | "upload" | "download" | "discard";
+
+/** Holds one gateway call until the returned gate resolves. */
+function holdCall(h: ReturnType<typeof harness>, name: GatewayCall) {
+  const gate = deferred();
+  const gateway = h.gateway as unknown as Record<
+    GatewayCall,
+    (...args: unknown[]) => Promise<unknown>
+  >;
+  const call = gateway[name].bind(h.gateway);
+  gateway[name] = async (...args) => {
+    await gate.promise;
+    return call(...args);
+  };
+  return gate;
+}
+
+test("sign-out waits for each SDK call the store started", async () => {
+  const calls: [
+    GatewayCall,
+    (h: ReturnType<typeof harness>, id: string) => Promise<void>,
+  ][] = [
+    ["create", (h) => h.store.stage("/temp/x", "x.txt")],
+    ["pending", (h) => h.store.load()],
+    ["upload", (h, id) => h.store.send(id)],
+    ["download", (h) => h.store.download("m1", remoteFile())],
+    ["discard", (h, id) => h.store.discard(id)],
+  ];
+  for (const [name, start] of calls) {
+    const h = harness();
+    const draft = await staged(h);
+    const gate = holdCall(h, name);
+    const work = start(h, draft.id);
+    await settle();
+    let closed = false;
+    const closing = h.scope.cancelAndWait().then(() => {
+      closed = true;
+    });
+    await settle();
+    assert.equal(closed, false, name);
+    gate.resolve();
+    await Promise.all([work, closing]);
+  }
+});
+
+test("a send or discard after the session ended makes no SDK call", async () => {
+  const h = harness();
+  const draft = await staged(h);
+  h.env.session = false;
+  await h.store.send(draft.id);
+  await h.store.discard(draft.id);
+  assert.equal(h.gateway.uploads.length, 0);
+  assert.equal(h.gateway.discarded.length, 0);
 });
 
 test("a file pushed out of the verified cache shows Download again", async () => {
