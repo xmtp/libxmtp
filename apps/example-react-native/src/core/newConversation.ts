@@ -154,6 +154,11 @@ export interface NewConversationState {
   readonly adminOnly: boolean;
   readonly reviewing: boolean;
   readonly busy: boolean;
+  /**
+   * True while the SDK create call runs. A create already sent cannot be
+   * taken back, so the sheet cannot be dismissed until it ends.
+   */
+  readonly creating: boolean;
   readonly loadingPeople: boolean;
   readonly error?: string;
   readonly bootstrapError?: string;
@@ -170,6 +175,7 @@ export const initialNewConversationState: NewConversationState = {
   adminOnly: false,
   reviewing: false,
   busy: false,
+  creating: false,
   loadingPeople: false,
   maximumMembers: 0,
 };
@@ -224,8 +230,6 @@ export class NewConversationStore extends Store<NewConversationState> {
   #closed = false;
   #revision = 0;
   #loadRevision = 0;
-  /** True while the SDK create call runs. */
-  #creating = false;
 
   constructor(
     queries: NewConversationQueries,
@@ -365,10 +369,10 @@ export class NewConversationStore extends Store<NewConversationState> {
    * A running create call is kept, and stays busy.
    */
   #cancel(change: (state: NewConversationState) => NewConversationState): void {
-    if (!this.#creating) this.#revision += 1;
+    if (!this.getState().creating) this.#revision += 1;
     this.#update((state) => {
       const { error: _cleared, ...rest } = state;
-      return change({ ...rest, busy: this.#creating });
+      return change({ ...rest, busy: state.creating });
     });
   }
 
@@ -404,7 +408,7 @@ export class NewConversationStore extends Store<NewConversationState> {
         if (step === "create") {
           check();
           const state = this.getState();
-          this.#creating = true;
+          this.#update((current) => ({ ...current, creating: true }));
           let id: string;
           try {
             id = await this.#queries.create({
@@ -415,7 +419,7 @@ export class NewConversationStore extends Store<NewConversationState> {
               adminOnly: state.adminOnly,
             });
           } finally {
-            this.#creating = false;
+            this.#update((current) => ({ ...current, creating: false }));
           }
           check();
           this.#update((current) => ({ ...current, busy: false }));

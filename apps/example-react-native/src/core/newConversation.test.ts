@@ -672,6 +672,37 @@ test("leaving the review while Create runs keeps that create and starts no secon
   assert.deepEqual(finished, ["conversation-1"]);
 });
 
+describe("the sheet stays open only while the create call runs", () => {
+  for (const failure of [undefined, new Error("network")]) {
+    test(
+      failure === undefined ? "the create succeeds" : "the create fails",
+      async () => {
+        const queries = new FakeQueries();
+        queries.createFailure = failure;
+        const { store } = makeStore(queries);
+        store.load();
+        await settle();
+        store.setInput("theo");
+        const resolving = deferred();
+        queries.resolveGate = resolving.promise;
+        store.create();
+        await settle();
+        // Resolving the typed entry sent nothing: the sheet can still close.
+        assert.equal(store.getState().busy, true);
+        assert.equal(store.getState().creating, false);
+        let sending: boolean | undefined;
+        queries.during("create", () => {
+          sending = store.getState().creating;
+        });
+        resolving.resolve();
+        await settle();
+        assert.equal(sending, true);
+        assert.equal(store.getState().creating, false);
+      },
+    );
+  }
+});
+
 test("Create for a DM resolves the typed entry first", async () => {
   const queries = new FakeQueries();
   const { store, finished } = makeStore(queries);

@@ -127,7 +127,7 @@ The request bar takes its Accept, Delete request and Block decisions from the sa
 
 ## New message
 
-`features/new-conversation` is a page sheet with its own stack: step 1 (`index`) and the review (`review`) share one `NewConversationStore` (`src/core/newConversation.ts`, recipient resolution and its tests) that `NewConversationSheet` owns in the sheet's layout (`useNewConversation()`). Create closes the sheet and pushes the new chat. A create already sent cannot be taken back: the review disables Back and Change people while it runs, and leaving the review another way keeps it running. `useScrollEdge()` (`scrollEdge.ts`) gives a form in a sheet SwiftUI's top edge: none at rest, the hard edge once content is under the bar. A static `scrollEdgeEffects: { top: "hard" }` draws the edge at rest too.
+`features/new-conversation` is a page sheet with its own stack: step 1 (`index`) and the review (`review`) share one `NewConversationStore` (`src/core/newConversation.ts`, recipient resolution and its tests) that `NewConversationSheet` owns in the sheet's layout (`useNewConversation()`). Create closes the sheet and pushes the new chat. A create already sent cannot be taken back: while it runs the review disables Back and Change people, and the sheet cannot be dismissed (no swipe down, no Android back), so the new chat opens when it ends. `useScrollEdge()` (`scrollEdge.ts`) gives a form in a sheet SwiftUI's top edge: none at rest, the hard edge once content is under the bar. A static `scrollEdgeEffects: { top: "hard" }` draws the edge at rest too.
 
 ## Details
 
