@@ -47,8 +47,6 @@ def expression_value(expression, results):
     ]
     known = {
         "toJSON(needs)": json.dumps({job: {"result": r} for job, r in results.items()}),
-        "inputs.suites": json.dumps(suites),
-        "inputs.products": json.dumps(products),
         "needs.detect-changes.result": results.get("detect-changes", ""),
         "needs.detect-changes.outputs.lint_suites": json.dumps(suites),
         "needs.detect-changes.outputs.test_suites": json.dumps(suites),
