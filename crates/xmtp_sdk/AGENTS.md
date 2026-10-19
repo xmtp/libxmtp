@@ -90,7 +90,10 @@ Run commands from the repository root in the Nix shell. Run
   `dev/copy-browser-fixtures`. These release-profile fixtures share the
   product WASM dependency layer and enable the test-only `conformance` cargo
   feature, whose exports
-  (`sdk_conformance_*`) the default bindings omit. The public browser scenarios
+  (`sdk_conformance_*`) the default bindings omit. The migration proofs use the
+  Nix-built `fixture_host` example of `xmtp_legacy_migration`
+  (`.#xmtp-legacy-migration-fixture-host`, own dependency layer), copied with
+  `dev/copy-browser-fixtures migration`. The public browser scenarios
   are in `sdks/browser/test`.
   The run starts `sdks/browser/test/platform/object-store/object-store.mjs`
   (`with-object-store` beside it) for its download fixtures. The default ephemeral
