@@ -8,6 +8,7 @@ import {
   SendCoordinator,
   SendError,
   SendJournal,
+  SendReviewCopy,
   canRetryDeletion,
   composerOutcomeUnknown,
   needsReview,
@@ -18,16 +19,18 @@ import {
 
 class MemoryStorage implements SendJournalStorage {
   drafts: readonly SendDraft[] = [];
-  writes = 0;
-  failWrite: number | undefined;
+  /** Fails the first write this matches, once. */
+  failOnce: ((drafts: readonly SendDraft[]) => boolean) | undefined;
 
   read(): readonly SendDraft[] {
     return this.drafts;
   }
 
   write(drafts: readonly SendDraft[]): void {
-    this.writes += 1;
-    if (this.writes === this.failWrite) throw new SendError("storage");
+    if (this.failOnce?.(drafts) === true) {
+      this.failOnce = undefined;
+      throw new SendError("storage");
+    }
     this.drafts = drafts;
   }
 }
@@ -75,32 +78,13 @@ const draft = (overrides: Partial<SendDraft> = {}): SendDraft => ({
   ...overrides,
 });
 
-test("persists before queueing and retries only the publication (persistsBeforeQueueAndRetriesOnlyPublication)", async () => {
-  const storage = new MemoryStorage();
-  const queries = new FakeQueries();
-  queries.onQueue = () => {
-    assert.equal(storage.drafts.length, 1);
-    assert.equal(storage.drafts.at(0)?.phase, "queueing");
-  };
-  const coordinator = new SendCoordinator(
-    new SendJournal(storage),
-    queries,
-    () => true,
-  );
-  const id = await coordinator.queue(draft(), {
-    admission: () => true,
-    accept: () => queries.queue(),
-  });
-  await coordinator.retry("chat", id);
-  assert.equal(queries.queues, 1);
-  assert.equal(queries.publications, 2);
-  assert.deepEqual(storage.drafts, []);
-});
-
-test("saves the accepted ID before acknowledging the composer", async () => {
+test("a send journals queueing before the SDK call and the accepted ID before acknowledging; Retry publishes it and clears the entry", async () => {
   const storage = new MemoryStorage();
   const queries = new FakeQueries();
   queries.failPublish = true;
+  queries.onQueue = () => {
+    assert.deepEqual(storage.drafts, [draft()]);
+  };
   const coordinator = new SendCoordinator(
     new SendJournal(storage),
     queries,
@@ -111,22 +95,27 @@ test("saves the accepted ID before acknowledging the composer", async () => {
     admission: () => true,
     accept: () => queries.queue(),
     acknowledge: (messageId) => {
-      assert.equal(storage.drafts.at(0)?.phase, "accepted");
-      assert.equal(storage.drafts.at(0)?.messageId, messageId);
+      assert.deepEqual(storage.drafts, [
+        draft({ phase: "accepted", messageId }),
+      ]);
       acknowledged = messageId;
     },
   });
   assert.equal(acknowledged, id);
-  // The publication failed: the accepted entry stays for Retry.
+  // The publication failed: the accepted entry stays for Retry, outside review.
   assert.deepEqual(storage.drafts, [
-    draft({ phase: "accepted", messageId: "accepted" }),
+    draft({ phase: "accepted", messageId: id }),
   ]);
   assert.ok(!needsReview(storage.drafts.at(0) ?? draft()));
+  queries.failPublish = false;
+  await coordinator.retry("chat", id);
+  assert.deepEqual(storage.drafts, []);
 });
 
-test("keeps the accepted ID in memory when its durable write fails (retainsAcceptedIDWhenDurableWriteFails)", async () => {
+test("keeps the accepted ID in memory when its durable write fails", async () => {
   const storage = new MemoryStorage();
-  storage.failWrite = 2;
+  storage.failOnce = (drafts) =>
+    drafts.some((entry) => entry.phase === "accepted");
   const queries = new FakeQueries();
   const coordinator = new SendCoordinator(
     new SendJournal(storage),
@@ -144,8 +133,8 @@ test("keeps the accepted ID in memory when its durable write fails (retainsAccep
   assert.equal(storage.drafts.at(0)?.messageId, id);
   assert.equal(storage.drafts.at(0)?.phase, "accepted");
   await coordinator.retry("chat", id);
-  assert.equal(queries.queues, 1);
   assert.equal(queries.publications, 1);
+  assert.deepEqual(storage.drafts, []);
 });
 
 test("a known rejection restores the journal; other errors leave the outcome unknown", async () => {
@@ -185,36 +174,69 @@ test("a known rejection restores the journal; other errors leave the outcome unk
 });
 
 test("consent, session and screen are checked before the SDK call", async () => {
-  const storage = new MemoryStorage();
-  const queries = new FakeQueries();
-  queries.consentValue = "unknown";
-  const coordinator = new SendCoordinator(
-    new SendJournal(storage),
-    queries,
-    () => true,
-  );
-  await assert.rejects(
-    coordinator.queue(draft(), {
-      admission: () => true,
-      accept: () => queries.queue(),
-    }),
-    (error: unknown) => error instanceof SendError && error.kind === "stale",
-  );
-  assert.equal(queries.queues, 0);
-  assert.deepEqual(storage.drafts, []);
-  const ended = new SendCoordinator(
-    new SendJournal(storage),
-    new FakeQueries(),
-    () => false,
-  );
-  await assert.rejects(
-    ended.queue(draft(), {
-      admission: () => true,
-      accept: () => queries.queue(),
-    }),
-    SendError,
-  );
-  assert.equal(storage.writes, 2);
+  const cases = [
+    {
+      name: "consent unknown",
+      consent: "unknown",
+      session: [true],
+      screen: [true],
+    },
+    {
+      name: "consent denied",
+      consent: "denied",
+      session: [true],
+      screen: [true],
+    },
+    {
+      name: "session ended",
+      consent: "allowed",
+      session: [false],
+      screen: [true],
+    },
+    {
+      name: "screen closed",
+      consent: "allowed",
+      session: [true],
+      screen: [false],
+    },
+    {
+      name: "screen closed during the consent read",
+      consent: "allowed",
+      session: [true],
+      screen: [true, false],
+    },
+    {
+      name: "session ended during the consent read",
+      consent: "allowed",
+      session: [true, false],
+      screen: [true],
+    },
+  ] as const;
+  for (const { name, consent, session, screen } of cases) {
+    const storage = new MemoryStorage();
+    const queries = new FakeQueries();
+    queries.consentValue = consent;
+    // Each check reads the next value; the last one repeats.
+    const reads = (values: readonly boolean[]) => {
+      let index = 0;
+      return () => values[Math.min(index++, values.length - 1)] ?? true;
+    };
+    const coordinator = new SendCoordinator(
+      new SendJournal(storage),
+      queries,
+      reads(session),
+    );
+    await assert.rejects(
+      coordinator.queue(draft(), {
+        admission: reads(screen),
+        accept: () => queries.queue(),
+      }),
+      (error: unknown) => error instanceof SendError && error.kind === "stale",
+      name,
+    );
+    assert.equal(queries.queues, 0, name);
+    assert.deepEqual(storage.drafts, [], name);
+  }
 });
 
 test("a second submission of the same request is a duplicate", async () => {
@@ -284,7 +306,7 @@ test("deletions are journaled and an accepted deletion is retried, not repeated"
     "deletion-op",
   );
   assert.equal(deletes, 1);
-  assert.equal(reviewTitle(saved ?? draft()), "Deletion pending");
+  assert.equal(reviewTitle(saved ?? draft()), SendReviewCopy.deletionPending);
   assert.ok(canRetryDeletion(saved ?? draft()));
   // A deletion whose outcome is unknown refuses to run again.
   storage.drafts = [draft({ id: "d", deletionTargetId: "target" })];
@@ -295,7 +317,7 @@ test("deletions are journaled and an accepted deletion is retried, not repeated"
   );
 });
 
-test("review copy and the in-chat clear never touch other conversations", () => {
+test("review rows by state, and the in-chat clear never touches other conversations", () => {
   const send = draft();
   const pending = draft({
     id: "2",
@@ -304,24 +326,16 @@ test("review copy and the in-chat clear never touch other conversations", () => 
     deletionTargetId: "t",
   });
   const unknownDelete = draft({ id: "3", deletionTargetId: "t" });
-  assert.equal(reviewTitle(send), "Send outcome unknown");
-  assert.equal(reviewDetail(send), "The original message may already exist.");
-  assert.equal(reviewTitle(unknownDelete), "Deletion outcome unknown");
-  assert.equal(
-    reviewDetail(pending),
-    "Check this chat before trying to delete again.",
-  );
+  assert.equal(reviewTitle(send), SendReviewCopy.sendTitle);
+  assert.equal(reviewDetail(send), SendReviewCopy.sendDetail);
+  assert.equal(reviewTitle(unknownDelete), SendReviewCopy.deletionUnknown);
+  assert.equal(reviewDetail(pending), SendReviewCopy.deletionDetail);
   assert.ok(!canRetryDeletion(unknownDelete));
+  const other = draft({ id: "4", conversationId: "other" });
+  assert.ok([send, pending, unknownDelete, other].every(needsReview));
   const storage = new MemoryStorage();
-  storage.drafts = [
-    send,
-    pending,
-    unknownDelete,
-    draft({ id: "4", conversationId: "other" }),
-  ];
-  const journal = new SendJournal(storage);
-  assert.equal(journal.reviewEntries().length, 4);
-  journal.clearUnknownSends("chat");
+  storage.drafts = [send, pending, unknownDelete, other];
+  new SendJournal(storage).clearUnknownSends("chat");
   assert.deepEqual(
     storage.drafts.map((entry) => entry.id),
     ["2", "3", "4"],

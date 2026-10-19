@@ -186,11 +186,6 @@ export class SendJournal {
     );
   }
 
-  /** The entries Settings › Send needs review lists. */
-  reviewEntries(): readonly SendDraft[] {
-    return this.all().filter(needsReview);
-  }
-
   /** In-chat "Clear": removes this conversation's unknown sends. Never resends. */
   clearUnknownSends(conversationId: string): void {
     this.#storage.write(

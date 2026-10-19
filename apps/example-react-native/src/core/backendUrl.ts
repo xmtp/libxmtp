@@ -142,8 +142,3 @@ export function connectToAddress(input: string): string | undefined {
   const port = parts.port ?? (parts.scheme === "https" ? "443" : "80");
   return `${parts.scheme}://${parts.host}:${port}${parts.path}`;
 }
-
-/** True when the host of a normalized URL is loopback. */
-export function isLoopbackUrl(input: string): boolean {
-  return parseBackendUrl(input)?.allowPrivateNetwork ?? false;
-}

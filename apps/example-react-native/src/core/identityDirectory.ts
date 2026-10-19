@@ -3,7 +3,6 @@
 // before them.
 
 import { Store } from "./store.ts";
-import { displayName } from "./titles.ts";
 
 export interface InboxIdentity {
   readonly inboxId: string;
@@ -34,11 +33,6 @@ export class IdentityDirectory extends Store<
     return this.getState().get(inboxId);
   }
 
-  /** `@handle`, else the short inbox ID (8 characters for a sender). */
-  displayName(inboxId: string, sender = false): string {
-    return displayName(inboxId, this.identity(inboxId)?.handle, sender);
-  }
-
   merge(entries: readonly InboxIdentity[]): void {
     if (!this.#valid() || entries.length === 0) return;
     const next = new Map(this.getState());
@@ -53,22 +47,15 @@ export class IdentityDirectory extends Store<
   }
 
   /**
-   * A handle change from the event stream. Without authoritative other
-   * handles, the previous handle joins the previous others, deduplicated.
+   * A handle change from the event stream: the previous handle joins the
+   * previous others, deduplicated.
    */
-  handleChanged(
-    inboxId: string,
-    handle: string | undefined,
-    otherHandles: readonly string[] = [],
-  ): void {
+  handleChanged(inboxId: string, handle: string | undefined): void {
     const previous = this.identity(inboxId);
-    const candidates =
-      otherHandles.length === 0
-        ? [
-            ...(previous?.handle === undefined ? [] : [previous.handle]),
-            ...(previous?.otherHandles ?? []),
-          ]
-        : otherHandles;
+    const candidates = [
+      ...(previous?.handle === undefined ? [] : [previous.handle]),
+      ...(previous?.otherHandles ?? []),
+    ];
     const others = [...new Set(candidates)].filter((entry) => entry !== handle);
     this.merge([
       {

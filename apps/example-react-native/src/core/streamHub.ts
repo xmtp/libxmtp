@@ -67,7 +67,17 @@ export function sessionEvent(event: ClientEvent): SessionEvent | undefined {
   }
 }
 
-export const DISCONNECTED_RETRYING = "Disconnected. Retrying…";
+/** The Chats connection banners. */
+export const ConnectionCopy = {
+  retrying: "Disconnected. Retrying…",
+  connecting: "Connecting to your server…",
+  reconnecting: "Reconnecting to your server…",
+  failed: "Cannot connect to your server.",
+  closed: "Not connected to your server.",
+} as const;
+
+/** How long a failed reader waits before it opens again. */
+export const RETRY_DELAY_MS = 1000;
 
 /** The Chats banner for the message stream's connection state (none when connected). */
 export function connectionBanner(
@@ -75,13 +85,13 @@ export function connectionBanner(
 ): string | undefined {
   switch (state) {
     case "connecting":
-      return "Connecting to your server…";
+      return ConnectionCopy.connecting;
     case "reconnecting":
-      return "Reconnecting to your server…";
+      return ConnectionCopy.reconnecting;
     case "failed":
-      return "Cannot connect to your server.";
+      return ConnectionCopy.failed;
     case "closed":
-      return "Not connected to your server.";
+      return ConnectionCopy.closed;
     case "connected":
     case undefined:
       return undefined;
@@ -117,7 +127,6 @@ export interface StreamHubOptions {
   readonly foreground: boolean;
   /** False once the session ended or was replaced. */
   readonly isCurrent: () => boolean;
-  readonly retryDelayMs?: number;
   /**
    * A restarted reader clears the retry banner once it delivers a value or
    * stays open this long (default 2 s). A reader that reports `connected` and
@@ -232,7 +241,7 @@ class Lane<T> {
         return;
       }
       this.#options.failed(failure.error);
-      await sleep(this.#hub.retryDelayMs ?? 1000, signal);
+      await sleep(RETRY_DELAY_MS, signal);
     }
   }
 
@@ -465,7 +474,7 @@ export class StreamHub<M, C> {
       state: this.#messageState,
       banner:
         this.#retrying.size > 0
-          ? DISCONNECTED_RETRYING
+          ? ConnectionCopy.retrying
           : connectionBanner(this.#messageState),
     });
   }

@@ -7,7 +7,7 @@ import {
   IdentityDirectory,
 } from "./identityDirectory.ts";
 
-test("a handle change keeps the other handles (handleChangePreservesOtherHandles)", () => {
+test("a handle change keeps the other handles", () => {
   const directory = new IdentityDirectory(
     () => Promise.resolve([]),
     () => true,
@@ -20,28 +20,21 @@ test("a handle change keeps the other handles (handleChangePreservesOtherHandles
     },
   ]);
   directory.handleChanged("inbox", "next");
+  assert.equal(directory.identity("inbox")?.handle, "next");
   assert.deepEqual(directory.identity("inbox")?.otherHandles, [
     "first",
     "older",
   ]);
-  assert.equal(directory.displayName("inbox"), "@next");
-  directory.handleChanged("inbox", "latest", [
-    "authoritative",
-    "authoritative",
-    "latest",
-  ]);
-  assert.deepEqual(directory.identity("inbox")?.otherHandles, [
-    "authoritative",
-  ]);
 });
 
-test("an event wins over an inbox read that started earlier (handleEventWinsOverEarlierInboxRead)", async () => {
+test("an event wins over an inbox read that started earlier; a read that ends after the session merges nothing", async () => {
   let respond: ((entries: readonly InboxIdentity[]) => void) | undefined;
   const lookup: IdentityLookup = () =>
     new Promise((resolve) => {
       respond = resolve;
     });
-  const directory = new IdentityDirectory(lookup, () => true);
+  let valid = true;
+  const directory = new IdentityDirectory(lookup, () => valid);
   const loading = directory.load(["inbox", "other"]);
   directory.handleChanged("inbox", "fresh");
   respond?.([
@@ -51,23 +44,14 @@ test("an event wins over an inbox read that started earlier (handleEventWinsOver
   await loading;
   assert.equal(directory.identity("inbox")?.handle, "fresh");
   assert.equal(directory.identity("other")?.handle, "peer");
-});
-
-test("display names fall back to short inbox IDs; an ended session merges nothing", () => {
-  let valid = true;
-  const directory = new IdentityDirectory(
-    () => Promise.resolve([]),
-    () => valid,
-  );
-  const inbox = "0123456789abcdef0123";
-  assert.equal(directory.displayName(inbox), "0123456789ab");
-  assert.equal(directory.displayName(inbox, true), "01234567");
   let changes = 0;
   directory.subscribe(() => {
     changes += 1;
   });
+  const late = directory.load(["late"]);
   valid = false;
-  directory.merge([{ inboxId: inbox, handle: "late", otherHandles: [] }]);
-  assert.equal(directory.identity(inbox), undefined);
+  respond?.([{ inboxId: "late", handle: "late", otherHandles: [] }]);
+  await late;
+  assert.equal(directory.identity("late"), undefined);
   assert.equal(changes, 0);
 });

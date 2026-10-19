@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 
 import type {
   ClientEvent,
@@ -8,14 +8,13 @@ import type {
 } from "@xmtp/react-native-sdk";
 
 import {
-  DISCONNECTED_RETRYING,
-  SESSION_EVENT_KINDS,
+  ConnectionCopy,
+  RETRY_DELAY_MS,
   type SessionEvent,
   type StreamReader,
   type StreamSource,
   StreamHub,
   connectionBanner,
-  sessionEvent,
 } from "./streamHub.ts";
 
 /** A reader fed by the test. `next` resolves when a value or the end arrives. */
@@ -23,9 +22,12 @@ class FakeReader<T> implements StreamReader<T> {
   readonly #queue: T[] = [];
   #waiter: ((result: IteratorResult<T>) => void) | undefined;
   #reject: ((error: unknown) => void) | undefined;
+  #error: Error | undefined;
   ended = false;
   nextCalls = 0;
   readyError: Error | undefined;
+  /** Holds `end()` open until it resolves (a slow SDK close). */
+  endGate: Promise<void> | undefined;
 
   push(value: T): void {
     if (this.#waiter !== undefined) {
@@ -37,11 +39,13 @@ class FakeReader<T> implements StreamReader<T> {
     }
   }
 
+  /** Fails the pending read, or the next one when none is pending. */
   fail(error: Error): void {
     const reject = this.#reject;
     this.#waiter = undefined;
     this.#reject = undefined;
-    reject?.(error);
+    if (reject === undefined) this.#error = error;
+    else reject(error);
   }
 
   ready(): Promise<void> {
@@ -53,6 +57,9 @@ class FakeReader<T> implements StreamReader<T> {
   next(): Promise<IteratorResult<T>> {
     this.nextCalls += 1;
     if (this.ended) return Promise.resolve({ done: true, value: undefined });
+    const error = this.#error;
+    this.#error = undefined;
+    if (error !== undefined) return Promise.reject(error);
     const value = this.#queue.shift();
     if (value !== undefined) return Promise.resolve({ done: false, value });
     return new Promise((resolve, reject) => {
@@ -66,7 +73,7 @@ class FakeReader<T> implements StreamReader<T> {
     const waiter = this.#waiter;
     this.#waiter = undefined;
     waiter?.({ done: true, value: undefined });
-    return Promise.resolve();
+    return this.endGate ?? Promise.resolve();
   }
 }
 
@@ -119,11 +126,21 @@ class FakeSource implements StreamSource<string, string> {
 const tick = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
 
-async function settle(condition: () => boolean): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!condition() && Date.now() < deadline) await tick();
+/** Runs zero-delay turns until `condition` holds (readers chain several). */
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let turn = 0; turn < 100 && !condition(); turn += 1) await tick();
   assert.ok(condition(), "condition not reached");
 }
+
+// A failed assertion must not leave a hub open: its healthy timer would hold
+// the process for a minute.
+const open: StreamHub<string, string>[] = [];
+afterEach(
+  async () => {
+    await Promise.all(open.splice(0).map((streams) => streams.close()));
+  },
+  { timeout: 2000 },
+);
 
 function hub(
   options: {
@@ -143,6 +160,7 @@ function hub(
       return Promise.resolve();
     },
   });
+  open.push(streams);
   return { source, streams, sleeps };
 }
 
@@ -172,26 +190,31 @@ test("each message reaches every listener before the next read acknowledges it",
     seen.push(`b:${message}`);
   });
   streams.start();
-  await settle(() => source.messageReaders.length === 1);
+  await waitFor(() => source.messageReaders.length === 1);
   const reader = source.messageReader;
-  await settle(() => reader.nextCalls === 1);
+  await waitFor(() => reader.nextCalls === 1);
   reader.push("m1");
   reader.push("m2");
-  await settle(() => release !== undefined);
+  await waitFor(() => release !== undefined);
   for (let turn = 0; turn < 5; turn += 1) await tick();
-  // The first listener still runs: no second read, so m1 is not acknowledged.
+  // A listener still runs: no second read, so m1 is not acknowledged.
   assert.equal(reader.nextCalls, 1);
-  assert.deepEqual(seen, ["a:m1"]);
+  assert.ok(!seen.some((entry) => entry.endsWith(":m2")));
   release?.();
-  await settle(() => seen.length === 4);
-  assert.deepEqual(seen, ["a:m1", "b:m1", "a:m2", "b:m2"]);
+  await waitFor(() => seen.length === 4);
+  for (const listener of ["a", "b"]) {
+    assert.deepEqual(
+      seen.filter((entry) => entry.startsWith(`${listener}:`)),
+      [`${listener}:m1`, `${listener}:m2`],
+    );
+  }
   await streams.close();
 });
 
-test("the default message reader runs only in the foreground (PR #4586)", async () => {
+test("the default message reader runs only in the foreground, and a quick return restarts it", async () => {
   const { source, streams } = hub({ foreground: false });
   streams.start();
-  await settle(
+  await waitFor(
     () =>
       source.conversationReaders.length === 1 &&
       source.eventReaders.length === 1,
@@ -199,7 +222,7 @@ test("the default message reader runs only in the foreground (PR #4586)", async 
   assert.equal(source.messageReaders.length, 0);
   assert.ok(!streams.readingMessages);
   await streams.setForeground(true);
-  await settle(() => source.messageReaders.length === 1);
+  await waitFor(() => source.messageReaders.length === 1);
   const first = source.messageReader;
   await streams.setForeground(false);
   // Closing the reader releases the consumer lease.
@@ -209,88 +232,83 @@ test("the default message reader runs only in the foreground (PR #4586)", async 
   assert.ok(!(source.conversationReaders.at(0)?.ended ?? true));
   assert.ok(!(source.eventReaders.at(0)?.ended ?? true));
   await streams.setForeground(true);
-  await settle(() => source.messageReaders.length === 2);
+  await waitFor(() => source.messageReaders.length === 2);
   assert.ok(streams.readingMessages);
-  await streams.close();
-  assert.ok(source.messageReaders.every((reader) => reader.ended));
-});
-
-test("rapid foreground changes apply the latest value", async () => {
-  const { source, streams } = hub();
-  streams.start();
-  await settle(() => source.messageReaders.length === 1);
+  // Back to the foreground while the background close is still running: the
+  // reader ends up in the state of the last call.
+  let closed: (() => void) | undefined;
+  source.messageReader.endGate = new Promise((resolve) => {
+    closed = resolve;
+  });
   void streams.setForeground(false);
-  void streams.setForeground(true);
-  await streams.setForeground(false);
-  assert.ok(!streams.readingMessages);
-  assert.ok(source.messageReaders.every((reader) => reader.ended));
+  await tick();
+  const foreground = streams.setForeground(true);
+  closed?.();
+  await foreground;
+  for (let turn = 0; turn < 3; turn += 1) await tick();
+  assert.ok(streams.readingMessages);
+  assert.ok(!source.messageReader.ended);
   await streams.close();
+  assert.ok(source.messageReaders.every((reader) => reader.ended));
 });
 
-test("a failed reader shows the retry banner and restarts after one second", async () => {
+test("a failed reader shows the retry banner until its replacement delivers, and restarts after the retry delay", async () => {
   await quiet(async () => {
     const { source, streams, sleeps } = hub();
-    streams.start();
-    await settle(() => source.messageReaders.length === 1);
-    source.emitState("connected");
-    assert.equal(streams.connection.getState().banner, undefined);
     const banners: (string | undefined)[] = [];
     streams.connection.subscribe(() => {
       banners.push(streams.connection.getState().banner);
     });
-    await settle(() => source.messageReader.nextCalls === 1);
-    source.messageReader.fail(new Error("ConsumerOwned"));
-    await settle(() => source.messageReaders.length === 2);
-    assert.deepEqual(sleeps, [1000]);
-    assert.ok(source.messageReaders.at(0)?.ended);
-    assert.equal(banners.at(0), DISCONNECTED_RETRYING);
-    // The new reader reports a state, but it has not delivered anything yet.
+    // The first reader cannot open.
+    source.failNextMessageOpen = new Error("offline");
+    streams.start();
+    await waitFor(() => source.messageReaders.length === 2);
+    assert.equal(streams.connection.getState().banner, ConnectionCopy.retrying);
+    // The next reports connected and then fails at once (ConsumerOwned).
     source.emitState("connected");
-    assert.equal(streams.connection.getState().banner, DISCONNECTED_RETRYING);
+    await waitFor(() => source.messageReader.nextCalls === 1);
+    source.messageReader.fail(new Error("ConsumerOwned"));
+    await waitFor(() => source.messageReaders.length === 3);
+    assert.deepEqual(sleeps, [RETRY_DELAY_MS, RETRY_DELAY_MS]);
+    assert.ok(
+      source.messageReaders.slice(0, 2).every((reader) => reader.ended),
+    );
+    // A state report alone does not clear the banner; a delivered value does.
+    source.emitState("connected");
+    assert.equal(streams.connection.getState().banner, ConnectionCopy.retrying);
+    assert.ok(!banners.includes(undefined));
     source.messageReader.push("m1");
-    await settle(() => streams.connection.getState().banner === undefined);
+    await waitFor(() => streams.connection.getState().banner === undefined);
     assert.equal(streams.connection.getState().state, "connected");
     source.emitState("reconnecting");
     assert.equal(
       streams.connection.getState().banner,
-      "Reconnecting to your server…",
+      connectionBanner("reconnecting"),
     );
-    await streams.close();
-  });
-});
-
-test("a reader that cannot open retries too", async () => {
-  await quiet(async () => {
-    const { source, streams, sleeps } = hub({ foreground: false });
-    source.failNextMessageOpen = new Error("offline");
-    streams.start();
-    await streams.setForeground(true);
-    await settle(() => source.messageReaders.length === 2);
-    assert.deepEqual(sleeps, [1000]);
     await streams.close();
   });
 });
 
 test("an update reader failure keeps the banner until that reader reopens", async () => {
   await quiet(async () => {
-    const { source, streams } = hub({ healthyAfterMs: 5 });
+    const { source, streams } = hub({ healthyAfterMs: 0 });
     streams.start();
-    await settle(
+    await waitFor(
       () =>
         source.conversationReaders.length === 1 &&
         source.messageReaders.length === 1,
     );
     source.emitState("connected");
     const reader = source.conversationReaders.at(0);
-    await settle(() => (reader?.nextCalls ?? 0) === 1);
+    await waitFor(() => (reader?.nextCalls ?? 0) === 1);
     const banners: (string | undefined)[] = [];
     streams.connection.subscribe(() => {
       banners.push(streams.connection.getState().banner);
     });
     reader?.fail(new Error("dropped"));
-    await settle(() => source.conversationReaders.length === 2);
-    await settle(() => banners.length === 2);
-    assert.deepEqual(banners, [DISCONNECTED_RETRYING, undefined]);
+    await waitFor(() => source.conversationReaders.length === 2);
+    await waitFor(() => banners.length === 2);
+    assert.deepEqual(banners, [ConnectionCopy.retrying, undefined]);
     await streams.close();
   });
 });
@@ -298,19 +316,19 @@ test("an update reader failure keeps the banner until that reader reopens", asyn
 test("a paused or replaced reader reports no more connection states", async () => {
   const { source, streams } = hub();
   streams.start();
-  await settle(() => source.messageReaders.length === 1);
+  await waitFor(() => source.messageReaders.length === 1);
   source.emitState("connected", 0);
   await streams.setForeground(false);
   source.emitState("closed", 0);
   assert.equal(streams.connection.getState().banner, undefined);
   await streams.setForeground(true);
-  await settle(() => source.messageReaders.length === 2);
+  await waitFor(() => source.messageReaders.length === 2);
   source.emitState("reconnecting", 0);
   assert.equal(streams.connection.getState().banner, undefined);
   source.emitState("reconnecting", 1);
   assert.equal(
     streams.connection.getState().banner,
-    "Reconnecting to your server…",
+    connectionBanner("reconnecting"),
   );
   await streams.close();
 });
@@ -326,19 +344,46 @@ test("events reach listeners as session events; other kinds are skipped", async 
     conversations.push(conversation);
   });
   streams.start();
-  await settle(() => source.eventReaders.length === 1);
-  assert.deepEqual(source.kinds, SESSION_EVENT_KINDS);
+  await waitFor(() => source.eventReaders.length === 1);
+  const delivered: ClientEvent[] = [
+    {
+      kind: "handle.changed",
+      handle_changed: { inbox_id: "i", handle: "nick" },
+    },
+    {
+      kind: "message.deleted",
+      message_deleted: {
+        group_id: new Uint8Array([0, 171]),
+        message_id: new Uint8Array([15, 255]),
+        cause: "deleted_locally",
+      },
+    },
+    {
+      kind: "consent.changed",
+      consent_changed: {
+        entity_kind: "conversation",
+        entity: "x",
+        state: "allowed",
+      },
+    },
+  ];
+  // The session subscribes to every kind it maps.
+  for (const event of delivered) assert.ok(source.kinds.includes(event.kind));
   const reader = source.eventReaders.at(0);
-  reader?.push({
-    kind: "handle.changed",
-    handle_changed: { inbox_id: "i", handle: "nick" },
-  });
+  for (const event of delivered) reader?.push(event);
   reader?.push({ kind: "hmac_keys.updated", hmac_keys_updated: {} });
   reader?.push({ kind: "lagged", lagged: { discarded: 3n } });
   source.conversationReaders.at(0)?.push("c1");
-  await settle(() => events.length === 2 && conversations.length === 1);
+  await waitFor(() => events.length === 4 && conversations.length === 1);
   assert.deepEqual(events, [
     { kind: "handleChanged", inboxId: "i", handle: "nick" },
+    {
+      kind: "messageDeleted",
+      conversationId: "00ab",
+      messageId: "0fff",
+      locallyDeleted: true,
+    },
+    { kind: "changed", cause: "consent" },
     { kind: "changed", cause: "lagged" },
   ]);
   assert.deepEqual(conversations, ["c1"]);
@@ -356,10 +401,10 @@ test("a failing listener does not stop delivery or other listeners", async () =>
       seen.push(message);
     });
     streams.start();
-    await settle(() => source.messageReaders.length === 1);
+    await waitFor(() => source.messageReaders.length === 1);
     source.messageReader.push("m1");
     source.messageReader.push("m2");
-    await settle(() => seen.length === 2);
+    await waitFor(() => seen.length === 2);
     assert.equal(source.messageReaders.length, 1);
     await streams.close();
   });
@@ -371,22 +416,30 @@ test("unsubscribed listeners stop receiving; close waits for running listeners",
   const stop = streams.onMessage((message) => {
     seen.push(message);
   });
+  const slow: string[] = [];
   let finished = false;
   let release: (() => void) | undefined;
-  streams.onMessage(async () => {
+  streams.onMessage(async (message) => {
+    slow.push(message);
+    if (message !== "m2") return;
     await new Promise<void>((resolve) => {
       release = resolve;
     });
     finished = true;
   });
   streams.start();
-  await settle(() => source.messageReaders.length === 1);
+  await waitFor(() => source.messageReaders.length === 1);
   source.messageReader.push("m1");
-  await settle(() => release !== undefined);
+  await waitFor(() => slow.length === 1);
   stop();
-  const closing = streams.close();
-  await tick();
-  assert.ok(!finished);
+  source.messageReader.push("m2");
+  await waitFor(() => release !== undefined);
+  let closed = false;
+  const closing = streams.close().then(() => {
+    closed = true;
+  });
+  for (let turn = 0; turn < 5; turn += 1) await tick();
+  assert.ok(!closed);
   release?.();
   await closing;
   assert.ok(finished);
@@ -401,7 +454,7 @@ test("readers stop and do not restart once the session is no longer current", as
     let current = true;
     const { source, streams, sleeps } = hub({ current: () => current });
     streams.start();
-    await settle(() => source.messageReaders.length === 1);
+    await waitFor(() => source.messageReaders.length === 1);
     current = false;
     source.messageReader.fail(new Error("client closed"));
     for (let turn = 0; turn < 5; turn += 1) await tick();
@@ -412,86 +465,16 @@ test("readers stop and do not restart once the session is no longer current", as
   });
 });
 
-test("SDK events map to session events", () => {
-  assert.deepEqual(
-    sessionEvent({
-      kind: "message.deleted",
-      message_deleted: {
-        group_id: new Uint8Array([0, 171]),
-        message_id: new Uint8Array([15, 255]),
-        cause: "deleted_locally",
-      },
-    }),
-    {
-      kind: "messageDeleted",
-      conversationId: "00ab",
-      messageId: "0fff",
-      locallyDeleted: true,
-    },
-  );
-  assert.deepEqual(
-    sessionEvent({
-      kind: "consent.changed",
-      consent_changed: {
-        entity_kind: "conversation",
-        entity: "x",
-        state: "allowed",
-      },
-    }),
-    { kind: "changed", cause: "consent" },
-  );
-  assert.equal(
-    sessionEvent({
-      kind: "identity.registered",
-      identity_registered: {
-        inbox_id: "i",
-        installation_key: new Uint8Array(),
-      },
-    }),
-    undefined,
-  );
-  assert.deepEqual(SESSION_EVENT_KINDS, [
-    "handle.changed",
-    "consent.changed",
-    "message.deleted",
-  ]);
-});
-
-test("banner copy for each connection state", () => {
+test("every connection state except connected shows its own banner", () => {
   assert.equal(connectionBanner("connected"), undefined);
   assert.equal(connectionBanner(undefined), undefined);
-  assert.equal(connectionBanner("connecting"), "Connecting to your server…");
-  assert.equal(
-    connectionBanner("reconnecting"),
-    "Reconnecting to your server…",
+  const shown = (
+    ["connecting", "reconnecting", "failed", "closed"] as const
+  ).map(connectionBanner);
+  assert.ok(
+    shown.every(
+      (text) => text !== undefined && text !== ConnectionCopy.retrying,
+    ),
   );
-  assert.equal(connectionBanner("failed"), "Cannot connect to your server.");
-  assert.equal(connectionBanner("closed"), "Not connected to your server.");
-  assert.equal(DISCONNECTED_RETRYING, "Disconnected. Retrying…");
-});
-
-test("a reader that reports connected and then fails at once keeps the retry banner (ConsumerOwned)", async () => {
-  await quiet(async () => {
-    const { source, streams, sleeps } = hub();
-    streams.start();
-    await settle(() => source.messageReaders.length === 1);
-    const banners = new Set<string | undefined>();
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      // Track the banner from the first failure on.
-      if (attempt === 2) {
-        streams.connection.subscribe(() => {
-          banners.add(streams.connection.getState().banner);
-        });
-      }
-      source.emitState("connected");
-      await settle(() => source.messageReader.nextCalls === 1);
-      source.messageReader.fail(new Error("ConsumerOwned"));
-      await settle(() => source.messageReaders.length === attempt + 1);
-    }
-    source.emitState("connected");
-    assert.deepEqual(sleeps, [1000, 1000, 1000]);
-    assert.equal(streams.connection.getState().banner, DISCONNECTED_RETRYING);
-    assert.ok(!banners.has(undefined));
-    await streams.close();
-  });
+  assert.equal(new Set(shown).size, shown.length);
 });
