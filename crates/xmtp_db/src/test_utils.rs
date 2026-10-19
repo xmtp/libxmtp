@@ -10,6 +10,26 @@ pub use mls_memory_storage::*;
 
 pub type TestDb = EncryptedMessageStore<crate::DefaultDatabase>;
 
+/// A key package bundle with fresh init and leaf encryption private keys.
+///
+/// OpenMLS writes the bundle while it builds it, so it is built against a
+/// scratch in-memory store; the caller's store stays empty.
+pub fn generate_key_package_bundle() -> openmls::prelude::KeyPackageBundle {
+    use openmls::prelude::{BasicCredential, CredentialWithKey, KeyPackage};
+    use openmls_basic_credential::SignatureKeyPair;
+    use xmtp_cryptography::configuration::CIPHERSUITE;
+
+    let provider = crate::XmtpOpenMlsProvider::new(MlsMemoryStorage::new(MemoryStorage::new()));
+    let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+    let credential_with_key = CredentialWithKey {
+        credential: BasicCredential::new(b"key package test".to_vec()).into(),
+        signature_key: signer.to_public_vec().into(),
+    };
+    KeyPackage::builder()
+        .build(CIPHERSUITE, &provider, &signer, credential_with_key)
+        .unwrap()
+}
+
 #[allow(async_fn_in_trait)]
 pub trait XmtpTestDb {
     /// Create a validated, ephemeral database, running the migrations

@@ -6,17 +6,24 @@
 
 use std::time::Duration;
 
+use openmls::prelude::KeyPackageBundle;
+use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
 use xmtp_cryptography::{
     XmtpInstallationCredential,
     secret::heap_canary::{Canary, scan_async},
     utils::generate_local_wallet,
 };
-use xmtp_db::{StoredSecret, XmtpTestDb, identity::StoredIdentity};
+use xmtp_db::{
+    StoredSecret, XmtpMlsStorageProvider, XmtpOpenMlsProviderRef, XmtpTestDb,
+    identity::StoredIdentity,
+};
 use xmtp_id::{InboxOwner, associations::test_utils::MockSmartContractSignatureVerifier};
 use xmtp_mls::{
     Client,
+    context::XmtpSharedContext,
     groups::send_message_opts::SendMessageOpts,
     identity::{Identity, IdentityStrategy},
+    tester,
     utils::{FullXmtpClient, register_client},
 };
 
@@ -114,4 +121,53 @@ async fn installation_key_holders_redact_debug() {
             );
         }
     }
+}
+
+/// Opening a Welcome reads the key package's init key and its post-quantum
+/// wrapper key. Neither may be freed unwiped.
+///
+/// Packages advertise the X-Wing wrapper while
+/// `CREATE_PQ_KEY_PACKAGE_EXTENSION` is true, so the Welcome takes the
+/// post-quantum arm of `find_private_key`. Its Curve25519 arm is proven by the
+/// `Zeroizing` return type.
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
+async fn welcome_keys_are_wiped_when_joining() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+
+    // Read the keys of the package bo will use, before arming.
+    let installation_id = alix.installation_public_key().to_vec();
+    let package = alix
+        .get_key_packages_for_installation_ids(vec![installation_id.clone()])
+        .await?
+        .remove(&installation_id)
+        .expect("alix published a key package")?;
+    let provider = XmtpOpenMlsProviderRef::new(alix.context.mls_storage());
+    let hash_ref = package.inner.hash_ref(provider.crypto())?;
+    let bundle: KeyPackageBundle = provider
+        .storage()
+        .key_package(&hash_ref)?
+        .expect("alix stores the published bundle");
+    let wrapper_key = provider
+        .storage()
+        .wrapper_private_key(&bincode::serialize(&hash_ref)?)?
+        .expect("the package has a post-quantum wrapper key");
+    let canaries = [
+        Canary::new(bundle.init_private_key()),
+        Canary::new(&wrapper_key),
+    ];
+    drop((bundle, wrapper_key));
+
+    let ((), hits) = scan_async(&canaries, async {
+        let group = bo.create_group(None, None).unwrap();
+        group.add_members(&[alix.inbox_id()]).await.unwrap();
+        let joined = alix.sync_welcomes().await.unwrap();
+        assert_eq!(joined.len(), 1);
+        drop((group, joined));
+        // Let tasks that still hold Welcome state finish and free it.
+        xmtp_common::time::sleep(Duration::from_millis(500)).await;
+    })
+    .await;
+
+    assert_eq!(hits, [0, 0], "freed heap blocks held a Welcome private key");
 }

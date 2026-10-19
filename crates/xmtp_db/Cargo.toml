@@ -97,6 +97,10 @@ xmtp_db = { workspace = true, features = ["test-utils"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 criterion = { workspace = true }
+# The post-quantum wrapper key in tests/zeroize.rs, derived as production does.
+openmls_libcrux_crypto.workspace = true
+# `with_trace_layer` for the key store span test.
+xmtp_logging = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true

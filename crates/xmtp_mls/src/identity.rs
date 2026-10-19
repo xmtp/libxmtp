@@ -30,9 +30,7 @@ use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
-use xmtp_db::sql_key_store::{
-    KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
-};
+use xmtp_db::sql_key_store::{KEY_PACKAGE_REFERENCES, SqlKeyStoreError};
 use xmtp_db::{ConnectionExt, MlsProviderExt, TransactionOutcome};
 use xmtp_db::{Fetch, StorageError, StoredSecret};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
@@ -878,19 +876,12 @@ pub(crate) fn store_key_package_references(
 
     if let Some(post_quantum_keypair) = post_quantum_keypair {
         let post_quantum_public_key = pq_key_package_references_key(&post_quantum_keypair.public)?;
-        // We need to store this in a bincode friendly format so that `read` will work later.
-        // TODO:(nm) review whether this breaks the Zeroize guarantees
-        let post_quantum_private_key = bincode::serialize(&post_quantum_keypair.private.to_vec())
-            .map_err(|_| IdentityError::Bincode)?;
 
         // Write the post quantum wrapper encryption public key to the key package references
         storage.write(KEY_PACKAGE_REFERENCES, &post_quantum_public_key, &hash_ref)?;
 
-        storage.write(
-            KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-            &hash_ref,
-            &post_quantum_private_key,
-        )?;
+        // The key is borrowed, and its encoding is wiped after the write.
+        storage.write_wrapper_private_key(&hash_ref, &post_quantum_keypair.private)?;
     }
 
     Ok(())
