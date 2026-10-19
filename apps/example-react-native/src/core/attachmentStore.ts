@@ -368,10 +368,28 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     if (phase !== "complete") {
       throw new AttachmentError(AttachmentCopy.operationFailed, true);
     }
-    if (!this.#canSend(draft.id, generation)) return undefined;
+    // The upload finished, also when the send stops here (consent revoked,
+    // the screen closed): save that, so Send queues without uploading again.
+    // A draft that was discarded or changed meanwhile stays as it is.
     const complete: FileDraft = { ...uploading, phase: "complete" };
-    this.#ports.drafts.save(complete);
+    if (!this.#ports.acceptsSession() || !this.#replace(uploading, complete)) {
+      return undefined;
+    }
+    if (!this.#canSend(draft.id, generation)) {
+      this.#reloadDrafts();
+      return undefined;
+    }
     return complete;
+  }
+
+  /** Saves `next` only while the saved draft is still `expected`. */
+  #replace(expected: FileDraft, next: FileDraft): boolean {
+    const current = this.#ports.drafts
+      .all()
+      .find((entry) => entry.id === expected.id);
+    if (!sameDraft(current, expected)) return false;
+    this.#ports.drafts.save(next);
+    return true;
   }
 
   async #queue(
@@ -414,11 +432,7 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     ) {
       return;
     }
-    const current = this.#ports.drafts
-      .all()
-      .find((entry) => entry.id === draft.id);
-    if (!sameDraft(current, { ...draft, phase: "unknown" })) return;
-    this.#ports.drafts.save(draft);
+    this.#replace({ ...draft, phase: "unknown" }, draft);
   }
 
   async #finishSend(draft: FileDraft): Promise<void> {

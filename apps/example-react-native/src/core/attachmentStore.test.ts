@@ -40,11 +40,18 @@ function harness(
   const removed: string[] = [];
   const env: {
     admitted: boolean;
+    session: boolean;
     allowed: boolean;
     authorized: boolean;
     changes: number;
     authorize?: () => Promise<boolean>;
-  } = { admitted: true, allowed: true, authorized: true, changes: 0 };
+  } = {
+    admitted: true,
+    session: true,
+    allowed: true,
+    authorized: true,
+    changes: 0,
+  };
   let next = 0;
   const activeSends = new Set<string>();
   const ports = (conversationId?: string): AttachmentStorePorts => ({
@@ -53,7 +60,7 @@ function harness(
     coordinator,
     ...(conversationId === undefined ? {} : { conversationId }),
     admit: () => env.admitted,
-    acceptsSession: () => true,
+    acceptsSession: () => env.session,
     allowed: () => env.allowed,
     authorizeDownload: () =>
       env.authorize?.() ?? Promise.resolve(env.authorized),
@@ -481,6 +488,34 @@ test("a closed conversation cannot download or send, and a closed chat stops its
   await sending;
   assert.equal(h.conversation.queued.length, 0);
   assert.equal(h.drafts.all()[0]?.id, draft.id);
+});
+
+test("an upload that ends after consent was revoked is saved complete, so Send only queues", async () => {
+  const h = harness();
+  const draft = await staged(h);
+  let gate = holdUploads(h);
+  const sending = h.store.send(draft.id);
+  await settle();
+  h.env.allowed = false;
+  gate.resolve();
+  await sending;
+  assert.equal(h.conversation.queued.length, 0);
+  assert.equal(h.drafts.all()[0]?.phase, "complete");
+  assert.equal(h.store.getState().drafts[0]?.phase, "complete");
+  // Accepted again: Send queues without a second upload.
+  h.env.allowed = true;
+  await h.store.send(draft.id);
+  assert.equal(h.gateway.uploads.length, 1);
+  assert.equal(h.conversation.queued.length, 1);
+  // An upload that ends after the session ended writes nothing.
+  const late = await staged(h, "late.txt");
+  gate = holdUploads(h);
+  const ending = h.store.send(late.id);
+  await settle();
+  h.env.session = false;
+  gate.resolve();
+  await ending;
+  assert.equal(h.drafts.all()[0]?.phase, "uploading");
 });
 
 test("a file pushed out of the verified cache shows Download again", async () => {
