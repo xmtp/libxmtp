@@ -1,14 +1,13 @@
-// The chats an unassigned draft can be assigned to on the recovery screen.
-// iOS lists `graph.conversations.state.rows`: the Chats list's first page,
-// the 50 allowed conversations with the latest activity first.
+// The chats an unassigned draft can be assigned to on the recovery screen:
+// the Chats list's first page, read with the same query as Chats (allowed
+// conversations, latest activity first).
 
+import { CONVERSATION_PAGE_SIZE } from "@/core/requests.ts";
 import { Store } from "@/core/store.ts";
 import { conversationTitle } from "@/core/titles.ts";
 import { chatServices } from "@/features/chat/chatServices";
+import { conversationQueries } from "@/features/chats/conversationServices";
 import type { ActiveSession } from "@/session";
-
-/** The Chats list's first page (`ConversationsStore.limit`). */
-const CHATS_PAGE = 50;
 
 export interface ChatChoice {
   readonly id: string;
@@ -30,7 +29,7 @@ export class RecoveryChatsStore extends Store<RecoveryChatsState> {
     this.#mounted = mounted;
   }
 
-  /** Loads the choices once; a failure leaves the list empty, like iOS. */
+  /** Loads the choices once; a failure leaves the list empty. */
   async load(): Promise<void> {
     if (this.#loading || this.getState().chats.length > 0) return;
     this.#loading = true;
@@ -38,11 +37,10 @@ export class RecoveryChatsStore extends Store<RecoveryChatsState> {
     const generation = session.generation;
     try {
       const { queries } = chatServices(session);
-      const conversations = await session.client.conversations.list({
-        consentStates: ["allowed"],
-        limit: CHATS_PAGE,
-        orderBy: "lastActivity",
-      });
+      const conversations = await conversationQueries(session).list(
+        "allowed",
+        CONVERSATION_PAGE_SIZE,
+      );
       const chats = await Promise.all(
         conversations.map(async ({ id }) => ({
           id,
