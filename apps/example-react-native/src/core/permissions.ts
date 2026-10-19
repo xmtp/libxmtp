@@ -64,7 +64,7 @@ export function sdkPermissionPolicy(policy: GroupPolicy): PermissionPolicy {
 }
 
 /** The app policy for an SDK policy. */
-export function groupPolicy(policy: PermissionPolicy): GroupPolicy {
+function groupPolicy(policy: PermissionPolicy): GroupPolicy {
   return policy === "doesNotExist" || policy === "other" ? "custom" : policy;
 }
 

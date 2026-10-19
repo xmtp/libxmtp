@@ -20,7 +20,7 @@ import { bytesToHex } from "./hex.ts";
 import { Store } from "./store.ts";
 
 /** The event kinds the session reads. */
-export const SESSION_EVENT_KINDS: readonly EventKind[] = [
+const SESSION_EVENT_KINDS: readonly EventKind[] = [
   "handle.changed",
   "consent.changed",
   "message.deleted",
