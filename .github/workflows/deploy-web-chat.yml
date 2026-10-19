@@ -55,9 +55,6 @@ jobs:
         with:
           cache-mode: read
           github-token: ${{ github.token }}
-      - name: Install just
-        if: steps.current.outputs.deploy == 'true'
-        uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
       - name: Set up JavaScript
         if: steps.current.outputs.deploy == 'true'
         uses: ./.github/actions/setup-js
@@ -69,7 +66,7 @@ jobs:
         env:
           XMTP_BACKEND_URL: ""
           VITE_PROJECT_ID: ${{ secrets.WALLETCONNECT_PROJECT_ID }}
-        run: just web-chat build
+        run: dev/nix-shell 'just web-chat build'
       # Runs before the Vercel step, so a debug build never replaces the live one.
       - name: Require release-profile WASM
         if: steps.current.outputs.deploy == 'true'

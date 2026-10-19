@@ -21,8 +21,6 @@ jobs:
       with:
         cache-mode: read
         github-token: ${{ github.token }}
-    - name: Install just
-      uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - name: Set up JavaScript
       uses: ./.github/actions/setup-js
       with:

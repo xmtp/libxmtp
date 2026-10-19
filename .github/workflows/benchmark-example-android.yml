@@ -16,8 +16,6 @@ jobs:
       with:
         cache-mode: read
         github-token: ${{ github.token }}
-    - name: Install just
-      uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
     - name: Start backend
       env:
         NIX_DEVSHELL: android
