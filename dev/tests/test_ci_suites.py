@@ -137,7 +137,9 @@ class CompileTests(unittest.TestCase):
             lambda d: d["suites"]["test_dev"].update(covered_by="test_dev"),
             lambda d: d.update(extra=[]),
             lambda d: with_groups(d)["suites"]["test_ios"].update(products=["gamma"]),
-            lambda d: with_groups(d)["suites"]["lint_config"].update(products=["alpha"]),
+            lambda d: with_groups(d)["suites"]["lint_config"].update(
+                products=["alpha"]
+            ),
             lambda d: with_groups(d)["products"].update(
                 gamma={"path_filters": ["docs/**"]}
             ),
@@ -186,9 +188,7 @@ class CompileTests(unittest.TestCase):
             # Suite keys are job ids next to the generated ones.
             lambda d: d["suites"].update(test=d["suites"].pop("test_dev")),
             lambda d: d["suites"].update(products_x=d["suites"].pop("test_dev")),
-            lambda d: d["suites"].update(
-                test_ios_advisory=d["suites"].pop("test_dev")
-            ),
+            lambda d: d["suites"].update(test_ios_advisory=d["suites"].pop("test_dev")),
             lambda d: d["suites"].update({"Test-X": d["suites"].pop("test_dev")}),
         ]:
             with self.assertRaises(SUITES.DeclarationError):

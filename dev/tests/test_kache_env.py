@@ -415,6 +415,7 @@ TRUSTED_CACHIX_WRITERS = {
     "push-backend.yml / publish",
 }
 
+
 def setup_nix_calls():
     """Yield (workflow, job id, job, inputs) for every setup-nix call."""
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
