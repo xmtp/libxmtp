@@ -255,6 +255,7 @@ class FakeQueries implements NewConversationQueries {
   createFailure: Error | undefined;
   resolveGate: Promise<void> | undefined;
   peopleGate: Promise<void> | undefined;
+  createGate: Promise<void> | undefined;
   readonly #during = new Map<Query, () => void>();
 
   constructor(options: FakeOptions = {}) {
@@ -298,14 +299,14 @@ class FakeQueries implements NewConversationQueries {
     return { inboxId: `inbox-${value}`, handle: value };
   }
 
-  create(
+  async create(
     request: Parameters<NewConversationQueries["create"]>[0],
   ): Promise<string> {
     this.#call("create");
     this.created.push(request);
-    if (this.createFailure !== undefined)
-      return Promise.reject(this.createFailure);
-    return Promise.resolve("conversation-1");
+    if (this.createGate !== undefined) await this.createGate;
+    if (this.createFailure !== undefined) throw this.createFailure;
+    return "conversation-1";
   }
 }
 
@@ -642,6 +643,30 @@ test("a second Create while one runs creates no second conversation", async () =
     store.create();
   });
   store.create();
+  await settle();
+  assert.equal(queries.created.length, 1);
+  assert.deepEqual(finished, ["conversation-1"]);
+});
+
+test("leaving the review while Create runs keeps that create and starts no second one", async () => {
+  const queries = new FakeQueries();
+  const { store, finished } = makeStore(queries);
+  store.load();
+  await settle();
+  store.setInput("theo");
+  store.next();
+  await settle();
+  const gate = deferred();
+  queries.createGate = gate.promise;
+  store.create();
+  await settle();
+  // Back (or Android's back) while the create call runs, then Next and Create.
+  store.back();
+  store.next();
+  await settle();
+  store.create();
+  await settle();
+  gate.resolve();
   await settle();
   assert.equal(queries.created.length, 1);
   assert.deepEqual(finished, ["conversation-1"]);

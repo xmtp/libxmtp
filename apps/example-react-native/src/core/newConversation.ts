@@ -210,11 +210,13 @@ export interface NewConversationOptions {
 type Step = "add" | "next" | "create";
 
 /**
- * The New message flow. Every edit cancels resolution or creation in flight
- * (its result is dropped). Add, Next and Create resolve every comma-separated
- * entry in order before any write, skip people already chosen, then check the
- * count; Next then shows the review and Create creates the conversation.
- * Add, Next and Create are ignored while one of them runs.
+ * The New message flow. Every edit cancels resolution in flight (its result
+ * is dropped). Add, Next and Create resolve every comma-separated entry in
+ * order before any write, skip people already chosen, then check the count;
+ * Next then shows the review and Create creates the conversation. Add, Next
+ * and Create are ignored while one of them runs. A create already sent
+ * cannot be taken back: it stays busy until it ends, also when the review is
+ * left or the people change, and then opens the new chat.
  */
 export class NewConversationStore extends Store<NewConversationState> {
   readonly #queries: NewConversationQueries;
@@ -222,6 +224,8 @@ export class NewConversationStore extends Store<NewConversationState> {
   #closed = false;
   #revision = 0;
   #loadRevision = 0;
+  /** True while the SDK create call runs. */
+  #creating = false;
 
   constructor(
     queries: NewConversationQueries,
@@ -356,12 +360,15 @@ export class NewConversationStore extends Store<NewConversationState> {
     this.#run("create");
   }
 
-  /** Drops work in flight, clears `busy` and `error`, then applies `change`. */
+  /**
+   * Drops work in flight, clears `busy` and `error`, then applies `change`.
+   * A running create call is kept, and stays busy.
+   */
   #cancel(change: (state: NewConversationState) => NewConversationState): void {
-    this.#revision += 1;
+    if (!this.#creating) this.#revision += 1;
     this.#update((state) => {
       const { error: _cleared, ...rest } = state;
-      return change({ ...rest, busy: false });
+      return change({ ...rest, busy: this.#creating });
     });
   }
 
@@ -397,13 +404,19 @@ export class NewConversationStore extends Store<NewConversationState> {
         if (step === "create") {
           check();
           const state = this.getState();
-          const id = await this.#queries.create({
-            inboxIds: resolved.map((person) => person.inboxId),
-            group: state.group,
-            name: state.name,
-            description: state.description,
-            adminOnly: state.adminOnly,
-          });
+          this.#creating = true;
+          let id: string;
+          try {
+            id = await this.#queries.create({
+              inboxIds: resolved.map((person) => person.inboxId),
+              group: state.group,
+              name: state.name,
+              description: state.description,
+              adminOnly: state.adminOnly,
+            });
+          } finally {
+            this.#creating = false;
+          }
           check();
           this.#update((current) => ({ ...current, busy: false }));
           this.#options.finish(id);

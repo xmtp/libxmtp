@@ -78,6 +78,8 @@ function Review({
           icon={backIcon}
           tintColor={palette.tint}
           accessibilityLabel={copy.back}
+          // A create already sent keeps running; stay to see it end.
+          disabled={state.busy}
           onPress={() => {
             router.back();
           }}
@@ -154,6 +156,7 @@ function Review({
         <FormRow key="change">
           <GlassButton
             title={copy.changePeople}
+            disabled={state.busy}
             onPress={() => {
               router.back();
             }}
