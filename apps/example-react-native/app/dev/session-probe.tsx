@@ -363,7 +363,7 @@ export default function SessionProbe() {
             return group.id.slice(0, 8);
           });
         default:
-          log(`unknown action ${action}`);
+          log("unknown action");
           return Promise.resolve();
       }
     },
@@ -397,7 +397,7 @@ export default function SessionProbe() {
     // action under the text of the first, and a link that runs at once could
     // change the session the alert asks about.
     if (alert !== undefined) {
-      log(`${action} from a link: ignored while another link waits`);
+      log("a link: ignored while another link waits");
       return;
     }
     const input = {
@@ -409,7 +409,7 @@ export default function SessionProbe() {
     if (params.url !== undefined) setUrl(params.url);
     const confirmation = probeLinkConfirmation(action, state.kind);
     if (confirmation !== undefined) {
-      log(`${action} from a link: waiting for confirmation`);
+      log(`${confirmation} from a link: waiting for confirmation`);
       setAlert(
         linkConfirmation(action, confirmation, input, () => {
           void actions(action, input);

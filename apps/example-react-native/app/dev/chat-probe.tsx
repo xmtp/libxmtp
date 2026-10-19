@@ -97,12 +97,12 @@ export default function ChatProbe() {
     // One link at a time: the open alert's button would run a newer link's
     // action under the text of the first.
     if (alert !== undefined) {
-      console.log(
-        `[chat-probe] ${params.action} from a link: ignored while another link waits`,
-      );
+      console.log("[chat-probe] a link: ignored while another link waits");
       return;
     }
     const emoji = params.e ?? "👍";
+    // Any app can open this URL: log fixed text or a known action name, never
+    // a value taken from the link.
     const run = () => {
       // Read when the action runs, so a confirmed link acts on the chat as
       // it is then.
@@ -117,6 +117,7 @@ export default function ChatProbe() {
             (row) => row.sender === chat.own && row.delivery !== "published",
           )?.id ??
         "";
+      let known = true;
       switch (params.action) {
         case "failNextSend":
           chatDebug.failNextQueue = true;
@@ -143,11 +144,14 @@ export default function ChatProbe() {
           chat?.react(message, emoji);
           break;
         default:
-          console.warn(`[chat-probe] unknown action ${params.action}`);
+          known = false;
+          console.warn("[chat-probe] unknown action");
       }
-      console.log(
-        `[chat-probe] ${params.action} ${chat ? "on chat" : "no chat"}`,
-      );
+      if (known) {
+        console.log(
+          `[chat-probe] ${params.action} ${chat ? "on chat" : "no chat"}`,
+        );
+      }
     };
     const confirmation = chatProbeLinkConfirmation(params.action);
     if (confirmation === undefined) {
@@ -156,7 +160,7 @@ export default function ChatProbe() {
       return;
     }
     console.log(
-      `[chat-probe] ${params.action} from a link: waiting for confirmation`,
+      `[chat-probe] ${confirmation} from a link: waiting for confirmation`,
     );
     setAlert(linkConfirmation(confirmation, emoji, run));
   }, [
