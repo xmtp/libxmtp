@@ -478,6 +478,25 @@ export function setDraft(
 }
 
 /**
+ * An edit matches the committed value once both are in the field's
+ * canonical form: the SDK reads bytes back as lowercase hex.
+ */
+function matchesCommitted(
+  edited: OwnFieldValue,
+  committed: OwnFieldValue,
+  shape: FieldShape,
+): boolean {
+  if (sameValue(edited, committed)) return true;
+  if (edited.kind !== "value" || committed.kind !== "value") return false;
+  try {
+    return scalarText(edited.text, shape) === committed.text;
+  } catch {
+    // Text the rules reject was never committed.
+    return false;
+  }
+}
+
+/**
  * Takes committed values for writable own fields, keeping an unsaved edit
  * that still differs from both its old baseline and the new committed value.
  */
@@ -498,7 +517,7 @@ export function mergeDraft(
       old !== undefined &&
       edited !== undefined &&
       !sameValue(edited, old) &&
-      !sameValue(edited, committed)
+      !matchesCommitted(edited, committed, field.shape)
     ) {
       baseline.set(field.id, old);
       values.set(field.id, edited);

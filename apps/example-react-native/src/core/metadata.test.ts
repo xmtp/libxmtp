@@ -12,6 +12,7 @@ import {
   checkCollection,
   checkLatest,
   checkUnchanged,
+  draftChanged,
   draftChanges,
   emptyDraft,
   entryAction,
@@ -153,6 +154,22 @@ test("the own draft writes only intentional changes", () => {
     { ...absent, present: true },
     { ...present, present: false, scalar: "" },
   ]);
+  assert.equal(draftChanges(draft).size, 0);
+});
+
+test("a saved uppercase byte value leaves nothing to save", () => {
+  const key = field({
+    id: 0xc203,
+    name: "key",
+    shape: "userBytes",
+    userField: true,
+  });
+  let draft = mergeDraft(emptyDraft, [key]);
+  draft = setDraft(draft, key.id, { kind: "value", text: "ABCD" });
+  assert.equal(draftChanged(draft, key.id), true);
+  // The group stores bytes, and the SDK reads them back as lowercase hex.
+  draft = mergeDraft(draft, [{ ...key, present: true, scalar: "abcd" }]);
+  assert.equal(draftChanged(draft, key.id), false);
   assert.equal(draftChanges(draft).size, 0);
 });
 
