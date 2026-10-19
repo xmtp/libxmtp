@@ -152,9 +152,7 @@ class SelectionTests(unittest.TestCase):
         }
         self.assertIn("test_example_ios", tiered)
         self.assertIn("test_react_native_smoke", tiered - shown)
-        merging = {
-            name for name in shown if "merge" in SELECTOR.SUITES[name]["run_on"]
-        }
+        merging = {name for name in shown if "merge" in SELECTOR.SUITES[name]["run_on"]}
         self.assertNotIn("test_react_native", merging)
         for kwargs, tier in [
             ({"files": ["flake.nix"]}, "advisory"),
