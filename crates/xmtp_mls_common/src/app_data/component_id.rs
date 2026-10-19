@@ -98,30 +98,19 @@ impl ComponentId {
     pub const DM_MEMBERS: Self = Self(0xBFFD);
     pub const ONESHOT_MESSAGE: Self = Self(0xBFFC);
 
-    /// Every well-known component and its META section 2 name, in ID order.
-    pub const WELL_KNOWN_NAMES: [(Self, &'static str); 18] = [
-        (Self::COMPONENT_REGISTRY, "COMPONENT_REGISTRY"),
-        (Self::SUPER_ADMIN_LIST, "SUPER_ADMIN_LIST"),
-        (Self::ADMIN_LIST, "ADMIN_LIST"),
-        (Self::GROUP_MEMBERSHIP, "GROUP_MEMBERSHIP"),
-        (Self::GROUP_NAME, "GROUP_NAME"),
-        (Self::GROUP_DESCRIPTION, "GROUP_DESCRIPTION"),
-        (Self::GROUP_IMAGE_URL, "GROUP_IMAGE_URL"),
-        (Self::MESSAGE_DISAPPEAR_FROM_NS, "MESSAGE_DISAPPEAR_FROM_NS"),
-        (Self::MESSAGE_DISAPPEAR_IN_NS, "MESSAGE_DISAPPEAR_IN_NS"),
-        (Self::APP_DATA, "APP_DATA"),
-        (
-            Self::MIN_SUPPORTED_PROTOCOL_VERSION,
-            "MIN_SUPPORTED_PROTOCOL_VERSION",
-        ),
-        (Self::COMMIT_LOG_SIGNER, "COMMIT_LOG_SIGNER"),
-        (Self::USER_DISPLAY_NAME, "USER_DISPLAY_NAME"),
-        (Self::GROUP_IMAGE, "GROUP_IMAGE"),
-        (Self::ONESHOT_MESSAGE, "ONESHOT_MESSAGE"),
-        (Self::DM_MEMBERS, "DM_MEMBERS"),
-        (Self::CREATOR_INBOX_ID, "CREATOR_INBOX_ID"),
-        (Self::CONVERSATION_TYPE, "CONVERSATION_TYPE"),
-    ];
+    /// Every well-known component and its META section 2 name, in ID order,
+    /// built from [`xmtp_configuration::WELL_KNOWN_COMPONENT_NAMES`].
+    pub const WELL_KNOWN_NAMES: [(Self, &'static str);
+        xmtp_configuration::WELL_KNOWN_COMPONENT_NAMES.len()] = {
+        let table = xmtp_configuration::WELL_KNOWN_COMPONENT_NAMES;
+        let mut names = [(Self(0), ""); xmtp_configuration::WELL_KNOWN_COMPONENT_NAMES.len()];
+        let mut i = 0;
+        while i < table.len() {
+            names[i] = (Self(table[i].0), table[i].1);
+            i += 1;
+        }
+        names
+    };
 
     /// The well-known component with exactly this name.
     pub fn from_well_known_name(name: &str) -> Option<Self> {

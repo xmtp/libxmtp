@@ -38,7 +38,7 @@
         settings.formatter = {
           # A release's copy of the CONF example file stays byte for byte as
           # that release published it.
-          taplo.excludes = [ "apps/backend/src/config/tests/releases/*.toml" ];
+          taplo.excludes = [ "crates/xmtp_backend_config/src/tests/releases/*.toml" ];
           shellcheck.options = [
             "-e"
             "SC1091"

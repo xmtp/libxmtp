@@ -150,3 +150,19 @@ async fn holder_pid(store: &Store) -> Option<i32> {
     sqlx::query_scalar("SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid = 3 AND objsubid = 2 AND granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())")
         .fetch_optional(&store.primary).await.unwrap()
 }
+
+/// A recipient whose expiry cannot be represented is an invariant failure. The
+/// configuration's expiry arithmetic decides which renewals those are.
+#[xmtp_common::test(unwrap_try = true)]
+fn an_unrepresentable_recipient_expiry_is_an_invariant_failure() {
+    let config: Config = toml::from_str(
+        "[database]\nurl = 'postgres://localhost/xmtp'\n[push]\nrecipient_ttl_seconds = 86400",
+    )?;
+    assert_eq!(recipient_expiry(&config.push, 0)?, 86_400 * 1_000_000_000);
+    for renewed_ns in [-1, i64::MAX] {
+        assert!(matches!(
+            recipient_expiry(&config.push, renewed_ns),
+            Err(crate::error::Error::PushExpiryOverflow)
+        ));
+    }
+}

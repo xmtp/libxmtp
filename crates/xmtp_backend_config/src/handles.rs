@@ -2,8 +2,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use xmtp_configuration::BACKEND_DEFAULT_HANDLE_MIN_NAME_LENGTH;
-use xmtp_id::associations::MAX_HANDLE_NAME_LEN;
+use xmtp_configuration::{BACKEND_DEFAULT_HANDLE_MIN_NAME_LENGTH, MAX_HANDLE_NAME_LEN};
 
 use super::{ConfigError, invalid};
 

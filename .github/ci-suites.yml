@@ -103,6 +103,7 @@ path_groups:
   docker_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
+    - "crates/xmtp_backend_config/**"
     - "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}"
     - "dev/docker/{postgres,s3,toxiproxy}/**"
     - "dev/backend/{local.toml,local-s3.toml}"
@@ -115,6 +116,7 @@ path_groups:
   native_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
+    - "crates/xmtp_backend_config/**"
     - "dev/backend/**"
     - "dev/docker/s3/**"
     - "nix/package/backend.nix"
@@ -428,7 +430,7 @@ suites:
       - cargo_package: xmtp_backend
       - path_group: docker_backend
       # apps/backend tests embed these files.
-      - "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md,specs/CONF-backend-configuration.md}"
+      - "docs/{backend-observability.md,specs/OPS-backend-operations.md}"
       - path_group: native_backend
       - "nix/{ci-checks,package/backend-tests}.nix"
   test_validation:
@@ -456,6 +458,8 @@ suites:
       - cargo_package: "@default-members"
       - path_group: docker_backend
       - "{.config/nextest.toml,webdriver.json}"
+      # xmtp_backend_config tests embed these files.
+      - "docs/{schemas/backend-v1.json,specs/CONF-backend-configuration.md}"
       - "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
       # The derivation starts these services.
       - "nix/services/**"

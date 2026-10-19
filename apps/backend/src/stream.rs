@@ -20,6 +20,14 @@ const FETCH_ROWS: i64 = 64;
 pub(crate) const FETCH_WORKERS: usize = 8;
 const OUTBOUND_FRAMES: usize = 64;
 const ENVELOPE_OVERHEAD: usize = crate::config::ENVELOPE_METADATA_AND_FRAMING_BYTES;
+/// Bytes of envelopes one tailer page may hold.
+pub(crate) const FETCH_BUFFER_BYTES: usize = 64 * 1024 * 1024;
+/// Bytes of frames one session may queue for its client.
+pub(crate) const OUTBOUND_QUEUE_BYTES: usize = 16 * 1024 * 1024;
+// The configuration admits an envelope only when it fits one delivery frame
+// with its framing, so each buffer must hold at least one such frame.
+const _: () = assert!(FETCH_BUFFER_BYTES >= crate::config::DELIVERY_FRAME_BYTES);
+const _: () = assert!(OUTBOUND_QUEUE_BYTES >= crate::config::DELIVERY_FRAME_BYTES);
 
 pub(crate) struct StreamHub {
     pub registry: Arc<Registry>,

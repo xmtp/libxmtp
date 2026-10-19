@@ -12,8 +12,8 @@ use prost::Message;
 use std::panic::{self, AssertUnwindSafe};
 use thiserror::Error;
 use xmtp_common::ErrorCode;
-use xmtp_configuration::MLS_PROTOCOL_VERSION;
 use xmtp_configuration::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
+use xmtp_cryptography::configuration::MLS_PROTOCOL_VERSION;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
 #[derive(Debug, Error, ErrorCode)]

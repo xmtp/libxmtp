@@ -27,6 +27,7 @@ let
       ]
       ++ map (name: rust.fileset.commonCargoSources (root + "/crates/${name}")) [
         "xmtp_attachments_server"
+        "xmtp_backend_config"
         "xmtp_common"
         "xmtp_configuration"
         "xmtp_cryptography"

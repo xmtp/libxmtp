@@ -858,3 +858,51 @@ async fn debug_redacts_secrets() {
         "CredentialsUnavailable"
     );
 }
+
+/// The key and reason of a construction that configuration validation refused.
+#[track_caller]
+fn refusal<T>(result: Result<T, BuildError>) -> (&'static str, &'static str) {
+    match result {
+        Err(BuildError::Config(ConfigError::Invalid { field, reason })) => (field, reason),
+        Err(other) => panic!("expected a configuration refusal, got {other}"),
+        Ok(_) => panic!("expected a configuration refusal, got a target"),
+    }
+}
+
+/// An endpoint that is not a URL is refused by its key, not unwrapped.
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_endpoint_that_is_not_a_url_is_refused() {
+    let mut config = config();
+    config.endpoint = "not a url".into();
+    assert_eq!(
+        refusal(S3Target::new(&config).await),
+        ("attachments.target.S3.endpoint", "is not a URL as written")
+    );
+}
+
+/// The public constructors refuse settings that configuration validation
+/// refuses, whoever built them: plain HTTP to a host that is not loopback, and
+/// an attachments setting outside the target.
+#[xmtp_common::test(unwrap_try = true)]
+async fn constructors_refuse_settings_that_validation_refuses() {
+    let mut s3 = config();
+    s3.endpoint = "http://storage.example".into();
+    let expected = (
+        "attachments.target.S3.endpoint",
+        "must use HTTPS or HTTP on a loopback host",
+    );
+    assert_eq!(refusal(S3Target::new(&s3).await), expected);
+    let mut attachments = AttachmentsConfig {
+        base_url: "https://files.example.org/attachments".into(),
+        max_upload_bytes: None,
+        retention_seconds: None,
+        target: TargetConfig::S3(s3),
+    };
+    assert_eq!(refusal(build_target(&attachments).await), expected);
+    attachments.target = TargetConfig::S3(config());
+    attachments.base_url = "https://files.example.org/attachments/".into();
+    assert_eq!(
+        refusal(build_target(&attachments).await),
+        ("attachments.base_url", "has a trailing slash")
+    );
+}

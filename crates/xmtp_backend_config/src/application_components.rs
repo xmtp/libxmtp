@@ -10,13 +10,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use xmtp_configuration::{
     ApplicationComponentDefinition, ComponentPermissions, MAX_APPLICATION_COMPONENT_NAME_BYTES,
-    MetadataPolicy, validate_application_components,
+    MetadataPolicy, WELL_KNOWN_COMPONENT_NAMES, validate_application_components,
 };
-use xmtp_mls_common::app_data::component_id::ComponentId;
-use xmtp_proto::xmtp::mls::message_contents::{ComponentType, metadata_policy::MetadataBasePolicy};
 
 use super::ConfigError;
-use crate::api;
 
 /// One application component. Every key is required; there are no defaults,
 /// because a published definition should not change once conversations use it.
@@ -41,54 +38,35 @@ pub struct ApplicationComponentConfig {
     pub in_dms: bool,
 }
 
+// The discriminants are the wire tags. The backend pins them to `xmtp_proto`.
+
 /// The value shape of a component, one per `ComponentType`.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ComponentTypeConfig {
-    Bytes,
-    String,
-    TlsMapBytesBytes,
-    TlsMapInboxIdBytes,
-    TlsSetBytes,
-    TlsSetInboxId,
-    TlsMapInboxIdString,
+    Bytes = 1,
+    String = 2,
+    TlsMapBytesBytes = 3,
+    TlsMapInboxIdBytes = 4,
+    TlsSetBytes = 5,
+    TlsSetInboxId = 6,
+    TlsMapInboxIdString = 7,
 }
 
 /// Who may insert, update, or delete a value, one per `MetadataBasePolicy`.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PolicyConfig {
-    Allow,
-    Deny,
-    AllowIfAdmin,
-    AllowIfSuperAdmin,
-    AllowIfSelfOrNonMember,
-}
-
-impl From<ComponentTypeConfig> for ComponentType {
-    fn from(component_type: ComponentTypeConfig) -> Self {
-        match component_type {
-            ComponentTypeConfig::Bytes => Self::Bytes,
-            ComponentTypeConfig::String => Self::String,
-            ComponentTypeConfig::TlsMapBytesBytes => Self::TlsMapBytesBytes,
-            ComponentTypeConfig::TlsMapInboxIdBytes => Self::TlsMapInboxIdBytes,
-            ComponentTypeConfig::TlsSetBytes => Self::TlsSetBytes,
-            ComponentTypeConfig::TlsSetInboxId => Self::TlsSetInboxId,
-            ComponentTypeConfig::TlsMapInboxIdString => Self::TlsMapInboxIdString,
-        }
-    }
+    Allow = 1,
+    Deny = 2,
+    AllowIfAdmin = 3,
+    AllowIfSuperAdmin = 4,
+    AllowIfSelfOrNonMember = 5,
 }
 
 impl From<PolicyConfig> for MetadataPolicy {
     fn from(policy: PolicyConfig) -> Self {
-        let base = match policy {
-            PolicyConfig::Allow => MetadataBasePolicy::Allow,
-            PolicyConfig::Deny => MetadataBasePolicy::Deny,
-            PolicyConfig::AllowIfAdmin => MetadataBasePolicy::AllowIfAdmin,
-            PolicyConfig::AllowIfSuperAdmin => MetadataBasePolicy::AllowIfSuperAdmin,
-            PolicyConfig::AllowIfSelfOrNonMember => MetadataBasePolicy::AllowIfSelfOrNonMember,
-        };
-        Self::Base(base.into())
+        Self::Base(policy as i32)
     }
 }
 
@@ -97,7 +75,7 @@ impl From<&ApplicationComponentConfig> for ApplicationComponentDefinition {
         Self {
             component_id: config.component_id,
             name: config.name.clone(),
-            component_type: ComponentType::from(config.component_type).into(),
+            component_type: config.component_type as i32,
             permissions: ComponentPermissions {
                 insert: Some(config.insert_policy.into()),
                 update: Some(config.update_policy.into()),
@@ -119,27 +97,14 @@ pub(super) fn validate(components: &[ApplicationComponentConfig]) -> Result<(), 
         components.iter().map(Into::into).collect();
     validate_application_components(&definitions)
         .map_err(|(index, reason)| ConfigError::ApplicationComponent { index, reason })?;
-    match components
-        .iter()
-        .position(|component| ComponentId::from_well_known_name(&component.name).is_some())
-    {
+    match components.iter().position(|component| {
+        WELL_KNOWN_COMPONENT_NAMES
+            .iter()
+            .any(|&(_, name)| name == component.name)
+    }) {
         Some(index) => Err(ConfigError::WellKnownComponentName { index }),
         None => Ok(()),
     }
-}
-
-/// The published catalogue, sorted by `component_id` so every client builds
-/// the same snapshot whatever order the file lists them in.
-// implements: CONF-079
-pub(super) fn published(
-    components: &[ApplicationComponentConfig],
-) -> Vec<api::ApplicationComponentDefinition> {
-    let mut published: Vec<api::ApplicationComponentDefinition> = components
-        .iter()
-        .map(|component| ApplicationComponentDefinition::from(component).into())
-        .collect();
-    published.sort_by_key(|definition| definition.component_id);
-    published
 }
 
 #[cfg(test)]

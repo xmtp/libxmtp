@@ -212,7 +212,7 @@ exec command. The 15 s sleep gives endpoint changes time to reach the Gateway
 before SIGTERM. This delay needs a real rollout test; it is not a guarantee.
 
 The sleep runs **inside** the termination grace period. The source defaults are
-`DEFAULT_DRAIN_DURATION_MS = 10_000` in `apps/backend/src/config.rs` and
+`DEFAULT_DRAIN_DURATION_MS = 10_000` in `crates/xmtp_backend_config/src/lib.rs` and
 `OTLP_FLUSH_TIMEOUT = 5 s` in `crates/xmtp_logging/src/telemetry.rs`.
 The chart therefore uses **45 s = 15 s sleep + 10 s drain + 5 s flush + 15 s margin**.
 A 30 s grace period would leave no margin. Increase it if you increase the sleep

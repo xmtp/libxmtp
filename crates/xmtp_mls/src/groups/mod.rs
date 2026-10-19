@@ -77,7 +77,7 @@ use xmtp_common::{Event, log_event, time::now_ns};
 #[cfg(test)]
 use xmtp_configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use xmtp_configuration::{
-    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
+    GROUP_MEMBERSHIP_EXTENSION_ID, MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
     SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
@@ -88,7 +88,7 @@ use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
 };
-use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
+use xmtp_cryptography::configuration::{CIPHERSUITE, ED25519_KEY_LENGTH};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;

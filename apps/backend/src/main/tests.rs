@@ -148,7 +148,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
             Err(_) => vec!["--config-file".into(), path],
         };
         let args = Args::parse_from(std::iter::once("xmtp-backend".to_string()).chain(arguments));
-        let config = args.load_config()?;
+        let config = args.config()?;
         if config.telemetry.metrics_listen.is_empty() {
             // Occupy the default metrics port, so an exporter that binds it
             // anyway fails. When another process already holds the port, it
@@ -314,6 +314,114 @@ async fn failed_jwks_startup_exits_before_binding_the_rpc_listener() {
     assert!(!output.contains("private-url-sentinel"));
     assert!(!output.contains("backend ready to serve"));
     let _listener = TcpListener::bind(grpc)?;
+}
+
+/// The first inline key that does not parse for its algorithm stops startup
+/// before the RPC listener binds. The refusal names the entry, not the key.
+// verifies: AUTH-017
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+async fn an_unparsable_inline_key_stops_startup_before_binding() {
+    let database = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    let grpc = address();
+    let metrics = address();
+    let es256 = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?.public_key_pem();
+    let ed25519 = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519)?.public_key_pem();
+    // The second key is an Ed25519 key under the ES256 algorithm.
+    let config = format!(
+        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\nenabled = true\n\
+         [[auth.keys]]\nkid = 'first'\nalg = 'ES256'\npublic_key = '''{es256}'''\n\
+         [[auth.keys]]\nkid = 'second'\nalg = 'ES256'\npublic_key = '''{ed25519}'''\n\
+         [[auth.keys]]\nkid = 'third'\nalg = 'EdDSA'\npublic_key = '''{ed25519}'''\n"
+    );
+    let mut process = Process::start(&config, None);
+    assert!(!process.child.wait()?.success());
+    let output = process.output();
+    assert!(
+        output.contains("auth.keys[1]")
+            && output.contains("public_key must be SubjectPublicKeyInfo for alg"),
+        "{output}"
+    );
+    assert!(!output.contains("BEGIN PUBLIC KEY"), "{output}");
+    assert!(!output.contains("backend ready to serve"), "{output}");
+    let _listener = TcpListener::bind(grpc)?;
+}
+
+/// `--log-level` overrides `server.log_level` for the running server. A
+/// request without a credential logs its rejection at DEBUG.
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+async fn the_log_level_flag_overrides_the_configured_level() {
+    let database = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    for flag in [true, false] {
+        let grpc = address();
+        let metrics = address();
+        let config = format!(
+            "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\nlog_level = 'info'\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\nenabled = true\n[auth.api_keys]\nbot = '0123456789abcdef0123456789abcdef'\n"
+        );
+        let mut args = vec!["--config", config.as_str()];
+        if flag {
+            args.extend(["--log-level", "debug"]);
+        }
+        let mut process = Process::start_with_args("", None, Some(&args), None);
+        scrape(&metrics, "xmtp_backend_ready 1").await;
+        let channel = tonic::transport::Endpoint::from_shared(format!("http://{grpc}"))?
+            .connect()
+            .await?;
+        let mut client = xmtp_backend::api::query_service_client::QueryServiceClient::new(channel);
+        let status = client
+            .query_newest(xmtp_backend::api::QueryNewestRequest {
+                topics: vec![],
+                include_full_envelope: false,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), tonic::Code::Unauthenticated);
+        process.terminate().await;
+        let output = process.output();
+        assert_eq!(output.contains("authentication rejected"), flag, "{output}");
+    }
+}
+
+/// Each configured level maps to the shared level of the same name.
+#[xmtp_common::test(unwrap_try = true)]
+fn configured_log_levels_map_to_the_shared_levels() {
+    for level in ["off", "error", "warn", "info", "debug", "trace"] {
+        let config: Config = toml::from_str(&format!(
+            "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nlog_level = '{level}'"
+        ))?;
+        assert_eq!(logging_level(config.server.log_level).as_str(), level);
+    }
+}
+
+/// The OTLP export carries the telemetry settings. The identifier is added to
+/// every export, alongside whatever the operator set.
+#[xmtp_common::test(unwrap_try = true)]
+fn otlp_export_carries_the_telemetry_settings_and_the_identifier() {
+    const MINIMAL: &str =
+        "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n";
+    let config: Config = toml::from_str(&format!(
+        "{MINIMAL}[telemetry]\notlp_endpoint = 'http://tempo:4317'"
+    ))?;
+    let export = otlp_export(&config)?.unwrap();
+    assert_eq!(export.endpoint.as_deref(), Some("http://tempo:4317"));
+    assert_eq!(export.service_name.as_deref(), Some("xmtp-backend"));
+    assert!(!export.logs);
+    let config: Config = toml::from_str(&format!(
+        "{MINIMAL}[telemetry]\notlp_endpoint = 'http://collector:4317'\notlp_logs = true\nservice_name = 'custom'\nsample_ratio = 0.25\nresource_attributes = {{ 'deployment.environment' = 'test' }}"
+    ))?;
+    let export = otlp_export(&config)?.unwrap();
+    assert_eq!(export.endpoint.as_deref(), Some("http://collector:4317"));
+    assert_eq!(export.service_name.as_deref(), Some("custom"));
+    assert!(export.logs);
+    assert_eq!(export.sample_ratio, 0.25);
+    assert_eq!(
+        export.resource_attributes,
+        vec![
+            ("deployment.environment".into(), "test".into()),
+            ("xmtp.backend.identifier".into(), "org.xmtp.test".into())
+        ]
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
