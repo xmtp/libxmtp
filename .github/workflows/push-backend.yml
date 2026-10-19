@@ -1,4 +1,4 @@
-name: Publish backend image
+name: "Publish: backend image"
 
 on:
   # No tag trigger: the release App pushes tags (release.yml, push-release-tag.yml),
@@ -34,13 +34,15 @@ permissions:
 
 jobs:
   source:
+    name: Resolve source commit
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
       sha: ${{ steps.source.outputs.sha }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
       - name: Pin the build source
@@ -56,6 +58,7 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   deploy-dev:
+    name: Deploy backend-dev
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !inputs.ref && !inputs.dry-run
     needs: manifest
     uses: ./.github/workflows/deploy-backend-dev.yml
@@ -69,13 +72,15 @@ jobs:
       id-token: write
       attestations: write
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    name: Publish backend image (${{ matrix.arch }})
+    name: Build and push (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Free hosted runners for both legs. The amd64 image substitutes
+          # from the cache that post-merge.yml warms; a miss builds slower.
           - arch: amd64
-            runner: blacksmith-16vcpu-ubuntu-2404
+            runner: ubuntu-24.04
             target: x86_64
           - arch: arm64
             runner: ubuntu-24.04-arm
@@ -91,11 +96,13 @@ jobs:
     env:
       NIX_DEVSHELL: rust
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.source.outputs.sha }}
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+      - name: Log in to GHCR
         if: inputs.dry-run != true
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -111,14 +118,16 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
         if: steps.image.outputs.exists != 'true'
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'read' }}
           cachix-auth-token: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
+      - name: Install just
         if: steps.image.outputs.exists != 'true'
+        uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
       - name: Build image
         if: steps.image.outputs.exists != 'true'
         run: just backend image ${{ matrix.target }}
@@ -148,12 +157,14 @@ jobs:
           push-to-registry: true
 
   manifest:
+    name: Push multi-arch manifest
     if: inputs.dry-run != true
     needs: [source, publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
