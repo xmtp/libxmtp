@@ -4,9 +4,8 @@
 // open), `clearLimit`, `holdUploads` (uploads wait, so the app can be stopped
 // mid-upload) and `releaseUploads`. The probe then goes back.
 
-import { Stack, router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef } from "react";
-import { Text } from "react-native";
 
 import { attachmentDebug } from "@/features/attachments/sdkAttachmentGateway";
 
@@ -43,10 +42,7 @@ export default function AttachmentProbe() {
     if (router.canGoBack()) router.back();
   }, [params.action, params.bytes, params.n]);
 
-  return (
-    <>
-      <Stack.Screen options={{ title: "Attachment probe" }} />
-      <Text>{__DEV__ ? "Attachment probe" : "Debug builds only."}</Text>
-    </>
-  );
+  // The root layout registers this route for Debug builds only, with its
+  // title. The probe goes back as soon as its action ran.
+  return null;
 }

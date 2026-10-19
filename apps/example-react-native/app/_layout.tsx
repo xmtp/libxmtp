@@ -125,6 +125,10 @@ export default function RootLayout() {
                   name="dev/chat-probe"
                   options={inline(routeTitles.chatProbe)}
                 />
+                <Stack.Screen
+                  name="dev/attachment-probe"
+                  options={inline(routeTitles.attachmentProbe)}
+                />
               </Stack.Protected>
             </Stack>
           </SessionProvider>

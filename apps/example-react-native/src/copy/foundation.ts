@@ -39,6 +39,8 @@ export const routeTitles = {
   sessionProbe: "Session probe",
   /** The Debug chat probe. */
   chatProbe: "Chat probe",
+  /** The Debug attachment probe. */
+  attachmentProbe: "Attachment probe",
   /** The edit-group and add-member sheets. */
   editGroup: "Edit group",
   addMember: "Add member",
