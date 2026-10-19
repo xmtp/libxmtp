@@ -18,7 +18,7 @@ test("reads every launch variable", () => {
   );
 });
 
-test("keeps an empty backend URL, like the iOS app", () => {
+test("an empty backend URL stays empty", () => {
   assert.equal(parseLaunchEnvironment({ XMTP_BACKEND_URL: "" }).backendUrl, "");
   assert.equal(parseLaunchEnvironment({}).backendUrl, undefined);
 });

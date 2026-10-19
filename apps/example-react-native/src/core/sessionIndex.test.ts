@@ -29,16 +29,30 @@ const index: SessionIndex = {
   appearance: "dark",
 };
 
-test("round trips with the iOS key names", () => {
-  const text = serializeSessionIndex(index);
-  const json = JSON.parse(text) as Record<string, unknown>;
-  assert.ok("activeID" in json);
-  assert.deepEqual(
-    (json["reset"] as Record<string, unknown>)["profileID"],
-    "B",
-  );
-  assert.ok(text.includes('"inboxID":"inbox"'));
-  assert.deepEqual(parseSessionIndex(text), index);
+test("the saved index format stays readable by later builds", () => {
+  // Installed apps hold this exact JSON; a change needs a migration.
+  const saved =
+    '{"profiles":[{"id":"A","url":"http://127.0.0.1:5150","inboxID":"inbox","identity":"0xabc"},' +
+    '{"id":"B","url":"HTTPS://EXAMPLE.COM:443/API/v1/"}],"activeID":"A","signedIn":true,' +
+    '"reset":{"profileID":"B","phase":"DATABASE_REMOVED"},"appearance":"dark"}';
+  assert.equal(serializeSessionIndex(index), saved);
+  assert.deepEqual(parseSessionIndex(saved), index);
+  // An index saved during a reset reads back in every phase.
+  for (const phase of [
+    "STOPPING",
+    "DATABASE_REMOVED",
+    "FILES_REMOVED",
+  ] as const) {
+    const resetting: SessionIndex = {
+      ...index,
+      reset: { profileId: "B", phase },
+    };
+    assert.deepEqual(
+      parseSessionIndex(serializeSessionIndex(resetting)),
+      resetting,
+      phase,
+    );
+  }
   assert.deepEqual(
     parseSessionIndex(serializeSessionIndex(EMPTY_SESSION_INDEX)),
     EMPTY_SESSION_INDEX,

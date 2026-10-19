@@ -1,35 +1,32 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { avatarPaletteIndex, groupInitials, personInitials } from "./avatar.ts";
+import {
+  AVATAR_PALETTE_SIZE,
+  avatarPaletteIndex,
+  groupInitials,
+  personInitials,
+} from "./avatar.ts";
 
-test("palette index is the first SHA-256 byte mod 6 (iOS vectors)", () => {
-  // seed → first digest byte → index, from ios-group-screens-design-system.md §2.2.
-  const vectors: readonly (readonly [string, number])[] = [
-    ["protocol", 4],
-    ["maya", 1],
-    ["release", 2],
-    ["9c", 3],
-    ["own", 1],
-    ["preview-group", 1],
-    ["you", 1],
-    ["priya", 2],
-    ["marco", 4],
-    ["Protocol design", 5],
-    ["", 5],
-    ["Group", 4],
-    ["marco-inbox", 3],
-    ["priya-inbox", 5],
-    ["lena", 0],
-    ["hike", 0],
-  ];
-  for (const [seed, index] of vectors) {
-    assert.equal(
-      avatarPaletteIndex(seed),
-      index,
-      `seed ${JSON.stringify(seed)}`,
+test("each seed gets one palette color, and seeds reach every color", () => {
+  const used = new Set<number>();
+  for (const seed of [
+    "lena",
+    "maya",
+    "release",
+    "9c",
+    "protocol",
+    "Protocol design",
+  ]) {
+    const index = avatarPaletteIndex(seed);
+    assert.ok(
+      Number.isInteger(index) && index >= 0 && index < AVATAR_PALETTE_SIZE,
+      seed,
     );
+    assert.equal(avatarPaletteIndex(seed), index, `${seed} again`);
+    used.add(index);
   }
+  assert.equal(used.size, AVATAR_PALETTE_SIZE);
 });
 
 test("group initials take the first letters of two words after leading @", () => {

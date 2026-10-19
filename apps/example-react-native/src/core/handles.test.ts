@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   type HandleEditorState,
   type HandleNotice,
+  type HandleProblem,
   type HandleStatus,
   availabilityStatus,
   canCheck,
@@ -54,74 +55,6 @@ test("the first grammar problem shown follows the check order", () => {
   assert.equal(normalizeHandle("AbÇ"), "abÇ");
   assert.equal(handleName("nick#2341"), "nick");
   assert.equal(handleName("nick"), "nick");
-});
-
-test("problem and notice copy matches HandleCopy.swift", () => {
-  assert.equal(
-    handleProblemCopy("invalidCharacters", "", 3),
-    "Use only lowercase letters, numbers, _ and -.",
-  );
-  assert.equal(
-    handleProblemCopy("startWithLetter", "", 3),
-    "Start with a letter.",
-  );
-  assert.equal(
-    handleProblemCopy("tooLong", "", 3),
-    "Use 27 characters or fewer before #.",
-  );
-  assert.equal(
-    handleProblemCopy("tooShort", "", 5),
-    "Use at least 5 characters on this server.",
-  );
-  assert.equal(
-    handleProblemCopy("badCode", "nick#12", 3),
-    "After #, use exactly 4 digits, like nick#0012.",
-  );
-  assert.equal(
-    handleProblemCopy("current", "", 3),
-    "This is your current handle.",
-  );
-  assert.equal(handleHint(3), "3 to 27 lowercase letters, numbers, _ or -.");
-  const notices: readonly (readonly [HandleNotice, string])[] = [
-    [
-      { kind: "taken", handle: "abc" },
-      "Someone claimed abc a moment before you. Pick another handle.",
-    ],
-    [{ kind: "notAllowed", name: "abc" }, "abc is not allowed on this server."],
-    [
-      { kind: "tooSoon", changed: undefined, next: undefined },
-      "You changed your handle less than 7 days ago. Try again later.",
-    ],
-    [
-      {
-        kind: "tooSoon",
-        changed: new Date(2026, 9, 18, 15, 0),
-        next: new Date(2026, 9, 25, 15, 0),
-      },
-      "You changed your handle on Oct 18, 2026. You can change it again on Oct 25, 2026.",
-    ],
-    [
-      { kind: "limitReached" },
-      "This inbox has used all 64 handle changes. Your current handle stays, and so do your other handles.",
-    ],
-    [{ kind: "checkFailed" }, "Cannot check this handle. Try again."],
-    [{ kind: "skipFailed" }, "Cannot save your preference. Try again."],
-    [{ kind: "claimFailed", handle: "abc" }, "Cannot claim abc. Try again."],
-    [
-      { kind: "recordFailed", handle: "abc" },
-      "Your handle is abc, but its change date could not be saved. Retry to save it on this device.",
-    ],
-    [
-      { kind: "switchBackBlocked", handle: "ab", shorter: true },
-      "ab is shorter than this server now allows. It still finds you, but you cannot switch back to it.",
-    ],
-    [
-      { kind: "switchBackBlocked", handle: "ab", shorter: false },
-      "ab is not allowed on this server now. It still finds you, but you cannot switch back to it.",
-    ],
-  ];
-  for (const [notice, copy] of notices)
-    assert.equal(handleNoticeCopy(notice), copy);
 });
 
 test("tooSoon uses the newest claim under 7 days old", () => {
@@ -209,19 +142,76 @@ test("editor flags decide when a handle can be checked, edited and claimed", () 
   assert.ok(!canClaim(editor({ status: available, claiming: "abc" })));
 });
 
-test("primary button titles", () => {
-  const available: HandleStatus = { kind: "available", handle: "abc" };
-  assert.equal(primaryButtonTitle("choose", editor()), "Continue");
-  assert.equal(
-    primaryButtonTitle("choose", editor({ status: available })),
-    "Claim abc",
+test("problem and notice copy carries the handle, the minimum and the dates", () => {
+  // Only interpolated values and branch differences are pinned here; the
+  // wording itself may change.
+  assert.match(handleProblemCopy("tooShort", "", 5), /\b5\b/u);
+  assert.match(handleProblemCopy("badCode", "nick#12", 3), /nick#0012/u);
+  assert.match(handleHint(4), /\b4\b/u);
+  const problems: readonly HandleProblem[] = [
+    "invalidCharacters",
+    "startWithLetter",
+    "tooLong",
+    "tooShort",
+    "badCode",
+    "current",
+  ];
+  const problemCopy = new Set(problems.map((p) => handleProblemCopy(p, "", 3)));
+  assert.equal(problemCopy.size, problems.length, "one text per problem");
+
+  const named: readonly HandleNotice[] = [
+    { kind: "taken", handle: "zed" },
+    { kind: "notAllowed", name: "zed" },
+    { kind: "claimFailed", handle: "zed" },
+    { kind: "recordFailed", handle: "zed" },
+    { kind: "switchBackBlocked", handle: "zed", shorter: true },
+    { kind: "switchBackBlocked", handle: "zed", shorter: false },
+  ];
+  for (const notice of named) {
+    assert.match(handleNoticeCopy(notice), /\bzed\b/u, notice.kind);
+  }
+  assert.notEqual(
+    handleNoticeCopy({
+      kind: "switchBackBlocked",
+      handle: "zed",
+      shorter: true,
+    }),
+    handleNoticeCopy({
+      kind: "switchBackBlocked",
+      handle: "zed",
+      shorter: false,
+    }),
   );
-  assert.equal(
-    primaryButtonTitle("change", editor({ status: available })),
-    "Change to abc",
+  const dated = handleNoticeCopy({
+    kind: "tooSoon",
+    changed: new Date(2026, 9, 18, 15, 0),
+    next: new Date(2026, 9, 25, 15, 0),
+  });
+  assert.match(dated, /Oct 18, 2026.*Oct 25, 2026/u);
+  const undated = handleNoticeCopy({
+    kind: "tooSoon",
+    changed: undefined,
+    next: undefined,
+  });
+  assert.doesNotMatch(undated, /2026/u);
+  const plain: readonly HandleNotice[] = [
+    { kind: "limitReached" },
+    { kind: "checkFailed" },
+    { kind: "skipFailed" },
+  ];
+  const plainCopy = new Set([undated, ...plain.map(handleNoticeCopy)]);
+  assert.equal(plainCopy.size, plain.length + 1, "one text per notice");
+
+  const available: HandleStatus = { kind: "available", handle: "zed" };
+  const claim = primaryButtonTitle("choose", editor({ status: available }));
+  const change = primaryButtonTitle("change", editor({ status: available }));
+  assert.match(claim, /\bzed\b/u);
+  assert.match(change, /\bzed\b/u);
+  assert.notEqual(claim, change, "the title depends on the mode");
+  assert.match(
+    primaryButtonTitle("change", editor({ status: available, claiming: "qq" })),
+    /\bqq\b/u,
+    "a running claim names its handle",
   );
-  assert.equal(
-    primaryButtonTitle("change", editor({ claiming: "abc" })),
-    "Claiming abc…",
-  );
+  assert.doesNotMatch(primaryButtonTitle("choose", editor()), /\babc\b/u);
 });

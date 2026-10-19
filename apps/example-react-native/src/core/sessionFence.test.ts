@@ -15,7 +15,7 @@ test("a new reservation rejects the old session of the same profile", () => {
   assert.ok(fence.accepts(second));
 });
 
-test("a restore cannot override an explicit action (restoreCannotOverrideExplicitAction)", () => {
+test("a restore cannot override an explicit action", () => {
   const fence = new SessionFence();
   const restore = fence.reserveRestore();
   assert.equal(restore, 1);
@@ -25,7 +25,7 @@ test("a restore cannot override an explicit action (restoreCannotOverrideExplici
   assert.equal(fence.reserveRestore(), undefined);
 });
 
-test("a restore cannot reserve over a bound profile (restoreCannotReserveOverBoundProfile)", () => {
+test("a restore cannot reserve over a bound profile", () => {
   const fence = new SessionFence();
   const generation = fence.reserveRestore();
   assert.ok(generation !== undefined);

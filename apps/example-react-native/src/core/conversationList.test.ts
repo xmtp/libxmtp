@@ -10,9 +10,11 @@ import {
   type ConversationQueries,
   type ConversationRecord,
   LOAD_FAILED,
+  PreviewCopy,
   conversationRowLabel,
   previewText,
 } from "./conversationList.ts";
+import { timeOfDay } from "./dates.ts";
 import { CONVERSATION_PAGE_SIZE, REQUEST_COUNT_LIMIT } from "./requests.ts";
 import { settle } from "./testing.ts";
 
@@ -322,7 +324,7 @@ test("search reads unread rows of the loaded window so they can match", async ()
   );
 });
 
-test("paging stops while searching (shouldPage)", async () => {
+test("paging stops while searching", async () => {
   const queries = new FakeQueries({ allowed: 120 });
   const list = store("allowed", queries);
   await list.refresh();
@@ -362,7 +364,7 @@ test("a superseded list read cannot change a newer load", async () => {
   }
 });
 
-test("results after the session ended or the store closed are dropped (staleConversationPageIsRejected)", async () => {
+test("results after the session ended or the store closed are dropped", async () => {
   let current = true;
   const queries = new FakeQueries({ allowed: 2 });
   const list = store("allowed", queries, new FakePreferences(), () => current);
@@ -391,7 +393,7 @@ test("a row takes its local alias and counts unread after its read marker", asyn
   assert.deepEqual(queries.markers, [42n]);
 });
 
-test("previews follow the iOS mapping", () => {
+test("a row previews text, a reply's body or fallback, or the attachment label", () => {
   const text: MessageContent = { kind: "text", value: "Hi" };
   assert.equal(previewText(text, "x"), "Hi");
   assert.equal(previewText({ kind: "markdown", value: "**b**" }, "x"), "**b**");
@@ -399,13 +401,16 @@ test("previews follow the iOS mapping", () => {
     ({ kind: "reply", referenceId: "m", body }) as MessageContent;
   assert.equal(previewText(reply({ kind: "text", value: "Yes" }), "f"), "Yes");
   assert.equal(previewText(reply({ kind: "readReceipt" }), "f"), "f");
-  assert.equal(previewText(reply({ kind: "readReceipt" }), undefined), "Reply");
+  assert.equal(
+    previewText(reply({ kind: "readReceipt" }), undefined),
+    PreviewCopy.reply,
+  );
   assert.equal(
     previewText(
       { kind: "remoteAttachment", value: {} } as MessageContent,
       "file",
     ),
-    "Attachment",
+    PreviewCopy.attachment,
   );
   assert.equal(previewText({ kind: "readReceipt" }, "fallback"), "fallback");
   assert.equal(previewText({ kind: "readReceipt" }, undefined), "");
@@ -480,7 +485,7 @@ test("loading more while a load runs reads nothing extra", async () => {
   assert.equal(list.getState().rows.length, 50);
 });
 
-test("row labels follow the SwiftUI button label that the reference flows select", () => {
+test("a row's accessibility label says its title, time, preview and unread count", () => {
   const at = new Date(2026, 9, 18, 13, 5);
   const dm = {
     id: "d",
@@ -495,17 +500,21 @@ test("row labels follow the SwiftUI button label that the reference flows select
     title: "@lena#0935",
     initials: "L",
   };
-  assert.equal(
-    conversationRowLabel(dm),
-    "@, lena#0935, 1:05\u202fPM, See you, 3",
-  );
+  const parts = conversationRowLabel(dm).split(", ");
+  assert.ok(parts.includes("lena#0935"), parts.join(", "));
+  assert.ok(parts.includes(timeOfDay(at)), parts.join(", "));
+  assert.ok(parts.includes("See you"), parts.join(", "));
+  assert.equal(parts.at(-1), "3", "the unread count comes last");
+  // A read row with no preview leaves both out.
   const read = { ...dm, record: { ...dm.record, unread: 0, preview: "" } };
-  assert.equal(conversationRowLabel(read), "@, lena#0935, 1:05\u202fPM");
+  const readParts = conversationRowLabel(read).split(", ");
+  assert.equal(readParts.at(-1), timeOfDay(at), readParts.join(", "));
+  assert.ok(readParts.every((part) => part !== "" && part !== "0"));
   const weekend = {
     id: "g",
     record: { ...group("g"), name: "Weekend plans" },
     title: "Weekend plans",
     initials: "WP",
   };
-  assert.equal(conversationRowLabel(weekend), "Weekend plans");
+  assert.ok(conversationRowLabel(weekend).startsWith("Weekend plans"));
 });

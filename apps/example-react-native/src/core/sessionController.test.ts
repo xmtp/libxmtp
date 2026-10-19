@@ -1,6 +1,3 @@
-// Ports of the iOS SessionCleanupTests, StartupIndexRecoveryTests and
-// BackendProfileIdentityTests, plus RN-specific cases.
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -516,7 +513,7 @@ test("a late open after a newer reservation ends its client and changes nothing"
   assert.ok(!files.index.signedIn);
 });
 
-test("a cancelled join ends a client that opens too late (canceledQueuedConnect)", async () => {
+test("a cancelled join ends a client that opens too late", async () => {
   const { files, factory, session } = controller();
   await session.start();
   factory.pause = true;
@@ -548,7 +545,7 @@ test("a cancelled join ends a client that opens too late (canceledQueuedConnect)
   assert.equal(factory.opens, opens);
 });
 
-test("a failed connect with a missing secret retries with an explicit reservation (failedConnectRecoveryRetriesWithExplicitReservation)", async () => {
+test("a failed connect with a missing secret retries with an explicit reservation", async () => {
   const { files, secrets, profile } = savedSession({
     signedIn: false,
     skip: "wallet",
@@ -604,7 +601,7 @@ test("an index read failure ends the uncommitted client", async () => {
   assert.ok(!files.index.signedIn);
 });
 
-test("an incomplete profile retries with the same wallet (incompleteProfileRetriesWithSameWallet)", async () => {
+test("an incomplete profile retries with the same wallet", async () => {
   const { files, secrets, factory, session } = controller();
   factory.failNext = true;
   await assert.rejects(
@@ -659,7 +656,7 @@ for (const failure of ["credential", "exports"] as const) {
   });
 }
 
-test("a repaired unsigned index returns to Join without writing (repairedUnsignedIndexCanReturnToJoinWithoutWritingData)", async () => {
+test("a repaired unsigned index returns to Join without writing", async () => {
   const files = new Files();
   files.index = { ...EMPTY_SESSION_INDEX, appearance: "dark" };
   files.failLoad = true;

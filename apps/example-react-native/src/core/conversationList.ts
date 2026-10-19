@@ -122,10 +122,16 @@ function bodyText(body: MessageBody): string | undefined {
     : undefined;
 }
 
+/** Row previews for messages without their own text. */
+export const PreviewCopy = {
+  reply: "Reply",
+  attachment: "Attachment",
+} as const;
+
 /**
  * A row preview for the last message: text and markdown bodies, a reply's
- * text body (else its fallback or "Reply"), "Attachment" for a remote
- * attachment, else the fallback or nothing.
+ * text body (else its fallback or `PreviewCopy.reply`), `PreviewCopy.attachment`
+ * for a remote attachment, else the fallback or nothing.
  */
 export function previewText(
   content: MessageContent,
@@ -136,9 +142,9 @@ export function previewText(
     case "markdown":
       return content.value;
     case "reply":
-      return bodyText(content.body) ?? fallback ?? "Reply";
+      return bodyText(content.body) ?? fallback ?? PreviewCopy.reply;
     case "remoteAttachment":
-      return "Attachment";
+      return PreviewCopy.attachment;
     default:
       return fallback ?? "";
   }

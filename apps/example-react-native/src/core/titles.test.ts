@@ -22,7 +22,7 @@ const dm = {
   peerHandle: "nick#1234",
 };
 
-test("conversation titles follow the iOS rules (ListRulesTests)", () => {
+test("a conversation's title is its alias, group name, handle or short inbox ID", () => {
   assert.equal(conversationTitle(dm), "@nick#1234");
   assert.equal(conversationTitle(dm, "Local name"), "Local name");
   assert.equal(conversationTitle(dm, "   "), "@nick#1234");

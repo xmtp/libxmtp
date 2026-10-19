@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { SessionScope } from "./sessionScope.ts";
 
-test("completed tasks are not retained (completedTasksAreNotRetained)", async () => {
+test("completed tasks are not retained", async () => {
   const scope = new SessionScope();
   await scope.add(() => Promise.resolve());
   assert.equal(scope.taskCount, 0);

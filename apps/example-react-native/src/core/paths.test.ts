@@ -26,16 +26,22 @@ test("file:// URIs become native paths and back", () => {
   assert.equal(uriToPath(pathToUri(path)), path);
 });
 
-test("profile paths mirror the iOS layout", () => {
-  const paths = profilePaths("/Support/messenger/", "6F1C");
+test("the saved profile layout stays readable by later builds", () => {
+  const paths = profilePaths("/S/messenger", "6F1C");
+  // Installed apps hold files at these paths; a change needs a migration.
   assert.deepEqual(paths, {
-    root: "/Support/messenger/profiles/6F1C",
-    database: "/Support/messenger/profiles/6F1C/sdk/messages.db3",
-    attachments: "/Support/messenger/profiles/6F1C/sdk/attachments",
-    temp: "/Support/messenger/profiles/6F1C/temp",
-    preferences: "/Support/messenger/profiles/6F1C/prefs",
-    exports: "/Support/messenger/profiles/6F1C/exports",
+    root: "/S/messenger/profiles/6F1C",
+    database: "/S/messenger/profiles/6F1C/sdk/messages.db3",
+    attachments: "/S/messenger/profiles/6F1C/sdk/attachments",
+    temp: "/S/messenger/profiles/6F1C/temp",
+    preferences: "/S/messenger/profiles/6F1C/prefs",
+    exports: "/S/messenger/profiles/6F1C/exports",
   });
+  // Delete local data removes the root, so every path must be inside it.
+  const others = Object.entries(paths).filter(([name]) => name !== "root");
+  for (const [name, path] of others)
+    assert.ok(isInside(path, paths.root), name);
+  assert.equal(new Set(others.map(([, path]) => path)).size, others.length);
   assert.deepEqual(databaseFiles(paths.database), [
     paths.database,
     `${paths.database}-wal`,

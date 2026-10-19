@@ -63,7 +63,7 @@ const base: ConnectState = {
   requiresToken: false,
 };
 
-test("Join needs a valid address, no running work and a token when required (requiredBlankTokenCannotJoin)", () => {
+test("Join needs a valid address, no running work and a token when required", () => {
   assert.equal(canJoin(base), true);
   assert.equal(
     canJoin({ ...base, error: SessionCopy.unreachable }),
@@ -144,7 +144,7 @@ test("Join probes first and joins only when no token is required", async () => {
   }
 });
 
-test("a successful join clears the token from UI state (successfulJoinClearsUIBearerToken)", async () => {
+test("a successful join clears the token from UI state", async () => {
   const h = harness();
   h.answers = [true];
   h.model.appear();
@@ -169,7 +169,7 @@ test("a join failure shows its message", async () => {
   assert.equal(h.model.getState().joining, false);
 });
 
-test("a changed server clears the superseded join and drops its late result (changedServerClearsSupersededJoiningState)", async () => {
+test("a changed server clears the superseded join and drops its late result", async () => {
   const h = harness("http://localhost:5050");
   h.model.appear();
   await settle();
@@ -219,7 +219,7 @@ test("an invalid address does not probe", async () => {
   assert.equal(h.model.getState().checking, false);
 });
 
-test("Connect appearing again keeps the address and server name and clears the token (one ConnectStore per app)", async () => {
+test("Connect appearing again keeps the address and server name and clears the token", async () => {
   const h = harness();
   h.answers = [true, true];
   h.model.appear();

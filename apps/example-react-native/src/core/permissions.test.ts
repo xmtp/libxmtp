@@ -18,7 +18,7 @@ import {
   policyRows,
 } from "./permissions.ts";
 
-test("Admins only makes nine writes in order (nineWritesInOrder)", () => {
+test("Admins only makes nine writes in order", () => {
   assert.deepEqual(permissionPresetWrites(true), [
     { kind: "addMember", policy: "admin" },
     { kind: "removeMember", policy: "admin" },
@@ -79,7 +79,7 @@ function details(
   return { kind: "group", members: [own(role), ...targets], policies };
 }
 
-test("action policies are independent (MemberPermissionTests.actionPoliciesAreIndependent)", () => {
+test("action policies are independent", () => {
   for (const role of ["member", "admin", "superAdmin"] as const) {
     const member: GroupMember = { id: "target", role: "member" };
     const admin: GroupMember = { id: "admin", role: "admin" };
@@ -107,7 +107,7 @@ test("action policies are independent (MemberPermissionTests.actionPoliciesAreIn
   }
 });
 
-test("known policies respect the actor's role (knownPoliciesRespectActorRole)", () => {
+test("known policies respect the actor's role", () => {
   const policies: readonly GroupPolicy[] = [
     "allow",
     "admin",

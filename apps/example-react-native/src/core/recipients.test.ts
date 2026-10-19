@@ -20,7 +20,7 @@ const problem = (input: string): string => {
   assert.fail(`${input} parsed`);
 };
 
-test("parses handles, addresses and inbox IDs (HandleRulesTests.recipientParsing)", () => {
+test("parses handles, addresses and inbox IDs", () => {
   assert.equal(problem(" "), "empty");
   assert.equal(problem("0xabc"), "invalidAddress");
   assert.equal(problem("z".repeat(64)), "invalidInbox");
@@ -57,7 +57,7 @@ test("invalid handles and addresses", () => {
   );
 });
 
-test("not-found copy depends on the kind (recipientLookupFailures)", () => {
+test("not-found copy depends on the kind", () => {
   assert.equal(
     recipientNotFound(parseRecipient("a")).message,
     "No XMTP account has this handle.",

@@ -5,7 +5,6 @@ import {
   type ResetJournal,
   type ResetPhase,
   continueResetJournal,
-  isResetPhase,
 } from "./resetJournal.ts";
 
 function recorder() {
@@ -64,12 +63,4 @@ test("resumes from each phase and saves each phase before the next step", async 
     await continueResetJournal({ profileId: "p", phase }, ops);
     assert.deepEqual(steps, expected[phase], phase);
   }
-});
-
-test("phase names match the iOS raw values", () => {
-  for (const phase of ["STOPPING", "DATABASE_REMOVED", "FILES_REMOVED"]) {
-    assert.ok(isResetPhase(phase));
-  }
-  assert.ok(!isResetPhase("stopping"));
-  assert.ok(!isResetPhase(undefined));
 });

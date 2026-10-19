@@ -54,7 +54,7 @@ function harness(): Harness {
   };
 }
 
-test("accept allows the conversation at once and opens its chat (acceptingRequestKeepsChatsAsNavigationRoot)", async () => {
+test("accept allows the conversation at once and opens its chat", async () => {
   const h = harness();
   h.store.accept("c1");
   assert.ok(h.store.getState().busy);
@@ -88,7 +88,7 @@ test("delete is local only: it dismisses the request and returns to Chats", () =
   assert.deepEqual(h.outcomes, [{ kind: "chats" }]);
 });
 
-test("a failed consent write shows the error; the next request clears it (consentRetryClearsPreviousDecisionError)", async () => {
+test("a failed consent write shows the error; the next request clears it", async () => {
   const h = harness();
   h.store.accept("c1");
   await h.settle(new Error("network"));
@@ -99,7 +99,7 @@ test("a failed consent write shows the error; the next request clears it (consen
   assert.equal(h.store.getState().error, undefined);
 });
 
-test("a failed dismissal shows the delete error; a retry clears it (deleteRetryClearsPreviousDecisionError)", () => {
+test("a failed dismissal shows the delete error; a retry clears it", () => {
   const h = harness();
   h.flags.failDismiss = true;
   h.store.requestDelete("c3");

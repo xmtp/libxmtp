@@ -35,7 +35,7 @@ class MemoryStorage implements SendJournalStorage {
   }
 }
 
-/** ChatQueryFake: queued messages publish on `publish`. */
+/** Queued messages publish on `publish`. */
 class FakeQueries implements SendQueries {
   queues = 0;
   publications = 0;

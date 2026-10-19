@@ -46,7 +46,7 @@ test("one device action runs at a time", async () => {
   assert.equal(model.getState().error, undefined);
 });
 
-test("failures show the iOS copy for each action", async () => {
+test("each failed device action shows its error", async () => {
   const failing = () => Promise.reject(new Error("disk"));
   const model = new SettingsModel(
     ports({
@@ -55,8 +55,12 @@ test("failures show the iOS copy for each action", async () => {
       continueReset: failing,
     }),
   );
+  // Each failure replaces the error the one before it showed.
   await model.signOut();
-  assert.equal(model.getState().error, "Cannot sign out. Try again.");
+  assert.equal(model.getState().error, SessionCopy.signOutFailed);
+  await model.continueReset();
+  assert.equal(model.getState().error, SessionCopy.resetIncomplete);
+  await model.signOut();
   await model.deleteLocalData();
   assert.equal(model.getState().error, SessionCopy.resetIncomplete);
   assert.equal(model.getState().busy, false);

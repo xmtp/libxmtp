@@ -145,7 +145,7 @@ test("tooSoon and the handle limit clear and lock the editor", async () => {
   }
 });
 
-test("editing while the first read runs stays usable (editingDuringInitialHandleLoadRemainsUsable)", async () => {
+test("editing while the first read runs stays usable", async () => {
   const account = new FakeAccount();
   let complete = () => {};
   account.handles = () =>
@@ -220,7 +220,7 @@ test("a claim that finishes after the screen closed records its time only while 
   }
 });
 
-test("a choose claim finishes without saving Skip (successfulChooseClaimBypassesFailingSkipPreference)", async () => {
+test("a choose claim finishes without saving Skip", async () => {
   const account = new FakeAccount();
   const {
     model: store,
@@ -242,7 +242,7 @@ test("a choose claim finishes without saving Skip (successfulChooseClaimBypasses
   assert.equal(store.getState().confirm, undefined, "choose mode never asks");
 });
 
-test("an existing handle finishes Choose handle on load (existingHandleFinishesWithoutSavingSkip)", async () => {
+test("an existing handle finishes Choose handle on load", async () => {
   const account = new FakeAccount();
   account.current = "alreadyclaimed";
   const { model: store, finished, skipWrites } = model(account);
@@ -256,7 +256,7 @@ test("an existing handle finishes Choose handle on load (existingHandleFinishesW
   assert.equal(change.model.getState().current, "alreadyclaimed");
 });
 
-test("a failed skip retries the preference without claiming (explicitSkipFailureRetriesPreferenceWithoutClaiming)", () => {
+test("a failed skip retries the preference without claiming", () => {
   const account = new FakeAccount();
   let fail = true;
   const {
@@ -278,7 +278,7 @@ test("a failed skip retries the preference without claiming (explicitSkipFailure
   assert.equal(account.claims.length, 0);
 });
 
-test("a stale skip neither saves nor finishes (staleSkipDoesNotSaveOrNavigate)", () => {
+test("a stale skip neither saves nor finishes", () => {
   for (const closeRoute of [false, true]) {
     const account = new FakeAccount();
     const {
