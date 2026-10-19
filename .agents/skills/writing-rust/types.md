@@ -93,12 +93,18 @@ secret. Every heap copy libxmtp owns is wiped before it is freed. Import from
 - Dependency key types that already wipe on drop stay as they are:
   `ed25519_dalek::SigningKey`, `k256::ecdsa::SigningKey`, alloy
   `PrivateKeySigner`, OpenMLS `SignatureKeyPair` and `HpkePrivateKey`.
-- A struct that holds a secret gets a hand-written `Debug` that omits it.
-  OpenMLS `HpkePrivateKey`, `HpkeKeyPair` and `KeyPackageBundle` print their
+- A struct that holds bare secret bytes (`Vec<u8>`, `[u8; N]`, `String`,
+  `Zeroizing<T>`) or an OpenMLS HPKE key gets a hand-written `Debug` that
+  omits it. A struct whose secret fields all redact in `Debug` may derive it:
+  `Secret`, `StoredSecret`, `XmtpInstallationCredential`, the ed25519, k256
+  and alloy signing keys, and OpenMLS `SignatureKeyPair`. `StoredIdentity` and
+  `Identity` derive `Debug` this way.
+- OpenMLS `HpkePrivateKey`, `HpkeKeyPair` and `KeyPackageBundle` print their
   keys in `Debug`; never format them.
 - `.clippy.toml` bans `to_bytes()` on signing keys. Borrow with `as_bytes()` or
   move the key. An `#[allow(clippy::disallowed_methods)]` carries a
-  `// zeroize:` comment naming the `Zeroizing` binding that holds the result.
+  `// zeroize:` comment naming the `Zeroizing` binding that holds the result,
+  or saying why none exists.
 
 ```rust
 use xmtp_cryptography::secret::{Secret, Zeroizing};

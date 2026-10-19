@@ -90,7 +90,7 @@ Never copy a function between crates; move it and import it. Read the package's
 | `println!` in a library crate | `tracing`; `println!` only in `apps/*` binaries |
 | `.ok()` that hides an error | `optify!(result, "why")` |
 | Secret bytes in a bare `Vec<u8>`, `[u8; N]` or `String` | `Secret`, or `Zeroizing<T>` for a transient buffer. See [types.md](types.md#secrets) |
-| `#[derive(Debug)]` on a type that holds a secret | a hand-written `Debug` that shows only the length |
+| `#[derive(Debug)]` on a type with a secret field whose `Debug` prints it (bare bytes, `Zeroizing<T>`, an OpenMLS HPKE key) | a hand-written `Debug` that shows only the length, or a redacting field type (`Secret`, `StoredSecret`) |
 | Formatting `HpkePrivateKey`, `HpkeKeyPair`, `KeyPackageBundle`, `SecretVLBytes` or `Zeroizing<T>` (`{:?}`, `?field`) | log a public value or a length; these `Debug` impls print the key |
 | `SigningKey::to_bytes()` and other key-copying accessors | borrow (`as_bytes()`) or move (`from_signing_key`); clippy bans them |
 
