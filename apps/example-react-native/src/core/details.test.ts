@@ -387,7 +387,7 @@ test("a slow older lookup cannot replace a newer result or set an error", async 
   await settle();
   await settle();
   assert.equal(store.getState().recipient?.id, "newest");
-  assert.equal(store.getState().error, undefined);
+  assert.equal(store.getState().recipientError, undefined);
 });
 
 test("a recipient preview failure shows its copy", async () => {
@@ -395,14 +395,32 @@ test("a recipient preview failure shows its copy", async () => {
   fake.recipientError = new RecipientError("handleNotFound");
   const store = makeStore(fake);
   store.resolvePreview("nobody");
-  await eventually(() => store.getState().error !== undefined);
-  assert.equal(store.getState().error, RecipientCopy.handleNotFound);
+  await eventually(() => store.getState().recipientError !== undefined);
+  assert.equal(store.getState().recipientError, RecipientCopy.handleNotFound);
   fake.recipientError = new Error("offline");
   store.resolvePreview("somebody");
   // A new input clears the old error at once.
+  assert.equal(store.getState().recipientError, undefined);
+  await eventually(() => store.getState().recipientError !== undefined);
+  assert.equal(store.getState().recipientError, DetailsCopy.recipientNotFound);
+});
+
+test("a failed lookup typed during an add leaves no error when the add succeeds", async () => {
+  const fake = new FakeQueries();
+  const adding = new Gate();
+  fake.resolveGates.set("@sam", adding);
+  fake.failingInputs.add("nobody");
+  const store = makeStore(fake);
+  store.send({ kind: "mutate", mutation: { kind: "add", input: "@sam" } });
+  await eventually(() => adding.waiters.length === 1);
+  store.resolvePreview("nobody");
+  await eventually(() => fake.lookups.includes("nobody"));
+  adding.releaseAll();
+  await finish(store);
+  assert.equal(store.getState().pendingMembers.has("@sam"), true);
+  // Add member closes on a finished Add without an error.
   assert.equal(store.getState().error, undefined);
-  await eventually(() => store.getState().error !== undefined);
-  assert.equal(store.getState().error, DetailsCopy.recipientNotFound);
+  assert.equal(store.getState().recipientError, RecipientCopy.handleNotFound);
 });
 
 test("losing admission while an add resolves writes nothing", async () => {

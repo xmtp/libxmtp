@@ -71,7 +71,13 @@ export interface DetailsState {
   readonly details?: ConversationDetails;
   /** The Add member preview. */
   readonly recipient?: DetailsMember;
+  /**
+   * Why the Add member preview found no one. Apart from `error`, so a lookup
+   * typed during an action never reads as that action's failure.
+   */
+  readonly recipientError?: string;
   readonly busy: boolean;
+  /** Why the last action failed. */
   readonly error?: string;
   readonly pendingMembers: ReadonlyMap<string, DetailsMember>;
   readonly pendingRoles: ReadonlyMap<string, GroupRole>;
@@ -200,13 +206,18 @@ export class DetailsStore extends Store<DetailsState> {
 
   /**
    * Looks up the Add member input after 300 ms. A newer input or an empty
-   * one drops the attempt.
+   * one drops the attempt. Typing also clears the last action's error.
    */
   resolvePreview(input: string): void {
     this.#lookup += 1;
     const attempt = this.#lookup;
     this.#apply((state) => {
-      const { recipient: _recipient, error: _error, ...rest } = state;
+      const {
+        recipient: _recipient,
+        recipientError: _recipientError,
+        error: _error,
+        ...rest
+      } = state;
       return rest;
     });
     if (input.trim() === "") return;
@@ -221,7 +232,7 @@ export class DetailsStore extends Store<DetailsState> {
         if (attempt !== this.#lookup) return;
         this.#apply((state) => ({
           ...state,
-          error:
+          recipientError:
             error instanceof RecipientError
               ? error.message
               : DetailsCopy.recipientNotFound,
