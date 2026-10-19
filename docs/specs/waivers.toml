@@ -396,6 +396,12 @@ owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Installed-package proof pending for the attachments, application_components, and handles fields, which the generated SDK exposes on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 [[waiver]]
+id = "CONF-062"
+kind = "untested"
+owner = "attachments"
+reason = "fetch_server_configuration in xmtp_sdk reads a deployment's configuration, with its attachments field, from a backend source alone through xmtp_mls, which applies CONF-071. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+
+[[waiver]]
 id = "ATCH-039"
 kind = "gap"
 owner = "attachments"
