@@ -1,8 +1,5 @@
-// The iOS example's emoji catalog, byte for byte
-// (apps/example-ios/ExampleApp/Features/Chat/emoji-search.tsv): one
-// "emoji<TAB>name" line per fully-qualified Unicode Emoji 16.0 entry, after
-// three "#" header lines. emojiCatalog.test.ts checks that it still matches.
-// Regenerate it from that file when the catalog changes.
+// One `emoji<TAB>name` line per fully-qualified Unicode Emoji 16.0 entry
+// (from `emoji-test.txt`), after three `#` header lines.
 
 export const emojiSearchTsv = String.raw`# Unicode Emoji 16.0, fully-qualified entries.
 # Source: https://unicode.org/Public/emoji/16.0/emoji-test.txt

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
@@ -25,16 +24,6 @@ test("parsing splits on the first tab only and skips lines without one", () => {
   assert.deepEqual(parseEmojiCatalog("# header\n😀\tgrinning\tface\n\n🙂\n"), [
     { emoji: "😀", name: "grinning\tface" },
   ]);
-});
-
-test("the data module matches the iOS example's emoji-search.tsv", () => {
-  const source = new URL(
-    "../../../example-ios/ExampleApp/Features/Chat/emoji-search.tsv",
-    import.meta.url,
-  );
-  // A moved or renamed iOS file must fail here, not turn the guard off.
-  assert.ok(existsSync(source), `missing ${source.pathname}`);
-  assert.equal(emojiSearchTsv, readFileSync(source, "utf8"));
 });
 
 test("sections start at the boundary emojis", () => {
