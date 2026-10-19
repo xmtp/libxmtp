@@ -6,14 +6,19 @@
 //! `Vec<u8>` or `String` key would be freed unwiped. These types wrap the
 //! lifted value in [`Zeroizing`] inside the lift, before the future exists.
 //!
-//! Each type forwards to the `Lift` and type metadata of its builtin, so the
-//! bindings see the same `bytes` or `string` parameter as before: there is no
-//! custom type and no new foreign name. The `RustBuffer` that UniFFI reads a
-//! byte sequence from is freed inside the lift; that copy is out of scope here.
+//! Each type reports the type metadata of its builtin and reads the same wire
+//! format, so the bindings see the same `bytes` or `string` parameter as
+//! before: there is no custom type and no new foreign name.
+//!
+//! The lift also wipes the host's `RustBuffer`. UniFFI lifts a `String` by
+//! reusing that buffer, so the `Zeroizing<String>` wipes it. It lifts a
+//! `Vec<u8>` by copying out of the buffer and then freeing it, so
+//! [`SecretBytes`] takes the buffer itself, reads the copy, and wipes the
+//! buffer before it is freed.
 
 use std::{fmt, ops::Deref};
 
-use uniffi::{Lift, MetadataBuffer, TypeId};
+use uniffi::{Lift, MetadataBuffer, RustBuffer, TypeId};
 use xmtp_cryptography::secret::Zeroizing;
 
 macro_rules! secret_input {
@@ -41,21 +46,6 @@ macro_rules! secret_input {
             }
         }
 
-        // SAFETY: every operation forwards to the builtin's `Lift`, with the
-        // same FFI type, and `TypeId` below reports the builtin's metadata, so
-        // the bindings pass the argument exactly as the builtin.
-        unsafe impl<UT> Lift<UT> for $name {
-            type FfiType = <$builtin as Lift<UT>>::FfiType;
-
-            fn try_lift(value: Self::FfiType) -> uniffi::Result<Self> {
-                <$builtin as Lift<UT>>::try_lift(value).map(Self::from)
-            }
-
-            fn try_read(buf: &mut &[u8]) -> uniffi::Result<Self> {
-                <$builtin as Lift<UT>>::try_read(buf).map(Self::from)
-            }
-        }
-
         impl<UT> TypeId<UT> for $name {
             const TYPE_ID_META: MetadataBuffer = <$builtin as TypeId<UT>>::TYPE_ID_META;
         }
@@ -71,6 +61,47 @@ secret_input!(
     /// Secret text passed in from a host, as a `string` parameter. Wiped on drop.
     SecretString(String) derefs to str
 );
+
+// SAFETY: same FFI type and wire format as `Vec<u8>`, and `TypeId` reports the
+// builtin's metadata, so the bindings pass the argument exactly as `Vec<u8>`.
+unsafe impl<UT> Lift<UT> for SecretBytes {
+    type FfiType = RustBuffer;
+
+    /// Owns the host's buffer while it reads the bytes, then wipes it. The
+    /// builtin lift would free that buffer, which holds the secret, unwiped.
+    fn try_lift(value: RustBuffer) -> uniffi::Result<Self> {
+        let source = Zeroizing::new(value.destroy_into_vec());
+        let mut buf = source.as_slice();
+        let lifted = <Self as Lift<UT>>::try_read(&mut buf)?;
+        if !buf.is_empty() {
+            uniffi::deps::anyhow::bail!(
+                "junk data left in buffer after lifting (count: {})",
+                buf.len()
+            );
+        }
+        Ok(lifted)
+    }
+
+    /// The builtin reads into a `Vec` sized to the length prefix, so it never
+    /// reallocates; the result is wrapped at once.
+    fn try_read(buf: &mut &[u8]) -> uniffi::Result<Self> {
+        <Vec<u8> as Lift<UT>>::try_read(buf).map(Self::from)
+    }
+}
+
+// SAFETY: forwards to `String`'s `Lift`, with the same FFI type. That lift
+// reuses the host's buffer as the `String`, which `Zeroizing` then wipes.
+unsafe impl<UT> Lift<UT> for SecretString {
+    type FfiType = <String as Lift<UT>>::FfiType;
+
+    fn try_lift(value: Self::FfiType) -> uniffi::Result<Self> {
+        <String as Lift<UT>>::try_lift(value).map(Self::from)
+    }
+
+    fn try_read(buf: &mut &[u8]) -> uniffi::Result<Self> {
+        <String as Lift<UT>>::try_read(buf).map(Self::from)
+    }
+}
 
 #[cfg(test)]
 mod tests {

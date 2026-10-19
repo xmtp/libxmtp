@@ -11,15 +11,17 @@
 //! - Build the secret and its canary before arming. A copy freed before the
 //!   scan is not seen, and the canary itself lives on the stack.
 //! - Frees on every thread count while armed, so tokio workers are covered.
-//! - Every block is zero-filled at allocation, so every byte the scanner reads
-//!   was initialized. `System.alloc` may return uninitialized bytes, and reading
-//!   one through a `&[u8]` is undefined behavior. One gap remains: the
-//!   abstract machine treats struct padding written by a typed copy as
-//!   uninitialized again. This test-only allocator accepts that gap.
-//! - `realloc` keeps the default `alloc` + copy + `dealloc`. The new block is
-//!   zero-filled like any other, and a block that grows while it holds the
-//!   secret is scanned when the old block is freed. Never forward `realloc` to
-//!   `System.realloc`: the grown tail would be uninitialized.
+//! - A freed block can hold uninitialized bytes: fresh allocations, spare
+//!   `Vec` capacity, and struct padding after a typed copy. Reading those
+//!   through a Rust `&[u8]` is undefined behavior, so the scanner never forms a
+//!   Rust reference to a freed block. It searches the block through
+//!   `libc::memmem` on raw pointers; C reads every byte as `unsigned char`,
+//!   which has no invalid values. Only the canary forms, which live in a static,
+//!   are read as Rust slices.
+//! - `realloc` keeps the default `alloc` + copy + `dealloc`, so a block that
+//!   grows while it holds the secret is scanned when the old block is freed.
+//!   Never forward `realloc` to `System.realloc`: the old block would be freed
+//!   without a scan.
 //! - Stack and register copies are invisible to a heap scan.
 //! - Arming takes a process-wide lock, so concurrent scans in one process
 //!   run one after another.
@@ -163,16 +165,11 @@ static HITS: [AtomicUsize; MAX_CANARIES] = [const { AtomicUsize::new(0) }; MAX_C
 /// [`install_heap_canary!`](crate::install_heap_canary).
 pub struct Scanner;
 
-// SAFETY: every allocation is delegated to `System`, zero-filled; `dealloc`
-// only reads the block before handing it back.
+// SAFETY: every allocation is delegated to `System`; `dealloc` only reads the
+// block, through `libc::memmem`, before handing it back.
 unsafe impl GlobalAlloc for Scanner {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // Zero-filled, so the scan in `dealloc` reads only initialized bytes.
-        unsafe { System.alloc_zeroed(layout) }
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        unsafe { System.alloc_zeroed(layout) }
+        unsafe { System.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
@@ -182,11 +179,8 @@ unsafe impl GlobalAlloc for Scanner {
             let armed = unsafe { &*FORMS.0.get() };
             if layout.size() >= armed.min_len {
                 // SAFETY: the block is still allocated and `layout.size()`
-                // bytes long. `alloc`, `alloc_zeroed` and the default
-                // `realloc` zero-fill every block, so every byte was
-                // initialized (see the module notes for padding).
-                let block = unsafe { std::slice::from_raw_parts(pointer, layout.size()) };
-                scan_block(armed, block);
+                // bytes long; `scan_block` reads it only through `memmem`.
+                unsafe { scan_block(armed, pointer, layout.size()) };
             }
         }
         IN_FLIGHT.fetch_sub(1, SeqCst);
@@ -194,8 +188,13 @@ unsafe impl GlobalAlloc for Scanner {
     }
 }
 
-/// Count one hit for each canary that has a form in `block`. Allocates nothing.
-fn scan_block(armed: &ArmedFormsInner, block: &[u8]) {
+/// Count one hit for each canary that has a form in the block at `pointer`.
+/// Allocates nothing.
+///
+/// # Safety
+/// `pointer` must be valid for reads of `len` bytes. The bytes may be
+/// uninitialized: they are only read by `libc::memmem`.
+unsafe fn scan_block(armed: &ArmedFormsInner, pointer: *const u8, len: usize) {
     let mut found = [false; MAX_CANARIES];
     for i in 0..armed.count {
         let owner = armed.owners[i];
@@ -203,18 +202,32 @@ fn scan_block(armed: &ArmedFormsInner, block: &[u8]) {
             continue;
         }
         let form = armed.forms[i].as_slice();
-        if form.len() <= block.len() && contains(block, form) {
+        // SAFETY: the caller guarantees `pointer` is readable for `len` bytes.
+        if form.len() <= len && unsafe { contains(pointer, len, form) } {
             found[owner] = true;
             HITS[owner].fetch_add(1, SeqCst);
         }
     }
 }
 
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    let first = needle[0];
-    haystack
-        .windows(needle.len())
-        .any(|window| window[0] == first && window == needle)
+/// Whether `needle` occurs in the `len` bytes at `haystack`. The haystack is
+/// passed to C as a raw pointer, so no Rust reference to possibly
+/// uninitialized bytes is formed.
+///
+/// # Safety
+/// `haystack` must be valid for reads of `len` bytes.
+unsafe fn contains(haystack: *const u8, len: usize, needle: &[u8]) -> bool {
+    // SAFETY: `haystack` is readable for `len` bytes (caller) and `needle` is a
+    // live slice; `memmem` only reads both.
+    let found = unsafe {
+        libc::memmem(
+            haystack.cast::<libc::c_void>(),
+            len,
+            needle.as_ptr().cast::<libc::c_void>(),
+            needle.len(),
+        )
+    };
+    !found.is_null()
 }
 
 /// Holds [`SCAN_LOCK`] while a scan is armed. Dropping it disarms, even when

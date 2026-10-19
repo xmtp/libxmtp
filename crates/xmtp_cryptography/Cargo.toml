@@ -38,6 +38,8 @@ zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ctor.workspace = true
+# The heap-canary scanner (`test-utils`) searches freed blocks with `memmem`.
+libc = { workspace = true, optional = true }
 rustls.workspace = true
 
 # All wasm specific dependencies should go here as a single place to enable wasm features since all crates depend on this crate
@@ -54,7 +56,7 @@ futures-timer = { workspace = true, features = ["wasm-bindgen"] }
 [features]
 # Expose private keys in addition to public
 exposed-keys = []
-test-utils = ["openmls/test-utils"]
+test-utils = ["openmls/test-utils", "dep:libc"]
 
 [dev-dependencies]
 bincode.workspace = true

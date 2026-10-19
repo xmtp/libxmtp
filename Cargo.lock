@@ -12835,6 +12835,7 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
  "getrandom 0.4.3",
+ "libc",
  "libcrux-ed25519",
  "openmls",
  "openmls_basic_credential",

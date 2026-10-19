@@ -78,9 +78,8 @@ where
 }
 
 /// A host can cancel an import before its first poll; UniFFI then drops the
-/// future unpolled. The key argument that the future owns is wiped. UniFFI's
-/// own buffer, freed inside the lift, is outside this proof, so the lift runs
-/// before the scan.
+/// future unpolled. The key argument that the future owns is wiped. The lift
+/// runs before the scan here; `lift_wipes_the_host_buffer` covers it.
 #[xmtp_common::test(unwrap_try = true)]
 fn cancelled_import_wipes_its_argument() {
     let canary = Canary::secp256k1(&KEY);
@@ -96,6 +95,28 @@ fn cancelled_import_wipes_its_argument() {
     let future = LocalSigningKey::from_hex(lift(format!("0x{}", hex::encode(KEY))));
     let ((), hits) = scan(&[canary], || drop(future));
     assert_eq!(hits, [0], "LocalSigningKey::from_hex");
+}
+
+/// The host passes a key in a `RustBuffer`, which the lift frees. Lowering
+/// runs before the scan, as the host does; the lift and the drop of the lifted
+/// argument run inside it. A lift that copies out of the buffer and frees it
+/// unwiped, as the builtin `Vec<u8>` lift does, leaves the key behind.
+#[xmtp_common::test(unwrap_try = true)]
+fn lift_wipes_the_host_buffer() {
+    use xmtp_sdk::{SecretBytes, SecretString};
+    let canary = Canary::secp256k1(&KEY);
+
+    let buffer = <Vec<u8> as Lower<UniFfiTag>>::lower(KEY.to_vec());
+    let ((), hits) = scan(&[canary], || {
+        drop(<SecretBytes as Lift<UniFfiTag>>::try_lift(buffer).unwrap())
+    });
+    assert_eq!(hits, [0], "SecretBytes lift");
+
+    let buffer = <String as Lower<UniFfiTag>>::lower(format!("0x{}", hex::encode(KEY)));
+    let ((), hits) = scan(&[canary], || {
+        drop(<SecretString as Lift<UniFfiTag>>::try_lift(buffer).unwrap())
+    });
+    assert_eq!(hits, [0], "SecretString lift");
 }
 
 /// An invalid scalar is wiped on the error path too.
