@@ -145,17 +145,20 @@ async fn export_makes_only_the_returned_copy() {
         let bytes = <SecretBytes as LowerReturn<UniFfiTag>>::lower_return(key.to_bytes())
             .ok()
             .unwrap();
-        (ManuallyDrop::new(bytes), ManuallyDrop::new(key.to_hex()))
+        // UniFFI lowers a `String` by handing over its own allocation, so the
+        // lowered hex is the export and no copy is freed.
+        let hex = <String as LowerReturn<UniFfiTag>>::lower_return(key.to_hex())
+            .ok()
+            .unwrap();
+        (ManuallyDrop::new(bytes), ManuallyDrop::new(hex))
     })
     .await;
     assert_eq!(hits, [0]);
     let lowered = ManuallyDrop::into_inner(bytes).destroy_into_vec();
     assert_eq!(lowered[..4], 32_i32.to_be_bytes());
     assert_eq!(lowered[4..], KEY);
-    assert_eq!(
-        ManuallyDrop::into_inner(hex),
-        format!("0x{}", hex::encode(KEY))
-    );
+    let lowered_hex = ManuallyDrop::into_inner(hex).destroy_into_vec();
+    assert_eq!(lowered_hex, format!("0x{}", hex::encode(KEY)).into_bytes());
 }
 
 /// A malformed host buffer fails without leaving a partial copy of the key:
