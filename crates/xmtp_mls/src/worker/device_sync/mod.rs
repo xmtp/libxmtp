@@ -61,12 +61,8 @@ fn sync_message_bytes(content: ContentProto) -> Zeroizing<Vec<u8>> {
     };
     // `encode_to_vec` sizes its buffer up front, so it never frees a partial copy.
     let inner = content.encode_to_vec();
-    if let Some(ContentProto::PreferenceUpdates(updates)) = &mut content.content {
-        for update in &mut updates.updates {
-            if let Some(PreferenceUpdateProto::Hmac(hmac)) = &mut update.update {
-                hmac.key.zeroize();
-            }
-        }
+    if let Some(content) = &mut content.content {
+        wipe_hmac_keys(content);
     }
     let mut encoded = EncodedContent {
         r#type: Some(ContentTypeId {
@@ -83,6 +79,27 @@ fn sync_message_bytes(content: ContentProto) -> Zeroizing<Vec<u8>> {
     let bytes = Zeroizing::new(encoded.encode_to_vec());
     encoded.content.zeroize();
     bytes
+}
+
+/// Wipe the HMAC root key of every preference update in `content`.
+fn wipe_hmac_keys(content: &mut ContentProto) {
+    if let ContentProto::PreferenceUpdates(updates) = content {
+        for update in &mut updates.updates {
+            if let Some(PreferenceUpdateProto::Hmac(hmac)) = &mut update.update {
+                hmac.key.zeroize();
+            }
+        }
+    }
+}
+
+/// Sync content decoded from a received message. Its HMAC root keys are wiped
+/// on drop, on every path out of processing.
+pub(super) struct ReceivedContent(pub(super) ContentProto);
+
+impl Drop for ReceivedContent {
+    fn drop(&mut self) {
+        wipe_hmac_keys(&mut self.0);
+    }
 }
 
 /// A sync group belongs to the own inbox only when that inbox added this
@@ -299,6 +316,9 @@ where
         &self,
         content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
+        // Encode first: the content can hold an HMAC root key, and only the
+        // encoding wipes it, so every later return drops wiped bytes.
+        let content_bytes = sync_message_bytes(content);
         let sync_group = self.get_sync_group().await?;
 
         let msg = format!(
@@ -306,8 +326,6 @@ where
             xmtp_common::fmt::debug_hex(sync_group.group_id)
         );
         tracing::info!("{}", msg.yellow());
-
-        let content_bytes = sync_message_bytes(content);
 
         let message_id = sync_group.prepare_message(
             &content_bytes,
@@ -448,6 +466,12 @@ where
 /// Old archive transfer fields decode as an unset oneof after their field
 /// numbers became reserved. Ignore them so older installations do not make
 /// the sync worker fail or retry the message.
-fn decode_supported_content(bytes: &[u8]) -> Option<ContentProto> {
-    DeviceSyncContentProto::decode(bytes).ok()?.content
+///
+/// `bytes` can hold an HMAC root key: the caller wipes them, and the content
+/// wipes its keys on drop.
+fn decode_supported_content(bytes: &[u8]) -> Option<ReceivedContent> {
+    DeviceSyncContentProto::decode(bytes)
+        .ok()?
+        .content
+        .map(ReceivedContent)
 }

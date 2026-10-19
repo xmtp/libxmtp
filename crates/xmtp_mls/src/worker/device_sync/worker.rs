@@ -1,5 +1,5 @@
 use super::{
-    DeviceSyncClient, DeviceSyncError, decode_supported_content,
+    DeviceSyncClient, DeviceSyncError, ReceivedContent, decode_supported_content,
     preference_sync::{PreferenceUpdate, store_preference_updates},
 };
 use crate::{
@@ -26,6 +26,7 @@ use std::{
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use xmtp_common::Event;
+use xmtp_cryptography::secret::Zeroizing;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
 use xmtp_events::{ClientEvent, Subscription};
@@ -603,9 +604,11 @@ where
                     .mark_device_sync_msg_as_processed(&msg.id)?;
                 continue;
             }
+            // The inner encoding can hold an HMAC root key; it is wiped once
+            // decoded.
             let content = EncodedContent::decode(&*msg.decrypted_message_bytes)
                 .ok()
-                .and_then(|content| decode_supported_content(&content.content));
+                .and_then(|encoded| decode_supported_content(&Zeroizing::new(encoded.content)));
             let Some(content) = content else {
                 // Older installations can send archive transfer content. Its
                 // reserved oneof fields decode as unsupported content here.
@@ -617,7 +620,7 @@ where
             };
             let is_external = msg.sender_installation_id != installation_id;
 
-            let msg_type = match &content {
+            let msg_type = match &content.0 {
                 ContentProto::PreferenceUpdates(_) => "PreferenceUpdates",
                 ContentProto::Acknowledge(_) => "Acknowledge",
             };
@@ -660,7 +663,7 @@ where
         &self,
         handle: &WorkerMetrics<SyncMetric>,
         msg: &StoredGroupMessage,
-        content: ContentProto,
+        content: ReceivedContent,
     ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
@@ -668,13 +671,13 @@ where
         let installation_id = self.context.installation_id();
         let is_external = msg.sender_installation_id != installation_id;
 
-        match content {
+        match &content.0 {
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
                 #[cfg(test)]
                 let observed_updates =
                     test_hooks::captures_preferences(installation_id).then(|| updates.clone());
                 if is_external {
-                    log_incoming_preference_updates(&updates);
+                    log_incoming_preference_updates(updates);
                 }
                 // implements: PROC-036
                 tracing::info!(update_count = updates.len(), "storing preference updates");
@@ -685,7 +688,7 @@ where
                     |tx, events| {
                         let storage = tx.storage();
                         let db = storage.db();
-                        let updated = store_preference_updates(updates.clone(), &db, handle)?;
+                        let updated = store_preference_updates(updates, &db, handle)?;
                         crate::subscriptions::internal::emit_preference_updates_with_public(
                             events,
                             updated.public,

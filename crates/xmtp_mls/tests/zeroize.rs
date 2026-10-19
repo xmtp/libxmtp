@@ -199,8 +199,10 @@ async fn welcome_keys_are_wiped_when_joining() {
 /// message, and converting and storing a synced root key must not free an
 /// unwiped copy of a root key or a derived key.
 ///
-/// The synced-store branch of `store_preference_updates` is crate-private; its
-/// key is a `Secret`, proven by type. A generated root key cannot be a canary;
+/// The sync worker's receive path is crate-private. It decodes into
+/// `ReceivedContent`, which wipes the root keys on drop, and
+/// `store_preference_updates` borrows them; proven by type and review. A
+/// generated root key cannot be a canary;
 /// `HmacKey::random_key` returns `Secret`, proven by type.
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
 async fn hmac_keys_are_wiped_on_load_derive_send_and_sync() {
