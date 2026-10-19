@@ -271,7 +271,7 @@ test("upload failures follow the SDK retry rule, and a reload while the upload r
   assert.equal(h.gateway.uploads.length, 2);
 });
 
-test("recovery opened during a chat's upload keeps it uploading and cannot send it again", async () => {
+test("a load during a chat's upload keeps it uploading, so a second screen of the chat cannot send it again", async () => {
   const h = harness();
   const draft = await staged(h);
   // The chat's send uploads, then its queue call fails with an unknown outcome.
@@ -279,10 +279,13 @@ test("recovery opened during a chat's upload keeps it uploading and cannot send 
   const gate = holdUploads(h);
   const sending = h.store.send(draft.id);
   await settle();
-  const recovery = h.recovery();
-  await recovery.load();
-  assert.equal(recovery.getState().drafts[0]?.phase, "uploading");
-  const second = recovery.send(draft.id);
+  // Attachment recovery loads, then a second screen of the chat opens (its
+  // View chat) and sends the draft.
+  await h.recovery().load();
+  const chat = h.chat(() => true);
+  await chat.load();
+  assert.equal(chat.getState().drafts[0]?.phase, "uploading");
+  const second = chat.send(draft.id);
   gate.resolve();
   await Promise.all([sending, second]);
   assert.equal(h.gateway.uploads.length, 1);
