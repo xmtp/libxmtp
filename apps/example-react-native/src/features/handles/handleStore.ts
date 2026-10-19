@@ -17,7 +17,7 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-/** The account port for one session (`ExampleSDK/HandleAccount.swift`). */
+/** The account port for one session. */
 function sessionAccount(session: ActiveSession): HandleAccount {
   return {
     minimum: session.handleMinimum(),
@@ -39,9 +39,9 @@ function sessionAccount(session: ActiveSession): HandleAccount {
 }
 
 /**
- * The handle route store (`HandleStore.swift`). Choose handle finishes by
- * replacing the root with Chats; Change handle goes back to Settings. Both
- * then refresh the own handles that Settings shows.
+ * The handle route store. Choose handle finishes by replacing the root with
+ * Chats; Change handle goes back to Settings. Both then refresh the own handles
+ * that Settings shows.
  */
 export function createHandleModel(
   session: ActiveSession,

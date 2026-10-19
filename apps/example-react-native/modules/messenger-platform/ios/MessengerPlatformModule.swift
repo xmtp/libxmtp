@@ -4,7 +4,7 @@ import Foundation
 /// Platform services that no published Expo module provides.
 public final class MessengerPlatformModule: Module {
     /// The launch variables the app reads. `xcrun simctl launch` passes them as
-    /// `SIMCTL_CHILD_<NAME>`, the same contract as the native iOS example.
+    /// `SIMCTL_CHILD_<NAME>`, so the start recipes set them per launch.
     private static let launchKeys = [
         "XMTP_BACKEND_URL",
         "XMTP_ALLOW_PRIVATE_ATTACHMENTS",

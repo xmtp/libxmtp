@@ -11,9 +11,9 @@ export interface ActionFooterProps {
 }
 
 /**
- * Bottom actions above the home indicator and the keyboard
- * (`DesignSystem/ActionFooter.swift` placed with `.safeAreaInset(edge:
- * .bottom)`): a 10 pt stack, 20 pt sides, 8 pt above, at most 560 pt wide.
+ * Bottom actions above the home indicator and the keyboard (like SwiftUI
+ * `.safeAreaInset(edge: .bottom)`): a 10 pt stack, 20 pt sides, 8 pt above,
+ * at most 560 pt wide.
  * Render it after the screen's scroll view.
  */
 export function ActionFooter({ children, testID }: ActionFooterProps) {

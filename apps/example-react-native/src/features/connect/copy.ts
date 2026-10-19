@@ -1,7 +1,7 @@
 import { commonCopy } from "@/copy/common";
 import { SessionCopy } from "@/core/sessionError.ts";
 
-/** Connect strings (`Features/Connect/Connect.xcstrings`, `ConnectView.swift`). */
+/** Connect strings. */
 export const connectCopy = {
   heroTitle: "A place to connect.",
   heroSubtitle: "Join a server to start a conversation.",

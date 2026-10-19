@@ -15,7 +15,7 @@ screens are placeholders for now.
 - `src/core/` holds pure TypeScript values and policies, tested with `node --test`.
 - `src/platform/` wraps Expo modules and the local module in `modules/messenger-platform` (launch environment, file protection, backup exclusion, navigation subtitle, row context menus).
 - `src/session/` runs the SDK client, the profile index and the stream readers.
-- `src/ui/` is the design system, measured against the iOS example.
+- `src/ui/` is the design system.
 - `src/features/<feature>/` holds each screen with its store and its copy.
 - `ios/` and `android/` are committed native projects from the Expo bare template, edited by hand.
 

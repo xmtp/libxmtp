@@ -29,7 +29,7 @@ export type { GlassButtonProps, GlassIconButtonProps };
 
 /**
  * A native SwiftUI button with `.glass` or `.glassProminent` style
- * (`@expo/ui`), the iOS example's rule for every button.
+ * (`@expo/ui`). Every button in the app uses it.
  */
 export function GlassButton({
   title,

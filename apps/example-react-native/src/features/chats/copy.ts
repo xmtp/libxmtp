@@ -1,4 +1,4 @@
-/** Chats strings (`Features/Chats/Chats.xcstrings`, `ChatsView.swift`). */
+/** Chats strings. */
 export const chatsCopy = {
   title: "Chats",
   requests: "Message requests",

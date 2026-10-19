@@ -1,5 +1,4 @@
-// The resumable "Delete local data" journal (ExampleCore/Session/
-// SessionStorage.swift `ResetJournal` and SessionController.continueReset).
+// The resumable "Delete local data" journal, saved in the session index.
 // Each phase is saved before the next step, so an interrupted reset resumes
 // where it stopped.
 

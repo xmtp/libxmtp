@@ -56,7 +56,7 @@ function Row({
   );
 }
 
-/** Chat bubbles with the content of reference 27 (DM with lena). */
+/** Chat bubbles with sample content (a DM with lena). */
 export function ChatReplica() {
   const palette = useColors();
   return (

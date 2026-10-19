@@ -32,8 +32,7 @@ function rootStack(navigation: Navigation): StateNode | undefined {
 
 /**
  * Runs a route action. A root switch pops the root stack to its first screen
- * and replaces it, closing pushed
- * screens and sheets (`RouteOwner.replace` clears the path and the sheet).
+ * and replaces it, closing pushed screens and sheets.
  */
 function apply(navigation: Navigation, action: RouteAction): void {
   if (action.kind === "stay") return;
@@ -46,9 +45,9 @@ function apply(navigation: Navigation, action: RouteAction): void {
 }
 
 /**
- * Follows the session (RootView.swift): the root screen changes with the
- * session state, and the appearance setting overrides the system color
- * scheme (`.preferredColorScheme`). Renders nothing; mount it once inside
+ * Follows the session: the root screen changes with the session state, and the
+ * appearance setting overrides the system color scheme
+ * (`.preferredColorScheme`). Renders nothing; mount it once inside
  * `SessionProvider` next to the root stack.
  */
 export function SessionRouter() {

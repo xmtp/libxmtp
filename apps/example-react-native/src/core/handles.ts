@@ -1,5 +1,4 @@
-// Handle grammar, state rules and copy (ExampleCore/Handles/HandleModels.swift,
-// HandleCopy.swift and the pure parts of HandleStore.swift).
+// Handle grammar, state rules and copy: the pure parts of the handle screens.
 
 import { abbreviatedDate } from "./dates.ts";
 
@@ -32,7 +31,7 @@ export function handleName(value: string): string {
 }
 
 /**
- * The first grammar problem of a normalized handle, in iOS order: characters
+ * The first grammar problem of a normalized handle, in this order: characters
  * outside `[a-z0-9_-]` in the name, a name that does not start with a letter,
  * a name over 27 or under `minimum` characters, then a code that is not `#`
  * and 4 digits. Empty input has no problem.
@@ -52,7 +51,7 @@ export function handleProblem(
   return undefined;
 }
 
-/** The server minimum when it is in 1-27, else 3 (`HandleStore.init`). */
+/** The server minimum when it is in 1-27, else 3. */
 export function effectiveHandleMinimum(serverMinimum: number): number {
   return Number.isInteger(serverMinimum) &&
     serverMinimum >= 1 &&
@@ -220,10 +219,9 @@ export function selectSuggestion(
 }
 
 /**
- * The status after an availability check (`HandleStore.answer`). `free` is
- * `availableHandles(input)`; `alternatives` is `availableHandles(name)`, which
- * is the same list when the input has no code. `except` (a handle that was
- * just taken) never appears.
+ * The status after an availability check. `free` is `availableHandles(input)`;
+ * `alternatives` is `availableHandles(name)`, which is the same list when the
+ * input has no code. `except` (a handle that was just taken) never appears.
  */
 export function availabilityStatus(
   input: string,

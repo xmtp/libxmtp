@@ -1,6 +1,6 @@
-// The Connect screen's state machine (ExampleCore/Connect/ConnectStore.swift):
-// a quiet 300 ms probe after every address change, Join that probes first when
-// the server is not known to be ready, and admission of every async result.
+// The Connect screen's state machine: a quiet 300 ms probe after every address
+// change, Join that probes first when the server is not known to be ready, and
+// admission of every async result.
 
 import { type BackendUrl, parseBackendUrl } from "./backendUrl.ts";
 import { CancelledError, SessionCopy, errorMessage } from "./sessionError.ts";

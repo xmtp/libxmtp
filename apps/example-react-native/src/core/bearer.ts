@@ -1,4 +1,4 @@
-// Access token handling (ExampleSDK/SessionFactory.swift `bearerCredential`).
+// Access token handling: the bearer credential the SDK attaches to requests.
 
 import type { Credential } from "@xmtp/react-native-sdk";
 

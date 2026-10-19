@@ -1,6 +1,6 @@
-// Which root screen the session state shows (RootView.swift: the restore
-// ProgressView, `chooseInitialRoute`, and the Connect root for every state
-// without an open session).
+// Which root screen the session state shows: the startup screen while it
+// restores, the session's first screen, and the Connect root for every state
+// without an open session.
 
 /** The screens that replace the stack root (`router.replace`). */
 export type RootPath = "/" | "/connect" | "/choose-handle" | "/chats";

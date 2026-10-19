@@ -1,6 +1,5 @@
-// The session state machine (ExampleCore/Session/SessionController.swift),
-// with storage, secrets and the SDK behind small ports so it runs under
-// `node --test`. `src/session` supplies the real ports.
+// The session state machine, with storage, secrets and the SDK behind small
+// ports so it runs under `node --test`. `src/session` supplies the real ports.
 
 import { normalizeBackendUrl } from "./backendUrl.ts";
 import { bytesToHex, hexToBytes } from "./hex.ts";

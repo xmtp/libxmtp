@@ -12,7 +12,7 @@ import type { GlassSurfaceProps } from "@/ui/GlassSurface.types";
 export type { GlassSurfaceProps };
 
 /**
- * Custom Liquid Glass chrome (`messengerGlass(in:)`, `DesignSystem/Glass.swift`).
+ * Custom Liquid Glass chrome.
  * With Reduce Transparency it draws the system background and a 1 pt stroke in
  * the label color at 20 percent (60 percent with Increase Contrast).
  */

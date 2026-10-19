@@ -14,7 +14,7 @@ import { useToolbarIcon } from "@/ui/toolbarIcon";
 
 const copy = galleryCopy.chats;
 
-/** Chats in its empty state (reference 09): toolbar, subtitle, bottom search. */
+/** Chats in its empty state: toolbar, subtitle, bottom search. */
 export function ChatsReplica() {
   const palette = useColors();
   const settingsIcon = useToolbarIcon("gearshape");

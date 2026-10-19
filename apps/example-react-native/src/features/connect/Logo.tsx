@@ -2,7 +2,7 @@ import Svg, { Path } from "react-native-svg";
 
 import { useColors } from "@/ui/colors";
 
-/** The XMTP mark (`Assets.xcassets/Logo.imageset/Logo.svg`) in `accentText`. */
+/** The XMTP mark in `accentText`. */
 export function Logo({ size }: { readonly size: number }) {
   const palette = useColors();
   return (

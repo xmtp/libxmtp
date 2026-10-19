@@ -1,7 +1,5 @@
-// Per-profile preferences (ExampleApp/Platform/ProfilePreferences.swift).
-// Each name is one JSON file in the profile's `prefs/` directory. iOS
-// encrypts them with AES-GCM; this app keeps plain JSON inside the protected,
-// backup-excluded profile directory (plan decision D10).
+// Per-profile preferences. Each name is one plain JSON file in the profile's
+// `prefs/` directory, which is protected and excluded from backups.
 
 import { bigintReplacer, decimalToBigint } from "./bigint.ts";
 import { bytesToHex } from "./hex.ts";
@@ -37,7 +35,7 @@ export function composerDraftName(conversationId: string): string {
   return "composer-" + bytesToHex(sha256(utf8(conversationId)));
 }
 
-/** A saved composer (`ComposerDraft` in iOS). */
+/** A saved composer. */
 export interface ComposerDraft {
   readonly text: string;
   /** Increments on each edit; an accepted send clears only an unedited draft. */

@@ -41,9 +41,9 @@ function openNewConversation(): void {
 }
 
 /**
- * Chats (`ChatsView`): the allowed conversations by last activity under the
- * Message requests row, with search, pull to refresh, swipe and context-menu
- * Block, and the connection banner.
+ * Chats: the allowed conversations by last activity under the Message requests
+ * row, with search, pull to refresh, swipe and context-menu Block, and the
+ * connection banner.
  */
 export function ChatsScreen() {
   const palette = useColors();
@@ -240,7 +240,7 @@ function ChatsList({ session }: { readonly session: ActiveSession }) {
 
 const viewability = { itemVisiblePercentThreshold: 1 };
 
-/** The "Message requests · N" row (`ChatsView` first row). */
+/** The "Message requests · N" row, first in Chats. */
 function RequestsRow({
   swipeGroup,
   count,

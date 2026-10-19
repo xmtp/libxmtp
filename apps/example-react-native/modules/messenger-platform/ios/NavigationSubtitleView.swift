@@ -60,10 +60,10 @@ public final class NavigationSubtitleView: ExpoView {
     }
 
     /// The text under the large title in UIKit's default large subtitle style
-    /// (Caption 2, medium weight, secondary label), measured in the SwiftUI
-    /// app. react-native-screens gives each screen its own bar appearances,
-    /// and with those UIKit draws the subtitle under the large title in the
-    /// inline subtitle style (Caption 1, regular) instead.
+    /// (Caption 2, medium weight, secondary label). react-native-screens gives
+    /// each screen its own bar appearances, and with those UIKit draws the
+    /// subtitle under the large title in the inline subtitle style (Caption 1,
+    /// regular) instead.
     private func largeStyle(_ text: String) -> AttributedString {
         let caption = UIFont.preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection)
         let medium = caption.fontDescriptor.addingAttributes([

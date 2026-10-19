@@ -25,10 +25,9 @@ import { avatarSizes } from "@/ui/tokens";
 import { useStore } from "@/ui/useStore";
 
 /**
- * Settings (`SettingsView.swift`): profile, server, notifications status,
- * appearance, privacy, send review, developer tools and this device. Sign out
- * and deletion confirm with system alerts; the session router then shows
- * Connect.
+ * Settings: profile, server, notifications status, appearance, privacy, send
+ * review, developer tools and this device. Sign out and deletion confirm with
+ * system alerts; the session router then shows Connect.
  */
 export function SettingsScreen() {
   const session = useActiveSession();

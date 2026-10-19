@@ -1,5 +1,4 @@
-// The send and delete journal (ExampleCore/Send/SendDraftStore.swift,
-// SendCoordinator.swift, AcceptedMessageCommit.swift).
+// The send and delete journal, and the coordinator that writes it.
 //
 // A send saves a `queueing` entry before any SDK call, then `accepted` with the
 // message ID before the composer clears, then removes the entry once the

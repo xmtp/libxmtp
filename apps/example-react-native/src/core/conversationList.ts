@@ -1,6 +1,4 @@
-// The Chats and Message requests lists (ExampleCore/Conversations/
-// ConversationsStore.swift, ConversationModels.swift and
-// ExampleSDK/ConversationQueries.swift `preview`).
+// The Chats and Message requests lists, and the row preview of a message.
 //
 // - `list` returns the conversations of one consent state by last activity
 //   (the SDK sorts; the app does not re-sort). Reads carry IDs and kinds only.
@@ -68,7 +66,7 @@ export interface ConversationQueries {
   ): Promise<ConversationRecord>;
 }
 
-/** The per-profile values the lists read (`ConversationPreferences`). */
+/** The per-profile values the lists read. */
 export interface ConversationListPreferences {
   alias(conversationId: string): string | undefined;
   /** The read marker (local insertion time in ns) for a logical key. */
@@ -111,7 +109,7 @@ export const UNREAD_CONTENT_KINDS = [
   "remoteAttachment",
 ] as const;
 
-/** Visible rows read on first appearance (iOS `visibleCount = 10`). */
+/** Visible rows read on first appearance, before the list reports any. */
 const INITIAL_VISIBLE_COUNT = 10;
 /** Detail reads that run at once, across every window. */
 const DETAIL_READ_LIMIT = 4;
@@ -153,7 +151,7 @@ export function previewText(
 /**
  * The row's combined accessibility label, like SwiftUI's button label:
  * `@, lena, 1:30 AM, There you go, 26` (groups: `Weekend plans, 1:30 AM, …`).
- * Reference flows select rows by it.
+ * UI checks select rows by it.
  */
 export function conversationRowLabel(row: ConversationRow): string {
   const parts: string[] = [];

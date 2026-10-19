@@ -1,8 +1,8 @@
 import { commonCopy } from "@/copy/common";
 
 /**
- * Choose handle and Change handle strings (`ChooseHandle.xcstrings`,
- * `HandleView.swift`). Grammar and notice copy lives in `@/core/handles.ts`.
+ * Choose handle and Change handle strings. Grammar and notice copy lives in
+ * `@/core/handles.ts`.
  */
 export const handleCopy = {
   heroTitle: "Choose your handle.",

@@ -1,5 +1,4 @@
-// The session's stream readers (ExampleSDK/ConversationQueries.swift
-// `readers`, App/AppGraph.swift `startReaders`, and open PR #4586).
+// The session's stream readers.
 //
 // - Exactly one default message reader per session. It owns the database's
 //   consumer lease, so it runs only while the app is in the foreground;
@@ -20,7 +19,7 @@ import type {
 import { bytesToHex } from "./hex.ts";
 import { Store } from "./store.ts";
 
-/** The event kinds the session reads (`sessionEventKinds` in iOS). */
+/** The event kinds the session reads. */
 export const SESSION_EVENT_KINDS: readonly EventKind[] = [
   "handle.changed",
   "consent.changed",
@@ -272,7 +271,7 @@ class Lane<T> {
         markHealthy();
         await this.#options.deliver(item.value);
       }
-      // A reader that ends without an error is not restarted (iOS).
+      // A reader that ends without an error is not restarted: it has no more.
       return undefined;
     } catch (error) {
       return { error };

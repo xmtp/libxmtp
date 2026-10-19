@@ -16,7 +16,7 @@ export type {
 
 /**
  * A SwiftUI `.alert`. Unlike React Native's UIAlertController, its Cancel
- * and default buttons take the app tint, as in the iOS example. Render it
+ * and default buttons take the app tint. Render it
  * after the screen's first view; it is invisible and lets touches through.
  */
 export function AlertDialog({ request, onDismiss }: AlertDialogProps) {

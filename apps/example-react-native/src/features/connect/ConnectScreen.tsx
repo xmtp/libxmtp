@@ -43,10 +43,10 @@ import { useStore } from "@/ui/useStore";
 import { WrappedText } from "@/ui/WrappedText";
 
 /**
- * Join a server (`ConnectView.swift`): the hero, the server card with a
- * quiet probe status, the access token card for servers that need one, the
- * Advanced section and the Join footer. A failed restore and an unfinished
- * local reset replace the form with their recovery actions.
+ * Join a server: the hero, the server card with a quiet probe status, the
+ * access token card for servers that need one, the Advanced section and the
+ * Join footer. A failed restore and an unfinished local reset replace the form
+ * with their recovery actions.
  */
 export function ConnectScreen() {
   const palette = useColors();
@@ -333,7 +333,7 @@ export function ConnectScreen() {
           />
         </ActionFooter>
       )}
-      {/* ConnectView puts `.confirmationDialog` on the whole scroll view. */}
+      {/* The reset confirmation anchors to the whole scroll view. */}
       <PopoverConfirmation
         request={resetConfirmation}
         onDismiss={() => {

@@ -1,6 +1,6 @@
 /**
- * Layout tokens measured from the iOS example (`DesignSystem/*`) and its iOS 26
- * screenshots (402 x 874 pt, iPhone 17 Pro). Values are points.
+ * Layout tokens, measured on iOS 26 screenshots (402 x 874 pt, iPhone 17
+ * Pro). Values are points.
  */
 export const spacing = {
   xxs: 2,

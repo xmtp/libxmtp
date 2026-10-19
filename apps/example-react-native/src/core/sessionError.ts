@@ -1,4 +1,4 @@
-// Session errors and their copy (ExampleCore/Session/BackendURL.swift).
+// Session errors and their copy.
 
 export const SessionCopy = {
   stale: "This session has ended.",

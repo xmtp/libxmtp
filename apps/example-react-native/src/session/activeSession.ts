@@ -1,5 +1,4 @@
-// One open session: its SDK client, preferences, stream hub and caches
-// (App/AppGraph.swift `bindSession` and `installStores`).
+// One open session: its SDK client, preferences, stream hub and caches.
 
 import type {
   Client,
@@ -150,7 +149,7 @@ export class ActiveSession {
     return generation === this.generation && this.#isCurrent();
   }
 
-  /** The server name: the saved label, else its URL (`AppGraph.serverName`). */
+  /** The server name: the saved label, else its URL. */
   get server(): { readonly url: string; readonly name: string } {
     let label: string | undefined;
     try {

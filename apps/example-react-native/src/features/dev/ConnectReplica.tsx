@@ -7,7 +7,7 @@ import { useColors } from "@/ui/colors";
 import { GlassButton } from "@/ui/GlassButton";
 import { Text } from "@/ui/Text";
 
-/** The Connect footer (reference 01): a large glassProminent button. */
+/** The Connect footer: a large glassProminent button. */
 export function ConnectReplica() {
   const palette = useColors();
   return (

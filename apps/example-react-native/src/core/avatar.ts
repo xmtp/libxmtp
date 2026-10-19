@@ -1,5 +1,5 @@
-// Avatar color and initials rules from the iOS example
-// (DesignSystem/Identity.swift and ExampleCore/Identity/DisplayInitials.swift).
+// Avatar color and initials rules: a seeded palette color, and initials for
+// groups, people and inbox IDs.
 
 import { sha256, utf8 } from "./sha256.ts";
 

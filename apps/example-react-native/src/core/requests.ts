@@ -1,6 +1,4 @@
-// Message request count and list paging rules
-// (ExampleCore/Conversations/ConversationModels.swift `ListRules` and
-// ConversationsStore.swift).
+// Message request count and list paging rules.
 
 /** Chats reads at most this many requests for its badge. */
 export const REQUEST_COUNT_LIMIT = 501;

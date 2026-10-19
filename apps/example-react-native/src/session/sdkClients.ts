@@ -1,5 +1,4 @@
-// SDK client creation (ExampleSDK/SessionFactory.swift, BackendProbe.swift)
-// and SDK error mapping.
+// SDK client creation, the backend probe and SDK error mapping.
 
 import {
   Client,
@@ -31,7 +30,7 @@ export function allowsPrivateAttachments(backend: BackendUrl): boolean {
   );
 }
 
-/** The client options for a profile (`sessionOptions` in iOS). */
+/** The client options for a profile. */
 export function sessionOptions(request: OpenRequest): ClientOptions {
   const backend = normalizeBackendUrl(request.profile.url);
   const read = request.credential;

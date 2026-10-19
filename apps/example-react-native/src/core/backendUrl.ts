@@ -1,5 +1,4 @@
-// Backend URL normalization (ExampleCore/Session/BackendURL.swift). A hand
-// parser, because React Native's global URL is a partial polyfill.
+// Backend URL normalization: one canonical URL per server. A hand parser, because React Native's global URL is a partial polyfill.
 
 import { SessionCopy, SessionError } from "./sessionError.ts";
 
@@ -78,7 +77,7 @@ function split(text: string): Parts | undefined {
 }
 
 /**
- * Normalizes a backend address, or throws a `SessionError` with the iOS copy.
+ * Normalizes a backend address, or throws a `SessionError` with its reason.
  *
  * Trims whitespace, removes every trailing `/`, requires `http` or `https`
  * with a host, rejects credentials, a query, a fragment and a port outside

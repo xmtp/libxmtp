@@ -1,6 +1,6 @@
 /**
- * Shared strings: `DesignSystem/Common.xcstrings` (English). Features use
- * these for the keys that `featureCopy` maps to the Common table.
+ * Shared strings (English) for the words many screens use: Cancel, Done,
+ * Retry and the like.
  */
 export const commonCopy = {
   cancel: "Cancel",

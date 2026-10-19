@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 import { commonCopy } from "@/copy/common";
 import { SessionCopy } from "@/core/sessionError.ts";
 
-/** Settings strings (`Settings.xcstrings`, `Push.xcstrings`, `SettingsView.swift`). */
+/** Settings strings. */
 export const settingsCopy = {
   noHandle: "No handle",
   handleCaption: "Your handle on this server",
@@ -20,7 +20,7 @@ export const settingsCopy = {
   serverFooter: "To change servers, sign out and join another server.",
   notifications: "Notifications",
   status: "Status",
-  /** The push status of a build without push (`PushSettingsSection`). */
+  /** The push status of a build without push. */
   pushStatus:
     Platform.OS === "ios"
       ? "Off: APNs is not configured"

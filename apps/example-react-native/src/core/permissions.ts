@@ -1,6 +1,4 @@
-// Group permission presets, policy labels and member authority
-// (ExampleCore/Details/DetailsModels.swift, ExampleSDK/GroupQueries.swift and
-// Features/Permissions/PermissionsFeatureView.swift).
+// Group permission presets, policy labels and member authority.
 
 import type {
   GroupPolicyType,
@@ -38,7 +36,7 @@ const DETAIL_FIELDS: readonly MetadataFieldKind[] = [
 ];
 
 /**
- * The nine preset writes in iOS order: add member, remove member, add admin,
+ * The nine preset writes, in order: add member, remove member, add admin,
  * remove admin, then name, description, image, app data and disappearing.
  * "Admins only" restricts adding people and details to admins.
  */

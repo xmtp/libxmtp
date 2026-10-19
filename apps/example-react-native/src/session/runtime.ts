@@ -1,5 +1,5 @@
 // The app's one session controller, wired to the device and the SDK, and the
-// app lifecycle (RootView.swift: restore on launch and on foreground).
+// app lifecycle: restore on launch and on foreground.
 
 import { AppState } from "react-native";
 
@@ -87,7 +87,8 @@ function foregroundChanged(active: boolean): void {
  * Starts the app session once: storage, appearance and restore, then follows
  * the app lifecycle. Foreground restores (when signed in but not open) and
  * runs the default message reader; inactive and background close that reader
- * so its consumer lease is released (PR #4586).
+ * so its consumer lease is released. An app that the OS suspended or killed
+ * would otherwise hold it, and the next reader would fail with `ConsumerOwned`.
  */
 export function startSession(): Promise<void> {
   runtime.lifecycle ??= AppState.addEventListener("change", (next) => {

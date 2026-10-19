@@ -21,11 +21,10 @@ import type { ActiveSession } from "@/session";
 const RELOAD_DELAY_MS = 250;
 
 /**
- * The route's conversation list (`ConversationsStore`). It loads on mount,
- * reloads from the local database after stream messages, new conversations
- * and consent, handle or deletion events, and reads the first page again
- * each time the screen is focused (`.task { .load }`: a chat may have changed
- * its unread count). It closes on unmount.
+ * The route's conversation list. It loads on mount, reloads from the local
+ * database after stream messages, new conversations and consent, handle or
+ * deletion events, and reads the first page again each time the screen is
+ * focused (a chat may have changed its unread count). It closes on unmount.
  */
 export function useConversationList(
   session: ActiveSession,
@@ -82,7 +81,7 @@ export function useConversationList(
   return store;
 }
 
-/** The route's accept, delete and block decisions (`RequestsStore`). */
+/** The route's accept, delete and block decisions. */
 export function useRequestDecisions(
   session: ActiveSession,
   onOutcome: (outcome: DecisionOutcome) => void,
@@ -112,9 +111,9 @@ export function useRequestDecisions(
 }
 
 /**
- * A stable `onViewableItemsChanged` that reports the visible rows to the
- * store (SwiftUI `onAppear` per row): details and paging follow them. Items
- * are matched by key (the row ID), so other list items are ignored.
+ * A stable `onViewableItemsChanged` that reports the visible rows to the store:
+ * details and paging follow them. Items are matched by key (the row ID), so
+ * other list items are ignored.
  */
 export function useVisibleRowsReporter(
   store: ConversationListStore,

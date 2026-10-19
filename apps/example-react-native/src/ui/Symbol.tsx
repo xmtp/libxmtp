@@ -6,8 +6,7 @@ import { type ColorInput, resolveColor, useColors } from "@/ui/colors";
 import { textStyles, type TextVariant } from "@/ui/typography";
 
 /**
- * The SF Symbols the iOS example uses (`DesignSystem/Theme.swift` `Symbol`
- * and literal names), with the Material Symbol shown on Android.
+ * The SF Symbols the app uses, with the Material Symbol shown on Android.
  */
 export const symbolNames = {
   "chevron.left": "chevron_left",

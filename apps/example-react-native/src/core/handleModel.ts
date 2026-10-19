@@ -1,6 +1,5 @@
-// The Choose handle and Change handle state machine
-// (ExampleCore/Handles/HandleStore.swift), with the SDK and preferences
-// behind a small port so it runs under `node --test`.
+// The Choose handle and Change handle state machine, with the SDK and
+// preferences behind a small port so it runs under `node --test`.
 
 import {
   type HandleEditorState,

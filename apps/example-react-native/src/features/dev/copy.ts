@@ -1,6 +1,6 @@
 /**
- * Design gallery strings. Sample content mirrors the iOS reference captures
- * (`~/.agents/runs/2026-10-18-rn-example/reference/`) so screenshots line up.
+ * Design gallery strings: fixed sample content, so screenshots of the
+ * samples compare across builds.
  */
 export const galleryCopy = {
   title: "Design gallery",

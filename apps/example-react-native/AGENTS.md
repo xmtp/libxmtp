@@ -57,13 +57,13 @@ package of a merged revision whose SDK content matches:
 - `src/platform/` wraps Expo modules and the local module `modules/messenger-platform` (Swift and Kotlin, autolinked from `./modules`).
 - `src/ui/<Name>.ios.tsx` holds native iOS leaves; `src/ui/<Name>.tsx` is the plain React Native version for Android.
 - Import app code through the `@/` alias (`src/`). Oxlint rejects relative parent imports in `src/`.
-- Keep copy in each feature's `copy.ts` or `src/copy/`. `testID` and `accessibilityLabel` values mirror the iOS example's accessibility identifiers and labels.
+- Keep copy in each feature's `copy.ts` or `src/copy/`. Keep `testID` and `accessibilityLabel` values stable: UI checks select by them.
 - Hermes has no `crypto.getRandomValues`, `TextDecoder` or `Buffer`. Pass native paths, never `file://` URIs, to the SDK. 64-bit SDK values are `bigint`; persist them as decimal strings.
 
 ## Design system
 
-`src/ui` mirrors `apps/example-ios/ExampleApp/DesignSystem`. Its metrics are
-measured against the iOS example's screenshots on an iOS 27 iPhone 17 Pro.
+`src/ui` is the design system. Its metrics were measured on an iOS 27 iPhone
+17 Pro.
 
 - Colors come from `useColors()` or a palette name on `color` props; never
   hard-code hex values in screens. Text uses `Text` variants (SwiftUI text
@@ -84,7 +84,7 @@ measured against the iOS example's screenshots on an iOS 27 iPhone 17 Pro.
 - Text that wraps uses `WrappedText` (SwiftUI's wrapped line height once
   it wraps) or `BubbleText` in message bubbles. Inside a List or Form keep
   the default; elsewhere (scroll views, cards) pass `leading="standard"`.
-- The Debug gallery shows every component and replicas of reference screens:
+- The Debug gallery shows every component and sample screens:
   `xcrun simctl openurl <udid> "xmtp-messenger-rn:///dev/gallery?section=components"`
   (sections: `components`, `settings`, `details`, `chats`, `chat`, `connect`).
 
@@ -107,6 +107,23 @@ also needs `install` before the next build, so the Pods project lists it.
 Do not add `expo-sqlite` (the SDK links its own SQLCipher) or
 `expo-dev-client`. Android keystores are never committed; builds sign with
 AGP's default debug keystore.
+
+## Tests
+
+Don't write tests that reference other example app code, and don't write comments that reference features in other example apps.
+
+These rules keep a valid change from breaking a test:
+
+- Assert through what screens use: store state, the helpers screens call (`visibleSuggestions`, `statusPick`, `canJoin`), and the port calls whose presence is the behavior. Do not assert private fields, the identity of a state object, an order nothing shows, or leftover state on a closed store.
+- Assert copy through its constant (`SessionCopy.signOutFailed`, `ConnectionCopy.reconnecting`), never as English text. For copy built from values, assert the values in it (the handle, the minimum, the dates) and that the branches differ. Copy lives in `copy.ts` or a `*Copy` object, not inline in `src/core` logic.
+- Count fake calls only when the count is the behavior ("no SDK call after the chat closed", "saved once per position"). Do not assert exact call lists, call arguments, or the order of independent calls. For notifications, assert none or some, not an exact number.
+- Inject a fault by content, not by call number: `failOnce((drafts) => drafts.some((entry) => entry.phase === "accepted"))`, not `failWrite = 2`.
+- A tuning value (page size, threshold, limit, swipe distance, retry delay) comes from its named constant or from what the code reports, never a literal.
+- A negative case must reach the guard it names: let the other guards pass, and assert what only that guard produces. Otherwise it fails, or goes silent, when an unrelated guard changes.
+- Fakes resolve at once and apply their own effects. No timer that waits real time. Drain with `settle()` and hold work with `deferred()` from `src/core/testing.ts`; a zero-delay macrotask is fine. Close long-lived objects in `afterEach`. Record values inside a fake callback and assert after the call returns.
+- Pin each saved format (index JSON, profile paths, preference file names, journal shape) with a literal fixture the RN app owns. A change to it must fail a test, because installed apps read it.
+- Test a rule at one layer. Add a pure-function test only for cases the store test cannot reach cheaply, and put the variants of one rule in one table.
+- Do not export a function, option or method only for a test. When a test is the last caller of production code, delete both.
 
 Prove each new test fails under a named behavioral mutation, then restore it
 and show it passes. Record the mutation in the change description.

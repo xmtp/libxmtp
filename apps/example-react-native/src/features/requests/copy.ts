@@ -1,4 +1,4 @@
-/** Message requests strings (`Features/Requests/Requests.xcstrings`). */
+/** Message requests strings. */
 export const requestsCopy = {
   title: "Message requests",
   detail: "Messages from people you have not accepted yet.",

@@ -131,7 +131,7 @@ const pageSheet = { presentation: "modal", headerShown: false } as const;
 /**
  * A sheet with detents (`.presentationDetents`). SwiftUI shows the grabber
  * when a sheet has more than one detent. Member starts large at accessibility
- * text sizes (`MemberSheetSizing`).
+ * text sizes.
  */
 function formSheet(detents: number[], initialDetentIndex = 0) {
   return {

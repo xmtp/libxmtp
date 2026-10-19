@@ -1,7 +1,6 @@
-// Session generations (ExampleCore/Session/SessionFence.swift). Every async
-// result captures a key when it starts and is dropped unless the fence still
-// accepts that key, so a late result from an ended or replaced session cannot
-// publish a client, write state or navigate.
+// Session generations. Every async result captures a key when it starts and
+// is dropped unless the fence still accepts that key, so a late result from an
+// ended or replaced session cannot publish a client, write state or navigate.
 
 /** One opened session: its profile and the generation it was bound in. */
 export interface SessionKey {

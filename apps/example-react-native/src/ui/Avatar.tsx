@@ -31,7 +31,7 @@ export interface AvatarProps {
 }
 
 /**
- * A seeded color circle with initials (`DesignSystem/Identity.swift` `Avatar`).
+ * A seeded color circle with initials.
  * The initials are `.headline` at every size; the circle grows with Dynamic
  * Type (`@ScaledMetric(relativeTo: .body)`). Hidden from accessibility.
  */

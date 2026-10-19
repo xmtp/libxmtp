@@ -1,7 +1,6 @@
-// The Settings store (ExampleCore/Settings/SettingsStore.swift): one device
-// action at a time, and the copy for a failed one. The Settings screen keeps
-// the confirming alert's request (an `AlertDialog`) in its own state; this
-// model owns only `busy` and `error`.
+// The Settings store: one device action at a time, and the copy for a failed
+// one. The Settings screen keeps the confirming alert's request (an
+// `AlertDialog`) in its own state; this model owns only `busy` and `error`.
 
 import { SessionCopy, errorMessage } from "./sessionError.ts";
 import type { Appearance } from "./sessionIndex.ts";

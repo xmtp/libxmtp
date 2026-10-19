@@ -19,17 +19,17 @@ interface Pair {
 }
 
 const pairs = {
-  // Asset colors (`Assets.xcassets`, `DesignSystem/Theme.swift`).
-  /** `AccentColor` = `Theme.tint`: global tint, outgoing bubbles, glassProminent. */
+  // Brand colors.
+  /** The app tint: global tint, outgoing bubbles, glassProminent. */
   tint: { light: "#3454BC", dark: "#4361D1" },
-  /** `AccentText` = `Theme.accentText`: brand-colored text on neutral surfaces. */
+  /** Brand-colored text on neutral surfaces. */
   accentText: { light: "#3454BC", dark: "#91A7FF" },
-  /** `SecondaryLabel` = `Theme.secondaryLabel`: opaque high-contrast secondary text. */
+  /** Opaque high-contrast secondary text. */
   themeSecondaryLabel: { light: "#5F5F67", dark: "#A3A3AB" },
-  /** `IncomingBubble`: incoming bubbles, unselected reaction badges, request bar card. */
+  /** Incoming bubbles, unselected reaction badges, request bar card. */
   incomingBubble: { light: "#E9E9EB", dark: "#26262A" },
 
-  // Tints at fixed opacity (SwiftUI `Theme.tint.opacity(x)` and hierarchical styles).
+  // Tints at fixed opacity (the tint in SwiftUI hierarchical styles).
   /** `.tertiary` on a tinted row (Settings chevrons): tint at 25 percent. */
   tintTertiary: { light: "rgba(52,84,188,0.25)", dark: "rgba(67,97,209,0.3)" },
   /** `.secondary` on a tinted row (a `#code` in a Form button): tint at 50 percent. */

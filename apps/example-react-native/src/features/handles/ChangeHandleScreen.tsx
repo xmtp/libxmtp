@@ -31,9 +31,9 @@ import { Span, Text } from "@/ui/Text";
 import { WrappedText } from "@/ui/WrappedText";
 
 /**
- * Change handle, pushed from Settings (`HandleView.swift`, mode `.change`):
- * a grouped form with the current handle, the new handle editor, the other
- * handles with "Use", and a footer that asks to confirm every claim.
+ * Change handle, pushed from Settings (mode `change`): a grouped form with the
+ * current handle, the new handle editor, the other handles with "Use", and a
+ * footer that asks to confirm every claim.
  */
 export function ChangeHandleScreen() {
   const session = useActiveSession();
@@ -267,7 +267,7 @@ function LinkRow({
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   footer: { bottom: 0, left: 0, position: "absolute", right: 0 },
-  // Measured on reference 24: the first header sits 10 pt under the large
+  // Measured on iOS 27: the first header sits 10 pt under the large
   // title here (the form kit's first-header default is 8.7).
   firstHeader: { paddingTop: 10 },
   flex: { flex: 1 },

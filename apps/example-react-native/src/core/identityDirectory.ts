@@ -1,6 +1,5 @@
-// Inbox → handle cache for one session (ExampleCore/Identity/
-// IdentityDirectory.swift). Handle-changed events win over reads that started
-// before them.
+// Inbox → handle cache for one session. Handle-changed events win over reads
+// that started before them.
 
 import { Store } from "./store.ts";
 

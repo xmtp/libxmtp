@@ -1,5 +1,4 @@
-// Recipient input: a handle, an Ethereum address or an inbox ID
-// (ExampleCore/Identity/IdentityInput.swift and NewConversationStore.swift).
+// Recipient input: a handle, an Ethereum address or an inbox ID.
 
 import { handleProblem, normalizeHandle } from "./handles.ts";
 
@@ -21,7 +20,7 @@ export const RecipientCopy = {
 
 export type RecipientProblem = keyof typeof RecipientCopy;
 
-/** A recipient that does not parse or resolve. Its message is the iOS copy. */
+/** A recipient that does not parse or resolve. Its message is `RecipientCopy`. */
 export class RecipientError extends Error {
   readonly problem: RecipientProblem;
 

@@ -27,7 +27,7 @@ function isSection(value: string | undefined): value is SectionName {
 
 /**
  * The Debug design gallery: every design-system component in its states,
- * and replicas of reference screens for pixel comparison. Deep link
+ * and sample screens built from them, for screenshot checks. Deep link
  * `xmtp-messenger-rn:///dev/gallery?section=<name>`.
  */
 export function GalleryScreen() {

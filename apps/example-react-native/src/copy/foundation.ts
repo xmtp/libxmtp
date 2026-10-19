@@ -1,6 +1,6 @@
 /**
- * App shell strings: `DesignSystem/Foundation.xcstrings` (English). Route
- * titles and the startup and account error copy.
+ * App shell strings (English): route titles and the startup and account
+ * error copy.
  */
 export const foundationCopy = {
   appName: "XMTP Messenger",
@@ -14,7 +14,7 @@ export const foundationCopy = {
   chooseChatFromSidebar: "Choose a chat from the sidebar.",
 } as const;
 
-/** Navigation titles for every route (`Foundation.xcstrings`). */
+/** Navigation titles for every route. */
 export const routeTitles = {
   connect: "Join a server",
   chooseHandle: "Choose a handle",
@@ -34,11 +34,11 @@ export const routeTitles = {
   reactions: "Reactions",
   emojiPicker: "Choose a reaction",
   attachmentRecovery: "Attachment recovery",
-  /** Not an iOS route: the Debug design gallery. */
+  /** Debug builds only: the design gallery. */
   gallery: "Design gallery",
-  /** Not an iOS route: the Debug session probe. */
+  /** Debug builds only: the session probe. */
   sessionProbe: "Session probe",
-  /** Not an iOS route: the edit-group and add-member sheets. */
+  /** The edit-group and add-member sheets. */
   editGroup: "Edit group",
   addMember: "Add member",
 } as const;

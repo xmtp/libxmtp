@@ -19,7 +19,7 @@ function isProgress(text: string): boolean {
 /**
  * The Chats connection banner: a glass capsule with a spinner or
  * `wifi.exclamationmark` and subheadline text, leading-aligned with 20 pt
- * sides and 12 pt below (`ChatsView` `safeAreaInset(edge: .top)`).
+ * sides and 12 pt below, inset at the top of Chats.
  */
 export function ConnectionBanner({ text, testID }: ConnectionBannerProps) {
   const accessibilitySize = useIsAccessibilitySize();

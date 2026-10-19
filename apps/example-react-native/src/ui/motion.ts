@@ -9,9 +9,8 @@ import {
 import { useReducedMotion } from "@/ui/accessibility";
 
 /**
- * `MotionPolicy` (`DesignSystem/Motion.swift`). SwiftUI
- * `.spring(response: 0.28, dampingFraction: 0.86)` with mass 1 is stiffness
- * (2π/0.28)² and damping 4π·0.86/0.28.
+ * The app's spring. SwiftUI `.spring(response: 0.28, dampingFraction: 0.86)`
+ * with mass 1 is stiffness (2π/0.28)² and damping 4π·0.86/0.28.
  */
 export const springConfig = {
   stiffness: 503.6,
@@ -25,7 +24,7 @@ export const reducedTiming = {
   easing: Easing.bezier(0.42, 0, 0.58, 1),
 } as const;
 
-/** `MotionPolicy.transition` scales from 0.96 while it fades in. */
+/** A view that appears scales from 0.96 while it fades in. */
 export const transitionScale = 0.96;
 
 export interface Motion {

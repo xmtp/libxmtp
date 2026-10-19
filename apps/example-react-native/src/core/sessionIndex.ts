@@ -1,5 +1,5 @@
-// The global session index (ExampleCore/Session/SessionStorage.swift). It is
-// a JSON file with the iOS key names.
+// The global session index: one JSON file for every profile on the device.
+// Installed apps hold its key names, so they never change.
 
 import { parseBackendUrl } from "./backendUrl.ts";
 import { type ResetJournal, isResetPhase } from "./resetJournal.ts";
@@ -111,7 +111,7 @@ export function parseSessionIndex(text: string): SessionIndex {
   };
 }
 
-/** The index JSON, with the iOS key names. */
+/** The index JSON, with the saved key names. */
 export function serializeSessionIndex(index: SessionIndex): string {
   return JSON.stringify({
     profiles: index.profiles.map((profile) => ({

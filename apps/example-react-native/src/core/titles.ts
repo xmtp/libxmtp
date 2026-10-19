@@ -1,5 +1,4 @@
-// Conversation titles and identity labels from the iOS example
-// (ConversationModels.swift, IdentityDirectory.swift, DetailsModels.swift).
+// Conversation titles and identity labels for rows, Details and members.
 
 import { groupInitials, personInitials } from "./avatar.ts";
 
@@ -72,8 +71,8 @@ export function conversationInitials(
 }
 
 /**
- * The Details header avatar label (`ConversationDetails.avatarLabel`): a DM
- * uses the inbox ID rule when it has no alias and no handle.
+ * The Details header avatar label: a DM uses the inbox ID rule when it has no
+ * alias and no handle.
  */
 export function detailsAvatarLabel(
   conversation: TitleSource,
@@ -89,7 +88,7 @@ export function detailsAvatarLabel(
 }
 
 /**
- * The key that read markers (and iOS mutes) use: a group's ID, or
+ * The key that read markers use: a group's ID, or
  * `dm:<own>:<peer>` with the two inbox IDs sorted, so duplicate DMs with one
  * peer share it.
  */

@@ -1,5 +1,4 @@
-// Accept, delete and block decisions on conversations
-// (ExampleCore/Conversations/RequestsStore.swift).
+// Accept, delete and block decisions on conversations.
 //
 // - Accept runs at once and opens the chat with Chats below it.
 // - Delete and Block ask first. Delete is local only: the request joins the
@@ -20,7 +19,7 @@ export interface RequestDecisionsState {
   readonly error?: string;
 }
 
-/** Where to go after a decision (`RouteOwner.setPath` / `replace(.chats)`). */
+/** Where to go after a decision: the chat, or back to Chats. */
 export type DecisionOutcome =
   | { readonly kind: "openChat"; readonly id: string }
   | { readonly kind: "chats" };

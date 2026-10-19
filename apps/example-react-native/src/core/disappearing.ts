@@ -1,5 +1,5 @@
-// Disappearing message durations (DetailsModels.swift `DisappearingRules` and
-// Features/Disappearing/DisappearingFeatureView.swift).
+// Disappearing message durations: the presets, typed seconds and the loaded
+// retention.
 
 /** The presets, in screen order. Tapping one saves at once. */
 export const DISAPPEARING_PRESETS = [

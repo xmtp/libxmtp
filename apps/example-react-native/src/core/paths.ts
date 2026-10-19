@@ -38,7 +38,7 @@ export function isInside(path: string, root: string): boolean {
   );
 }
 
-/** The directory layout of one profile (`ProfilePaths` in the iOS example). */
+/** The directory layout of one profile. */
 export interface ProfilePaths {
   /** `<Application Support>/messenger/profiles/<uuid>` */
   readonly root: string;

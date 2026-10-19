@@ -40,9 +40,9 @@ import { fontOf } from "@/ui/typography";
 import { WrappedText } from "@/ui/WrappedText";
 
 /**
- * Choose a handle after the first join (`HandleView.swift`, mode `.choose`):
- * no navigation bar, a hero, the capsule field, availability feedback, and
- * the claim and "Skip for now" footer.
+ * Choose a handle after the first join (mode `choose`): no navigation bar, a
+ * hero, the capsule field, availability feedback, and the claim and "Skip for
+ * now" footer.
  */
 export function ChooseHandleScreen() {
   const session = useActiveSession();

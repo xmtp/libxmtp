@@ -32,7 +32,7 @@ import { Text } from "@/ui/Text";
 import { useStore } from "@/ui/useStore";
 import { WrappedText } from "@/ui/WrappedText";
 
-/** The load error and Retry, above the rows in the same section (iOS). */
+/** The load error and Retry, above the rows in the same section. */
 const ERROR_ITEM = { id: "requests.error" } as const;
 type RequestsItem = ConversationRow | typeof ERROR_ITEM;
 const isRow = (item: RequestsItem): item is ConversationRow =>
@@ -45,8 +45,8 @@ const chatHref = (id: string) =>
   }) as const;
 
 /**
- * Message requests (`RequestsView`): conversations with unknown consent, with
- * Accept, Delete (local only) and Block.
+ * Message requests: conversations with unknown consent, with Accept, Delete
+ * (local only) and Block.
  */
 export function RequestsScreen() {
   const palette = useColors();
@@ -89,7 +89,7 @@ function RequestsList({ session }: { readonly session: ActiveSession }) {
 
   const onOutcome = useCallback(
     (outcome: DecisionOutcome) => {
-      // Only while Requests is on top (`RouteOwner.admit`).
+      // Only while Requests is on top: a late outcome must not navigate.
       if (!navigation.isFocused()) return;
       if (outcome.kind === "chats") {
         router.dismissTo("/chats");

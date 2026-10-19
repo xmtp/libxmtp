@@ -19,7 +19,7 @@ import { Text } from "@/ui/Text";
 
 const copy = galleryCopy.details;
 
-/** A Details shortcut tile (`DetailsShortcutLabelStyle`). */
+/** A Details shortcut tile. */
 function ShortcutTile({
   title,
   systemImage,
@@ -42,7 +42,7 @@ function ShortcutTile({
   );
 }
 
-/** A member row (`MemberIdentityRow`): 44 pt avatar, identity, role. */
+/** A member row: 44 pt avatar, identity, role. */
 function MemberRow({
   seed,
   title,
@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 12,
   },
-  // SwiftUI adds `.padding(.vertical, 4)` inside the 15 pt row inset.
+  // A member row has 4 pt more vertical padding than the 15 pt row inset.
   memberRow: { paddingVertical: 19 },
   flex: { flex: 1 },
 });

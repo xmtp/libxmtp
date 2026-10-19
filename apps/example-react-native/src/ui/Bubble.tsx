@@ -15,7 +15,7 @@ import { wrappedLineHeight } from "@/ui/typography";
 
 export interface BubbleProps {
   isOutgoing: boolean;
-  /** The iOS chat draws a tail on every bubble. Default true. */
+  /** The chat draws a tail on every bubble. Default true. */
   showsTail?: boolean;
   /** Text content inherits the bubble's body font and color. */
   children?: ReactNode;
@@ -23,14 +23,14 @@ export interface BubbleProps {
   testID?: string;
 }
 
-/** Width the tail adds on its side (`BubbleShape` `tail = 6`). */
+/** Width the tail adds on its side. */
 const tailWidth = 6;
 
 /**
- * An opaque message bubble (`DesignSystem/Bubble.swift`): h14 v10 padding plus
- * 5 pt on the tail side, a continuous 18 pt body radius, and the fixed tail
- * from `BubbleShape` at the bottom outer corner. Outgoing bubbles use the tint
- * with white text; incoming ones use `IncomingBubble` with label text.
+ * An opaque message bubble: h14 v10 padding plus 5 pt on the tail side, a
+ * continuous 18 pt body radius, and a fixed tail at the bottom outer corner.
+ * Outgoing bubbles use the tint with white text; incoming ones use
+ * `incomingBubble` with label text.
  */
 export function Bubble({
   isOutgoing,

@@ -13,9 +13,9 @@ const copy = galleryCopy.settings;
 type Appearance = "system" | "light" | "dark";
 
 /**
- * Settings with the content of reference captures 18-20. Avatar row: the
- * separator starts under the initials, as SwiftUI aligns it to the row's first
- * text (16 + (64 - glyph width) / 2).
+ * Settings with sample content. Avatar row: the separator starts under the
+ * initials, as SwiftUI aligns it to the row's first text (16 + (64 - glyph
+ * width) / 2).
  */
 export function SettingsReplica() {
   const [appearance, setAppearance] = useState<Appearance>("system");

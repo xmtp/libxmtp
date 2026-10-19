@@ -8,9 +8,9 @@ const DEFAULT_BACKEND_URL = "http://127.0.0.1:5050";
 let shared: ConnectModel | undefined;
 
 /**
- * The app's one Connect model, like `AppGraph.connect`: it lives as long as
- * the app, so the typed address and server name survive Sign out and Delete
- * local data. The screen calls `appear()` on mount and `dispose()` on unmount.
+ * The app's one Connect model: it lives as long as the app, so the typed
+ * address and server name survive Sign out and Delete local data. The screen
+ * calls `appear()` on mount and `dispose()` on unmount.
  */
 export function connectModel(): ConnectModel {
   shared ??= createConnectModel(
@@ -20,8 +20,8 @@ export function connectModel(): ConnectModel {
 }
 
 /**
- * The Connect store (`ConnectStore.swift`): the pure model wired to the
- * backend probe and the session controller.
+ * The Connect store: the pure model wired to the backend probe and the session
+ * controller.
  */
 function createConnectModel(address: string): ConnectModel {
   return new ConnectModel(address, {
@@ -39,7 +39,7 @@ function createConnectModel(address: string): ConnectModel {
 }
 
 // The recovery actions report their outcome through the session state
-// (`resetIncomplete`, `restoreFailed`), like iOS, so failures are not shown here.
+// (`resetIncomplete`, `restoreFailed`), so failures are not shown here.
 
 /** Restore failed: "Retry". */
 export function retryRestore(): void {

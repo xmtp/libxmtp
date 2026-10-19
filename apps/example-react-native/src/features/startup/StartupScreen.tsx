@@ -7,9 +7,9 @@ import { ContentUnavailable } from "@/ui/ContentUnavailable";
 import { GlassButton } from "@/ui/GlassButton";
 
 /**
- * The launch screen (`ExampleApp.swift` + `RootView` while restoring): a
- * spinner until `SessionRouter` replaces it, or "Cannot open app" with Retry
- * when local storage cannot be prepared.
+ * The launch screen while the session restores: a spinner until `SessionRouter`
+ * replaces it, or "Cannot open app" with Retry when local storage cannot be
+ * prepared.
  */
 export function StartupScreen() {
   const state = useSessionState();

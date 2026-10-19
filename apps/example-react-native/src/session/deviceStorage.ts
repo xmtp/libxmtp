@@ -81,7 +81,7 @@ export function messengerRoot(): string {
   return joinPath(applicationSupportDirectory(), "messenger");
 }
 
-/** The index file and the profile directories (`ProfileFiles.swift`). */
+/** The index file and the profile directories on this device. */
 export class DeviceProfileFiles implements ProfileFiles {
   readonly #root: () => string;
 

@@ -1,5 +1,4 @@
-// SDK reads and writes behind the conversation lists
-// (ExampleSDK/ConversationQueries.swift `SDKConversationQueries`).
+// SDK reads and writes behind the conversation lists.
 
 import {
   type Conversation,

@@ -1,6 +1,5 @@
-// Session-owned work (ExampleCore/Session/SessionController.swift
-// `SessionScope`). A session cancels and awaits all of it before it ends its
-// SDK client.
+// Session-owned work. A session cancels and awaits all of it before it ends
+// its SDK client.
 
 /** Work that runs until its signal aborts. */
 export type ScopedTask = (signal: AbortSignal) => Promise<void>;
