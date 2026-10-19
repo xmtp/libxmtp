@@ -59,33 +59,31 @@ test("a row that closed by itself no longer swallows taps", () => {
   assert.equal(group.closeAll(), false);
 });
 
-test("the Android menu keeps Cancel while it fits in three buttons", () => {
+test("the Android menu adds Cancel only while it fits in three buttons", () => {
+  const shown = (actions: readonly RowAction[]) =>
+    menuAlertButtons(actions, "Cancel").map(({ text, style }) => ({
+      text,
+      style,
+    }));
+  assert.deepEqual(shown([action("Block", true)]), [
+    { text: "Block", style: "destructive" },
+    { text: "Cancel", style: "cancel" },
+  ]);
   assert.deepEqual(
-    menuAlertButtons([action("Block", true)], "Cancel").map(
-      ({ text, style }) => ({ text, style }),
-    ),
+    shown([action("Accept"), action("Delete", true), action("Block", true)]),
     [
+      { text: "Accept", style: undefined },
+      { text: "Delete", style: "destructive" },
       { text: "Block", style: "destructive" },
-      { text: "Cancel", style: "cancel" },
     ],
   );
-});
-
-test("the Android Requests menu shows all three actions and no dropped button", () => {
-  const buttons = menuAlertButtons(
-    [action("Accept"), action("Delete", true), action("Block", true)],
-    "Cancel",
-  );
-  assert.deepEqual(
-    buttons.map((button) => button.text),
-    ["Accept", "Delete", "Block"],
-  );
-  assert.equal(buttons[0]?.style, undefined);
-  assert.throws(() =>
-    menuAlertButtons(
-      [action("A"), action("B"), action("C"), action("D")],
-      "Cancel",
-    ),
+  assert.throws(
+    () =>
+      menuAlertButtons(
+        [action("A"), action("B"), action("C"), action("D")],
+        "Cancel",
+      ),
+    RangeError,
   );
 });
 

@@ -161,6 +161,16 @@ export interface PolicyRow {
   readonly value: string;
 }
 
+/** The titles of the "Current policies" rows. */
+export const POLICY_ROW_TITLES = {
+  addMembers: "Add members",
+  removeMembers: "Remove members",
+  admins: "Add or remove admins",
+  details: "Name, description, image",
+  appData: "App data",
+  disappearing: "Disappearing messages",
+} as const;
+
 /** The six "Current policies" rows of the Permissions screen. */
 export function policyRows(
   writes: readonly PermissionWrite[],
@@ -170,21 +180,27 @@ export function policyRows(
     include: (write: PermissionWrite) => boolean,
   ): PolicyRow => ({ title, value: policyValue(writes.filter(include)) });
   return [
-    row("Add members", (write) => write.kind === "addMember"),
-    row("Remove members", (write) => write.kind === "removeMember"),
+    row(POLICY_ROW_TITLES.addMembers, (write) => write.kind === "addMember"),
     row(
-      "Add or remove admins",
+      POLICY_ROW_TITLES.removeMembers,
+      (write) => write.kind === "removeMember",
+    ),
+    row(
+      POLICY_ROW_TITLES.admins,
       (write) => write.kind === "addAdmin" || write.kind === "removeAdmin",
     ),
     row(
-      "Name, description, image",
+      POLICY_ROW_TITLES.details,
       (write) =>
         write.field === "name" ||
         write.field === "description" ||
         write.field === "imageUrl",
     ),
-    row("App data", (write) => write.field === "appData"),
-    row("Disappearing messages", (write) => write.field === "disappearing"),
+    row(POLICY_ROW_TITLES.appData, (write) => write.field === "appData"),
+    row(
+      POLICY_ROW_TITLES.disappearing,
+      (write) => write.field === "disappearing",
+    ),
   ];
 }
 

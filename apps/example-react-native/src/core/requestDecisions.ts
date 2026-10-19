@@ -82,9 +82,7 @@ export class RequestDecisionsStore extends Store<RequestDecisionsState> {
    * Runs the decision waiting for confirmation. A dialog passes the decision
    * it showed, because its dismissal may arrive before its action.
    */
-  confirm(
-    decision: RequestDecision | undefined = this.getState().confirmation,
-  ): void {
+  confirm(decision: RequestDecision | undefined): void {
     if (!this.#begin()) return;
     if (decision === undefined) return;
     this.setState((state) => ({ ...state, confirmation: undefined }));

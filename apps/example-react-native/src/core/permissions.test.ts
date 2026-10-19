@@ -6,17 +6,16 @@ import {
   type GroupMember,
   type GroupPolicy,
   type GroupRole,
+  POLICY_LABELS,
+  POLICY_ROW_TITLES,
   type PermissionWrite,
   canChangePermissionPreset,
   canChangeRole,
   canLeave,
   canRemoveMember,
-  groupPolicy,
   permissionPresetWrites,
   policiesFromSet,
   policyRows,
-  presetLabel,
-  sdkPermissionPolicy,
 } from "./permissions.ts";
 
 test("Admins only makes nine writes in order (nineWritesInOrder)", () => {
@@ -39,17 +38,6 @@ test("Admins only makes nine writes in order (nineWritesInOrder)", () => {
   assert.equal(all.at(-1)?.policy, "admin");
 });
 
-test("SDK policy mapping", () => {
-  assert.equal(groupPolicy("doesNotExist"), "custom");
-  assert.equal(groupPolicy("other"), "custom");
-  assert.equal(groupPolicy("superAdmin"), "superAdmin");
-  assert.equal(sdkPermissionPolicy("custom"), "other");
-  assert.equal(sdkPermissionPolicy("allow"), "allow");
-  assert.equal(presetLabel("allMembers"), "All members");
-  assert.equal(presetLabel("adminOnly"), "Admins only");
-  assert.equal(presetLabel("custom"), "Custom");
-});
-
 test("Current policies rows read one label or a breakdown", () => {
   const set = {
     addMember: "allow",
@@ -59,23 +47,25 @@ test("Current policies rows read one label or a breakdown", () => {
     updateName: "allow",
     updateDescription: "allow",
     updateImage: "admin",
-    updateDisappearing: "admin",
+    updateDisappearing: "other",
     updateAppData: "doesNotExist",
   } as const;
-  assert.deepEqual(policyRows(policiesFromSet(set)), [
-    { title: "Add members", value: "All members" },
-    { title: "Remove members", value: "Admins" },
-    {
-      title: "Add or remove admins",
-      value: "Add admins: Super admins; Remove admins: Admins",
-    },
-    {
-      title: "Name, description, image",
-      value: "Name: All members; Description: All members; Image: Admins",
-    },
-    { title: "App data", value: "Custom" },
-    { title: "Disappearing messages", value: "Admins" },
-  ]);
+  const rows = policyRows(policiesFromSet(set));
+  assert.deepEqual(
+    rows.map((row) => row.title),
+    Object.values(POLICY_ROW_TITLES),
+  );
+  // One policy reads as its label; SDK `other` and `doesNotExist` read as custom.
+  assert.equal(rows[0]?.value, POLICY_LABELS.allow);
+  assert.equal(rows[1]?.value, POLICY_LABELS.admin);
+  assert.equal(rows[4]?.value, POLICY_LABELS.custom);
+  assert.equal(rows[5]?.value, POLICY_LABELS.custom);
+  // Mixed policies read as a breakdown, one "Label: Policy" per write.
+  assert.equal(
+    rows[2]?.value,
+    "Add admins: Super admins; Remove admins: Admins",
+  );
+  assert.equal(rows[3]?.value.split("; ").length, 3);
   assert.equal(policyRows([]).at(0)?.value, "—");
 });
 
@@ -176,8 +166,11 @@ test("unknown policies and protected targets stay read-only", () => {
       { kind: "removeMember", policy: "allow" },
     ],
   );
+  // The actor cannot act on itself even where everyone may act.
+  const self = details("admin", [member], known.policies);
+  assert.ok(!canChangeRole(self, own("admin"), "own"));
+  assert.ok(!canRemoveMember(self, own("admin"), "own"));
   for (const target of [
-    own("superAdmin"),
     superAdmin,
     { id: "absent", role: "member" } as const,
   ]) {

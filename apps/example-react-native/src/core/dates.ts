@@ -18,7 +18,7 @@ const MONTHS = [
 ] as const;
 
 /** The space SwiftUI puts between the time and AM or PM. */
-export const NARROW_NO_BREAK_SPACE = "\u202f";
+const NARROW_NO_BREAK_SPACE = "\u202f";
 
 function month(date: Date): string {
   return MONTHS.at(date.getMonth()) ?? "";
@@ -43,18 +43,4 @@ export function messageDateTime(date: Date): string {
 /** `.formatted(date: .abbreviated, time: .omitted)`: "Oct 18, 2026". */
 export function abbreviatedDate(date: Date): string {
   return `${month(date)} ${String(date.getDate())}, ${String(date.getFullYear())}`;
-}
-
-/** True when both dates fall on the same local calendar day. */
-export function sameLocalDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-/** A date from SDK nanoseconds since the epoch (sub-millisecond precision dropped). */
-export function dateFromNanoseconds(ns: bigint): Date {
-  return new Date(Number(ns / 1_000_000n));
 }

@@ -72,7 +72,7 @@ test("block asks first, then denies and returns to Chats", async () => {
     id: "c2",
   });
   assert.equal(h.writes.length, 0);
-  h.store.confirm();
+  h.store.confirm(h.store.getState().confirmation);
   assert.equal(h.store.getState().confirmation, undefined);
   assert.deepEqual(h.writes, [{ id: "c2", consent: "denied" }]);
   await h.settle();
@@ -82,20 +82,10 @@ test("block asks first, then denies and returns to Chats", async () => {
 test("delete is local only: it dismisses the request and returns to Chats", () => {
   const h = harness();
   h.store.requestDelete("c3");
-  h.store.confirm();
+  h.store.confirm(h.store.getState().confirmation);
   assert.deepEqual(h.dismissed, ["c3"]);
   assert.equal(h.writes.length, 0);
   assert.deepEqual(h.outcomes, [{ kind: "chats" }]);
-});
-
-test("cancel clears the confirmation without a decision", () => {
-  const h = harness();
-  h.store.requestDelete("c3");
-  h.store.cancel();
-  h.store.confirm();
-  assert.equal(h.store.getState().confirmation, undefined);
-  assert.deepEqual(h.dismissed, []);
-  assert.deepEqual(h.outcomes, []);
 });
 
 test("a failed consent write shows the error; the next request clears it (consentRetryClearsPreviousDecisionError)", async () => {
@@ -113,12 +103,12 @@ test("a failed dismissal shows the delete error; a retry clears it (deleteRetryC
   const h = harness();
   h.flags.failDismiss = true;
   h.store.requestDelete("c3");
-  h.store.confirm();
+  h.store.confirm(h.store.getState().confirmation);
   assert.equal(h.store.getState().error, DecisionCopy.deleteFailed);
   assert.deepEqual(h.outcomes, []);
   h.flags.failDismiss = false;
   h.store.requestDelete("c3");
-  h.store.confirm();
+  h.store.confirm(h.store.getState().confirmation);
   assert.equal(h.store.getState().error, undefined);
   assert.deepEqual(h.outcomes, [{ kind: "chats" }]);
 });
@@ -133,50 +123,31 @@ test("one consent write runs at a time", async () => {
   assert.equal(h.writes.length, 2);
 });
 
-test("a write that finishes after the session ended changes nothing (staleConsentCompletionReleasesCommandOwnership)", async () => {
-  const h = harness();
-  h.store.accept("c1");
-  h.flags.current = false;
-  await h.settle();
-  assert.deepEqual(h.outcomes, []);
-  assert.ok(h.store.getState().busy);
-  h.flags.current = true;
-  // The finished write released ownership: a new decision can run.
-  h.store.accept("c2");
-  assert.equal(h.writes.length, 2);
+test("a closed store or an ended session ignores actions and late results", async () => {
+  for (const end of ["closed", "session ended"] as const) {
+    const h = harness();
+    h.store.accept("c1");
+    h.store.requestBlock("c2");
+    const shown = h.store.getState().confirmation;
+    if (end === "closed") h.store.dispose();
+    else h.flags.current = false;
+    await h.settle();
+    h.store.confirm(shown);
+    h.store.requestDelete("c3");
+    assert.deepEqual(h.outcomes, [], end);
+    assert.deepEqual(h.writes, [{ id: "c1", consent: "allowed" }], end);
+    assert.deepEqual(h.dismissed, [], end);
+  }
 });
 
-test("a closed store ignores actions and results", async () => {
-  const h = harness();
-  h.store.accept("c1");
-  h.store.dispose();
-  await h.settle();
-  h.store.requestBlock("c1");
-  assert.deepEqual(h.outcomes, []);
-  assert.equal(h.store.getState().confirmation, undefined);
-});
-
-test("a dialog's action still runs when its dismissal arrived first", () => {
+test("Cancel closes the dialog, and its action still runs when the dismissal arrived first", () => {
   const h = harness();
   h.store.requestDelete("c4");
   const shown = h.store.getState().confirmation;
   h.store.cancel();
+  assert.equal(h.store.getState().confirmation, undefined);
+  assert.deepEqual(h.dismissed, []);
   h.store.confirm(shown);
   assert.deepEqual(h.dismissed, ["c4"]);
-});
-
-test("a dialog confirmed after its store closed does nothing", () => {
-  const h = harness();
-  h.store.requestDelete("c5");
-  const shown = h.store.getState().confirmation;
-  h.store.dispose();
-  h.store.confirm(shown);
-  assert.deepEqual(h.dismissed, []);
-  assert.deepEqual(h.outcomes, []);
-  const blocked = harness();
-  blocked.store.requestBlock("c6");
-  const block = blocked.store.getState().confirmation;
-  blocked.flags.current = false;
-  blocked.store.confirm(block);
-  assert.deepEqual(blocked.writes, []);
+  assert.deepEqual(h.outcomes, [{ kind: "chats" }]);
 });

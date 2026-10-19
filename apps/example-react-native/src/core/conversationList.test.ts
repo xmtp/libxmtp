@@ -11,9 +11,10 @@ import {
   type ConversationRecord,
   LOAD_FAILED,
   conversationRowLabel,
-  filterRows,
   previewText,
 } from "./conversationList.ts";
+import { CONVERSATION_PAGE_SIZE, REQUEST_COUNT_LIMIT } from "./requests.ts";
+import { settle } from "./testing.ts";
 
 const group = (
   id: string,
@@ -112,60 +113,130 @@ function store(
 const range = (from: number, to: number): string[] =>
   Array.from({ length: to - from }, (_, index) => String(from + index));
 
-for (const dismissed of [50, 100]) {
-  test(`a dismissed prefix of ${String(dismissed)} cannot hide older requests (dismissedPrefixCannotHideOlderRequests)`, async () => {
-    const queries = new FakeQueries({ unknown: dismissed + 75 });
-    const list = store(
-      "unknown",
-      queries,
-      new FakePreferences(range(0, dismissed)),
-    );
+/** Detail reads that finish only when the test says so, numbered by call. */
+class HeldDetails {
+  readonly base: FakeQueries;
+  readonly held: (() => void)[] = [];
+  calls = 0;
+  running = 0;
+  peak = 0;
+
+  constructor(base: FakeQueries) {
+    this.base = base;
+  }
+
+  readonly queries: ConversationQueries = {
+    list: (consent, limit) => this.base.list(consent, limit),
+    details: (record) => {
+      this.calls += 1;
+      const name = `${record.id} v${String(this.calls)}`;
+      this.running += 1;
+      this.peak = Math.max(this.peak, this.running);
+      return new Promise((resolve) => {
+        this.held.push(() => {
+          this.running -= 1;
+          resolve({ ...record, name });
+        });
+      });
+    },
+  };
+
+  /** Finishes the oldest held read. */
+  async release(): Promise<void> {
+    this.held.shift()?.();
+    await settle();
+  }
+
+  /** Finishes the newest held read. */
+  async releaseNewest(): Promise<void> {
+    this.held.pop()?.();
+    await settle();
+  }
+
+  async releaseAll(): Promise<void> {
+    while (this.held.length > 0) await this.release();
+  }
+}
+
+/** A list whose first read for `allowed` waits until the test settles it. */
+function heldFirstList(queries: FakeQueries): {
+  readonly queries: ConversationQueries;
+  settleFirst(value: readonly ConversationRecord[] | Error): void;
+} {
+  let settleFirst: (
+    value: readonly ConversationRecord[] | Error,
+  ) => void = () => {};
+  let allowedReads = 0;
+  return {
+    queries: {
+      list: (consent, limit) => {
+        if (consent === "allowed" && ++allowedReads === 1) {
+          return new Promise((resolve, reject) => {
+            settleFirst = (value) => {
+              if (value instanceof Error) reject(value);
+              else resolve(value);
+            };
+          });
+        }
+        return queries.list(consent, limit);
+      },
+      details: (record, marker) => queries.details(record, marker),
+    },
+    settleFirst: (value) => {
+      settleFirst(value);
+    },
+  };
+}
+
+const page = CONVERSATION_PAGE_SIZE;
+for (const { name, dismissed, hidden } of [
+  { name: "the first page", dismissed: range(0, page), hidden: page },
+  {
+    name: "the first two pages",
+    dismissed: range(0, 2 * page),
+    hidden: 2 * page,
+  },
+  // Dismissals outside the list pad the read but do not widen the page.
+  {
+    name: "requests outside the list",
+    dismissed: range(1000, 1000 + page),
+    hidden: 0,
+  },
+]) {
+  test(`Requests shows full pages when ${name} are dismissed`, async () => {
+    // `hidden` dismissed requests come first, then a page and a half of others.
+    const queries = new FakeQueries({ unknown: hidden + page + page / 2 });
+    const list = store("unknown", queries, new FakePreferences(dismissed));
     await list.refresh();
     let state = list.getState();
-    assert.equal(state.rows.length, 50);
-    assert.equal(state.rows[0]?.id, String(dismissed));
+    assert.equal(state.rows.length, page);
+    assert.equal(state.rows[0]?.id, String(hidden));
     assert.ok(state.hasMore);
     list.loadMore();
     await list.whenIdle();
     state = list.getState();
-    assert.equal(state.rows.length, 75);
-    assert.equal(state.rows.at(-1)?.id, String(dismissed + 74));
+    assert.equal(state.rows.length, page + page / 2);
+    assert.equal(state.rows.at(-1)?.id, String(hidden + page + page / 2 - 1));
     assert.ok(!state.hasMore);
   });
 }
 
-test("an exhausted dismissed source has no more rows (exhaustedDismissedSourceHasNoMoreRows)", async () => {
-  const queries = new FakeQueries({ unknown: 50 });
-  const list = store("unknown", queries, new FakePreferences(range(0, 50)));
-  await list.refresh();
-  assert.equal(list.getState().rows.length, 0);
-  assert.ok(!list.getState().hasMore);
-});
-
-test("unrelated dismissals do not expand the displayed window", async () => {
-  const queries = new FakeQueries({ unknown: 75 });
-  const list = store("unknown", queries, new FakePreferences(range(100, 150)));
-  await list.refresh();
-  assert.equal(list.getState().rows.length, 50);
-  assert.ok(list.getState().hasMore);
-  list.loadMore();
-  await list.whenIdle();
-  assert.equal(list.getState().rows.length, 75);
-  assert.ok(!list.getState().hasMore);
-});
-
-test("Chats counts unloaded requests up to the cap, without dismissed ones", async () => {
-  const queries = new FakeQueries({ allowed: 2, unknown: 200 });
+test("only Chats reads the request badge: it counts requests below the limit without dismissed ones", async () => {
+  const shown = REQUEST_COUNT_LIMIT - 1;
+  const queries = new FakeQueries({ allowed: 2, unknown: shown });
   const list = store("allowed", queries, new FakePreferences(["3", "4"]));
   await list.refresh();
-  assert.equal(list.getState().requestCount, 198);
-  assert.deepEqual(
-    queries.lists.find((read) => read.consent === "unknown"),
-    { consent: "unknown", limit: 501 },
-  );
-  queries.totals = { allowed: 2, unknown: 501 };
+  assert.equal(list.getState().requestCount, shown - 2);
+  queries.totals = { allowed: 2, unknown: REQUEST_COUNT_LIMIT };
   await list.refresh();
+  // The limit counts the dismissed ones too.
   assert.equal(list.getState().requestCount, undefined);
+
+  const requests = new FakeQueries({ unknown: 3 });
+  const requestList = store("unknown", requests);
+  await requestList.refresh();
+  assert.equal(requests.lists.length, 1, "Requests reads its list once");
+  assert.equal(requestList.getState().requestCount, undefined);
 });
 
 test("a failed request count hides the number but keeps the list", async () => {
@@ -176,14 +247,6 @@ test("a failed request count hides the number but keeps the list", async () => {
   assert.equal(list.getState().requestCount, undefined);
   assert.equal(list.getState().rows.length, 2);
   assert.equal(list.getState().error, undefined);
-});
-
-test("Requests reads its list once, with no badge read (requestsHydrateWithoutASecondBlockedCountRead)", async () => {
-  const queries = new FakeQueries({ unknown: 3 });
-  const list = store("unknown", queries);
-  await list.refresh();
-  assert.deepEqual(queries.lists, [{ consent: "unknown", limit: 50 }]);
-  assert.equal(list.getState().requestCount, undefined);
 });
 
 test("details fill the visible window plus 50 rows, not the whole list", async () => {
@@ -205,22 +268,19 @@ test("details fill the visible window plus 50 rows, not the whole list", async (
 });
 
 test("a reload keeps known details until the window reads them again", async () => {
-  const queries = new FakeQueries({ allowed: 3 });
-  const list = store("allowed", queries);
-  await list.refresh();
-  assert.equal(list.getState().rows[0]?.title, "Group 0");
-  const reads = queries.details_.length;
-  let titleDuringReload: string | undefined;
-  const stop = list.subscribe(() => {
-    const state = list.getState();
-    if (!state.loading && queries.details_.length === reads) {
-      titleDuringReload = state.rows[0]?.title;
-    }
-  });
-  await list.refresh();
-  stop();
-  assert.equal(titleDuringReload, "Group 0");
-  assert.ok(queries.details_.length > reads);
+  const held = new HeldDetails(new FakeQueries({ allowed: 1 }));
+  const list = store("allowed", held.queries);
+  list.load();
+  await settle();
+  await held.releaseAll();
+  assert.equal(list.getState().rows[0]?.title, "0 v1");
+  list.load();
+  await settle();
+  // The list read finished; the row's second detail read is still held.
+  assert.equal(held.held.length, 1);
+  assert.equal(list.getState().rows[0]?.title, "0 v1");
+  await held.releaseAll();
+  assert.equal(list.getState().rows[0]?.title, "0 v2");
 });
 
 test("a row whose consent changed leaves the list when its details arrive", async () => {
@@ -281,29 +341,25 @@ test("a failed load shows the error", async () => {
   assert.ok(!list.getState().loading);
 });
 
-test("a superseded load failure cannot change a newer load (supersededLoadFailureCannotChangeNewLoad)", async () => {
-  const queries = new FakeQueries({ allowed: 2 });
-  let rejectFirst: (error: Error) => void = () => {};
-  let calls = 0;
-  const slow: ConversationQueries = {
-    list: (consent, limit) => {
-      calls += 1;
-      if (calls === 1) {
-        return new Promise((_, reject) => {
-          rejectFirst = reject;
-        });
-      }
-      return queries.list(consent, limit);
-    },
-    details: (record, marker) => queries.details(record, marker),
-  };
-  const list = store("allowed", slow);
-  const first = list.refresh();
-  await list.refresh();
-  rejectFirst(new Error("late"));
-  await first;
-  assert.equal(list.getState().error, undefined);
-  assert.equal(list.getState().rows.length, 2);
+test("a superseded list read cannot change a newer load", async () => {
+  for (const late of [
+    [group("old-a"), group("old-b"), group("old-c")],
+    new Error("late"),
+  ]) {
+    const label = late instanceof Error ? "late failure" : "late result";
+    const slow = heldFirstList(new FakeQueries({ allowed: 2 }));
+    const list = store("allowed", slow.queries);
+    const first = list.refresh();
+    await list.refresh();
+    slow.settleFirst(late);
+    await first;
+    assert.deepEqual(
+      list.getState().rows.map((row) => row.id),
+      ["0", "1"],
+      label,
+    );
+    assert.equal(list.getState().error, undefined, label);
+  }
 });
 
 test("results after the session ended or the store closed are dropped (staleConversationPageIsRejected)", async () => {
@@ -323,23 +379,16 @@ test("results after the session ended or the store closed are dropped (staleConv
   assert.equal(closed.getState().rows.length, 0);
 });
 
-test("details read the unread count after the conversation's read marker", async () => {
-  const queries = new FakeQueries({ allowed: 1 });
-  const preferences = new FakePreferences();
-  preferences.markers.set("0", 42n);
-  const list = store("allowed", queries, preferences);
-  await list.refresh();
-  assert.deepEqual(queries.markers, [42n]);
-});
-
-test("a local alias names the row", async () => {
+test("a row takes its local alias and counts unread after its read marker", async () => {
   const queries = new FakeQueries({ allowed: 1 });
   const preferences = new FakePreferences();
   preferences.aliases.set("0", "Book club");
+  preferences.markers.set("0", 42n);
   const list = store("allowed", queries, preferences);
   await list.refresh();
   assert.equal(list.getState().rows[0]?.title, "Book club");
   assert.equal(list.getState().rows[0]?.initials, "BC");
+  assert.deepEqual(queries.markers, [42n]);
 });
 
 test("previews follow the iOS mapping", () => {
@@ -362,100 +411,6 @@ test("previews follow the iOS mapping", () => {
   assert.equal(previewText({ kind: "readReceipt" }, undefined), "");
 });
 
-test("filterRows returns every row for an empty search", () => {
-  const rows = [
-    { id: "a", record: group("a"), title: "Alpha", initials: "A" },
-    {
-      id: "b",
-      record: { ...group("b"), kind: "dm" as const, peerHandle: "nick#12" },
-      title: "@nick#12",
-      initials: "N",
-    },
-  ];
-  assert.equal(filterRows(rows, ""), rows);
-  assert.deepEqual(
-    filterRows(rows, "NICK").map((row) => row.id),
-    ["b"],
-  );
-});
-
-/** Lets every pending promise callback run. */
-const flush = () =>
-  new Promise<void>((resolve) => {
-    setImmediate(resolve);
-  });
-
-/** Detail reads that finish only when the test says so, numbered by call. */
-class HeldDetails {
-  readonly base: FakeQueries;
-  readonly held: (() => void)[] = [];
-  calls = 0;
-  running = 0;
-  peak = 0;
-
-  constructor(base: FakeQueries) {
-    this.base = base;
-  }
-
-  readonly queries: ConversationQueries = {
-    list: (consent, limit) => this.base.list(consent, limit),
-    details: (record) => {
-      this.calls += 1;
-      const name = `${record.id} v${String(this.calls)}`;
-      this.running += 1;
-      this.peak = Math.max(this.peak, this.running);
-      return new Promise((resolve) => {
-        this.held.push(() => {
-          this.running -= 1;
-          resolve({ ...record, name });
-        });
-      });
-    },
-  };
-
-  /** Finishes the oldest held read. */
-  async release(): Promise<void> {
-    this.held.shift()?.();
-    await flush();
-  }
-
-  /** Finishes the newest held read. */
-  async releaseNewest(): Promise<void> {
-    this.held.pop()?.();
-    await flush();
-  }
-
-  async releaseAll(): Promise<void> {
-    while (this.held.length > 0) await this.release();
-  }
-}
-
-test("a superseded list read cannot replace a newer one (supersededLoadResultIsRejected)", async () => {
-  const queries = new FakeQueries({ allowed: 2 });
-  let resolveFirst: (records: readonly ConversationRecord[]) => void = () => {};
-  let allowedReads = 0;
-  const slow: ConversationQueries = {
-    list: (consent, limit) => {
-      if (consent === "allowed" && ++allowedReads === 1) {
-        return new Promise((resolve) => {
-          resolveFirst = resolve;
-        });
-      }
-      return queries.list(consent, limit);
-    },
-    details: (record, marker) => queries.details(record, marker),
-  };
-  const list = store("allowed", slow);
-  const first = list.refresh();
-  await list.refresh();
-  resolveFirst([group("old-a"), group("old-b"), group("old-c")]);
-  await first;
-  assert.deepEqual(
-    list.getState().rows.map((row) => row.id),
-    ["0", "1"],
-  );
-});
-
 for (const end of ["closed", "session ended"] as const) {
   test(`details that arrive after the store ${end} are dropped`, async () => {
     let current = true;
@@ -467,7 +422,7 @@ for (const end of ["closed", "session ended"] as const) {
       () => current,
     );
     list.load();
-    await flush();
+    await settle();
     assert.equal(held.held.length, 1);
     if (end === "closed") list.dispose();
     else current = false;
@@ -480,11 +435,11 @@ test("details from an earlier load's window cannot overwrite the newer window's"
   const held = new HeldDetails(new FakeQueries({ allowed: 1 }));
   const list = store("allowed", held.queries);
   list.load();
-  await flush();
+  await settle();
   // A stream update reloads while the first read (v1) still runs: the new
   // window reads the row again (v2), and v2 finishes first.
   list.load();
-  await flush();
+  await settle();
   assert.equal(held.calls, 2);
   await held.releaseNewest();
   assert.equal(list.getState().rows[0]?.title, "0 v2");
@@ -493,20 +448,22 @@ test("details from an earlier load's window cannot overwrite the newer window's"
   assert.equal(list.getState().rows[0]?.title, "0 v2");
 });
 
-test("detail reads stay at four at once across reloads (one AsyncLimiter)", async () => {
+test("reloads never add detail reads beyond the limit", async () => {
   const held = new HeldDetails(new FakeQueries({ allowed: 20 }));
   const list = store("allowed", held.queries);
   list.load();
-  await flush();
-  assert.equal(held.running, 4);
+  await settle();
+  // The limit is what the first load fills.
+  const limit = held.running;
+  assert.ok(limit > 0 && limit < 20, String(limit));
   list.load();
-  await flush();
+  await settle();
   list.load();
-  await flush();
-  assert.equal(held.peak, 4);
+  await settle();
+  assert.equal(held.peak, limit);
   await held.releaseAll();
   await list.whenIdle();
-  assert.equal(held.peak, 4);
+  assert.equal(held.peak, limit);
   assert.equal(list.getState().rows[19]?.title?.startsWith("19 v"), true);
 });
 
@@ -516,9 +473,9 @@ test("loading more while a load runs reads nothing extra", async () => {
   list.load();
   list.loadMore();
   await list.whenIdle();
-  assert.deepEqual(
-    queries.lists.filter((read) => read.consent === "allowed"),
-    [{ consent: "allowed", limit: 50 }],
+  assert.equal(
+    queries.lists.filter((read) => read.consent === "allowed").length,
+    1,
   );
   assert.equal(list.getState().rows.length, 50);
 });

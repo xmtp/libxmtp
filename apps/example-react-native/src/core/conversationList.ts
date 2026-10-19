@@ -84,8 +84,6 @@ export interface ConversationListOptions {
   readonly preferences: ConversationListPreferences;
   /** False once the session that created the store ended. */
   readonly isCurrent: () => boolean;
-  /** Detail reads at once. Default 4 (the iOS `AsyncLimiter(4)`). */
-  readonly concurrency?: number;
 }
 
 export interface ConversationListState {
@@ -115,6 +113,8 @@ export const UNREAD_CONTENT_KINDS = [
 
 /** Visible rows read on first appearance (iOS `visibleCount = 10`). */
 const INITIAL_VISIBLE_COUNT = 10;
+/** Detail reads that run at once, across every window. */
+const DETAIL_READ_LIMIT = 4;
 
 function bodyText(body: MessageBody): string | undefined {
   return body.kind === "text" || body.kind === "markdown"
@@ -166,7 +166,7 @@ export function conversationRowLabel(row: ConversationRow): string {
 }
 
 /** Rows that match `search` (title, peer handle, preview or ID), all rows when empty. */
-export function filterRows(
+function filterRows(
   rows: readonly ConversationRow[],
   search: string,
 ): readonly ConversationRow[] {
@@ -188,7 +188,6 @@ export function filterRows(
 
 export class ConversationListStore extends Store<ConversationListState> {
   readonly #options: ConversationListOptions;
-  readonly #concurrency: number;
   #limit = CONVERSATION_PAGE_SIZE;
   #visibleStart = 0;
   #visibleCount = INITIAL_VISIBLE_COUNT;
@@ -199,7 +198,7 @@ export class ConversationListStore extends Store<ConversationListState> {
   #queue: string[] = [];
   readonly #queued = new Set<string>();
   readonly #hydrated = new Set<string>();
-  /** Detail reads running, from any window (at most `concurrency`). */
+  /** Detail reads running, from any window (at most `DETAIL_READ_LIMIT`). */
   #active = 0;
   #disposed = false;
   #idleWaiters: (() => void)[] = [];
@@ -214,7 +213,6 @@ export class ConversationListStore extends Store<ConversationListState> {
       hasMore: true,
     });
     this.#options = options;
-    this.#concurrency = Math.max(1, options.concurrency ?? 4);
   }
 
   /** True after `dispose`; a closed store never changes again. */
@@ -476,7 +474,7 @@ export class ConversationListStore extends Store<ConversationListState> {
   }
 
   #pump(): void {
-    while (this.#active < this.#concurrency && this.#queue.length > 0) {
+    while (this.#active < DETAIL_READ_LIMIT && this.#queue.length > 0) {
       const id = this.#queue.shift();
       if (id === undefined) break;
       this.#active += 1;

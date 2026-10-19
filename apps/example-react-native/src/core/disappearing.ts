@@ -10,9 +10,6 @@ export const DISAPPEARING_PRESETS = [
   { label: "1 week", seconds: "604800" },
 ] as const;
 
-/** `Int64.max / 1_000_000_000`: the longest duration whose nanoseconds fit in Int64. */
-export const MAX_DISAPPEARING_SECONDS = 9_223_372_036n;
-
 const INT64_MAX = 9_223_372_036_854_775_807n;
 const NANOSECONDS_PER_SECOND = 1_000_000_000n;
 
