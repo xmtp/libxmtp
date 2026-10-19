@@ -12,7 +12,7 @@ The Rust workspace version is separate. Leave `libxmtp-version` empty to keep
 it. The branch label `8.0.0` does not set any manifest version.
 
 1. Merge the release preparation PR into `main`.
-2. Select the `main` workflow revision in **Actions > Create Release Branch**.
+2. Select the `main` workflow revision in **Actions > Release: create branch**.
 3. Set these inputs:
 
    | Input | Value |
@@ -80,8 +80,8 @@ publishing the final release.
 
 Notes are at `docs/release-notes/<sdk>/<version>.md`. Branch preparation keeps
 existing notes. For a missing file, it creates a scaffold using the highest
-stable SDK tag below the target version. Dev, nightly, RC, and artifact tags
-are excluded. If no stable SDK tag exists, a kept version uses a repository
+stable SDK tag below the target version. Prerelease tags (dev, RC, and the
+nightlies of earlier releases) and artifact tags are excluded. If no stable SDK tag exists, a kept version uses a repository
 root commit as the comparison baseline. Review that baseline before accepting
 an AI draft.
 
@@ -142,7 +142,7 @@ that run. If Node is omitted, Agent uses npm `latest`, which must be version
 Keep the release branch fixed during a run. After a failure, check which
 packages were published. Retry only unfinished SDKs at the same source commit.
 Do not overwrite a published package. If the source changes, increment the RC
-number. If Node succeeded and Agent failed, run **Release Agent SDK** from the
+number. If Node succeeded and Agent failed, run **Release: Agent SDK** from the
 same release branch with `release-type=rc`, the same `rc-number`, and
 `node-sdk-version` set to the published Node RC version. Put fixes on
 `main`, then bring them into the release branch.
@@ -177,7 +177,7 @@ name. `release/8.0.0` with `rc-number=1` produces:
 The Rust workspace version remains the backend's build identifier. The release
 label does not change Cargo manifests. Dev builds from a release branch use
 that branch's version with a dev suffix. Other dev builds use the Rust
-workspace base version. Scheduled nightlies do not select the backend.
+workspace base version.
 
 The publisher checks that an existing version tag and image match the source
 commit and platform digests. A matching retry needs no overwrite. A version
@@ -198,7 +198,12 @@ must succeed before the final release PR can merge automatically.
 If the release branch was created before backend release support was merged,
 bring that change into the release branch before selecting `backend=true`.
 
-## Dev and nightly releases
+A backend release that publishes also builds `ghcr.io/xmtp/xdbg:<version>`
+from the same source, with the backend version as its tag, and deploys that
+tag to the testnet client monitor. A backend dry run builds the xdbg image
+without pushing or deploying it.
+
+## Dev releases
 
 Dev releases can use any branch. Select `release-type=dev`, the source `ref`,
 and the SDK switches. Select the source branch as the workflow revision too.
@@ -206,9 +211,7 @@ Dev versions from another branch use `<version>-dev.<sha7>`.
 Dev versions from `main` use `<version>-pre.<timestamp>.dev.<sha7>`.
 Dev releases publish real packages; they are not a dry run.
 
-The scheduled nightly workflow still releases from `main`. Creating an 8.0
-release branch does not change the nightly source. Nightlies use the CI gate
-and pending-version calculation. RC and final releases use the SDK manifests.
+There is no scheduled release. Every release is a manual run of **Release**.
 
 ## SDK tags and package destinations
 

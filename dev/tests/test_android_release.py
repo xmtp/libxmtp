@@ -120,16 +120,14 @@ class AndroidReleaseTest(unittest.TestCase):
         names = [item.get("name") for item in steps]
         build = steps[names.index("Build example APK")]
         self.assertEqual(build["run"], "dev/nix-shell 'just example-android apk'")
-        self.assertEqual(
-            build["env"]["XMTP_EXAMPLE_VERSION"], "${{ steps.version.outputs.version }}"
-        )
+        self.assertEqual(build["env"]["XMTP_EXAMPLE_VERSION"], "${{ inputs.version }}")
         self.assertLess(names.index("Build example APK"), names.index("Publish"))
         upload = steps[names.index("Retain example APK")]
         self.assertLess(names.index("Retain example APK"), names.index("Publish"))
         self.assertEqual(upload["with"]["if-no-files-found"], "error")
         self.assertEqual(
             upload["with"]["path"],
-            "apps/example-android/build/apk/xmtp-messenger-${{ steps.version.outputs.version }}.apk",
+            "apps/example-android/build/apk/xmtp-messenger-${{ inputs.version }}.apk",
         )
         job = jobs["publish-apk"]
         self.assertEqual(job["permissions"]["contents"], "write")
@@ -152,7 +150,7 @@ class AndroidReleaseTest(unittest.TestCase):
             )
             gh.chmod(0o755)
             log = root / "calls.jsonl"
-            for kind in ("dev", "rc", "final", "nightly"):
+            for kind in ("dev", "rc", "final"):
                 for existing in (False, True):
                     with self.subTest(kind=kind, existing=existing):
                         log.write_text("")

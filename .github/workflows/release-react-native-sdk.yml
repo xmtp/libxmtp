@@ -1,33 +1,15 @@
-name: Release React Native SDK
+name: "Release: React Native SDK"
 
 on:
   workflow_call:
     inputs:
-      release-type:
-        required: true
-        type: string
-        description: "dev, rc, or final"
-      rc-number:
-        required: false
-        type: string
-        description: "RC number (required for rc releases)"
       source-sha:
         description: Fixed source commit resolved by the release caller
-        required: false
-        type: string
-      ref:
         required: true
         type: string
-        description: "Git ref to build from"
-      timestamp:
-        required: false
-        type: string
-        description: "Shared UTC YYYYMMDDHHMMSS stamp minted once per Release run"
-      pending-version:
-        required: false
-        type: string
-      pending-kind:
-        required: false
+      version:
+        description: The version to publish, computed once by release.yml
+        required: true
         type: string
       dry-run:
         required: false
@@ -41,64 +23,22 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Runners: the iOS legs need Xcode 27.0 and stay on paid macOS. The Linux legs
+# stay on Blacksmith: they rebuild the versioned RN products on every release
+# (the warm set holds only the default version), and the Android consumer
+# job runs an emulator with native backend services and a Gradle build.
 jobs:
   check-push-permissions:
+    name: Source
     uses: ./.github/workflows/check-release-push.yml
     with:
-      ref: ${{ inputs.source-sha || inputs.ref }}
+      ref: ${{ inputs.source-sha }}
       dry-run: ${{ inputs.dry-run }}
     secrets: inherit
 
-  setup:
-    needs: [check-push-permissions]
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      - uses: ./.github/actions/setup-release-tools
-
-      - name: Require the run-wide timestamp
-        if: inputs.release-type == 'dev' || inputs.release-type == 'nightly'
-        env:
-          TIMESTAMP: ${{ inputs.timestamp }}
-        run: |
-          if [ -z "$TIMESTAMP" ]; then
-            echo "::error::${{ inputs.release-type }} releases require the run-wide timestamp minted by release.yml; refusing to publish react-native-sdk without the shared release stamp"
-            exit 1
-          fi
-
-      - name: Compute version
-        id: version
-        env:
-          REF: ${{ inputs.ref }}
-          TIMESTAMP: ${{ inputs.timestamp }}
-        run: |
-          if [ "${{ inputs.release-type }}" = "rc" ]; then
-            VERSION=$(xmtp-release compute-version --sdk react-native-sdk --release-type rc --rc-number ${{ inputs.rc-number }})
-          elif [ "${{ inputs.release-type }}" = "dev" ]; then
-            VERSION=$(xmtp-release compute-version --sdk react-native-sdk --release-type dev --source-ref "$REF" --timestamp "$TIMESTAMP")
-          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
-            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
-              echo "::error::nightly resolve called with empty pending version/kind"
-              exit 1
-            fi
-            VERSION=$(xmtp-release resolve-sdk-version \
-              --sdk react-native-sdk --release-type nightly \
-              --timestamp "$TIMESTAMP" \
-              --pending-version "${{ inputs.pending-version }}" \
-              --pending-kind "${{ inputs.pending-kind }}")
-          else
-            VERSION=$(xmtp-release compute-version --sdk react-native-sdk --release-type final)
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Computed version: $VERSION"
-
   components:
     name: RN components (${{ matrix.system }})
-    needs: [setup, check-push-permissions]
+    needs: [check-push-permissions]
     strategy:
       fail-fast: false
       matrix:
@@ -110,53 +50,60 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "read"
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Build the RN product stage
+        uses: ./.github/actions/react-native-product
         with:
           stage: components
           system: ${{ matrix.system }}
           source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
-          package-version: ${{ needs.setup.outputs.version }}
+          package-version: ${{ inputs.version }}
           artifact-prefix: react-native-release
           cache-mode: "read"
 
   build:
     name: Assemble the canonical RN package
-    needs: [setup, components, check-push-permissions]
+    needs: [components, check-push-permissions]
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "read"
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Build the RN product stage
+        uses: ./.github/actions/react-native-product
         with:
           stage: package
           system: x86_64-linux
           source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
-          package-version: ${{ needs.setup.outputs.version }}
+          package-version: ${{ inputs.version }}
           artifact-prefix: react-native-release
           cache-mode: "read"
       - name: Retain the exact checked release tarball
         env:
-          VERSION: ${{ needs.setup.outputs.version }}
+          VERSION: ${{ inputs.version }}
         run: |
           mkdir -p target/sdk-packages/react-native-release
           cp -RL "$XMTP_RN_PACKAGE_DIR/." target/sdk-packages/react-native-release/
           dev/nix-shell --shell js --command python3.11 sdks/react-native/scripts/package.py verify-package \
             "target/sdk-packages/react-native-release/xmtp-react-native-sdk-$VERSION.tgz" \
             --version "$VERSION" --source "$XMTP_RN_EXPECTED_SOURCE"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - name: Store the release package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: react-native-release-package
           path: target/sdk-packages/react-native-release
@@ -166,7 +113,7 @@ jobs:
 
   consumers:
     name: RN installed consumers (${{ matrix.platform }})
-    needs: [setup, build, check-push-permissions]
+    needs: [build, check-push-permissions]
     strategy:
       fail-fast: false
       matrix:
@@ -183,39 +130,45 @@ jobs:
       XMTP_SDK_BUILD: nix
       NIX_DEVSHELL: ${{ matrix.platform == 'android' && 'android' || 'ios' }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "read"
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/setup-js
+      - name: Set up JavaScript
+        uses: ./.github/actions/setup-js
         with:
           cache-mode: "read"
           filter: "@xmtp/node-sdk..."
-      - uses: ./.github/actions/react-native-product
+      - name: Build the RN product stage
+        uses: ./.github/actions/react-native-product
         with:
           stage: consumers
           system: ${{ matrix.system }}
           source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
-          package-version: ${{ needs.setup.outputs.version }}
+          package-version: ${{ inputs.version }}
           artifact-prefix: react-native-release
           cache-mode: "read"
-      - uses: ./.github/actions/react-native-conformance
+      - name: Run the installed RN journeys
+        uses: ./.github/actions/react-native-conformance
         with:
           platform: ${{ matrix.platform }}
           artifact-prefix: react-native-release
 
   publish:
-    needs: [setup, build, consumers, check-push-permissions]
+    name: Publish
+    needs: [build, consumers, check-push-permissions]
     uses: ./.github/workflows/npm-publish.yml
     with:
-      ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+      source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
       package-dir: target/sdk-packages/react-native-release/package
-      package-tarball: target/sdk-packages/react-native-release/xmtp-react-native-sdk-${{ needs.setup.outputs.version }}.tgz
+      package-tarball: target/sdk-packages/react-native-release/xmtp-react-native-sdk-${{ inputs.version }}.tgz
       sdk: react-native-sdk
-      version: ${{ needs.setup.outputs.version }}
+      version: ${{ inputs.version }}
       artifact-pattern: react-native-release-package
       artifact-path: target/sdk-packages/react-native-release
       ignore-scripts: true

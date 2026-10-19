@@ -13,21 +13,27 @@ App tokens are available only in isolated permission and tag push jobs.
 These jobs do not run SDK or release tools. The tag push job imports a Git
 bundle into a new bare repository.
 Resolve the requested ref before SDK code runs. All SDK jobs use that fixed
-source SHA for checkout, build, and tag checks. Keep the requested ref for
-version classification. `release.yml` freezes the source in `validate`, then
-passes it to the nightly oracle, every SDK, the backend, and the hub. Direct
-SDK callers may omit `source-sha`; their permission job resolves `ref` once.
-The version CLI gets its hash from the pinned HEAD.
+source SHA for checkout, build, and tag checks. `release.yml` freezes the
+source in `validate` and computes every selected SDK version there, once,
+from the requested ref (for dev classification) and one run timestamp. It
+passes the source SHA and the version to each SDK workflow; the backend
+computes its own version after it pins its source. Only a direct dispatch of
+`release-agent-sdk.yml` or `release-cli.yml` computes its version in the SDK
+workflow. The version CLI gets its hash from the pinned HEAD.
+Each SDK workflow runs `check-release-push.yml` once before it builds.
+`npm-publish.yml` takes the checked `source-sha` from its caller and does not
+repeat the check.
 Android and npm tags must point to that SHA. iOS can use one direct
 release commit
 that changes only the iOS release files. The push job checks this before it
 creates its token.
 Npm dry runs resolve the source but do not create an App token or push a tag.
 `just test dev` checks the tag transfer with a local Git HTTP remote.
-The nightly libxmtp hub tag (`v<version>`, `release.yml`) uses the same tag
-push job, so a `v*` tag ruleset can list the App as its bypass actor.
 `check-release-push.yml` refuses a source commit that is not on `main`
 or a `release/**` branch; dry runs skip that check.
+There is no scheduled release. A backend release also builds the xdbg image,
+tags it with the backend version, and deploys that tag to testnet
+(`release-xdbg` in `release.yml`).
 
 Every `setup-nix` call states its Cachix cache mode (`read`, `ci`, or
 `trusted`), and `setup-js` gets the same mode. Release, publish, deploy,
