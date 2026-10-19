@@ -28,19 +28,17 @@
 //!   without a scan.
 //! - Stack and register copies are invisible to a heap scan.
 //! - Unix only: the scanner needs `libc::memmem`.
-//! - Arming takes a process-wide lock, so concurrent scans in one process
-//!   run one after another. A scan that would wait for a scan armed on its own
-//!   thread panics instead: `scan_async` holds the lock across `.await`, so on
-//!   a single-threaded executor that wait could never end.
+//! - One scan at a time per process. A scan that starts while another is
+//!   armed panics at once instead of waiting: an armed async scan may itself be
+//!   waiting on the competing scan's task, so waiting could deadlock the
+//!   executor. nextest runs each test in its own process; under `cargo test`,
+//!   run a canary binary with `--test-threads=1`.
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::UnsafeCell,
     future::Future,
-    sync::{
-        Mutex, MutexGuard, PoisonError,
-        atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst},
-    },
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst},
 };
 
 use super::Zeroize;
@@ -142,8 +140,8 @@ impl Canary {
     }
 }
 
-/// Forms armed for the current scan. Written only by the scan that holds
-/// [`SCAN_LOCK`], while [`ARMED`] is false and no free is being scanned.
+/// Forms armed for the current scan. Written only by the admitted scan (see
+/// [`ACTIVE`]), while [`ARMED`] is false and no free is being scanned.
 struct ArmedForms(UnsafeCell<ArmedFormsInner>);
 
 struct ArmedFormsInner {
@@ -155,22 +153,12 @@ struct ArmedFormsInner {
 }
 
 // SAFETY: the cell is written only while `ARMED` is false and `IN_FLIGHT` is
-// zero, under `SCAN_LOCK`; `dealloc` reads it only while `ARMED` is true.
+// zero, by the one admitted scan; `dealloc` reads it only while `ARMED` is
+// true.
 unsafe impl Sync for ArmedForms {}
 
-static SCAN_LOCK: Mutex<()> = Mutex::new(());
-/// The thread that holds [`SCAN_LOCK`], as a [`thread_key`], or 0.
-static HOLDER: AtomicUsize = AtomicUsize::new(0);
-
-thread_local! {
-    static THREAD_KEY: u8 = const { 0 };
-}
-
-/// A nonzero key that is unique among live threads: the address of this
-/// thread's `THREAD_KEY`.
-fn thread_key() -> usize {
-    THREAD_KEY.with(|key| std::ptr::from_ref(key) as usize)
-}
+/// True while a scan is admitted, from `arm` until its `Armed` drops.
+static ACTIVE: AtomicBool = AtomicBool::new(false);
 static ARMED: AtomicBool = AtomicBool::new(false);
 /// Frees that may be reading [`FORMS`]. Disarming waits for zero.
 static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
@@ -251,11 +239,10 @@ unsafe fn contains(haystack: *const u8, len: usize, needle: &[u8]) -> bool {
     !found.is_null()
 }
 
-/// Holds [`SCAN_LOCK`] while a scan is armed. Dropping it disarms, even when
+/// The admitted scan. Dropping it disarms and releases admission, even when
 /// the code under test panics.
 struct Armed {
     canaries: usize,
-    _lock: MutexGuard<'static, ()>,
 }
 
 impl Armed {
@@ -265,18 +252,15 @@ impl Armed {
             "a scan arms 1 to {MAX_CANARIES} canaries, got {}",
             canaries.len()
         );
-        let me = thread_key();
-        assert_ne!(
-            HOLDER.load(SeqCst),
-            me,
-            "heap-canary scans cannot nest or overlap on one thread: the armed \
-             scan holds the lock until its future finishes"
+        assert!(
+            ACTIVE.compare_exchange(false, true, SeqCst, SeqCst).is_ok(),
+            "heap-canary scans cannot overlap: another scan is armed in this \
+             process (run canary tests one per process, as nextest does)"
         );
-        let lock = SCAN_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-        HOLDER.store(me, SeqCst);
         debug_assert!(!ARMED.load(SeqCst));
-        // SAFETY: we hold `SCAN_LOCK` and `ARMED` is false. The last disarm
-        // waited for `IN_FLIGHT` to reach zero, so no free reads the forms.
+        // SAFETY: this scan was just admitted and `ARMED` is false. The last
+        // disarm waited for `IN_FLIGHT` to reach zero, so no free reads the
+        // forms.
         let armed = unsafe { &mut *FORMS.0.get() };
         armed.count = 0;
         armed.min_len = usize::MAX;
@@ -294,20 +278,19 @@ impl Armed {
         ARMED.store(true, SeqCst);
         Self {
             canaries: canaries.len(),
-            _lock: lock,
         }
     }
 
     /// Stop scanning, wait for in-flight frees, then wipe the armed forms so
-    /// the raw key does not stay in static memory. Callers hold `SCAN_LOCK`
-    /// through the `Armed` guard.
+    /// the raw key does not stay in static memory. Callers are the admitted
+    /// scan's `Armed`.
     fn disarm() {
         ARMED.store(false, SeqCst);
         while IN_FLIGHT.load(SeqCst) != 0 {
             std::hint::spin_loop();
         }
-        // SAFETY: `ARMED` is false and no free is in flight, and the caller
-        // holds `SCAN_LOCK`, so nothing else reads or writes the forms.
+        // SAFETY: `ARMED` is false, no free is in flight, and the caller is the
+        // admitted scan, so nothing else reads or writes the forms.
         let armed = unsafe { &mut *FORMS.0.get() };
         for form in &mut armed.forms {
             form.bytes.zeroize();
@@ -330,8 +313,7 @@ impl Armed {
 impl Drop for Armed {
     fn drop(&mut self) {
         Self::disarm();
-        // Cleared before `_lock` drops, so the next holder sets it afresh.
-        HOLDER.store(0, SeqCst);
+        ACTIVE.store(false, SeqCst);
     }
 }
 
@@ -376,11 +358,11 @@ macro_rules! install_heap_canary {
 mod tests {
     use super::*;
 
-    /// A second scan on the thread that armed the first would wait forever on
-    /// a single-threaded executor. It panics instead of deadlocking.
+    /// A scan that starts while another is armed panics at once. Waiting
+    /// could deadlock when the armed scan waits on the competing one.
     #[test]
-    #[should_panic(expected = "cannot nest or overlap on one thread")]
-    fn overlapping_scan_on_one_thread_panics() {
+    #[should_panic(expected = "heap-canary scans cannot overlap")]
+    fn overlapping_scan_panics() {
         let canary = Canary::new(&[0x5a; 32]);
         let ((), _) = scan(&[canary], || {
             let ((), _) = scan(&[canary], || ());
@@ -393,8 +375,9 @@ mod tests {
     fn disarm_wipes_the_armed_forms() {
         let key = [0x5a; 32];
         let ((), _) = scan(&[Canary::new(&key)], || ());
-        let _lock = SCAN_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-        // SAFETY: no scan is armed and we hold `SCAN_LOCK`.
+        assert!(!ACTIVE.load(SeqCst));
+        // SAFETY: no scan is admitted, and nextest runs this test alone in
+        // its process.
         let armed = unsafe { &*FORMS.0.get() };
         assert_eq!(armed.count, 0);
         assert!(
