@@ -42,12 +42,16 @@ fn dropped_hex_string_is_a_hit() {
 
 /// The client database stores a key in an OpenMLS type as a CBOR array of
 /// `u8`. A freed encoded value is a hit, though a CBOR array splits the raw
-/// bytes.
+/// bytes. The key holds both bytes at the item boundary: `0x17` is its own
+/// item, and `0x18` takes the one-byte prefix.
 #[test]
 fn dropped_cbor_encoding_is_a_hit() {
-    let encoded = black_box(cbor4ii::serde::to_vec(Vec::new(), &KEY.to_vec()).unwrap());
-    assert!(!encoded.windows(KEY.len()).any(|window| window == KEY));
-    let ((), hits) = scan(&[Canary::new(&KEY)], || drop(black_box(encoded)));
+    let mut key = KEY;
+    key[0] = 0x17;
+    key[1] = 0x18;
+    let encoded = black_box(cbor4ii::serde::to_vec(Vec::new(), &key.to_vec()).unwrap());
+    assert!(!encoded.windows(key.len()).any(|window| window == key));
+    let ((), hits) = scan(&[Canary::new(&key)], || drop(black_box(encoded)));
     assert_eq!(hits, [1]);
 }
 

@@ -317,7 +317,8 @@ mod tests {
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());
     }
 
-    /// The client database stores installation keys as CBOR.
+    /// The client database stores installation keys as CBOR. CBOR stores
+    /// field names, so this also pins the `signature_scheme` rename.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_is_binary_compatible_with_mls_deser_serde() {
@@ -359,19 +360,6 @@ mod tests {
             let bytes = cbor4ii::serde::to_vec(Vec::new(), &keypair).unwrap();
             assert!(cbor4ii::serde::from_slice::<XmtpInstallationCredential>(&bytes).is_err());
         }
-    }
-
-    /// A codec that stores field names reads a `SignatureKeyPair` as an
-    /// installation credential.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn deserializes_signature_key_pair_with_field_names() {
-        let keypair = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
-        let serialized = serde_json::to_vec(&keypair).unwrap();
-
-        let x_kp: XmtpInstallationCredential = serde_json::from_slice(&serialized).unwrap();
-        assert_eq!(keypair.private(), x_kp.0.as_bytes());
-        assert_eq!(keypair.public(), &x_kp.0.verifying_key().to_bytes());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

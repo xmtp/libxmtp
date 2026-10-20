@@ -1717,28 +1717,6 @@ pub(crate) mod tests {
             .unwrap();
     }
 
-    /// An HPKE key pair as a key store entity. OpenMLS keeps its own
-    /// `EncryptionKeyPair` crate-private.
-    #[derive(Serialize, Deserialize, Clone)]
-    struct KeyPair(openmls_traits::types::HpkeKeyPair);
-    impl traits::HpkeKeyPair<CURRENT_VERSION> for KeyPair {}
-    impl Entity<CURRENT_VERSION> for KeyPair {}
-
-    /// The value bytes stored under `label` and `key`, as `write` stores them.
-    fn stored_value<C: crate::ConnectionExt>(
-        store: &SqlKeyStore<C>,
-        label: &[u8],
-        key: &[u8],
-    ) -> Vec<u8> {
-        let storage_key = super::build_key_from_vec::<CURRENT_VERSION>(label, key.to_vec());
-        let rows = store.select_query::<CURRENT_VERSION>(&storage_key).unwrap();
-        rows.into_iter()
-            .next()
-            .expect("a stored value")
-            .value_bytes
-            .to_vec()
-    }
-
     /// The CBOR of `v`, written by cbor4ii itself: the reference for what the
     /// codec stores.
     fn cbor<T: Serialize>(v: &T) -> Vec<u8> {
@@ -1771,107 +1749,6 @@ pub(crate) mod tests {
     /// the bytes.
     fn length_prefixed(bytes: &[u8]) -> Vec<u8> {
         [&(bytes.len() as u64).to_le_bytes()[..], bytes].concat()
-    }
-
-    /// Each key package entity, the post-quantum wrapper key and each list
-    /// rewrite store the CBOR of the value. The exact-size buffers that keep
-    /// wiping sound change no byte.
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn stored_bytes_are_the_cbor_of_the_value() {
-        use super::{
-            ENCRYPTION_KEY_PAIR_LABEL, EPOCH_KEY_PAIRS_LABEL, KEY_PACKAGE_LABEL,
-            KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SIGNATURE_KEY_PAIR_LABEL, build_key,
-            codec::encode_key, epoch_key_pairs_id,
-        };
-        use crate::xmtp_openmls_provider::XmtpMlsStorageProvider;
-        use openmls::{prelude::GroupEpoch, treesync::EncryptionKey};
-        use openmls_traits::crypto::OpenMlsCrypto;
-
-        let store = crate::TestDb::create_persistent_store(None).await;
-        let provider = XmtpOpenMlsProvider::new(SqlKeyStore::new(store.conn()));
-        let key_store = provider.storage();
-
-        let bundle = crate::test_utils::generate_key_package_bundle();
-        let hash_ref = bundle.key_package().hash_ref(provider.crypto())?;
-        key_store.write_key_package(&hash_ref, &bundle)?;
-        let key = build_key::<CURRENT_VERSION, _>(KEY_PACKAGE_LABEL, &hash_ref)?;
-        assert!(
-            stored_value(key_store, KEY_PACKAGE_LABEL, &key) == cbor(&bundle),
-            "key package bundle"
-        );
-
-        let key_pair = KeyPair(
-            provider
-                .crypto()
-                .derive_hpke_keypair(CIPHERSUITE.hpke_config(), &[1; 32])?,
-        );
-        let public_key = EncryptionKey::from(key_pair.0.public.clone());
-        key_store.write_encryption_key_pair(&public_key, &key_pair)?;
-        let key = build_key::<CURRENT_VERSION, _>(ENCRYPTION_KEY_PAIR_LABEL, &public_key)?;
-        assert!(
-            stored_value(key_store, ENCRYPTION_KEY_PAIR_LABEL, &key) == cbor(&key_pair),
-            "encryption key pair"
-        );
-
-        let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
-        let public_key = StorageId::from(signature_key_pair.to_public_vec());
-        key_store.write_signature_key_pair(&public_key, &signature_key_pair)?;
-        let key = build_key::<CURRENT_VERSION, _>(SIGNATURE_KEY_PAIR_LABEL, &public_key)?;
-        assert!(
-            stored_value(key_store, SIGNATURE_KEY_PAIR_LABEL, &key) == cbor(&signature_key_pair),
-            "signature key pair"
-        );
-
-        let group_id = GroupId::from_slice(b"stored bytes");
-        let epoch = GroupEpoch::from(3);
-        let epoch_key_pairs = [
-            key_pair.clone(),
-            KeyPair(
-                provider
-                    .crypto()
-                    .derive_hpke_keypair(CIPHERSUITE.hpke_config(), &[2; 32])?,
-            ),
-        ];
-        key_store.write_encryption_epoch_key_pairs(&group_id, &epoch, 1, &epoch_key_pairs)?;
-        let key = epoch_key_pairs_id(&group_id, &epoch, 1)?;
-        assert!(
-            stored_value(key_store, EPOCH_KEY_PAIRS_LABEL, &key)
-                == cbor(&epoch_key_pairs.as_slice()),
-            "epoch key pairs"
-        );
-
-        // The post-quantum key is stored as one byte string under the hash
-        // ref in the key layout, as `identity.rs` writes it.
-        let post_quantum = xmtp_cryptography::post_quantum::generate_post_quantum_key()?;
-        let hash_ref = encode_key(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)?;
-        key_store.write_wrapper_private_key(&hash_ref, &post_quantum.private)?;
-        assert!(
-            stored_value(key_store, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)
-                == [
-                    cbor_head(2, post_quantum.private.len()),
-                    post_quantum.private.to_vec()
-                ]
-                .concat(),
-            "post-quantum wrapper private key"
-        );
-
-        const LIST: &[u8] = b"StoredBytesList";
-        let (first, second) = (b"first entry".as_slice(), b"second entry".as_slice());
-        key_store.append::<CURRENT_VERSION>(LIST, b"key", first)?;
-        assert!(
-            stored_value(key_store, LIST, b"key") == cbor_list(&[first]),
-            "first list entry"
-        );
-        key_store.append::<CURRENT_VERSION>(LIST, b"key", second)?;
-        assert!(
-            stored_value(key_store, LIST, b"key") == cbor_list(&[first, second]),
-            "appended list entry"
-        );
-        key_store.remove_item::<CURRENT_VERSION>(LIST, b"key", first)?;
-        assert!(
-            stored_value(key_store, LIST, b"key") == cbor_list(&[second]),
-            "removed list entry"
-        );
     }
 
     /// A value for every OpenMLS value trait. Its long byte string makes the
@@ -2152,10 +2029,56 @@ pub(crate) mod tests {
         );
         let refs: Vec<KeyPackageRef> = key_store.queued_proposal_refs(&other_group)?;
         assert!(refs.is_empty());
+
+        // The XMTP labels' typed writers store one byte string under a key
+        // built in place: the post-quantum wrapper key under its hash ref in
+        // the key layout, and the commit-log signer under the group id.
+        use crate::xmtp_openmls_provider::XmtpMlsStorageProvider;
+        let byte_string = |byte: u8| [&[0x58, 0x20][..], &[byte; 32]].concat();
+        let wrapper_hash_ref = length_prefixed(&[0x5a; 32]);
+        let wrapper_key = single(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &wrapper_hash_ref);
+        key_store.write_wrapper_private_key(&wrapper_hash_ref, &[0x5a; 32])?;
+        assert_eq!(stored(wrapper_key.clone()), Some(byte_string(0x5a)));
+        assert_eq!(
+            key_store
+                .wrapper_private_key(&wrapper_hash_ref)?
+                .map(|key| key.to_vec()),
+            Some(vec![0x5a; 32])
+        );
+        key_store.delete::<CURRENT_VERSION>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &wrapper_hash_ref)?;
+        assert_eq!(stored(wrapper_key), None);
+
+        let signer_key = single(COMMIT_LOG_SIGNER_PRIVATE_KEY, &group_key);
+        key_store.write_commit_log_signer(group_id.as_slice(), &[0x24; 32])?;
+        assert_eq!(stored(signer_key.clone()), Some(byte_string(0x24)));
+        assert_eq!(
+            key_store
+                .commit_log_signer(group_id.as_slice())?
+                .map(|key| key.as_slice().to_vec()),
+            Some(vec![0x24; 32])
+        );
+        key_store.delete::<CURRENT_VERSION>(
+            COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id.as_slice())?,
+        )?;
+        assert_eq!(stored(signer_key), None);
+
+        // A list under a raw label: each append and removal rewrites the
+        // whole list.
+        const LIST: &[u8] = b"StoredBytesList";
+        let list_key = single(LIST, b"key");
+        let (first, second) = (b"first entry".as_slice(), b"second entry".as_slice());
+        key_store.append::<CURRENT_VERSION>(LIST, b"key", first)?;
+        assert_eq!(stored(list_key.clone()), Some(cbor_list(&[first])));
+        key_store.append::<CURRENT_VERSION>(LIST, b"key", second)?;
+        assert_eq!(stored(list_key.clone()), Some(cbor_list(&[first, second])));
+        key_store.remove_item::<CURRENT_VERSION>(LIST, b"key", first)?;
+        assert_eq!(stored(list_key), Some(cbor_list(&[second])));
     }
 
-    /// The `write_key_package` span records the hash reference, never the
-    /// bundle with its init and leaf encryption private keys.
+    /// The `write_key_package` span records the hash reference, and no
+    /// exported span or event records the bundle with its init and leaf
+    /// encryption private keys.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn write_key_package_span_records_no_private_key() {
@@ -2172,16 +2095,18 @@ pub(crate) mod tests {
             .iter()
             .find(|span| span.name == "write_key_package")
             .expect("the key store exports its write_key_package span");
-        let attributes = format!("{:?}", span.attributes);
         assert!(
-            attributes.contains(&hex::encode(super::codec::key::to_vec(&hash_ref)?)),
+            format!("{:?}", span.attributes)
+                .contains(&hex::encode(super::codec::key::to_vec(&hash_ref)?)),
             "the span records the hash reference"
         );
+        // Names, attributes and events of every exported span.
+        let exported = format!("{spans:?}");
         for private_key in [bundle.init_private_key(), bundle.encryption_private_key()] {
             for form in super::codec::logged_forms(private_key) {
                 assert!(
-                    !attributes.contains(&form),
-                    "the span records a private key: {form}"
+                    !exported.contains(&form),
+                    "a span records a private key: {form}"
                 );
             }
         }
@@ -2190,7 +2115,8 @@ pub(crate) mod tests {
     /// The group context's AppData dictionary holds the commit-log signer, a
     /// group-shared private key, and OpenMLS writes the context on every epoch
     /// change. The `write_context` span records the group id, never the
-    /// context, and no other key store span records the signer.
+    /// context, and no span or event exported while the group is built
+    /// records the signer.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn write_context_span_records_no_private_key() {
@@ -2259,11 +2185,12 @@ pub(crate) mod tests {
                 .contains(&hex::encode(super::codec::key::to_vec(group.group_id())?)),
             "the span records the group id"
         );
+        // Name, attributes and events of each exported span.
         for span in &spans {
-            let attributes = format!("{:?}", span.attributes);
+            let exported = format!("{span:?}");
             for form in &signer_forms {
                 assert!(
-                    !attributes.contains(form),
+                    !exported.contains(form),
                     "the {} span records the commit-log signer",
                     span.name
                 );

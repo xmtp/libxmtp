@@ -2,7 +2,8 @@ use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::TransactionalKeyStore;
 use crate::sql_key_store::{
-    KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError, codec::encode_bytes,
+    COMMIT_LOG_SIGNER_PRIVATE_KEY, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
+    codec::{encode_bytes, encode_key},
 };
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
@@ -141,6 +142,27 @@ pub trait XmtpMlsStorageProvider:
         Ok(self
             .read::<Secret>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)?
             .map(Zeroizing::from))
+    }
+
+    /// Store the commit-log signer private key of the group `group_id`.
+    ///
+    /// The storage key is the group id in the key layout
+    /// (`codec::encode_key`). The value is the key as one CBOR byte string
+    /// (`codec::encode_bytes`), in a buffer that is wiped on drop. With
+    /// [`Self::commit_log_signer`], this is the only code that reads or writes
+    /// values under [`COMMIT_LOG_SIGNER_PRIVATE_KEY`].
+    fn write_commit_log_signer(&self, group_id: &[u8], key: &[u8]) -> Result<(), SqlKeyStoreError> {
+        let storage_key = encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id)?;
+        let value = encode_bytes(COMMIT_LOG_SIGNER_PRIVATE_KEY, key)?;
+        self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &storage_key, &value)
+    }
+
+    /// Read the commit-log signer private key of the group `group_id`. The
+    /// key is wiped on drop.
+    fn commit_log_signer(&self, group_id: &[u8]) -> Result<Option<Secret>, SqlKeyStoreError> {
+        let storage_key = encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id)?;
+        // As in `wrapper_private_key`: decoded straight into a `Secret`.
+        self.read::<Secret>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &storage_key)
     }
 
     #[cfg(feature = "test-utils")]
