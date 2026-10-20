@@ -21,6 +21,8 @@ exclude = [
 # Default build and test members. Portable crates do not inherit the client workspace hack.
 default-members = [
   "apps/backend",
+  # Its tests check the xmtp_db migrations, so CI runs them with the crates.
+  "apps/db_tools",
   # Core crates
   "crates/*",
 ]

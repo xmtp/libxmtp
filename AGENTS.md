@@ -63,7 +63,7 @@ port block, and backend image tag, so run `just backend status` for the checkout
 `working-with-worktrees` skill.
 `just test` excludes backend database tests; run them with `just backend test`.
 
-`default-members` = `apps/backend`, `crates/*`. Other apps: see their `AGENTS.md`.
+`default-members` = `apps/backend`, `apps/db_tools`, `crates/*`. Other apps: see their `AGENTS.md`.
 
 ## Rules
 
