@@ -299,6 +299,148 @@ mod tests {
         assert!(failures.is_empty(), "wrong metadata for {failures:?}");
     }
 
+    /// A cut context is unreadable: every proper prefix of every corpus case
+    /// has no metadata.
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn cut_contexts_have_no_metadata() {
+        let mut failures = vec![];
+        for case in corpus() {
+            for length in 0..case.context.len() {
+                if super::decode(&case.context[..length]) != (None, None) {
+                    failures.push(format!("{} cut to {length}", case.name));
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "a cut context has metadata: {failures:?}"
+        );
+    }
+
+    /// Each byte of a context with every readable extension type, changed
+    /// three ways, decodes without a panic.
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn changed_bytes_do_not_panic() {
+        let everything = context("everything");
+        for (index, &byte) in everything.iter().enumerate() {
+            for value in [0x00, 0xff, byte ^ 0x01] {
+                let mut bytes = everything.clone();
+                bytes[index] = value;
+                let _ = super::decode(&bytes);
+            }
+        }
+    }
+
+    /// Every group context in the SQLite fixtures, read from temporary copies.
+    /// `early.db3` has no OpenMLS rows, and the encrypted fixtures need a key.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn fixture_database_contexts(name: &str) -> Vec<Vec<u8>> {
+        use diesel::{
+            Connection, QueryableByName, RunQueryDsl, SqliteConnection, sql_types::Binary,
+        };
+
+        #[derive(QueryableByName)]
+        struct Row {
+            #[diesel(sql_type = Binary)]
+            key_bytes: Vec<u8>,
+            #[diesel(sql_type = Binary)]
+            value_bytes: Vec<u8>,
+        }
+
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        let directory = tempfile::tempdir().unwrap();
+        let copy = directory.path().join(name);
+        std::fs::copy(fixtures.join(name), &copy).unwrap();
+        let mut conn = SqliteConnection::establish(copy.to_str().unwrap()).unwrap();
+        let rows: Vec<Row> =
+            diesel::sql_query("SELECT key_bytes, value_bytes FROM openmls_key_value")
+                .load(&mut conn)
+                .unwrap();
+        rows.into_iter()
+            .filter(|row| row.key_bytes.starts_with(b"GroupContextGroupContext"))
+            .map(|row| row.value_bytes)
+            .collect()
+    }
+
+    /// The real contexts in the fixture databases have metadata, and every cut
+    /// of them has none. The two seed databases hold the producers' own
+    /// output, with the values the producers recorded.
+    // verifies: MIG-005
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn fixture_database_contexts_decode() {
+        let expected: Value =
+            serde_json::from_str(include_str!("../fixtures/metadata-expected.json"))?;
+        let mut failures = vec![];
+        let mut seeds = vec![];
+        for name in [
+            "metadata-seed.db3",
+            "appdata-seed.db3",
+            "stable.db3",
+            "consent-states.db3",
+            "mobile-4.10.db3",
+        ] {
+            let contexts = fixture_database_contexts(name);
+            assert!(!contexts.is_empty(), "{name} has no group context");
+            for (index, bytes) in contexts.iter().enumerate() {
+                let decoded = super::decode(bytes);
+                assert_ne!(
+                    decoded,
+                    (None, None),
+                    "{name} context {index} has no metadata"
+                );
+                if name.ends_with("-seed.db3") {
+                    seeds.push((name, decoded));
+                }
+                for length in 0..bytes.len() {
+                    if super::decode(&bytes[..length]) != (None, None) {
+                        failures.push(format!("{name} context {index} cut to {length}"));
+                    }
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "a cut context has metadata: {failures:?}"
+        );
+
+        let seed = |name: &str, group_name: &str| {
+            seeds.iter().find(|(seed, (_, mutable))| {
+                *seed == name
+                    && mutable
+                        .as_ref()
+                        .map(|value| value.attributes["group_name"].as_str())
+                        == Some(group_name)
+            })
+        };
+        let attributes = &expected["attributes"];
+        let (_, (immutable, mutable)) = seed(
+            "metadata-seed.db3",
+            attributes["group_name"].as_str().unwrap(),
+        )
+        .expect("the metadata seed context");
+        assert_eq!(
+            immutable.as_ref().unwrap().creator_inbox_id,
+            expected["creator_inbox_id"].as_str().unwrap()
+        );
+        assert_eq!(
+            mutable.as_ref().unwrap().attributes["description"],
+            attributes["description"].as_str().unwrap()
+        );
+        let (_, (immutable, mutable)) =
+            seed("appdata-seed.db3", "AppData Group").expect("the AppData seed context");
+        assert_eq!(
+            immutable.as_ref().unwrap().creator_inbox_id,
+            "01".repeat(32)
+        );
+        assert_eq!(
+            mutable.as_ref().unwrap().attributes["description"],
+            "good description"
+        );
+    }
+
     /// `fixtures/generate.py` records every fixture hash. A corpus rebuild
     /// must update the record too. Native runs also check every other
     /// recorded fixture file.

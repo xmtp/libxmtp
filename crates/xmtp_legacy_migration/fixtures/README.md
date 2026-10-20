@@ -40,21 +40,33 @@ the producer removes secret rows, and extract the context that contains
 ## Group context corpus
 
 `legacy-context-corpus.json` holds legacy `GroupContextGroupContext` records and
-the metadata each one decodes to. An oracle built them with the OpenMLS fork
-types at `3fabbf23` and bincode 1.3.3, and recorded the result of the legacy
-decoder. The cases cover each extension the std-only reader in
-`src/legacy_context.rs` accepts, pairs of them in both orders, every ciphersuite
-tag, the other protocol version, other extension types, truncations, and
-oversized lengths. A few cases are byte edits of fork output: a proposal tag the
-fork does not use, a repeated dictionary key, and a protocol version, extension
-type, or credential type tag one past the last variant.
+the metadata the std-only reader in `src/legacy_context.rs` must return for
+each. An oracle built them with the OpenMLS fork types at `3fabbf23` and
+bincode 1.3.3. For a context whose extensions are all of the four types the
+reader reads (RequiredCapabilities, ImmutableMetadata, Unknown and
+AppDataDictionary), it recorded the fork decoder's result. For any other
+context it recorded no metadata. The cases cover each extension the reader
+accepts, pairs of them in both orders, every ciphersuite tag, the other
+protocol version, other extension types, truncations, and oversized lengths. A
+few cases are byte edits of fork output: a proposal tag the fork does not use,
+a repeated dictionary key, and a protocol version, extension type, or
+credential type tag one past the last variant.
 
 While the fork was pinned, the oracle also checked that the reader agreed with
-the legacy decoder on every truncation and on single-byte changes. The workspace
-now builds on upstream OpenMLS, which lacks the fork's types, so the oracle was
-removed and the corpus is frozen. Do not edit it. A test checks its hash in
-`hashes.json`. To rebuild it, check out a commit that still has
-`src/metadata/oracle.rs` and run its `write_corpus_fixture` test there.
+the fork decoder on every truncation and on single-byte changes of the corpus
+and of the fixture databases. The workspace now builds on upstream OpenMLS,
+which lacks the fork's types, so the oracle was removed and the corpus is
+frozen. Do not edit it. Tests that need no oracle remain: every case decodes
+to its recorded metadata, every cut of a case and of each fixture database
+context has no metadata, single-byte changes do not panic, and the hash in
+`hashes.json` matches.
+
+To rebuild the corpus, check out libxmtp `b9ce66d008`, the last commit with
+`src/metadata/oracle.rs`, and run there:
+
+```sh
+dev/nix-shell 'just test workspace -p xmtp_legacy_migration write_corpus_fixture --run-ignored only'
+```
 
 ## Controlled history
 

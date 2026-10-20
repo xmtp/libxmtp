@@ -1,5 +1,5 @@
 {
-  "description": "Legacy GroupContext records written with the xmtp OpenMLS fork 3fabbf23 and bincode 1.3, and the metadata each one decodes to. src/metadata/oracle.rs builds them.",
+  "description": "Legacy GroupContext records written with the xmtp OpenMLS fork 3fabbf23 and bincode 1.3, and the metadata the std-only reader must return for each: the fork decoder's result for a context whose extensions it reads, and no metadata for any other. src/metadata/oracle.rs at libxmtp b9ce66d008 built them; the corpus is frozen.",
   "cases": [
     {
       "name": "no-extensions",
