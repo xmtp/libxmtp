@@ -15,5 +15,6 @@ dev/nix-shell 'cargo run -p xmtp-db-tools -- --help'
 
 ## Gotchas
 
-- Not in `default-members`. Root `just check`, `just test`, `just lint-rust` skip this crate.
+- In `default-members`. Root `just check`, `just test`, `just lint-rust`, and the
+  Rust workspace CI suite include this crate.
 - Cargo name is `xmtp-db-tools`, dir is `db_tools`.
