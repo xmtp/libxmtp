@@ -73,10 +73,9 @@ KACHE_SECRETS = ("KACHE_S3_ACCESS_KEY_ID", "KACHE_S3_SECRET_ACCESS_KEY")
 # Scoped modes forward only their named cache credentials.
 SCOPED_SECRETS = {"kache": KACHE_SECRETS, "cachix-pr": ("CACHIX_PR_AUTH_TOKEN",)}
 SECRET_MODES = ("inherit", "kache", "none", "cachix-pr")
-# Runner labels a declaration may name. Blacksmith x64 Ubuntu 24.04 sizes and
-# the Blacksmith macOS labels in use (docs.blacksmith.sh/blacksmith-runners/
-# overview), GitHub-hosted images, and the WarpBuild macOS labels in use. A new
-# label is added here on purpose.
+# Runner labels a declaration may name. Blacksmith x64 Ubuntu 24.04 sizes
+# (docs.blacksmith.sh/blacksmith-runners/overview), GitHub-hosted images, and
+# the WarpBuild macOS labels in use. A new label is added here on purpose.
 RUNNER_LABELS = frozenset(
     {
         "blacksmith-2vcpu-ubuntu-2404",
@@ -84,7 +83,6 @@ RUNNER_LABELS = frozenset(
         "blacksmith-8vcpu-ubuntu-2404",
         "blacksmith-16vcpu-ubuntu-2404",
         "blacksmith-32vcpu-ubuntu-2404",
-        "blacksmith-6vcpu-macos-15",
         "ubuntu-24.04",
         "ubuntu-24.04-arm",
         "macos-15",

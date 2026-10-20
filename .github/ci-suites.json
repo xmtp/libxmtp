@@ -1229,7 +1229,7 @@
       "products": [],
       "runners": {
         "runner": {
-          "pr": "blacksmith-6vcpu-macos-15",
+          "pr": "warp-macos-15-arm64-6x",
           "merge": "warp-macos-15-arm64-6x"
         }
       },
@@ -1456,7 +1456,7 @@
       "products": [],
       "runners": {
         "runner": {
-          "pr": "blacksmith-6vcpu-macos-15",
+          "pr": "warp-macos-15-arm64-6x",
           "merge": "warp-macos-15-arm64-6x"
         }
       },
