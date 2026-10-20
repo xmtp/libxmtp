@@ -3,7 +3,7 @@ use xmtp_common::{ErrorCode, RetryableError, retryable};
 use self::transactions::MutableTransactionConnection;
 use crate::{ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider};
 
-use bincode;
+use self::codec::{decode_list, decode_value, encode_key, encode_list, encode_value};
 use diesel::{
     prelude::*,
     sql_types::Binary,
@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use xmtp_configuration::OPENMLS_KV_TARGET;
 use xmtp_cryptography::secret::Zeroizing;
 
+pub mod codec;
 #[cfg(any(feature = "test-utils", test))]
 pub mod mock;
 mod transactions;
@@ -197,10 +198,7 @@ where
             })?;
             for row in rows {
                 let id = keys[&row.key_bytes];
-                contexts.insert(
-                    id,
-                    deserialize_bincode(GROUP_CONTEXT_LABEL, &row.value_bytes)?,
-                );
+                contexts.insert(id, decode_value(GROUP_CONTEXT_LABEL, &row.value_bytes)?);
             }
         }
         Ok(contexts)
@@ -272,17 +270,14 @@ where
 
         if let Some(entry) = data.into_iter().next() {
             // The value in the storage is an array of array of bytes
-            let mut list = Zeroizing::new(deserialize_bincode::<Vec<Vec<u8>>>(
-                label,
-                &entry.value_bytes,
-            )?);
+            let mut list = decode_list(label, &entry.value_bytes)?;
             list.push(value.to_vec());
-            let modified_data = serialize_value(&*list)?;
+            let modified_data = encode_list(label, &list)?;
             let _ = self.update_query::<VERSION>(&storage_key, &modified_data)?;
             Ok(())
         } else {
             // Add a first entry
-            let value_bytes = serialize_value(&vec![value])?;
+            let value_bytes = encode_list(label, &[value])?;
             let _ = self.replace_query::<VERSION>(&storage_key, &value_bytes)?;
 
             Ok(())
@@ -302,23 +297,22 @@ where
 
         if let Some(entry) = data.into_iter().next() {
             // The value in the storage is an array of array of bytes.
-            let mut list = Zeroizing::new(deserialize_bincode::<Vec<Vec<u8>>>(
-                label,
-                &entry.value_bytes,
-            )?);
+            let mut list = decode_list(label, &entry.value_bytes)?;
             let vpos = list.iter().position(|v| v == value);
 
             if let Some(pos) = vpos {
                 // The removed element is wiped as well.
                 drop(Zeroizing::new(list.remove(pos)));
             }
-            let modified_data = serialize_value(&*list)?;
+            let modified_data = encode_list(label, &list)?;
 
             let _ = self.update_query::<VERSION>(&storage_key, &modified_data)?;
             Ok(())
         } else {
-            // Add a first entry
-            let value_bytes = serialize_value(&[value])?;
+            // Add a first entry. A one-item array encodes as a tuple, with no
+            // list length, so this row does not decode as a list. Kept
+            // byte-for-byte until the value codec change.
+            let value_bytes = encode_value(label, &[value])?;
             let _ = self.replace_query::<VERSION>(&storage_key, &value_bytes)?;
             Ok(())
         }
@@ -334,7 +328,7 @@ where
         let data = self.select_query::<VERSION>(&storage_key)?;
 
         if let Some(entry) = data.into_iter().next() {
-            let deserialized = deserialize_bincode::<V>(label, &entry.value_bytes)?;
+            let deserialized = decode_value::<V>(label, &entry.value_bytes)?;
 
             Ok(Some(deserialized))
         } else {
@@ -351,15 +345,12 @@ where
         let results = self.select_query::<VERSION>(&storage_key)?;
 
         if let Some(entry) = results.into_iter().next() {
-            let list = Zeroizing::new(deserialize_bincode::<Vec<Vec<u8>>>(
-                label,
-                &entry.value_bytes,
-            )?);
+            let list = decode_list(label, &entry.value_bytes)?;
 
             // Read the values from the bytes in the list
             let mut deserialized_list = Vec::with_capacity(list.len());
             for v in list.iter() {
-                deserialized_list.push(deserialize_bincode::<V>(label, v)?);
+                deserialized_list.push(decode_value::<V>(label, v)?);
             }
             Ok(deserialized_list)
         } else {
@@ -481,13 +472,13 @@ where
         proposal: &QueuedProposal,
     ) -> Result<(), Self::Error> {
         // write proposal to key (group_id, proposal_ref)
-        let key = bincode::serialize(&(group_id, proposal_ref))?;
-        let value = serialize_value(proposal)?;
+        let key = encode_key(QUEUED_PROPOSAL_LABEL, &(group_id, proposal_ref))?;
+        let value = encode_value(QUEUED_PROPOSAL_LABEL, proposal)?;
         self.write::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key, &value)?;
 
         // update proposal list for group_id
         let key = build_key::<CURRENT_VERSION, &GroupId>(PROPOSAL_QUEUE_REFS_LABEL, group_id)?;
-        let value = serialize_value(proposal_ref)?;
+        let value = encode_value(PROPOSAL_QUEUE_REFS_LABEL, proposal_ref)?;
         self.append::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, &value)?;
 
         Ok(())
@@ -503,7 +494,7 @@ where
         tree: &TreeSync,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(TREE_LABEL, group_id)?;
-        let value = serialize_value(&tree)?;
+        let value = encode_value(TREE_LABEL, tree)?;
         self.write::<CURRENT_VERSION>(TREE_LABEL, &key, &value)
     }
 
@@ -517,7 +508,7 @@ where
         interim_transcript_hash: &InterimTranscriptHash,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(INTERIM_TRANSCRIPT_HASH_LABEL, group_id)?;
-        let value = serialize_value(&interim_transcript_hash)?;
+        let value = encode_value(INTERIM_TRANSCRIPT_HASH_LABEL, interim_transcript_hash)?;
         let _ = self.write::<CURRENT_VERSION>(INTERIM_TRANSCRIPT_HASH_LABEL, &key, &value);
 
         Ok(())
@@ -535,7 +526,7 @@ where
         group_context: &GroupContext,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_CONTEXT_LABEL, group_id)?;
-        let value = serialize_value(&group_context)?;
+        let value = encode_value(GROUP_CONTEXT_LABEL, group_context)?;
 
         self.write::<CURRENT_VERSION>(GROUP_CONTEXT_LABEL, &key, &value)
     }
@@ -550,7 +541,7 @@ where
         confirmation_tag: &ConfirmationTag,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(CONFIRMATION_TAG_LABEL, group_id)?;
-        let value = serialize_value(&confirmation_tag)?;
+        let value = encode_value(CONFIRMATION_TAG_LABEL, confirmation_tag)?;
 
         self.write::<CURRENT_VERSION>(CONFIRMATION_TAG_LABEL, &key, &value)
     }
@@ -568,7 +559,7 @@ where
             SIGNATURE_KEY_PAIR_LABEL,
             public_key,
         )?;
-        let value = serialize_value(&signature_key_pair)?;
+        let value = encode_value(SIGNATURE_KEY_PAIR_LABEL, signature_key_pair)?;
 
         self.write::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key, &value)
     }
@@ -599,7 +590,7 @@ where
 
         refs.into_iter()
             .map(|proposal_ref| -> Result<_, _> {
-                let key = bincode::serialize(&(group_id, &proposal_ref))?;
+                let key = encode_key(QUEUED_PROPOSAL_LABEL, &(group_id, &proposal_ref))?;
                 match self.read(QUEUED_PROPOSAL_LABEL, &key)? {
                     Some(proposal) => Ok((proposal_ref, proposal)),
                     None => Err(SqlKeyStoreError::NotFound),
@@ -686,7 +677,7 @@ where
         key_package: &KeyPackage,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &HashReference>(KEY_PACKAGE_LABEL, hash_ref)?;
-        let value = serialize_value(&key_package)?;
+        let value = encode_value(KEY_PACKAGE_LABEL, key_package)?;
 
         // Store the key package
         self.write::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key, &value)
@@ -716,7 +707,11 @@ where
         let key =
             build_key::<CURRENT_VERSION, &EncryptionKey>(ENCRYPTION_KEY_PAIR_LABEL, public_key)?;
 
-        self.write::<CURRENT_VERSION>(ENCRYPTION_KEY_PAIR_LABEL, &key, &serialize_value(key_pair)?)
+        self.write::<CURRENT_VERSION>(
+            ENCRYPTION_KEY_PAIR_LABEL,
+            &key,
+            &encode_value(ENCRYPTION_KEY_PAIR_LABEL, key_pair)?,
+        )
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(hash_ref = %hex_kv(hash_ref)), err)]
@@ -821,7 +816,11 @@ where
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_STATE_LABEL, group_id)?;
 
-        self.write::<CURRENT_VERSION>(GROUP_STATE_LABEL, &key, &serialize_value(group_state)?)
+        self.write::<CURRENT_VERSION>(
+            GROUP_STATE_LABEL,
+            &key,
+            &encode_value(GROUP_STATE_LABEL, group_state)?,
+        )
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
@@ -861,7 +860,7 @@ where
         self.write::<CURRENT_VERSION>(
             MESSAGE_SECRETS_LABEL,
             &key,
-            &serialize_value(message_secrets)?,
+            &encode_value(MESSAGE_SECRETS_LABEL, message_secrets)?,
         )
     }
 
@@ -883,7 +882,10 @@ where
         &self,
         group_id: &GroupId,
     ) -> Result<Option<ResumptionPskStore>, Self::Error> {
-        self.read(RESUMPTION_PSK_STORE_LABEL, &bincode::serialize(group_id)?)
+        self.read(
+            RESUMPTION_PSK_STORE_LABEL,
+            &encode_key(RESUMPTION_PSK_STORE_LABEL, group_id)?,
+        )
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
@@ -897,8 +899,8 @@ where
     ) -> Result<(), Self::Error> {
         self.write::<CURRENT_VERSION>(
             RESUMPTION_PSK_STORE_LABEL,
-            &bincode::serialize(group_id)?,
-            &serialize_value(resumption_psk_store)?,
+            &encode_key(RESUMPTION_PSK_STORE_LABEL, group_id)?,
+            &encode_value(RESUMPTION_PSK_STORE_LABEL, resumption_psk_store)?,
         )
     }
 
@@ -907,7 +909,10 @@ where
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.delete::<CURRENT_VERSION>(RESUMPTION_PSK_STORE_LABEL, &bincode::serialize(group_id)?)
+        self.delete::<CURRENT_VERSION>(
+            RESUMPTION_PSK_STORE_LABEL,
+            &encode_key(RESUMPTION_PSK_STORE_LABEL, group_id)?,
+        )
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
@@ -935,7 +940,7 @@ where
         self.write::<CURRENT_VERSION>(
             OWN_LEAF_NODE_INDEX_LABEL,
             &key,
-            &serialize_value(own_leaf_index)?,
+            &encode_value(OWN_LEAF_NODE_INDEX_LABEL, own_leaf_index)?,
         )
     }
 
@@ -973,7 +978,7 @@ where
         self.write::<CURRENT_VERSION>(
             EPOCH_SECRETS_LABEL,
             &key,
-            &serialize_value(group_epoch_secrets)?,
+            &encode_value(EPOCH_SECRETS_LABEL, group_epoch_secrets)?,
         )
     }
 
@@ -999,7 +1004,7 @@ where
         key_pairs: &[HpkeKeyPair],
     ) -> Result<(), Self::Error> {
         let key = epoch_key_pairs_id(group_id, epoch, leaf_index)?;
-        let value = serialize_value(key_pairs)?;
+        let value = encode_value(EPOCH_KEY_PAIRS_LABEL, key_pairs)?;
         tracing::trace!("Writing encryption epoch key pairs");
 
         self.write::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key, &value)
@@ -1032,7 +1037,7 @@ where
         })?;
 
         if let Some(entry) = data.into_iter().next() {
-            deserialize_bincode::<Vec<HpkeKeyPair>>(EPOCH_KEY_PAIRS_LABEL, &entry.value_bytes)
+            decode_value::<Vec<HpkeKeyPair>>(EPOCH_KEY_PAIRS_LABEL, &entry.value_bytes)
         } else {
             Ok(vec![])
         }
@@ -1065,7 +1070,7 @@ where
         let proposal_refs: Vec<ProposalRef> = self.read_list(PROPOSAL_QUEUE_REFS_LABEL, &key)?;
 
         for proposal_ref in proposal_refs {
-            let key = bincode::serialize(&(group_id, proposal_ref))?;
+            let key = encode_key(QUEUED_PROPOSAL_LABEL, &(group_id, proposal_ref))?;
             self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key)?;
         }
 
@@ -1097,7 +1102,7 @@ where
         config: &MlsGroupJoinConfig,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(JOIN_CONFIG_LABEL, group_id)?;
-        let value = serialize_value(config)?;
+        let value = encode_value(JOIN_CONFIG_LABEL, config)?;
 
         self.write::<CURRENT_VERSION>(JOIN_CONFIG_LABEL, &key, &value)
     }
@@ -1125,7 +1130,7 @@ where
         leaf_node: &LeafNode,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(OWN_LEAF_NODES_LABEL, group_id)?;
-        let value = serialize_value(leaf_node)?;
+        let value = encode_value(OWN_LEAF_NODES_LABEL, leaf_node)?;
 
         self.append::<CURRENT_VERSION>(OWN_LEAF_NODES_LABEL, &key, &value)
     }
@@ -1199,11 +1204,11 @@ where
     ) -> Result<(), Self::Error> {
         // Delete the proposal ref
         let key = build_key::<CURRENT_VERSION, &GroupId>(PROPOSAL_QUEUE_REFS_LABEL, group_id)?;
-        let value = serialize_value(proposal_ref)?;
+        let value = encode_value(PROPOSAL_QUEUE_REFS_LABEL, proposal_ref)?;
         self.remove_item::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, &value)?;
 
         // Delete the proposal
-        let key = bincode::serialize(&(group_id, proposal_ref))?;
+        let key = encode_key(QUEUED_PROPOSAL_LABEL, &(group_id, proposal_ref))?;
         self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key)
     }
 
@@ -1220,7 +1225,7 @@ where
         self.write::<CURRENT_VERSION>(
             APPLICATION_EXPORT_TREE_LABEL,
             &key,
-            &serialize_value(application_export_tree)?,
+            &encode_value(APPLICATION_EXPORT_TREE_LABEL, application_export_tree)?,
         )
     }
 
@@ -1249,17 +1254,6 @@ where
     }
 }
 
-/// Bincode of a stored value, in a buffer that is wiped on drop.
-///
-/// Some values hold private keys, so every value is wiped, whatever its label.
-/// `bincode::serialize` allocates the exact size first, so encoding never
-/// reallocates and frees a partial copy. Storage keys stay plain `Vec<u8>`.
-pub(crate) fn serialize_value<T: Serialize + ?Sized>(
-    value: &T,
-) -> Result<Zeroizing<Vec<u8>>, SqlKeyStoreError> {
-    Ok(Zeroizing::new(bincode::serialize(value)?))
-}
-
 /// Hex bincode of `v` for tracing fields. Empty string on serialize fail (field exprs can't propagate).
 /// Record only storage keys and public values: never a value that holds a private key.
 /// A `GroupContext` holds one: the commit-log signer in its AppData dictionary.
@@ -1280,70 +1274,20 @@ fn build_key<const V: u16, K: Serialize>(
     label: &[u8],
     key: K,
 ) -> Result<Vec<u8>, SqlKeyStoreError> {
-    let key_vec = bincode::serialize(&key)?;
+    let key_vec = encode_key(label, &key)?;
     Ok(build_key_from_vec::<V>(label, key_vec))
 }
 
-/// Bincode decode → `SerializationError`. With `deserialize-paths` feature + `openmls_kv` target
-/// enabled, error path re-decodes via `serde_path_to_error` to log failing field path.
-fn deserialize_bincode<'de, T>(
-    #[cfg_attr(not(feature = "deserialize-paths"), allow(unused_variables))] label: &[u8],
-    bytes: &'de [u8],
-) -> Result<T, SqlKeyStoreError>
-where
-    T: serde::Deserialize<'de>,
-{
-    match bincode::deserialize::<T>(bytes) {
-        Ok(val) => Ok(val),
-        Err(_orig_err) => {
-            #[cfg(feature = "deserialize-paths")]
-            if tracing::event_enabled!(target: OPENMLS_KV_TARGET, tracing::Level::ERROR) {
-                use bincode::Options;
-                let opts = bincode::DefaultOptions::new()
-                    .with_fixint_encoding()
-                    .allow_trailing_bytes();
-                let mut de = bincode::de::Deserializer::from_slice(bytes, opts);
-                match serde_path_to_error::deserialize::<_, T>(&mut de) {
-                    Ok(_) => {
-                        // Second pass succeeded — bincode option mismatch; log err without path.
-                        tracing::error!(
-                            target: OPENMLS_KV_TARGET,
-                            label = %String::from_utf8_lossy(label),
-                            type_name = std::any::type_name::<T>(),
-                            bytes_len = bytes.len(),
-                            error = %_orig_err,
-                            "bincode deserialize failed (no path captured)",
-                        );
-                    }
-                    Err(e) => {
-                        let path = e.path().to_string();
-                        let inner = e.into_inner();
-                        tracing::error!(
-                            target: OPENMLS_KV_TARGET,
-                            label = %String::from_utf8_lossy(label),
-                            path = %path,
-                            type_name = std::any::type_name::<T>(),
-                            bytes_len = bytes.len(),
-                            error = %inner,
-                            "bincode deserialize failed",
-                        );
-                    }
-                }
-            }
-            Err(SqlKeyStoreError::SerializationError)
-        }
-    }
-}
-
+/// One `(group id, epoch, leaf index)` tuple, not three concatenated
+/// encodings: a self-describing codec does not frame its numbers, so two
+/// different parts could encode to the same key. The key layout has no tuple
+/// framing, so the bytes equal the old concatenation.
 fn epoch_key_pairs_id(
     group_id: &impl traits::GroupId<CURRENT_VERSION>,
     epoch: &impl traits::EpochKey<CURRENT_VERSION>,
     leaf_index: u32,
 ) -> Result<Vec<u8>, SqlKeyStoreError> {
-    let mut key = bincode::serialize(group_id)?;
-    key.extend_from_slice(&bincode::serialize(epoch)?);
-    key.extend_from_slice(&bincode::serialize(&leaf_index)?);
-    Ok(key)
+    encode_key(EPOCH_KEY_PAIRS_LABEL, &(group_id, epoch, leaf_index))
 }
 
 impl From<bincode::Error> for SqlKeyStoreError {
@@ -1441,10 +1385,14 @@ pub(crate) mod tests {
         let provider = XmtpOpenMlsProvider::new(mls_store);
         let key_store = provider.key_store();
 
+        use crate::sql_key_store::{
+            COMMIT_LOG_SIGNER_PRIVATE_KEY as LABEL,
+            codec::{encode_key, encode_value},
+        };
         let raw_value = vec![3u8; 32];
-        let group_1 = bincode::serialize(&[1u8; 32])?;
-        let group_2 = bincode::serialize(&[2u8; 32])?;
-        let value_1 = bincode::serialize(&raw_value)?;
+        let group_1 = encode_key(LABEL, &[1u8; 32])?;
+        let group_2 = encode_key(LABEL, &[2u8; 32])?;
+        let value_1 = encode_value(LABEL, &raw_value)?;
 
         key_store.write::<CURRENT_VERSION>(
             crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
@@ -1479,9 +1427,13 @@ pub(crate) mod tests {
         let conn = store.conn();
         let key_store = SqlKeyStore::new(conn);
 
-        let committed_key = bincode::serialize(&[10u8; 32])?;
-        let rolled_back_key = bincode::serialize(&[11u8; 32])?;
-        let value = bincode::serialize(&vec![7u8; 16])?;
+        use crate::sql_key_store::{
+            COMMIT_LOG_SIGNER_PRIVATE_KEY as LABEL,
+            codec::{encode_key, encode_value},
+        };
+        let committed_key = encode_key(LABEL, &[10u8; 32])?;
+        let rolled_back_key = encode_key(LABEL, &[11u8; 32])?;
+        let value = encode_value(LABEL, &vec![7u8; 16])?;
 
         let is_present = |k: &[u8]| {
             key_store
@@ -1874,6 +1826,260 @@ pub(crate) mod tests {
         assert!(
             stored_value(key_store, LIST, b"key") == bincode::serialize(&vec![second])?,
             "removed list entry"
+        );
+    }
+
+    /// A value for every OpenMLS value trait. Its long byte string makes the
+    /// bincode length exceed 65,535.
+    #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+    struct Value(Vec<u8>, u64);
+    impl Entity<CURRENT_VERSION> for Value {}
+    macro_rules! value_traits {
+        ($($name:ident),*) => { $(impl traits::$name<CURRENT_VERSION> for Value {})* };
+    }
+    value_traits!(
+        QueuedProposal,
+        TreeSync,
+        GroupContext,
+        InterimTranscriptHash,
+        ConfirmationTag,
+        SignatureKeyPair,
+        HpkeKeyPair,
+        GroupState,
+        GroupEpochSecrets,
+        LeafNodeIndex,
+        MessageSecrets,
+        ResumptionPskStore,
+        KeyPackage,
+        MlsGroupJoinConfig,
+        LeafNode,
+        ApplicationExportTree
+    );
+
+    fn value(n: u8) -> Value {
+        Value(vec![n; 70_000], u64::from(n))
+    }
+
+    /// Every label stores the bytes the code before the codec module stored.
+    /// The expected storage keys and values are built by hand from
+    /// `bincode::serialize`, and every value reads back.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn every_label_keeps_todays_bytes() {
+        use super::*;
+        use openmls::{
+            prelude::{
+                GroupEpoch, KeyPackageRef,
+                tls_codec::{Deserialize as _, Serialize as _, VLBytes},
+            },
+            treesync::EncryptionKey,
+        };
+
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let key_store = SqlKeyStore::new(store.conn());
+        const VERSION: [u8; 2] = CURRENT_VERSION.to_be_bytes();
+        // `build_key`, then `write`: `label || label || key || version || version`.
+        let doubled = |label: &[u8], key: &[u8]| [label, label, key, &VERSION, &VERSION].concat();
+        // `write` with a key built in place: `label || key || version`.
+        let single = |label: &[u8], key: &[u8]| [label, key, &VERSION].concat();
+        let stored = |storage_key: Vec<u8>| {
+            key_store
+                .select_query::<CURRENT_VERSION>(&storage_key)
+                .unwrap()
+                .into_iter()
+                .next()
+                .map(|row| row.value_bytes.to_vec())
+        };
+        let hash_ref = |byte: u8| {
+            let tls = VLBytes::new(vec![byte; 32])
+                .tls_serialize_detached()
+                .unwrap();
+            KeyPackageRef::tls_deserialize_exact(tls).unwrap()
+        };
+
+        let group_id = GroupId::from_slice(&[0x5a; 300]);
+        let group_key = bincode::serialize(&group_id)?;
+
+        macro_rules! group_value {
+            ($label:expr, $write:ident, $read:ident, $n:expr) => {{
+                let v = value($n);
+                key_store.$write(&group_id, &v)?;
+                assert_eq!(
+                    stored(doubled($label, &group_key)),
+                    Some(bincode::serialize(&v)?),
+                    "{}",
+                    String::from_utf8_lossy($label)
+                );
+                let read: Option<Value> = key_store.$read(&group_id)?;
+                assert_eq!(read, Some(v));
+            }};
+        }
+        group_value!(TREE_LABEL, write_tree, tree, 1);
+        group_value!(
+            INTERIM_TRANSCRIPT_HASH_LABEL,
+            write_interim_transcript_hash,
+            interim_transcript_hash,
+            2
+        );
+        group_value!(GROUP_CONTEXT_LABEL, write_context, group_context, 3);
+        group_value!(
+            CONFIRMATION_TAG_LABEL,
+            write_confirmation_tag,
+            confirmation_tag,
+            4
+        );
+        group_value!(GROUP_STATE_LABEL, write_group_state, group_state, 5);
+        group_value!(
+            MESSAGE_SECRETS_LABEL,
+            write_message_secrets,
+            message_secrets,
+            6
+        );
+        group_value!(
+            OWN_LEAF_NODE_INDEX_LABEL,
+            write_own_leaf_index,
+            own_leaf_index,
+            7
+        );
+        group_value!(
+            EPOCH_SECRETS_LABEL,
+            write_group_epoch_secrets,
+            group_epoch_secrets,
+            8
+        );
+        group_value!(
+            JOIN_CONFIG_LABEL,
+            write_mls_join_config,
+            mls_group_join_config,
+            9
+        );
+        group_value!(
+            APPLICATION_EXPORT_TREE_LABEL,
+            write_application_export_tree,
+            application_export_tree,
+            10
+        );
+
+        // The resumption PSK store key holds the label once.
+        let v = value(11);
+        key_store.write_resumption_psk_store(&group_id, &v)?;
+        assert_eq!(
+            stored(single(RESUMPTION_PSK_STORE_LABEL, &group_key)),
+            Some(bincode::serialize(&v)?)
+        );
+        let read: Option<Value> = key_store.resumption_psk_store(&group_id)?;
+        assert_eq!(read, Some(v));
+
+        let public_key = StorageId::from(vec![0x12; 32]);
+        let v = value(12);
+        key_store.write_signature_key_pair(&public_key, &v)?;
+        assert_eq!(
+            stored(doubled(
+                SIGNATURE_KEY_PAIR_LABEL,
+                &bincode::serialize(&public_key)?
+            )),
+            Some(bincode::serialize(&v)?)
+        );
+        let read: Option<Value> = key_store.signature_key_pair(&public_key)?;
+        assert_eq!(read, Some(v));
+
+        let key_package_ref = hash_ref(0x13);
+        let v = value(13);
+        key_store.write_key_package(&key_package_ref, &v)?;
+        assert_eq!(
+            stored(doubled(
+                KEY_PACKAGE_LABEL,
+                &bincode::serialize(&key_package_ref)?
+            )),
+            Some(bincode::serialize(&v)?)
+        );
+        let read: Option<Value> = key_store.key_package(&key_package_ref)?;
+        assert_eq!(read, Some(v));
+
+        let encryption_key = EncryptionKey::from(vec![0x14; 32]);
+        let v = value(14);
+        key_store.write_encryption_key_pair(&encryption_key, &v)?;
+        assert_eq!(
+            stored(doubled(
+                ENCRYPTION_KEY_PAIR_LABEL,
+                &bincode::serialize(&encryption_key)?
+            )),
+            Some(bincode::serialize(&v)?)
+        );
+        let read: Option<Value> = key_store.encryption_key_pair(&encryption_key)?;
+        assert_eq!(read, Some(v));
+
+        // The epoch key pairs key is the three parts back to back.
+        let epoch = GroupEpoch::from(15);
+        let pairs = [value(15), value(16)];
+        key_store.write_encryption_epoch_key_pairs(&group_id, &epoch, 17, &pairs)?;
+        let parts = [
+            group_key.clone(),
+            bincode::serialize(&epoch)?,
+            bincode::serialize(&17u32)?,
+        ]
+        .concat();
+        assert_eq!(
+            stored(single(EPOCH_KEY_PAIRS_LABEL, &parts)),
+            Some(bincode::serialize(pairs.as_slice())?)
+        );
+        let read: Vec<Value> = key_store.encryption_epoch_key_pairs(&group_id, &epoch, 17)?;
+        assert_eq!(read, pairs);
+
+        // Lists: each item is the bincode of one value.
+        let (first, second) = (value(18), value(19));
+        key_store.append_own_leaf_node(&group_id, &first)?;
+        key_store.append_own_leaf_node(&group_id, &second)?;
+        assert_eq!(
+            stored(doubled(OWN_LEAF_NODES_LABEL, &group_key)),
+            Some(bincode::serialize(&vec![
+                bincode::serialize(&first)?,
+                bincode::serialize(&second)?
+            ])?)
+        );
+        let read: Vec<Value> = key_store.own_leaf_nodes(&group_id)?;
+        assert_eq!(read, [first, second]);
+
+        let (ref_1, ref_2) = (hash_ref(0x20), hash_ref(0x21));
+        let (proposal_1, proposal_2) = (value(20), value(21));
+        key_store.queue_proposal(&group_id, &ref_1, &proposal_1)?;
+        key_store.queue_proposal(&group_id, &ref_2, &proposal_2)?;
+        assert_eq!(
+            stored(single(
+                QUEUED_PROPOSAL_LABEL,
+                &bincode::serialize(&(&group_id, &ref_1))?
+            )),
+            Some(bincode::serialize(&proposal_1)?)
+        );
+        let refs_key = doubled(PROPOSAL_QUEUE_REFS_LABEL, &group_key);
+        assert_eq!(
+            stored(refs_key.clone()),
+            Some(bincode::serialize(&vec![
+                bincode::serialize(&ref_1)?,
+                bincode::serialize(&ref_2)?
+            ])?)
+        );
+        let read: Vec<(KeyPackageRef, Value)> = key_store.queued_proposals(&group_id)?;
+        assert_eq!(
+            read,
+            [(ref_1.clone(), proposal_1), (ref_2.clone(), proposal_2)]
+        );
+        key_store.remove_proposal(&group_id, &ref_1)?;
+        assert_eq!(
+            stored(refs_key),
+            Some(bincode::serialize(&vec![bincode::serialize(&ref_2)?])?)
+        );
+
+        // A removal from a missing list writes a one-item array: no list
+        // length, so the row does not decode as a list. Kept as it is today.
+        let other_group = GroupId::from_slice(b"no queue");
+        key_store.remove_proposal(&other_group, &ref_2)?;
+        let ref_bytes = bincode::serialize(&ref_2)?;
+        assert_eq!(
+            stored(doubled(
+                PROPOSAL_QUEUE_REFS_LABEL,
+                &bincode::serialize(&other_group)?
+            )),
+            Some(bincode::serialize(&[ref_bytes.as_slice()])?)
         );
     }
 
