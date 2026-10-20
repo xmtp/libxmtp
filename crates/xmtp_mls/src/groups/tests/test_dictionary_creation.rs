@@ -125,7 +125,6 @@ async fn test_group_context_shape_at_creation() {
             actual.sort();
             let mut expected = vec![
                 ExtensionType::AppDataDictionary,
-                ExtensionType::LastResort,
                 ExtensionType::ApplicationId,
             ];
             expected.sort();

@@ -57,8 +57,7 @@ use openmls::{
     credentials::{BasicCredential, Credential, CredentialWithKey},
     extensions::{
         AppDataDictionary, AppDataDictionaryExtension, ApplicationIdExtension, Extension,
-        ExtensionType, Extensions, LastResortExtension, RequiredCapabilitiesExtension,
-        UnknownExtension,
+        ExtensionType, Extensions, RequiredCapabilitiesExtension, UnknownExtension,
     },
     group::{
         AppDataDictionaryUpdater, AppDataUpdates, GroupId, MlsGroup, MlsGroupCreateConfig,
@@ -103,7 +102,7 @@ struct GoldenFile {
 const GOLDEN_FILES: &[GoldenFile] = &[GoldenFile {
     name: "golden_rows_rc4.json",
     text: include_str!("golden_rows_rc4.json"),
-    sha256: "d07f6b629553d4a25c2ba7c1e3fc8abb1f02609a90f51a0c7593939df68f9f7e",
+    sha256: "68dc02b0f01152e964a873cfa41bdaf9f9e01aa0b9a2cb74fcd05fc24ff84e61",
 }];
 
 const STORES: [&str; 3] = ["alice", "bob", "carol"];
@@ -255,9 +254,8 @@ fn credential(name: &str, signer: &SignatureKeyPair) -> CredentialWithKey {
 }
 
 /// The extension types XMTP groups require, as `build_group_config` sets them.
-const REQUIRED_EXTENSIONS: [ExtensionType; 3] = [
+const REQUIRED_EXTENSIONS: [ExtensionType; 2] = [
     ExtensionType::AppDataDictionary,
-    ExtensionType::LastResort,
     ExtensionType::ApplicationId,
 ];
 
@@ -280,8 +278,9 @@ fn member_capabilities() -> Capabilities {
     )
 }
 
-/// A key package shaped like `build_key_package`'s: a last-resort extension,
-/// an Unknown extension, and an ApplicationId leaf extension.
+/// A key package shaped like `build_key_package`'s: the last-resort mark in
+/// its AppDataDictionary, an Unknown extension, and an ApplicationId leaf
+/// extension.
 fn key_package(
     provider: &impl OpenMlsProvider,
     signer: &SignatureKeyPair,
@@ -296,15 +295,13 @@ fn key_package(
             .unwrap(),
         )
         .key_package_extensions(
-            Extensions::from_vec(vec![
-                Extension::LastResort(LastResortExtension::default()),
-                Extension::Unknown(
-                    WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
-                    UnknownExtension(vec![0, 1]),
-                ),
-            ])
+            Extensions::from_vec(vec![Extension::Unknown(
+                WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+                UnknownExtension(vec![0, 1]),
+            )])
             .unwrap(),
         )
+        .mark_as_last_resort()
         .build(CIPHERSUITE, provider, signer, credential(name, signer))
         .unwrap()
 }
@@ -1119,7 +1116,7 @@ const PRODUCTION_SHAPES: &[(&str, &str)] = &[
     ),
     (
         "KeyPackage",
-        ".key_package.payload.extensions.unique[].LastResort",
+        ".key_package.payload.extensions.unique[].AppDataDictionary",
     ),
     (
         "KeyPackage",

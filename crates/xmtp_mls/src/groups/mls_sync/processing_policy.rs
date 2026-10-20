@@ -314,6 +314,8 @@ mod tests {
         assert!(error.is_safe_rejection(), "{error:?}");
 
         alice_group.clear_pending_commit(alice.storage())?;
+        // The empty mark: how libxmtp and upstream OpenMLS mark a last-resort
+        // key package.
         let marked = key_package(&throwaway, "marked", Some(vec![]));
         let (commit, _, _) =
             alice_group.add_members(&alice, &alice_signer, &[marked.key_package().clone()])?;

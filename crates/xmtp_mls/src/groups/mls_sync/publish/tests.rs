@@ -182,7 +182,7 @@ struct GoldenAttempt {
 const GOLDEN_PREPARED_ATTEMPTS: &[GoldenAttempt] = &[GoldenAttempt {
     name: "prepared_attempt_rc4.cbor.hex",
     text: include_str!("fixtures/prepared_attempt_rc4.cbor.hex"),
-    sha256: "cbbc7e50ee7e7ea01a3f2719eebbd61971921ae4de6a7f2120f162ec250fc732",
+    sha256: "b4581c9dd5e748865c08f0db462f85d4165b8310a1e9e7ee6d8cbab5ca99d722",
 }];
 
 /// The names serde stores the variants of the enum `T` by, in declaration
