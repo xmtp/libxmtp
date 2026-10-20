@@ -666,8 +666,20 @@ mod tests {
             })?;
         }
         let salt = EncryptedConnection::salt_file(&path)?;
-        let files = || -> std::io::Result<(Vec<u8>, Vec<u8>)> {
-            Ok((std::fs::read(&path)?, std::fs::read(&salt)?))
+        // The database, its salt, and its WAL and shared-memory files, which
+        // may be absent.
+        let files = || -> std::io::Result<Vec<Option<Vec<u8>>>> {
+            let optional = |file: String| match std::fs::read(file) {
+                Ok(bytes) => Ok(Some(bytes)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(error),
+            };
+            Ok(vec![
+                Some(std::fs::read(&path)?),
+                Some(std::fs::read(&salt)?),
+                optional(format!("{path}-wal"))?,
+                optional(format!("{path}-shm"))?,
+            ])
         };
         let before = files()?;
 

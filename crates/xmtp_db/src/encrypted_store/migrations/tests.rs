@@ -35,7 +35,8 @@ async fn upgrades_each_prior_database() {
 
 /// The same prior databases, holding data. One that stopped before the CBOR
 /// marker was written by a bincode build: it is rejected and keeps its
-/// migrations. One at or after the marker upgrades to the latest migration.
+/// migrations. One at or after the marker would upgrade to the latest
+/// migration; none exists until a migration follows the marker.
 #[xmtp_common::test(unwrap_try = true)]
 async fn prior_databases_with_data_upgrade_only_from_the_cbor_marker() {
     use crate::{StorageError, XmtpDb, encrypted_store::CBOR_STORAGE_MIGRATION};
@@ -68,6 +69,10 @@ async fn prior_databases_with_data_upgrade_only_from_the_cbor_marker() {
         let database = crate::TestDb::create_database(Some(path.clone())).await;
         let result = database.init();
         let applied = DbConnection::new(database.conn()).applied_migrations()?;
+        // No migration follows the marker yet, so every prior database here
+        // lacks it and this branch does not run. It runs once a later
+        // migration exists. Until then `a_cbor_database_runs_its_pending_migrations`
+        // covers an upgrade from the marker.
         if prior
             .iter()
             .any(|version| version == CBOR_STORAGE_MIGRATION)
