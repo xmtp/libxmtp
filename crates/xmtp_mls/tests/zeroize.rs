@@ -131,13 +131,28 @@ async fn installation_key_holders_redact_debug() {
     )
     .await?;
 
+    // The stored credential is CBOR, which writes each key byte of 24 or
+    // more as 0x18 then the byte.
+    let cbor_items = |bytes: &[u8]| -> Vec<u8> {
+        bytes
+            .iter()
+            .flat_map(|&byte| {
+                if byte >= 0x18 {
+                    vec![0x18, byte]
+                } else {
+                    vec![byte]
+                }
+            })
+            .collect()
+    };
+    // How `Debug` prints a byte slice or array, anywhere in the list.
+    let debug = |bytes: &[u8]| format!("{bytes:?}").trim_matches(['[', ']']).to_owned();
     let forms = [
         hex::encode(INSTALLATION_KEY),
         hex::encode_upper(INSTALLATION_KEY),
-        // How `Debug` prints a byte slice or array, anywhere in the list.
-        format!("{:?}", &INSTALLATION_KEY[..4])
-            .trim_matches(['[', ']'])
-            .to_owned(),
+        debug(&INSTALLATION_KEY[..4]),
+        hex::encode(cbor_items(&INSTALLATION_KEY)),
+        debug(&cbor_items(&INSTALLATION_KEY[..4])),
     ];
     let cases = [
         ("StoredSecret", format!("{stored:?}")),
