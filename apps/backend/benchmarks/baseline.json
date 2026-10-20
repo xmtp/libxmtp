@@ -1,0 +1,14 @@
+{
+  "sizes": [1000, 100000, 10000000],
+  "topic_counts": [1, 10, 100, 1000],
+  "writers": [1, 8],
+  "batch_sizes": [1],
+  "trials": 3,
+  "read_ms": 1000,
+  "write_ms": 2000,
+  "warmup_requests": 20,
+  "write_growth_percent": 10,
+  "page_limit": 100,
+  "seed": 42,
+  "output": "backend-baseline.jsonl"
+}

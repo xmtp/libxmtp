@@ -12,6 +12,8 @@ mod model;
 pub(crate) use model::*;
 
 #[cfg(test)]
+mod benchmarks;
+#[cfg(test)]
 mod tests;
 
 pub(crate) const GLOBAL_LOCK_DOMAIN: i32 = 0;

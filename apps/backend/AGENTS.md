@@ -14,6 +14,7 @@ dev/nix-shell 'just backend sql-prepare'               # apply migrations and up
 dev/nix-shell 'just backend sql-check'                 # verify committed .sqlx
 dev/nix-shell 'just backend schema'                    # regenerate public config schema (builds xmtp_backend_config only)
 dev/nix-shell 'just backend test'
+dev/nix-shell 'just backend bench apps/backend/benchmarks/baseline.json' # dedicated DATABASE_URL; manual release-mode suite
 dev/nix-shell 'just backend test --lib published'      # one module
 dev/nix-shell 'just backend test --lib https_passthrough' # HTTPS streaming ingress check
 nix build --no-link .#backend-tests.<system>          # tests and SQL check, disposable services, no Docker
@@ -63,6 +64,9 @@ Export fixtures for other crates through `xmtp_backend/test-utils`; backend
 unit tests use the existing dev-dependencies.
 Use the shared `TestDatabase` guard for disposable databases. Its cleanup survives
 assertion failures and test-runtime teardown; do not add success-only cleanup.
+The manual database benchmarks and partitioning proposal are in `benchmarks/`.
+Benchmark trials copy a disconnected fixture with a separate 120 s copy budget;
+ordinary creation and cleanup retain their 5 s deadlines.
 Before connecting a new test database on a streaming replica, call
 `TestDatabase::wait_for_replica`; `TestServer` does this automatically. The helper
 waits up to 30 seconds for the primary WAL position through the existing admin

@@ -19,28 +19,9 @@ impl Store {
     ) -> Result<EnvelopePage, Error> {
         let topics: Vec<_> = queries.iter().map(|query| query.topic.clone()).collect();
         let cursors: Vec<_> = queries.iter().map(|query| query.cursor).collect();
-        let rows = sqlx::query!(
-            r#"WITH wanted AS (
-                SELECT * FROM unnest($1::bytea[], $2::bigint[]) AS r(topic, cursor)
-            ), candidates AS MATERIALIZED (
-                SELECT e.sequence_id FROM wanted CROSS JOIN LATERAL (
-                    SELECT sequence_id FROM envelopes
-                    WHERE topic = wanted.topic AND sequence_id > wanted.cursor
-                    ORDER BY sequence_id LIMIT ($3::bigint + 1)
-                ) AS e ORDER BY e.sequence_id LIMIT ($3::bigint + 1)
-            ), page AS (
-                SELECT sequence_id FROM candidates ORDER BY sequence_id LIMIT $3::bigint
-            )
-            SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,
-                e.message_hash, e.is_commit_or_proposal, e.payload,
-                (SELECT count(*) > $3::bigint FROM candidates) AS "has_more!"
-            FROM page JOIN envelopes AS e USING (sequence_id) ORDER BY e.sequence_id"#,
-            &topics,
-            &cursors,
-            limit
-        )
-        .fetch_all(&self.primary)
-        .await?;
+        let rows = sqlx::query_file!("src/db/read/page.sql", &topics, &cursors, limit)
+            .fetch_all(&self.primary)
+            .await?;
         let has_more = rows.first().is_some_and(|row| row.has_more);
         let envelopes = rows
             .into_iter()
@@ -70,17 +51,11 @@ impl Store {
         &self,
         topics: &[Vec<u8>],
     ) -> Result<Vec<StoredEnvelope>, Error> {
-        Ok(sqlx::query_as!(
-            StoredEnvelope,
-            "SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,
-                e.message_hash, e.is_commit_or_proposal, e.payload
-            FROM topic_watermark w JOIN envelopes e
-                ON e.sequence_id = w.last_sequence_id AND e.topic = w.topic
-            WHERE w.topic = ANY($1::bytea[])",
-            topics
+        Ok(
+            sqlx::query_file_as!(StoredEnvelope, "src/db/read/newest.sql", topics)
+                .fetch_all(&self.read)
+                .await?,
         )
-        .fetch_all(&self.read)
-        .await?)
     }
 
     /// Read newest metadata without loading payload bytes.
@@ -92,17 +67,11 @@ impl Store {
         &self,
         topics: &[Vec<u8>],
     ) -> Result<Vec<StoredMeta>, Error> {
-        Ok(sqlx::query_as!(
-            StoredMeta,
-            "SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,
-                e.message_hash, e.is_commit_or_proposal
-            FROM topic_watermark w JOIN envelopes e
-                ON e.sequence_id = w.last_sequence_id AND e.topic = w.topic
-            WHERE w.topic = ANY($1::bytea[])",
-            topics
+        Ok(
+            sqlx::query_file_as!(StoredMeta, "src/db/read/newest_metadata.sql", topics)
+                .fetch_all(&self.read)
+                .await?,
         )
-        .fetch_all(&self.read)
-        .await?)
     }
 
     /// Resolve normalized identifier keys to their latest active inbox IDs.
