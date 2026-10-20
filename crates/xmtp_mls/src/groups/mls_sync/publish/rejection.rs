@@ -266,7 +266,8 @@ mod tests {
 
     /// Stored rows name each code. Every name is written out here, so a
     /// renamed code fails this test instead of every stored row of an
-    /// in-flight intent. A new code must be added to both lists.
+    /// in-flight intent, and the list must match every code serde stores, so
+    /// a new code fails until its name is here.
     #[xmtp_common::test(unwrap_try = true)]
     fn every_rejection_code_is_stored_by_its_name() {
         let codes = [
@@ -342,48 +343,11 @@ mod tests {
             (RejectionCode::Conversion, "Conversion"),
             (RejectionCode::OtherSupportedInput, "OtherSupportedInput"),
         ];
+        assert_eq!(
+            crate::groups::mls_sync::publish::tests::serde_variants::<RejectionCode>(),
+            codes.map(|(_, name)| name)
+        );
         for (code, name) in codes {
-            // Fails to compile when a code is added without a name above.
-            match code {
-                RejectionCode::InsufficientPermissions
-                | RejectionCode::ActorCouldNotBeFound
-                | RejectionCode::ActorNotMember
-                | RejectionCode::SubjectDoesNotExist
-                | RejectionCode::MultipleActors
-                | RejectionCode::MissingGroupMembership
-                | RejectionCode::MissingMutableMetadata
-                | RejectionCode::SequenceIdDecreased
-                | RejectionCode::NoPskSupport
-                | RejectionCode::ProposerNotFound
-                | RejectionCode::ProposalsNotEnabled
-                | RejectionCode::IntentAlreadyProcessed
-                | RejectionCode::InvalidPayload
-                | RejectionCode::OwnMessageWithoutAttempt
-                | RejectionCode::InvalidSender
-                | RejectionCode::MalformedEnvelope
-                | RejectionCode::InvalidMlsInput
-                | RejectionCode::WrongCredentialType
-                | RejectionCode::UnsupportedMessageType
-                | RejectionCode::FutureEpoch
-                | RejectionCode::MessageAlreadyProcessed
-                | RejectionCode::IdentityReference
-                | RejectionCode::IdentitySequenceOrder
-                | RejectionCode::InboxValidation
-                | RejectionCode::InvalidVersion
-                | RejectionCode::UnexpectedInstallationAdded
-                | RejectionCode::UnexpectedInstallationsRemoved
-                | RejectionCode::GroupMetadata
-                | RejectionCode::MlsCredential
-                | RejectionCode::GroupMutableMetadata
-                | RejectionCode::GroupMutablePermissions
-                | RejectionCode::TooManyCharacters
-                | RejectionCode::MinVersionDowngrade
-                | RejectionCode::MinVersionRemove
-                | RejectionCode::ComponentSource
-                | RejectionCode::Bootstrap
-                | RejectionCode::Conversion
-                | RejectionCode::OtherSupportedInput => {}
-            }
             assert_eq!(xmtp_db::db_serialize(&code)?, cbor_text(name), "{name}");
             assert_eq!(
                 xmtp_db::db_deserialize::<RejectionCode>(&cbor_text(name))?,

@@ -163,12 +163,101 @@ async fn prepare_kind<C: XmtpSharedContext>(
     Ok((requirements.intent, attempt))
 }
 
-/// A stored attempt with every optional field set, written by this build:
-/// receipts, a Welcome batch with receipts, a rejection, an unsettled batch,
-/// and a standalone proposal. Every name in it, nested ones included, is now
-/// stored in rc4 rows. Rewrite it only for a deliberate format change, with
-/// `just test workspace -p xmtp_mls write_golden_prepared_attempt --run-ignored only`.
-const GOLDEN_PREPARED_ATTEMPT: &str = include_str!("fixtures/prepared_attempt.cbor.hex");
+/// A frozen stored attempt: its file name, its hex text, and the SHA-256 of
+/// the text.
+struct GoldenAttempt {
+    name: &'static str,
+    text: &'static str,
+    sha256: &'static str,
+}
+
+/// Stored attempts with every optional field set: receipts, a Welcome batch
+/// with receipts, a rejection, an unsettled batch, and a standalone
+/// proposal. Every name in them, nested ones included, is stored in rows of
+/// in-flight intents, so each file is frozen; the newest is the format this
+/// build writes. For a deliberate format change, run
+/// `dev/nix-shell 'just test workspace -p xmtp_mls write_golden_prepared_attempt --run-ignored only'`,
+/// rename `fixtures/prepared_attempt_next.cbor.hex` to
+/// `prepared_attempt_<release>.cbor.hex`, and add it last here with its hash.
+const GOLDEN_PREPARED_ATTEMPTS: &[GoldenAttempt] = &[GoldenAttempt {
+    name: "prepared_attempt_rc4.cbor.hex",
+    text: include_str!("fixtures/prepared_attempt_rc4.cbor.hex"),
+    sha256: "c95737c7cad79c68e3646fe591933e2b1c36c7727c1c41d1cdad7b8db96f0756",
+}];
+
+/// The names serde stores the variants of the enum `T` by, in declaration
+/// order, read from its derived `Deserialize`. A renamed, added or removed
+/// variant changes the list.
+pub(super) fn serde_variants<T: serde::de::DeserializeOwned>() -> &'static [&'static str] {
+    use serde::de::{Error, Visitor};
+
+    #[derive(Debug)]
+    struct Stop;
+    impl std::fmt::Display for Stop {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("not an enum")
+        }
+    }
+    impl std::error::Error for Stop {}
+    impl Error for Stop {
+        fn custom<M: std::fmt::Display>(_: M) -> Self {
+            Stop
+        }
+    }
+    struct Variants(Option<&'static [&'static str]>);
+    impl<'de> serde::Deserializer<'de> for &mut Variants {
+        type Error = Stop;
+        fn deserialize_any<V: Visitor<'de>>(self, _: V) -> Result<V::Value, Stop> {
+            Err(Stop)
+        }
+        fn deserialize_enum<V: Visitor<'de>>(
+            self,
+            _: &'static str,
+            variants: &'static [&'static str],
+            _: V,
+        ) -> Result<V::Value, Stop> {
+            self.0 = Some(variants);
+            Err(Stop)
+        }
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes
+            byte_buf option unit unit_struct newtype_struct seq tuple tuple_struct map
+            struct identifier ignored_any
+        }
+    }
+    let mut variants = Variants(None);
+    let _ = T::deserialize(&mut variants);
+    variants.0.expect("an enum")
+}
+
+/// An unsettled batch is stored by its state's name. A renamed state fails
+/// here instead of every stored row written after an `OUT_OF_RANGE` publish.
+#[xmtp_common::test(unwrap_try = true)]
+fn unsettled_states_are_stored_by_their_names() {
+    let states = [
+        (Unsettled::Attempt, "Attempt"),
+        (Unsettled::Welcomes, "Welcomes"),
+    ];
+    assert_eq!(serde_variants::<Unsettled>(), states.map(|(_, name)| name));
+    for (state, name) in states {
+        let text = [&[0x60 | name.len() as u8], name.as_bytes()].concat();
+        assert_eq!(xmtp_db::db_serialize(&state)?, text, "{name}");
+        assert_eq!(xmtp_db::db_deserialize::<Unsettled>(&text)?, state);
+    }
+}
+
+/// Each frozen attempt is unchanged.
+#[xmtp_common::test(unwrap_try = true)]
+fn golden_prepared_attempts_are_frozen() {
+    for golden in GOLDEN_PREPARED_ATTEMPTS {
+        assert_eq!(
+            hex::encode(sha256(golden.text.as_bytes())),
+            golden.sha256,
+            "{} changed; frozen attempts are never edited",
+            golden.name
+        );
+    }
+}
 
 /// The golden attempt's values that are not copied from a prepared message.
 fn golden_attempt_parts() -> (
@@ -192,7 +281,7 @@ fn golden_attempt_parts() -> (
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[ignore = "rewrites fixtures/prepared_attempt.cbor.hex"]
+#[ignore = "writes fixtures/prepared_attempt_next.cbor.hex for a deliberate format change"]
 #[xmtp_common::test(unwrap_try = true)]
 async fn write_golden_prepared_attempt() {
     tester!(alix, disable_workers);
@@ -207,33 +296,38 @@ async fn write_golden_prepared_attempt() {
     attempt.unsettled = Some(Unsettled::Welcomes);
     std::fs::write(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/groups/mls_sync/publish/fixtures/prepared_attempt.cbor.hex"),
+            .join("src/groups/mls_sync/publish/fixtures/prepared_attempt_next.cbor.hex"),
         hex::encode(xmtp_db::db_serialize(&attempt)?) + "\n",
     )?;
 }
 
-/// The golden attempt decodes with every field in place, and encodes back to
-/// the same bytes. A renamed field, nested or not, or a renamed variant fails
-/// here: a required one fails to decode, and an optional one would read as
-/// `None`.
+/// Every frozen attempt decodes with every field in place: a renamed field,
+/// nested or not, or a renamed variant fails here, as a required one fails to
+/// decode and an optional one would read as `None`. The newest also encodes
+/// back to its bytes; an older one may lack a field added later with a
+/// default, which this build writes.
 #[xmtp_common::test(unwrap_try = true)]
 fn golden_prepared_attempt_keeps_every_field() {
-    let bytes = hex::decode(GOLDEN_PREPARED_ATTEMPT.trim())?;
-    let attempt = PreparedAttempt::decode(&bytes)?;
-    let (receipts, welcomes, proposal) = golden_attempt_parts();
-    assert_eq!(attempt.version, prepared::PREPARED_ATTEMPT_VERSION);
-    assert!(!attempt.base.authenticator.is_empty());
-    assert_eq!(attempt.payload_hash.len(), 32);
-    assert_eq!(attempt.envelopes.len(), 1);
-    assert_eq!(attempt.proposals, [proposal]);
-    assert_eq!(attempt.receipts, Some(receipts));
-    assert_eq!(attempt.welcomes, Some(welcomes));
-    assert_eq!(
-        attempt.rejection,
-        Some(rejection::PreparedRejection::sample())
-    );
-    assert_eq!(attempt.unsettled, Some(Unsettled::Welcomes));
-    assert_eq!(xmtp_db::db_serialize(&attempt)?, bytes);
+    for (index, golden) in GOLDEN_PREPARED_ATTEMPTS.iter().enumerate() {
+        let bytes = hex::decode(golden.text.trim())?;
+        let attempt = PreparedAttempt::decode(&bytes)?;
+        let (receipts, welcomes, proposal) = golden_attempt_parts();
+        assert_eq!(attempt.version, prepared::PREPARED_ATTEMPT_VERSION);
+        assert!(!attempt.base.authenticator.is_empty());
+        assert_eq!(attempt.payload_hash.len(), 32);
+        assert_eq!(attempt.envelopes.len(), 1);
+        assert_eq!(attempt.proposals, [proposal]);
+        assert_eq!(attempt.receipts, Some(receipts));
+        assert_eq!(attempt.welcomes, Some(welcomes));
+        assert_eq!(
+            attempt.rejection,
+            Some(rejection::PreparedRejection::sample())
+        );
+        assert_eq!(attempt.unsettled, Some(Unsettled::Welcomes));
+        if index == GOLDEN_PREPARED_ATTEMPTS.len() - 1 {
+            assert_eq!(xmtp_db::db_serialize(&attempt)?, bytes, "{}", golden.name);
+        }
+    }
 }
 
 /// The stored attempt is CBOR: a map keyed by field names, so its first byte
