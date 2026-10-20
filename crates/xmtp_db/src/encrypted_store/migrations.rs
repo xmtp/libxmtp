@@ -1,4 +1,5 @@
 use diesel::migration::{Migration, MigrationSource, MigrationVersion};
+use diesel::{QueryResult, SqliteConnection};
 use diesel_migrations::MigrationHarness;
 
 use super::{ConnectionExt, MIGRATIONS, Sqlite, db_connection::DbConnection};
@@ -22,6 +23,10 @@ pub trait QueryMigrations {
     /// would reject the database as written before the marker
     /// (`StorageError::OldEncodingDatabase`). A rollback of every migration
     /// drops every table, so it runs; the next open creates a new database.
+    ///
+    /// The data check and the reverts run in one exclusive transaction, so no
+    /// other connection writes between them. A revert that fails undoes the
+    /// whole rollback and returns its error.
     ///
     /// WARNING: This is destructive and may cause data loss.
     fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError>;
@@ -76,64 +81,45 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
         // marker when the target sorts at or before it, and every migration
         // when it sorts at or before the oldest applied one.
         let marker = super::CBOR_STORAGE_MIGRATION;
-        let applied = self.applied_migrations()?;
-        let oldest = applied.iter().min().cloned().unwrap_or_default();
-        let reverts_marker = target.as_str() <= marker && applied.iter().any(|v| v == marker);
-        let reverts_all = target.as_str() <= oldest.as_str();
-        if reverts_marker && !reverts_all && self.raw_query(super::holds_client_data)? {
-            return Err(ConnectionError::InvalidQuery(format!(
-                "Rolling back to {version} would revert the CBOR storage marker \
-                 {marker} and keep this database's data, and every later open would \
-                 reject it as written before the marker. Roll back to a version after \
-                 {marker}, or roll back every migration (to {oldest} or earlier), \
-                 which drops all data."
-            )));
-        }
-
-        let mut reverted = Vec::new();
-
-        loop {
-            let applied = self.applied_migrations()?;
-            let Some(current_version) = applied.first() else {
-                break;
-            };
-
-            if current_version.as_str() < target.as_str() {
-                break;
-            }
-
-            let result = self.raw_query(|conn| {
-                conn.revert_last_migration(MIGRATIONS)
-                    .map(|v| v.to_string())
-                    .map_err(diesel::result::Error::QueryBuilderError)
-            });
-
-            match result {
-                Ok(version) => {
-                    reverted.push(version);
+        let outcome = self.raw_query(|conn| {
+            conn.exclusive_transaction(|conn| {
+                let applied = |conn: &mut SqliteConnection| -> QueryResult<Vec<String>> {
+                    Ok(conn
+                        .applied_migrations()
+                        .map_err(diesel::result::Error::QueryBuilderError)?
+                        .into_iter()
+                        .map(|version| version.to_string())
+                        .collect())
+                };
+                let versions = applied(conn)?;
+                let oldest = versions.iter().min().cloned().unwrap_or_default();
+                let reverts_marker =
+                    target.as_str() <= marker && versions.iter().any(|v| v == marker);
+                let reverts_all = target.as_str() <= oldest.as_str();
+                if reverts_marker && !reverts_all && super::holds_client_data(conn)? {
+                    return Ok(Err(format!(
+                        "Rolling back to {version} would revert the CBOR storage marker \
+                         {marker} and keep this database's data, and every later open \
+                         would reject it as written before the marker. Roll back to a \
+                         version after {marker}, or roll back every migration (to \
+                         {oldest} or earlier), which drops all data."
+                    )));
                 }
-                Err(e) => {
-                    tracing::warn!("Migration rollback stopped: {e:?}");
-                    break;
+
+                let mut reverted = Vec::new();
+                while let Some(current) = applied(conn)?.first().cloned() {
+                    if current.as_str() < target.as_str() {
+                        break;
+                    }
+                    let version = conn
+                        .revert_last_migration(MIGRATIONS)
+                        .map_err(diesel::result::Error::QueryBuilderError)?;
+                    reverted.push(version.to_string());
                 }
-            }
-        }
-
-        // A full rollback that stopped after the marker, with data left, leaves
-        // a database no open accepts.
-        if reverts_marker && reverted.iter().any(|v| v == marker) {
-            let left = self.applied_migrations()?;
-            if !left.is_empty() && self.raw_query(super::holds_client_data)? {
-                return Err(ConnectionError::InvalidQuery(format!(
-                    "The rollback to {version} stopped at {stopped} after reverting \
-                     the CBOR storage marker {marker}, with data left. Every later \
-                     open rejects this database; delete it.",
-                    stopped = left.iter().max().cloned().unwrap_or_default()
-                )));
-            }
-        }
-
-        Ok(reverted)
+                Ok(Ok(reverted))
+            })
+        })?;
+        outcome.map_err(ConnectionError::InvalidQuery)
     }
 
     fn run_migration(&self, name: &str) -> Result<(), ConnectionError> {
@@ -256,12 +242,28 @@ mod tests {
         );
     }
 
+    /// The data check and the reverts are one exclusive transaction: when a
+    /// revert fails, the whole rollback is undone, the marker's revert
+    /// included, and the error is returned.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_failed_revert_undoes_the_whole_rollback() {
+        use diesel::connection::SimpleConnection;
+
+        let store = crate::TestDb::create_ephemeral_store().await;
+        let conn = store.db();
+        // The down migration that runs after the marker's drops this index.
+        conn.raw_query(|db| db.batch_execute("DROP INDEX group_messages_group_reference"))?;
+        let before = conn.applied_migrations()?;
+        assert!(conn.rollback_to_version(BASELINE).is_err());
+        assert_eq!(conn.applied_migrations()?, before);
+    }
+
     /// A rollback of every migration on a database with data runs: it drops
     /// every table, so the next open creates a new database, with no data.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_full_rollback_of_a_database_with_data_runs() {
-        use crate::{EncryptedMessageStore, TestDb, XmtpDb};
+        use crate::{EncryptedMessageStore, TestDb};
         use diesel::connection::SimpleConnection;
 
         let path = xmtp_common::tmp_path();

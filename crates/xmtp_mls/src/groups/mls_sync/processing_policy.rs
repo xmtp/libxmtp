@@ -293,8 +293,7 @@ mod tests {
             received(&commit).try_into_protocol_message()?,
             &own,
         )
-        .err()
-        .expect("the commit applied");
+        .expect_err("the commit applied");
         let error = GroupMessageProcessingError::from_app_data_processing(error);
         assert!(
             format!("{error:?}").contains("MalformedLastResortComponent"),
