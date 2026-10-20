@@ -42,9 +42,13 @@
 //!   that stores CBOR, so no reader of the integer-array form exists. Types
 //!   that OpenMLS owns keep their own serde shape, integer arrays included.
 //! - Wiping depends on exact-size buffers. [`value_to_vec`] allocates the
-//!   final size once. A decoded `Vec<u8>` is sized exactly from the CBOR
-//!   array length, which `XmtpMlsStorageProvider::wrapper_private_key`
-//!   relies on. The heap canary tests in `tests/zeroize.rs` check both.
+//!   final size once; the heap canary tests in `tests/zeroize.rs` check it.
+//!   A decoded `Vec<u8>` is sized exactly from the CBOR array length. The
+//!   private key fields of OpenMLS types rely on that: `SignatureKeyPair`'s
+//!   `private` and the HPKE private keys (`HpkePrivateKey`) are integer
+//!   arrays read into a `Vec<u8>`. `decoded_byte_vectors_are_sized_exactly`
+//!   is their only guard: a vector that grew 8, 16, 32 frees blocks that
+//!   each hold only part of a key, which no heap canary finds.
 //! - The pre-scan of [`value_from_slice`] rejects bytes after the value and
 //!   an indefinite-length byte string, before any decode. cbor4ii joins the
 //!   chunks of an indefinite-length byte string in a growing buffer that is
@@ -505,9 +509,12 @@ mod tests {
         assert_eq!(value_from_slice::<Row>(&value_to_vec(&row)?)?, row);
     }
 
-    /// A decoded `Vec<u8>` has exactly its length as capacity, so it moves into
-    /// `Zeroizing` with no unwiped spare copy. `wrapper_private_key` relies on
-    /// this.
+    /// A decoded `Vec<u8>` has exactly its length as capacity, so it never
+    /// grows by reallocation and frees an unwiped partial copy. The private
+    /// key fields of OpenMLS types, `SignatureKeyPair`'s `private` and the
+    /// HPKE private keys, are read this way. This is their only guard: the
+    /// blocks a growing vector frees each hold only part of a key, and a heap
+    /// canary looks for the whole key.
     #[xmtp_common::test(unwrap_try = true)]
     fn decoded_byte_vectors_are_sized_exactly() {
         for len in [0, 1, 32, 2_400, 70_000] {

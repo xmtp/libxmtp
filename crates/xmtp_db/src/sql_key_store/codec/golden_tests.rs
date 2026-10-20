@@ -27,7 +27,7 @@
 //!   from a past epoch and one of a skipped generation, commits stored
 //!   proposals, merges a stored staged commit, and exchanges messages. What
 //!   the file's steps leave is read from its `expect` block;
-//! - cut and corrupted rows are errors, not panics;
+//! - cut and corrupted rows with a public type are errors, not panics;
 //! - every shape of an older file is also in the newest file, unless it is
 //!   in [`REMOVED_SHAPES`].
 //!
@@ -83,20 +83,13 @@ use xmtp_configuration::{
     MAX_PAST_EPOCHS, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
     WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
-use xmtp_cryptography::{XmtpInstallationCredential, configuration::CIPHERSUITE};
+use xmtp_cryptography::{Secret, XmtpInstallationCredential, configuration::CIPHERSUITE};
 
-use xmtp_cryptography::Secret;
-
-use super::{
-    decode_list, encode_bytes, encode_key, encode_value, key, value_from_slice, value_to_vec,
-};
+use super::{decode_list, encode_key, encode_value, key, value_from_slice, value_to_vec};
 use crate::{
     ConnectionExt, TestDb, XmtpMlsStorageProvider, XmtpOpenMlsProvider, XmtpTestDb, db_deserialize,
     db_serialize,
-    sql_key_store::{
-        COMMIT_LOG_SIGNER_PRIVATE_KEY, KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-        SqlKeyStore,
-    },
+    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStore},
 };
 
 /// A frozen golden file and the SHA-256 of its text.
@@ -654,7 +647,8 @@ async fn build() -> Value {
     );
     let staged = second.pending_commit().expect("an own staged commit");
 
-    // The XMTP labels, as `identity.rs` and `commit_log_key.rs` write them.
+    // The XMTP labels, through the writers `identity.rs` and
+    // `commit_log_key.rs` use.
     let hash_ref = bob_spare.key_package().hash_ref(bob.crypto()).unwrap();
     let init_key = tls(bob_spare.key_package().hpke_init_key());
     let storage = bob.storage();
@@ -671,13 +665,12 @@ async fn build() -> Value {
         &[0x5a; 32],
     )
     .unwrap();
-    storage
-        .write::<CURRENT_VERSION>(
-            COMMIT_LOG_SIGNER_PRIVATE_KEY,
-            &encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group.group_id().as_slice()).unwrap(),
-            &encode_bytes(COMMIT_LOG_SIGNER_PRIVATE_KEY, &[0x24; 32]).unwrap(),
-        )
-        .unwrap();
+    XmtpMlsStorageProvider::write_commit_log_signer(
+        storage,
+        group.group_id().as_slice(),
+        &[0x24; 32],
+    )
+    .unwrap();
 
     let rows = |provider: &Provider| {
         dump(provider)
@@ -693,7 +686,6 @@ async fn build() -> Value {
     };
     json!({
         "description": "Key store rows and db_serialize columns written by libxmtp with CBOR values, from XMTP-shaped test groups. The keys are throwaway test keys. src/sql_key_store/codec/golden_tests.rs builds and reads them. Frozen: never edit or regenerate this file.",
-        "openmls": format!("xmtp/openmls {}", openmls_revision()),
         "groups": {
             "first": hex::encode(group.group_id().as_slice()),
             "second": hex::encode(second.group_id().as_slice()),
@@ -733,7 +725,11 @@ async fn build() -> Value {
 #[ignore = "writes golden_rows_next.json for a deliberate format change"]
 #[xmtp_common::test(unwrap_try = true)]
 async fn write_golden_rows() {
-    let text = serde_json::to_string_pretty(&build().await)? + "\n";
+    let mut golden = build().await;
+    // Provenance only: no test reads it, so a repin to another source form
+    // fails nothing but this writer.
+    golden["openmls"] = format!("xmtp/openmls {}", openmls_revision()).into();
+    let text = serde_json::to_string_pretty(&golden)? + "\n";
     std::fs::write(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src/sql_key_store/codec/golden_rows_next.json"),
@@ -759,7 +755,11 @@ impl Golden {
 }
 
 fn parse(file: &GoldenFile) -> Golden {
-    let json: Value = serde_json::from_str(file.text).unwrap();
+    golden_from_json(file.name, serde_json::from_str(file.text).unwrap())
+}
+
+/// A golden file's rows and columns, from its JSON.
+fn golden_from_json(name: &'static str, json: Value) -> Golden {
     let rows = |rows: &Value| -> Vec<Row> {
         rows.as_array()
             .unwrap()
@@ -772,7 +772,7 @@ fn parse(file: &GoldenFile) -> Golden {
             .collect()
     };
     Golden {
-        name: file.name,
+        name,
         stores: STORES
             .into_iter()
             .map(|store| (store, rows(&json["stores"][store])))
@@ -1260,33 +1260,7 @@ fn golden_rows_hold_production_shapes() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn this_build_writes_the_newest_golden_shapes() {
     let newest = newest();
-    let fresh = build().await;
-    let fresh = Golden {
-        name: "this build",
-        stores: STORES
-            .into_iter()
-            .map(|store| {
-                let rows = fresh["stores"][store]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|row| Row {
-                        label: row["label"].as_str().unwrap().to_owned(),
-                        key: hex::decode(row["key"].as_str().unwrap()).unwrap(),
-                        value: hex::decode(row["value"].as_str().unwrap()).unwrap(),
-                    })
-                    .collect();
-                (store, rows)
-            })
-            .collect(),
-        columns: fresh["columns"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(name, value)| (name.clone(), hex::decode(value.as_str().unwrap()).unwrap()))
-            .collect(),
-        json: fresh,
-    };
+    let fresh = golden_from_json("this build", build().await);
     let (frozen, now) = (shapes(&newest), shapes(&fresh));
     assert_eq!(
         frozen.keys().collect::<Vec<_>>(),
@@ -1311,26 +1285,55 @@ async fn this_build_writes_the_newest_golden_shapes() {
 /// Every other shape of an older file must stay in the newest file.
 const REMOVED_SHAPES: &[(&str, &str, &str)] = &[];
 
+type Shapes = BTreeMap<String, BTreeSet<String>>;
+
+/// The shapes of the frozen file `file` (`older`) that `newest` lacks and
+/// [`REMOVED_SHAPES`] does not list, as (label or column key, shape).
+fn shapes_missing(file: &str, older: &Shapes, newest: &Shapes) -> Vec<(String, String)> {
+    let mut missing = vec![];
+    for (key, paths) in older {
+        for path in paths {
+            let kept = newest.get(key).is_some_and(|newer| newer.contains(path));
+            let removed = REMOVED_SHAPES.contains(&(file, key.as_str(), path.as_str()));
+            if !kept && !removed {
+                missing.push((key.clone(), path.clone()));
+            }
+        }
+    }
+    missing
+}
+
 /// Every shape of an older frozen file is also in the newest one, so a
 /// renamed or removed field or variant in a crate-private type, which rows of
 /// the older file still hold, fails here even when it reads them with a
 /// default. Removals on purpose go in [`REMOVED_SHAPES`].
+///
+/// Until a second file exists the loop below checks nothing, so the newest
+/// file checks the comparison itself: it keeps all its own shapes, and a copy
+/// without one shape lacks exactly that one.
 #[xmtp_common::test(unwrap_try = true)]
 fn older_golden_files_keep_their_shapes() {
+    let newest_file = GOLDEN_FILES.last().unwrap().name;
     let newest = shapes(&newest());
+    assert!(shapes_missing(newest_file, &newest, &newest).is_empty());
+    let mut cut = newest.clone();
+    assert!(cut.values_mut().any(|paths| paths.remove("=Inactive")));
+    let missing = shapes_missing(newest_file, &newest, &cut);
+    assert_eq!(
+        missing
+            .iter()
+            .map(|(_, path)| path.as_str())
+            .collect::<Vec<_>>(),
+        ["=Inactive"]
+    );
+
     for file in &GOLDEN_FILES[..GOLDEN_FILES.len() - 1] {
-        for (key, paths) in shapes(&parse(file)) {
-            for path in paths {
-                let kept = newest.get(&key).is_some_and(|newer| newer.contains(&path));
-                let removed = REMOVED_SHAPES.contains(&(file.name, key.as_str(), path.as_str()));
-                assert!(
-                    kept || removed,
-                    "{} {key} {path} is not in {}",
-                    file.name,
-                    GOLDEN_FILES.last().unwrap().name
-                );
-            }
-        }
+        let missing = shapes_missing(file.name, &shapes(&parse(file)), &newest);
+        assert!(
+            missing.is_empty(),
+            "{} shapes are not in {newest_file}: {missing:?}",
+            file.name
+        );
     }
 }
 
@@ -1602,8 +1605,8 @@ async fn golden_rows_load_and_run_the_groups() {
             Some(&*expect_bytes("second_membership_after_merge"))
         );
 
-        // The XMTP labels read back through their production keys and types,
-        // as `find_key_package_hash_ref`, `find_private_key` and
+        // The XMTP labels read back through their production keys and
+        // readers, as `find_key_package_hash_ref`, `find_private_key` and
         // `read_commit_log_key` read them. `build` wrote these values.
         let references = golden.stores["bob"]
             .iter()
@@ -1619,12 +1622,8 @@ async fn golden_rows_load_and_run_the_groups() {
         )?
         .expect("the wrapper key reads back through its hash ref");
         assert_eq!(wrapper.as_slice(), [0x5a; 32]);
-        let signer: Secret = XmtpMlsStorageProvider::read(
-            bob.storage(),
-            COMMIT_LOG_SIGNER_PRIVATE_KEY,
-            &encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, first.as_slice())?,
-        )?
-        .expect("the commit-log signer reads back through the group id");
+        let signer = XmtpMlsStorageProvider::commit_log_signer(bob.storage(), first.as_slice())?
+            .expect("the commit-log signer reads back through the group id");
         assert_eq!(signer.as_slice(), [0x24; 32]);
         db_deserialize::<Credential>(&golden.columns["Credential"])?;
         db_deserialize::<XmtpInstallationCredential>(
