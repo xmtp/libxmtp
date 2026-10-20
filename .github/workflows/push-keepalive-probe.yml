@@ -6,8 +6,9 @@ on:
       - main
     # Every input of the image build: this workflow, the crates of
     # keepalive-probe's Cargo closure (normal and build dependencies), the
-    # protos that xmtp_proto's build script compiles, and the workspace build
-    # settings. dev/tests/test_release_push.py checks the list.
+    # protos that xmtp_proto's build script compiles, the workspace build
+    # settings, and the .dockerignore that filters the build context.
+    # dev/tests/test_release_push.py checks the list.
     paths:
       - '.github/workflows/push-keepalive-probe.yml'
       - 'apps/keepalive-probe/**'
@@ -23,7 +24,16 @@ on:
       - 'rust-toolchain.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.dockerignore'
   workflow_dispatch:
+
+# One run per ref at a time, so an older run cannot tag `latest` after a newer
+# one. A running build is never cancelled. GitHub keeps one pending run per
+# group and a newer one replaces it, so `latest` ends at the newest commit; a
+# replaced commit gets no sha tag.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

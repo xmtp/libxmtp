@@ -1041,10 +1041,29 @@ class KeepaliveProbeImageTest(unittest.TestCase):
             "rust-toolchain.toml",
             "Cargo.toml",
             "Cargo.lock",
+            # `COPY . .` copies the context that it filters.
+            ".dockerignore",
         }
         # PyYAML reads the `on` key as True.
         push = yaml.safe_load((ROOT / workflow).read_text())[True]["push"]
         self.assertEqual(sorted(push["paths"]), sorted(expected))
+
+    def test_runs_of_one_ref_never_overlap(self):
+        # Two overlapping main runs could finish out of order, and the older
+        # one would tag `latest` last. One run per ref runs at a time, and it
+        # is never cancelled. The default queue keeps only the newest pending
+        # run; `queue: max` would keep more, but GitHub does not guarantee
+        # their order.
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/push-keepalive-probe.yml").read_text()
+        )
+        self.assertEqual(
+            workflow.get("concurrency"),
+            {
+                "group": "${{ github.workflow }}-${{ github.ref }}",
+                "cancel-in-progress": False,
+            },
+        )
 
 
 class NpmPublishAuthorizationTest(unittest.TestCase):
