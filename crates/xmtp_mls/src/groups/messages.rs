@@ -167,7 +167,7 @@ where
             return Ok(existing);
         }
 
-        let group_message = StoredGroupMessage {
+        let mut group_message = StoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id,
             decrypted_message_bytes: message.to_vec(),
@@ -189,7 +189,12 @@ where
             should_push,
             idempotency_key,
         };
-        group_message.store(db)?;
+        // The content can hold a device-sync HMAC root key; a failed insert
+        // must not drop it unwiped.
+        if let Err(error) = group_message.store(db) {
+            group_message.decrypted_message_bytes.zeroize();
+            return Err(error.into());
+        }
         Ok(group_message)
     }
 
