@@ -58,9 +58,11 @@ jobs:
       fail-fast: false
       matrix:
         # android-smoke builds no iOS part. The macOS row is a trial since
-        # 2026-10-19: it was warp-macos-26-arm64-12x.
-        include: ${{ fromJSON(inputs.scope == 'android-smoke' && '[{"system":"x86_64-linux","name":"Build JS and Android parts (Linux)","runner":"blacksmith-16vcpu-ubuntu-2404"}]' || '[{"system":"x86_64-linux","name":"Build JS and Android parts (Linux)","runner":"blacksmith-16vcpu-ubuntu-2404"},{"system":"aarch64-darwin","name":"Build iOS parts (macOS)","runner":"warp-macos-26-arm64-6x"}]') }}
-    runs-on: ${{ matrix.runner }}
+        # 2026-10-19: it was warp-macos-26-arm64-12x. A row's `pr_runner`
+        # replaces `runner` on pull requests: the Blacksmith macOS trial.
+        # Manual runs keep the WarpBuild label until the trial is measured.
+        include: ${{ fromJSON(inputs.scope == 'android-smoke' && '[{"system":"x86_64-linux","name":"Build JS and Android parts (Linux)","runner":"blacksmith-16vcpu-ubuntu-2404"}]' || '[{"system":"x86_64-linux","name":"Build JS and Android parts (Linux)","runner":"blacksmith-16vcpu-ubuntu-2404"},{"system":"aarch64-darwin","name":"Build iOS parts (macOS)","runner":"warp-macos-26-arm64-6x","pr_runner":"blacksmith-6vcpu-macos-26"}]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && matrix.pr_runner || matrix.runner }}
     timeout-minutes: 90
     steps:
       # Before any build: a bad scope fails at once.
@@ -152,8 +154,9 @@ jobs:
       fail-fast: false
       matrix:
         # android-smoke: the bare Android app of the Android-only test package.
-        include: ${{ fromJSON(inputs.scope == 'android-smoke' && '[{"platform":"android","system":"x86_64-linux","runner":"blacksmith-16vcpu-ubuntu-2404","consumers":"bare","name":"Installed-app tests (Android bare)"}]' || '[{"platform":"android","system":"x86_64-linux","runner":"blacksmith-16vcpu-ubuntu-2404","consumers":"all","name":"Installed-app tests (Android)"},{"platform":"ios","system":"aarch64-darwin","runner":"warp-macos-26-arm64-12x","consumers":"all","name":"Installed-app tests (iOS)"}]') }}
-    runs-on: ${{ matrix.runner }}
+        # `pr_runner` as in the components matrix.
+        include: ${{ fromJSON(inputs.scope == 'android-smoke' && '[{"platform":"android","system":"x86_64-linux","runner":"blacksmith-16vcpu-ubuntu-2404","consumers":"bare","name":"Installed-app tests (Android bare)"}]' || '[{"platform":"android","system":"x86_64-linux","runner":"blacksmith-16vcpu-ubuntu-2404","consumers":"all","name":"Installed-app tests (Android)"},{"platform":"ios","system":"aarch64-darwin","runner":"warp-macos-26-arm64-12x","pr_runner":"blacksmith-12vcpu-macos-26","consumers":"all","name":"Installed-app tests (iOS)"}]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && matrix.pr_runner || matrix.runner }}
     timeout-minutes: 90
     env:
       XMTP_SDK_BUILD: nix

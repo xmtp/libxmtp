@@ -530,31 +530,51 @@ class ReactNativeWorkflowTests(unittest.TestCase):
                         not token,
                     )
 
+    def runner_labels(self, scope, event):
+        """The runner label of every job of the chain for one scope and event."""
+        found = []
+        for job in workflow("test-react-native.yml")["jobs"].values():
+            include = job.get("strategy", {}).get("matrix", {}).get("include")
+            if isinstance(include, str):
+                raw = inner(include).removeprefix("fromJSON(").removesuffix(")")
+                rows = json.loads(expression(raw, {"inputs.scope": scope}))
+            else:
+                rows = include or [{}]
+            for row in rows:
+                runner = job["runs-on"]
+                if "${{" in runner:
+                    raw = re.sub(
+                        r"matrix\.(\w+)", lambda m: repr(row.get(m[1])), inner(runner)
+                    )
+                    runner = expression(raw, {"github.event_name": event})
+                found.append(runner)
+        return found
+
     def test_android_smoke_runs_no_macos_job(self):
         # The Android smoke builds no iOS part, so no job of the chain runs on
         # a macOS label. The full scope keeps its macOS jobs.
-        jobs = workflow("test-react-native.yml")["jobs"]
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                smoke = self.runner_labels("android-smoke", event)
+                self.assertFalse([label for label in smoke if "macos" in label])
+                full = self.runner_labels("full", event)
+                self.assertTrue([label for label in full if "macos" in label])
 
-        def labels(scope):
-            found = []
-            for job in jobs.values():
-                include = job.get("strategy", {}).get("matrix", {}).get("include")
-                if isinstance(include, str):
-                    raw = inner(include).removeprefix("fromJSON(").removesuffix(")")
-                    rows = json.loads(expression(raw, {"inputs.scope": scope}))
-                else:
-                    rows = include or [{}]
-                for row in rows:
-                    runner = job["runs-on"]
-                    if "${{" in runner:
-                        runner = row[inner(runner).removeprefix("matrix.")]
-                    found.append(runner)
-            return found
+    def test_macos_jobs_trial_blacksmith_on_pull_requests_only(self):
+        # Pull requests run the macOS jobs on Blacksmith macOS, the trial.
+        # Manual runs keep WarpBuild until the trial is measured.
+        def macos(event):
+            labels = self.runner_labels("full", event)
+            return sorted(label for label in labels if "macos" in label)
 
-        self.assertFalse(
-            [label for label in labels("android-smoke") if "macos" in label]
+        self.assertEqual(
+            macos("pull_request"),
+            ["blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"],
         )
-        self.assertTrue([label for label in labels("full") if "macos" in label])
+        self.assertEqual(
+            macos("workflow_dispatch"),
+            ["warp-macos-26-arm64-12x", "warp-macos-26-arm64-6x"],
+        )
 
 
 if __name__ == "__main__":
