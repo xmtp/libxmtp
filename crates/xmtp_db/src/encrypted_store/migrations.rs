@@ -209,7 +209,9 @@ mod tests {
 
     /// A rollback that would revert the CBOR marker on a database with data
     /// is refused: every later open would reject the database as written
-    /// before the marker. Nothing is reverted. On an empty database it runs.
+    /// before the marker. Nothing is reverted, and the refusal names the
+    /// marker and the target of a full rollback, the admin's only
+    /// instructions. On an empty database it runs.
     #[xmtp_common::test(unwrap_try = true)]
     async fn rollback_keeps_the_cbor_marker_of_a_database_with_data() {
         use crate::encrypted_store::CBOR_STORAGE_MIGRATION;
@@ -222,14 +224,20 @@ mod tests {
             db.batch_execute("INSERT INTO identity (inbox_id, installation_keys, credential_bytes) VALUES ('inbox', x'01', x'02')")
         })?;
         let before = conn.applied_migrations()?;
-        assert!(matches!(
-            conn.rollback_to_version(BEFORE_MARKER),
-            Err(ConnectionError::InvalidQuery(_))
-        ));
-        assert!(matches!(
-            conn.rollback_to_version(CBOR_STORAGE_MIGRATION),
-            Err(ConnectionError::InvalidQuery(_))
-        ));
+        for target in [BEFORE_MARKER, CBOR_STORAGE_MIGRATION] {
+            let Err(ConnectionError::InvalidQuery(refusal)) = conn.rollback_to_version(target)
+            else {
+                panic!("the rollback to {target} was not refused");
+            };
+            assert!(
+                refusal.contains(&format!("marker {CBOR_STORAGE_MIGRATION} ")),
+                "{refusal}"
+            );
+            assert!(
+                refusal.contains(&format!("(to {BASELINE} or earlier)")),
+                "{refusal}"
+            );
+        }
         assert_eq!(conn.applied_migrations()?, before);
 
         conn.raw_query(|db| db.batch_execute("DELETE FROM identity"))?;

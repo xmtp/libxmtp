@@ -1,5 +1,30 @@
 use super::*;
 use crate::XmtpTestDb;
+use diesel::connection::SimpleConnection;
+
+/// A new file-backed database, holding `rows` if given, reverted until
+/// `target` is its newest applied migration: what a build that stopped at
+/// `target` left. Returns its path and its applied migrations.
+async fn prior_database(
+    target: &str,
+    rows: Option<&str>,
+) -> Result<(String, Vec<String>), ConnectionError> {
+    let path = xmtp_common::tmp_path();
+    let store = crate::TestDb::create_persistent_store(Some(path.clone())).await;
+    let conn = store.db();
+    if let Some(rows) = rows {
+        conn.raw_query(|db| db.batch_execute(rows))?;
+    }
+    while conn.applied_migrations()?.first().map(String::as_str) != Some(target) {
+        conn.raw_query(|db| {
+            db.revert_last_migration(crate::encrypted_store::MIGRATIONS)
+                .map(|_| ())
+                .map_err(diesel::result::Error::QueryBuilderError)
+        })?;
+    }
+    let applied = conn.applied_migrations()?;
+    Ok((path, applied))
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn upgrades_each_prior_database() {
@@ -8,18 +33,7 @@ async fn upgrades_each_prior_database() {
         store.db().applied_migrations()?
     };
     for target in versions.iter().skip(1) {
-        let path = xmtp_common::tmp_path();
-        {
-            let store = crate::TestDb::create_persistent_store(Some(path.clone())).await;
-            let conn = store.db();
-            while conn.applied_migrations()?.first() != Some(target) {
-                conn.raw_query(|db| {
-                    db.revert_last_migration(crate::encrypted_store::MIGRATIONS)
-                        .map(|_| ())
-                        .map_err(diesel::result::Error::QueryBuilderError)
-                })?;
-            }
-        }
+        let (path, _) = prior_database(target, None).await?;
         {
             let store = crate::TestDb::create_persistent_store(Some(path.clone())).await;
             assert_eq!(store.db().applied_migrations()?, versions);
@@ -40,32 +54,20 @@ async fn upgrades_each_prior_database() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn prior_databases_with_data_upgrade_only_from_the_cbor_marker() {
     use crate::{StorageError, XmtpDb, encrypted_store::CBOR_STORAGE_MIGRATION};
-    use diesel::connection::SimpleConnection;
 
     let versions = {
         let store = crate::TestDb::create_ephemeral_store().await;
         store.db().applied_migrations()?
     };
     for target in versions.iter().skip(1) {
-        let path = xmtp_common::tmp_path();
-        let prior = {
-            let store = crate::TestDb::create_persistent_store(Some(path.clone())).await;
-            let conn = store.db();
-            conn.raw_query(|db| {
-                db.batch_execute(
-                    "INSERT INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (x'0102', 1, x'03'); \
-                     INSERT INTO identity (inbox_id, installation_keys, credential_bytes) VALUES ('inbox', x'01', x'02')",
-                )
-            })?;
-            while conn.applied_migrations()?.first() != Some(target) {
-                conn.raw_query(|db| {
-                    db.revert_last_migration(crate::encrypted_store::MIGRATIONS)
-                        .map(|_| ())
-                        .map_err(diesel::result::Error::QueryBuilderError)
-                })?;
-            }
-            conn.applied_migrations()?
-        };
+        let (path, prior) = prior_database(
+            target,
+            Some(
+                "INSERT INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (x'0102', 1, x'03'); \
+                 INSERT INTO identity (inbox_id, installation_keys, credential_bytes) VALUES ('inbox', x'01', x'02')",
+            ),
+        )
+        .await?;
         let database = crate::TestDb::create_database(Some(path.clone())).await;
         let result = database.init();
         let applied = DbConnection::new(database.conn()).applied_migrations()?;
