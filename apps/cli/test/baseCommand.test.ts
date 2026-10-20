@@ -103,6 +103,11 @@ describe("storage errors", () => {
     const { dbPath } = createTestIdentity();
     for (const error of [
       storageError("Storage", "database is locked"),
+      // The hint follows the code, not the message.
+      storageError(
+        "Storage",
+        "This database uses an older storage encoding. Keep a backup and create a new client database.",
+      ),
       new Error("[StorageError::OldEncodingDatabase] not an SDK error"),
     ]) {
       expect(formatStorageErrorMessage(error, dbPath)).not.toContain(

@@ -116,6 +116,9 @@ const LATE_MESSAGE: &[u8] = b"sent in epoch 1, read in epoch 2";
 const EPOCHS_BEFORE_JOIN: usize = 256;
 /// Messages Alice sends in one epoch, so a stored generation is above 255.
 const BURST: usize = 300;
+/// The draft-10 `last_resort_key_package` component that marks every XMTP key
+/// package.
+const LAST_RESORT_COMPONENT: u16 = 0x0004;
 /// `ComponentId::GROUP_MEMBERSHIP` in `xmtp_mls_common`, which XMTP updates
 /// with AppDataUpdate proposals.
 const GROUP_MEMBERSHIP: u16 = 0x8003;
@@ -1101,9 +1104,10 @@ fn golden_rows_cover_every_label() {
     );
 }
 
-/// Shapes XMTP groups store, as (label or column, exact key path): Unknown,
-/// last-resort and ApplicationId extensions in key packages; the AppData
-/// dictionary and RequiredCapabilities in group contexts; decryption
+/// Shapes XMTP groups store, as (label or column, exact key path): Unknown
+/// and ApplicationId extensions and the AppData dictionary that carries the
+/// last-resort mark in key packages; the AppData dictionary and
+/// RequiredCapabilities in group contexts; decryption
 /// ratchets with skipped-generation secrets and past epoch trees; inactive,
 /// operational and pending-commit group states; standalone Update,
 /// AppDataUpdate and Remove proposals; and an own staged commit with an Add
@@ -1516,7 +1520,23 @@ async fn golden_rows_load_and_run_the_groups() {
                         let bundle: Option<KeyPackageBundle> = provider
                             .storage()
                             .key_package(&hash_ref(doubled_key_bytes(row)))?;
-                        assert!(bundle.is_some(), "{store}'s key package does not read back");
+                        let bundle = bundle
+                            .unwrap_or_else(|| panic!("{store}'s key package does not read back"));
+                        // Still last resort, by the component with empty data: a
+                        // build that stopped recognizing the stored mark would
+                        // delete the published package after its first Welcome.
+                        let package = bundle.key_package();
+                        assert!(package.last_resort(), "{store}'s key package");
+                        assert_eq!(
+                            package
+                                .extensions()
+                                .app_data_dictionary()
+                                .and_then(|extension| extension
+                                    .dictionary()
+                                    .get(&LAST_RESORT_COMPONENT)),
+                            Some(&[][..]),
+                            "{store}'s key package"
+                        );
                     }
                     "SignatureKeyPair" => {
                         // The storage id is the public key, a label, and the

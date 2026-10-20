@@ -172,6 +172,31 @@ async fn a_first_open_that_stopped_before_the_marker_finishes() {
     }
 }
 
+/// Only an identity row or a key store row counts as data written before the
+/// marker. A database without the marker whose only row is in another table,
+/// here a consent record, is treated as a new database whose first open
+/// stopped early: it finishes its migrations.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_consent_record_alone_is_not_old_data() {
+    const CONSENT_ROW: &str = "INSERT INTO consent_records (entity_type, state, entity, consented_at_ns) VALUES (1, 1, 'group', 0)";
+    let database = TestDb::create_database(None).await;
+    database.init()?;
+    let connection = database.conn();
+    connection.raw_query(|conn| {
+        conn.batch_execute(CONSENT_ROW)?;
+        revert_through(conn, CBOR_STORAGE_MIGRATION)
+    })?;
+    assert!(
+        !connection
+            .raw_query(applied)?
+            .iter()
+            .any(|version| version == CBOR_STORAGE_MIGRATION)
+    );
+
+    database.init()?;
+    assert_eq!(connection.raw_query(applied)?, all_versions());
+}
+
 /// A database that has the marker passes the fence with its data, and init
 /// still runs its pending migrations. No migration follows the marker yet, so
 /// an earlier one is made pending: its revert runs and its record goes.
