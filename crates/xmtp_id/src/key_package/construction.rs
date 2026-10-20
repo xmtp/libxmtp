@@ -275,9 +275,6 @@ mod tests {
     /// Upstream OpenMLS rejects a key package whose last-resort component has
     /// data, so rc4 must reject it too. Otherwise an rc4 member could Add it
     /// and future members would reject that commit: the group would fork.
-    // The pin lacks the upstream #2133 check. Remove the ignore when the
-    // OpenMLS pin moves to the PR 1 commit that backports it.
-    #[ignore = "needs the OpenMLS pin with the #2133 last-resort check"]
     #[xmtp_common::test(unwrap_try = true)]
     // verifies: JOIN-008
     fn last_resort_component_with_data_fails_verification() {
