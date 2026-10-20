@@ -175,8 +175,7 @@ runs, so a manual run on a branch measures the merge runners; the suite
 workflow uses it as `runs-on: ${{ inputs.NAME }}`. Merge and manual runs use
 free GitHub-hosted runners, except the Gradle jobs, which write the Gradle
 home that pull requests restore from Blacksmith's cache, and the macOS jobs,
-which stay on WarpBuild. Pull requests run the iOS SDK and iOS example jobs on
-Blacksmith macOS 15. On a GitHub-hosted
+which run on WarpBuild for pull requests and merges. On a GitHub-hosted
 Linux runner, `setup-nix` first removes preinstalled toolchains to free disk.
 `with` passes other inputs (for example a scope). The top-level `runners` key
 sets the runners of `Select suites`, the products jobs, and the gates.
