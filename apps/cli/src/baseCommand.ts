@@ -335,6 +335,7 @@ export function terminalSafeErrorMessage(
 const UNSUPPORTED_DATABASE_CODES = [
   "StorageError::PreTransitionDatabase",
   "StorageError::OldStreamDatabase",
+  "StorageError::OldEncodingDatabase",
 ] as const;
 
 /**

@@ -187,3 +187,7 @@ mod tests {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "migrations/tests.rs"]
 mod upgrade_tests;
+
+#[cfg(test)]
+#[path = "migrations/storage_format_tests.rs"]
+mod storage_format_tests;

@@ -36,6 +36,8 @@
 //!   final size once. A decoded `Vec<u8>` is sized exactly from the CBOR
 //!   array length, which `XmtpMlsStorageProvider::wrapper_private_key`
 //!   relies on. The heap canary tests in `tests/zeroize.rs` check both.
+//! - Databases written with the earlier bincode values are rejected when they
+//!   open (`StorageError::OldEncodingDatabase`), so no reader handles both.
 //!
 //! The legacy archive conversion (`xmtp_legacy_migration`) reads old
 //! databases with its own reader. It does not use this module and must not

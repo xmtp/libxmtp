@@ -72,6 +72,7 @@ describe("storage errors", () => {
   it.each([
     "StorageError::PreTransitionDatabase",
     "StorageError::OldStreamDatabase",
+    "StorageError::OldEncodingDatabase",
   ])("includes the preserved database path for %s", async (code) => {
     const { dbPath } = createTestIdentity();
     const contents = "database fixture";

@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **420 total error codes**.
+**39 error types** across **10 crates** with **421 total error codes**.
 
 ## xmtp_api
 
@@ -191,6 +191,7 @@ General error type for Mls Storage Trait
 |:-----------|:------------|
 | `StorageError::PreTransitionDatabase` | The database was created before the backend transition. Not retryable. |
 | `StorageError::OldStreamDatabase` | The database uses the previous self-hosted stream format. |
+| `StorageError::OldEncodingDatabase` | The database was written before the key store and serialized columns moved from bincode to CBOR. Not retryable. |
 | `StorageError::DieselConnect` | Diesel connection error. Failed to connect to SQLite. Retryable. |
 | `StorageError::DieselResult` | Diesel result error. Database query returned an error. May be retryable. |
 | `StorageError::MigrationError` | Migration error. Database migration failed. Not retryable. |
