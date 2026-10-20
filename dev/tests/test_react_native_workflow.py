@@ -21,6 +21,11 @@ COMMAND = next(
     for step in ACTION["runs"]["steps"]
     if step.get("name") == "Build and exchange the declared products"
 )
+XCODE_CHECK = next(
+    step
+    for step in ACTION["runs"]["steps"]
+    if step.get("name") == "Verify the exact RN Apple toolchain"
+)
 WORKFLOWS = ROOT / ".github/workflows"
 PACKAGE_ROOT = "/nix/store/" + "p" * 32 + "-package"
 
@@ -401,6 +406,75 @@ def product_calls(document):
         for step in job.get("steps") or []:
             if step.get("uses") == "./.github/actions/react-native-product":
                 yield job_id, job, step["with"]
+
+
+class ReactNativeXcodeCheckTests(unittest.TestCase):
+    """Run the RN Xcode pin check with stub xcode-select and xcodebuild."""
+
+    PIN = {
+        "PIN_DIRECTORY": "/Applications/Xcode_27.0.app/Contents/Developer",
+        "PIN_VERSION": "27.0",
+        "PIN_BUILD": "27A266a",
+    }
+    ANNOTATION = "::error title=RN Xcode pin not on this runner::"
+
+    def check(self, directory, build, xcodebuild_fails=False):
+        with tempfile.TemporaryDirectory() as temporary:
+            binary = Path(temporary)
+            (binary / "xcode-select").write_text(
+                '#!/usr/bin/env bash\nprintf "%s\\n" "$STUB_DIRECTORY"\n'
+            )
+            (binary / "xcodebuild").write_text(
+                "#!/usr/bin/env bash\n"
+                '[[ -z "$STUB_FAIL" ]] || exit 1\n'
+                'printf "Xcode 27.0\\nBuild version %s\\n" "$STUB_BUILD"\n'
+            )
+            for path in binary.iterdir():
+                path.chmod(0o755)
+            # The command line of a composite step with `shell: bash`.
+            return subprocess.run(
+                [
+                    "bash",
+                    "--noprofile",
+                    "--norc",
+                    "-eo",
+                    "pipefail",
+                    "-c",
+                    XCODE_CHECK["run"],
+                ],
+                env=os.environ
+                | self.PIN
+                | {
+                    "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+                    "STUB_DIRECTORY": directory,
+                    "STUB_BUILD": build,
+                    "STUB_FAIL": "1" if xcodebuild_fails else "",
+                },
+                capture_output=True,
+                text=True,
+            )
+
+    def test_exact_pin_passes(self):
+        self.assertEqual(XCODE_CHECK["shell"], "bash")
+        result = self.check(self.PIN["PIN_DIRECTORY"], self.PIN["PIN_BUILD"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn(self.ANNOTATION, result.stdout)
+
+    def test_mismatch_fails_with_annotation(self):
+        cases = {
+            "directory": (
+                "/Applications/Xcode_27.app/Contents/Developer",
+                "27A266a",
+                False,
+            ),
+            "build": (self.PIN["PIN_DIRECTORY"], "27A5218g", False),
+            "xcodebuild failure": (self.PIN["PIN_DIRECTORY"], "27A266a", True),
+        }
+        for name, (directory, build, fails) in cases.items():
+            with self.subTest(case=name):
+                result = self.check(directory, build, fails)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(result.stdout.count(self.ANNOTATION), 1, result.stdout)
 
 
 class ReactNativeWorkflowTests(unittest.TestCase):
