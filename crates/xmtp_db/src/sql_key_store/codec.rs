@@ -1,17 +1,59 @@
-//! The one place that turns MLS storage keys and values into bytes.
+//! Turns MLS storage keys and values into bytes.
 //!
-//! Every key part, value and list that `SqlKeyStore` writes or reads goes
-//! through this module, and so do the `xmtp_mls` sites that build key store
-//! bytes by hand and the `db_serialize` columns.
+//! Every key part, value and list that `SqlKeyStore` encodes or decodes goes
+//! through this module. So do the `xmtp_mls` sites that build key store bytes
+//! by hand, and the `db_serialize` columns.
 //!
-//! - A storage key is `label || encode_key(key) || u16 BE version`. Keys use
-//!   the bincode 1.3 layout in [`key`], whatever the value codec.
+//! # Layout
+//!
+//! - Most labels build the key with `build_key`, then `write` adds the label
+//!   and version again: `label || label || encode_key(key) || version ||
+//!   version`, where the version is a `u16` big endian. The resumption PSK
+//!   store, queued proposals, epoch key pairs and the XMTP labels pass a key to
+//!   `write` directly: `label || key || version`.
+//! - [`encode_key`] uses the bincode 1.3 layout in [`key`], whatever the value
+//!   codec.
 //! - A value is `encode_value(value)`.
 //! - A list is `encode_list(items)`, where each item is `encode_value(item)`.
+//! - `KEY_PACKAGE_REFERENCES` keys are not encoded here. They are the TLS
+//!   encoding of an HPKE public key: the init key (`identity.rs`
+//!   `store_key_package_references`) or the post-quantum wrapper key
+//!   (`pq_key_package_references_key`). A Welcome names the key by its TLS
+//!   bytes, so the lookup in `decrypted_welcome.rs` uses those bytes as they
+//!   are.
 //!
-//! Every value byte string goes through one function pair,
-//! [`value_to_vec`] and [`value_from_slice`]. A change of value codec is a
-//! change to that pair. Today it is bincode 1.3 default options.
+//! # Changing the value codec
+//!
+//! Every value byte string is encoded by [`value_to_vec`] and decoded by
+//! [`value_from_slice`]. Today they use bincode 1.3 default options. Changing
+//! that pair is not enough on its own. These callers depend on the bincode
+//! layout and must change with it:
+//!
+//! - `xmtp_mls/src/groups/mls_sync/publish/prepared.rs`:
+//!   `PreparedAttempt::decode` picks a decoder from the first stored byte.
+//!   bincode writes the `version: u8` field first; a codec that writes a
+//!   struct as a map starts with a map header. `PreparedAttemptV1` and
+//!   `PreparedAttemptV2` decode prior positional layouts.
+//! - `xmtp_mls/src/groups/mls_sync/publish/rejection.rs`: the `RejectionCode`
+//!   comment says variants are stored by position. A codec that stores
+//!   variant names changes which edits are safe. The test asserts the bincode
+//!   lengths 12 and 4.
+//! - `xmtp_mls/src/groups/mls_sync/publish/tests.rs`
+//!   (`prepared_attempt_reads_the_prior_format_without_changing_envelopes`):
+//!   builds prior attempts from tuples, because a bincode tuple has the layout
+//!   of a struct.
+//! - `xmtp_db/tests/zeroize.rs` (`list_entries_are_wiped`) and
+//!   `xmtp_mls/tests/zeroize.rs` build key store bytes with bare `bincode`.
+//! - Wiping depends on exact-size buffers. [`value_to_vec`] must allocate the
+//!   final size once. `XmtpMlsStorageProvider::wrapper_private_key` relies on
+//!   the decoder sizing a `Vec<u8>` exactly. The heap canary tests in
+//!   `tests/zeroize.rs` check both.
+//! - The byte tests in this crate and in `xmtp_mls` compare with
+//!   `bincode::serialize` on purpose. They pin today's bytes.
+//!
+//! The legacy archive conversion (`xmtp_legacy_migration`) reads old
+//! databases with its own bincode decoder. It does not use this module and
+//! must not change with it.
 
 use serde::{Serialize, de::DeserializeOwned};
 use xmtp_configuration::OPENMLS_KV_TARGET;
