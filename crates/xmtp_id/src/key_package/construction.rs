@@ -276,7 +276,7 @@ mod tests {
     /// data, so rc4 must reject it too. Otherwise an rc4 member could Add it
     /// and future members would reject that commit: the group would fork.
     #[xmtp_common::test(unwrap_try = true)]
-    // verifies: JOIN-008
+    // verifies: JOIN-082
     fn last_resort_component_with_data_fails_verification() {
         for legacy in [false, true] {
             let (provider, bytes) = key_package_with_last_resort_component(vec![1], legacy);
@@ -294,7 +294,7 @@ mod tests {
     /// component and empty data. rc4 accepts it, with or without the legacy
     /// extension next to it.
     #[xmtp_common::test(unwrap_try = true)]
-    // verifies: JOIN-008
+    // verifies: JOIN-082
     fn upstream_last_resort_component_verifies() {
         for legacy in [false, true] {
             let (provider, bytes) = key_package_with_last_resort_component(vec![], legacy);
