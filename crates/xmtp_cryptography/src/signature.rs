@@ -5,10 +5,13 @@ use hex::FromHexError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{Secret, configuration::ED25519_KEY_LENGTH};
+use crate::{Secret, configuration::ED25519_KEY_LENGTH, secret::Zeroizing};
 
+/// The Ed25519 public key of `private_key`. The stack copy of the private key
+/// is wiped before return.
 pub fn to_public_key(private_key: &Secret) -> Result<[u8; ED25519_KEY_LENGTH], TryFromSliceError> {
-    let private_key = private_key.as_slice().try_into()?;
+    let private_key: Zeroizing<[u8; ED25519_KEY_LENGTH]> =
+        Zeroizing::new(private_key.as_slice().try_into()?);
     let mut computed_public_key = [0u8; ED25519_KEY_LENGTH];
     libcrux_ed25519::secret_to_public(&mut computed_public_key, &private_key);
     Ok(computed_public_key)

@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use std::{collections::VecDeque, sync::Arc};
 use tokio::sync::{Notify, Semaphore};
 use xmtp_common::time::{Duration, Instant, timeout};
+use xmtp_cryptography::secret::Zeroizing;
 
 mod lifecycle;
 mod maintenance;
@@ -66,10 +67,10 @@ impl Fixture {
             secret_hash: vec![9; 32],
             channel,
             delivery: "https://push.invalid/hook".into(),
-            signing_key: Some(vec![7; 32]),
+            signing_key: Some(Zeroizing::new(vec![7; 32])),
         };
         sqlx::query("INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, topic_count, renewed_ns) VALUES ($1, $2, $3, $4, $5, 1, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint)")
-            .bind(&config.recipient_id).bind(&config.secret_hash).bind(channel as i16).bind(&config.delivery).bind(&config.signing_key)
+            .bind(&config.recipient_id).bind(&config.secret_hash).bind(channel as i16).bind(&config.delivery).bind(config.signing_key.as_ref().map(|key| key.as_slice()))
             .execute(&self.store.primary).await?;
         sqlx::query("INSERT INTO push_subscription (recipient_id, topic, since_sequence_id, include_commits) VALUES ($1, $2, $3, $4)")
             .bind(&config.recipient_id).bind(topic).bind(since).bind(commits).execute(&self.store.primary).await?;

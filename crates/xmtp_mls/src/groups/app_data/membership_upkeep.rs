@@ -65,7 +65,7 @@ pub(crate) fn membership_upkeep(
     let mut candidates = Vec::new();
     if let Some(pending) = batch
         .state(ComponentId::COMPONENT_REGISTRY)
-        .and_then(|bytes| ComponentRegistry::from_bytes(&bytes).ok())
+        .and_then(|bytes| ComponentRegistry::from_bytes(bytes).ok())
     {
         let missing = unregistered(
             catalogue,
@@ -171,7 +171,7 @@ fn unregistered(
 
 /// The inbox keys of a `GROUP_MEMBERSHIP` snapshot; empty when absent or
 /// malformed.
-fn inbox_keys(snapshot: Option<Vec<u8>>) -> BTreeSet<InboxId> {
+fn inbox_keys(snapshot: Option<&[u8]>) -> BTreeSet<InboxId> {
     snapshot
         .and_then(|bytes| TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes).ok())
         .map(|map| map.keys().copied().collect())

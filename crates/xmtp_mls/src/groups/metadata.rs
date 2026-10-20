@@ -192,7 +192,7 @@ where
         }
         let current_str = self
             .live_mutable_metadata()?
-            .attributes
+            .attributes()
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
             .cloned();
         if let Some(current_str) = current_str.as_deref()
@@ -261,7 +261,7 @@ where
         mutable_metadata: &GroupMutableMetadata,
     ) -> Option<String> {
         mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::MinimumSupportedProtocolVersion.to_string())
             .map(|v| v.to_string())
     }
@@ -513,10 +513,10 @@ where
         mutable_metadata: &GroupMutableMetadata,
     ) -> Result<MessageDisappearingSettings, GroupError> {
         let disappear_from_ns = mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::MessageDisappearFromNS.to_string());
         let disappear_in_ns = mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::MessageDisappearInNS.to_string());
 
         if let (Some(Ok(message_disappear_from_ns)), Some(Ok(message_disappear_in_ns))) = (

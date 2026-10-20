@@ -10,6 +10,7 @@
 //! Dictionary-native groups reject group-context extension proposals.
 
 use std::collections::BTreeMap;
+use xmtp_cryptography::secret::Zeroize;
 use xmtp_mls_validation::commit::CommitRuleError;
 
 use openmls::{
@@ -282,7 +283,7 @@ pub(crate) fn validate_bootstrap_commit(
     // Actual: the `AppDataUpdate` proposal bag from the staged commit.
     let actual = collect_app_data_updates(staged_commit)?;
 
-    validate_against_canonical_subset(&expected, &actual)?;
+    validate_against_canonical_subset(&expected, &actual.0)?;
     validate_gce_shape(staged_commit)?;
 
     Ok(())
@@ -365,6 +366,19 @@ fn bootstrap_floor_exceeding(staged_commit: &StagedCommit, own_version: &str) ->
     (floor_version > own).then_some(floor)
 }
 
+/// Copies of a bootstrap commit's `AppDataUpdate` payloads, by component. The
+/// `COMMIT_LOG_SIGNER` payload is the group's private signing key, so every
+/// payload is wiped on drop.
+struct ProposalBag(BTreeMap<ComponentId, (AppDataUpdateOperationType, Vec<u8>)>);
+
+impl Drop for ProposalBag {
+    fn drop(&mut self) {
+        for (_, payload) in self.0.values_mut() {
+            payload.zeroize();
+        }
+    }
+}
+
 /// Collect every `AppDataUpdate` proposal in a staged commit into a
 /// `BTreeMap` keyed by `ComponentId`. Reject duplicate component ids:
 /// OpenMLS sorts AppData proposals by `(component_id, op_type)` at
@@ -374,10 +388,9 @@ fn bootstrap_floor_exceeding(staged_commit: &StagedCommit, own_version: &str) ->
 /// with [`BootstrapValidationError::DuplicateProposal`].
 fn collect_app_data_updates(
     staged_commit: &StagedCommit,
-) -> Result<BTreeMap<ComponentId, (AppDataUpdateOperationType, Vec<u8>)>, BootstrapValidationError>
-{
+) -> Result<ProposalBag, BootstrapValidationError> {
     use openmls::messages::proposals::AppDataUpdateOperation;
-    let mut out = BTreeMap::new();
+    let mut out = ProposalBag(BTreeMap::new());
     for queued in staged_commit.queued_proposals() {
         if let Proposal::AppDataUpdate(p) = queued.proposal() {
             let id = ComponentId::from(p.component_id());
@@ -388,7 +401,8 @@ fn collect_app_data_updates(
                 ),
                 AppDataUpdateOperation::Remove => (AppDataUpdateOperationType::Remove, Vec::new()),
             };
-            if out.insert(id, (op_type, bytes)).is_some() {
+            if let Some((_, mut replaced)) = out.0.insert(id, (op_type, bytes)) {
+                replaced.zeroize();
                 return Err(BootstrapValidationError::DuplicateProposal(id));
             }
         }

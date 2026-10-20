@@ -2,6 +2,7 @@
 //! migration synthesis path.
 
 use std::collections::{BTreeMap, BTreeSet};
+use xmtp_cryptography::secret::Zeroize;
 
 use openmls::{
     extensions::Extensions,
@@ -178,12 +179,38 @@ pub enum MigrationError {
 ///   determined) but not to add ones the legacy state never contained.
 ///   Validator semantics: every per-inbox `failed_installations`
 ///   entry must be 32 bytes AND present in this set.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// [`Self::strict`] holds the commit-log signer's private key under
+/// `COMMIT_LOG_SIGNER`. Every strict payload is wiped on drop, and `Debug`
+/// shows only the strict component ids.
+#[derive(Clone, PartialEq)]
 pub struct CanonicalBootstrapExpectation {
     pub strict: BTreeMap<ComponentId, (AppDataUpdateOperationType, Vec<u8>)>,
     pub expected_registry: BTreeMap<ComponentId, ComponentMetadata>,
     pub membership_sequence_ids: BTreeMap<InboxId, u64>,
     pub allowed_failed_installations: BTreeSet<[u8; 32]>,
+}
+
+impl std::fmt::Debug for CanonicalBootstrapExpectation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CanonicalBootstrapExpectation")
+            .field("strict", &self.strict.keys().collect::<Vec<_>>())
+            .field("expected_registry", &self.expected_registry)
+            .field("membership_sequence_ids", &self.membership_sequence_ids)
+            .field(
+                "allowed_failed_installations",
+                &self.allowed_failed_installations,
+            )
+            .finish()
+    }
+}
+
+impl Drop for CanonicalBootstrapExpectation {
+    fn drop(&mut self) {
+        for (_, payload) in self.strict.values_mut() {
+            payload.zeroize();
+        }
+    }
 }
 
 /// Compute the [`CanonicalBootstrapExpectation`] from a pre-flip
@@ -224,7 +251,15 @@ pub fn synthesize_canonical_subset_from_extensions(
             .metadata(),
     )?;
 
-    let mut strict: BTreeMap<ComponentId, (AppDataUpdateOperationType, Vec<u8>)> = BTreeMap::new();
+    // The expectation owns the strict payloads from the first insert, so an
+    // early error return wipes the commit-log signer's payload too.
+    let mut expectation = CanonicalBootstrapExpectation {
+        strict: BTreeMap::new(),
+        expected_registry: BTreeMap::new(),
+        membership_sequence_ids: BTreeMap::new(),
+        allowed_failed_installations: BTreeSet::new(),
+    };
+    let strict = &mut expectation.strict;
 
     // COMPONENT_REGISTRY: decoded per-entry compare (see
     // `CanonicalBootstrapExpectation` doc — bytes inside each entry are
@@ -242,12 +277,12 @@ pub fn synthesize_canonical_subset_from_extensions(
     // entries here would only pollute the dict with values readers
     // would surface as `MissingExtension` anyway.
     for (field, component_id, _) in metadata_field_registry_mapping() {
-        if let Some(s) = gmm.attributes.get(field.as_str()) {
+        if let Some(s) = gmm.attributes().get(field.as_str()) {
             strict.insert(
                 *component_id,
                 (
                     AppDataUpdateOperationType::Update,
-                    encode_metadata_attribute_value(*component_id, s)?,
+                    std::mem::take(&mut *encode_metadata_attribute_value(*component_id, s)?),
                 ),
             );
         }
@@ -256,19 +291,17 @@ pub fn synthesize_canonical_subset_from_extensions(
     // COMMIT_LOG_SIGNER lives in the same GMM attributes map. The
     // legacy form is hex-encoded; the AppData wire form is the raw
     // 32-byte private key.
-    if let Some(hex_str) = gmm.attributes.get(MetadataField::CommitLogSigner.as_str()) {
-        let raw = hex::decode(hex_str).map_err(|e| MigrationError::InvalidCommitLogSignerHex {
-            reason: e.to_string(),
-        })?;
-        if raw.len() != xmtp_cryptography::configuration::ED25519_KEY_LENGTH {
-            return Err(MigrationError::InvalidCommitLogSignerLength {
-                actual: raw.len(),
-                expected: xmtp_cryptography::configuration::ED25519_KEY_LENGTH,
-            });
-        }
+    if let Some(hex_str) = gmm
+        .attributes()
+        .get(MetadataField::CommitLogSigner.as_str())
+    {
+        let mut raw = encode_metadata_attribute_value(ComponentId::COMMIT_LOG_SIGNER, hex_str)?;
         strict.insert(
             ComponentId::COMMIT_LOG_SIGNER,
-            (AppDataUpdateOperationType::Update, raw),
+            (
+                AppDataUpdateOperationType::Update,
+                std::mem::take(&mut *raw),
+            ),
         );
     }
 
@@ -351,12 +384,10 @@ pub fn synthesize_canonical_subset_from_extensions(
         allowed_failed_installations.insert(key);
     }
 
-    Ok(CanonicalBootstrapExpectation {
-        strict,
-        expected_registry,
-        membership_sequence_ids,
-        allowed_failed_installations,
-    })
+    expectation.expected_registry = expected_registry;
+    expectation.membership_sequence_ids = membership_sequence_ids;
+    expectation.allowed_failed_installations = allowed_failed_installations;
+    Ok(expectation)
 }
 
 /// Build a registry tailored to the legacy state in `extensions` —

@@ -27,8 +27,8 @@ pub mod id {
 
     use crate::groups::intents::{IntentError, SendMessageIntentData};
     use prost::Message;
+    use xmtp_proto::xmtp::mls::message_contents::PlaintextEnvelope;
     use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
-    use xmtp_proto::xmtp::mls::message_contents::{PlaintextEnvelope, plaintext_envelope::V1};
 
     /// Relies on a client-created idempotency_key (which could be a timestamp)
     // implements: SEND-002
@@ -37,14 +37,18 @@ pub mod id {
         decrypted_message_bytes: &[u8],
         idempotency_key: &str,
     ) -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        // Hash the parts in order instead of joining them, so the content,
+        // which can hold a device-sync HMAC root key, is never copied.
         let separator = b"\t";
-        let mut id_vec = Vec::new();
-        id_vec.extend_from_slice(group_id.as_ref());
-        id_vec.extend_from_slice(separator);
-        id_vec.extend_from_slice(idempotency_key.as_bytes());
-        id_vec.extend_from_slice(separator);
-        id_vec.extend_from_slice(decrypted_message_bytes);
-        super::hash::sha256(&id_vec)
+        Sha256::new()
+            .chain_update(group_id.as_ref())
+            .chain_update(separator)
+            .chain_update(idempotency_key.as_bytes())
+            .chain_update(separator)
+            .chain_update(decrypted_message_bytes)
+            .finalize()
+            .to_vec()
     }
 
     /// Calculate the message id for this intent.
@@ -64,22 +68,20 @@ pub mod id {
             return Ok(None);
         }
 
-        let data = SendMessageIntentData::from_bytes(&intent.data)?;
+        let data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
         let envelope: PlaintextEnvelope = PlaintextEnvelope::decode(data.message.as_slice())?;
 
-        // optimistic message should always have a plaintext envelope
-        let PlaintextEnvelope {
-            content:
-                Some(Content::V1(V1 {
-                    content: message,
-                    idempotency_key: key,
-                })),
-        } = envelope
-        else {
+        // optimistic message should always have a plaintext envelope. Its
+        // content can hold a device-sync HMAC root key; the envelope wipes it
+        // on drop.
+        let Some(Content::V1(v1)) = &envelope.content else {
             return Ok(None);
         };
-
-        Ok(Some(calculate_message_id(intent.group_id, &message, &key)))
+        Ok(Some(calculate_message_id(
+            intent.group_id,
+            &v1.content,
+            &v1.idempotency_key,
+        )))
     }
 }
 

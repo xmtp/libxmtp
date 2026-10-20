@@ -248,7 +248,7 @@ async fn failed_requests_omit_credentials_and_topics_from_logs_and_spans() {
         "recipient secret is not valid",
     );
     client
-        .update_subscriptions(update(vec![], vec![subscription(1, 0).topic]))
+        .update_subscriptions(update(vec![], vec![subscription(1, 0).topic.clone()]))
         .await?;
     client.unregister(unregister()).await?;
     server.stop().await?;

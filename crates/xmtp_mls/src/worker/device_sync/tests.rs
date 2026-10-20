@@ -53,7 +53,7 @@ async fn device_sync_logs_omit_installation_id_and_message_payload() {
             xmtp_proto::xmtp::device_sync::content::PreferenceUpdates {
                 updates: vec![
                     PreferenceUpdate::Hmac {
-                        key: vec![93; 32],
+                        key: vec![93; 32].into(),
                         cycled_at_ns: 1,
                     }
                     .into(),
@@ -881,7 +881,7 @@ async fn sync_message_from_another_inbox_is_not_applied() {
                 entity.to_string(),
             )),
             PreferenceUpdate::Hmac {
-                key: vec![key; 42],
+                key: vec![key; 42].into(),
                 cycled_at_ns,
             },
         ];
@@ -919,7 +919,7 @@ async fn sync_message_from_another_inbox_is_not_applied() {
     assert_eq!(consent("from-alix2")??.state, ConsentState::Denied);
     assert_eq!(
         StoredUserPreferences::load(&db)?.hmac_key,
-        Some(vec![2; 42])
+        Some(vec![2; 42].into())
     );
     assert!(db.unprocessed_sync_group_messages()?.is_empty());
 }
@@ -954,7 +954,7 @@ async fn synced_hmac_key_emits_hmac_keys_updated_once() {
 
     let now = now_ns();
     let hmac = |key: u8, cycled_at_ns| PreferenceUpdate::Hmac {
-        key: vec![key; 42],
+        key: vec![key; 42].into(),
         cycled_at_ns,
     };
     let updates = sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
@@ -978,7 +978,7 @@ async fn synced_hmac_key_emits_hmac_keys_updated_once() {
 
     assert_eq!(
         StoredUserPreferences::load(&db)?.hmac_key,
-        Some(vec![2; 42])
+        Some(vec![2; 42].into())
     );
     assert!(matches!(
         events.drain().as_slice(),
@@ -1008,7 +1008,7 @@ fn incoming_preference_logs_omit_secret_material() {
     let entity = "synthetic-private-consent-identity";
     let updates = vec![
         preference_sync::PreferenceUpdate::Hmac {
-            key: key.clone(),
+            key: key.clone().into(),
             cycled_at_ns: 9_007_199_254_740_993,
         }
         .into(),
@@ -1084,7 +1084,7 @@ async fn stored_preference_logs_omit_installation_id_and_secret_material() {
     let entity = "synthetic-private-consent-identifier";
     let updates = vec![
         preference_sync::PreferenceUpdate::Hmac {
-            key: key.clone(),
+            key: key.clone().into(),
             cycled_at_ns: i64::MAX - 1,
         }
         .into(),
@@ -1116,7 +1116,7 @@ async fn stored_preference_logs_omit_installation_id_and_secret_material() {
     assert!(db.unprocessed_sync_group_messages()?.is_empty());
     assert_eq!(
         StoredUserPreferences::load(&db)?.hmac_key,
-        Some(key.clone())
+        Some(key.clone().into())
     );
     assert_eq!(
         db.get_consent_record(entity.into(), ConsentType::InboxId)??

@@ -130,12 +130,13 @@ where
         state_write(self.context.mls_storage(), |tx| {
             self.ensure_active_for_send(tx)?;
             let storage = tx.storage();
-            let message = self.store_message_for_later_publish(
+            let mut message = self.store_message_for_later_publish(
                 &storage.db(),
                 message,
                 should_push,
                 idempotency_key,
             )?;
+            message.decrypted_message_bytes.zeroize();
             Ok::<_, GroupError>(Continue(message.id))
         })
         .map(TransactionOutcome::into_continued)
@@ -166,7 +167,7 @@ where
             return Ok(existing);
         }
 
-        let group_message = StoredGroupMessage {
+        let mut group_message = StoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id,
             decrypted_message_bytes: message.to_vec(),
@@ -188,7 +189,12 @@ where
             should_push,
             idempotency_key,
         };
-        group_message.store(db)?;
+        // The content can hold a device-sync HMAC root key; a failed insert
+        // must not drop it unwiped.
+        if let Err(error) = group_message.store(db) {
+            group_message.decrypted_message_bytes.zeroize();
+            return Err(error.into());
+        }
         Ok(group_message)
     }
 
@@ -213,34 +219,41 @@ where
                 self.ensure_active_for_send(tx)?;
                 let storage = tx.storage();
                 let db = storage.db();
-                let message = db
+                let mut message = db
                     .get_group_message(message_id)?
                     .filter(|message| message.group_id == self.group_id)
                     .ok_or_else(|| {
                         GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
                     })?;
-                // An older build stored this row before the creation check.
-                // It fails here and is never queued; the transaction commits.
-                // A saved prepared attempt may already be on the backend, so
-                // its outcome stays unknown and its saved bytes may still publish.
-                // implements: GMOD-035
-                if message.delivery_status != DeliveryStatus::Published
-                    && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
-                    && !self.has_saved_attempt(&db, &message.id)?
-                {
-                    if message.delivery_status == DeliveryStatus::Unpublished {
-                        db.set_delivery_status_to_failed(&message.id)?;
-                        self.emit_message_status_changed(
-                            message.id,
-                            xmtp_events::MessageStatus::Unpublished,
-                            xmtp_events::MessageStatus::Failed,
-                            events,
-                        );
+                // The content can hold a device-sync HMAC root key, or a
+                // commit-log signer an older build recorded, so it is wiped
+                // on every exit.
+                let outcome = (|| {
+                    // An older build stored this row before the creation check.
+                    // It fails here and is never queued; the transaction commits.
+                    // A saved prepared attempt may already be on the backend, so
+                    // its outcome stays unknown and its saved bytes may still publish.
+                    // implements: GMOD-035
+                    if message.delivery_status != DeliveryStatus::Published
+                        && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
+                        && !self.has_saved_attempt(&db, &message.id)?
+                    {
+                        if message.delivery_status == DeliveryStatus::Unpublished {
+                            db.set_delivery_status_to_failed(&message.id)?;
+                            self.emit_message_status_changed(
+                                message.id.clone(),
+                                xmtp_events::MessageStatus::Unpublished,
+                                xmtp_events::MessageStatus::Failed,
+                                events,
+                            );
+                        }
+                        return Ok(Continue(Err(GroupError::ReservedTranscriptContentType)));
                     }
-                    return Ok(Continue(Err(GroupError::ReservedTranscriptContentType)));
-                }
-                self.queue_stored_message(&db, events, &message)
-                    .map(|queued| Continue(Ok(queued)))
+                    self.queue_stored_message(&db, events, &message)
+                        .map(|queued| Continue(Ok(queued)))
+                })();
+                message.decrypted_message_bytes.zeroize();
+                outcome
             },
         )?
         .into_continued()?;
@@ -382,9 +395,9 @@ where
     /// `xmtp.org` authority reserves these type ids, at any version.
     // implements: GMOD-035
     pub(in crate::groups) fn is_reserved_transcript_content(message: &[u8]) -> bool {
-        EncodedContent::decode(message)
+        encoded_content_type(message)
             .ok()
-            .and_then(|content| content.r#type)
+            .flatten()
             .is_some_and(|content_type| {
                 content_type.authority_id == "xmtp.org"
                     && matches!(
@@ -407,10 +420,18 @@ where
         message: &[u8],
     ) -> QueryableContentFields {
         // Return early with default if decoding fails or type is missing
+        let Ok(content_type_id) = encoded_content_type(message).inspect_err(|_| {
+            tracing::debug!("No queryable content fields, msg not formatted as encoded content")
+        }) else {
+            return QueryableContentFields::default();
+        };
+        let content_type_id = content_type_id.unwrap_or_default();
+        // Only a type with a reference id needs the payload. Other content,
+        // such as a device-sync HMAC update, is never copied.
+        if !QueryableContentFields::has_reference(&content_type_id) {
+            return QueryableContentFields::from_type(&content_type_id);
+        }
         EncodedContent::decode(message)
-            .inspect_err(|_| {
-                tracing::debug!("No queryable content fields, msg not formatted as encoded content")
-            })
             .and_then(|content| {
                 QueryableContentFields::try_from(content).inspect_err(|e| {
                     tracing::debug!(
@@ -441,13 +462,16 @@ where
                 self.ensure_active_for_send(tx)?;
                 let storage = tx.storage();
                 let db = storage.db();
-                let message = self.store_message_for_later_publish(
+                let mut message = self.store_message_for_later_publish(
                     &db,
                     message,
                     opts.should_push,
                     opts.idempotency_key,
                 )?;
-                self.queue_stored_message(&db, events, &message)?;
+                // The content can hold a device-sync HMAC root key.
+                let queued = self.queue_stored_message(&db, events, &message);
+                message.decrypted_message_bytes.zeroize();
+                queued?;
                 Ok::<_, GroupError>(Continue(message.id))
             },
         )
@@ -471,11 +495,9 @@ where
             return Ok(false);
         }
         let envelope =
-            Self::into_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
+            Self::encode_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
         QueueIntent::send_message()
-            .data(Vec::<u8>::from(SendMessageIntentData::new(
-                envelope.encode_to_vec(),
-            )))
+            .data(Vec::<u8>::from(SendMessageIntentData::new(envelope)))
             .should_push(message.should_push)
             .queue_in(db, self)?;
         if db.set_failed_delivery_status_to_unpublished(&message.id)? > 0 {
@@ -513,13 +535,21 @@ where
         }
     }
 
-    fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
-        PlaintextEnvelope {
+    /// Encode the plaintext envelope of a message. The content can hold a
+    /// device-sync HMAC root key, so the proto temporary is wiped after
+    /// encoding.
+    fn encode_envelope(encoded_msg: &[u8], idempotency_key: &str) -> Vec<u8> {
+        let mut envelope = PlaintextEnvelope {
             content: Some(Content::V1(V1 {
                 content: encoded_msg.to_vec(),
                 idempotency_key: idempotency_key.to_string(),
             })),
+        };
+        let bytes = envelope.encode_to_vec();
+        if let Some(Content::V1(v1)) = &mut envelope.content {
+            v1.content.zeroize();
         }
+        bytes
     }
 
     /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status

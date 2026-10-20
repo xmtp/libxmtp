@@ -83,7 +83,7 @@ pub(super) fn value<C: XmtpSharedContext>(
     group: &MlsGroup<C>,
     id: ComponentId,
 ) -> Result<Option<Vec<u8>>, GroupError> {
-    group.with_group_snapshot(|group| Ok(read_from_app_data_dict(id, group)))
+    group.with_group_snapshot(|group| Ok(read_from_app_data_dict(id, group).map(<[u8]>::to_vec)))
 }
 
 /// The application-range IDs a group's registry holds.

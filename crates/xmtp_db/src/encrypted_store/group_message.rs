@@ -109,13 +109,15 @@ impl StoredGroupMessage {
     }
 }
 
-// Separate Insertable struct that excludes inserted_at_ns to let the database set it
+// Separate Insertable struct that excludes inserted_at_ns to let the database set it.
+// The plaintext can hold a device-sync HMAC root key, so the insert's copy is
+// wiped on drop.
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = group_messages)]
 struct NewStoredGroupMessage {
     pub id: Vec<u8>,
     pub group_id: GroupId,
-    pub decrypted_message_bytes: Vec<u8>,
+    pub decrypted_message_bytes: crate::StoredSecret,
     pub sent_at_ns: i64,
     pub kind: GroupMessageKind,
     pub sender_installation_id: Vec<u8>,
@@ -142,7 +144,7 @@ impl From<&StoredGroupMessage> for NewStoredGroupMessage {
         Self {
             id: msg.id.clone(),
             group_id: msg.group_id,
-            decrypted_message_bytes: msg.decrypted_message_bytes.clone(),
+            decrypted_message_bytes: msg.decrypted_message_bytes.clone().into(),
             sent_at_ns: msg.sent_at_ns,
             kind: msg.kind,
             sender_installation_id: msg.sender_installation_id.clone(),

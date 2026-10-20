@@ -217,7 +217,7 @@ mod tests {
                         .insert_group_intent(NewGroupIntent {
                             kind: IntentKind::SendMessage,
                             group_id: GroupId::default(),
-                            data: vec![],
+                            data: vec![].into(),
                             should_push: false,
                             state: IntentState::ToPublish,
                         })

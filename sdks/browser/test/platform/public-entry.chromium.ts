@@ -784,7 +784,7 @@ export async function loggingEnd(): Promise<void> {
   );
 }
 
-// verifies: LOG-010
+// verifies: LOG-014
 export async function loggingSecrets(): Promise<void> {
   const credential = "LOG_CREDENTIAL_SENTINEL_89d42";
   const signing = new TextEncoder().encode("LOG_SIGNING_KEY_SENTINEL_89d42!!!");
