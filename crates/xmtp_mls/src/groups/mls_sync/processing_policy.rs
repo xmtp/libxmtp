@@ -173,4 +173,152 @@ mod tests {
             assert_eq!(error.is_safe_rejection(), rejected, "{error:?}");
         }
     }
+
+    /// A received commit that Adds a key package whose last-resort mark
+    /// carries data (JOIN-082) is a terminal rejection: the receiver keeps
+    /// its epoch, and a later commit that Adds a package with an empty mark
+    /// applies. The error is the one libxmtp's receive path gets from
+    /// OpenMLS, mapped as that path maps it.
+    // verifies: JOIN-082
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_commit_adding_a_last_resort_mark_with_data_is_rejected() {
+        use openmls::{
+            extensions::{
+                AppDataDictionary, AppDataDictionaryExtension, Extension, ExtensionType, Extensions,
+            },
+            prelude::{
+                BasicCredential, Capabilities, CredentialWithKey, KeyPackage, KeyPackageBundle,
+                MlsGroup, MlsGroupCreateConfig, MlsGroupJoinConfig, MlsMessageBodyIn, MlsMessageIn,
+                MlsMessageOut, OpenMlsProvider, ProcessedMessageContent, StagedWelcome,
+                tls_codec::{Deserialize as _, Serialize as _},
+            },
+        };
+        use openmls_basic_credential::SignatureKeyPair;
+        use xmtp_cryptography::configuration::CIPHERSUITE;
+        use xmtp_db::{
+            XmtpTestDb, sql_key_store::SqlKeyStore, xmtp_openmls_provider::XmtpOpenMlsProvider,
+        };
+        use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
+
+        /// The last-resort mark of the MLS extensions draft.
+        const LAST_RESORT_COMPONENT: u16 = 0x0004;
+
+        fn key_package(
+            provider: &impl OpenMlsProvider,
+            name: &str,
+            last_resort_mark: Option<Vec<u8>>,
+        ) -> KeyPackageBundle {
+            let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+            let mut builder = KeyPackage::builder().leaf_node_capabilities(Capabilities::new(
+                None,
+                Some(&[CIPHERSUITE]),
+                Some(&[ExtensionType::AppDataDictionary]),
+                None,
+                None,
+            ));
+            if let Some(data) = last_resort_mark {
+                let mut dictionary = AppDataDictionary::new();
+                let _ = dictionary.insert(LAST_RESORT_COMPONENT, data);
+                builder = builder.key_package_extensions(
+                    Extensions::from_vec(vec![Extension::AppDataDictionary(
+                        AppDataDictionaryExtension::new(dictionary),
+                    )])
+                    .unwrap(),
+                );
+            }
+            builder
+                .build(
+                    CIPHERSUITE,
+                    provider,
+                    &signer,
+                    CredentialWithKey {
+                        credential: BasicCredential::new(name.as_bytes().to_vec()).into(),
+                        signature_key: signer.to_public_vec().into(),
+                    },
+                )
+                .unwrap()
+        }
+        fn received(message: &MlsMessageOut) -> MlsMessageIn {
+            MlsMessageIn::tls_deserialize_exact(message.tls_serialize_detached().unwrap()).unwrap()
+        }
+
+        let (alice_store, bob_store) = (
+            xmtp_db::TestDb::create_persistent_store(None).await,
+            xmtp_db::TestDb::create_persistent_store(None).await,
+        );
+        let alice = XmtpOpenMlsProvider::new(SqlKeyStore::new(alice_store.conn()));
+        let bob = XmtpOpenMlsProvider::new(SqlKeyStore::new(bob_store.conn()));
+        let throwaway = openmls_rust_crypto::OpenMlsRustCrypto::default();
+        let own = LibXMTPVersion::parse(env!("CARGO_PKG_VERSION"))?;
+
+        let alice_signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
+        let mut alice_group = MlsGroup::new(
+            &alice,
+            &alice_signer,
+            &MlsGroupCreateConfig::builder()
+                .ciphersuite(CIPHERSUITE)
+                .use_ratchet_tree_extension(true)
+                .build(),
+            CredentialWithKey {
+                credential: BasicCredential::new(b"alice".to_vec()).into(),
+                signature_key: alice_signer.to_public_vec().into(),
+            },
+        )?;
+        let (_, welcome, _) = alice_group.add_members(
+            &alice,
+            &alice_signer,
+            &[key_package(&bob, "bob", None).key_package().clone()],
+        )?;
+        alice_group.merge_pending_commit(&alice)?;
+        let MlsMessageBodyIn::Welcome(welcome) = received(&welcome).extract() else {
+            panic!("not a Welcome");
+        };
+        let mut bob_group = StagedWelcome::new_from_welcome(
+            &bob,
+            &MlsGroupJoinConfig::builder()
+                .use_ratchet_tree_extension(true)
+                .build(),
+            welcome,
+            None,
+        )?
+        .into_group(&bob)?;
+        let epoch = bob_group.epoch();
+
+        let malformed = key_package(&throwaway, "malformed", Some(vec![1]));
+        let (commit, _, _) =
+            alice_group.add_members(&alice, &alice_signer, &[malformed.key_package().clone()])?;
+        let error = crate::groups::app_data::process_message_with_app_data(
+            &mut bob_group,
+            &bob,
+            received(&commit).try_into_protocol_message()?,
+            &own,
+        )
+        .err()
+        .expect("the commit applied");
+        let error = GroupMessageProcessingError::from_app_data_processing(error);
+        assert!(
+            format!("{error:?}").contains("MalformedLastResortComponent"),
+            "{error:?}"
+        );
+        assert!(error.is_safe_rejection(), "{error:?}");
+        assert_eq!(bob_group.epoch(), epoch);
+
+        alice_group.clear_pending_commit(alice.storage())?;
+        let marked = key_package(&throwaway, "marked", Some(vec![]));
+        let (commit, _, _) =
+            alice_group.add_members(&alice, &alice_signer, &[marked.key_package().clone()])?;
+        alice_group.merge_pending_commit(&alice)?;
+        let processed = crate::groups::app_data::process_message_with_app_data(
+            &mut bob_group,
+            &bob,
+            received(&commit).try_into_protocol_message()?,
+            &own,
+        )?;
+        let ProcessedMessageContent::StagedCommitMessage(staged) = processed.into_content() else {
+            panic!("not a commit");
+        };
+        bob_group.merge_staged_commit(&bob, *staged)?;
+        assert_eq!(bob_group.epoch().as_u64(), epoch.as_u64() + 1);
+        assert_eq!(bob_group.members().count(), 3);
+    }
 }
