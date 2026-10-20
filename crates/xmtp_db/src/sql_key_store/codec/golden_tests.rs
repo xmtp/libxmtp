@@ -639,8 +639,10 @@ fn round_trips<T: serde::Serialize + serde::de::DeserializeOwned>(what: &str, by
     );
 }
 
-/// Every map key path in a stored value, with array items merged. A list row
-/// is an array of byte strings, each an encoded value: its items' paths count.
+/// Every map key path in a stored value, with array items merged, and every
+/// text value with its path (a unit variant is stored as its name). A list
+/// row is an array of byte strings, each an encoded value: its items' paths
+/// count.
 fn key_paths(row: &Row, paths: &mut BTreeSet<String>) {
     fn walk(value: &Cbor, prefix: &str, paths: &mut BTreeSet<String>) {
         match value {
@@ -661,6 +663,10 @@ fn key_paths(row: &Row, paths: &mut BTreeSet<String>) {
                 }
             }
             Cbor::Tag(_, inner) => walk(inner, prefix, paths),
+            // A unit variant is stored as its name.
+            Cbor::Text(text) => {
+                paths.insert(format!("{prefix}={text}"));
+            }
             _ => {}
         }
     }
