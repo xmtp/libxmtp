@@ -1,6 +1,11 @@
 name: "Test: iOS example app"
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
     secrets:
       CACHIX_PR_AUTH_TOKEN:
         required: false
@@ -13,7 +18,7 @@ jobs:
   # Push builds. The journeys run in their own job, in parallel.
   tests:
     name: Lint, unit tests, builds
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: ${{ inputs.runner }}
     # About 1.5x the slowest successful run through 2026-10-20, cold builds
     # included, rounded up to 5 min, so a stalled Nix download fails sooner.
     timeout-minutes: 35
@@ -51,7 +56,7 @@ jobs:
           printf '%s\n' "$push_settings" | grep -Eq '^[[:space:]]*CODE_SIGN_ENTITLEMENTS = ExampleApp/Resources/ExampleApp-Push.entitlements[[:space:]]*$'
   journeys:
     name: Simulator journeys
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: ${{ inputs.runner }}
     # About 1.5x the slowest successful run through 2026-10-20 (34 min),
     # cold builds included, rounded up to 5 min, so a stalled Nix download
     # fails sooner.

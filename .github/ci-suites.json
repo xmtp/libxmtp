@@ -1224,7 +1224,12 @@
       "skip_full_runs": false,
       "kache": [],
       "products": [],
-      "runners": {},
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-6vcpu-macos-15",
+          "merge": "warp-macos-15-arm64-6x"
+        }
+      },
       "with": {},
       "cargo_roots": [],
       "crates": [],
@@ -1446,7 +1451,12 @@
       "skip_full_runs": true,
       "kache": [],
       "products": [],
-      "runners": {},
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-6vcpu-macos-15",
+          "merge": "warp-macos-15-arm64-6x"
+        }
+      },
       "with": {},
       "cargo_roots": [],
       "crates": [],
