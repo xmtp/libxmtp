@@ -136,9 +136,13 @@ private struct AdmissionProbe: BackendProbe {
 			probe: AdmissionProbe(), session: session, owner: RouteOwner(), defaultURL: "https://seed.example",
 		)
 		#expect(seeded.state.address == "https://seed.example")
-		let standard = ConnectStore(probe: AdmissionProbe(), session: session, owner: RouteOwner())
-		let expected = ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"] ?? "http://127.0.0.1:5050"
-		#expect(standard.state.address == expected)
+		let local = ConnectStore(probe: AdmissionProbe(), session: session, owner: RouteOwner(), environment: [:])
+		#expect(local.state.address == "http://127.0.0.1:5050")
+		let configured = ConnectStore(
+			probe: AdmissionProbe(), session: session, owner: RouteOwner(),
+			environment: ["XMTP_BACKEND_URL": "https://env.example"],
+		)
+		#expect(configured.state.address == "https://env.example")
 	}
 
 	@Test func canceledQueuedConnectNeverCallsSDKFactory() async {
