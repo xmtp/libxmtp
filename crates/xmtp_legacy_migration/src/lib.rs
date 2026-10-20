@@ -1,6 +1,7 @@
 //! Convert closed legacy storage to a standard archive without a network client.
 //! The caller closes the legacy SDK and retains the archive key for import.
 
+mod legacy_context;
 mod metadata;
 mod migrations;
 #[cfg(not(target_arch = "wasm32"))]

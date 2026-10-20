@@ -11,10 +11,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-bincode.workspace = true
 diesel = { workspace = true, features = ["sqlite"] }
 hex.workspace = true
-openmls.workspace = true
 prost.workspace = true
 thiserror.workspace = true
 tls_codec.workspace = true
@@ -49,7 +47,10 @@ sqlite-wasm-vfs = "0.2"
 xmtp_configuration.workspace = true
 
 [dev-dependencies]
+# The legacy decoder in src/metadata/oracle.rs checks the std-only reader.
+bincode.workspace = true
 futures.workspace = true
+openmls.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }

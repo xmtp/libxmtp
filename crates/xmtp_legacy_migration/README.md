@@ -10,7 +10,7 @@ Browser conversion copies the closed OPFS source in 64 KiB chunks under the stor
 
 Groups, DMs, application messages, and consent use the normal archive records. Every stored non-null message expiry deadline is excluded. Null deadlines remain eligible, including null values added by a legacy migration. Older or previously imported history can therefore include messages whose original expiry is unknown. No timestamp, publication, or push heuristic is used.
 
-The isolated metadata decoder reads only the pinned OpenMLS group context. It keeps independently decoded optional fields and omits malformed fields. Required record failures stop the export. Installation keys, MLS secrets, and attachment files are never archive elements.
+The isolated metadata decoder reads only the legacy group context, with a std-only reader of the bincode layout that OpenMLS fork `3fabbf23` wrote. It keeps independently decoded optional fields and omits malformed fields. Required record failures stop the export. Installation keys, MLS secrets, and attachment files are never archive elements.
 
 See [fixture provenance](fixtures/README.md) for source pins and schema coverage, and [normal SDK commands](../xmtp_sdk/AGENTS.md) for build commands.
 
