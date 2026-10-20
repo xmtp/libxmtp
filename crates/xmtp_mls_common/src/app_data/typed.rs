@@ -222,8 +222,9 @@ impl<C: Component> ErasedComponent for C {
 /// whole-component `Remove`.
 ///
 /// `value` can be the commit-log signer's private key. Hold a list of changes
-/// in `Zeroizing`, which wipes `key` and `value` on drop.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// in `Zeroizing`, which wipes `key` and `value` on drop. `Debug` shows only
+/// their lengths.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ExpandedComponentChange {
     /// Whether this entry is an Insert, Update, or Delete.
     pub op: ComponentOp,
@@ -231,6 +232,16 @@ pub struct ExpandedComponentChange {
     pub key: Option<Vec<u8>>,
     /// The new value bytes, or the removed set element.
     pub value: Option<Vec<u8>>,
+}
+
+impl std::fmt::Debug for ExpandedComponentChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExpandedComponentChange")
+            .field("op", &self.op)
+            .field("key_len", &self.key.as_ref().map(Vec::len))
+            .field("value_len", &self.value.as_ref().map(Vec::len))
+            .finish()
+    }
 }
 
 impl xmtp_cryptography::secret::Zeroize for ExpandedComponentChange {

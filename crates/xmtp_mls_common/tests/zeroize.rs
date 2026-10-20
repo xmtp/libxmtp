@@ -164,3 +164,24 @@ fn metadata_debug_redacts_the_commit_log_signer() {
         );
     }
 }
+
+/// `Debug` of an expanded signer change shows its lengths, not the signer.
+#[xmtp_common::test(unwrap_try = true)]
+fn expanded_change_debug_redacts_the_commit_log_signer() {
+    let operation = AppDataUpdateOperation::Update(NEXT_SIGNER.to_vec().into());
+    let changes = expand_app_data_update_to_changes(
+        ComponentId::COMMIT_LOG_SIGNER,
+        &operation,
+        Some(&SIGNER[..]),
+        &ComponentRegistry::new(),
+    )?;
+    let debug = format!("{changes:?}");
+    // A derived `Debug` prints the bytes as a decimal list.
+    let leading = format!("{:?}", &NEXT_SIGNER[..4]);
+    let leading = leading.trim_start_matches('[').trim_end_matches(']');
+    assert!(
+        !debug.contains(leading),
+        "ExpandedComponentChange Debug shows the signer: {debug}"
+    );
+    assert!(debug.contains("value_len: Some(32)"), "{debug}");
+}
