@@ -28,6 +28,8 @@ than overwriting a baseline. A complete run ends with a `complete` event;
 the reporter rejects unfinished runs and missing/duplicate trials.
 Relative config and output paths resolve from the repository root, independent
 of Cargo's package working directory; absolute paths are also accepted.
+The committed baseline uses three trials, five-second read windows, and
+ten-second write windows (subject to the growth cap below).
 
 `sizes` accepts 1,000–1,000,000,000; `topic_counts` 1–1,000;
 `writers` 1–64; `batch_sizes` 1–100; `trials`, `read_ms`, `write_ms`, and
@@ -107,14 +109,18 @@ Full newest requests stop at the real 100-topic API limit; metadata goes to 1,00
 - Reads use one serial client and a one-connection production Store pool. Each
   case gets 20 untimed requests; three measured trials rotate case order.
   SQLx's normal `plan_cache_mode=auto` remains active during timing.
-- Record separate custom/generic `EXPLAIN (ANALYZE, BUFFERS, WAL, SETTINGS)`
-  plans outside timing. They expose planning, actual scanned rows, heap fetches,
-  and buffer hits/reads; they are not substituted for client-observed latency.
+- Record separate custom/generic `EXPLAIN (ANALYZE, VERBOSE, BUFFERS, WAL, SETTINGS)
+  EXECUTE` plans of an explicitly prepared production SELECT outside timing.
+  Preparing EXPLAIN itself would still customize the underlying SELECT, even
+  with `force_generic_plan`. Diagnostics expose planning, actual scanned rows,
+  heap fetches, and buffer hits/reads; they are not substituted for latency.
 - Writers run with 1 and 8 concurrent clients and pre-opened pool connections.
   Each write trial gets a new PostgreSQL `FILE_COPY` database from the disconnected
   pristine corpus, including its physical indexes. No preceding trial's growth
   or rollback/deletion bloat survives into the next one.
-- One warmup batch per writer is untimed. Measured inserts stop at the requested
+- Write payloads are unique opaque 1 KiB messages; many-topic writes distribute
+  uniformly across existing topics. One warmup batch per writer is untimed.
+  Measured inserts stop at the requested
   duration or a **10% total growth cap**, including warmup. Starting/warmup/ending
   row counts, cap hits, and cluster WAL-byte deltas are recorded. At 1,000 rows,
   there are only about 100 inserts per trial: these are short growth-bounded

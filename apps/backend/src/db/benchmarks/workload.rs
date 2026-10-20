@@ -140,7 +140,7 @@ async fn read(
 
 /// Explain the exact production SQL with both prepared-plan policies. Store's
 /// normal auto policy remains unchanged during timing; diagnostics use one pool connection.
-async fn plans(
+pub(super) async fn plans(
     store: &Store,
     queries: &[TopicCursor],
     kind: Read,
@@ -151,34 +151,53 @@ async fn plans(
         Read::NewestMetadata | Read::NewestAbsent => include_str!("../read/newest_metadata.sql"),
         _ => include_str!("../read/page.sql"),
     };
-    let statement = format!("EXPLAIN (ANALYZE, BUFFERS, WAL, SETTINGS, FORMAT TEXT) {sql}");
-    let topics: Vec<_> = queries.iter().map(|query| query.topic.clone()).collect();
-    let cursors: Vec<_> = queries.iter().map(|query| query.cursor).collect();
+    let topics = queries
+        .iter()
+        .map(|query| format!("decode('{}', 'hex')", hex::encode(&query.topic)))
+        .collect::<Vec<_>>()
+        .join(",");
+    let arguments = if kind.newest() {
+        format!("ARRAY[{topics}]::bytea[]")
+    } else {
+        let cursors = queries
+            .iter()
+            .map(|query| query.cursor.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("ARRAY[{topics}]::bytea[], ARRAY[{cursors}]::bigint[], {limit}")
+    };
     let mut connection = store.primary.acquire().await?;
-    let mut result = serde_json::Map::new();
-    for policy in ["force_custom_plan", "force_generic_plan"] {
-        sqlx::query("SELECT set_config('plan_cache_mode', $1, false)")
-            .bind(policy)
-            .execute(&mut *connection)
-            .await?;
-        let query = sqlx::query(sqlx::AssertSqlSafe(statement.as_str())).bind(&topics);
-        let query = if kind.newest() {
-            query
-        } else {
-            query.bind(&cursors).bind(limit)
-        };
-        let lines: Vec<String> = query
-            .fetch_all(&mut *connection)
-            .await?
-            .into_iter()
-            .map(|row| row.get(0))
-            .collect();
-        result.insert(policy.into(), json!(lines));
-    }
-    sqlx::query("RESET plan_cache_mode")
+    let prepare = format!("PREPARE benchmark_read AS {sql}");
+    sqlx::raw_sql(sqlx::AssertSqlSafe(prepare.as_str()))
         .execute(&mut *connection)
         .await?;
-    Ok(result.into())
+    let outcome: TestResult<serde_json::Value> = async {
+        let mut result = serde_json::Map::new();
+        for policy in ["force_custom_plan", "force_generic_plan"] {
+            sqlx::query("SELECT set_config('plan_cache_mode', $1, false)")
+                .bind(policy)
+                .execute(&mut *connection)
+                .await?;
+            let statement = format!(
+                "EXPLAIN (ANALYZE, VERBOSE, BUFFERS, WAL, SETTINGS, FORMAT TEXT) EXECUTE benchmark_read({arguments})"
+            );
+            let lines: Vec<String> = sqlx::raw_sql(sqlx::AssertSqlSafe(statement.as_str()))
+                .fetch_all(&mut *connection)
+                .await?
+                .into_iter()
+                .map(|row| row.get(0))
+                .collect();
+            result.insert(policy.into(), json!(lines));
+        }
+        Ok(result.into())
+    }
+    .await;
+    let cleanup = sqlx::raw_sql("DEALLOCATE benchmark_read; RESET plan_cache_mode")
+        .execute(&mut *connection)
+        .await;
+    let result = outcome?;
+    cleanup?;
+    Ok(result)
 }
 
 pub(super) async fn reads(

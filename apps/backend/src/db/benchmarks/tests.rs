@@ -140,6 +140,42 @@ fn statistics_preserve_samples_and_units() {
     assert_eq!(measurement["latency_ms"], json!(samples));
 }
 
+/// Generic diagnostics must explain a prepared SELECT, not a custom-planned EXPLAIN utility statement.
+#[xmtp_common::test(unwrap_try = true)]
+async fn diagnostics_capture_actual_generic_and_custom_plans() {
+    let mut database = TestDatabase::new()?;
+    let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
+    let catalog = corpus::seed(&store, 1_000, 42).await?;
+    let pool: Vec<_> = catalog.iter().collect();
+    for kind in [Read::NoCursor, Read::NewestFull, Read::NewestMetadata] {
+        let queries = request(&pool, 10, 0, kind, 1_000);
+        let plans = workload::plans(&store, &queries, kind, 100).await?;
+        for (policy, generic) in [("force_custom_plan", false), ("force_generic_plan", true)] {
+            let plan = plans[policy]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|line| line.as_str().unwrap())
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert_eq!(plan.contains("$1"), generic, "{kind:?}: {plan}");
+            assert!(plan.contains("Execution Time:"), "{kind:?}: {plan}");
+        }
+    }
+    let policy: String = sqlx::query_scalar("SHOW plan_cache_mode")
+        .fetch_one(&store.primary)
+        .await?;
+    assert_eq!(policy, "auto");
+    let prepared: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_prepared_statements WHERE name = 'benchmark_read'",
+    )
+    .fetch_one(&store.primary)
+    .await?;
+    assert_eq!(prepared, 0);
+    store.primary.close().await;
+    database.remove()?;
+}
+
 /// The bulk corpus preserves hashes, payload sizes, watermarks, sequence allocation, and real query behavior.
 #[xmtp_common::test(unwrap_try = true)]
 async fn bulk_seed_matches_production_storage_and_read_semantics() {
