@@ -655,6 +655,10 @@ class Context:
             return self.secrets.get(name, "")
         if head == "vars":
             return ""
+        # A job output of the caller, such as the release dry-run flag: an
+        # opaque value that is not `true`.
+        if head == "needs":
+            return f"<{path}>"
         if head == "matrix" and self.matrix is not None and name in self.matrix:
             return self.matrix[name]
         if head == "runner" and name == "os":

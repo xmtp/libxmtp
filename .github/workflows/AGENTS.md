@@ -18,8 +18,11 @@ computes its own version after it pins its source. Only a direct dispatch of
 `release-agent-sdk.yml` or `release-cli.yml` computes its version in the SDK
 workflow. The version CLI gets its hash from the pinned HEAD.
 Each SDK workflow runs `check-release-push.yml` once before it builds.
-`npm-publish.yml` takes the checked `source-sha` from its caller and does not
-repeat the check.
+`npm-publish.yml` takes the checked `source-sha` from its caller. Its publish
+job authorizes itself as well: a real publish runs in the `release`
+environment (for its branch policy; the job reads no App secret) and checks
+that the source is on main or a release/** branch, so another branch's
+workflow cannot call it to publish.
 Android and npm tags must point to that SHA. iOS can use one direct
 release commit
 that changes only the iOS release files. The push job checks this before it

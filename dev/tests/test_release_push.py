@@ -376,6 +376,14 @@ class ReleasePushTest(unittest.TestCase):
                 "Check that the source is on a release branch",
                 ROOT / ".github/workflows/check-release-push.yml",
             )
+            # The npm publish job runs the same check on its own source.
+            self.assertEqual(
+                script(
+                    "Check that the source is on a release branch",
+                    ROOT / ".github/workflows/npm-publish.yml",
+                ).strip(),
+                check.strip(),
+            )
             for branch, allowed in (
                 ("main", True),
                 ("self-hosted", False),
@@ -986,6 +994,34 @@ class XdbgImageTest(unittest.TestCase):
             [s for s in job["steps"] if s.get("name", "").startswith("Deploy")], []
         )
         self.assertNotIn("TERRAFORM_TOKEN", release.read_text())
+
+
+class NpmPublishAuthorizationTest(unittest.TestCase):
+    def test_a_real_publish_authorizes_its_own_run(self):
+        # A workflow on another branch can call npm-publish.yml directly. A
+        # real publish must still run in the protected `release` environment
+        # and check its source before `npm publish`; a dry run needs neither.
+        job = yaml.safe_load((ROOT / ".github/workflows/npm-publish.yml").read_text())[
+            "jobs"
+        ]["publish"]
+        self.assertEqual(
+            job["environment"], "${{ inputs.dry-run != true && 'release' || '' }}"
+        )
+        self.assertEqual(job["permissions"]["id-token"], "write")
+        names = [step.get("name") for step in job["steps"]]
+        check = names.index("Check that the source is on a release branch")
+        self.assertLess(check, names.index("Publish to NPM"))
+        publish_if = "${{ inputs.dry-run != true }}"
+        self.assertEqual(job["steps"][check]["if"], publish_if)
+        self.assertEqual(job["steps"][names.index("Publish to NPM")]["if"], publish_if)
+        # Every other job that gets an OIDC token publishes nothing.
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            text = path.read_text()
+            if "npm publish" in text and path.name != "npm-publish.yml":
+                with self.subTest(workflow=path.name):
+                    self.assertNotRegex(
+                        text, r"(?m)^\s+run: npm publish(?!.*--dry-run)"
+                    )
 
 
 class NodeInstallSmokeTest(unittest.TestCase):

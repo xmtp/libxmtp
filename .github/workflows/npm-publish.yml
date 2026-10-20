@@ -68,14 +68,20 @@ on:
         value: ${{ jobs.publish.outputs.version }}
 
 # Every caller runs check-release-push.yml for this source commit before it
-# builds, and passes the commit it pinned. This workflow does not repeat that
-# check; push-release-tag.yml checks the source again before it pushes a tag.
+# builds, and passes the commit it pinned. The publish job authorizes itself
+# too, so a workflow on another branch cannot call this one to publish: a real
+# publish runs in the `release` environment, whose deployment policy admits
+# only protected release refs, and publishes only a source commit on main or
+# a release/** branch. A dry run publishes nothing and may build any branch.
 jobs:
   publish:
     name: Publish to npm
     permissions:
       id-token: write
       contents: read
+    # The job reads no App secret; it uses the environment for its branch
+    # policy. npm trusted publishing can also require this environment.
+    environment: ${{ inputs.dry-run != true && 'release' || '' }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ inputs.version }}
@@ -88,6 +94,23 @@ jobs:
           # Full history for the release tag, without blobs; git-cliff, which
           # fails on a blobless clone, does not run here.
           filter: blob:none
+
+      # The same check as check-release-push.yml (test_release_push.py runs it).
+      - name: Check that the source is on a release branch
+        if: ${{ inputs.dry-run != true }}
+        run: |
+          set -euo pipefail
+          # Commits only: the check needs history, not trees or blobs.
+          git fetch --quiet --no-tags --filter=tree:0 origin \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/heads/release/*:refs/remotes/origin/release/*'
+          branches=$(git for-each-ref --contains HEAD --format='%(refname:lstrip=3)' \
+            refs/remotes/origin/main 'refs/remotes/origin/release/')
+          if [[ -z "$branches" ]]; then
+            echo "::error title=Release source::$(git rev-parse HEAD) is not on main or a release/** branch"
+            exit 1
+          fi
+          echo "Release source is on: $(tr '\n' ' ' <<< "$branches")"
 
       - name: Download build artifacts
         if: ${{ inputs.artifact-pattern != '' }}
