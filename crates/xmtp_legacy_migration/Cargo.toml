@@ -51,6 +51,7 @@ xmtp_configuration.workspace = true
 [dev-dependencies]
 futures.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [[example]]

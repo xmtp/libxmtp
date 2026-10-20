@@ -15,8 +15,10 @@ _env := ". " + root + "/dev/docker/load-env"
 
 # Build and test the SDK in one Gradle call: `build` (unit tests, Android Lint,
 # Spotless, both AARs) and the instrumented test APK. CI's SDK build job.
+# The JVM tests run once, in the debug variant: the release variant is not
+# minified and loads the same host library, so a second run proves nothing new.
 check: build _test-host
-  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . build :library:assembleDebugAndroidTest ${CI:+--build-cache} --dependency-verification=strict --no-daemon --stacktrace
+  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . build -x :library:testReleaseUnitTest :library:assembleDebugAndroidTest ${CI:+--build-cache} --dependency-verification=strict --no-daemon --stacktrace
   just android check-packages
 
 # Verify JNI stripping in the built debug and release AARs.
@@ -41,7 +43,7 @@ _test-host:
   env -u LD_LIBRARY_PATH nix build "{{ root }}#xmtp-sdk-libs" --out-link "{{ root }}/sdks/android/.build/test-host"
 
 # Run unit tests with the generated SDK and its matched host library. Extra
-# arguments go to Gradle, for example `--tests uniffi.xmtp_sdk.LegacyMigrationTest`.
+# arguments go to Gradle, for example `--tests uniffi.xmtp_sdk.LoggingTest`.
 test *args: build _test-host
   {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest {{ args }} ${CI:+--build-cache} --dependency-verification=strict --no-daemon
 

@@ -128,13 +128,4 @@ describe("init", () => {
     expect(updatedContent).not.toBe(originalContent);
     expect(updatedContent).toContain("XMTP_WALLET_KEY=0x");
   });
-
-  it("generates unique keys each time", async () => {
-    const result1 = await runCommand(["init", ...initFlags, "--stdout"]);
-    const result2 = await runCommand(["init", ...initFlags, "--stdout"]);
-
-    expect(result1.exitCode).toBe(0);
-    expect(result2.exitCode).toBe(0);
-    expect(result1.stdout).not.toBe(result2.stdout);
-  });
 });

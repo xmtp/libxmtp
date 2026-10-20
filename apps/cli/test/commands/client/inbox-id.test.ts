@@ -57,12 +57,7 @@ describe("client inbox-id", () => {
 
     expect(result.exitCode).toBe(0);
 
-    const output = parseJsonOutput<{
-      identifier: string;
-      kind: string;
-      inboxId: string | null;
-      found: boolean;
-    }>(result.stdout);
+    const output = parseJsonOutput<InboxIdOutput>(result.stdout);
 
     expect(output.found).toBe(false);
     expect(output.inboxId).toBeNull();

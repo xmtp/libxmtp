@@ -22,16 +22,19 @@ same immutable package and its built consumers with:
 - `XMTP_NODE_SDK_DIR`: staged genuine sibling Node SDK package.
 - `XMTP_BACKEND_URL`: this run's live backend URL.
 - `XMTP_RN_DEVICE`: optional exact simulator/emulator selector.
+- `XMTP_RN_JOURNEYS`: `pr` (the default) or `full`. `full` adds the runtime
+  reload and the cold background launch.
 
 `dev/nix-shell --shell react-native --command sdks/react-native/scripts/test-installed ios all --conformance`
 launches each app and requires fresh sibling-verified assertion reports. Use
 `android` on the Android host. Without `--conformance`, the journey checks the
-native boundary, encrypted private storage, DM exchange, end, and reopen. The
-conformance run also checks API families, independent legacy history conversion,
-callbacks/streams, a real Hermes replacement, and installed React helpers. It
-then performs a separate fresh-install cold-background launch and asks the OS to
-foreground that same runtime. Both reports must pass. A build alone is not an
-installed runtime proof.
+native boundary, encrypted private storage, DM exchange, end, reopen, and one
+message stream read. The conformance run also checks the shared content vectors,
+the timestamp and uint64 boundary, a held re-entrant signer, a JS event listener,
+and the `/react` entry. With `XMTP_RN_JOURNEYS=full`, it also replaces the Hermes
+runtime, then performs a separate fresh-install cold-background launch and asks
+the OS to foreground that same runtime. Every report must pass. A build alone is
+not an installed runtime proof. `../conformance/AGENTS.md` lists the phases.
 
 The fixture directories contain locks and native overrides. They are not complete
 native projects. The cached `react-native-consumer-template-bare` and

@@ -331,6 +331,77 @@ class GeneratedConverterTest {
         assertEquals(record, FfiConverterTypeLogRecord.roundTrip(record))
     }
 
+    // Smart contract wallet signers reach Rust only through these converters.
+    // The chain ID and block number differ, so a swap fails.
+    @Test
+    fun smartContractWalletValuesKeepEachField() {
+        FfiConverterTypeSignerKind.checkEach(
+            listOf(
+                SignerKind.Scw(31337uL, 7uL),
+                SignerKind.Scw(ULong.MAX_VALUE, null),
+                SignerKind.Eoa,
+                SignerKind.Passkey,
+            ),
+        )
+        for (blockNumber in listOf(ULong.MAX_VALUE - 1uL, null)) {
+            val signature = Signature.Scw(byteArrayOf(1, -1, 2), "0xabc", ULong.MAX_VALUE, blockNumber)
+            val decoded = FfiConverterTypeSignature.roundTrip(signature)
+            assertTrue("Expected a smart contract wallet signature, got $decoded", decoded is Signature.Scw)
+            decoded as Signature.Scw
+            assertArrayEquals(signature.bytes, decoded.bytes)
+            assertEquals(signature.address, decoded.address)
+            assertEquals(ULong.MAX_VALUE, decoded.chainId)
+            assertEquals(blockNumber, decoded.blockNumber)
+        }
+    }
+
+    // Live tests do not reach a barrier failure. Its details nest in
+    // ErrorDetails; Rust owns which failure a stream reports.
+    @Test
+    fun streamFailureDetailsKeepEachField() {
+        val topic =
+            StreamBarrierTopic(
+                topic = byteArrayOf(1, -1),
+                scopeGeneration = ULong.MAX_VALUE,
+                target = 7uL,
+                received = 8uL,
+                processed = 6uL,
+                unresolvedWelcomes = listOf(9_007_199_254_740_993uL, ULong.MAX_VALUE - 1uL),
+                inactive = true,
+                cause =
+                    StreamBarrierCause(
+                        StreamBarrierCauseKind.PROCESSING_PENDING,
+                        null,
+                        "Processing is pending",
+                        true,
+                    ),
+            )
+        val failure =
+            StreamFailureDetails(
+                kind = StreamFailureKind.BARRIER,
+                code = "BarrierError::Incomplete",
+                message = "Processing barriers did not complete",
+                retryable = true,
+                intentId = 29,
+                publishedIntentIds = listOf(30, 31),
+                summary = StreamFailureSummary(messages = 32uL, conversations = 33uL, failed = 34uL, completed = false),
+                barriers =
+                    listOf(
+                        StreamBarrierFailure(
+                            StreamBarrierReason.DEADLINE,
+                            listOf(topic, topic.copy(scopeGeneration = null)),
+                        ),
+                        StreamBarrierFailure(StreamBarrierReason.BLOCKED, emptyList()),
+                    ),
+            )
+        val details = ErrorDetails("Unknown", ErrorCategory.STREAM, false, "failed", failure)
+        val plain = ErrorDetails("Unknown", ErrorCategory.UNKNOWN, true, "ordinary error")
+        FfiConverterTypeErrorDetails.checkEach(listOf(details, plain))
+        val thrown = FfiConverterTypeXmtpError.roundTrip(XmtpException.Unknown(details))
+        assertTrue("Expected an unknown error, got $thrown", thrown is XmtpException.Unknown)
+        assertEquals(details, (thrown as XmtpException.Unknown).v1)
+    }
+
     // Live tests read only the epoch of a real group.
     @Test
     fun debugInfoKeepsEachField() {

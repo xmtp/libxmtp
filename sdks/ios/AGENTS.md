@@ -92,7 +92,9 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
   when the tracked Swift under `Sources/` differs from the generated Swift
   (run `dev/bindings` and commit `Sources/`). Then it runs `test` (every test,
   the lifecycle checks too), `check-consumer`, and
-  `test-simulator`. `dev/bindings` skips the xcframework copy when
+  `test-simulator`. `test-simulator` skips the two slowest tests
+  (`_simulator_skip` in `ios.just`); `test` runs them on macOS.
+  `dev/bindings` skips the xcframework copy when
   `Artifacts/.xcframework-store-path` names the same store path.
   A selected iOS suite gates aggregate `Test` in `ci.yml`.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.
@@ -112,8 +114,3 @@ A new iterator request acknowledges the previous message. Close, cancellation,
 and release do not acknowledge a pending message. Rust owns replay and durable
 cursors. Swift streams own their reader and callback lifetime. Use the generated
 public records and typed errors. Do not add a second host cursor or content rule.
-
-`dev/nix-shell 'just ios test all --filter XmtpSdkTests.LegacyMigrationTests'` runs
-`LegacyMigrationTests` on macOS.
-It uses the pinned encrypted database and WAL in the internal converter crate.
-The required iOS unit job includes this test in the normal XCTest target.

@@ -219,6 +219,33 @@ async fn catch_up_replays_once_and_preserves_bounded_progress() {
     bo.end().await?;
 }
 
+// An app reads the deployment's configuration from a backend URL alone,
+// before this process has created any client or database, and with no
+// credential. A client created afterwards reports the same configuration.
+// verifies: CONF-062
+#[xmtp_common::test(unwrap_try = true)]
+async fn static_fetch_reads_the_configuration_before_any_client_exists() {
+    let backend = BackendSource::Options {
+        options: BackendOptions {
+            url: xmtp_configuration::backend_test_url(),
+            app_version: None,
+            credentials: None,
+            credential: None,
+        },
+    };
+    let fetched = crate::client_identity::fetch_server_configuration(backend).await?;
+    assert!(!fetched.identifier.is_empty());
+    assert!(!fetched.server_version.is_empty());
+    assert!(fetched.limits.max_query_limit > 0);
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    assert_eq!(
+        format!("{:?}", client.server_configuration()),
+        format!("{fetched:?}")
+    );
+    client.end().await?;
+}
+
 // The static fetch needs no client. An unreachable backend is a public,
 // retryable configuration error, not a transport error.
 #[xmtp_common::test(unwrap_try = true)]

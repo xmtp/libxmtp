@@ -1,44 +1,33 @@
 --- a/ios/XmtpConsumerExpo.xcodeproj/project.pbxproj
 +++ b/ios/XmtpConsumerExpo.xcodeproj/project.pbxproj
-@@ -7,6 +7,9 @@
+@@ -7,6 +7,8 @@
  	objects = {
  
  /* Begin PBXBuildFile section */
 +        A1460FE7307B128D3FEF2BD4 /* XmtpMigrationFixture.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1460FE7307B128D3FEF2BD3 /* XmtpMigrationFixture.mm */; };
-+        A1460FE7307B128D3FEF2BD6 /* xmtp-legacy in Resources */ = {isa = PBXBuildFile; fileRef = A1460FE7307B128D3FEF2BD5 /* xmtp-legacy */; };
 +		A1460FE7307B128D3FEF2BD2 /* XmtpRuntimeFixture.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1460FE7307B128D3FEF2BD1 /* XmtpRuntimeFixture.mm */; };
  		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
  		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
  		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-@@ -15,6 +18,9 @@
+@@ -15,6 +17,8 @@
  /* End PBXBuildFile section */
  
  /* Begin PBXFileReference section */
 +        A1460FE7307B128D3FEF2BD3 /* XmtpMigrationFixture.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = XmtpConsumerExpo/XmtpMigrationFixture.mm; sourceTree = "<group>"; };
-+        A1460FE7307B128D3FEF2BD5 /* xmtp-legacy */ = {isa = PBXFileReference; lastKnownFileType = folder; path = xmtp-legacy; sourceTree = "<group>"; };
 +		A1460FE7307B128D3FEF2BD1 /* XmtpRuntimeFixture.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = XmtpConsumerExpo/XmtpRuntimeFixture.mm; sourceTree = "<group>"; };
  		13B07F961A680F5B00A75B9A /* XmtpConsumerExpo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = XmtpConsumerExpo.app; sourceTree = BUILT_PRODUCTS_DIR; };
  		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = XmtpConsumerExpo/Images.xcassets; sourceTree = "<group>"; };
  		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = XmtpConsumerExpo/Info.plist; sourceTree = "<group>"; };
-@@ -40,6 +46,9 @@
+@@ -40,6 +44,8 @@
  		13B07FAE1A68108700A75B9A /* XmtpConsumerExpo */ = {
  			isa = PBXGroup;
  			children = (
 +				A1460FE7307B128D3FEF2BD1 /* XmtpRuntimeFixture.mm */,
 +                A1460FE7307B128D3FEF2BD3 /* XmtpMigrationFixture.mm */,
-+                A1460FE7307B128D3FEF2BD5 /* xmtp-legacy */,
  				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
  				F11748432D0307B40044C1D9 /* SceneDelegate.swift */,
  				F11748442D0722820044C1D9 /* XmtpConsumerExpo-Bridging-Header.h */,
-@@ -155,6 +164,7 @@
- 			isa = PBXResourcesBuildPhase;
- 			buildActionMask = 2147483647;
- 			files = (
-+                A1460FE7307B128D3FEF2BD6 /* xmtp-legacy in Resources */,
- 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
- 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
- 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-@@ -232,6 +242,8 @@
+@@ -232,6 +238,8 @@
  			isa = PBXSourcesBuildPhase;
  			buildActionMask = 2147483647;
  			files = (

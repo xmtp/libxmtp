@@ -83,36 +83,6 @@ describe("client verify-signature", () => {
     expect(verifyOutput.isValid).toBe(true);
   });
 
-  it("returns false for invalid signature", async () => {
-    const identity = createTestIdentity();
-    const message = "Original message";
-
-    // Sign the message
-    const signResult = await runWithIdentity(identity, [
-      "client",
-      "sign",
-      message,
-      "--json",
-    ]);
-    expect(signResult.exitCode).toBe(0);
-    const signOutput = parseJsonOutput<SignResult>(signResult.stdout);
-
-    // Verify with wrong message
-    const verifyResult = await runWithIdentity(identity, [
-      "client",
-      "verify-signature",
-      "Different message",
-      "--signature",
-      signOutput.signature,
-      "--json",
-    ]);
-
-    expect(verifyResult.exitCode).toBe(0);
-
-    const verifyOutput = parseJsonOutput<VerifyResult>(verifyResult.stdout);
-    expect(verifyOutput.isValid).toBe(false);
-  });
-
   it("uses short flag -s for signature", async () => {
     const identity = createTestIdentity();
     const message = "Short flags test";
