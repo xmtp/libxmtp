@@ -87,15 +87,6 @@ export function computeVersion(
       // only through the bot bump PRs.
       return `${normalized}-dev.${options.shortSha}`;
     }
-    case "nightly": {
-      if (!options.timestamp) {
-        throw new Error("timestamp is required for nightly releases");
-      }
-      if (!options.shortSha) {
-        throw new Error("shortSha is required for nightly releases");
-      }
-      return `${normalized}-pre.${options.timestamp}.nightly.${options.shortSha}`;
-    }
   }
 }
 
@@ -103,11 +94,10 @@ export function computeVersion(
  * Now as a compact UTC `YYYYMMDDHHMMSS` stamp for the pre.* timeline.
  *
  * The stamp IS the ordering key: semver compares it as a numeric identifier
- * before it ever looks at the channel or the sha. Two runs that share a stamp
- * therefore fall through to comparing `dev` vs `nightly` (alphabetical, so a
- * newer dev sorts BELOW an older nightly) and then sha (arbitrary) — a
- * backwards "upgrade" for anything resolving latest. Second precision keeps
- * distinct runs on distinct keys; minute precision did not.
+ * before it ever looks at the sha. Two runs that share a stamp therefore fall
+ * through to comparing the sha (arbitrary) — a possible backwards "upgrade" for
+ * anything resolving latest. Second precision keeps distinct runs on distinct
+ * keys; minute precision did not.
  */
 export function getTimestamp(): string {
   return formatTimestamp(new Date());

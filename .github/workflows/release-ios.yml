@@ -1,5 +1,5 @@
 # .github/workflows/release-ios.yml
-name: Release iOS SDK
+name: "Release: iOS SDK"
 
 on:
   workflow_call:
@@ -8,27 +8,13 @@ on:
         required: true
         type: string
         description: "dev, rc, or final"
-      rc-number:
-        required: false
-        type: string
-        description: "RC number (required for rc releases)"
       source-sha:
         description: Fixed source commit resolved by the release caller
-        required: false
-        type: string
-      ref:
         required: true
         type: string
-        description: "Git ref to build from"
-      timestamp:
-        required: false
-        type: string
-        description: "Shared UTC YYYYMMDDHHMMSS stamp minted once per Release run"
-      pending-version:
-        required: false
-        type: string
-      pending-kind:
-        required: false
+      version:
+        description: The version to publish, computed once by release.yml
+        required: true
         type: string
     outputs:
       version:
@@ -37,69 +23,44 @@ on:
 
 jobs:
   check-push-permissions:
+    name: Source
     uses: ./.github/workflows/check-release-push.yml
     with:
-      ref: ${{ inputs.source-sha || inputs.ref }}
+      ref: ${{ inputs.source-sha }}
     secrets: inherit
 
   build-and-package:
+    name: Build XCFramework
     needs: [check-push-permissions]
+    # Paid macOS: the iOS outputs are keyed to Xcode 26.3 at
+    # /Applications/Xcode_26.3.app (nix/lib/ios-env.nix), and a cache miss
+    # compiles Rust for iOS, about 35 minutes on a 3-core hosted Mac.
     runs-on: warp-macos-15-arm64-12x
     permissions:
       contents: write
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      base-version: ${{ steps.version.outputs.base-version }}
       artifact-url: ${{ steps.release.outputs.artifact-url }}
       checksum: ${{ steps.checksum.outputs.checksum }}
     env:
       NIX_DEVSHELL: ios
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
       # and a build with another fails, so select it before the build.
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: "26.3"
       - name: Show the Xcode version
         run: xcodebuild -version
-      - uses: ./.github/actions/setup-release-tools
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
+          cache-mode: read
           github-token: ${{ github.token }}
-      - name: Compute version
-        id: version
-        env:
-          REF: ${{ inputs.ref }}
-          TIMESTAMP: ${{ inputs.timestamp }}
-        run: |
-          BASE=$(xmtp-release compute-version --sdk ios --release-type final)
-          if [ "${{ inputs.release-type }}" = "rc" ]; then
-            VERSION=$(xmtp-release compute-version --sdk ios --release-type rc --rc-number ${{ inputs.rc-number }})
-          elif [ "${{ inputs.release-type }}" = "dev" ]; then
-            VERSION=$(xmtp-release compute-version --sdk ios --release-type dev --source-ref "$REF" --timestamp "$TIMESTAMP")
-          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
-            # Belt-and-suspenders: release.yml already skips this whole job when
-            # the gate isn't green or there are no conventional commits
-            # (nothing-pending), so pending-* are populated whenever we reach
-            # here. This guard only fires if that orchestration is bypassed.
-            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
-              echo "::error::nightly resolve called with empty pending version/kind"
-              exit 1
-            fi
-            VERSION=$(xmtp-release resolve-sdk-version \
-              --sdk ios --release-type nightly \
-              --timestamp "$TIMESTAMP" \
-              --pending-version "${{ inputs.pending-version }}" \
-              --pending-kind "${{ inputs.pending-kind }}")
-          else
-            VERSION=$BASE
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "base-version=$BASE" >> "$GITHUB_OUTPUT"
-          echo "Computed version: $VERSION"
       - name: Build xcframeworks
         # "Package and checksum" reads build/ios/XmtpSdkFFI.
         run: nix build .#ios-xcframeworks --out-link build/ios
@@ -115,7 +76,7 @@ jobs:
         id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ inputs.version }}
         run: |
           SOURCE_SHA=$(git rev-parse HEAD)
           TAG="libxmtp-ios-${SOURCE_SHA:0:7}"
@@ -135,25 +96,30 @@ jobs:
 
           echo "artifact-url=$ARTIFACT_URL" >> "$GITHUB_OUTPUT"
 
+  # Linux: this job edits files, downloads the binaries, zips, and commits.
+  # It uses no Xcode.
   prepare-release:
+    name: Commit SwiftPM release
     needs: [build-and-package, check-push-permissions]
-    runs-on: warp-macos-15-arm64-12x
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
-      version: ${{ needs.build-and-package.outputs.version }}
+      version: ${{ inputs.version }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
           fetch-depth: 0
           # Full history for the release tag, without blobs; git-cliff, which
           # fails on a blobless clone, does not run here.
           filter: blob:none
-      - uses: ./.github/actions/setup-release-tools
+      - name: Set up release tools
+        uses: ./.github/actions/setup-release-tools
       - name: Update Package.swift and podspec
         env:
-          VERSION: ${{ needs.build-and-package.outputs.version }}
+          VERSION: ${{ inputs.version }}
           ARTIFACT_URL: ${{ needs.build-and-package.outputs.artifact-url }}
           CHECKSUM: ${{ needs.build-and-package.outputs.checksum }}
         run: |
@@ -168,7 +134,7 @@ jobs:
       - name: Prepare CocoaPods bundle
         env:
           ARTIFACT_URL: ${{ needs.build-and-package.outputs.artifact-url }}
-          VERSION: ${{ needs.build-and-package.outputs.version }}
+          VERSION: ${{ inputs.version }}
         working-directory: sdks/ios
         run: |
           set -euo pipefail
@@ -190,7 +156,7 @@ jobs:
         run: git checkout --detach
       - name: Commit changes
         env:
-          VERSION: ${{ needs.build-and-package.outputs.version }}
+          VERSION: ${{ inputs.version }}
         run: |
           # Always commit Package.swift + updated bindings, only commit podspec for final releases
           if [ "${{ inputs.release-type }}" = "final" ]; then
@@ -206,24 +172,27 @@ jobs:
 
       - name: Prepare release tag
         env:
-          VERSION: ${{ needs.build-and-package.outputs.version }}
+          VERSION: ${{ inputs.version }}
         run: |
           xmtp-release tag-release --sdk ios --version "$VERSION" --no-push
           git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/ios-$VERSION"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Store release tag
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-tag-ios
           path: ${{ runner.temp }}/release.bundle
           if-no-files-found: error
           retention-days: 1
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Store CocoaPods bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-release-bundle
-          path: sdks/ios/XMTP-${{ needs.build-and-package.outputs.version }}.zip
+          path: sdks/ios/XMTP-${{ inputs.version }}.zip
           if-no-files-found: error
           retention-days: 1
 
   push-tag:
+    name: Tag
     needs: [prepare-release, check-push-permissions]
     uses: ./.github/workflows/push-release-tag.yml
     with:
@@ -233,6 +202,7 @@ jobs:
     secrets: inherit
 
   publish:
+    name: Create iOS GitHub release
     needs: [prepare-release, push-tag, check-push-permissions]
     runs-on: ubuntu-latest
     permissions:
@@ -240,10 +210,12 @@ jobs:
     outputs:
       version: ${{ needs.prepare-release.outputs.version }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - name: Download CocoaPods bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: ios-release-bundle
           path: sdks/ios

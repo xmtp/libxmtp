@@ -36,7 +36,10 @@ dev/nix-shell 'just js test' # needs `just backend up`
   Browser also requires explicit `storage`.
 - Use `env` only as the label in the default database file name.
 - Keep the API-client cache key as `<backendUrl>|<appVersion>`.
-- Keep file archive export and import tests.
+- Keep the file archive export and import tests that remain. Node
+  `test/DeviceSync.test.ts` owns the SDK file-archive round trip, and
+  `crates/xmtp_sdk/src/tests/archives.rs` owns file export, metadata, and import.
+  Swift, Kotlin, and React Native have no archive file test.
 
 Native streams stay open during retryable network faults and resume in order.
 

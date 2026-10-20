@@ -67,7 +67,7 @@ xmtp_common = { workspace = true, features = ["test-utils-network"] }
 xmtp_configuration.workspace = true
 xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
-xmtp_id = { workspace = true, features = ["test-utils"] }
+xmtp_id = { workspace = true, features = ["test-utils-anvil"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 

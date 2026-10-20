@@ -1,6 +1,11 @@
-name: Test SDK runtime and platform proofs
+name: "Test: Browser SDK platform"
 'on':
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 permissions:
   contents: read
 env:
@@ -11,39 +16,41 @@ env:
   SQLX_OFFLINE: 'true'
 jobs:
   proof:
-    name: Test (SDK browser)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    name: Workers, storage, bridge
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 90
     steps:
-    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-    - uses: ./.github/actions/setup-nix
+    - name: Check out the source
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+    - name: Set up Nix
+      uses: ./.github/actions/setup-nix
       with:
         cache-mode: ci
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
         github-token: ${{ github.token }}
-    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
-    - uses: ./.github/actions/setup-js
+    - name: Install JS dependencies (pnpm)
+      uses: ./.github/actions/setup-js
       with:
         cache-mode: ci
-    - name: Generate local SDK products
+    - name: dev/nix-shell 'just sdk generate node,browser'
       env:
         NIX_DEVSHELL: rust
       run: dev/nix-shell 'just sdk generate node,browser'
-    - name: Start local backend
+    - name: dev/nix-shell 'just backend up'
       run: dev/nix-shell 'just backend up'
-    - name: Bridge runtime unit tests
+    - name: dev/nix-shell 'just sdk test-bridge'
       id: bridge
       run: dev/nix-shell 'just sdk test-bridge'
     # The platform proofs also run when the bridge tests fail, so one run
     # reports both. They do not run when an earlier setup step failed.
-    - name: Browser platform proofs
+    - name: dev/nix-shell 'just sdk test-browser'
       if: ${{ !cancelled() && steps.bridge.outcome != 'skipped' }}
       run: dev/nix-shell 'just sdk test-browser'
     - name: Dump Docker logs on failure
       if: failure()
       timeout-minutes: 2
       uses: jwalton/gh-docker-logs@2741064ab9d7af54b0b1ffb6076cf64c16f0220e # v2.2.2
-    - name: Stop test services
+    - name: dev/nix-shell 'just backend down'
       if: always()
       timeout-minutes: 2
       run: dev/nix-shell 'just backend down'

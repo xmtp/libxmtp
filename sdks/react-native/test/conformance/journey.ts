@@ -5,21 +5,44 @@ import {
   encodeEncodedContent,
   generateInboxId,
   type ClientOptions,
+  type ContentCodec,
   type PublicIdentity,
   type Signer,
 } from "@xmtp/react-native-sdk";
+import { XmtpProvider } from "@xmtp/react-native-sdk/react";
 import { NativeModules, Platform } from "react-native";
 
-import { advancedJourney } from "./advanced";
 import { assert, bytesEqual, equal } from "./assertions";
-import { featureJourney, fixtureCodec } from "./features";
-import { migrationJourney } from "./migration";
+import { within } from "./async";
+import { boundaryJourney } from "./boundary";
+import { contentVectorJourney } from "./content-vectors";
+import { listenerJourney } from "./events";
 
 export interface JourneyControl {
   call<Result>(operation: string, input?: unknown): Promise<Result>;
 }
 
+/**
+ * The runner picks the set from `XMTP_RN_JOURNEYS`. `pr` (the default) runs
+ * the RN-only checks. `full` adds the runtime reload and the cold background
+ * launch, which post-merge and release runs select.
+ */
+export type JourneySet = "pr" | "full";
+
+export const fixtureCodec: ContentCodec<Uint8Array> = {
+  type: {
+    authorityId: "xmtp.org",
+    typeId: "rn-conformance",
+    versionMajor: 1,
+    versionMinor: 0,
+  },
+  encode: (content) => ({ type: fixtureCodec.type, content }),
+  decode: (envelope) => envelope.content,
+  shouldPush: () => false,
+};
+
 export interface FoundationResult {
+  readonly journeys: JourneySet;
   readonly assertions: readonly string[];
   readonly phases: readonly string[];
   readonly inboxId: string;
@@ -41,7 +64,12 @@ export async function foundationJourney(
     peerInboxId: string;
     outboundText: string;
     inboundText: string;
+    journeys: JourneySet;
   }>("setup");
+  assert(
+    setup.journeys === "pr" || setup.journeys === "full",
+    "runner must select the pr or full journey set",
+  );
   const signer: Signer = {
     identity: async () => setup.identity,
     kind: async () => ({ kind: "eoa" }),
@@ -244,24 +272,43 @@ export async function foundationJourney(
     evidence.push(
       "encrypted private storage reopen retains identity and both DM messages",
     );
+    // One stream read keeps a JSI async iterator on every device run.
+    const conversation = await reopened.conversations.getById(conversationId);
+    assert(conversation, "reopen must retain the DM");
+    const reader = conversation.streamMessages();
+    try {
+      const known = new Set([outboundMessageId, received.messageId]);
+      for (;;) {
+        const item = await within(reader.next(), "JSI message stream read");
+        assert(!item.done, "message stream must deliver the retained DM");
+        if (!known.has(item.value.id)) continue;
+        assert(
+          item.value.content.kind === "text",
+          "streamed DM message must decode as text",
+        );
+        break;
+      }
+    } finally {
+      await reader.end();
+    }
+    evidence.push("message stream next() delivers a retained DM message");
     phases.push("foundation");
     if (conformance) {
-      evidence.push(
-        ...(await featureJourney(
-          reopened,
-          signer,
-          options,
-          setup.peerInboxId,
-          control,
-        )),
+      evidence.push(...contentVectorJourney());
+      phases.push("content");
+      evidence.push(...(await boundaryJourney(reopened, signer, options)));
+      phases.push("boundary");
+      evidence.push(...(await listenerJourney(reopened)));
+      phases.push("listener");
+      assert(
+        typeof XmtpProvider === "function",
+        "installed /react entry must resolve its provider",
       );
-      phases.push("features");
-      evidence.push(...(await migrationJourney(reopened)));
-      phases.push("migration");
-      evidence.push(...(await advancedJourney(reopened, signer, options)));
-      phases.push("advanced");
+      evidence.push("installed /react entry resolves");
+      phases.push("react");
     }
     return {
+      journeys: setup.journeys,
       assertions: evidence,
       phases,
       inboxId,

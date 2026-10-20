@@ -259,13 +259,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "Installed-package proof pending for the attachment payload members, which the generated SDK is expected to set on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. Issue 4207 tracks the rest of the event contract."
 
 [[waiver]]
-id = "EVENT-056"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "The Rust bus is per client and shared credentials fan out to each client's bus, but no SDK facade hands events to app subscriptions or verifies isolation when two clients share storage or credentials."
-
-[[waiver]]
 id = "LOG-001"
 kind = "untested"
 owner = "protocol"

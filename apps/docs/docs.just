@@ -44,7 +44,7 @@ check:
 check-cutover origin="https://xmtp.org" site="_site":
     node scripts/check-cutover.mjs "{{ origin }}" "{{ site }}"
 
-# Check the documentation source without a site build (docs_quality CI).
+# Check the documentation source without a site build (the Repository lint CI suite).
 check-source:
     node scripts/check-site.mjs
 

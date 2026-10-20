@@ -1,4 +1,4 @@
-name: Release Notes
+name: "Release: notes"
 
 on:
   push:
@@ -27,6 +27,7 @@ jobs:
   # exempt from Actions' recursion prevention, and the dispatched run
   # (a supported event type) does the real work below.
   redispatch:
+    name: Redispatch as a manual run
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -43,6 +44,7 @@ jobs:
             -f release-branch="$BRANCH"
 
   update-release-notes:
+    name: Draft release notes
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
     # Job-level (not workflow-level) so the push shim above never joins
@@ -57,7 +59,8 @@ jobs:
       # claude-code-action exchanges an OIDC token for its GitHub token
       id-token: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.release-branch || github.ref_name }}
           fetch-depth: 0
@@ -86,7 +89,8 @@ jobs:
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           echo "Detected release version: $VERSION from branch: $BRANCH"
 
-      - uses: ./.github/actions/setup-release-tools
+      - name: Set up release tools
+        uses: ./.github/actions/setup-release-tools
 
       - name: Find and classify release notes
         id: classify

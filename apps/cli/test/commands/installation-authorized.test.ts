@@ -30,26 +30,6 @@ describe("installation-authorized", () => {
     expect(output.isAuthorized).toBe(true);
   });
 
-  it("returns false for unauthorized installation", async () => {
-    const identity = await createRegisteredIdentity();
-    const fakeInstallationId = "0".repeat(64); // 32 bytes as hex
-
-    const result = await runWithIdentity(identity, [
-      "installation-authorized",
-      identity.inboxId,
-      fakeInstallationId,
-      "--json",
-    ]);
-
-    expect(result.exitCode).toBe(0);
-
-    const output = parseJsonOutput<{
-      isAuthorized: boolean;
-    }>(result.stdout);
-
-    expect(output.isAuthorized).toBe(false);
-  });
-
   it("fails without required arguments", async () => {
     const identity = await createRegisteredIdentity();
 

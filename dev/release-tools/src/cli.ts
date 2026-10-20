@@ -5,9 +5,7 @@ import { hideBin } from "yargs/helpers";
 import * as classifyNotes from "./commands/classify-notes";
 import * as computeVersion from "./commands/compute-version";
 import * as createReleaseBranch from "./commands/create-release-branch";
-import * as pendingVersion from "./commands/pending-version";
 import * as publishBackend from "./commands/publish-backend";
-import * as resolveSdkVersion from "./commands/resolve-sdk-version";
 import * as setDependencyVersion from "./commands/set-dependency-version";
 import * as setManifestVersion from "./commands/set-manifest-version";
 import * as stampPackage from "./commands/stamp-package";
@@ -28,9 +26,7 @@ await yargs(hideBin(process.argv))
   .command(createReleaseBranch)
   .command(classifyNotes)
   .command(tagRelease)
-  .command(pendingVersion)
   .command(publishBackend)
-  .command(resolveSdkVersion)
   .command(setDependencyVersion)
   .command(stampPackage)
   .demandCommand(1, "You must specify a command")

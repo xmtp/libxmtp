@@ -525,6 +525,5 @@ class GroupSettingsInstrumentedTest {
                 .assertIsDisplayed()
             button("Leaving group…").assertIsNotEnabled()
             compose.onNodeWithText("Leave group?").assertDoesNotExist()
-            saveMessengerScreenshot(compose.activity, "group-settings-pending-remove")
         }
 }

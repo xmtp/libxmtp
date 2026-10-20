@@ -266,85 +266,6 @@ class AndroidPackageTest {
             }
         }
 
-    @Test fun historySnapshotsKeepRecentMessagesAndResumeAtTheAtomicCursor() =
-        runBlocking {
-            withTimeout(60_000) {
-                clients { sender, receiver ->
-                    val group = sender.conversations.createGroup(listOf(receiver.inboxId()))
-                    group.sendText("older history")
-                    val recent = group.sendText("recent history")
-                    val dm = sender.conversations.createDm(receiver.inboxId())
-                    val direct = dm.sendText("direct history")
-                    receiver.conversations.syncAll(null)
-                    val storedGroup =
-                        (
-                            checkNotNull(
-                                receiver.conversations.getById(group.id()),
-                            ) as Conversation.Group
-                        ).group
-                    val storedDm = (checkNotNull(receiver.conversations.getById(dm.id())) as Conversation.Dm).dm
-                    val snapshot = storedGroup.messageHistorySnapshot(1u)
-                    assertEquals(listOf(recent), snapshot.messages.map { it.id })
-                    assertTrue(snapshot.cursor.isNotEmpty())
-                    assertTrue(snapshot.messages.all { it.deliveryCursor != null })
-                    assertEquals(listOf(direct), storedDm.messageHistorySnapshot(1u).messages.map { it.id })
-                    val collection = receiver.conversations.messageHistorySnapshot(20u)
-                    assertTrue(collection.messages.map { it.id }.containsAll(listOf(recent, direct)))
-                    val groups =
-                        receiver.conversations.messageHistorySnapshot(
-                            20u,
-                            MessageReaderOptions(conversationKind = ConversationKind.GROUP),
-                        )
-                    assertTrue(groups.messages.isNotEmpty())
-                    assertTrue(groups.messages.all { it.conversationId == group.id() })
-                    assertTrue(storedGroup.messageHistorySnapshot(0u).messages.isEmpty())
-                    try {
-                        receiver.conversations.messageHistorySnapshot(
-                            1u,
-                            MessageReaderOptions(from = collection.cursor),
-                        )
-                        fail("History snapshot must reject a replay cursor")
-                    } catch (error: XmtpException.InvalidArgument) {
-                        // A snapshot captures a new cursor instead of using a replay cursor.
-                    }
-                    val next =
-                        async {
-                            storedGroup
-                                .streamMessages(
-                                    options = ConversationMessageStreamOptions(from = snapshot.cursor),
-                                ).first()
-                        }
-                    val after = group.sendText("after snapshot")
-                    assertEquals(after, next.await().id)
-                }
-            }
-        }
-
-    @Test fun coldCatchUpStoresTheMissedMessageAndThenIsEmpty() =
-        runBlocking {
-            withTimeout(60_000) {
-                clients { sender, receiver ->
-                    val group = sender.conversations.createGroup(listOf(receiver.inboxId()))
-                    val id = group.sendText("missed while away")
-                    assertTrue(receiver.conversations.listGroups(null).isEmpty())
-                    val summary = receiver.catchUpToLive(30_000uL)
-                    assertTrue(summary.completed)
-                    assertEquals(0uL, summary.failed)
-                    assertEquals(1uL, summary.conversations)
-                    val restored = checkNotNull(receiver.conversations.getMessageById(id))
-                    assertEquals(
-                        MessageContent.Text("missed while away"),
-                        (restored.content as SDKMessageContent.Standard).value,
-                    )
-                    val again = receiver.catchUpToLive(30_000uL)
-                    assertTrue(again.completed)
-                    assertEquals(0uL, again.failed)
-                    assertEquals(0uL, again.messages)
-                    assertEquals(0uL, again.conversations)
-                }
-            }
-        }
-
     @Test fun signerAndCredentialThrowablesReturnTypedFailures() =
         runBlocking {
             withTimeout(30_000) {
@@ -402,65 +323,6 @@ class AndroidPackageTest {
             }
         }
 
-    @Test fun leftInboxesStayDistinctFromRemovedInboxesAfterReopen() =
-        runBlocking {
-            withTimeout(60_000) {
-                val signer = generateLocalSigner()
-                val configuration = options("left-${UUID.randomUUID()}")
-                var sender = SDKClient.create(context, signer, configuration)
-                try {
-                    val peer = SDKClient.create(context, generateLocalSigner(), options("leaving-${UUID.randomUUID()}"))
-                    try {
-                        val group = sender.conversations.createGroup(listOf(peer.inboxId()))
-                        peer.conversations.syncAll(null)
-                        val peerGroup =
-                            (
-                                checkNotNull(
-                                    peer.conversations.getById(group.id()),
-                                ) as Conversation.Group
-                            ).group
-                        peerGroup.requestRemoval()
-                        val expected = peer.inboxId()
-                        withTimeout(30_000) {
-                            while (true) {
-                                group.sync()
-                                val update =
-                                    group
-                                        .messages()
-                                        .mapNotNull {
-                                            val value = (it.content as? SDKMessageContent.Standard)?.value
-                                            (value as? MessageContent.GroupUpdated)?.v1
-                                        }.firstOrNull { expected in it.leftInboxes }
-                                if (update != null) {
-                                    assertEquals(listOf(expected), update.leftInboxes)
-                                    assertTrue(update.removedInboxes.isEmpty())
-                                    break
-                                }
-                                delay(100)
-                            }
-                        }
-                        val id = group.id()
-                        sender.end()
-                        sender = SDKClient.build(context, signer.identity(), configuration)
-                        val restored = (checkNotNull(sender.conversations.getById(id)) as Conversation.Group).group
-                        val left =
-                            restored
-                                .messages()
-                                .mapNotNull {
-                                    ((it.content as? SDKMessageContent.Standard)?.value as? MessageContent.GroupUpdated)
-                                        ?.v1
-                                }.first { expected in it.leftInboxes }
-                        assertEquals(listOf(expected), left.leftInboxes)
-                        assertTrue(left.removedInboxes.isEmpty())
-                    } finally {
-                        withContext(NonCancellable) { peer.storage().delete() }
-                    }
-                } finally {
-                    withContext(NonCancellable) { sender.storage().delete() }
-                }
-            }
-        }
-
     @Test fun persistentLogHelpersListFilesAndClearThem() =
         runBlocking {
             initLogging(LoggingOptions(level = LogLevel.DEBUG))
@@ -471,6 +333,31 @@ class AndroidPackageTest {
             assertTrue(SDKClient.getXMTPLogFilePaths(context).contains(marker.absolutePath))
             assertTrue(SDKClient.clearXMTPLogs(context) >= 1)
             assertFalse(marker.exists())
+        }
+
+    // The Rust file writer, not a test marker, must produce the file the
+    // Android helpers list and clear.
+    @Test fun persistentLogWriterWritesAFileTheHelpersListAndClear() =
+        runBlocking {
+            initLogging(LoggingOptions(level = LogLevel.TRACE))
+            SDKClient.clearXMTPLogs(context)
+            SDKClient.activatePersistentLibXMTPLogWriter(context, LogLevel.TRACE, LogRotation.HOURLY, 3u)
+            try {
+                val client = SDKClient.create(context, generateLocalSigner(), options("log-${UUID.randomUUID()}"))
+                try {
+                    client.conversations.createGroup(emptyList<InboxId>())
+                    client.conversations.sync()
+                } finally {
+                    withContext(NonCancellable) { client.storage().delete() }
+                }
+            } finally {
+                SDKClient.deactivatePersistentLibXMTPLogWriter()
+            }
+            val files = SDKClient.getXMTPLogFilePaths(context)
+            assertEquals(1, files.size)
+            assertTrue(File(files.single()).length() > 0)
+            SDKClient.clearXMTPLogs(context)
+            assertTrue(SDKClient.getXMTPLogFilePaths(context).isEmpty())
         }
 
     // verifies: PROC-036

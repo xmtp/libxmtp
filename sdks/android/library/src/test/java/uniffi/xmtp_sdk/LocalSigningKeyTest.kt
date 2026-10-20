@@ -1,29 +1,23 @@
 package uniffi.xmtp_sdk
 
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalSigningKeyTest {
-    // verifies: IDENT-088, IDENT-089
+    // Export, restore and the signer identity rules are Rust's:
+    // xmtp_sdk/src/signer/local_tests.rs. This checks only that the generated
+    // LocalSigningKey is a Signer that client creation accepts directly.
     @Test
-    fun exportRestoreAndSignerConformance() =
+    fun localSigningKeyIsAcceptedDirectlyAsASigner() =
         runBlocking {
             val key = SDKClient.generateKeys()
-            val (bytes, hex) = exportKey(key)
-            assertEquals(32, bytes.size)
-            val restored = LocalSigningKey.fromHex(hex)
-            assertArrayEquals(bytes, restored.toBytes())
-            bytes.fill(0)
-            assertEquals(hex, key.toHex())
-            val owner: Signer = LocalSigningKey.fromBytes(restored.toBytes())
-            assertEquals(key.identity(), owner.identity())
             withClients {
-                val client = create(restored)
+                val client = create(key)
                 assertTrue(client.isRegistered())
+                assertEquals(key.identity(), client.identity())
             }
         }
 
@@ -33,10 +27,12 @@ class LocalSigningKeyTest {
             val fixed = "0x" + "0".repeat(63) + "1"
             val key = LocalSigningKey.fromHex(fixed)
             assertEquals("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf", key.identity().identifier)
-            assertEquals(fixed, key.toHex())
+            val (bytes, hex) = exportKey(key)
+            assertEquals(32, bytes.size)
+            assertEquals(fixed, hex)
             assertFalse(key.toString().contains(fixed.drop(2)))
-            for (bytes in listOf(ByteArray(31), ByteArray(32), ByteArray(32) { -1 })) {
-                val error = runCatching { LocalSigningKey.fromBytes(bytes) }.exceptionOrNull()
+            for (invalid in listOf(ByteArray(31), ByteArray(32), ByteArray(32) { -1 })) {
+                val error = runCatching { LocalSigningKey.fromBytes(invalid) }.exceptionOrNull()
                 assertTrue(error is XmtpException.InvalidInput)
             }
         }

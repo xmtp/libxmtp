@@ -90,7 +90,10 @@ Run commands from the repository root in the Nix shell. Run
   `dev/copy-browser-fixtures`. These release-profile fixtures share the
   product WASM dependency layer and enable the test-only `conformance` cargo
   feature, whose exports
-  (`sdk_conformance_*`) the default bindings omit. The public browser scenarios
+  (`sdk_conformance_*`) the default bindings omit. The migration proofs use the
+  Nix-built `fixture_host` example of `xmtp_legacy_migration`
+  (`.#xmtp-legacy-migration-fixture-host`, own dependency layer), copied with
+  `dev/copy-browser-fixtures migration`. The public browser scenarios
   are in `sdks/browser/test`.
   The run starts `sdks/browser/test/platform/object-store/object-store.mjs`
   (`with-object-store` beside it) for its download fixtures. The default ephemeral
@@ -302,8 +305,5 @@ Run only those checks with `dev/nix-shell 'just sdk test-browser migration'`
 after `generate`. The platform runner stages the matched Browser package. They check import, worker ownership,
 failed output, page termination, and source preservation. The small fixture
 worker uses raw legacy bytes and is not part of a public package.
-Swift uses `LegacyMigrationTests` in the normal XCTest target. Kotlin uses
-`LegacyMigrationTest` in the normal JUnit target. Run
-`dev/nix-shell 'just ios test all --filter XmtpSdkTests.LegacyMigrationTests'` or
-`dev/nix-shell 'just android test --tests uniffi.xmtp_sdk.LegacyMigrationTest'`. The iOS unit job and
-the Android `sdk-build` job include these tests.
+Swift and Kotlin have no migration test; the converter tests in
+`crates/xmtp_legacy_migration` cover the same fixture.

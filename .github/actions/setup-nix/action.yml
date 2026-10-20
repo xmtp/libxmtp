@@ -21,7 +21,8 @@ inputs:
   cachix-pr-auth-token:
     description: >-
       Cachix token for the CI-only cache xmtp-pr. Only mode ci may receive
-      it; fork and Dependabot runs have none and push nothing.
+      it; fork runs have none and push nothing. Dependabot runs have it only
+      as a Dependabot secret.
     required: false
   kache:
     description: >-
@@ -128,6 +129,15 @@ runs:
     # macOS patch bug (https://github.com/nixos/nix/issues/15619, fixed in
     # 2.34.6 and 2.35.0); keep any new pin outside that range. Nix 2.34
     # prints dry-run sizes with a unit per size (post-merge.yml reads them).
+    # GitHub-hosted Linux runners start with about 14 GB free. Merge, release,
+    # and deploy jobs run there and fetch dev shells and closures of several
+    # GB, so remove preinstalled toolchains that Nix replaces: .NET, the
+    # Android SDK, GHC, and CodeQL. Blacksmith and WarpBuild runners report
+    # runner.environment `self-hosted` and skip this.
+    - name: Free disk space (GitHub-hosted Linux)
+      if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
+      run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      shell: bash
     - name: Install Nix (Linux)
       if: ${{ runner.os == 'Linux' }}
       uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
@@ -154,17 +164,20 @@ runs:
     # One cache mode per job (README "Cache modes"). Each mode has its own
     # Cachix step; `kache-ci policy` fails first on an unknown mode, a mode
     # that does not fit the event, or a token that does not fit the mode.
-    - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+    - name: Configure Cachix (mode read)
+      uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
       if: ${{ inputs.cache-mode == 'read' }}
       with:
         name: xmtp
-    - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+    - name: Configure Cachix (mode ci)
+      uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
       if: ${{ inputs.cache-mode == 'ci' }}
       with:
         name: xmtp-pr
         extraPullNames: xmtp
         authToken: ${{ inputs.cachix-pr-auth-token }}
-    - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+    - name: Configure Cachix (mode trusted)
+      uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
       if: ${{ inputs.cache-mode == 'trusted' }}
       with:
         name: xmtp

@@ -65,6 +65,36 @@ let
   # every profile, so release fixtures keep the panic proofs' meaning.
   panicFixtureWasm = mkWasm "xmtp-sdk-wasm-fixture-panic-lib" "bridge-panic-test,conformance";
   codecFixtureWasm = mkWasm "xmtp-sdk-pure-fixture-codec-lib" "pure-only,conformance";
+  # The legacy-migration browser proofs seed and inspect OPFS databases with
+  # the `fixture_host` example (sdks/browser/test/platform/migration). It is a
+  # test fixture, in no package. Its dev-dependencies (the OPFS VFS) differ from
+  # the SDK library's, so it has its own dependency layer.
+  migrationFixtureArgs = common // {
+    inherit (wasmArgs)
+      CARGO_BUILD_TARGET
+      CC_wasm32_unknown_unknown
+      AR_wasm32_unknown_unknown
+      CFLAGS_wasm32_unknown_unknown
+      ;
+    buildPhaseCargoCommand = "cargo build --release --locked -p xmtp_legacy_migration --example fixture_host --target wasm32-unknown-unknown";
+  };
+  migrationFixtureHost = rust.buildPackage (
+    migrationFixtureArgs
+    // {
+      pname = "xmtp-legacy-migration-fixture-host";
+      src = xmtp.filesets.mkClosureSource rust {
+        roots = [ ../../crates/xmtp_legacy_migration ];
+        dev = true;
+        target = "wasm32-unknown-unknown";
+      };
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust migrationFixtureArgs;
+      nativeBuildInputs = common.nativeBuildInputs ++ [ wasm-bindgen-cli ];
+      installPhaseCommand = ''
+        wasm-bindgen --target web --out-dir $out \
+          target/wasm32-unknown-unknown/release/examples/fixture_host.wasm
+      '';
+    }
+  );
   # The SDK library and the bindgen keep separate dependency layers. Cargo
   # unifies features across `-p xmtp_sdk -p xmtp-sdk-bindgen` (the bindgen is
   # outside hakari), so a shared layer gives libc, syn, serde_json, and others
@@ -300,6 +330,7 @@ in
     generatedBrowser
     panicFixture
     codecFixture
+    migrationFixtureHost
     iosTargets
     iosTargetsLocal
     nativeBuild

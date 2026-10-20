@@ -1,13 +1,12 @@
-name: NPM Publish
+name: "Publish: npm package"
 
 on:
   workflow_call:
     inputs:
-      ref:
-        description: "Git ref to check out, package, and tag. Defaults to the workflow run ref; callers building a different ref MUST pass it or the version stamp and tag land on the wrong commit."
-        required: false
+      source-sha:
+        description: "Source commit to check out, package, and tag. The caller's release preflight (check-release-push.yml) pinned and checked it."
+        required: true
         type: string
-        default: ""
       package-dir:
         description: "Path to the npm package directory"
         required: true
@@ -44,7 +43,7 @@ on:
         type: string
         default: ""
       dep-version:
-        description: "Exact version to pin the dependency to (e.g. 1.2.3-nightly.20260604.abc1234)"
+        description: "Exact version to pin the dependency to (e.g. 8.0.0-rc1)"
         required: false
         type: string
         default: ""
@@ -68,19 +67,21 @@ on:
         description: "The published version"
         value: ${{ jobs.publish.outputs.version }}
 
+# Every caller runs check-release-push.yml for this source commit before it
+# builds, and passes the commit it pinned. The publish job authorizes itself
+# too, so a workflow on another branch cannot call this one to publish: a real
+# publish runs in the `release` environment, whose deployment policy admits
+# only protected release refs, and publishes only a source commit on main or
+# a release/** branch. A dry run publishes nothing and may build any branch.
 jobs:
-  check-push-permissions:
-    uses: ./.github/workflows/check-release-push.yml
-    with:
-      ref: ${{ inputs.ref || github.ref }}
-      dry-run: ${{ inputs.dry-run }}
-    secrets: inherit
-
   publish:
-    needs: [check-push-permissions]
+    name: Publish to npm
     permissions:
       id-token: write
       contents: read
+    # The job reads no App secret; it uses the environment for its branch
+    # policy. npm trusted publishing can also require this environment.
+    environment: ${{ inputs.dry-run != true && 'release' || '' }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ inputs.version }}
@@ -88,11 +89,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+          ref: ${{ inputs.source-sha }}
           fetch-depth: 0
           # Full history for the release tag, without blobs; git-cliff, which
           # fails on a blobless clone, does not run here.
           filter: blob:none
+
+      # The same check as check-release-push.yml (test_release_push.py runs it).
+      - name: Check that the source is on a release branch
+        if: ${{ inputs.dry-run != true }}
+        run: |
+          set -euo pipefail
+          # Commits only: the check needs history, not trees or blobs.
+          git fetch --quiet --no-tags --filter=tree:0 origin \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/heads/release/*:refs/remotes/origin/release/*'
+          branches=$(git for-each-ref --contains HEAD --format='%(refname:lstrip=3)' \
+            refs/remotes/origin/main 'refs/remotes/origin/release/')
+          if [[ -z "$branches" ]]; then
+            echo "::error title=Release source::$(git rev-parse HEAD) is not on main or a release/** branch"
+            exit 1
+          fi
+          echo "Release source is on: $(tr '\n' ' ' <<< "$branches")"
 
       - name: Download build artifacts
         if: ${{ inputs.artifact-pattern != '' }}
@@ -102,7 +120,8 @@ jobs:
           merge-multiple: true
           path: ${{ inputs.artifact-path }}
 
-      - uses: ./.github/actions/setup-release-tools
+      - name: Set up release tools
+        uses: ./.github/actions/setup-release-tools
 
       - name: Set version
         run: xmtp-release set-manifest-version --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}"
@@ -124,13 +143,13 @@ jobs:
 
       - name: Determine NPM tag
         id: npm-tag
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          if [[ "${{ inputs.version }}" == *"nightly"* ]]; then
-            echo "tag=nightly" >> $GITHUB_OUTPUT
-          elif [[ "${{ inputs.version }}" == *"dev"* || "${{ inputs.version }}" == *"rc"* ]]; then
-            echo "tag=prerelease" >> $GITHUB_OUTPUT
+          if [[ "$VERSION" == *dev* || "$VERSION" == *rc* ]]; then
+            echo "tag=prerelease" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
       # OIDC trusted publishing needs npm >= 11.5.1. Keep the tested major
@@ -138,8 +157,9 @@ jobs:
       - name: Update npm
         run: npm install -g npm@11
 
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
         if: inputs.package-tarball != ''
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "read"
           github-token: ${{ github.token }}
@@ -184,7 +204,7 @@ jobs:
         env:
           SDK: ${{ inputs.sdk }}
           VERSION: ${{ inputs.version }}
-          SOURCE_SHA: ${{ needs.check-push-permissions.outputs.source-sha }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
         run: |
           if [ "$(git rev-parse HEAD)" != "$SOURCE_SHA" ]; then
             echo "::error::Release HEAD does not match the selected source commit"
@@ -216,11 +236,12 @@ jobs:
         run: npm publish "$PACKAGE_TARBALL" --dry-run ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
 
   push-tag:
-    needs: [publish, check-push-permissions]
+    name: Tag
+    needs: [publish]
     if: ${{ inputs.dry-run != true }}
     uses: ./.github/workflows/push-release-tag.yml
     with:
       sdk: ${{ inputs.sdk }}
       version: ${{ inputs.version }}
-      source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
+      source-sha: ${{ inputs.source-sha }}
     secrets: inherit

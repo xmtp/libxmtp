@@ -1,25 +1,31 @@
-name: Test Workspace
+name: "Test: Rust workspace"
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 env:
   NIX_DEVSHELL: rust
 jobs:
   test:
-    name: Test (Rust Workspace)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+    name: Tests with coverage
+    runs-on: ${{ inputs.runner }}
+    # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
+    timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
     env:
       SQLX_OFFLINE: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
-      - name: Check ephemeral backend build boundaries
+      - name: dev/check-ephemeral-backend
         run: dev/check-ephemeral-backend
       # The derivation starts its own test services (nix/services) on free
       # loopback ports, so the job needs no Docker stack. `nix build` keeps

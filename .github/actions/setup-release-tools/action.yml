@@ -15,7 +15,8 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: ./.github/actions/setup-js
+    - name: Set up JavaScript
+      uses: ./.github/actions/setup-js
       with:
         nix: ${{ inputs.nix }}
         filter: ${{ inputs.filter }}

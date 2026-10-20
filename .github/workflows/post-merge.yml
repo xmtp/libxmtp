@@ -5,7 +5,7 @@
 #
 # Trusted: only pushes to trunk start this workflow, and only the writer
 # environment holds the trusted Cachix token.
-name: Post-merge
+name: "Post-merge: caches and docs"
 on:
   push:
     branches:
@@ -18,8 +18,13 @@ concurrency:
   group: post-merge-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  # The RN cache jobs build and push the RN stages to `xmtp`; they install and
+  # test nothing. Each stage substitutes the previous one from `xmtp`, so they
+  # exchange no artifacts. The test packages (with and without iOS) and the
+  # bare Android test app are warmed too, so pull requests that do not change
+  # them substitute them.
   rn-components:
-    name: RN components (${{ matrix.system }})
+    name: Cache RN components (${{ matrix.system }})
     strategy:
       fail-fast: false
       matrix:
@@ -32,20 +37,24 @@ jobs:
     timeout-minutes: 90
     environment: kache-s3-writer
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: trusted
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Build the components
+        uses: ./.github/actions/react-native-product
         with:
           stage: components
           system: ${{ matrix.system }}
           source-sha: ${{ github.sha }}
           package-version: ""
+          exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
       - name: Finish component cache uploads
@@ -53,39 +62,51 @@ jobs:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         shell: bash
         run: |
-          jq -r '.roots[]' target/rn-exchange/components/manifest.json > "$RUNNER_TEMP/rn-roots"
+          jq -r '.[]' "$XMTP_RN_ROOTS" > "$RUNNER_TEMP/rn-roots"
           while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-roots"
 
   rn-package:
-    name: Assemble the canonical RN package
+    name: Cache RN package
     needs: rn-components
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     environment: kache-s3-writer
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: trusted
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Assemble the package
+        uses: ./.github/actions/react-native-product
         with:
           stage: package
           system: x86_64-linux
           source-sha: ${{ github.sha }}
           package-version: ""
+          exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
-      - name: Finish package cache upload
+      - name: Assemble the pull request test packages
+        shell: bash
+        run: |
+          nix build --no-link --print-out-paths \
+            .#xmtp-sdk-react-native-test-package \
+            .#xmtp-sdk-react-native-test-package-android > "$RUNNER_TEMP/rn-test-packages"
+      - name: Finish package cache uploads
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        run: cachix push xmtp "$XMTP_RN_PACKAGE_DIR"
+        run: |
+          cachix push xmtp "$XMTP_RN_PACKAGE_DIR"
+          while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-test-packages"
 
   rn-consumers:
-    name: RN installed consumers (${{ matrix.platform }})
+    name: Cache RN apps (${{ matrix.platform }})
     needs: rn-package
     strategy:
       fail-fast: false
@@ -103,38 +124,132 @@ jobs:
     env:
       SYSTEM: ${{ matrix.system }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: trusted
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Build the apps
+        uses: ./.github/actions/react-native-product
         with:
           stage: consumers
           system: ${{ matrix.system }}
           source-sha: ${{ github.sha }}
           package-version: ""
+          exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
-      - name: Finish consumer cache uploads
+      # The warm set also holds the app build inputs, so a cold pull request
+      # build downloads them instead of fetching each one again.
+      - name: Build the warm app set
+        shell: bash
+        run: |
+          options=(--no-link --print-out-paths)
+          if [[ "$RUNNER_OS" == macOS ]]; then options+=(--option sandbox relaxed); fi
+          targets=(".#ciStages.$SYSTEM.consumers")
+          if [[ "$SYSTEM" == x86_64-linux ]]; then targets+=(.#react-native-test-consumer-android-bare); fi
+          nix build "${options[@]}" "${targets[@]}" > "$RUNNER_TEMP/rn-apps"
+      - name: Finish app cache uploads
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        run: cachix push xmtp "$(nix eval --raw ".#ciStages.$SYSTEM.consumers.outPath")"
+        run: |
+          while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-apps"
+
+  # The RN device smoke of each merge: the full package's bare and Expo apps,
+  # with every journey. It reads only `xmtp` and holds no token. The cache
+  # jobs pushed the package and apps; `build` pushed the backend and the test
+  # services that the journeys start, so the smoke waits for it and builds
+  # nothing. If `build` fails, the smoke still runs and builds what it
+  # misses. `build` does not wait for the smoke.
+  rn-smoke:
+    name: RN installed-app smoke (${{ matrix.platform }})
+    needs: [rn-consumers, build]
+    if: ${{ !cancelled() && needs.rn-consumers.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub-hosted: KVM for the emulator (GitHub changelog 2024-04-02).
+          # Revert label: blacksmith-16vcpu-ubuntu-2404.
+          - platform: android
+            system: x86_64-linux
+            runner: ubuntu-latest
+          # Installs and runs only. Revert label: warp-macos-26-arm64-12x.
+          - platform: ios
+            system: aarch64-darwin
+            runner: warp-macos-26-arm64-6x
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      XMTP_SDK_BUILD: nix
+      XMTP_RN_JOURNEYS: full
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Install the Node peer dependencies
+        uses: ./.github/actions/setup-js
+        with:
+          cache-mode: read
+          filter: "@xmtp/node-sdk..."
+      - name: Fetch the cached apps
+        uses: ./.github/actions/react-native-product
+        with:
+          stage: consumers
+          system: ${{ matrix.system }}
+          source-sha: ${{ github.sha }}
+          package-version: ""
+          exchange: "false"
+          substitute-only: "true"
+          artifact-prefix: rn
+          cache-mode: read
+      - name: Run the installed-app tests
+        uses: ./.github/actions/react-native-conformance
+        with:
+          platform: ${{ matrix.platform }}
+          artifact-prefix: react-native-post-merge
+
+  # A job that hits its timeout ends as cancelled while the run goes on, so
+  # a cancelled result alerts too. A cancelled run alerts on nothing.
+  rn-alert:
+    name: Alert on an RN failure
+    needs: [rn-components, rn-package, rn-consumers, rn-smoke]
+    if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Notify Slack
+        uses: ./.github/actions/slack-notify
+        with:
+          message: "Post-merge React Native failed for ${{ github.sha }}: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   build:
     needs: [rn-components, rn-package, rn-consumers]
-    name: Build (${{ matrix.system }})
+    name: Cache dev and release outputs (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - system: x86_64-linux
+            os: Linux
             runner: blacksmith-16vcpu-ubuntu-2404
           # The macOS image of the iOS test and release jobs.
           - system: aarch64-darwin
+            os: macOS
             runner: warp-macos-15-arm64-12x
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -142,17 +257,20 @@ jobs:
     env:
       SYSTEM: ${{ matrix.system }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
       # and a build with another fails, so select it before the build.
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         if: runner.os == 'macOS'
         with:
           xcode-version: "26.3"
       - name: Show the Xcode version
         if: runner.os == 'macOS'
         run: xcodebuild -version
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "trusted"
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -192,23 +310,28 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/setup-js
+      - name: Install JS dependencies (pnpm)
+        uses: ./.github/actions/setup-js
         with:
           cache-mode: trusted
 
   closure:
-    name: Check that the warm sets substitute
+    name: Verify cached dev and release outputs
     # Waits for both build jobs, after their post steps finish the uploads.
     needs: build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
       # An empty-store dry run reads the narinfo of each path from the
@@ -306,16 +429,78 @@ jobs:
           fi
           echo "Every set member and dependency layer substitutes ($fetched paths)."
 
-  # Pages content comes only from trusted trunk pushes. docs builds the site
-  # and native references after every warm member and dependency substitutes.
-  # A failed warm, upload, pin, or closure gate holds back deployment.
-  docs:
-    name: Docs
+  # Pages content comes only from trusted trunk pushes. The native references
+  # and docs build after every warm member and dependency substitutes. A
+  # failed warm, upload, pin, or closure gate holds back deployment.
+  docs-swift:
+    name: Swift reference
     needs: closure
-    if: ${{ !cancelled() && needs.closure.result == 'success' }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: ios
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix),
+      # and sdks/ios/dev/bindings fails in CI with another. The image default is
+      # older.
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: "26.3"
+      - name: Show the Xcode version
+        run: xcodebuild -version
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: dev/nix-shell 'just ios docs apps/docs/generated/reference/swift'
+        run: dev/nix-shell 'just ios docs apps/docs/generated/reference/swift'
+      - name: Archive Swift reference
+        env:
+          COPYFILE_DISABLE: "1"
+        run: tar -cf "${RUNNER_TEMP}/docs-swift.tar" -C apps/docs/generated/reference/swift .
+      - name: Upload docs-swift
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-swift
+          path: ${{ runner.temp }}/docs-swift.tar
+          if-no-files-found: error
+  docs-kotlin:
+    name: Kotlin reference
+    needs: closure
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      NIX_DEVSHELL: android
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: dev/nix-shell 'just android docs-generated'
+        run: dev/nix-shell 'just android docs-generated'
+      - name: Upload docs-kotlin
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-kotlin
+          path: sdks/android/library/build/dokka/html
+          if-no-files-found: error
+  # The docs compose job downloads the docs-swift and docs-kotlin artifacts of
+  # this run, so it waits for both references.
+  docs:
+    name: Docs site
+    needs: [closure, docs-swift, docs-kotlin]
     uses: ./.github/workflows/deploy-docs.yml
     with:
       deploy: true
+      runner: ubuntu-24.04
+      compose-runner: ubuntu-24.04
     # Mode read: the docs jobs need only the Kache reader keys.
     secrets:
       KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}

@@ -68,13 +68,14 @@ message. Screen replacement must not remove the handler.
 
 ### Tests
 
-Prefer installed integration journeys for user features. They should exercise
-the actual graph, controllers, SDK database, and shared screen. Use narrow tests
-for distinct storage, concurrency, and privacy rules. Test observers are fixed
-when the graph is constructed and always preserve the real handler call.
-When a journey replaces a narrow test, retain its unique assertions before
-removing the old test. Check each new assertion with a plausible weaker
-implementation and restore the source after the failure check.
+Rust tests own SDK behavior. App tests check only the app's own wiring.
+Host unit tests cover app rules such as storage, concurrency, privacy, and
+notification admission. They create no client and need no backend. The
+instrumented tests are a small device smoke; `AGENTS.md` lists them. Do not add
+a device test for behavior that a Rust or host unit test can check. Test
+observers are fixed when the graph is constructed and always preserve the real
+handler call. Check each new assertion with a plausible weaker implementation,
+and restore the source after the failure check.
 
 ## Run locally
 
@@ -107,7 +108,7 @@ It does not need a backend or emulator. Android 8.1 (API 27) or newer is require
 Transfer the APK to a device and open it, allowing installation from that source
 when Android asks. Or install it over USB with `adb install -r <apk-path>`.
 
-Every Android dev, RC, stable, and nightly release attaches
+Every Android dev, RC, and stable release attaches
 `xmtp-messenger-<version>.apk` to its `android-<version>` GitHub Release.
 These APKs use the separate `org.xmtp.android.example.testing` app ID and show
 as **XMTP Messenger (Testing)**. They use the public AOSP testing key so local
@@ -344,11 +345,9 @@ unavailable Unregister response. The temporary client then ends, and the app
 opens its normal client with the original worker options. Chat workers remain
 available in that normal session.
 
-The persisted-state fixture uses the local backend's HTTP channel with an empty
-conversation selection and no Welcomes or sync groups. It does not deliver to
-that target or register with FCM. Other local tests use a simulated configured
-transport and registration state with
-real app session, SDK conversation, consent and preference paths. They do not
-prove Firebase delivery. Real background receipt and tap testing still require
-a developer Firebase project and a device. Synthetic public build resources
-can prove configured compilation only.
+`NotificationHandlerTest` is the only notification test. It is a host unit
+test with fake owners and conversations. It checks payload parsing, admission,
+deduplication and registration choices. It starts no client and does not
+register with FCM. No local test proves Firebase delivery. Real background
+receipt and tap testing require a developer Firebase project and a device.
+Synthetic public build resources can prove configured compilation only.

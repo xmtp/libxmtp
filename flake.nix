@@ -134,6 +134,7 @@
             xmtp-sdk-generated-browser = sdk.generatedBrowser;
             xmtp-sdk-wasm-fixture-panic = sdk.panicFixture;
             xmtp-sdk-pure-fixture-codec = sdk.codecFixture;
+            xmtp-legacy-migration-fixture-host = sdk.migrationFixtureHost;
             ubjs-core = pkgs.xmtp.ubrn.core;
             ubjs-react-native = pkgs.xmtp.ubrn.reactNative;
             ubjs-node = pkgs.xmtp.ubrn.node;
