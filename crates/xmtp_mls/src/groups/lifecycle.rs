@@ -143,70 +143,6 @@ where
         operation(mls_group).await
     }
 
-    /// Check if all members in the group support the proposal-by-reference flow.
-    ///
-    /// This checks both:
-    /// 1. Leaf node capabilities in the MLS group (via `check_extension_support`)
-    /// 2. The latest published key packages for all member installations fetched
-    ///    from the network, since leaf nodes may be stale (they aren't updated after
-    ///    the first message is sent).
-    ///
-    /// Returns `true` if all members support proposals, `false` otherwise.
-    pub async fn all_members_support_proposals(
-        &self,
-        mls_group: &OpenMlsGroup,
-    ) -> Result<bool, GroupError> {
-        let (supported, installation_ids) = self.proposal_support_snapshot(mls_group);
-        self.published_members_support_proposals(supported, installation_ids)
-            .await
-    }
-
-    fn proposal_support_snapshot(&self, group: &OpenMlsGroup) -> (bool, Vec<Vec<u8>>) {
-        let supported = group
-            .check_extension_support(&[ExtensionType::AppDataDictionary])
-            .is_ok();
-        let installation_ids = group
-            .members()
-            .map(|member| member.signature_key)
-            .filter(|id| id.as_slice() != self.context.installation_id().as_slice())
-            .collect();
-        (supported, installation_ids)
-    }
-
-    async fn published_members_support_proposals(
-        &self,
-        supported: bool,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<bool, GroupError> {
-        if supported || installation_ids.is_empty() {
-            return Ok(true);
-        }
-
-        let store = crate::mls_store::MlsStore::new(self.context.clone());
-        let key_packages = store
-            .get_key_packages_for_installation_ids(installation_ids)
-            .await?;
-
-        for result in key_packages.values() {
-            match result {
-                Ok(verified_kp) => {
-                    let capabilities = verified_kp.inner.leaf_node().capabilities();
-                    if !capabilities
-                        .extensions()
-                        .contains(&ExtensionType::AppDataDictionary)
-                    {
-                        return Ok(false);
-                    }
-                }
-                Err(_) => {
-                    return Ok(false);
-                }
-            }
-        }
-
-        Ok(true)
-    }
-
     /// Snapshot this group's membership capabilities: the extension types in
     /// the group context, plus the extension types each member installation
     /// advertises.
@@ -221,12 +157,10 @@ where
     /// Every installation's capabilities — the local one included — come from
     /// its *latest published* key package, not its in-group leaf node: a leaf
     /// is frozen when the installation joins and is never updated, so it would
-    /// understate a client that upgraded afterward (the same reason
-    /// [`Self::all_members_support_proposals`] falls back to key packages). An
-    /// installation whose key package has not been published or fails
-    /// verification is reported with `capabilities_known == false` and an empty
-    /// extension list, so callers can distinguish "unknown" from "advertises
-    /// nothing". Transient failures (network, auth, db) surface as an `Err`
+    /// understate a client that upgraded afterward. An installation whose key
+    /// package has not been published or fails verification is reported with
+    /// `capabilities_known == false` and an empty extension list, so callers
+    /// can distinguish "unknown" from "advertises nothing". Transient failures (network, auth, db) surface as an `Err`
     /// rather than masquerading as unknown capabilities.
     pub async fn membership_capabilities(&self) -> Result<GroupMembershipCapabilities, GroupError> {
         // Read the group context's extension types under lock. The member list

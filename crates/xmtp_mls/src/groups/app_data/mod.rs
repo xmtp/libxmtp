@@ -10,11 +10,6 @@
 //! `membership_upkeep` adds the registry reconciliation and removed-member
 //! cleanup that ride along with every commit this client builds.
 
-#[allow(
-    dead_code,
-    reason = "Retained for removal with migration code in Task 5"
-)]
-pub(crate) mod bootstrap_validator;
 pub(crate) mod membership_upkeep;
 pub mod migration;
 pub(crate) mod sender_intents;

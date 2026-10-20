@@ -451,6 +451,27 @@ async fn test_unstick_paused_groups_recovers_after_upgrade() {
     );
 }
 
+/// Extension type 0xf000 reports as `Unknown(0xf000)`. The xmtp OpenMLS fork
+/// names it `ImmutableMetadata`; upstream OpenMLS does not.
+#[xmtp_common::test]
+fn extension_type_ids_map_to_mls_extension_types() {
+    use crate::groups::MlsExtensionType;
+    use openmls::prelude::ExtensionType;
+
+    for (id, expected) in [
+        (0xf000, MlsExtensionType::Unknown(0xf000)),
+        (0x1234, MlsExtensionType::Unknown(0x1234)),
+        (6, MlsExtensionType::AppDataDictionary),
+        (10, MlsExtensionType::LastResort),
+    ] {
+        assert_eq!(
+            MlsExtensionType::from(ExtensionType::from(id)),
+            expected,
+            "{id:#06x}"
+        );
+    }
+}
+
 /// `membership_capabilities` reports raw per-installation extension support
 /// plus the group context's extension types — generic facts the app filters.
 /// This checks that new groups and their installations advertise

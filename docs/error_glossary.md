@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **422 total error codes**.
+**39 error types** across **10 crates** with **420 total error codes**.
 
 ## xmtp_api
 
@@ -481,7 +481,6 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `GroupError::Intent` | Intent error. Failed to process group intent. Not retryable. |
 | `GroupError::CreateMessage` | Create message error. MLS message creation failed. Not retryable. |
 | `GroupError::TlsError` | TLS codec error. MLS TLS encoding/decoding failed. Not retryable. |
-| `GroupError::UpdateGroupMembership` | Update group membership error. Failed to update group membership. May be retryable. |
 | `GroupError::GroupCreate` | Group create error. MLS group creation failed. May be retryable. |
 | `GroupError::SelfUpdate` | Self update error. MLS self-update operation failed. May be retryable. |
 | `GroupError::WelcomeError` | Welcome error. Processing MLS welcome message failed. May be retryable. |
@@ -509,8 +508,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `GroupError::ComponentSource` | Component source error. Failed to encode, decode, or look up a well-known component during the AppDataUpdate path. Not retryable. |
 | `GroupError::MetadataField` | A metadata field read or write is invalid for the group's committed fields: an unknown field, a wrong type, or a write the committed state rejects. Not retryable. |
 | `GroupError::AppDataCommit` | AppData commit error. Failed to build or stage a commit that bundles an inline AppDataUpdate proposal. Wraps the structured `GroupAppDataError` from `stage_app_data_propose_and_commit` so the underlying OpenMLS create/stage failure is preserved instead of being string-flattened. |
-| `GroupError::BootstrapSynthesis` | Bootstrap synthesis failure — sender-side couldn't build the complete set of initial component values for the migration commit. Includes identity-update lookup failures. Conditionally retryable: delegates to the wrapped [`super::app_data::migration::BootstrapSynthesisError`], which retries only when an inner identity-update API error is itself retryable. Decode/registry-shape failures are deterministic and not retryable. |
-| `GroupError::BootstrapCommit` | Bootstrap commit-build failure. Not retryable: every variant of [`super::app_data::migration::BootstrapCommitError`] is a deterministic OpenMLS commit failure, a TLS codec error, or a caller-side precondition violation. |
+| `GroupError::BootstrapSynthesis` | App data value encoding failure: the sender could not encode a component value for the dictionary. Not retryable: encoding is deterministic over its inputs. |
 | `GroupError::CredentialError` | Credential error. MLS credential validation failed. Not retryable. |
 | `GroupError::LeafNodeError` | Leaf node error. MLS leaf node operation failed. Not retryable. |
 | `GroupError::InstallationDiff` | Installation diff error. Installation diff computation failed. May be retryable. |

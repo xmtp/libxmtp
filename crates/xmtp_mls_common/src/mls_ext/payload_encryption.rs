@@ -1,9 +1,9 @@
-use openmls::ciphersuite::hpke::Error as OpenmlsHpkeError;
+use openmls::ciphersuite::HpkeError as OpenmlsHpkeError;
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use openmls_traits::crypto::OpenMlsCrypto;
 use openmls_traits::types::HpkeCiphertext;
 use thiserror::Error;
-use tls_codec::{Deserialize, Serialize};
+use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_common::RetryableError;
 use xmtp_id::key_package::WrapperAlgorithm;
 
@@ -44,6 +44,16 @@ impl RetryableError for UnwrapPayloadError {
     }
 }
 
+/// The HPKE `info` of RFC 9420 `EncryptWithLabel` (section 5.1.3): the TLS
+/// encoding of `EncryptContext { label: "MLS 1.0 " + label, context }`.
+/// Upstream OpenMLS keeps its `EncryptContext` private, so this builds the same bytes.
+fn hpke_info(label: &str, context: &[u8]) -> Result<Vec<u8>, TlsCodecError> {
+    let mut info =
+        VLBytes::from(format!("MLS 1.0 {label}").into_bytes()).tls_serialize_detached()?;
+    info.extend(VLBytes::from(context.to_vec()).tls_serialize_detached()?);
+    Ok(info)
+}
+
 /// Wrap a payload (plus optional secondary payload) in an outer layer of HPKE
 /// encryption using the specified [WrapperAlgorithm]. The algorithm and public
 /// key type MUST match.
@@ -65,8 +75,7 @@ pub fn wrap_payload_hpke(
     // but uses the context to encrypt multiple messages at once using the same context
     // because openmls only supports one shot messages.
 
-    let context = openmls::prelude::hpke::EncryptContext::from((label, [].as_slice()));
-    let info = context.tls_serialize_detached()?;
+    let info = hpke_info(label, &[])?;
     let aad = &[];
 
     let map_hpke_error = |e| match e {
@@ -112,15 +121,14 @@ pub fn unwrap_payload_hpke(
     // but uses the context to decrypt multiple messages at once using the same context
     // because openmls only supports one shot messages.
 
-    let context = openmls::prelude::hpke::EncryptContext::from((label, [].as_slice()));
-    let info = context.tls_serialize_detached()?;
+    let info = hpke_info(label, &[])?;
     let aad = &[];
 
     let config = wrapper_algorithm.to_hpke_config();
 
     let sk_r = hpke_rs::HpkePrivateKey::new(private_key.to_vec());
 
-    let map_hpke_error = |_| openmls::ciphersuite::hpke::Error::DecryptionFailed;
+    let map_hpke_error = |_| OpenmlsHpkeError::DecryptionFailed;
 
     let mut ctxt = config
         .setup_receiver(
@@ -206,6 +214,38 @@ mod tests {
 
         assert_eq!(payload, LEGACY_XWING_PAYLOAD);
         assert_eq!(secondary, LEGACY_XWING_SECONDARY_PAYLOAD);
+    }
+
+    /// The Welcome `info` bytes: `opaque label<V>` ("MLS 1.0 MLS_WELCOME") and
+    /// an empty `opaque context<V>`. A change here breaks every stored Welcome.
+    const WELCOME_HPKE_INFO: &str = "134d4c5320312e30204d4c535f57454c434f4d4500";
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn hpke_info_is_stable_for_welcomes() {
+        assert_eq!(
+            hex::encode(hpke_info(WELCOME_HPKE_LABEL, &[])?),
+            WELCOME_HPKE_INFO
+        );
+    }
+
+    /// Oracle while the xmtp OpenMLS fork is pinned: the fork exports its
+    /// `EncryptContext`. Remove this test when the pin moves to upstream OpenMLS.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn hpke_info_matches_openmls_encrypt_context() {
+        let long_label = "l".repeat(100);
+        let long_context = vec![9u8; 300];
+        let cases: [(&str, &[u8]); 5] = [
+            (WELCOME_HPKE_LABEL, &[]),
+            (TEST_LABEL, &[]),
+            ("", &[]),
+            ("label", &[1, 2, 3]),
+            (&long_label, &long_context),
+        ];
+        for (label, context) in cases {
+            let fork = openmls::prelude::hpke::EncryptContext::from((label, context))
+                .tls_serialize_detached()?;
+            assert_eq!(hpke_info(label, context)?, fork, "label {label:?}");
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]

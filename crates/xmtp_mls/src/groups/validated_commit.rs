@@ -2,7 +2,6 @@
 mod identity_tests;
 use crate::{
     context::XmtpSharedContext,
-    groups::app_data::bootstrap_validator::BootstrapValidationError,
     identity_updates::{
         IdentityDependencyError, IdentityRequirement, InstallationDiff, InstallationDiffError,
         get_installation_diff_local, require_association_state,
@@ -64,12 +63,6 @@ pub enum CommitValidationError {
     InstallationDiff(#[from] InstallationDiffError),
     #[error(transparent)]
     StorageError(#[from] StorageError),
-    /// All bootstrap-commit-validator failures. The bootstrap path runs
-    /// only during the one-time AppData migration; isolating its many
-    /// failure modes in a sub-enum keeps the steady-state validator's
-    /// surface from being dominated by migration-specific noise.
-    #[error(transparent)]
-    Bootstrap(#[from] BootstrapValidationError),
     /// The commit breaks a validation rule.
     #[error(transparent)]
     Rule(#[from] CommitRuleError),
@@ -113,11 +106,6 @@ impl CommitValidationError {
                 | IdentityDependencyError::InvalidSequence(_),
             ) => true,
             Self::Rule(error) => error.is_safe_rejection(),
-            Self::Bootstrap(error) => !matches!(
-                error,
-                BootstrapValidationError::ProtocolVersionTooLow(_)
-                    | BootstrapValidationError::Synthesis(_)
-            ),
             Self::InstalledState(_)
             | Self::IdentityDependency(_)
             | Self::InstallationDiff(_)

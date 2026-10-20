@@ -356,19 +356,6 @@ impl RetryableError<Mls> for openmls::group::NewGroupError<sql_key_store::SqlKey
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::group::UpdateGroupMembershipError<sql_key_store::SqlKeyStoreError>
-{
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::CreateCommitError(create_commit) => retryable!(create_commit),
-            Self::GroupStateError(group_state) => retryable!(group_state),
-            Self::StorageError(storage) => retryable!(storage),
-            Self::CommitBuilderError(commit_builder) => retryable!(commit_builder),
-        }
-    }
-}
-
 impl RetryableError<Mls> for openmls::prelude::MlsGroupStateError {
     fn is_retryable(&self) -> bool {
         false

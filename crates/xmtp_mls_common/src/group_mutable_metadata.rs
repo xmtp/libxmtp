@@ -565,16 +565,26 @@ pub fn merge_dict_into_mutable_metadata_lossy(
     base: &mut GroupMutableMetadata,
     extensions: &Extensions<GroupContext>,
 ) -> Vec<GroupMutableMetadataError> {
-    use super::app_data::component_id::ComponentId;
-
     let Some(ext) = extensions.app_data_dictionary() else {
         return vec![];
     };
     let dict = ext.dictionary();
+    merge_dict_entries_into_mutable_metadata_lossy(base, |id| dict.get(&id))
+}
+
+/// [`merge_dict_into_mutable_metadata_lossy`] for a dictionary read without
+/// OpenMLS types. `entry` returns the stored bytes of a component id.
+// implements: MIG-005
+pub fn merge_dict_entries_into_mutable_metadata_lossy<'a>(
+    base: &mut GroupMutableMetadata,
+    entry: impl Fn(u16) -> Option<&'a [u8]>,
+) -> Vec<GroupMutableMetadataError> {
+    use super::app_data::component_id::ComponentId;
+
     let mut errors = vec![];
     let mut unavailable = vec![];
     for (field, id) in METADATA_FIELD_COMPONENT_MAP {
-        if let Some(bytes) = dict.get(&id.as_u16()) {
+        if let Some(bytes) = entry(id.as_u16()) {
             let value = if *id == ComponentId::COMMIT_LOG_SIGNER && bytes.len() != 32 {
                 Err(GroupMutableMetadataError::MalformedComponent {
                     component_id: Some(*id),
@@ -600,7 +610,7 @@ pub fn merge_dict_into_mutable_metadata_lossy(
         (ComponentId::ADMIN_LIST, &mut base.admin_list),
         (ComponentId::SUPER_ADMIN_LIST, &mut base.super_admin_list),
     ] {
-        if let Some(bytes) = dict.get(&id.as_u16()) {
+        if let Some(bytes) = entry(id.as_u16()) {
             match decode_inbox_id_list(id, bytes) {
                 Ok(value) => *list = value,
                 Err(error) => {
