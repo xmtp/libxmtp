@@ -2,10 +2,12 @@
 //! and reads. Native only: it installs the heap-canary global allocator.
 //! No backend needed.
 //!
-//! In CI the test macro installs no subscriber, so span fields would never be
-//! evaluated. Each scan runs its key store calls under a trace layer
-//! ([`traced`]), so a span field that copies a key frees that copy inside the
-//! scan.
+//! A span or event field that copies a key must free that copy inside the
+//! scan. In CI the test macro installs no subscriber; tracing's `log` feature,
+//! which the workspace enables, still evaluates the fields then, for its log
+//! fallback. Each scan runs its key store calls under a trace layer
+//! ([`traced`]) as well, so the fields are evaluated whatever tracing's
+//! features, and the decode-failure log can be checked.
 // The heap-canary harness is Unix-only (`libc::memmem`).
 #![cfg(unix)]
 
