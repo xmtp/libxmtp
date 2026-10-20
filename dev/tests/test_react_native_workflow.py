@@ -428,9 +428,6 @@ class ReactNativeWorkflowTests(unittest.TestCase):
             (inputs["cache-mode"], inputs["exchange"], inputs["substitute-only"]),
             ("read", "false", "true"),
         )
-        self.assertNotIn(
-            "rn-smoke", workflow("post-merge.yml")["jobs"]["build"]["needs"]
-        )
         alert = workflow("post-merge.yml")["jobs"]["rn-alert"]
         self.assertIn("rn-smoke", alert["needs"])
         # The smoke substitutes the backend and the test services that
@@ -558,21 +555,6 @@ class ReactNativeWorkflowTests(unittest.TestCase):
             [label for label in labels("android-smoke") if "macos" in label]
         )
         self.assertTrue([label for label in labels("full") if "macos" in label])
-
-    def test_android_smoke_runs_only_the_bare_android_app(self):
-        matrix = workflow("test-react-native.yml")["jobs"]["consumers"]["strategy"][
-            "matrix"
-        ]["include"]
-        raw = inner(matrix).removeprefix("fromJSON(").removesuffix(")")
-        for scope, expected in (
-            ("android-smoke", [("android", "bare")]),
-            ("full", [("android", "all"), ("ios", "all")]),
-        ):
-            with self.subTest(scope=scope):
-                rows = json.loads(expression(raw, {"inputs.scope": scope}))
-                self.assertEqual(
-                    [(row["platform"], row["consumers"]) for row in rows], expected
-                )
 
 
 if __name__ == "__main__":

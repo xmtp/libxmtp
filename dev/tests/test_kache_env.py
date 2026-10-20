@@ -323,68 +323,16 @@ class KacheBackendTests(unittest.TestCase):
 
 
 class KacheWorkflowWiringTests(unittest.TestCase):
-    def fields_for_use(self, relative_path, action, section="with"):
-        lines = (ROOT / relative_path).read_text().splitlines()
-        indices = [
-            index
-            for index, line in enumerate(lines)
-            if line.strip().startswith(f"uses: {action}")
-        ]
-        self.assertEqual(len(indices), 1)
-        index = indices[0]
-        level = len(lines[index]) - len(lines[index].lstrip())
-        container = next(
-            before
-            for before in range(index - 1, -1, -1)
-            if lines[before].strip()
-            and len(lines[before]) - len(lines[before].lstrip()) < level
-        )
-        container_level = len(lines[container]) - len(lines[container].lstrip())
-        end = next(
-            (
-                after
-                for after in range(index + 1, len(lines))
-                if lines[after].strip()
-                and len(lines[after]) - len(lines[after].lstrip()) <= container_level
-            ),
-            len(lines),
-        )
-        mappings = [
-            position
-            for position in range(container + 1, end)
-            if lines[position].strip() == f"{section}:"
-            and len(lines[position]) - len(lines[position].lstrip()) == level
-        ]
-        self.assertEqual(len(mappings), 1)
-        start = mappings[0] + 1
-        end = next(
-            (
-                position
-                for position in range(start, end)
-                if lines[position].strip()
-                and len(lines[position]) - len(lines[position].lstrip()) <= level
-            ),
-            end,
-        )
-        children = [
-            line
-            for line in lines[start:end]
-            if len(line) - len(line.lstrip()) == level + 2
-        ]
-        return {
-            key: value.strip().strip('"')
-            for key, value in re.findall(
-                r"^\s+([\w-]+):[ \t]*(.*)$",
-                "\n".join(children),
-                re.MULTILINE,
-            )
-        }
-
     def test_action_keeps_local_jobs_off_github_and_remote_storage(self):
-        fields = self.fields_for_use(
-            ".github/actions/setup-nix/action.yml", "kunobi-ninja/kache-action@"
-        )
-        self.assertEqual(fields["github-cache"].strip("'"), "false")
+        steps = yaml.safe_load(
+            (ROOT / ".github/actions/setup-nix/action.yml").read_text()
+        )["runs"]["steps"]
+        (fields,) = [
+            step["with"]
+            for step in steps
+            if step.get("uses", "").startswith("kunobi-ninja/kache-action@")
+        ]
+        self.assertEqual(str(fields["github-cache"]).lower(), "false")
         self.assertEqual(fields["s3-prefix"], "libxmtp/trusted")
         # Only the policy step decides whether a job writes the trusted
         # compiler cache (CachePolicyTests check that decision).
