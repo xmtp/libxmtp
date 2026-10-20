@@ -134,8 +134,8 @@ A unified Docker image is published as `ghcr.io/xmtp/xdbg:<version>`. It
 packages the `xdbg` binary with a monitoring entrypoint for continuous
 environment health checks. A backend release (`backend=true` in **Actions >
 Release**) builds the image from the release source and publishes it with the
-backend version as its tag. No other run publishes it, and no workflow deploys
-it.
+backend version as its tag, when the source is on `main` or a `release/**`
+branch. No other run publishes it, and no workflow deploys it.
 
 ### Building locally
 

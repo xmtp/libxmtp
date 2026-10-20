@@ -376,14 +376,16 @@ class ReleasePushTest(unittest.TestCase):
                 "Check that the source is on a release branch",
                 ROOT / ".github/workflows/check-release-push.yml",
             )
-            # The npm publish job runs the same check on its own source.
-            self.assertEqual(
-                script(
-                    "Check that the source is on a release branch",
-                    ROOT / ".github/workflows/npm-publish.yml",
-                ).strip(),
-                check.strip(),
-            )
+            # The npm publish and xdbg image jobs run the same check.
+            for publisher in ("npm-publish.yml", "release.yml"):
+                with self.subTest(publisher=publisher):
+                    self.assertEqual(
+                        script(
+                            "Check that the source is on a release branch",
+                            ROOT / ".github/workflows" / publisher,
+                        ).strip(),
+                        check.strip(),
+                    )
             for branch, allowed in (
                 ("main", True),
                 ("self-hosted", False),
@@ -973,14 +975,26 @@ class ReleasePushTest(unittest.TestCase):
 
 
 class XdbgImageTest(unittest.TestCase):
-    def test_dry_runs_build_the_image_without_pushing_and_nothing_deploys(self):
+    def test_only_a_checked_release_source_pushes_the_image(self):
         release = ROOT / ".github/workflows/release.yml"
         job = yaml.safe_load(release.read_text())["jobs"]["release-xdbg"]
         steps = {step["name"]: step for step in job["steps"]}
-        publish = "needs.validate.outputs.dry-run != 'true'"
-        self.assertEqual(steps["Log in to GHCR"]["if"], publish)
+        # A dev release may come from any branch: the image is pushed only
+        # when the source commit is on main or a release/** branch, and never
+        # on a dry run. The check itself is tested with check-release-push.yml.
+        check = steps["Check that the source is on a release branch"]
+        self.assertEqual(check["if"], "needs.validate.outputs.dry-run != 'true'")
+        self.assertIs(check["continue-on-error"], True)
+        checked = "steps.release-source.outcome == 'success'"
+        self.assertEqual(check["id"], "release-source")
+        self.assertEqual(steps["Log in to GHCR"]["if"], checked)
         build = steps["Build and push image"]["with"]
-        self.assertEqual(build["push"], "${{ " + publish + " }}")
+        self.assertEqual(build["push"], "${{ " + checked + " }}")
+        names = [step["name"] for step in job["steps"]]
+        self.assertLess(
+            names.index("Check that the source is on a release branch"),
+            names.index("Log in to GHCR"),
+        )
         # The tag is the backend release version.
         self.assertEqual(
             steps["Extract image labels"]["with"]["tags"],
