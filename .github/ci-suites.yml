@@ -20,7 +20,8 @@
 # more files than the list holds, a suite that pr_filters can select blocks.
 # Merge runs and manual runs run every selected suite as blocking. The suite's workflow file and every local
 # workflow and action it uses count as pr_filters, or as advisory_filters for
-# a suite whose pr_filters select nothing.
+# a suite whose pr_filters select nothing. For a suite with skip_full_runs,
+# only the files that no other suite's workflow uses count.
 #
 # Each filter is one of:
 #   "glob"                A path glob. `**` crosses directories, `*` does not.
@@ -638,8 +639,10 @@ suites:
       - path_group: js_workspace
       - path_group: sdk_core
       - "sdks/browser/**"
-      # The platform proofs build its fixture host (examples/fixture_host.rs).
+      # The platform proofs build its fixture host (examples/fixture_host.rs)
+      # and the OPFS export that the host calls.
       - "crates/xmtp_legacy_migration/**"
+      - "crates/xmtp_db/src/encrypted_store/database/wasm/**"
   # Post-merge builds and deploys the docs after every merge, so the CI merge
   # run does not build them; docs_rust then runs there and writes the
   # rust-reference Kache scope.
@@ -664,8 +667,12 @@ suites:
       - "docs/**"
       - "sdks/agent/src/**"
       - "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}"
-      # The RN reference reads the package exports and the sources.
-      - "sdks/react-native/{src/**,package.json}"
+      # The RN reference: TypeDoc reads the declarations that
+      # .#xmtp-sdk-react-native-js stages. These are the inputs of that
+      # derivation that are not in sdk_core (test_ci_select checks the list
+      # against its source fileset).
+      - "sdks/react-native/{src/**,package.json,tsconfig.json,scripts/stage-package.mjs}"
+      - "nix/{react-native-packages.nix,package/react-native-js-tools.nix}"
       - "!sdks/agent/src/**/*.test.ts"
 
   # --- Mobile ----------------------------------------------------------------

@@ -624,6 +624,41 @@ class ExplainTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(SUITES.explain(self.rules, path), expected)
 
+    def test_explain_lists_the_products_that_selection_builds(self):
+        # A group builds only for a blocking suite; explain must say the same
+        # as dev/ci-select for every path that a group's filters match.
+        selector = SUITES.load_selector()
+        event = {
+            "repository": {"full_name": "r"},
+            "pull_request": {
+                "draft": False,
+                "labels": [],
+                "head": {"repo": {"full_name": "r"}},
+            },
+        }
+        checked = []
+        for path in SUITES.tracked_files(ROOT):
+            rules = self.rules
+            if (
+                rules.shared(path)
+                or not rules.known(path)
+                or not rules.products_for(path)
+            ):
+                continue
+            checked.append(path)
+            verdict = SUITES.explain(rules, path)
+            listed = (
+                verdict.split("; products: ", 1)[1].split(", ")
+                if "; products: " in verdict
+                else []
+            )
+            result = selector.select_suites(
+                [path], "pull_request", event, "success", 1, None, (), True
+            )
+            with self.subTest(path=path):
+                self.assertEqual(listed, result["products"])
+        self.assertIn("nix/ci-sets.nix", checked)
+
 
 class ValidateTests(unittest.TestCase):
     manifest = SUITES.compile_declaration(ROOT)

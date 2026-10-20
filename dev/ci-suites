@@ -628,6 +628,19 @@ def compile_declaration(root: Path = ROOT, declaration=None):
         raise DeclarationError(
             f"Titles must be unique in each phase: {', '.join(repeated)}"
         )
+    # A full run keeps a skip_full_runs suite only when its own paths match.
+    # A local workflow or action that another suite's workflow also uses
+    # (setup-nix, setup-js) is not its own, so it does not select the suite.
+    closures = {name: list(suite["workflow_files"]) for name, suite in suites.items()}
+    for name, suite in suites.items():
+        if suite["skip_full_runs"]:
+            others = {
+                path
+                for other, files in closures.items()
+                if suites[other]["workflow"] != suite["workflow"]
+                for path in files
+            }
+            suite["workflow_files"] = [p for p in closures[name] if p not in others]
     for name, suite in suites.items():
         if suite["covered_by"] and suite["covered_by"] not in suites:
             raise DeclarationError(
@@ -1127,11 +1140,9 @@ def explain(rules, path):
     verdict = "; ".join(parts) or "no suite"
     if rules.neutral(path):
         verdict += " (neutral)"
-    # A group runs only for a suite that waits for it.
+    # A group runs only for a blocking suite that waits for it (dev/ci-select).
     waited = {
-        g
-        for name in blocking + advisory
-        for g in rules.manifest["suites"][name]["products"]
+        g for name in blocking for g in rules.manifest["suites"][name]["products"]
     }
     groups = [g for g in rules.products_for(path) if g in waited]
     if groups:

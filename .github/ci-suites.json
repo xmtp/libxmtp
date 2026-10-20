@@ -1096,6 +1096,7 @@
       "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_db/src/encrypted_store/database/wasm/**",
         "crates/xmtp_legacy_migration/**",
         "crates/xmtp_sdk/**",
         "dev/js/{sdk-*,tsconfig.*.json}",
@@ -1179,9 +1180,10 @@
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
+        "nix/{react-native-packages.nix,package/react-native-js-tools.nix}",
         "sdks/agent/src/**",
         "sdks/js.just",
-        "sdks/react-native/{src/**,package.json}",
+        "sdks/react-native/{src/**,package.json,tsconfig.json,scripts/stage-package.mjs}",
         "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}",
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}",
@@ -1335,7 +1337,6 @@
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
-        ".github/actions/setup-nix/**",
         ".github/workflows/test-example-android.yml"
       ],
       "workflow_tier": "blocking",
@@ -1390,7 +1391,6 @@
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
-        ".github/actions/setup-nix/**",
         ".github/workflows/test-example-android.yml"
       ],
       "workflow_tier": "blocking",
@@ -1441,7 +1441,6 @@
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
-        ".github/actions/setup-nix/**",
         ".github/workflows/test-example-ios.yml"
       ],
       "workflow_tier": "blocking",
@@ -1566,8 +1565,6 @@
       "workflow_files": [
         ".github/actions/react-native-conformance/**",
         ".github/actions/react-native-product/**",
-        ".github/actions/setup-js/**",
-        ".github/actions/setup-nix/**",
         ".github/workflows/test-react-native.yml"
       ],
       "workflow_tier": "advisory",

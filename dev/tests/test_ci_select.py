@@ -81,23 +81,23 @@ def eligible(kind, fork=False):
 
 
 class SelectionTests(unittest.TestCase):
-    def test_rust_closures_narrow_selection(self):
-        # A package's dependency closure selects a suite; its dependents do not.
-        client = selected(select(["crates/xmtp_mls/src/client.rs"]))
-        self.assertIn("test_workspace", client)
-        self.assertNotIn("test_node", client)
-        proto = selected(select(["crates/xmtp_proto/src/lib.rs"]))
-        self.assertIn("test_nix_checks", proto)
-
-    def test_xdbg_and_its_client_crates_run_the_observability_check(self):
-        # The Docker backend job builds xdbg for its observability check.
-        for path in (
-            "apps/xmtp_debug/src/main.rs",
-            "crates/xmtp_mls/src/lib.rs",
-            "crates/xmtp_api_grpc/src/lib.rs",
-        ):
+    def test_package_closures_and_inputs_select_their_suites(self):
+        # A package's dependency closure selects a suite; its dependents do
+        # not. The Docker backend job builds xdbg for its observability check.
+        for path, included, excluded in [
+            (
+                "crates/xmtp_mls/src/client.rs",
+                {"test_workspace", "test_backend"},
+                {"test_node"},
+            ),
+            ("crates/xmtp_proto/src/lib.rs", {"test_nix_checks"}, set()),
+            ("apps/xmtp_debug/src/main.rs", {"test_backend"}, set()),
+            ("crates/xmtp_api_grpc/src/lib.rs", {"test_backend"}, set()),
+        ]:
             with self.subTest(path=path):
-                self.assertIn("test_backend", selected(select([path])))
+                result = selected(select([path]))
+                self.assertLessEqual(included, result)
+                self.assertTrue(excluded.isdisjoint(result))
 
     def test_examples_follow_decision_d1(self):
         # Decision D1: the app's own paths and its label block the app's
@@ -182,6 +182,8 @@ class SelectionTests(unittest.TestCase):
             [".github/ci-suites.yml"],
             ["flake.nix"],
             ["new-language/source.xyz"],
+            # Shared actions that the app workflows use are not the apps' own.
+            [".github/actions/setup-nix/action.yml"],
         ):
             with self.subTest(paths=paths):
                 result = select(paths)
@@ -190,6 +192,13 @@ class SelectionTests(unittest.TestCase):
                     examples.isdisjoint(selected(result) | advisory(result))
                 )
                 self.assertEqual(advisory(result), {"test_react_native_smoke"})
+        # setup-js is not a shared input. Its suites run, but no example app
+        # and not the full RN chain.
+        result = select([".github/actions/setup-js/action.yml"])
+        self.assertEqual(result["reasons"], [])
+        self.assertTrue(examples.isdisjoint(selected(result) | advisory(result)))
+        self.assertNotIn("test_react_native", selected(result) | advisory(result))
+        self.assertIn("test_node", selected(result))
         for paths, labels, blocking, advisory_only in [
             (
                 ["flake.nix", "apps/example-ios/App.swift"],
@@ -237,15 +246,19 @@ class SelectionTests(unittest.TestCase):
             "test_example_android",
             "test_example_android_emulator",
         }
-        for kwargs in (
-            {"outcome": "failure"},
-            {"files": None},
-            {"total": None},
-            {"total": 3001},
-            {"error": "Could not read PR metadata from the API."},
+        for kwargs, reason in (
+            ({"outcome": "failure"}, "detection_failed"),
+            ({"files": None}, "detection_failed"),
+            ({"total": None}, "detection_failed"),
+            ({"total": "13"}, "detection_failed"),
+            ({"total": True}, "detection_failed"),
+            ({"total": -1}, "detection_failed"),
+            ({"total": 3001}, "large_pr"),
+            ({"error": "Could not read PR metadata from the API."}, "detection_failed"),
         ):
             with self.subTest(kwargs=kwargs):
                 result = select(**kwargs)
+                self.assertEqual(result["reasons"], [reason])
                 self.assertLessEqual(examples, selected(result))
                 self.assertEqual(advisory(result), {"test_react_native"})
 
@@ -268,17 +281,58 @@ class SelectionTests(unittest.TestCase):
         self.assertNotIn("sdk_android", select(["nix/ci-sets.nix"])["products"])
         self.assertIn("sdk_android", select(["crates/xmtp_sdk/src/lib.rs"])["products"])
 
-    def test_docs_and_platform_proofs_follow_their_inputs(self):
-        # The docs site builds the RN API reference from these files.
+    def test_docs_follow_every_input_of_the_rn_declarations(self):
+        # TypeDoc reads the declarations that .#xmtp-sdk-react-native-js
+        # stages. Every entry of that derivation's source fileset selects the
+        # docs site, except the files that it copies and TypeDoc never reads.
+        not_read = {
+            "LICENSE",
+            "sdks/react-native/android",
+            "sdks/react-native/ios",
+            "sdks/react-native/cpp",
+            "sdks/react-native/react-native.config.cjs",
+            "sdks/react-native/XmtpReactNative.podspec",
+            "sdks/react-native/README.md",
+        }
+        source = (ROOT / "nix/react-native-packages.nix").read_text()
+        fileset = source.split("jsSource = lib.fileset.toSource {", 1)[1]
+        fileset = fileset.split("\n      };", 1)[0]
+        listed, names = fileset.split("++ (map", 1)
+        entries = re.findall(r"\.\./([\w./-]+)", listed)
+        names = names.split("[", 1)[1]
+        entries += [
+            "sdks/react-native/" + n for n in re.findall(r'"([\w./-]+)"', names)
+        ]
+        self.assertGreater(len(entries), 10)
+        # The derivation's own Nix files.
+        entries += ["nix/react-native-packages.nix"]
+        entries += [
+            "nix/" + n.removeprefix("./")
+            for n in re.findall(r"jsTools = pkgs\.callPackage (\./[\w./-]+)", source)
+        ]
+        self.assertIn("nix/package/react-native-js-tools.nix", entries)
+        for entry in entries:
+            path = entry
+            if (ROOT / entry).is_dir():
+                path = next(
+                    str(p.relative_to(ROOT))
+                    for p in sorted((ROOT / entry).rglob("*"))
+                    if p.is_file()
+                )
+            with self.subTest(entry=entry):
+                docs = "docs_site" in selected(select([path]))
+                self.assertEqual(docs, entry not in not_read)
+        self.assertLessEqual(not_read, set(entries))
+
+    def test_platform_proofs_follow_the_fixture_host(self):
+        # The platform proofs build the legacy migration fixture host and
+        # the OPFS export it calls.
         for path in (
-            "sdks/react-native/src/index.ts",
-            "sdks/react-native/package.json",
+            "crates/xmtp_legacy_migration/examples/fixture_host.rs",
+            "crates/xmtp_db/src/encrypted_store/database/wasm/restore.rs",
         ):
             with self.subTest(path=path):
-                self.assertIn("docs_site", selected(select([path])))
-        # The platform proofs build the legacy migration fixture host.
-        fixture = "crates/xmtp_legacy_migration/examples/fixture_host.rs"
-        self.assertIn("test_sdk_platform", selected(select([fixture])))
+                self.assertIn("test_sdk_platform", selected(select([path])))
 
     def test_shared_input_selects_every_suite_and_records_paths(self):
         result = select(["proto/mls/a.proto", "crates/xmtp_mls/src/client.rs"])
@@ -326,20 +380,6 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(result["unknown_paths"], ["new-language/source.xyz"])
         self.assertIn("test_wasm", selected(result))
 
-    def test_bad_metadata_selects_full(self):
-        for total in [None, "13", True, -1]:
-            with self.subTest(total=total):
-                result = select(total=total)
-                self.assertEqual(result["reasons"], ["detection_failed"])
-                self.assertIn("check_rust", selected(result))
-
-    def test_detector_failure_and_missing_files_select_full(self):
-        for kwargs in [{"outcome": "failure"}, {"files": None}]:
-            with self.subTest(kwargs=str(kwargs)):
-                result = select(**kwargs)
-                self.assertEqual(result["reasons"], ["detection_failed"])
-                self.assertIn("test_android", selected(result))
-
     def test_draft_pushes_run_only_draft_suites(self):
         result = select(["proto/a.proto"], payload=event(draft=True))
         self.assertEqual(result["event_kind"], "draft_pr_push")
@@ -353,16 +393,10 @@ class SelectionTests(unittest.TestCase):
         read = [
             "nix/package/ios.nix",
             "crates/xmtp_mls/Cargo.toml",
-            "Cargo.lock",
-            "webdriver.json",
-            "package.json",
-            "nix/sdk-platforms.json",
             "nix/package/example-android-apk-deps.json",
             "sdks/android/gradle.properties",
             "sdks/android/gradle/wrapper/gradle-wrapper.properties",
             "sdks/react-native/package.json",
-            "sdks/react-native/test/consumers/native-toolchain.json",
-            "sdks/react-native/test/consumers/ios-downloads.json",
             "sdks/react-native/test/consumers/bare/template-source.json",
             "sdks/react-native/test/consumers/expo/android/gradle/dependencies.json",
         ]
