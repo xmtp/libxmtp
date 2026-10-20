@@ -24,8 +24,12 @@ fn ci_test_profile_checks_debug_assertions() {
     if !ci_test_profile() {
         return;
     }
+    // A debug assertion that fails at run time must panic.
+    let fired = std::panic::catch_unwind(|| {
+        debug_assert!(std::hint::black_box(false), "debug assertion probe");
+    });
     assert!(
-        cfg!(debug_assertions),
+        fired.is_err(),
         "the ci-test profile must enable debug assertions"
     );
 }
