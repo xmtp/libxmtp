@@ -58,6 +58,38 @@ fn configuration_rejects_unmeasurable_trials() {
     }
 }
 
+/// Repeated database sizes would duplicate trial identities after expensive corpus seeding.
+#[xmtp_common::test(unwrap_try = true)]
+fn configuration_rejects_duplicate_sizes() {
+    let mut config = config();
+    config.sizes.push(config.sizes[0]);
+    assert!(config.validate().is_err());
+}
+
+/// Repeated topic counts would emit the same read workload and trial more than once.
+#[xmtp_common::test(unwrap_try = true)]
+fn configuration_rejects_duplicate_topic_counts() {
+    let mut config = config();
+    config.topic_counts.push(config.topic_counts[0]);
+    assert!(config.validate().is_err());
+}
+
+/// Repeated writer counts would invalidate otherwise complete write-trial coverage.
+#[xmtp_common::test(unwrap_try = true)]
+fn configuration_rejects_duplicate_writers() {
+    let mut config = config();
+    config.writers.push(config.writers[0]);
+    assert!(config.validate().is_err());
+}
+
+/// Repeated batch sizes must fail before timing or creating disposable databases.
+#[xmtp_common::test(unwrap_try = true)]
+fn configuration_rejects_duplicate_batch_sizes() {
+    let mut config = config();
+    config.batch_sizes.push(config.batch_sizes[0]);
+    assert!(config.validate().is_err());
+}
+
 /// Cursor age is a global sequence position: no cursor, 10%, 90%, and 99% of the corpus.
 #[xmtp_common::test(unwrap_try = true)]
 fn cursor_ages_and_mixed_weights_are_explicit() {

@@ -1,6 +1,7 @@
 //! Manual database benchmarks for schema experiments, using the backend's real
 //! Store reads and admitted-publish path. `baseline` loads explicit JSON settings,
 //! seeds disposable migrated databases, and writes raw JSONL observations.
+//! Workload dimensions must be unique before any database is created.
 //! Corpus construction, workloads, and reporting live in sibling modules.
 
 mod corpus;
@@ -19,7 +20,9 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
+    collections::HashSet,
     fs::OpenOptions,
+    hash::Hash,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
@@ -44,6 +47,13 @@ struct Config {
 
 impl Config {
     fn validate(&self) -> TestResult {
+        if has_duplicates(&self.sizes)
+            || has_duplicates(&self.topic_counts)
+            || has_duplicates(&self.writers)
+            || has_duplicates(&self.batch_sizes)
+        {
+            return Err("benchmark dimensions must not contain duplicate values".into());
+        }
         if self.sizes.is_empty()
             || self
                 .sizes
@@ -86,6 +96,11 @@ impl Config {
         }
         Ok(())
     }
+}
+
+/// Dimension values identify trial groups, so repeated values cannot be measured twice.
+fn has_duplicates<Value: Eq + Hash>(values: &[Value]) -> bool {
+    values.iter().collect::<HashSet<_>>().len() != values.len()
 }
 
 fn record(output: &mut impl Write, value: serde_json::Value) -> TestResult {

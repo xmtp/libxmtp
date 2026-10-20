@@ -21,7 +21,8 @@ dev/nix-shell 'just backend bench apps/backend/benchmarks/baseline.json'
 dev/nix-shell 'python3 apps/backend/benchmarks/report.py backend-baseline.jsonl > baseline.csv'
 ```
 
-The JSON config is explicit and rejects unknown/missing fields. Copy it to
+The JSON config is explicit and rejects unknown/missing fields and duplicate
+values in every workload dimension. Copy it to
 change an experiment; use the **identical config except output path** for the
 partitioned rerun. Outputs use exclusive creation: choose a new path rather
 than overwriting a baseline. A complete run ends with a `complete` event;
@@ -141,8 +142,13 @@ and storage/seed timings. Envelope sizes sum the whole inheritance tree; per-tab
 and whole-database sizes also expose auxiliary tables in future schema variants.
 Freshly checkpointed copies can incur full-page WAL images on first modification;
 the recorded WAL deltas are not a steady-state WAL forecast.
-CSV reports medians of trial statistics and throughput
-min/max, not pooled percentiles or confidence intervals. Keep these caveats with
+The reporter checks the complete configured read/write matrix, subtracting only
+explicitly skipped reads with reasons, and rejects duplicate or missing trials.
+Unknown workloads and nonnumeric/nonfinite cells are rejected before any CSV is
+written, including when processing an externally supplied run. A completion
+marker alone does not establish coverage. CSV reports medians of trial
+statistics and throughput min/max, not pooled percentiles or confidence
+intervals. Keep these caveats with
 any quoted number. Re-run on deployment-class hardware and a larger-than-RAM
 corpus before extrapolating capacity.
 

@@ -11,8 +11,9 @@ and the release-mode `just backend bench` recipe. The timed paths are the real
 Store reads and admitted-publish storage operations, not RPC or cryptographic
 validation. See [methodology and correctness checks](README.md).
 Measured code revision: `2f134b52d9043374026c3c5043a26877985f7b70`;
-Subsequent commits publish results, normalize CSV line endings, and refine the
-proposal; the timed benchmark code is unchanged.
+Subsequent commits publish results, harden untimed configuration/report
+validation, normalize CSV line endings, and refine the proposal; the timed
+workload implementations are unchanged.
 
 - Host: eight available CPUs, Intel Xeon Platinum 8175M at 2.50 GHz,
   approximately 30.65 GiB RAM, Linux x86_64, local EBS-backed storage.
@@ -45,6 +46,8 @@ as skipped. Every feasible timed workload has three trials.
 - Compressed artifact SHA-256:
   `87e0e44cef7436c7fb2d661ec7d5ca0b36255491635db07426e8816ec586fdf1`.
 
+The artifact passes complete configured workload-matrix validation, including
+explicit skips, and regenerates the committed CSV byte-for-byte.
 Decompress the artifact and run `report.py` as documented in the
 [reproduction instructions](README.md) to regenerate the CSV. Incomplete
 diagnostic runs are excluded from both artifacts.
