@@ -294,11 +294,17 @@ impl GroupMutableMetadata {
     /// Returns None if the field is not present or if hex decoding fails.
     ///
     /// The hex decodes straight into the zeroizing buffer that the `Secret`
-    /// takes over.
+    /// takes over. A `0x` or `0X` prefix is accepted, as `hex::decode` does.
     pub fn commit_log_signer(&self) -> Option<Secret> {
         let hex_str = self
             .attributes
             .get(MetadataField::CommitLogSigner.as_str())?;
+        // `decode_to_slice` strips the prefix itself, so size the buffer
+        // without it.
+        let hex_str = hex_str
+            .strip_prefix("0x")
+            .or_else(|| hex_str.strip_prefix("0X"))
+            .unwrap_or(hex_str);
         let mut key = Zeroizing::new(vec![0; hex_str.len() / 2]);
         hex::decode_to_slice(hex_str, key.as_mut_slice()).ok()?;
         Some(Secret::new(std::mem::take(&mut *key)))
@@ -729,6 +735,20 @@ mod tests {
 
         let retrieved_secret = metadata.commit_log_signer().unwrap();
         assert_eq!(retrieved_secret.as_slice(), &test_secret_bytes);
+
+        // Test with a prefixed signer, which `hex::decode` accepts
+        for prefix in ["0x", "0X"] {
+            let mut prefixed = HashMap::new();
+            prefixed.insert(
+                MetadataField::CommitLogSigner.to_string(),
+                format!("{prefix}{test_secret_hex}"),
+            );
+            let prefixed = GroupMutableMetadata::new(prefixed, vec![], vec![]);
+            assert_eq!(
+                prefixed.commit_log_signer().unwrap().as_slice(),
+                &test_secret_bytes
+            );
+        }
 
         // Test with missing signer
         let empty_metadata = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
