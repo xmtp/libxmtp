@@ -21,8 +21,15 @@ use std::task::{Context, Poll};
 /// |-------------------------------------|------------------------------|---------|
 /// | `XMTP_GRPC_KEEPALIVE_INTERVAL_SECS` | `http2_keep_alive_interval`  | 16      |
 /// | `XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS`  | `keep_alive_timeout`         | 10      |
-/// | `XMTP_GRPC_TCP_KEEPALIVE_SECS`      | `tcp_keepalive` (0 disables) | 16      |
+/// | `XMTP_GRPC_TCP_KEEPALIVE_SECS`      | `tcp_keepalive` (0 disables) | 60      |
 /// | `XMTP_GRPC_KEEPALIVE_WHILE_IDLE`    | `keep_alive_while_idle`      | true    |
+///
+/// The HTTP/2 PING detects a dead connection. TCP keep-alive is only a backstop for a
+/// connection that carries no PINGs. Its idle time is well above one PING cycle
+/// (interval + timeout), so on a healthy connection the OS never sends a probe and the
+/// two mechanisms do not race. The probe interval is always set: without it, Windows
+/// receives `keepaliveinterval = 0` through `SIO_KEEPALIVE_VALS` (socket2 writes 0 for
+/// `None`).
 ///
 /// Read once per process (servers set these before start), so it is not part of the TLS
 /// endpoint cache key.
@@ -37,7 +44,9 @@ struct KeepaliveConfig {
 impl KeepaliveConfig {
     const DEFAULT_INTERVAL: Duration = Duration::from_secs(16);
     const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
-    const DEFAULT_TCP_KEEPALIVE: Duration = Duration::from_secs(16);
+    const DEFAULT_TCP_KEEPALIVE: Duration = Duration::from_secs(60);
+    /// Time between unanswered TCP keep-alive probes. Not configurable.
+    const TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 
     fn from_env() -> Self {
         Self::from_lookup(|key| std::env::var(key).ok())
@@ -117,7 +126,14 @@ impl Service<Request<Body>> for NativeGrpcService {
 }
 
 pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint {
-    let keepalive = *KEEPALIVE;
+    apply_channel_options_with(endpoint, limit, *KEEPALIVE)
+}
+
+fn apply_channel_options_with(
+    endpoint: Endpoint,
+    limit: u64,
+    keepalive: KeepaliveConfig,
+) -> Endpoint {
     endpoint
         // Purpose: This setting controls the size of the initial connection-level flow control window for HTTP/2, which is the underlying protocol for gRPC.
         // Functionality: Flow control in HTTP/2 manages how much data can be in flight on the network. Setting the initial connection window size to (1 << 31) - 1 (the maximum possible value for a 32-bit integer, which is 2,147,483,647 bytes) essentially allows the client to receive a very large amount of data from the server before needing to acknowledge receipt and permit more data to be sent. This can be particularly useful in high-latency networks or when transferring large amounts of data.
@@ -131,10 +147,18 @@ pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint 
         // Functionality: If a connection cannot be established within the specified duration, the attempt is aborted and an error is returned.
         // Impact: This setting prevents the client from waiting indefinitely for a connection to be established, which is crucial in scenarios where rapid failure detection is necessary to maintain responsiveness or to quickly fallback to alternative services or retry logic.
         .connect_timeout(Duration::from_secs(10))
-        // Purpose: Configures the TCP keep-alive interval for the socket connection.
-        // Functionality: This setting tells the operating system to send TCP keep-alive probes periodically when no data has been transferred over the connection within the specified interval.
-        // Impact: Similar to the gRPC-level keep-alive, this helps keep the connection alive at the TCP layer and detect broken connections. It's particularly useful for detecting half-open connections and ensuring that resources are not wasted on unresponsive peers.
+        // Purpose: Configures TCP keep-alive for the socket connection.
+        // Functionality: `tcp_keepalive` is the idle time before the operating system sends the first probe;
+        // `tcp_keepalive_interval` is the time between unanswered probes. The OS ends the connection after
+        // its probe count runs out (9 on Linux, 8 on macOS, 10 on Windows).
+        // Impact: A backstop for connections that carry no HTTP/2 PINGs. See `KeepaliveConfig`.
         .tcp_keepalive(keepalive.tcp_keepalive)
+        // Only with an idle time: hyper-util turns keep-alive on for an interval alone.
+        .tcp_keepalive_interval(
+            keepalive
+                .tcp_keepalive
+                .map(|_| KeepaliveConfig::TCP_KEEPALIVE_INTERVAL),
+        )
         // Purpose: Sets a maximum duration for the client to wait for a response to a request.
         // Functionality: If a response is not received within the specified timeout, the request is canceled and an error is returned.
         // Impact: This is critical for bounding the wait time for operations, which can enhance the predictability and reliability of client interactions by avoiding indefinitely hanging requests.
@@ -206,8 +230,34 @@ mod keepalive_tests {
         let cfg = KeepaliveConfig::from_lookup(|_| None);
         assert_eq!(cfg.interval, Duration::from_secs(16));
         assert_eq!(cfg.timeout, Duration::from_secs(10));
-        assert_eq!(cfg.tcp_keepalive, Some(Duration::from_secs(16)));
+        assert_eq!(cfg.tcp_keepalive, Some(Duration::from_secs(60)));
         assert!(cfg.while_idle);
+    }
+
+    #[test]
+    fn default_tcp_keepalive_idle_exceeds_one_ping_cycle() {
+        // On a healthy connection a PING and its PONG cross the wire every cycle, so the
+        // OS never sees the socket idle long enough to send a TCP probe.
+        let cfg = KeepaliveConfig::from_lookup(|_| None);
+        let ping_cycle = cfg.interval + cfg.timeout;
+        let idle = cfg.tcp_keepalive.expect("TCP keep-alive is on by default");
+        assert!(
+            idle >= ping_cycle * 2,
+            "TCP keep-alive idle {idle:?} must be well above the PING cycle {ping_cycle:?}"
+        );
+    }
+
+    #[test]
+    fn endpoint_gets_tcp_keepalive_idle_and_interval() {
+        let cfg = KeepaliveConfig::from_lookup(|_| None);
+        let endpoint =
+            apply_channel_options_with(Endpoint::from_static("http://127.0.0.1:5556"), 5000, cfg);
+        assert_eq!(endpoint.get_tcp_keepalive(), Some(Duration::from_secs(60)));
+        // Without an explicit interval, Windows gets keepaliveinterval = 0.
+        assert_eq!(
+            endpoint.get_tcp_keepalive_interval(),
+            Some(Duration::from_secs(10))
+        );
     }
 
     #[test]
@@ -228,6 +278,17 @@ mod keepalive_tests {
     fn zero_tcp_keepalive_disables_it() {
         let cfg = KeepaliveConfig::from_lookup(lookup(&[("XMTP_GRPC_TCP_KEEPALIVE_SECS", "0")]));
         assert_eq!(cfg.tcp_keepalive, None);
+    }
+
+    #[test]
+    fn disabled_tcp_keepalive_sets_no_endpoint_interval() {
+        // hyper-util turns keep-alive on when only an interval is set, so a disabled
+        // keep-alive must reach the endpoint with neither value.
+        let cfg = KeepaliveConfig::from_lookup(lookup(&[("XMTP_GRPC_TCP_KEEPALIVE_SECS", "0")]));
+        let endpoint =
+            apply_channel_options_with(Endpoint::from_static("http://127.0.0.1:5556"), 5000, cfg);
+        assert_eq!(endpoint.get_tcp_keepalive(), None);
+        assert_eq!(endpoint.get_tcp_keepalive_interval(), None);
     }
 
     #[test]

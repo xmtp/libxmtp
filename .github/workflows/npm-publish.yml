@@ -101,7 +101,11 @@ jobs:
         run: |
           if [[ "${{ inputs.version }}" == *"nightly"* ]]; then
             echo "tag=nightly" >> $GITHUB_OUTPUT
-          elif [[ "${{ inputs.version }}" == *"dev"* || "${{ inputs.version }}" == *"rc"* ]]; then
+          elif [[ "${{ inputs.version }}" == *"dev"* ]]; then
+            # Keep dev builds of a maintenance branch off `prerelease`, which tracks
+            # the current release line's RCs.
+            echo "tag=dev" >> $GITHUB_OUTPUT
+          elif [[ "${{ inputs.version }}" == *"rc"* ]]; then
             echo "tag=prerelease" >> $GITHUB_OUTPUT
           else
             echo "tag=latest" >> $GITHUB_OUTPUT

@@ -2463,14 +2463,26 @@ async fn test_max_limit_add() {
             None,
         )
         .unwrap();
+    // Fill the group to the limit: the creator plus MAX_GROUP_SIZE - 1 members.
     let mut clients = Vec::new();
-    for _ in 0..249 {
+    for _ in 0..xmtp_configuration::MAX_GROUP_SIZE - 1 {
         tester!(alix);
         clients.push(alix.identifier());
     }
     amal_group.add_members_by_identity(&clients).await.unwrap();
+    assert_eq!(
+        amal_group.members().await.unwrap().len(),
+        xmtp_configuration::MAX_GROUP_SIZE
+    );
+    // The limit is checked when adding by identity.
     tester!(bola);
-    assert!(amal_group.add_members(&[bola.inbox_id()]).await.is_err(),);
+    let result = amal_group
+        .add_members_by_identity(&[bola.identifier()])
+        .await;
+    assert!(
+        matches!(result, Err(GroupError::UserLimitExceeded)),
+        "expected UserLimitExceeded, got {result:?}"
+    );
 }
 
 #[xmtp_common::test]
