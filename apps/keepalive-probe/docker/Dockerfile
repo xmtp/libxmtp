@@ -4,6 +4,11 @@
 FROM rust:1-bookworm AS builder
 WORKDIR /src
 
+# xmtp_proto's build script runs protoc.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends protobuf-compiler \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
 ARG FORCE_REBUILD=0
