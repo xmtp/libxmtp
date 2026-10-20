@@ -7,6 +7,9 @@
 //! [`scan_async`]. While a scan is armed, every freed block that is at least
 //! as long as the shortest armed form is searched for each form of each
 //! canary. A block that holds any form counts as one hit for that canary.
+//! The forms are the raw bytes, their lowercase hex, and the items of a CBOR
+//! array of `u8`: the client database stores values as CBOR, and serde
+//! writes a byte vector field as such an array.
 //!
 //! - Build the secret and its canary before arming. A copy freed before the
 //!   scan is not seen, and the canary itself lives on the stack.
@@ -50,8 +53,8 @@ pub const MIN_SECRET_LEN: usize = 16;
 /// Longest secret a canary accepts.
 pub const MAX_SECRET_LEN: usize = 64;
 
-/// Raw bytes, lowercase hex, byte-reversed raw bytes.
-const MAX_FORMS: usize = 3;
+/// Raw bytes, lowercase hex, CBOR array items, byte-reversed raw bytes.
+const MAX_FORMS: usize = 4;
 const MAX_FORM_LEN: usize = MAX_SECRET_LEN * 2;
 
 /// One searchable byte form of a secret, stored inline.
@@ -85,6 +88,23 @@ impl Form {
         form
     }
 
+    /// The bytes as the items of a CBOR array of `u8`, the way serde writes
+    /// a `Vec<u8>` in CBOR: a byte below 24 is itself, any other byte is
+    /// `0x18` and then the byte.
+    fn cbor_items(secret: &[u8]) -> Self {
+        const ONE_BYTE_ARGUMENT: u8 = 0x18;
+        let mut form = Self::EMPTY;
+        for &byte in secret {
+            if byte >= ONE_BYTE_ARGUMENT {
+                form.bytes[form.len] = ONE_BYTE_ARGUMENT;
+                form.len += 1;
+            }
+            form.bytes[form.len] = byte;
+            form.len += 1;
+        }
+        form
+    }
+
     fn reversed(secret: &[u8]) -> Self {
         let mut form = Self::raw(secret);
         form.bytes[..secret.len()].reverse();
@@ -107,7 +127,8 @@ pub struct Canary {
 }
 
 impl Canary {
-    /// Look for the raw bytes and their lowercase hex.
+    /// Look for the raw bytes, their lowercase hex, and their CBOR array
+    /// items.
     ///
     /// # Panics
     ///
@@ -122,16 +143,17 @@ impl Canary {
         let mut forms = [Form::EMPTY; MAX_FORMS];
         forms[0] = Form::raw(secret);
         forms[1] = Form::lower_hex(secret);
-        Self { forms, count: 2 }
+        forms[2] = Form::cbor_items(secret);
+        Self { forms, count: 3 }
     }
 
-    /// Look for a secp256k1 key as raw bytes, lowercase hex, and byte-reversed
-    /// raw bytes. k256 stores its scalar as little-endian limbs, so the key it
-    /// holds in memory is the big-endian key reversed.
+    /// Look for a secp256k1 key in the forms of [`Self::new`] and as
+    /// byte-reversed raw bytes. k256 stores its scalar as little-endian limbs,
+    /// so the key it holds in memory is the big-endian key reversed.
     pub fn secp256k1(key: &[u8; 32]) -> Self {
         let mut canary = Self::new(key);
-        canary.forms[2] = Form::reversed(key);
-        canary.count = 3;
+        canary.forms[3] = Form::reversed(key);
+        canary.count = 4;
         canary
     }
 

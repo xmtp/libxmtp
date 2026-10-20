@@ -40,6 +40,16 @@ fn dropped_hex_string_is_a_hit() {
     assert_eq!(hits, [1]);
 }
 
+/// The client database stores a key as a CBOR array of `u8`. A freed encoded
+/// value is a hit, though a CBOR array splits the raw bytes.
+#[test]
+fn dropped_cbor_encoding_is_a_hit() {
+    let encoded = black_box(cbor4ii::serde::to_vec(Vec::new(), &KEY.to_vec()).unwrap());
+    assert!(!encoded.windows(KEY.len()).any(|window| window == KEY));
+    let ((), hits) = scan(&[Canary::new(&KEY)], || drop(black_box(encoded)));
+    assert_eq!(hits, [1]);
+}
+
 #[test]
 fn finds_42_and_16_byte_secrets() {
     let long: [u8; 42] = std::array::from_fn(|i| 0x80 ^ (i as u8).wrapping_mul(37));
