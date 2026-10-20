@@ -30,7 +30,11 @@ const DESERIALIZE_CAPACITY: usize = 64;
 
 /// Owned secret bytes. Wiped on drop; `Debug` shows only the length.
 ///
-/// Serializes and deserializes exactly as `Vec<u8>`. Equality is constant time.
+/// Serializes as a byte string (`serialize_bytes`, CBOR major type 2), and
+/// deserializes one into a wiping buffer with a single copy. A type whose
+/// serde shape stores its secret as a sequence of `u8`, as OpenMLS's
+/// `SignatureKeyPair` does, reads it with [`deserialize_seq`]. Equality is
+/// constant time.
 #[derive(Clone)]
 pub struct Secret(Zeroizing<Vec<u8>>);
 
@@ -80,32 +84,55 @@ impl openmls_traits::storage::Entity<{ openmls_traits::storage::CURRENT_VERSION 
 
 impl serde::Serialize for Secret {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // `Vec<u8>` serializes as a sequence of `u8`, not as `serialize_bytes`.
-        serializer.collect_seq(self.as_slice())
+        serializer.serialize_bytes(self.as_slice())
     }
 }
 
 impl<'de> serde::Deserialize<'de> for Secret {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct SecretVisitor;
+        deserializer.deserialize_bytes(SecretVisitor)
+    }
+}
 
-        impl<'de> Visitor<'de> for SecretVisitor {
-            type Value = Secret;
+/// Read a [`Secret`] stored as a sequence of `u8`, the serde shape of a
+/// `Vec<u8>`, into a wiping buffer. For a type whose shape another crate
+/// owns, such as OpenMLS's `SignatureKeyPair`.
+pub fn deserialize_seq<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Secret, D::Error> {
+    deserializer.deserialize_seq(SecretVisitor)
+}
 
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("a sequence of bytes")
-            }
+/// Reads secret bytes into a wiping buffer. Borrowed bytes are copied once
+/// into a buffer of their exact size; an owned buffer moves in without a
+/// copy; a sequence (from a format that has no byte strings, or from
+/// [`deserialize_seq`]) is pushed into a buffer that grows only through
+/// wiped copies. A decode that fails partway frees nothing unwiped.
+struct SecretVisitor;
 
-            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Secret, A::Error> {
-                let mut bytes = Zeroizing::new(Vec::with_capacity(DESERIALIZE_CAPACITY));
-                while let Some(byte) = seq.next_element::<u8>()? {
-                    push_zeroizing(&mut bytes, byte);
-                }
-                Ok(Secret(bytes))
-            }
+impl<'de> Visitor<'de> for SecretVisitor {
+    type Value = Secret;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("secret bytes")
+    }
+
+    fn visit_bytes<E: serde::de::Error>(self, bytes: &[u8]) -> Result<Secret, E> {
+        let mut secret = Zeroizing::new(Vec::with_capacity(bytes.len()));
+        secret.extend_from_slice(bytes);
+        Ok(Secret(secret))
+    }
+
+    fn visit_byte_buf<E: serde::de::Error>(self, bytes: Vec<u8>) -> Result<Secret, E> {
+        Ok(Secret(Zeroizing::new(bytes)))
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Secret, A::Error> {
+        let mut bytes = Zeroizing::new(Vec::with_capacity(DESERIALIZE_CAPACITY));
+        while let Some(byte) = seq.next_element::<u8>()? {
+            push_zeroizing(&mut bytes, byte);
         }
-
-        deserializer.deserialize_seq(SecretVisitor)
+        Ok(Secret(bytes))
     }
 }
 
@@ -143,20 +170,31 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn serde_matches_vec() {
-        for len in [0, 1, 32, 64, 65, 200] {
+    fn serde_is_a_byte_string() {
+        for len in [0, 1, 23, 24, 32, 64, 65, 200] {
             let bytes: Vec<u8> = (0..len).map(|i| i as u8).collect();
             let secret = Secret::new(bytes.clone());
 
-            // CBOR, the client database's codec.
+            // CBOR, the client database's codec: a byte string, so the raw
+            // bytes follow the header.
             let cbor_secret = cbor4ii::serde::to_vec(Vec::new(), &secret).unwrap();
-            assert_eq!(
-                cbor_secret,
-                cbor4ii::serde::to_vec(Vec::new(), &bytes).unwrap()
-            );
+            let header = match u8::try_from(len).unwrap() {
+                short @ 0..=23 => vec![0x40 | short],
+                long => vec![0x58, long],
+            };
+            assert_eq!(cbor_secret, [header.as_slice(), &bytes].concat());
             let decoded: Secret = cbor4ii::serde::from_slice(&cbor_secret).unwrap();
             assert_eq!(decoded.as_slice(), bytes.as_slice());
 
+            // A secret in a type whose shape is a `Vec<u8>` reads with
+            // `deserialize_seq`.
+            let cbor_vec = cbor4ii::serde::to_vec(Vec::new(), &bytes).unwrap();
+            let mut reader = cbor4ii::core::utils::SliceReader::new(&cbor_vec);
+            let decoded =
+                deserialize_seq(&mut cbor4ii::serde::Deserializer::new(&mut reader)).unwrap();
+            assert_eq!(decoded.as_slice(), bytes.as_slice());
+
+            // JSON has no byte strings: an array of numbers, like a `Vec<u8>`.
             let json_secret = serde_json::to_vec(&secret).unwrap();
             assert_eq!(json_secret, serde_json::to_vec(&bytes).unwrap());
             let decoded: Secret = serde_json::from_slice(&json_secret).unwrap();
@@ -166,23 +204,21 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn serde_rejects_what_vec_rejects() {
-        // A string, a byte out of range, or another type is not a `Vec<u8>`.
-        for json in [
-            "\"0x01\"", "\"AQI=\"", "[256]", "[-1]", "[1,", "{}", "null", "7",
-        ] {
-            assert!(serde_json::from_str::<Vec<u8>>(json).is_err(), "{json}");
+    fn serde_rejects_what_is_not_secret_bytes() {
+        for json in ["[256]", "[-1]", "[1,", "{}", "null", "7"] {
             assert!(serde_json::from_str::<Secret>(json).is_err(), "{json}");
         }
-        // CBOR: an array length longer than the input, and a byte string,
-        // which is not a sequence of `u8`.
-        let mut truncated = cbor4ii::serde::to_vec(Vec::new(), &KEY.to_vec()).unwrap();
+        // CBOR: a byte string longer than the input, the `Vec<u8>` form (an
+        // array of integers), and a text string.
+        let mut truncated = cbor4ii::serde::to_vec(Vec::new(), &Secret::new(KEY.to_vec())).unwrap();
         truncated.truncate(truncated.len() - 1);
-        assert!(cbor4ii::serde::from_slice::<Vec<u8>>(&truncated).is_err());
-        assert!(cbor4ii::serde::from_slice::<Secret>(&truncated).is_err());
-        let byte_string = [0x42, 0x01, 0x02];
-        assert!(cbor4ii::serde::from_slice::<Vec<u8>>(&byte_string).is_err());
-        assert!(cbor4ii::serde::from_slice::<Secret>(&byte_string).is_err());
+        let integers = cbor4ii::serde::to_vec(Vec::new(), &KEY.to_vec()).unwrap();
+        for cbor in [&truncated[..], &integers, &[0x62, b'a', b'b']] {
+            assert!(
+                cbor4ii::serde::from_slice::<Secret>(cbor).is_err(),
+                "{cbor:02x?}"
+            );
+        }
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

@@ -8,8 +8,12 @@
 //! as long as the shortest armed form is searched for each form of each
 //! canary. A block that holds any form counts as one hit for that canary.
 //! The forms are the raw bytes, their lowercase hex, and the items of a CBOR
-//! array of `u8`: the client database stores values as CBOR, and serde
-//! writes a byte vector field as such an array.
+//! array of `u8`. The client database stores values as CBOR. A secret that
+//! libxmtp stores (a `Secret`, a plain value under an XMTP label) is a CBOR
+//! byte string, which holds the raw bytes after its header, so the raw form
+//! finds it. Serde writes a `Vec<u8>` field of an OpenMLS type, such as
+//! `SignatureKeyPair.private`, as an array of `u8`, which splits the raw
+//! bytes; the CBOR array form finds that.
 //!
 //! - Build the secret and its canary before arming. A copy freed before the
 //!   scan is not seen, and the canary itself lives on the stack.
@@ -89,8 +93,8 @@ impl Form {
     }
 
     /// The bytes as the items of a CBOR array of `u8`, the way serde writes
-    /// a `Vec<u8>` in CBOR: a byte below 24 is itself, any other byte is
-    /// `0x18` and then the byte.
+    /// a `Vec<u8>` field of an OpenMLS type in CBOR: a byte below 24 is
+    /// itself, any other byte is `0x18` and then the byte.
     fn cbor_items(secret: &[u8]) -> Self {
         const ONE_BYTE_ARGUMENT: u8 = 0x18;
         let mut form = Self::EMPTY;

@@ -2,7 +2,7 @@ use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::TransactionalKeyStore;
 use crate::sql_key_store::{
-    KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError, codec::encode_value,
+    KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError, codec::encode_bytes,
 };
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
@@ -116,15 +116,15 @@ pub trait XmtpMlsStorageProvider:
     /// Store the post-quantum wrapper private key of the key package whose
     /// hash reference, in the key layout (`codec::encode_key`), is `hash_ref`.
     ///
-    /// The value is the key encoded as `Vec<u8>` (`codec::encode_value`), in a
-    /// buffer that is wiped on drop. With [`Self::wrapper_private_key`], this is the only code
+    /// The value is the key as one CBOR byte string (`codec::encode_bytes`),
+    /// in a buffer that is wiped on drop. With [`Self::wrapper_private_key`], this is the only code
     /// that reads or writes values under [`KEY_PACKAGE_WRAPPER_PRIVATE_KEY`].
     fn write_wrapper_private_key(
         &self,
         hash_ref: &[u8],
         key: &[u8],
     ) -> Result<(), SqlKeyStoreError> {
-        let value = encode_value(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, key)?;
+        let value = encode_bytes(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, key)?;
         self.write(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref, &value)
     }
 

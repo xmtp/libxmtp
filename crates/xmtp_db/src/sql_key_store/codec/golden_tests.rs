@@ -10,13 +10,15 @@
 //! - every label the store writes has a row in it (read from the store's
 //!   source);
 //! - it holds the shapes XMTP stores, by exact key path, and an epoch and a
-//!   generation above 255;
+//!   generation above 255. A shape is a key path, a unit variant's name, or
+//!   the CBOR type of the item at a path, so a byte string that turns into an
+//!   array of integers changes it;
 //! - its rows and columns with a public type decode and encode back to the
 //!   same CBOR (map and hash map order aside), so a renamed or dropped field,
 //!   optional ones included, fails;
-//! - the rows this build writes now, from the same steps, have its field and
-//!   variant names, so a dependency bump that renames, adds or removes a
-//!   stored field fails CI;
+//! - the rows this build writes now, from the same steps, have its shapes,
+//!   so a dependency bump that renames, adds, removes or retypes a stored
+//!   field fails CI;
 //! - its rows that declare a length past their end are errors, not panics.
 //!
 //! For every frozen file, the tests check that:
@@ -83,9 +85,14 @@ use xmtp_configuration::{
 };
 use xmtp_cryptography::{XmtpInstallationCredential, configuration::CIPHERSUITE};
 
-use super::{decode_list, decode_value, encode_value, key, value_from_slice, value_to_vec};
+use xmtp_cryptography::Secret;
+
+use super::{
+    decode_list, encode_bytes, encode_key, encode_value, key, value_from_slice, value_to_vec,
+};
 use crate::{
-    ConnectionExt, TestDb, XmtpOpenMlsProvider, XmtpTestDb, db_deserialize, db_serialize,
+    ConnectionExt, TestDb, XmtpMlsStorageProvider, XmtpOpenMlsProvider, XmtpTestDb, db_deserialize,
+    db_serialize,
     sql_key_store::{
         COMMIT_LOG_SIGNER_PRIVATE_KEY, KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
         SqlKeyStore,
@@ -103,7 +110,7 @@ struct GoldenFile {
 const GOLDEN_FILES: &[GoldenFile] = &[GoldenFile {
     name: "golden_rows_rc4.json",
     text: include_str!("golden_rows_rc4.json"),
-    sha256: "c816f7a0626083f8141400a810b3c6e376a71e3a5eb07b36153bc314477063a9",
+    sha256: "d07f6b629553d4a25c2ba7c1e3fc8abb1f02609a90f51a0c7593939df68f9f7e",
 }];
 
 const STORES: [&str; 3] = ["alice", "bob", "carol"];
@@ -658,18 +665,17 @@ async fn build() -> Value {
             &encode_value(KEY_PACKAGE_REFERENCES, &hash_ref).unwrap(),
         )
         .unwrap();
-    storage
-        .write::<CURRENT_VERSION>(
-            KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-            &key::to_vec(&hash_ref).unwrap(),
-            &encode_value(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, [0x5a; 32].as_slice()).unwrap(),
-        )
-        .unwrap();
+    XmtpMlsStorageProvider::write_wrapper_private_key(
+        storage,
+        &encode_key(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref).unwrap(),
+        &[0x5a; 32],
+    )
+    .unwrap();
     storage
         .write::<CURRENT_VERSION>(
             COMMIT_LOG_SIGNER_PRIVATE_KEY,
-            &key::to_vec(group.group_id().as_slice()).unwrap(),
-            &encode_value(COMMIT_LOG_SIGNER_PRIVATE_KEY, [0x24; 32].as_slice()).unwrap(),
+            &encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group.group_id().as_slice()).unwrap(),
+            &encode_bytes(COMMIT_LOG_SIGNER_PRIVATE_KEY, &[0x24; 32]).unwrap(),
         )
         .unwrap();
 
@@ -959,12 +965,25 @@ async fn canonical_orders_hash_map_fields() {
     assert!(encodings.len() > 1, "every encoding had the same order");
 }
 
-/// Every map key path in a stored value, with array items merged, and every
-/// text value with its path (a unit variant is stored as its name). A list
-/// row is an array of byte strings, each an encoded value: its items' paths
-/// count.
+/// Every map key path in a stored value, with array items merged, every
+/// text value with its path (a unit variant is stored as its name), and the
+/// CBOR type of the item at each path. A list row is an array of byte
+/// strings, each an encoded value: its items' paths count.
 fn key_paths(row: &Row, paths: &mut BTreeSet<String>) {
     fn walk(value: &Cbor, prefix: &str, paths: &mut BTreeSet<String>) {
+        let kind = match value {
+            Cbor::Null => "null",
+            Cbor::Bool(_) => "bool",
+            Cbor::Integer(_) => "integer",
+            Cbor::Float(_) => "float",
+            Cbor::Bytes(_) => "bytes",
+            Cbor::Text(_) => "text",
+            Cbor::Array(_) => "array",
+            Cbor::Map(_) => "map",
+            Cbor::Tag(..) => "tag",
+            _ => "other",
+        };
+        paths.insert(format!("{prefix}:{kind}"));
         match value {
             Cbor::Map(entries) => {
                 for (key, value) in entries {
@@ -1121,6 +1140,9 @@ const PRODUCTION_SHAPES: &[(&str, &str)] = &[
         ".past_epoch_trees[].message_secrets.secret_tree.application_sender_ratchets[].DecryptionRatchet.ratchet_head.generation",
     ),
     ("GroupState", "=Inactive"),
+    // libxmtp's own plain values are byte strings, not arrays of integers.
+    ("KeyPackageWrapperPrivateKey", ":bytes"),
+    ("CommitLogSignerPrivateKey", ":bytes"),
     ("GroupState", "=Operational"),
     (
         "GroupState",
@@ -1327,7 +1349,7 @@ fn golden_rows_round_trip_their_public_types() {
             "GroupContext" => round_trips::<openmls::group::GroupContext>(&what, &row.value),
             "KeyPackageReferences" => round_trips::<KeyPackageRef>(&what, &row.value),
             "KeyPackageWrapperPrivateKey" | "CommitLogSignerPrivateKey" => {
-                round_trips::<Vec<u8>>(&what, &row.value)
+                round_trips::<Secret>(&what, &row.value)
             }
             "OwnLeafNodeIndex" => round_trips::<openmls::prelude::LeafNodeIndex>(&what, &row.value),
             "MlsGroupJoinConfig" => round_trips::<MlsGroupJoinConfig>(&what, &row.value),
@@ -1580,17 +1602,30 @@ async fn golden_rows_load_and_run_the_groups() {
             Some(&*expect_bytes("second_membership_after_merge"))
         );
 
-        // The XMTP labels read back as the production readers read them.
-        for row in golden.rows() {
-            let label = row.label.as_bytes();
-            match row.label.as_str() {
-                "KeyPackageReferences" => drop(decode_value::<KeyPackageRef>(label, &row.value)?),
-                "KeyPackageWrapperPrivateKey" | "CommitLogSignerPrivateKey" => {
-                    assert_eq!(decode_value::<Vec<u8>>(label, &row.value)?.len(), 32)
-                }
-                _ => {}
-            }
-        }
+        // The XMTP labels read back through their production keys and types,
+        // as `find_key_package_hash_ref`, `find_private_key` and
+        // `read_commit_log_key` read them. `build` wrote these values.
+        let references = golden.stores["bob"]
+            .iter()
+            .find(|row| row.label == "KeyPackageReferences")
+            .expect("bob's key package reference");
+        let init_key = &references.key[KEY_PACKAGE_REFERENCES.len()..references.key.len() - 2];
+        let hash_ref: KeyPackageRef =
+            XmtpMlsStorageProvider::read(bob.storage(), KEY_PACKAGE_REFERENCES, init_key)?
+                .expect("the hash ref reads back through the init key");
+        let wrapper = XmtpMlsStorageProvider::wrapper_private_key(
+            bob.storage(),
+            &encode_key(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)?,
+        )?
+        .expect("the wrapper key reads back through its hash ref");
+        assert_eq!(wrapper.as_slice(), [0x5a; 32]);
+        let signer: Secret = XmtpMlsStorageProvider::read(
+            bob.storage(),
+            COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, first.as_slice())?,
+        )?
+        .expect("the commit-log signer reads back through the group id");
+        assert_eq!(signer.as_slice(), [0x24; 32]);
         db_deserialize::<Credential>(&golden.columns["Credential"])?;
         db_deserialize::<XmtpInstallationCredential>(
             &golden.columns["XmtpInstallationCredential"],

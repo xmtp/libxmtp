@@ -31,7 +31,10 @@ use xmtp_cryptography::{
 };
 use xmtp_db::{
     DefaultMlsStore, TestDb, XmtpMlsStorageProvider, XmtpOpenMlsProvider, XmtpTestDb,
-    sql_key_store::{KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStore, codec::encode_value},
+    sql_key_store::{
+        KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStore,
+        codec::{encode_bytes, encode_value},
+    },
     test_utils::generate_key_package_bundle,
 };
 
@@ -173,7 +176,7 @@ async fn secret_with_trailing_bytes_is_wiped() {
     let provider = provider().await;
     let store = provider.storage();
     let key = LIST_KEYS[0];
-    let mut row = encode_value(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, key.as_slice())?;
+    let mut row = encode_bytes(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &key)?;
     row.push(0);
 
     let ((failed, logged), hits) = scan(&[Canary::new(&key)], || {
@@ -194,40 +197,38 @@ async fn secret_with_trailing_bytes_is_wiped() {
     assert_eq!(hits, [0], "freed heap blocks held the stored key");
 }
 
-/// A stored secret whose last byte item is retyped (`0x18` to `0x38`, one
-/// bit) is still one well-formed CBOR item, so it passes the codec's
-/// pre-scan and fails partway through the key. The bytes read so far are
-/// never left in a freed buffer, with or without the decode error logged.
+/// A stored secret in an indefinite-length byte string whose second chunk is
+/// retyped (an integer where a byte string must be) is one well-formed CBOR
+/// item. cbor4ii would copy the first chunk, the whole key, into a buffer
+/// that is not wiped and then fail on the integer. The codec's pre-scan
+/// rejects the row before any decode, so the key is never left in a freed
+/// buffer, also when the decode error is logged.
 #[xmtp_common::test(unwrap_try = true)]
 async fn secret_with_a_retyped_item_is_wiped() {
     let provider = provider().await;
     let store = provider.storage();
     let key = LIST_KEYS[0];
-    let mut row = encode_value(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, key.as_slice())?;
-    let at = row.len() - 2;
-    assert_eq!(
-        row[at], 0x18,
-        "the last key byte is a one-byte integer item"
-    );
-    row[at] = 0x38;
-    for logged in [false, true] {
-        let (failed, hits) = scan(&[Canary::new(&key[..31])], || {
-            store
-                .write::<CURRENT_VERSION>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, WRAPPER_HASH_REF, &row)
-                .unwrap();
-            let (read, _spans) = xmtp_logging::test_logging::with_trace_layer(logged, || {
-                tracing::error_span!("read")
-                    .in_scope(|| store.wrapper_private_key(WRAPPER_HASH_REF).map(drop))
-            });
-            read.is_err()
+    // An indefinite-length byte string (`5f`), the key as its first chunk,
+    // an integer (`01`) where the next chunk must be, and the break (`ff`).
+    let mut row = encode_bytes(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &key)?;
+    row.insert(0, 0x5f);
+    row.extend([0x01, 0xff]);
+
+    let ((failed, logged), hits) = scan(&[Canary::new(&key)], || {
+        store
+            .write::<CURRENT_VERSION>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, WRAPPER_HASH_REF, &row)
+            .unwrap();
+        let (read, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+            tracing::error_span!("read")
+                .in_scope(|| store.wrapper_private_key(WRAPPER_HASH_REF).map(drop))
         });
-        assert!(failed, "a retyped item decoded (logged: {logged})");
-        assert_eq!(
-            hits,
-            [0],
-            "freed heap blocks held the partial key (logged: {logged})"
-        );
-    }
+        let logged = format!("{spans:?}").contains("key store value decode failed");
+        (read.is_err(), logged)
+    });
+
+    assert!(failed, "a retyped chunk decoded");
+    assert!(logged, "the decode failure was not logged");
+    assert_eq!(hits, [0], "freed heap blocks held the stored key");
 }
 
 /// An identity row that fails to decode partway frees no unwiped copy of the

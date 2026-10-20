@@ -14,7 +14,8 @@
 //! - [`encode_key`] uses the fixed layout in [`key`]: the bytes bincode 1.3
 //!   wrote. Keys did not change when values moved to CBOR.
 //! - A value is `encode_value(value)`: CBOR (RFC 8949), written by cbor4ii
-//!   through serde.
+//!   through serde. Plain bytes under an XMTP label, such as a private key,
+//!   are [`encode_bytes`]: one CBOR byte string.
 //! - A list is `encode_list(items)`: a CBOR array of byte strings, where each
 //!   item is `encode_value(item)`.
 //! - `KEY_PACKAGE_REFERENCES` keys are not encoded here. They are the TLS
@@ -33,10 +34,22 @@
 //!   with a serde default reads old rows. A renamed field or variant makes
 //!   every stored row unreadable. The golden rows in `codec/golden_tests.rs`
 //!   fail when an OpenMLS or libxmtp change does that.
+//! - Serde writes a `Vec<u8>` as a CBOR array of integers, about twice its
+//!   size, and reads it one byte at a time. So every byte field of a type
+//!   libxmtp owns is a byte string (major type 2: one header, then the
+//!   bytes), through `crate::byte_string` and its list forms, and so are the
+//!   plain values under XMTP labels and `Secret`. rc4 is the first release
+//!   that stores CBOR, so no reader of the integer-array form exists. Types
+//!   that OpenMLS owns keep their own serde shape, integer arrays included.
 //! - Wiping depends on exact-size buffers. [`value_to_vec`] allocates the
 //!   final size once. A decoded `Vec<u8>` is sized exactly from the CBOR
 //!   array length, which `XmtpMlsStorageProvider::wrapper_private_key`
 //!   relies on. The heap canary tests in `tests/zeroize.rs` check both.
+//! - The pre-scan of [`value_from_slice`] rejects bytes after the value and
+//!   an indefinite-length byte string, before any decode. cbor4ii joins the
+//!   chunks of an indefinite-length byte string in a growing buffer that is
+//!   not wiped, so a private key in one would leave copies. libxmtp never
+//!   writes one.
 //! - Databases written with the earlier bincode values are rejected when they
 //!   open (`StorageError::OldEncodingDatabase`), so no reader handles both.
 //!
@@ -74,6 +87,8 @@ pub(crate) enum ValueError {
     Decode(#[from] DecodeError<Infallible>),
     #[error("{0} bytes follow the value")]
     TrailingBytes(usize),
+    #[error("the value holds an indefinite-length byte string")]
+    IndefiniteByteString,
 }
 
 impl ValueError {
@@ -88,6 +103,7 @@ impl ValueError {
         match self {
             Self::Encode(_) => ("encode", ""),
             Self::TrailingBytes(_) => ("trailing bytes", ""),
+            Self::IndefiniteByteString => ("indefinite byte string", ""),
             Self::Decode(DecodeError::Custom(_)) => ("serde", ""),
             Self::Decode(DecodeError::Core(error)) => match error {
                 Core::Mismatch { name, .. } => ("mismatch", **name),
@@ -145,7 +161,8 @@ pub(crate) fn value_to_vec<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, 
 }
 
 /// Decode one value written by [`value_to_vec`]. Every decoded value comes
-/// from here. Bytes after the value are an error.
+/// from here. Bytes after the value, and an indefinite-length byte string,
+/// are errors.
 ///
 /// It finds where the value ends before it decodes it, so a row with bytes
 /// after the value is rejected without building the value: a private key in
@@ -161,12 +178,57 @@ pub(crate) fn value_from_slice<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, V
 }
 
 /// The length of the one CBOR item at the start of `bytes`. Skipping an item
-/// copies none of it.
+/// copies none of it. An item that holds an indefinite-length byte string is
+/// an error (see the module doc).
 fn value_len(bytes: &[u8]) -> Result<usize, ValueError> {
     let mut reader = SliceReader::new(bytes);
     IgnoredAny::decode(&mut reader).map_err(DecodeError::from)?;
     let Ok(rest) = reader.fill(bytes.len());
-    Ok(bytes.len() - rest.as_ref().len())
+    let len = bytes.len() - rest.as_ref().len();
+    if holds_indefinite_byte_string(&bytes[..len]) {
+        return Err(ValueError::IndefiniteByteString);
+    }
+    Ok(len)
+}
+
+/// Whether `item`, one well-formed CBOR item, holds an indefinite-length byte
+/// string at any depth.
+///
+/// Every header in a well-formed item is followed by its argument and, for a
+/// definite-length string, its content. Everything else an array, map, tag
+/// or indefinite-length string holds is more headers. So one pass over the
+/// headers, which skips string content, sees every item.
+fn holds_indefinite_byte_string(item: &[u8]) -> bool {
+    const BYTES: u8 = 2;
+    const TEXT: u8 = 3;
+    const INDEFINITE: u8 = 31;
+    let mut at = 0;
+    while let Some(&header) = item.get(at) {
+        let (major, info) = (header >> 5, header & 0x1f);
+        if major == BYTES && info == INDEFINITE {
+            return true;
+        }
+        let argument_len = match info {
+            24 => 1,
+            25 => 2,
+            26 => 4,
+            27 => 8,
+            _ => 0,
+        };
+        let argument = match info {
+            0..=23 => u64::from(info),
+            _ => item.get(at + 1..at + 1 + argument_len).map_or(0, |bytes| {
+                bytes
+                    .iter()
+                    .fold(0, |value, &byte| value << 8 | u64::from(byte))
+            }),
+        };
+        at += 1 + argument_len;
+        if matches!(major, BYTES | TEXT) && info != INDEFINITE {
+            at = at.saturating_add(usize::try_from(argument).unwrap_or(usize::MAX));
+        }
+    }
+    false
 }
 
 /// Whether `item` holds the value whose encoding is `encoded`: the same bytes,
@@ -195,6 +257,13 @@ pub fn encode_key<K: Serialize + ?Sized>(
         );
         SqlKeyStoreError::SerializationError
     })
+}
+
+/// Encode plain bytes, such as a private key under an XMTP label, as one CBOR
+/// byte string, in a buffer that is wiped on drop. Read them back as a
+/// `Secret`, which decodes a byte string into a wiping buffer with one copy.
+pub fn encode_bytes(label: &[u8], bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>, SqlKeyStoreError> {
+    encode_value(label, serde_bytes::Bytes::new(bytes))
 }
 
 /// Encode a value, in a buffer that is wiped on drop.
@@ -319,8 +388,9 @@ fn log_decode_error<V: DeserializeOwned>(label: &[u8], bytes: &[u8], error: &Val
 }
 
 /// The forms in which a log line or a span could hold `secret`: its raw hex,
-/// the hex of its CBOR array items (how a stored value holds a byte vector),
-/// and the `Debug` text of both, without the brackets. Negative log and span
+/// the hex of its CBOR array items (how an OpenMLS type stores a byte
+/// vector), and the `Debug` text of both, without the brackets. A byte string
+/// holds the raw bytes after its header, so the raw forms cover it. Negative log and span
 /// checks look for every form.
 #[cfg(test)]
 pub(crate) fn logged_forms(secret: &[u8]) -> [String; 4] {
@@ -346,8 +416,8 @@ pub(crate) fn logged_forms(secret: &[u8]) -> [String; 4] {
 #[cfg(test)]
 mod tests {
     use super::{
-        ValueError, decode_list, decode_value, encode_list, encode_value, value_from_slice,
-        value_to_vec,
+        ValueError, decode_list, decode_value, encode_bytes, encode_list, encode_value,
+        value_from_slice, value_to_vec,
     };
     use crate::sql_key_store::SqlKeyStoreError;
     use serde::{Deserialize, Serialize};
@@ -371,6 +441,68 @@ mod tests {
             decode_value::<(u32, Vec<u8>, [u8; 4])>(LABEL, &encoded)?,
             value
         );
+    }
+
+    /// Plain bytes are one CBOR byte string: a header with the length, then
+    /// the bytes as they are.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn plain_bytes_are_one_byte_string() {
+        for (bytes, header) in [
+            (vec![], vec![0x40]),
+            (vec![0x5a; 23], vec![0x57]),
+            (vec![0x5a; 24], vec![0x58, 24]),
+            (vec![0x5a; 300], vec![0x59, 0x01, 0x2c]),
+        ] {
+            let encoded = encode_bytes(LABEL, &bytes)?;
+            assert_eq!(*encoded, [header.as_slice(), &bytes].concat());
+            assert_eq!(encoded.capacity(), encoded.len());
+            let decoded: serde_bytes::ByteBuf = decode_value(LABEL, &encoded)?;
+            assert_eq!(decoded.into_vec(), bytes);
+        }
+    }
+
+    /// An indefinite-length byte string, at any depth, is an error before
+    /// any decode. Other items whose bytes look like its header read as
+    /// usual: string content, an integer, field names, an indefinite-length
+    /// text string and array.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn indefinite_length_byte_strings_are_errors() {
+        use serde_bytes::ByteBuf;
+        for row in [
+            &[0x5f, 0x41, 0x01, 0xff][..],
+            &[0x5f, 0xff],
+            &[0x81, 0x5f, 0xff],
+            &[0xa1, 0x61, b'k', 0x5f, 0x41, 0x01, 0xff],
+            &[0xc1, 0x5f, 0xff],
+            &[0x9f, 0x5f, 0xff, 0xff],
+        ] {
+            assert!(
+                matches!(
+                    value_from_slice::<serde::de::IgnoredAny>(row),
+                    Err(ValueError::IndefiniteByteString)
+                ),
+                "{row:02x?}"
+            );
+        }
+        assert!(matches!(
+            decode_value::<ByteBuf>(LABEL, &[0x5f, 0x41, 0x01, 0xff]),
+            Err(SqlKeyStoreError::SerializationError)
+        ));
+        assert_eq!(
+            value_from_slice::<ByteBuf>(&[0x42, 0x5f, 0x5f])?.into_vec(),
+            [0x5f, 0x5f]
+        );
+        assert_eq!(value_from_slice::<u8>(&[0x18, 0x5f])?, 0x5f);
+        assert_eq!(value_from_slice::<String>(&[0x7f, 0x61, b'_', 0xff])?, "_");
+        assert_eq!(value_from_slice::<Vec<u8>>(&[0x9f, 0x01, 0xff])?, [1]);
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        struct Row {
+            field_name: Vec<u8>,
+        }
+        let row = Row {
+            field_name: vec![0x5f; 3],
+        };
+        assert_eq!(value_from_slice::<Row>(&value_to_vec(&row)?)?, row);
     }
 
     /// A decoded `Vec<u8>` has exactly its length as capacity, so it moves into

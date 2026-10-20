@@ -13053,6 +13053,7 @@ dependencies = [
  "async-trait",
  "bon",
  "bytes",
+ "cbor4ii",
  "chrono",
  "const-hex",
  "criterion",

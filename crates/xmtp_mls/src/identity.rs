@@ -1022,12 +1022,11 @@ mod tests {
     }
 
     fn get_pq_private_key(provider: &impl MlsProviderExt, hash_ref: &[u8]) -> Option<Vec<u8>> {
-        let val: Option<Vec<u8>> = provider
+        provider
             .key_store()
-            .read::<Vec<u8>>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)
-            .unwrap();
-
-        val
+            .wrapper_private_key(hash_ref)
+            .unwrap()
+            .map(|key| key.to_vec())
     }
 
     /// The key package hash ref has three uses. The wrapper private key's

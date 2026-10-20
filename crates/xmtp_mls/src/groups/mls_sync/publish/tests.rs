@@ -172,8 +172,8 @@ struct GoldenAttempt {
 }
 
 /// Stored attempts with every optional field set: receipts, a Welcome batch
-/// with receipts, a rejection, an unsettled batch, and a standalone
-/// proposal. Every name in them, nested ones included, is stored in rows of
+/// with receipts, a rejection, an unsettled batch, a standalone proposal, and
+/// a proposal reference in the base. Every name in them, nested ones included, is stored in rows of
 /// in-flight intents, so each file is frozen; the newest is the format this
 /// build writes. For a deliberate format change, run
 /// `dev/nix-shell 'just test workspace -p xmtp_mls write_golden_prepared_attempt --run-ignored only'`,
@@ -182,7 +182,7 @@ struct GoldenAttempt {
 const GOLDEN_PREPARED_ATTEMPTS: &[GoldenAttempt] = &[GoldenAttempt {
     name: "prepared_attempt_rc4.cbor.hex",
     text: include_str!("fixtures/prepared_attempt_rc4.cbor.hex"),
-    sha256: "c95737c7cad79c68e3646fe591933e2b1c36c7727c1c41d1cdad7b8db96f0756",
+    sha256: "cbbc7e50ee7e7ea01a3f2719eebbd61971921ae4de6a7f2120f162ec250fc732",
 }];
 
 /// The names serde stores the variants of the enum `T` by, in declaration
@@ -259,14 +259,18 @@ fn golden_prepared_attempts_are_frozen() {
     }
 }
 
-/// The golden attempt's values that are not copied from a prepared message.
+/// The golden attempt's values that are not copied from a prepared message:
+/// the base's proposal references, the receipts, the Welcome batch and the
+/// standalone proposal.
 fn golden_attempt_parts() -> (
+    Vec<Vec<u8>>,
     Vec<Vec<u8>>,
     welcomes::PreparedWelcomes,
     prepared::PreparedProposal,
 ) {
     let receipt = xmtp_proto::backend_v1::EnvelopeMeta::default().encode_to_vec();
     (
+        vec![vec![7, 8]],
         vec![receipt.clone()],
         welcomes::PreparedWelcomes {
             commit_sequence_id: 7,
@@ -288,7 +292,8 @@ async fn write_golden_prepared_attempt() {
     let group = alix.create_group(None, None)?;
     group.send_message_optimistic(b"golden prepared attempt", Default::default())?;
     let (_, mut attempt) = prepare_message(&group).await?;
-    let (receipts, welcomes, proposal) = golden_attempt_parts();
+    let (base_proposals, receipts, welcomes, proposal) = golden_attempt_parts();
+    attempt.base.proposals = base_proposals;
     attempt.receipts = Some(receipts);
     attempt.welcomes = Some(welcomes);
     attempt.proposals = vec![proposal];
@@ -311,9 +316,10 @@ fn golden_prepared_attempt_keeps_every_field() {
     for (index, golden) in GOLDEN_PREPARED_ATTEMPTS.iter().enumerate() {
         let bytes = hex::decode(golden.text.trim())?;
         let attempt = PreparedAttempt::decode(&bytes)?;
-        let (receipts, welcomes, proposal) = golden_attempt_parts();
+        let (base_proposals, receipts, welcomes, proposal) = golden_attempt_parts();
         assert_eq!(attempt.version, prepared::PREPARED_ATTEMPT_VERSION);
         assert!(!attempt.base.authenticator.is_empty());
+        assert_eq!(attempt.base.proposals, base_proposals);
         assert_eq!(attempt.payload_hash.len(), 32);
         assert_eq!(attempt.envelopes.len(), 1);
         assert_eq!(attempt.proposals, [proposal]);
@@ -328,6 +334,44 @@ fn golden_prepared_attempt_keeps_every_field() {
             assert_eq!(xmtp_db::db_serialize(&attempt)?, bytes, "{}", golden.name);
         }
     }
+}
+
+/// Every byte field of the newest frozen attempt is a CBOR byte string, not an
+/// array of integers: the base's authenticator and proposal references, the
+/// payload hash, the envelopes, the standalone proposal's hash and bytes, the
+/// receipts, and the Welcome batch's envelopes and receipts. No stored array
+/// holds an integer.
+#[xmtp_common::test(unwrap_try = true)]
+fn stored_attempt_byte_fields_are_byte_strings() {
+    use cbor4ii::core::{Value, dec::Decode as _, utils::SliceReader};
+
+    fn walk(value: &Value, byte_strings: &mut usize) {
+        match value {
+            Value::Bytes(_) => *byte_strings += 1,
+            Value::Array(items) => {
+                for item in items {
+                    assert!(
+                        !matches!(item, Value::Integer(_)),
+                        "an array of integers: {value:?}"
+                    );
+                    walk(item, byte_strings);
+                }
+            }
+            Value::Map(entries) => entries
+                .iter()
+                .for_each(|(_, value)| walk(value, byte_strings)),
+            Value::Tag(_, inner) => walk(inner, byte_strings),
+            _ => {}
+        }
+    }
+    let golden = GOLDEN_PREPARED_ATTEMPTS.last().unwrap();
+    let bytes = hex::decode(golden.text.trim())?;
+    let mut byte_strings = 0;
+    walk(
+        &Value::decode(&mut SliceReader::new(&bytes))?,
+        &mut byte_strings,
+    );
+    assert_eq!(byte_strings, 9, "{}", golden.name);
 }
 
 /// The stored attempt is CBOR: a map keyed by field names, so its first byte
@@ -373,9 +417,12 @@ async fn prepared_attempt_is_cbor_and_checks_its_version() {
     struct WithoutUnsettled<'a> {
         version: u8,
         base: &'a prepared::PreparedBase,
+        #[serde(with = "xmtp_db::byte_string")]
         payload_hash: &'a [u8],
+        #[serde(with = "xmtp_db::byte_strings")]
         envelopes: &'a [Vec<u8>],
         proposals: &'a [prepared::PreparedProposal],
+        #[serde(with = "xmtp_db::optional_byte_strings")]
         receipts: &'a Option<Vec<Vec<u8>>>,
         welcomes: &'a Option<welcomes::PreparedWelcomes>,
         rejection: &'a Option<rejection::PreparedRejection>,

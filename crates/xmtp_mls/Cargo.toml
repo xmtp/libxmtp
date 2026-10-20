@@ -141,6 +141,7 @@ web-sys.workspace = true
 
 [dev-dependencies]
 alloy.workspace = true
+cbor4ii.workspace = true
 diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",

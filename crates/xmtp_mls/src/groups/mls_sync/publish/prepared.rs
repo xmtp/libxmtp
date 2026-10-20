@@ -34,15 +34,20 @@ impl RetryableError for OutgoingPreparationError {
     }
 }
 
+// Every byte field of the stored attempt types is a CBOR byte string
+// (`xmtp_db::byte_string` and its list forms). rc4 is the first release that
+// stores attempts as CBOR, so no reader of the integer-array form exists.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// The committed MLS state used to prepare an outgoing attempt.
 pub(crate) struct PreparedBase {
     /// Epoch before the prepared commit. Preparation does not merge it locally.
     pub epoch: u64,
     /// Authenticator that distinguishes divergent states at the same epoch.
+    #[serde(with = "xmtp_db::byte_string")]
     pub authenticator: Vec<u8>,
     /// Ordered proposal references used to reject a changed preparation base.
-    proposals: Vec<Vec<u8>>,
+    #[serde(with = "xmtp_db::byte_strings")]
+    pub(super) proposals: Vec<Vec<u8>>,
 }
 
 impl PreparedBase {
@@ -68,8 +73,10 @@ impl PreparedBase {
 /// A sender's proposal, kept outside the accepted proposal store until receipt.
 pub(crate) struct PreparedProposal {
     /// Hash of the inner MLS bytes, not the backend's authoritative envelope hash.
+    #[serde(with = "xmtp_db::byte_string")]
     pub payload_hash: Vec<u8>,
     /// Serialized proposal needed when the sender receives its own ciphertext.
+    #[serde(with = "xmtp_db::byte_string")]
     pub proposal: Vec<u8>,
 }
 
@@ -95,12 +102,15 @@ pub(crate) struct PreparedAttempt {
     /// Exact committed state against which this attempt was prepared.
     pub base: PreparedBase,
     /// Inner MLS hash of the last payload, used to match the ordered intent result.
+    #[serde(with = "xmtp_db::byte_string")]
     pub payload_hash: Vec<u8>,
     /// Exact encoded ClientEnvelopes. Retries do not regenerate MLS or HMAC bytes.
+    #[serde(with = "xmtp_db::byte_strings")]
     pub envelopes: Vec<Vec<u8>>,
     /// Standalone proposals in their original wire order.
     pub proposals: Vec<PreparedProposal>,
     /// Authoritative backend metadata. Absence means acceptance is still ambiguous.
+    #[serde(default, with = "xmtp_db::optional_byte_strings")]
     pub receipts: Option<Vec<Vec<u8>>>,
     /// Required follow-up publication after the commit reaches ordered processing.
     pub welcomes: Option<PreparedWelcomes>,

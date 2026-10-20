@@ -1840,14 +1840,18 @@ pub(crate) mod tests {
             "epoch key pairs"
         );
 
-        // The post-quantum key is stored as a byte sequence under the hash
+        // The post-quantum key is stored as one byte string under the hash
         // ref in the key layout, as `identity.rs` writes it.
         let post_quantum = xmtp_cryptography::post_quantum::generate_post_quantum_key()?;
         let hash_ref = encode_key(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)?;
         key_store.write_wrapper_private_key(&hash_ref, &post_quantum.private)?;
         assert!(
             stored_value(key_store, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)
-                == cbor(&post_quantum.private.to_vec()),
+                == [
+                    cbor_head(2, post_quantum.private.len()),
+                    post_quantum.private.to_vec()
+                ]
+                .concat(),
             "post-quantum wrapper private key"
         );
 

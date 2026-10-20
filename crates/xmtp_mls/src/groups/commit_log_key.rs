@@ -95,7 +95,7 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
         value: &Secret,
     ) -> Result<(), Self::Error> {
         let key = kv_codec::encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id.as_ref())?;
-        let value = kv_codec::encode_value(COMMIT_LOG_SIGNER_PRIVATE_KEY, value.as_slice())?;
+        let value = kv_codec::encode_bytes(COMMIT_LOG_SIGNER_PRIVATE_KEY, value.as_slice())?;
         self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key, &value)
     }
 }
@@ -209,7 +209,7 @@ mod tests {
     use crate::tester;
 
     /// The commit log signer key: the storage key is the group id in the key
-    /// layout, and the value is the secret as a CBOR byte vector. The two
+    /// layout, and the value is the secret as one CBOR byte string. The two
     /// encodings differ, so a site that used the other one fails here.
     #[xmtp_common::test(unwrap_try = true)]
     async fn commit_log_key_uses_the_key_layout_and_cbor() {
@@ -226,8 +226,8 @@ mod tests {
 
         // The key layout: a `u64` LE length, then the bytes.
         let key_layout = [&16u64.to_le_bytes()[..], &[0x42; 16]].concat();
-        // CBOR: an array of 32 integers; 0x24 is above 23, so `0x18 0x24`.
-        let cbor = [&[0x98, 0x20][..], &[0x18, 0x24].repeat(32)].concat();
+        // CBOR: a byte string of 32 bytes, then the bytes.
+        let cbor = [&[0x58, 0x20][..], &[0x24; 32]].concat();
         let storage_key = [
             COMMIT_LOG_SIGNER_PRIVATE_KEY,
             &key_layout,

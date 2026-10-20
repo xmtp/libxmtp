@@ -83,13 +83,16 @@ secret. Every heap copy libxmtp owns is wiped before it is freed. Import from
 
 - `Secret` owns secret bytes in a struct field, a return value or a long-lived
   binding. It is wiped on drop, its `Debug` shows only the length, its serde
-  form equals `Vec<u8>`, and `==` is constant time.
+  form is a byte string (`serialize_bytes`), and `==` is constant time. A
+  field whose stored shape another crate owns as a `Vec<u8>` reads it with
+  `#[serde(deserialize_with = "xmtp_cryptography::secret::deserialize_seq")]`.
 - `Zeroizing<T>` wraps a transient buffer where it is created: a serialization
   output, a `to_vec()`, a decoded hex string, an FFI argument. Its `Debug`
   prints the bytes, so never format it.
 - `xmtp_db::StoredSecret` is the column type for a client secret. It stores
-  the same `BLOB` and serde bytes as `Vec<u8>`, and a row struct keeps its
-  derives: every move, clone and builder copy is wiped on drop.
+  the same `BLOB` as `Vec<u8>`, its serde form is a byte string like
+  `Secret`'s, and a row struct keeps its derives: every move, clone and
+  builder copy is wiped on drop.
 - Dependency key types that already wipe on drop stay as they are:
   `ed25519_dalek::SigningKey`, `k256::ecdsa::SigningKey`, alloy
   `PrivateKeySigner`, OpenMLS `SignatureKeyPair` and `HpkePrivateKey`.

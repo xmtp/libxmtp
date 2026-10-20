@@ -258,9 +258,12 @@ impl<'de> serde::Deserialize<'de> for XmtpInstallationCredential {
         D: serde::Deserializer<'de>,
     {
         // `private` is a `Secret`, so it is wiped on drop also when a later
-        // field fails to decode and the struct is never built.
+        // field fails to decode and the struct is never built. The row keeps
+        // the serde shape of OpenMLS's `SignatureKeyPair`, which this type
+        // serializes through, so the key is a sequence of `u8`.
         #[derive(serde::Deserialize, zeroize::ZeroizeOnDrop)]
         struct SignatureKeyPairRemote {
+            #[serde(deserialize_with = "crate::secret::deserialize_seq")]
             private: crate::Secret,
             public: Vec<u8>,
             #[allow(dead_code)]
