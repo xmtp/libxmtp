@@ -93,6 +93,7 @@ required-features = ["bench"]
 futures.workspace = true
 mockall.workspace = true
 rstest.workspace = true
+serde_json.workspace = true
 xmtp_db = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

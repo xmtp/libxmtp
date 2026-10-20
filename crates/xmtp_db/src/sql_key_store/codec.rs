@@ -31,7 +31,8 @@
 //!
 //! - CBOR stores struct field names and enum variant names. A field added
 //!   with a serde default reads old rows. A renamed field or variant makes
-//!   every stored row unreadable.
+//!   every stored row unreadable. The golden rows in `codec/golden_tests.rs`
+//!   fail when an OpenMLS or libxmtp change does that.
 //! - Wiping depends on exact-size buffers. [`value_to_vec`] allocates the
 //!   final size once. A decoded `Vec<u8>` is sized exactly from the CBOR
 //!   array length, which `XmtpMlsStorageProvider::wrapper_private_key`
@@ -56,6 +57,8 @@ use xmtp_cryptography::secret::Zeroizing;
 
 use super::SqlKeyStoreError;
 
+#[cfg(test)]
+mod golden_tests;
 pub mod key;
 
 /// The error of the value codec.
