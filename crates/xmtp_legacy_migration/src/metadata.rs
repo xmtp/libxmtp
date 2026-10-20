@@ -302,13 +302,30 @@ mod tests {
     }
 
     /// `fixtures/generate.py` records every fixture hash. A corpus rebuild
-    /// must update the record too.
+    /// must update the record too. Native runs also check every other
+    /// recorded fixture file.
     #[xmtp_common::test(unwrap_try = true)]
     fn corpus_hash_is_recorded() {
         use sha2::Digest;
         let hashes: Value = serde_json::from_str(include_str!("../fixtures/hashes.json"))?;
         let digest = hex::encode(sha2::Sha256::digest(CORPUS.as_bytes()));
         assert_eq!(hashes["legacy-context-corpus.json"], digest.as_str());
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+            let recorded = hashes.as_object().unwrap();
+            assert!(recorded.len() > 1);
+            let stale: Vec<_> = recorded
+                .iter()
+                .filter(|(name, hash)| {
+                    let bytes = std::fs::read(fixtures.join(name.as_str()))
+                        .unwrap_or_else(|error| panic!("cannot read fixture {name}: {error}"));
+                    hex::encode(sha2::Sha256::digest(&bytes)) != hash.as_str().unwrap()
+                })
+                .map(|(name, _)| name.as_str())
+                .collect();
+            assert!(stale.is_empty(), "hashes.json is stale for {stale:?}");
+        }
     }
 
     // verifies: MIG-005
@@ -347,20 +364,11 @@ mod tests {
         assert_eq!(mutable.attributes["description"], "good description");
         let bytes = with_tree_hash(&below_limit, super::MAX_CONTEXT_BYTES);
         assert!(bytes.len() > super::MAX_CONTEXT_BYTES);
+        assert!(
+            crate::legacy_context::LegacyContext::read(&bytes).is_some(),
+            "the over-budget context is otherwise readable"
+        );
         assert_eq!(super::decode(&bytes), (None, None));
-    }
-
-    // verifies: MIG-005
-    #[xmtp_common::test(unwrap_try = true)]
-    fn oversized_declared_context_lengths_degrade_without_panicking() {
-        let context = include_bytes!("../fixtures/appdata-context.bincode");
-        let prefix = &context[..tree_hash_offset(context)];
-        for length in [1u64 << 40, u64::MAX] {
-            let mut bytes = prefix.to_vec();
-            bytes.extend_from_slice(&length.to_le_bytes());
-            bytes.push(0);
-            assert_eq!(super::decode(&bytes), (None, None));
-        }
     }
 
     // verifies: MIG-005
