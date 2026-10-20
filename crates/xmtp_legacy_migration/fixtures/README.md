@@ -56,7 +56,7 @@ While the fork was pinned, the oracle also checked that the reader agreed with
 the fork decoder on every truncation and on single-byte changes of the corpus
 and of the fixture databases. The workspace now builds on upstream OpenMLS,
 which lacks the fork's types, so the oracle was removed and the corpus is
-frozen. Do not edit it. Tests that need no oracle remain: every case decodes
+frozen. Do not edit its cases. Tests that need no oracle remain: every case decodes
 to its recorded metadata, every cut of a case and of each fixture database
 context has no metadata, single-byte changes do not panic, and the hash in
 `hashes.json` matches.
@@ -67,6 +67,12 @@ To rebuild the corpus, check out libxmtp `b9ce66d008`, the last commit with
 ```sh
 dev/nix-shell 'just test workspace -p xmtp_legacy_migration write_corpus_fixture --run-ignored only'
 ```
+
+The rebuild reproduces every case and its expected metadata, not the
+description line: that commit wrote a description naming the oracle as the
+builder, and the frozen file's description was rewritten once when the oracle
+was removed. So a rebuilt file differs from the frozen one in that line and in
+its hash (`5e75ff12…` against the `91f32e16…` in `hashes.json`).
 
 ## Controlled history
 
