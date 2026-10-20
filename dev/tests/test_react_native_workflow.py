@@ -586,6 +586,33 @@ class ReactNativeWorkflowTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertIn(error, result.stdout)
 
+    def test_macos_rows_get_a_shorter_timeout_than_linux_rows(self):
+        # The macOS rows get a timeout from their duration history, so a
+        # stalled Nix download fails sooner. A wrong matrix key in the
+        # expression would silently give them the Linux 90 minutes.
+        jobs = workflow("test-react-native.yml")["jobs"]
+        expected = {
+            "components": {"Linux": 90, "macOS": 35},
+            "consumers": {"Linux": 90, "macOS": 35},
+        }
+        for job_id, timeouts in expected.items():
+            job = jobs[job_id]
+            raw = inner(job["strategy"]["matrix"]["include"])
+            raw = raw.removeprefix("fromJSON(").removesuffix(")")
+            rows = json.loads(expression(raw, {"inputs.scope": "full"}))
+            found = {}
+            timeout = str(job["timeout-minutes"])
+            for row in rows:
+                values = {f"matrix.{key}": value for key, value in row.items()}
+                os_name = "macOS" if "macos" in row["runner"] else "Linux"
+                found[os_name] = (
+                    expression(inner(timeout), values)
+                    if "${{" in timeout
+                    else int(timeout)
+                )
+            with self.subTest(job=job_id):
+                self.assertEqual(found, timeouts)
+
     def test_android_smoke_runs_no_macos_job(self):
         # The Android smoke builds no iOS part, so no job of the chain runs on
         # a macOS label. The full scope keeps its macOS jobs.

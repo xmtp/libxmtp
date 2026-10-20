@@ -61,7 +61,11 @@ jobs:
         # 2026-10-19: it was warp-macos-26-arm64-12x.
         include: ${{ fromJSON(inputs.scope == 'android-smoke' && '[{"system":"x86_64-linux","name":"Build JS and Android parts (Linux)","runner":"blacksmith-16vcpu-ubuntu-2404"}]' || '[{"system":"x86_64-linux","name":"Build JS and Android parts (Linux)","runner":"blacksmith-16vcpu-ubuntu-2404"},{"system":"aarch64-darwin","name":"Build iOS parts (macOS)","runner":"warp-macos-26-arm64-6x"}]') }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    # macOS: about 2x the slowest successful run through 2026-10-20 (16 min,
+    # 12x runner), rounded up to 5 min, so a stalled Nix download fails
+    # sooner. 2x, not 1.5x: the 6x trial runner has no release-package run
+    # yet. Linux keeps 90.
+    timeout-minutes: ${{ matrix.system == 'aarch64-darwin' && 35 || 90 }}
     steps:
       # Before any build: a bad scope or package fails at once. A
       # workflow_call package is a free string, and RN_PACKAGE_KIND maps any
@@ -158,7 +162,10 @@ jobs:
         # android-smoke: the bare Android app of the Android-only test package.
         include: ${{ fromJSON(inputs.scope == 'android-smoke' && '[{"platform":"android","system":"x86_64-linux","runner":"blacksmith-16vcpu-ubuntu-2404","consumers":"bare","name":"Installed-app tests (Android bare)"}]' || '[{"platform":"android","system":"x86_64-linux","runner":"blacksmith-16vcpu-ubuntu-2404","consumers":"all","name":"Installed-app tests (Android)"},{"platform":"ios","system":"aarch64-darwin","runner":"warp-macos-26-arm64-12x","consumers":"all","name":"Installed-app tests (iOS)"}]') }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    # iOS: about 1.5x the slowest successful run through 2026-10-20 (23 min),
+    # rounded up to 5 min, so a stalled Nix download fails sooner. Android
+    # keeps 90.
+    timeout-minutes: ${{ matrix.platform == 'ios' && 35 || 90 }}
     env:
       XMTP_SDK_BUILD: nix
     steps:
