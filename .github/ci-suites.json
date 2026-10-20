@@ -190,6 +190,7 @@
       "paths": [
         "**/*.nix",
         "**/Cargo.toml",
+        "dev/ci/rn-isolation",
         "nix/**/*.json",
         "sdks/android/{gradle.properties,gradle/wrapper/gradle-wrapper.properties}",
         "sdks/react-native/package.json",

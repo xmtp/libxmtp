@@ -2,9 +2,15 @@
 # trusted Cachix cache `xmtp`, and pins on every push to trunk.
 #
 # `ciSets.<system>.dev` holds what developers and CI jobs use;
-# `ciSets.<system>.release` holds what release jobs use. Each set is a link
-# farm, so one store path holds the runtime closure of every member, and
-# `passthru.members` lists the members for the closure check of post-merge.yml.
+# `ciSets.<system>.release` holds what release jobs use. The post-merge
+# `build` job builds and pins both. `ciSets.<system>.rn` holds the RN outputs
+# and RN dev shells; the post-merge RN cache jobs build and pin it after
+# `build`. The RN device chain is advisory, so an RN break can reach trunk.
+# dev and release hold only the RN outputs that blocking pull request suites
+# build (`rnBlocking`, Linux only), so such a break holds back only the RN
+# jobs, not the other sets or the docs. Each set is a link farm, so one store
+# path holds the runtime closure of every member, and `passthru.members`
+# lists the members for the closure check of post-merge.yml.
 #
 # A dev shell enters as its `inputDerivation`, whose runtime closure holds
 # every shell input. Add a member only when a job, a release, or a developer
@@ -12,8 +18,10 @@
 #
 # Every other set is a product group of .github/ci-suites.yml: CI builds
 # `ciSets.x86_64-linux.<group>` once per run in the job `products_<group>`.
-# post-merge.yml builds only dev and release, so keep each group member in
-# one of them; its closure check covers every set.
+# post-merge.yml's `build` builds only dev and release, and an RN break can
+# stop rn, so keep each group member in dev or release. Its `closure` job
+# checks every set but rn, and `rn-alert` checks rn. dev/ci/rn-isolation
+# (in nix-eval.yml) fails when a set other than rn builds an rn member.
 { lib, withSystem, ... }:
 let
   # Every dev shell of the system, as `shell-<name>`.
@@ -29,24 +37,41 @@ let
       passthru = { inherit members; };
     };
 
-  rnDev =
-    pkgs: p:
-    {
+  # The RN JavaScript layer: the SDK's JavaScript product and its build
+  # inputs.
+  rnJs = p: {
+    inherit (p)
+      react-native-js-tools
+      react-native-js-tools-deps
+      ubjs-react-native
+      xmtp-sdk-generated-react-native
+      xmtp-sdk-react-native-js
+      ;
+  };
+
+  isRnShell = name: lib.hasPrefix "shell-react-native" name;
+
+  # Every RN output and RN dev shell of the system.
+  rnAll =
+    pkgs: self':
+    let
+      p = self'.packages;
+    in
+    rnJs p
+    // lib.filterAttrs (name: _: isRnShell name) (shells self')
+    // {
       inherit (p)
-        react-native-js-tools
-        react-native-js-tools-deps
         react-native-consumer-deps-bare
         react-native-consumer-deps-expo
         react-native-consumer-template-bare
         react-native-consumer-template-expo
-        ubjs-react-native
-        xmtp-sdk-generated-react-native
-        xmtp-sdk-react-native-js
         ;
     }
     // lib.optionalAttrs pkgs.stdenv.isLinux {
       inherit (p)
         xmtp-sdk-react-native-android-fast
+        xmtp-sdk-react-native-android
+        xmtp-sdk-react-native-package
         react-native-consumer-android
         react-native-consumer-native-deps-android
         ;
@@ -54,21 +79,26 @@ let
     // lib.optionalAttrs pkgs.stdenv.isDarwin {
       inherit (p)
         xmtp-sdk-react-native-ios-simulator
+        xmtp-sdk-react-native-ios
         react-native-consumer-ios
         react-native-consumer-native-deps-ios
         ;
     };
 
-  rnRelease =
-    pkgs: p:
-    if pkgs.stdenv.isLinux then
-      {
-        inherit (p) xmtp-sdk-react-native-android xmtp-sdk-react-native-package;
-      }
-    else
-      {
-        inherit (p) xmtp-sdk-react-native-ios;
-      };
+  # The RN outputs that blocking pull request suites build, so an RN break
+  # cannot reach them. Only Linux has them: the JavaScript layer, which the
+  # JavaScript suites and the docs read (`sdk_js`), and the `react-native`
+  # shell that `check_react_native` enters. No blocking suite builds RN on
+  # Darwin.
+  rnBlocking =
+    self':
+    rnJs self'.packages
+    // {
+      inherit (shells self') shell-react-native;
+    };
+
+  # The dev shells but the RN ones.
+  nonRnShells = self': lib.filterAttrs (name: _: !isRnShell name) (shells self');
 
   sets = {
     x86_64-linux =
@@ -76,11 +106,13 @@ let
       let
         p = self'.packages;
       in
-      rec {
-        dev = mkSet pkgs "dev" (baseDev.passthru.members // rnDev pkgs p);
-        release = mkSet pkgs "release" (baseRelease.passthru.members // rnRelease pkgs p);
-        baseDev = mkSet pkgs "base-dev" (
-          shells self'
+      {
+        rn = mkSet pkgs "rn" (
+          builtins.removeAttrs (rnAll pkgs self') (builtins.attrNames (rnBlocking self'))
+        );
+        dev = mkSet pkgs "dev" (
+          nonRnShells self'
+          // rnBlocking self'
           // {
             inherit (p)
               xmtp-sdk-libs
@@ -99,7 +131,7 @@ let
         );
         # The arm64 Node pairs are cross outputs of this system; release
         # substitutes them (build-sdk-node-platforms.yml).
-        baseRelease = mkSet pkgs "base-release" {
+        release = mkSet pkgs "release" {
           inherit (p)
             xmtp-sdk-node-linux-x64-gnu
             xmtp-sdk-node-linux-x64-musl
@@ -138,11 +170,10 @@ let
       let
         p = self'.packages;
       in
-      rec {
-        dev = mkSet pkgs "dev" (baseDev.passthru.members // rnDev pkgs p);
-        release = mkSet pkgs "release" (baseRelease.passthru.members // rnRelease pkgs p);
-        baseDev = mkSet pkgs "base-dev" (
-          shells self'
+      {
+        rn = mkSet pkgs "rn" (rnAll pkgs self');
+        dev = mkSet pkgs "dev" (
+          nonRnShells self'
           // {
             inherit (p)
               android-sdk-libs-fast
@@ -154,7 +185,7 @@ let
               ;
           }
         );
-        baseRelease = mkSet pkgs "base-release" {
+        release = mkSet pkgs "release" {
           inherit (p)
             ios-xcframeworks
             xmtp-sdk-node-darwin-arm64
@@ -164,23 +195,15 @@ let
   };
 in
 {
-  flake.ciSets = lib.mapAttrs (
-    system: set:
-    withSystem system (
-      args:
-      builtins.removeAttrs (set args) [
-        "baseDev"
-        "baseRelease"
-      ]
-    )
-  ) sets;
+  flake.ciSets = lib.mapAttrs (system: withSystem system) sets;
   flake.ciStages = lib.mapAttrs (
     system: set:
     withSystem system (
       args:
       let
         products = set args;
-        allMembers = products.dev.passthru.members // products.release.passthru.members;
+        allMembers =
+          products.dev.passthru.members // products.release.passthru.members // products.rn.passthru.members;
         rnMembers = lib.filterAttrs (
           name: _:
           lib.hasPrefix "xmtp-sdk-react-native-" name
@@ -191,9 +214,6 @@ in
         ) allMembers;
       in
       {
-        base = mkSet args.pkgs "base" (
-          products.baseDev.passthru.members // products.baseRelease.passthru.members
-        );
         native-base = mkSet args.pkgs "rn-native-base" (
           {
             inherit (args.self'.packages) xmtp-sdk-libs xmtp-sdk-bindgen;

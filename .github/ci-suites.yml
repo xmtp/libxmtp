@@ -357,6 +357,8 @@ suites:
       - "sdks/android/{gradle.properties,gradle/wrapper/gradle-wrapper.properties}"
       - "sdks/react-native/package.json"
       - "sdks/react-native/test/consumers/**/*.json"
+      # The job runs it to evaluate the sets.
+      - "dev/ci/rn-isolation"
   # Typecheck, Oxlint, Oxfmt and unit tests of the React Native example. It
   # runs on drafts too: native builds are local (see the app's AGENTS.md).
   lint_example_react_native:
