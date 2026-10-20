@@ -176,7 +176,7 @@ workflow uses it as `runs-on: ${{ inputs.NAME }}`. Merge and manual runs use
 free GitHub-hosted runners, except the Gradle jobs, which write the Gradle
 home that pull requests restore from Blacksmith's cache, and the macOS jobs,
 which stay on WarpBuild. Pull requests run the iOS SDK and iOS example jobs on
-Blacksmith macOS as a trial. On a GitHub-hosted
+Blacksmith macOS 15. On a GitHub-hosted
 Linux runner, `setup-nix` first removes preinstalled toolchains to free disk.
 `with` passes other inputs (for example a scope). The top-level `runners` key
 sets the runners of `Select suites`, the products jobs, and the gates.
@@ -297,9 +297,7 @@ package, and the installed bare/Expo apps. Its `scope` input is `full` or
 package (x86_64 Android, iOS simulator, version `-partial`, rejected by
 `verify-package`); other events build the full package. The Android smoke
 builds the partial package without iOS (package kind `test-android`) on every
-event, so it runs no macOS job. A matrix row's `pr_runner` replaces its
-`runner` on pull requests: the macOS rows run on Blacksmith macOS there as a
-trial and stay on WarpBuild for manual runs. Jobs with the `xmtp-pr`
+event, so it runs no macOS job. Jobs with the `xmtp-pr`
 token push each stage and the next stage substitutes it; forks and releases
 exchange signed same-run closures (zstd). Receipts run only with the `debug`
 input or a debug re-run.

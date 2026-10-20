@@ -97,8 +97,10 @@
 # Select suites and the gates use free runners on pull requests too. The
 # first PR runs measured each move; a job more than 30 s slower went back. On a GitHub-hosted Linux runner, setup-nix first frees disk space.
 # The macOS jobs stay on paid runners. On pull requests the iOS SDK and iOS
-# example jobs run on Blacksmith macOS 15 (6 vCPU) as a trial; their merge and
-# manual runs stay on WarpBuild until the trial is measured.
+# example jobs run on Blacksmith macOS 15 (6 vCPU); their merge and manual
+# runs stay on WarpBuild. The RN iOS jobs (test-react-native.yml) stay on
+# WarpBuild: Blacksmith macOS 26 has Xcode 27.0 only behind a symlink at the
+# pinned path, and that path is part of the Nix output key.
 #
 # `products` maps a product group name to its title (the products job name)
 # and its `path_filters` (the path-only filter syntax). nix/ci-sets.nix lists
