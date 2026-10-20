@@ -1,13 +1,19 @@
-//! Heap-canary proof that push notification messages wipe their secrets on
-//! drop, in every copy libxmtp makes: the original and each retry clone.
-//! prost's own encode and decode buffers are out of reach and not checked.
+//! Heap-canary proof that push notification messages and device-sync HMAC
+//! updates wipe their secrets on drop, in every copy libxmtp makes: the
+//! original, each retry clone, and a value a failed decode drops. prost's own
+//! encode and decode buffers are out of reach and not checked.
 // The heap-canary harness is Unix-only (`libc::memmem`).
 #![cfg(unix)]
 
+use prost::Message;
 use xmtp_cryptography::secret::heap_canary::{Canary, scan};
 use xmtp_proto::backend_v1::{
     HttpDelivery, RegisterRequest, Subscription, UnregisterRequest, UpdateSubscriptionsRequest,
     register_request::Delivery,
+};
+use xmtp_proto::xmtp::device_sync::content::{
+    DeviceSyncContent, HmacKeyUpdate, PreferenceUpdate, PreferenceUpdates,
+    device_sync_content::Content, preference_update::Update,
 };
 
 xmtp_cryptography::install_heap_canary!();
@@ -79,4 +85,33 @@ fn dropped_notification_requests_leave_no_secret_in_freed_heap() {
     });
 
     assert_eq!(hits, [0, 0, 0], "freed heap blocks held a push secret");
+}
+
+/// A sync message whose HMAC key decodes before malformed trailing bytes
+/// fails to decode, and the partly decoded value prost drops wipes the key.
+/// The input is a `Bytes` buffer, so prost slices it instead of copying the
+/// key through a buffer of its own.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_failed_sync_decode_wipes_the_hmac_key() {
+    let mut encoded = DeviceSyncContent {
+        content: Some(Content::PreferenceUpdates(PreferenceUpdates {
+            updates: vec![PreferenceUpdate {
+                update: Some(Update::Hmac(HmacKeyUpdate {
+                    key: HMAC_KEY.to_vec(),
+                    cycled_at_ns: 1,
+                })),
+            }],
+        })),
+    }
+    .encode_to_vec();
+    // A field header with a length that runs past the end of the input.
+    encoded.extend_from_slice(&[0x0a, 0x7f]);
+    let input = bytes::Bytes::from(encoded);
+
+    let ((), hits) = scan(&[Canary::new(&HMAC_KEY)], || {
+        assert!(DeviceSyncContent::decode(input.clone()).is_err());
+    });
+    drop(input);
+
+    assert_eq!(hits, [0], "freed heap blocks held the HMAC key");
 }

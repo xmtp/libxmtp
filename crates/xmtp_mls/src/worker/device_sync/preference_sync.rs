@@ -172,10 +172,10 @@ impl TryFrom<UpdateProto> for PreferenceUpdate {
     fn try_from(update: UpdateProto) -> Result<Self, Self::Error> {
         let update = match update {
             UpdateProto::Consent(consent) => Self::Consent(consent.try_into()?),
-            UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => Self::Hmac {
+            UpdateProto::Hmac(mut hmac) => Self::Hmac {
                 // Moves the decoded buffer; no copy is made.
-                key: Secret::from(key),
-                cycled_at_ns,
+                key: Secret::from(std::mem::take(&mut hmac.key)),
+                cycled_at_ns: hmac.cycled_at_ns,
             },
         };
         Ok(update)

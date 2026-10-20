@@ -282,7 +282,7 @@ pub fn synthesize_canonical_subset_from_extensions(
                 *component_id,
                 (
                     AppDataUpdateOperationType::Update,
-                    encode_metadata_attribute_value(*component_id, s)?,
+                    std::mem::take(&mut *encode_metadata_attribute_value(*component_id, s)?),
                 ),
             );
         }

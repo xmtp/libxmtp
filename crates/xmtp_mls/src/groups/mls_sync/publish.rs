@@ -663,14 +663,18 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     generate_prepared_commit(
                         storage,
                         openmls_group,
+                        // `payload` can be the commit-log signer. It stays in
+                        // `Zeroizing` until it moves into OpenMLS, so a
+                        // return before this closure runs still wipes it.
                         move |group, provider| -> Result<_, GroupError> {
+                            let mut payload = payload;
                             Ok(stage_app_data_propose_and_commit(
                                 group,
                                 provider,
                                 &signer,
                                 catalogue,
                                 component_id,
-                                payload,
+                                std::mem::take(&mut *payload),
                             )?)
                         },
                     )?;
