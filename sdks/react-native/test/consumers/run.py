@@ -79,6 +79,11 @@ def required_phases(mode):
     }[mode]
 
 
+def background_wanted(conformance):
+    """The cold background launch runs only for a conformance run of the `full` set."""
+    return bool(conformance) and journey_set() == "full"
+
+
 def verify_report(report, mode, expected_harness, platform):
     if report.get("status") != "passed" or report.get("platform") != platform:
         raise RuntimeError(
@@ -599,7 +604,7 @@ def main():
     if os.environ.get("XMTP_NIX_ENV") != "yes" and not os.environ.get("IN_NIX_SHELL"):
         parser.error("run installed-package proofs through dev/nix-shell")
     try:
-        background = args.conformance and journey_set() == "full"
+        background = background_wanted(args.conformance)
     except ValueError as error:
         parser.error(str(error))
     if not os.environ.get("XMTP_NODE_SDK_DIR") or not os.environ.get(

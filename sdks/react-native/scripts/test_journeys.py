@@ -1,8 +1,9 @@
 """Check which installed-consumer phases XMTP_RN_JOURNEYS selects.
 
 Post-merge and release runs set `full`; pull requests leave it unset. These
-cases fail if run.py stops reading the variable or stops requiring the
-runtime reload for `full`.
+cases fail if run.py stops reading the variable, stops requiring the
+runtime reload for `full`, or stops launching the cold background run for a
+`full` conformance run.
 """
 
 import importlib.util
@@ -43,6 +44,23 @@ class JourneySetTests(unittest.TestCase):
     def test_an_unknown_value_is_an_error(self):
         with self.assertRaisesRegex(ValueError, "must be pr or full"):
             self.phases("bogus")
+
+    def test_only_a_full_conformance_run_launches_in_the_background(self):
+        for value, conformance, wanted in [
+            ("full", True, True),
+            ("full", False, False),
+            ("pr", True, False),
+            ("", True, False),
+            (None, True, False),
+        ]:
+            with self.subTest(value=value, conformance=conformance):
+                environment = {
+                    k: v for k, v in os.environ.items() if k != "XMTP_RN_JOURNEYS"
+                }
+                if value is not None:
+                    environment["XMTP_RN_JOURNEYS"] = value
+                with mock.patch.dict(os.environ, environment, clear=True):
+                    self.assertIs(run.background_wanted(conformance), wanted)
 
     def test_other_modes_do_not_depend_on_the_set(self):
         with mock.patch.dict(os.environ, {"XMTP_RN_JOURNEYS": "full"}):
