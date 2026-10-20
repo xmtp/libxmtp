@@ -38,6 +38,9 @@ let
 
   commonArgs = xmtp.base.commonArgs // {
     SQLX_OFFLINE = "true";
+    # Release speed with overflow checks and debug assertions in the
+    # workspace crates (Cargo.toml).
+    CARGO_PROFILE = "ci-test";
     nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [
       cargo-llvm-cov
     ];

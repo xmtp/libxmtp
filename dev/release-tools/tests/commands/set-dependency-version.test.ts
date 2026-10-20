@@ -35,11 +35,11 @@ describe("setPackageJsonDependency", () => {
     setPackageJsonDependency(
       packageJsonPath,
       "@xmtp/node-sdk",
-      "1.11.0-nightly.20260604.90d0bfb",
+      "8.0.0-pre.20260604120000.dev.90d0bfb",
     );
     const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
     expect(parsed.dependencies["@xmtp/node-sdk"]).toBe(
-      "1.11.0-nightly.20260604.90d0bfb",
+      "8.0.0-pre.20260604120000.dev.90d0bfb",
     );
   });
 
@@ -61,15 +61,15 @@ describe("setPackageJsonDependency", () => {
     expect(content).toContain('  "dependencies"');
   });
 
-  it("can rewrite a semver dep to a nightly version", () => {
+  it("can rewrite a semver dep to a prerelease version", () => {
     setPackageJsonDependency(
       packageJsonPath,
       "@xmtp/content-type-primitives",
-      "4.0.0-nightly.20260604.abc1234",
+      "4.0.0-pre.20260604120000.dev.abc1234",
     );
     const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
     expect(parsed.dependencies["@xmtp/content-type-primitives"]).toBe(
-      "4.0.0-nightly.20260604.abc1234",
+      "4.0.0-pre.20260604120000.dev.abc1234",
     );
   });
 

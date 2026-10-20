@@ -1,7 +1,8 @@
 {
   "generated_by": "dev/ci-suites generate. Edit .github/ci-suites.yml instead.",
   "on_deleted_path": [
-    "lint_config"
+    "lint_config",
+    "nix_eval"
   ],
   "shared": [
     "{flake.nix,flake.lock,rust-toolchain.toml,justfile}",
@@ -13,7 +14,7 @@
     "nix/shells/{local,rust}.nix",
     "nix/apps.nix",
     ".github/{ci-suites.yml,ci-suites.json}",
-    ".github/workflows/{ci,lint-generated,test-generated}.yml",
+    ".github/workflows/ci.yml",
     ".github/actions/setup-nix/**",
     "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run}"
   ],
@@ -30,8 +31,23 @@
     "dev/{ast-outline,bench,serena}",
     "dev/nix-up"
   ],
+  "runners": {
+    "select": {
+      "pr": "ubuntu-24.04",
+      "merge": "ubuntu-24.04"
+    },
+    "products": {
+      "pr": "blacksmith-16vcpu-ubuntu-2404",
+      "merge": "ubuntu-24.04"
+    },
+    "gates": {
+      "pr": "ubuntu-24.04",
+      "merge": "ubuntu-24.04"
+    }
+  },
   "products": {
     "sdk_js": {
+      "title": "Prebuild JS SDKs (Nix)",
       "cargo_roots": [],
       "crates": [],
       "paths": [
@@ -50,6 +66,7 @@
       ]
     },
     "sdk_android": {
+      "title": "Prebuild Android SDK (Nix)",
       "cargo_roots": [],
       "crates": [],
       "paths": [
@@ -71,74 +88,8 @@
     }
   },
   "suites": {
-    "lint_workspace": {
-      "phase": "lint",
-      "workflow": "lint-workspace.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-workspace.yml"
-      ],
-      "paths": [
-        "**/Cargo.toml",
-        ".config/hakari.toml",
-        "apps/chaos/chaos.just",
-        "crates/xmtp-workspace-hack/**",
-        "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}"
-      ],
-      "labels": []
-    },
-    "lint_js": {
-      "phase": "lint",
-      "workflow": "lint-js.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-js/**",
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-js.yml"
-      ],
-      "paths": [
-        "apps/{cli,web-chat,docs}/**",
-        "dev/js/{lint-source.mjs,test-lint-source.mjs}",
-        "dev/js/{sdk-*,tsconfig.*.json}",
-        "dev/release-tools/**",
-        "nix/lib/packages/pnpm.nix",
-        "nix/{js,js-node}.nix",
-        "sdks/js.just",
-        "sdks/{node,browser,agent,react-native}/**",
-        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ],
-      "labels": []
-    },
     "lint_config": {
+      "title": "Repository lint",
       "phase": "lint",
       "workflow": "lint-config.yml",
       "run_on": [
@@ -152,8 +103,16 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -161,89 +120,46 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/lint-config.yml"
       ],
-      "paths": [
-        "**/*.{nix,py,sh,toml,kt,swift}",
-        ".github/**",
-        "dev/js/{sdk-*,tsconfig.*.json}",
-        "dev/release-tools/**",
-        "nix/fmt.nix",
-        "nix/lib/packages/pnpm.nix",
-        "nix/{js,js-node}.nix",
-        "sdks/js.just",
-        "{.editorconfig,sdks/ios/.swiftformat,apps/example-ios/.swiftformat}",
-        "{crates,apps}/**/*.rs",
-        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ],
-      "labels": []
-    },
-    "lint_proto": {
-      "phase": "lint",
-      "workflow": "lint-proto.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-proto.yml"
-      ],
-      "paths": [
-        "proto/**"
-      ],
-      "labels": []
-    },
-    "docs_quality": {
-      "phase": "lint",
-      "workflow": "docs-quality.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "kache",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-js/**",
-        ".github/actions/setup-nix/**",
-        ".github/workflows/docs-quality.yml"
-      ],
+      "workflow_tier": "blocking",
       "paths": [
         "**/*.md",
+        "**/*.{nix,py,sh,toml,kt,swift}",
+        "**/Cargo.toml",
+        ".config/hakari.toml",
+        ".github/**",
+        "apps/chaos/chaos.just",
+        "apps/{cli,web-chat,docs}/**",
+        "crates/xmtp-workspace-hack/**",
         "dev/js/sdk-package",
+        "dev/js/{lint-source.mjs,test-lint-source.mjs}",
         "dev/js/{sdk-*,tsconfig.*.json}",
+        "dev/release-tools/**",
         "nix/docs.nix",
+        "nix/fmt.nix",
         "nix/lib/packages/pnpm.nix",
         "nix/{js,js-node}.nix",
         "sdks/*/package.json",
         "sdks/agent/src/**",
         "sdks/js.just",
+        "sdks/{node,browser,agent,react-native}/**",
+        "{.editorconfig,sdks/ios/.swiftformat,apps/example-ios/.swiftformat}",
+        "{Cargo.lock,.clippy.toml,.taplo.toml,deny.toml}",
         "{apps/docs,docs}/**",
+        "{crates,apps}/**/*.rs",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
-    "lint_ios": {
+    "nix_eval": {
+      "title": "Nix evaluation",
       "phase": "lint",
-      "workflow": "lint-ios.yml",
+      "workflow": "nix-eval.yml",
       "run_on": [
         "ready_pr_push",
         "merge"
@@ -254,98 +170,42 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [],
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-ios.yml"
-      ],
-      "paths": [
-        "dev/check-apple-toolchain",
-        "nix/lib/ios-env.nix",
-        "nix/lib/packages/{swiftformat,swiftlint}.nix",
-        "nix/package/ios.nix",
-        "sdks/ios/**",
-        "{Package.swift,Package.resolved,.spi.yml}"
-      ],
-      "labels": []
-    },
-    "lint_deny": {
-      "phase": "lint",
-      "workflow": "lint-deny.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
       },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
         ".github/actions/setup-nix/**",
-        ".github/workflows/lint-deny.yml"
+        ".github/workflows/nix-eval.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
+        "**/*.nix",
         "**/Cargo.toml",
-        "{Cargo.lock,deny.toml}"
+        "nix/**/*.json",
+        "sdks/android/{gradle.properties,gradle/wrapper/gradle-wrapper.properties}",
+        "sdks/react-native/package.json",
+        "sdks/react-native/test/consumers/**/*.json",
+        "{Cargo.lock,webdriver.json,package.json}"
       ],
-      "labels": []
-    },
-    "lint_example_ios": {
-      "phase": "lint",
-      "workflow": "lint-example-ios.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "cachix-pr",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/lint-example-ios.yml"
-      ],
-      "paths": [
-        "apps/example-ios/**",
-        "apps/xmtp_sdk_bindgen/**",
-        "crates/xmtp_sdk/**",
-        "dev/check-apple-toolchain",
-        "nix/lib/ios-env.nix",
-        "nix/lib/packages/napi-rs-cli/**",
-        "nix/lib/packages/{swiftformat,swiftlint}.nix",
-        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
-        "nix/node-packages.nix",
-        "nix/package/example-ios-run.nix",
-        "nix/package/ios.nix",
-        "nix/package/libffi-zig-cross.site",
-        "nix/package/node.nix",
-        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
-        "nix/sdk-platforms.json",
-        "sdks/ios/**",
-        "{Cargo.toml,Cargo.lock}",
-        "{Package.swift,Package.resolved,.spi.yml}",
-        "!**/*.md"
-      ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "lint_example_react_native": {
+      "title": "React Native example app",
       "phase": "lint",
       "workflow": "lint-example-react-native.yml",
       "run_on": [
@@ -359,23 +219,39 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
         ".github/actions/setup-nix/**",
         ".github/workflows/lint-example-react-native.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/example-react-native/**",
         "!**/*.md"
       ],
       "labels": [
         "react-native"
-      ]
+      ],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_dev": {
+      "title": "Dev tools",
       "phase": "test",
       "workflow": "test-dev.yml",
       "run_on": [
@@ -388,8 +264,16 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -397,6 +281,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-dev.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "**/*.{nix,py,sh,toml}",
         "**/dev/**",
@@ -422,9 +307,16 @@
         "sdks/react-native/scripts/test-installed",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "check_rust": {
+      "title": "Rust Clippy",
       "phase": "test",
       "workflow": "check-rust.yml",
       "run_on": [
@@ -437,11 +329,18 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [
-        "rust-clippy-native",
-        "rust-clippy-wasm"
+        "rust-clippy"
       ],
       "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [
         "@default-members",
         "xmtp-sdk-bindgen"
@@ -475,39 +374,54 @@
         "crates/xmtp_sdk/**"
       ],
       "workflow_files": [
-        ".github/actions/setup-js/**",
         ".github/actions/setup-nix/**",
         ".github/workflows/check-rust.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
         "{.clippy.toml,dev/wasm.just}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
-    "check_sdk_unit": {
+    "test_backend": {
+      "title": "Backend Docker image",
       "phase": "test",
-      "workflow": "check-sdk-unit.yml",
+      "workflow": "test-backend.yml",
       "run_on": [
         "ready_pr_push",
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "kache",
+      "secrets": "cachix-pr",
       "permissions": {
         "contents": "read"
       },
       "covered_by": null,
-      "kache": [
-        "sdk-tests-debug"
-      ],
+      "skip_full_runs": false,
+      "kache": [],
       "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [
-        "xmtp_sdk"
+        "xdbg",
+        "xmtp_backend"
       ],
       "crates": [
         "apps/backend/**",
+        "apps/xmtp_debug/**",
         "crates/xmtp-workspace-hack/**",
         "crates/xmtp_api/**",
         "crates/xmtp_api_backend/**",
@@ -523,65 +437,9 @@
         "crates/xmtp_db/**",
         "crates/xmtp_events/**",
         "crates/xmtp_id/**",
-        "crates/xmtp_legacy_migration/**",
         "crates/xmtp_logging/**",
         "crates/xmtp_macro/**",
         "crates/xmtp_mls/**",
-        "crates/xmtp_mls_common/**",
-        "crates/xmtp_mls_validation/**",
-        "crates/xmtp_proto/**",
-        "crates/xmtp_push_types/**",
-        "crates/xmtp_sdk/**"
-      ],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/check-sdk-unit.yml"
-      ],
-      "paths": [
-        ".config/nextest.toml",
-        "Cargo.lock",
-        "Cargo.toml",
-        "apps/backend/**",
-        "crates/xmtp_attachments_server/**",
-        "crates/xmtp_backend_config/**",
-        "dev/backend/{local.toml,local-s3.toml}",
-        "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
-        "dev/docker/{postgres,s3,toxiproxy}/**",
-        "nix/musl-docker.nix",
-        "nix/package/backend.nix"
-      ],
-      "labels": []
-    },
-    "test_backend": {
-      "phase": "test",
-      "workflow": "test-backend.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "inherit",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "cargo_roots": [
-        "xmtp_backend"
-      ],
-      "crates": [
-        "apps/backend/**",
-        "crates/xmtp-workspace-hack/**",
-        "crates/xmtp_attachments_server/**",
-        "crates/xmtp_backend_config/**",
-        "crates/xmtp_common/**",
-        "crates/xmtp_configuration/**",
-        "crates/xmtp_cryptography/**",
-        "crates/xmtp_events/**",
-        "crates/xmtp_id/**",
-        "crates/xmtp_logging/**",
-        "crates/xmtp_macro/**",
         "crates/xmtp_mls_common/**",
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
@@ -591,69 +449,119 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-backend.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
         "apps/backend/**",
         "crates/xmtp_attachments_server/**",
         "crates/xmtp_backend_config/**",
-        "dev/backend/**",
         "dev/backend/{local.toml,local-s3.toml}",
-        "dev/docker/s3/**",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
+        "dev/docker/{observe-check.sh,observe_check.py}",
         "dev/docker/{postgres,s3,toxiproxy}/**",
-        "docs/{backend-observability.md,specs/OPS-backend-operations.md}",
+        "dev/docker/{tempo,prometheus,grafana}/**",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
-        "nix/services/**",
-        "nix/{ci-checks,package/backend-tests}.nix"
+        "nix/package/xdbg.nix"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
-    "test_validation": {
+    "test_nix_checks": {
+      "title": "Rust Nix checks",
       "phase": "test",
-      "workflow": "test-validation.yml",
+      "workflow": "test-nix-checks.yml",
       "run_on": [
         "ready_pr_push",
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "inherit",
+      "secrets": "cachix-pr",
       "permissions": {
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [
+        "keepalive-probe",
+        "xdbg",
+        "xmtp_backend",
         "xmtp_id",
         "xmtp_mls_validation",
         "xmtp_proto"
       ],
       "crates": [
+        "apps/backend/**",
+        "apps/keepalive-probe/**",
+        "apps/xmtp_debug/**",
+        "crates/xmtp-workspace-hack/**",
+        "crates/xmtp_api/**",
+        "crates/xmtp_api_backend/**",
+        "crates/xmtp_api_grpc/**",
+        "crates/xmtp_archive/**",
+        "crates/xmtp_attachments/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_common/**",
         "crates/xmtp_configuration/**",
+        "crates/xmtp_content_types/**",
         "crates/xmtp_cryptography/**",
+        "crates/xmtp_db/**",
         "crates/xmtp_events/**",
         "crates/xmtp_id/**",
         "crates/xmtp_logging/**",
         "crates/xmtp_macro/**",
+        "crates/xmtp_mls/**",
         "crates/xmtp_mls_common/**",
         "crates/xmtp_mls_validation/**",
-        "crates/xmtp_proto/**"
+        "crates/xmtp_proto/**",
+        "crates/xmtp_push_types/**"
       ],
       "workflow_files": [
         ".github/actions/setup-nix/**",
-        ".github/workflows/test-validation.yml"
+        ".github/workflows/test-nix-checks.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
-        "{crates/xmtp_mls_validation/dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
+        "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
+        "crates/xmtp_mls_validation/dev/check-validation",
+        "dev/backend/**",
+        "dev/docker/s3/**",
+        "docs/{backend-observability.md,specs/OPS-backend-operations.md}",
+        "nix/ci-checks.nix",
+        "nix/package/backend.nix",
+        "nix/package/{backend-tests,validation-check,xdbg,xdbg-check,keepalive-probe-check}.nix",
+        "nix/services/**"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_workspace": {
+      "title": "Rust workspace",
       "phase": "test",
       "workflow": "test-workspace.yml",
       "run_on": [
@@ -666,8 +574,16 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [
         "@default-members"
       ],
@@ -702,6 +618,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-workspace.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
@@ -718,48 +635,16 @@
         "{.config/nextest.toml,webdriver.json}",
         "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
       ],
-      "labels": []
-    },
-    "test_keepalive": {
-      "phase": "test",
-      "workflow": "test-keepalive-probe.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "inherit",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "cargo_roots": [
-        "keepalive-probe"
-      ],
-      "crates": [
-        "apps/keepalive-probe/**",
-        "crates/xmtp_common/**",
-        "crates/xmtp_configuration/**",
-        "crates/xmtp_cryptography/**",
-        "crates/xmtp_events/**",
-        "crates/xmtp_logging/**",
-        "crates/xmtp_macro/**",
-        "crates/xmtp_proto/**"
-      ],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/test-keepalive-probe.yml"
-      ],
-      "paths": [
-        "Cargo.lock",
-        "Cargo.toml",
-        "{nix/package/keepalive-probe-check.nix,nix/ci-checks.nix}"
-      ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_wasm": {
+      "title": "Rust WASM",
       "phase": "test",
       "workflow": "test-wasm.yml",
       "run_on": [
@@ -772,8 +657,16 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [
         "xmtp_api",
         "xmtp_api_backend",
@@ -817,6 +710,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-wasm.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
@@ -832,72 +726,16 @@
         "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
         "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       ],
-      "labels": []
-    },
-    "test_xdbg": {
-      "phase": "test",
-      "workflow": "test-xdbg.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "inherit",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [],
-      "cargo_roots": [
-        "xdbg"
-      ],
-      "crates": [
-        "apps/xmtp_debug/**",
-        "crates/xmtp-workspace-hack/**",
-        "crates/xmtp_api/**",
-        "crates/xmtp_api_backend/**",
-        "crates/xmtp_api_grpc/**",
-        "crates/xmtp_archive/**",
-        "crates/xmtp_attachments/**",
-        "crates/xmtp_common/**",
-        "crates/xmtp_configuration/**",
-        "crates/xmtp_content_types/**",
-        "crates/xmtp_cryptography/**",
-        "crates/xmtp_db/**",
-        "crates/xmtp_events/**",
-        "crates/xmtp_id/**",
-        "crates/xmtp_logging/**",
-        "crates/xmtp_macro/**",
-        "crates/xmtp_mls/**",
-        "crates/xmtp_mls_common/**",
-        "crates/xmtp_mls_validation/**",
-        "crates/xmtp_proto/**",
-        "crates/xmtp_push_types/**"
-      ],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/test-xdbg.yml"
-      ],
-      "paths": [
-        "Cargo.lock",
-        "Cargo.toml",
-        "apps/backend/**",
-        "crates/xmtp_attachments_server/**",
-        "crates/xmtp_backend_config/**",
-        "dev/backend/{local.toml,local-s3.toml}",
-        "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
-        "dev/docker/{observe-check.sh,observe_check.py}",
-        "dev/docker/{postgres,s3,toxiproxy}/**",
-        "dev/docker/{tempo,prometheus,grafana}/**",
-        "nix/ci-checks.nix",
-        "nix/musl-docker.nix",
-        "nix/package/backend.nix",
-        "nix/package/xdbg{,-check}.nix"
-      ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "docs_rust": {
+      "title": "Rust reference",
       "phase": "test",
       "workflow": "docs-rust-reference.yml",
       "run_on": [
@@ -910,10 +748,18 @@
         "contents": "read"
       },
       "covered_by": "docs_site",
+      "skip_full_runs": false,
       "kache": [
         "rust-reference"
       ],
       "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [
         "@default-members",
         "error_glossary"
@@ -950,14 +796,22 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/docs-rust-reference.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
         "{docs/error_glossary.md,dev/gen-error-glossary}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "check_types": {
+      "title": "JS types",
       "phase": "test",
       "workflow": "check-types.yml",
       "run_on": [
@@ -970,10 +824,18 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [
         "sdk_js"
       ],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -981,6 +843,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/check-types.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
         "apps/{cli,web-chat,docs}/**",
@@ -1001,9 +864,16 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "check_sdk": {
+      "title": "SDK packaging",
       "phase": "test",
       "workflow": "check-sdk-products.yml",
       "run_on": [
@@ -1016,11 +886,19 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [
         "sdk_js",
         "sdk_android"
       ],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1028,6 +906,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/check-sdk-products.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_sdk/**",
@@ -1049,9 +928,16 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_node": {
+      "title": "Node SDK, Agent SDK, CLI",
       "phase": "test",
       "workflow": "test-node-sdk.yml",
       "run_on": [
@@ -1064,10 +950,18 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [
         "sdk_js"
       ],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1075,6 +969,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-node-sdk.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/backend/**",
         "apps/cli/**",
@@ -1099,59 +994,20 @@
         "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
         "sdks/js.just",
-        "sdks/node/**",
-        "{Cargo.toml,Cargo.lock}",
-        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-      ],
-      "labels": []
-    },
-    "test_agent": {
-      "phase": "test",
-      "workflow": "test-agent-sdk.yml",
-      "run_on": [
-        "ready_pr_push",
-        "merge"
-      ],
-      "disable_on_forks": false,
-      "secrets": "inherit",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "kache": [],
-      "products": [
-        "sdk_js"
-      ],
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-js/**",
-        ".github/actions/setup-nix/**",
-        ".github/workflows/test-agent-sdk.yml"
-      ],
-      "paths": [
-        "apps/cli/**",
-        "apps/xmtp_sdk_bindgen/**",
-        "crates/xmtp_sdk/**",
-        "dev/js/{sdk-*,tsconfig.*.json}",
-        "nix/lib/packages/napi-rs-cli/**",
-        "nix/lib/packages/pnpm.nix",
-        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
-        "nix/node-packages.nix",
-        "nix/package/libffi-zig-cross.site",
-        "nix/package/node.nix",
-        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
-        "nix/sdk-platforms.json",
-        "nix/{js,js-node}.nix",
-        "sdks/js.just",
         "sdks/{node,agent}/**",
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_browser": {
+      "title": "Browser SDK",
       "phase": "test",
       "workflow": "test-browser-sdk.yml",
       "run_on": [
@@ -1164,10 +1020,18 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [
         "sdk_js"
       ],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1175,6 +1039,7 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-browser-sdk.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/web-chat/**",
         "apps/xmtp_sdk_bindgen/**",
@@ -1197,9 +1062,16 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_sdk_platform": {
+      "title": "Browser SDK platform",
       "phase": "test",
       "workflow": "test-sdk-platform.yml",
       "run_on": [
@@ -1212,10 +1084,18 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [
         "sdk_js"
       ],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1223,8 +1103,11 @@
         ".github/actions/setup-nix/**",
         ".github/workflows/test-sdk-platform.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_db/src/encrypted_store/database/wasm/**",
+        "crates/xmtp_legacy_migration/**",
         "crates/xmtp_sdk/**",
         "dev/js/{sdk-*,tsconfig.*.json}",
         "nix/lib/packages/napi-rs-cli/**",
@@ -1242,14 +1125,20 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "docs_site": {
+      "title": "Docs site",
       "phase": "test",
       "workflow": "deploy-docs.yml",
       "run_on": [
-        "ready_pr_push",
-        "merge"
+        "ready_pr_push"
       ],
       "disable_on_forks": false,
       "secrets": "kache",
@@ -1257,12 +1146,24 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [
         "rust-reference"
       ],
       "products": [
         "sdk_js"
       ],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        },
+        "compose-runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
@@ -1271,6 +1172,7 @@
         ".github/workflows/deploy-docs.yml",
         ".github/workflows/docs-rust-reference.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/docs/**",
         "apps/xmtp_sdk_bindgen/**",
@@ -1288,58 +1190,85 @@
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/sdk-platforms.json",
         "nix/{js,js-node}.nix",
+        "nix/{react-native-packages.nix,package/react-native-js-tools.nix}",
         "sdks/agent/src/**",
         "sdks/js.just",
+        "sdks/react-native/{src/**,package.json,tsconfig.json,scripts/stage-package.mjs}",
         "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}",
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}",
         "!sdks/agent/src/**/*.test.ts"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_ios": {
+      "title": "iOS SDK",
       "phase": "test",
       "workflow": "test-ios.yml",
       "run_on": [
         "ready_pr_push",
         "merge"
       ],
-      "disable_on_forks": true,
+      "disable_on_forks": false,
       "secrets": "inherit",
       "permissions": {
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
         ".github/actions/setup-nix/**",
         ".github/workflows/test-ios.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
+        "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
         "crates/xmtp_sdk/**",
+        "dev/backend/**",
         "dev/check-apple-toolchain",
+        "dev/docker/s3/**",
         "nix/lib/ios-env.nix",
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/{swiftformat,swiftlint}.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
         "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
+        "nix/package/backend.nix",
         "nix/package/ios.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/sdk-platforms.json",
+        "nix/services/**",
         "sdks/ios/**",
         "{Cargo.toml,Cargo.lock}",
         "{Package.swift,Package.resolved,.spi.yml}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_android": {
+      "title": "Android SDK",
       "phase": "test",
       "workflow": "test-android.yml",
       "run_on": [
@@ -1352,16 +1281,20 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
       "products": [
         "sdk_android"
       ],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
         ".github/actions/setup-nix/**",
         ".github/workflows/test-android.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_sdk/**",
@@ -1380,9 +1313,16 @@
         "{Cargo.toml,Cargo.lock}",
         "!docs/**"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
     },
     "test_example_android": {
+      "title": "Android example app",
       "phase": "test",
       "workflow": "test-example-android.yml",
       "run_on": [
@@ -1395,35 +1335,102 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": true,
       "kache": [],
       "products": [
         "sdk_android"
       ],
+      "runners": {},
+      "with": {
+        "emulator": false
+      },
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
-        ".github/actions/setup-nix/**",
         ".github/workflows/test-example-android.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/example-android/**",
-        "nix/android-packages.nix",
-        "nix/ci-sets.nix",
-        "nix/lib/android-*",
-        "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
-        "nix/musl-docker.nix",
-        "nix/package/backend.nix",
-        "nix/package/example-android-apk*",
-        "nix/package/libffi-zig-cross.site",
-        "nix/package/xmtp-sdk{,-native}.nix",
-        "nix/sdk-platforms.json",
-        "nix/shells/android{,-ci}.nix"
+        "nix/package/example-android-apk*"
       ],
       "labels": [
         "android"
-      ]
+      ],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [
+          "nix/android-packages.nix",
+          "nix/ci-sets.nix",
+          "nix/lib/android-*",
+          "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
+          "nix/package/libffi-zig-cross.site",
+          "nix/package/xmtp-sdk{,-native}.nix",
+          "nix/sdk-platforms.json",
+          "nix/shells/android{,-ci}.nix",
+          "sdks/android/**",
+          "!docs/**"
+        ],
+        "labels": []
+      }
+    },
+    "test_example_android_emulator": {
+      "title": "Android example emulator",
+      "phase": "test",
+      "workflow": "test-example-android.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "skip_full_runs": true,
+      "kache": [],
+      "products": [
+        "sdk_android"
+      ],
+      "runners": {},
+      "with": {
+        "emulator": true
+      },
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/workflows/test-example-android.yml"
+      ],
+      "workflow_tier": "blocking",
+      "paths": [
+        "apps/example-android/**",
+        "nix/package/example-android-apk*"
+      ],
+      "labels": [
+        "android"
+      ],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [
+          "nix/android-packages.nix",
+          "nix/ci-sets.nix",
+          "nix/lib/android-*",
+          "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
+          "nix/package/libffi-zig-cross.site",
+          "nix/package/xmtp-sdk{,-native}.nix",
+          "nix/sdk-platforms.json",
+          "nix/shells/android{,-ci}.nix",
+          "sdks/android/**",
+          "!docs/**"
+        ],
+        "labels": []
+      }
     },
     "test_example_ios": {
+      "title": "iOS example app",
       "phase": "test",
       "workflow": "test-example-ios.yml",
       "run_on": [
@@ -1436,65 +1443,80 @@
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": true,
       "kache": [],
       "products": [],
+      "runners": {},
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
-        ".github/actions/setup-nix/**",
         ".github/workflows/test-example-ios.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         "apps/example-ios/**",
-        "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix",
-        "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
-        "nix/musl-docker.nix",
-        "nix/package/backend.nix",
-        "nix/package/xmtp-sdk{,-native}.nix",
-        "nix/package/{example-ios-run,ios}.nix",
-        "nix/sdk-platforms.json",
-        "nix/services/**"
+        "nix/package/example-ios-run.nix"
       ],
       "labels": [
         "iOS"
-      ]
+      ],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [
+          "dev/check-apple-toolchain",
+          "nix/lib/ios-env.nix",
+          "nix/lib/packages/{swiftformat,swiftlint,pnpm,wasm-bindgen-cli}.nix",
+          "nix/lib/packages/{swiftformat,swiftlint}.nix",
+          "nix/lib/{sdk-sources,sdk-provenance,android-env,ios-env}.nix",
+          "nix/package/ios.nix",
+          "nix/package/xmtp-sdk{,-native}.nix",
+          "nix/sdk-platforms.json",
+          "sdks/ios/**",
+          "{Package.swift,Package.resolved,.spi.yml}"
+        ],
+        "labels": []
+      }
     },
-    "test_react_native": {
+    "check_react_native": {
+      "title": "React Native unit checks",
       "phase": "test",
-      "workflow": "test-react-native.yml",
+      "workflow": "check-react-native.yml",
       "run_on": [
         "ready_pr_push",
         "merge"
       ],
       "disable_on_forks": false,
-      "secrets": "cachix-pr",
+      "secrets": "none",
       "permissions": {
         "contents": "read"
       },
       "covered_by": null,
+      "skip_full_runs": false,
       "kache": [],
-      "products": [],
+      "products": [
+        "sdk_js"
+      ],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
       "cargo_roots": [],
       "crates": [],
       "workflow_files": [
-        ".github/actions/react-native-conformance/**",
-        ".github/actions/react-native-product/**",
         ".github/actions/setup-js/**",
         ".github/actions/setup-nix/**",
-        ".github/workflows/test-react-native.yml"
+        ".github/workflows/check-react-native.yml"
       ],
+      "workflow_tier": "blocking",
       "paths": [
         ".github/actions/react-native-{product,conformance}/**",
-        "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
-        "crates/xmtp_attachments_server/**",
-        "crates/xmtp_backend_config/**",
         "crates/xmtp_sdk/**",
-        "dev/backend/**",
-        "dev/backend/{local.toml,local-s3.toml}",
-        "dev/docker/s3/**",
-        "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
-        "dev/docker/{postgres,s3,toxiproxy}/**",
         "dev/js/{sdk-*,tsconfig.*.json}",
         "nix/android-packages.nix",
         "nix/ci-sets.nix",
@@ -1505,16 +1527,13 @@
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
         "nix/lib/{react-native-env,sdk-native-toolchain}.nix",
         "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
-        "nix/musl-docker.nix",
         "nix/node-packages.nix",
-        "nix/package/backend.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/react-native-*",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/react-native-*",
         "nix/sdk-platforms.json",
-        "nix/services/**",
         "nix/shells/android{,-ci}.nix",
         "nix/shells/react-native.nix",
         "nix/{js,js-node}.nix",
@@ -1523,7 +1542,131 @@
         "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
-      "labels": []
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
+    },
+    "test_react_native": {
+      "title": "React Native SDK",
+      "phase": "test",
+      "workflow": "test-react-native.yml",
+      "run_on": [
+        "ready_pr_push"
+      ],
+      "disable_on_forks": false,
+      "secrets": "cachix-pr",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "skip_full_runs": true,
+      "kache": [],
+      "products": [],
+      "runners": {},
+      "with": {
+        "scope": "full"
+      },
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/react-native-conformance/**",
+        ".github/actions/react-native-product/**",
+        ".github/workflows/test-react-native.yml"
+      ],
+      "workflow_tier": "advisory",
+      "paths": [],
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [
+          ".github/actions/react-native-{product,conformance}/**",
+          "nix/android-packages.nix",
+          "nix/ci-sets.nix",
+          "nix/lib/android-*",
+          "nix/lib/ios-env.nix",
+          "nix/lib/{react-native-env,sdk-native-toolchain}.nix",
+          "nix/package/react-native-*",
+          "nix/react-native-*",
+          "nix/shells/android{,-ci}.nix",
+          "nix/shells/react-native.nix",
+          "sdks/react-native/**"
+        ],
+        "labels": [
+          "react-native"
+        ]
+      }
+    },
+    "test_react_native_smoke": {
+      "title": "React Native Android smoke",
+      "phase": "test",
+      "workflow": "test-react-native.yml",
+      "run_on": [
+        "ready_pr_push"
+      ],
+      "disable_on_forks": false,
+      "secrets": "cachix-pr",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": "test_react_native",
+      "skip_full_runs": false,
+      "kache": [],
+      "products": [],
+      "runners": {},
+      "with": {
+        "scope": "android-smoke"
+      },
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/react-native-conformance/**",
+        ".github/actions/react-native-product/**",
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-react-native.yml"
+      ],
+      "workflow_tier": "advisory",
+      "paths": [],
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [
+          "apps/backend/**",
+          "apps/xmtp_sdk_bindgen/**",
+          "crates/xmtp_attachments_server/**",
+          "crates/xmtp_backend_config/**",
+          "crates/xmtp_sdk/**",
+          "dev/backend/**",
+          "dev/backend/{local.toml,local-s3.toml}",
+          "dev/docker/s3/**",
+          "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
+          "dev/docker/{postgres,s3,toxiproxy}/**",
+          "dev/js/{sdk-*,tsconfig.*.json}",
+          "nix/lib/packages/napi-rs-cli/**",
+          "nix/lib/packages/pnpm.nix",
+          "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+          "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
+          "nix/musl-docker.nix",
+          "nix/node-packages.nix",
+          "nix/package/backend.nix",
+          "nix/package/libffi-zig-cross.site",
+          "nix/package/node.nix",
+          "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+          "nix/sdk-platforms.json",
+          "nix/services/**",
+          "nix/{js,js-node}.nix",
+          "sdks/js.just",
+          "{Cargo.toml,Cargo.lock}",
+          "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+        ],
+        "labels": []
+      }
     }
   }
 }

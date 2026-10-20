@@ -132,8 +132,8 @@ the build sandbox, through `services-test` of the storage services (a
 PostgreSQL primary, a streaming replica, and VersityGW on free loopback
 ports). Linux runs all tests. Darwin skips the tests that need the system TLS
 trust service or fast replica replay. Build it with `nix build --no-link .#backend-tests.<system>`.
-`test-backend.yml` builds it on Linux and, in the `Native backend contract`
-job, on macOS.
+`test-nix-checks.yml` builds it on Linux. No CI job builds the Darwin
+variant; `test_ios` runs the backend and the test services on macOS.
 
 ## Bindgen fork pin
 
@@ -330,6 +330,12 @@ both immutable component inputs. Export/import them with
 `python3.11 nix/react-native-exchange.py` through the RN recipes. Assembly must
 follow both producers; consumer bundles follow assembly. PR exports stay in
 CI jobs. Trusted writers receive only exports from the same main run.
+Jobs with a Cachix token skip the exchange; `react-native-exchange.py roots`
+prints a stage's roots. `--kind test` selects
+`legacyPackages.<system>.reactNative.testStages`, the stages of the partial
+`xmtp-sdk-react-native-test-package`; `--kind test-android` selects
+`androidTestStages`, the Linux-only stages of
+`xmtp-sdk-react-native-test-package-android` (the Android smoke).
 
 Check export admission with
 `dev/nix-shell 'python3.11 -B nix/lib/test_react_native_exchange.py'`.

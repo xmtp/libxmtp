@@ -108,7 +108,7 @@ It does not need a backend or emulator. Android 8.1 (API 27) or newer is require
 Transfer the APK to a device and open it, allowing installation from that source
 when Android asks. Or install it over USB with `adb install -r <apk-path>`.
 
-Every Android dev, RC, stable, and nightly release attaches
+Every Android dev, RC, and stable release attaches
 `xmtp-messenger-<version>.apk` to its `android-<version>` GitHub Release.
 These APKs use the separate `org.xmtp.android.example.testing` app ID and show
 as **XMTP Messenger (Testing)**. They use the public AOSP testing key so local

@@ -1,10 +1,15 @@
-name: Check SDK products
+name: "Test: SDK packaging"
 'on':
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 jobs:
   generated:
-    name: Check (generated SDK products)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    name: Codegen, closures, install smoke
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 90
     env:
       NIX_DEVSHELL: rust
@@ -13,47 +18,49 @@ jobs:
     permissions:
       contents: read
     steps:
-    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-    - uses: ./.github/actions/setup-nix
+    - name: Check out the source
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+    - name: Set up Nix
+      uses: ./.github/actions/setup-nix
       with:
         cache-mode: ci
         github-token: ${{ github.token }}
-    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
-    - uses: ./.github/actions/setup-js
+    - name: Install JS dependencies (pnpm)
+      uses: ./.github/actions/setup-js
       with:
         cache-mode: ci
       env:
         NIX_DEVSHELL: js
     # Source checks first: they need no generated tree.
-    - name: Check SDK sources
+    - name: dev/nix-shell 'just sdk lint-source'
       env:
         NIX_DEVSHELL: rust
       run: dev/nix-shell 'just sdk lint-source'
-    - name: Check the generated SDK build closures
+    - name: dev/nix-shell 'just sdk check-generated-nix'
       env:
         NIX_DEVSHELL: rust
       run: dev/nix-shell 'just sdk check-generated-nix'
     # The Kotlin tree and the Android fast consumer: files, receipts, source
     # and render identities, and the ELF library (Swift only on Darwin).
-    - name: Check the SDK product receipts
+    - name: dev/nix-shell 'python3 -B nix/check-sdk-products.py'
       env:
         NIX_DEVSHELL: rust
       run: dev/nix-shell 'python3 -B nix/check-sdk-products.py'
-    - name: Check package scripts
+    - name: dev/nix-shell 'just sdk check-package-scripts'
       env:
         NIX_DEVSHELL: rust
       run: dev/nix-shell 'just sdk check-package-scripts'
     # The Nix trees of every target; the cargo render path, including its
     # stale-file cleanup, is covered by `check-package-scripts`.
-    - name: Generate SDK products from Nix
+    - name: dev/nix-shell 'just sdk generate'
       run: dev/nix-shell 'just sdk generate'
-    - name: Check generated SDK bindings and runtime
+    - name: dev/nix-shell 'just sdk lint-generated'
       env:
         NIX_DEVSHELL: rust
       run: dev/nix-shell 'just sdk lint-generated'
-    - name: Local installed Node ESM package smoke
+    - name: dev/nix-shell 'just sdk package-smoke node'
       run: dev/nix-shell 'just sdk package-smoke node'
-    - name: Local installed Browser pure and worker package smoke
+    - name: dev/nix-shell 'just sdk package-smoke browser'
       env:
         NIX_DEVSHELL: js
       run: dev/nix-shell 'just sdk package-smoke browser'

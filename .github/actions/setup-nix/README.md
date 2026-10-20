@@ -20,6 +20,12 @@ Keep this path aligned with `lib.reactNativeXcode`.
 The Nix store is not persisted between jobs. Each job substitutes from Cachix
 and cache.nixos.org, and Nix checks the signature of every path it adds.
 
+On a GitHub-hosted Linux runner (`runner.environment == 'github-hosted'`), the
+action first removes .NET, the Android SDK, GHC, and CodeQL from the image.
+Those runners start with about 14 GB of free disk, and merge, release, and
+deploy jobs fetch closures of several GB there. Blacksmith and WarpBuild
+runners report `self-hosted` and skip the step.
+
 ## Cache modes
 
 Two Cachix caches hold CI outputs:
@@ -49,8 +55,9 @@ when:
 - a `read` or `trusted` job receives the `xmtp-pr` token;
 - a `read` or `ci` job receives the trusted token.
 
-Fork and Dependabot runs have no
-`xmtp-pr` token: they read both caches and push nothing.
+Fork runs have no `xmtp-pr` token: they read both caches and push nothing.
+Dependabot runs get only Dependabot secrets, so they push to `xmtp-pr` once
+`CACHIX_PR_AUTH_TOKEN` is also a Dependabot secret, and push nothing before.
 
 A writer job selects the writer environment `kache-s3-writer` exactly when
 its mode is `trusted`, with the same protected-push expression in both
@@ -98,8 +105,8 @@ What a clear keeps (name, key, tokens, settings) is not verified; ask Cachix
 support first (Task 1 step 10 of the Nix build plan asks the same for `xmtp`).
 The Gradle cache is not part of `setup-nix`. Android CI jobs in mode `ci` add
 `gradle/actions/setup-gradle` after it: protected trunk pushes write that
-CI-only cache, and every other run only reads it. Release, deploy, benchmark,
-and trusted jobs do not restore it (`CacheModeWiringTests`).
+CI-only cache, and every other run only reads it. Release, deploy, and
+trusted jobs do not restore it (`CacheModeWiringTests`).
 
 ## CI compiler cache
 
@@ -120,12 +127,12 @@ The job summary reports the backend and whether remote writes are enabled.
 
 Kache is off by default (`kache: "false"`). Only jobs that run cargo outside
 Nix set `kache: "true"`; Nix derivations cannot use Kache, so a job that only
-runs `nix build` gains nothing from it. The 21 enabled callers in the table
+runs `nix build` gains nothing from it. The enabled callers in the table
 below use S3 when the reader key pair is available. Every other caller passes
 no Kache input and selects no writer environment, except the `post-merge.yml` build
 job: it runs only on pushes to trunk and selects the writer environment for
 the trusted Cachix token. Kache writes also need mode `trusted` (see "Cache
-modes"). The 11 stable scope families follow the outer Cargo
+modes"). The scopes follow the outer Cargo
 build variant. The action adds runner OS and
 architecture. All callers use `libxmtp/trusted`, prefetch expensive outputs,
 and do not pull the whole bucket at startup.
@@ -208,8 +215,8 @@ separates build variants to keep their prefetch lists useful.
 Scopes follow outer Cargo build families. The JavaScript test, type, SDK
 product, and docs site jobs build no SDK with cargo: they copy the Nix products
 (`XMTP_SDK_BUILD=nix`), so they leave Kache off, and so do the npm release
-jobs and the xmtp.chat deploy, which ship the same products. Default SDK tests, backend tests, native Clippy, WASM Clippy,
-Cargo check, and Rust docs retain distinct scopes.
+jobs and the xmtp.chat deploy, which ship the same products. Clippy (native
+and WASM in one job) and the Rust reference keep distinct scopes.
 
 A scope selects prefetch manifests and dependency shard indexes. It does not
 partition compiled artifacts: all callers share matching artifacts under
@@ -233,15 +240,11 @@ fixtures use fake credentials and never start Kache or access S3.
 
 The action appends runner OS and architecture to each scope below.
 "Protected push writer" requires all event and branch checks above. Every
-other event is a reader. `dev/tests/test_kache_env.py` checks that its
-`KACHE_CALLERS` list names exactly the callers with `kache: "true"`. No test
-reads this table, so update it by hand when you add a caller or rename a
-scope. A job that runs cargo outside Nix belongs in both; remove it only when
-it stops running cargo.
+other event is a reader. No test reads this table, so update it by hand
+when you add a caller or rename a scope. A job that runs cargo outside Nix
+belongs in it; remove it only when it stops running cargo.
 
 | Workflow / job | Scope | Access |
 | --- | --- | --- |
-| `check-rust.yml / native` | `rust-clippy-native` | Protected push writer; otherwise reader |
-| `check-rust.yml / wasm` | `rust-clippy-wasm` | Protected push writer; otherwise reader |
-| `check-sdk-unit.yml / unit` | `sdk-tests-debug` | Protected push writer; otherwise reader |
+| `check-rust.yml / clippy` | `rust-clippy` (native and WASM Clippy) | Protected push writer; otherwise reader |
 | `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer (CI merge run); reader inside `post-merge.yml` and otherwise |

@@ -1,4 +1,4 @@
-name: Deploy persistent backend
+name: "Deploy: backend-dev (Fly)"
 
 on:
   workflow_call:
@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   deploy:
+    name: Deploy backend and observability
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -22,7 +23,8 @@ jobs:
       name: backend-dev
       url: https://${{ env.BACKEND_HOST }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Check for a newer commit
         id: current
         env:
@@ -34,12 +36,16 @@ jobs:
           else
             echo "Skip superseded commit $GITHUB_SHA"
           fi
-      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
+      - name: Install flyctl
         if: steps.current.outputs.deploy == 'true'
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
         with:
           version: "0.4.104"
-      - uses: ./.github/actions/setup-node
+      - name: Install Node.js from .node-version
         if: steps.current.outputs.deploy == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: ".node-version"
       - name: Deploy private observability services
         if: steps.current.outputs.deploy == 'true'
         env:

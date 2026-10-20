@@ -16,6 +16,7 @@
   path,
   mitm-cache,
   openssl,
+  just,
   local ? false,
 }:
 let
@@ -110,6 +111,9 @@ mkShell {
     perl
     posixCommand
   ];
+  # CI jobs run their `just` recipes in this one shell. The Android consumer
+  # derivation takes this shell's nativeBuildInputs, so `just` stays out of them.
+  buildInputs = [ just ];
   ANDROID_HOME = androidHome;
   ANDROID_SDK_ROOT = androidHome;
   ANDROID_NDK_HOME = "${androidHome}/ndk/${tools.android.ndk}";

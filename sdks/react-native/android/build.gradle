@@ -6,6 +6,17 @@ react {
     codegenJavaPackageName = 'org.xmtp.reactnative'
 }
 
+// The ABIs to build CMakeLists.txt for. React Native's Gradle plugin applies
+// the app's reactNativeArchitectures (or react.nativeArchitectures) property
+// to the app only, so a library reads it itself. CMakeLists.txt links the
+// package's libxmtp_sdk.so of each ABI, and a partial test package ships one
+// ABI. Without the property: every ABI that the release package ships.
+def xmtpReactNativeArchitectures() {
+    def value = project.findProperty('reactNativeArchitectures') ?: project.findProperty('react.nativeArchitectures')
+    def abis = value ? value.toString().split(',').collect { it.trim() }.findAll { it } : []
+    return abis ?: ['armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64']
+}
+
 android {
     namespace 'org.xmtp.reactnative'
     compileSdk rootProject.ext.has('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 37
@@ -13,6 +24,7 @@ android {
     ndkVersion rootProject.ext.has('ndkVersion') ? rootProject.ext.ndkVersion : '27.1.12297006'
     defaultConfig {
         minSdk 24
+        ndk { abiFilters(*xmtpReactNativeArchitectures()) }
         externalNativeBuild {
             cmake { arguments '-DANDROID_STL=c++_shared' }
         }

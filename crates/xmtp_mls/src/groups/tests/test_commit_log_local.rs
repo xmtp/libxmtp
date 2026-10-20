@@ -197,7 +197,6 @@ async fn test_welcome_commit_log() {
 
 // TODO(rich): Fix intent publishing on bad network conditions
 #[cfg(not(target_arch = "wasm32"))]
-#[ignore]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_retriable_error() {
     toxiproxy_test(async || {

@@ -1,5 +1,5 @@
 # .github/workflows/create-release-branch.yml
-name: Create Release Branch
+name: "Release: create branch"
 
 on:
   workflow_dispatch:
@@ -101,16 +101,19 @@ on:
 
 jobs:
   create-branch:
+    name: Create release branch and PR
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the base
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.base-ref || github.ref_name }}
           fetch-depth: 0
-      - uses: ./.github/actions/setup-release-tools
+      - name: Set up release tools
+        uses: ./.github/actions/setup-release-tools
       - name: Create release branch
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -155,7 +158,7 @@ jobs:
             --body "$(cat <<EOF
           ## Release ${RELEASE_VERSION}
 
-          This PR was created by the Create Release Branch workflow.
+          This PR was created by the "Release: create branch" workflow.
 
           ### Checklist
           - [ ] Release notes reviewed and finalized
@@ -168,6 +171,7 @@ jobs:
           )"
 
   release-notes:
+    name: Release notes
     needs: create-branch
     uses: ./.github/workflows/release-notes.yml
     # A called workflow's permissions are capped by the caller job's grant,

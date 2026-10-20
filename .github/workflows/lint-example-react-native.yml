@@ -1,6 +1,11 @@
-name: Lint React Native example
+name: "Lint: React Native example app"
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
     secrets:
       CACHIX_PR_AUTH_TOKEN:
         required: false
@@ -11,16 +16,17 @@ env:
   NIX_DEVSHELL: js-node
 jobs:
   lint:
-    name: Lint (React Native example)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    name: Typecheck, lint, unit tests
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
-      - name: Check React Native example
+      - name: dev/nix-shell 'just example-react-native check'
         run: dev/nix-shell 'just example-react-native check'
