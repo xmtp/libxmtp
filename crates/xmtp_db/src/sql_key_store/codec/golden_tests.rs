@@ -1,33 +1,49 @@
 //! Golden rows: the forward-compatibility guard for the stored CBOR.
 //!
 //! Every database written since the CBOR switch holds rows like the frozen
-//! files below. Each file holds the key store rows this build wrote for every
+//! files below. Each file holds the key store rows a build wrote for every
 //! label the store writes, from groups shaped like XMTP's, plus the
 //! `db_serialize` columns that hold OpenMLS types. Its keys are throwaway test
 //! keys made for the file; they protect nothing.
 //!
-//! The tests check that:
-//! - every label the store writes has a row (read from the store's source);
-//! - rows and columns with a public type decode with it and encode back to
-//!   the same CBOR (map order aside), so a renamed or dropped field, optional
-//!   ones included, fails;
-//! - OpenMLS reads the crate-private rows the way it reads them in
-//!   production: it loads the groups, reads its keys, decrypts a message from
-//!   a past epoch, commits a stored proposal, merges a stored staged commit,
-//!   and exchanges messages;
-//! - the rows this build writes now, from the same steps, have the same field
-//!   and variant names as the newest frozen file, so a dependency bump that
-//!   renames, adds or removes a stored field fails CI;
-//! - the frozen files hold the shapes XMTP stores;
-//! - cut and corrupted rows, and rows that declare a length past their end,
-//!   are errors, not panics.
+//! The newest file is the format this build writes. The tests check that:
+//! - every label the store writes has a row in it (read from the store's
+//!   source);
+//! - it holds the shapes XMTP stores, by exact key path, and an epoch and a
+//!   generation above 255;
+//! - its rows and columns with a public type decode and encode back to the
+//!   same CBOR (map and hash map order aside), so a renamed or dropped field,
+//!   optional ones included, fails;
+//! - the rows this build writes now, from the same steps, have its field and
+//!   variant names, so a dependency bump that renames, adds or removes a
+//!   stored field fails CI;
+//! - its rows that declare a length past their end are errors, not panics.
 //!
-//! A frozen file is never edited or rewritten: its SHA-256 is pinned. For a
-//! deliberate format change, run
-//! `dev/nix-shell 'just test workspace -p xmtp_db write_golden_rows --run-ignored only'`
-//! (native only), rename the new `golden_rows_next.json` to
-//! `golden_rows_<release>.json`, add it to [`GOLDEN_FILES`] with its hash, and
-//! keep every older file: rows from every released format must keep loading.
+//! For every frozen file, the tests check that:
+//! - OpenMLS reads the crate-private rows the way it reads them in
+//!   production: it loads the groups, reads its keys, decrypts a message
+//!   from a past epoch and one of a skipped generation, commits stored
+//!   proposals, merges a stored staged commit, and exchanges messages. What
+//!   the file's steps leave is read from its `expect` block;
+//! - cut and corrupted rows are errors, not panics;
+//! - every shape of an older file is also in the newest file, unless it is
+//!   in [`REMOVED_SHAPES`].
+//!
+//! Known limit: CBOR stores an integer in its shortest form, so the fixture's
+//! values still read after a stored integer is narrowed to `u16` or `u32`.
+//! Only a narrowing to `u8` fails.
+//!
+//! A frozen file is never edited or rewritten: its SHA-256 is pinned. When a
+//! deliberate change makes this build write another shape (a new field,
+//! label or variant, or new steps in [`build`]):
+//! 1. run `dev/nix-shell 'just test workspace -p xmtp_db write_golden_rows --run-ignored only'`
+//!    (native only);
+//! 2. rename the new `golden_rows_next.json` to `golden_rows_<release>.json`
+//!    and add it last to [`GOLDEN_FILES`] with its hash;
+//! 3. keep every older file: rows from every released format must keep
+//!    loading. If the new format removes a shape on purpose, list it in
+//!    [`REMOVED_SHAPES`] with the reason.
+//!
 //! Say in the commit why the stored format changed.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -35,6 +51,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use cbor4ii::core::{Value as Cbor, dec::Decode as _, enc::Encode as _, utils::SliceReader};
 use diesel::prelude::*;
 use openmls::{
+    component::ComponentData,
     credentials::{BasicCredential, Credential, CredentialWithKey},
     extensions::{
         AppDataDictionary, AppDataDictionaryExtension, ApplicationIdExtension, Extension,
@@ -42,13 +59,14 @@ use openmls::{
         UnknownExtension,
     },
     group::{
-        GroupId, MlsGroup, MlsGroupCreateConfig, MlsGroupJoinConfig, StagedCommit, StagedWelcome,
+        AppDataDictionaryUpdater, AppDataUpdates, GroupId, MlsGroup, MlsGroupCreateConfig,
+        MlsGroupJoinConfig, StagedCommit, StagedWelcome,
     },
     key_packages::{KeyPackage, KeyPackageBundle},
-    messages::proposals::ProposalType,
+    messages::proposals::{AppDataUpdateOperation, AppDataUpdateProposal, Proposal, ProposalType},
     prelude::{
-        Capabilities, CredentialType, KeyPackageRef, LeafNodeParameters, MlsMessageBodyIn,
-        MlsMessageIn, ProcessedMessageContent, ProtocolMessage, SignatureScheme,
+        Capabilities, CredentialType, KeyPackageRef, LeafNodeIndex, LeafNodeParameters,
+        MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent, ProtocolMessage, SignatureScheme,
         tls_codec::{Deserialize as _, VLBytes},
     },
     treesync::{EncryptionKey, test_utils::read_keys_from_key_store},
@@ -85,7 +103,7 @@ struct GoldenFile {
 const GOLDEN_FILES: &[GoldenFile] = &[GoldenFile {
     name: "golden_rows_rc4.json",
     text: include_str!("golden_rows_rc4.json"),
-    sha256: "45430ae8e6244a5f57a8e0583c6fd5fb4d27d9c8b751cee8f790278e2966b3d7",
+    sha256: "27efc2db15f1824f223cb574f139a2d753204840e58a719420a391ace5848565",
 }];
 
 const STORES: [&str; 3] = ["alice", "bob", "carol"];
@@ -93,6 +111,17 @@ const COLUMNS: [&str; 3] = ["Credential", "StagedCommit", "XmtpInstallationCrede
 /// `ComponentId::COMMIT_LOG_SIGNER` in `xmtp_mls_common`, as XMTP groups use it.
 const COMMIT_LOG_SIGNER: u16 = 0x800B;
 const LATE_MESSAGE: &[u8] = b"sent in epoch 1, read in epoch 2";
+/// Self-updates before the group grows, so every stored epoch is above 255
+/// and a stored epoch narrowed to `u8` fails to load. Narrowing to `u16` or
+/// `u32` stays untested: the fixture would need that many epochs.
+const EPOCHS_BEFORE_JOIN: usize = 256;
+/// Messages Alice sends in one epoch, so a stored generation is above 255.
+const BURST: usize = 300;
+/// `ComponentId::GROUP_MEMBERSHIP` in `xmtp_mls_common`, which XMTP updates
+/// with AppDataUpdate proposals.
+const GROUP_MEMBERSHIP: u16 = 0x8003;
+const PROPOSED_MEMBERSHIP: &[u8] = b"membership in a standalone proposal";
+const COMMITTED_MEMBERSHIP: &[u8] = b"membership in an inline proposal";
 
 type Provider = XmtpOpenMlsProvider<crate::DefaultMlsStore>;
 
@@ -335,30 +364,131 @@ fn read_message(provider: &Provider, group: &mut MlsGroup, message: &[u8]) -> Ve
     message.into_bytes()
 }
 
-/// Process a commit and merge it.
+/// The dictionary updates of `proposals`, applied to `updater`'s dictionary.
+fn dictionary_changes<'a>(
+    mut updater: AppDataDictionaryUpdater<'_>,
+    proposals: impl IntoIterator<Item = &'a AppDataUpdateProposal>,
+) -> Option<AppDataUpdates> {
+    for proposal in proposals {
+        match proposal.operation() {
+            AppDataUpdateOperation::Update(data) => updater.set(ComponentData::from_parts(
+                proposal.component_id(),
+                data.clone(),
+            )),
+            AppDataUpdateOperation::Remove => updater.remove(&proposal.component_id()),
+        }
+    }
+    updater.changes()
+}
+
+/// Process a commit and merge it. A commit with AppDataUpdate proposals is
+/// resolved with their dictionary updates first.
 fn merge_commit(provider: &Provider, group: &mut MlsGroup, commit: &[u8]) {
-    let ProcessedMessageContent::StagedCommitMessage(staged) = process(provider, group, commit)
-    else {
-        panic!("not a commit");
+    let staged = match process(provider, group, commit) {
+        ProcessedMessageContent::StagedCommitMessage(staged) => *staged,
+        ProcessedMessageContent::UnresolvedAppDataCommit(unresolved) => {
+            let changes = dictionary_changes(
+                group.app_data_dictionary_updater(),
+                unresolved.app_data_update_proposals(),
+            );
+            group
+                .stage_app_data_commit(provider, *unresolved, changes)
+                .unwrap()
+        }
+        _ => panic!("not a commit"),
     };
-    group.merge_staged_commit(provider, *staged).unwrap();
+    group.merge_staged_commit(provider, staged).unwrap();
+}
+
+/// Commit every pending proposal, with inline `proposals` and `removals`,
+/// as XMTP commits: with the dictionary updates of every AppDataUpdate
+/// proposal, and with a path when `path` is set. The commit stays pending.
+fn commit_pending(
+    provider: &Provider,
+    group: &mut MlsGroup,
+    signer: &SignatureKeyPair,
+    proposals: Vec<Proposal>,
+    removals: Vec<LeafNodeIndex>,
+    path: bool,
+) -> Vec<u8> {
+    let mut stage = group
+        .commit_builder()
+        .consume_proposal_store(true)
+        .add_proposals(proposals)
+        .propose_removals(removals)
+        .force_self_update(path)
+        .load_psks(provider.storage())
+        .unwrap();
+    let changes = dictionary_changes(
+        stage.app_data_dictionary_updater(),
+        stage.app_data_update_proposals(),
+    );
+    stage.with_app_data_dictionary_updates(changes);
+    let bundle = stage
+        .build(provider.rand(), provider.crypto(), signer, |_| true)
+        .unwrap()
+        .stage_commit(provider)
+        .unwrap();
+    tls(bundle.commit())
+}
+
+/// The group membership component in a group's dictionary.
+fn membership(group: &MlsGroup) -> Option<&[u8]> {
+    group
+        .extensions()
+        .app_data_dictionary()?
+        .dictionary()
+        .get(&GROUP_MEMBERSHIP)
+}
+
+/// The leaf of the member named `name`.
+fn leaf_of(group: &MlsGroup, name: &str) -> LeafNodeIndex {
+    group
+        .members()
+        .find(|member| {
+            BasicCredential::try_from(member.credential.clone())
+                .is_ok_and(|credential| credential.identity() == name.as_bytes())
+        })
+        .unwrap()
+        .index
+}
+
+/// The OpenMLS revision this build is pinned to, from the workspace manifest.
+fn openmls_revision() -> &'static str {
+    const MANIFEST: &str = include_str!("../../../../../Cargo.toml");
+    MANIFEST
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("openmls = { git = \"https://github.com/xmtp/openmls\", rev = \"")?
+                .split_once('"')
+                .map(|(revision, _)| revision)
+        })
+        .expect("the openmls pin in Cargo.toml")
 }
 
 /// The rows and columns of XMTP-shaped groups, as this build writes them.
 ///
-/// Group 1 (Alice, Bob, Carol):
-/// - Alice adds Bob and Carol; all three exchange messages in epoch 1, so the
-///   message secrets hold decryption ratchets. Alice keeps one epoch-1
-///   message for Bob unread.
-/// - Alice removes Carol: Carol's group is inactive, and epoch 1 moves into
-///   the past epoch trees.
-/// - Alice and Bob exchange messages in epoch 2.
-/// - Alice proposes a self-update. Both store it, and Alice stores her own
-///   new leaf node and its key pair.
+/// Group 1 (Alice, Bob, Carol, and Frank, whose store is not kept):
+/// - Alice alone first commits [`EPOCHS_BEFORE_JOIN`] self-updates, so every
+///   stored epoch is above 255.
+/// - Alice adds Bob, Carol and Frank; Alice and Bob send messages in that
+///   epoch, so the message secrets hold decryption ratchets. Alice keeps one
+///   of those messages for Bob unread.
+/// - Alice removes Carol: Carol's group is inactive, and that epoch moves
+///   into the past epoch trees.
+/// - Alice sends [`BURST`] messages in the next epoch. Bob reads only the
+///   last, so his ratchet is at a generation above 255 and holds the secrets
+///   of skipped generations; Alice keeps one skipped message for Bob. Bob
+///   replies.
+/// - Alice proposes a self-update, an AppDataUpdate and the removal of
+///   Frank. Both store the proposals, and Alice stores her own new leaf node
+///   and its key pair.
 ///
-/// Group 2 (Alice): Alice proposes adding a member and commits it with an
-/// update path, and does not merge. Her store holds an own staged commit with
-/// a proposal and a new leaf key pair.
+/// Group 2 (Alice, and Erin, whose store is not kept): Alice proposes adding
+/// Dave, then stages, and does not merge, a commit as XMTP does: the Add by
+/// reference, an inline AppDataUpdate and an inline Remove of Erin, with the
+/// dictionary update and an update path. Her store holds the own staged
+/// commit, and the StagedCommit column is that commit.
 ///
 /// Bob's store also holds a spare key package, the XMTP labels for it, and
 /// a commit-log signer key. The columns are Bob's credential, an
@@ -374,6 +504,12 @@ async fn build() -> Value {
     let bob_joining = key_package(&bob, &bob_signer, "bob");
     let bob_spare = key_package(&bob, &bob_signer, "bob");
     let carol_joining = key_package(&carol, &carol_signer, "carol");
+    // Members whose stores are not kept.
+    let throwaway = openmls_rust_crypto::OpenMlsRustCrypto::default();
+    let unkept = |name: &str| {
+        let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+        key_package(&throwaway, &signer, name)
+    };
 
     let config = group_config();
     let mut group = MlsGroup::new(
@@ -383,6 +519,12 @@ async fn build() -> Value {
         credential("alice", &alice_signer),
     )
     .unwrap();
+    for _ in 0..EPOCHS_BEFORE_JOIN {
+        group
+            .self_update(&alice, &alice_signer, LeafNodeParameters::default())
+            .unwrap();
+        group.merge_pending_commit(&alice).unwrap();
+    }
     let (_, welcome, _) = group
         .add_members(
             &alice,
@@ -390,6 +532,7 @@ async fn build() -> Value {
             &[
                 bob_joining.key_package().clone(),
                 carol_joining.key_package().clone(),
+                unkept("frank").key_package().clone(),
             ],
         )
         .unwrap();
@@ -406,7 +549,7 @@ async fn build() -> Value {
     };
     let (mut bob_group, mut carol_group) = (join(&bob), join(&carol));
 
-    // Epoch 1: messages from each member to the others.
+    // Messages from Alice and Bob to the others.
     let from_alice = tls(&group
         .create_message(&alice, &alice_signer, b"1 from alice")
         .unwrap());
@@ -421,45 +564,58 @@ async fn build() -> Value {
         .create_message(&alice, &alice_signer, LATE_MESSAGE)
         .unwrap());
 
-    // Epoch 2: Alice removes Carol.
-    let carol_leaf = group
-        .members()
-        .find(|member| {
-            BasicCredential::try_from(member.credential.clone())
-                .is_ok_and(|credential| credential.identity() == b"carol")
-        })
-        .unwrap()
-        .index;
+    // Alice removes Carol.
     let (commit, _, _) = group
-        .remove_members(&alice, &alice_signer, &[carol_leaf])
+        .remove_members(&alice, &alice_signer, &[leaf_of(&group, "carol")])
         .unwrap();
     group.merge_pending_commit(&alice).unwrap();
     merge_commit(&bob, &mut bob_group, &tls(&commit));
     merge_commit(&carol, &mut carol_group, &tls(&commit));
     assert!(!carol_group.is_active());
-    let from_alice = tls(&group
-        .create_message(&alice, &alice_signer, b"2 from alice")
-        .unwrap());
-    read_message(&bob, &mut bob_group, &from_alice);
+
+    // A burst from Alice; Bob reads only its last message.
+    let burst: Vec<Vec<u8>> = (0..BURST)
+        .map(|index| {
+            let text = format!("2 from alice, {index}");
+            tls(&group
+                .create_message(&alice, &alice_signer, text.as_bytes())
+                .unwrap())
+        })
+        .collect();
+    read_message(&bob, &mut bob_group, burst.last().unwrap());
+    let skipped = burst[BURST - 2].clone();
     let from_bob = tls(&bob_group
         .create_message(&bob, &bob_signer, b"2 from bob")
         .unwrap());
     read_message(&alice, &mut group, &from_bob);
 
-    // Alice's pending self-update, stored by both.
-    let (proposal, _) = group
+    // Alice's pending proposals, stored by both.
+    let (update, _) = group
         .propose_self_update(&alice, &alice_signer, LeafNodeParameters::default())
         .unwrap();
-    let ProcessedMessageContent::ProposalMessage(queued) =
-        process(&bob, &mut bob_group, &tls(&proposal))
-    else {
-        panic!("not a proposal");
-    };
-    bob_group
-        .store_pending_proposal(bob.storage(), *queued)
+    let (app_data, _) = group
+        .propose_app_data_update(
+            &alice,
+            &alice_signer,
+            GROUP_MEMBERSHIP,
+            AppDataUpdateOperation::Update(PROPOSED_MEMBERSHIP.to_vec().into()),
+        )
         .unwrap();
+    let (remove, _) = group
+        .propose_remove_member(&alice, &alice_signer, leaf_of(&group, "frank"))
+        .unwrap();
+    for proposal in [update, app_data, remove] {
+        let ProcessedMessageContent::ProposalMessage(queued) =
+            process(&bob, &mut bob_group, &tls(&proposal))
+        else {
+            panic!("not a proposal");
+        };
+        bob_group
+            .store_pending_proposal(bob.storage(), *queued)
+            .unwrap();
+    }
 
-    // Group 2: Alice's own staged commit with a proposal and a new leaf.
+    // Group 2: Alice's own staged commit, as XMTP stages one.
     let mut second = MlsGroup::new(
         &alice,
         &alice_signer,
@@ -467,23 +623,28 @@ async fn build() -> Value {
         credential("alice", &alice_signer),
     )
     .unwrap();
-    let throwaway = openmls_rust_crypto::OpenMlsRustCrypto::default();
-    let dave_signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
-    let dave = key_package(&throwaway, &dave_signer, "dave");
     second
-        .propose_add_member(&alice, &alice_signer, dave.key_package())
+        .add_members(
+            &alice,
+            &alice_signer,
+            &[unkept("erin").key_package().clone()],
+        )
         .unwrap();
-    // A path, so the commit holds Alice's new leaf and its key pair.
+    second.merge_pending_commit(&alice).unwrap();
     second
-        .commit_builder()
-        .consume_proposal_store(true)
-        .force_self_update(true)
-        .load_psks(alice.storage())
-        .unwrap()
-        .build(alice.rand(), alice.crypto(), &alice_signer, |_| true)
-        .unwrap()
-        .stage_commit(&alice)
+        .propose_add_member(&alice, &alice_signer, unkept("dave").key_package())
         .unwrap();
+    let erin = leaf_of(&second, "erin");
+    commit_pending(
+        &alice,
+        &mut second,
+        &alice_signer,
+        vec![Proposal::AppDataUpdate(Box::new(
+            AppDataUpdateProposal::update(GROUP_MEMBERSHIP, COMMITTED_MEMBERSHIP.to_vec()),
+        ))],
+        vec![erin],
+        true,
+    );
     let staged = second.pending_commit().expect("an own staged commit");
 
     // The XMTP labels, as `identity.rs` and `commit_log_key.rs` write them.
@@ -526,12 +687,27 @@ async fn build() -> Value {
     };
     json!({
         "description": "Key store rows and db_serialize columns written by libxmtp with CBOR values, from XMTP-shaped test groups. The keys are throwaway test keys. src/sql_key_store/codec/golden_tests.rs builds and reads them. Frozen: never edit or regenerate this file.",
-        "openmls": "xmtp/openmls b5be619c8ec0a5a7086303c0a8ec59400910c7ee (v0.9.1 with xmtp patches)",
+        "openmls": format!("xmtp/openmls {}", openmls_revision()),
         "groups": {
             "first": hex::encode(group.group_id().as_slice()),
             "second": hex::encode(second.group_id().as_slice()),
         },
         "late_message": hex::encode(late),
+        "skipped_message": hex::encode(skipped),
+        "expect": {
+            "first_members": group.members().count(),
+            "first_pending_proposals": group.pending_proposals().count(),
+            "first_members_after_commit": group.members().count()
+                - group
+                    .pending_proposals()
+                    .filter(|queued| matches!(queued.proposal(), Proposal::Remove(_)))
+                    .count(),
+            "second_members_after_merge": second.members().count()
+                + staged.add_proposals().count()
+                - staged.remove_proposals().count(),
+            "first_membership_after_commit": hex::encode(PROPOSED_MEMBERSHIP),
+            "second_membership_after_merge": hex::encode(COMMITTED_MEMBERSHIP),
+        },
         "stores": {
             "alice": rows(&alice),
             "bob": rows(&bob),
@@ -607,6 +783,11 @@ fn parse(file: &GoldenFile) -> Golden {
 
 fn goldens() -> Vec<Golden> {
     GOLDEN_FILES.iter().map(parse).collect()
+}
+
+/// The newest frozen file: the format this build writes.
+fn newest() -> Golden {
+    parse(GOLDEN_FILES.last().unwrap())
 }
 
 /// The key part of a `label || label || key || version || version` storage
@@ -841,35 +1022,6 @@ fn shapes(golden: &Golden) -> BTreeMap<String, BTreeSet<String>> {
     shapes
 }
 
-/// Every text string in the stored values: field names, variant names and
-/// text fields.
-fn texts(golden: &Golden) -> BTreeSet<String> {
-    fn walk(value: &Cbor, texts: &mut BTreeSet<String>) {
-        match value {
-            Cbor::Text(text) => {
-                texts.insert(text.clone());
-            }
-            Cbor::Array(items) => items.iter().for_each(|item| walk(item, texts)),
-            Cbor::Map(entries) => entries.iter().for_each(|(key, value)| {
-                walk(key, texts);
-                walk(value, texts);
-            }),
-            Cbor::Tag(_, inner) => walk(inner, texts),
-            _ => {}
-        }
-    }
-    let mut texts = BTreeSet::new();
-    for row in golden.rows() {
-        for value in list_items(&row.value).unwrap_or_else(|| vec![row.value.clone()]) {
-            walk(&cbor(&value), &mut texts);
-        }
-    }
-    for value in golden.columns.values() {
-        walk(&cbor(value), &mut texts);
-    }
-    texts
-}
-
 /// Each frozen file is unchanged.
 #[xmtp_common::test(unwrap_try = true)]
 fn golden_files_are_frozen() {
@@ -906,91 +1058,174 @@ fn byte_string_constants_parse_in_any_form() {
     }
 }
 
-/// Every label the key store writes has a row in each frozen file, and each
-/// row's label matches its key.
+/// Every label the key store writes has a row in the newest frozen file, and
+/// each row's label matches its key.
 #[xmtp_common::test(unwrap_try = true)]
 fn golden_rows_cover_every_label() {
     let labels = store_labels();
     assert_eq!(labels.len(), 21, "the store's labels: {labels:?}");
-    for golden in goldens() {
-        let stored: BTreeSet<&str> = golden
-            .rows()
-            .map(|row| {
-                assert_eq!(row.label, label_of(&row.key));
-                row.label.as_str()
-            })
-            .collect();
-        assert_eq!(stored, labels, "{}", golden.name);
-        assert_eq!(
-            golden
-                .columns
-                .keys()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
-            COLUMNS,
-            "{}",
-            golden.name
-        );
+    let golden = newest();
+    let stored: BTreeSet<&str> = golden
+        .rows()
+        .map(|row| {
+            assert_eq!(row.label, label_of(&row.key));
+            row.label.as_str()
+        })
+        .collect();
+    assert_eq!(stored, labels, "{}", golden.name);
+    assert_eq!(
+        golden
+            .columns
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        COLUMNS,
+        "{}",
+        golden.name
+    );
+}
+
+/// Shapes XMTP groups store, as (label or column, exact key path): Unknown,
+/// last-resort and ApplicationId extensions in key packages; the AppData
+/// dictionary and RequiredCapabilities in group contexts; decryption
+/// ratchets with skipped-generation secrets and past epoch trees; inactive,
+/// operational and pending-commit group states; standalone Update,
+/// AppDataUpdate and Remove proposals; and an own staged commit with an Add
+/// by reference, an inline AppDataUpdate and Remove, new key pairs, and the
+/// committer's new leaf.
+const PRODUCTION_SHAPES: &[(&str, &str)] = &[
+    (
+        "KeyPackage",
+        ".key_package.payload.extensions.unique[].Unknown",
+    ),
+    (
+        "KeyPackage",
+        ".key_package.payload.extensions.unique[].LastResort",
+    ),
+    (
+        "KeyPackage",
+        ".key_package.payload.leaf_node.payload.extensions.unique[].ApplicationId",
+    ),
+    ("GroupContext", ".extensions.unique[].AppDataDictionary"),
+    ("GroupContext", ".extensions.unique[].RequiredCapabilities"),
+    (
+        "MessageSecrets",
+        ".message_secrets.secret_tree.application_sender_ratchets[].DecryptionRatchet.past_secrets[][].aead_mode",
+    ),
+    (
+        "MessageSecrets",
+        ".message_secrets.secret_tree.application_sender_ratchets[].EncryptionRatchet.generation",
+    ),
+    (
+        "MessageSecrets",
+        ".past_epoch_trees[].message_secrets.secret_tree.application_sender_ratchets[].DecryptionRatchet.ratchet_head.generation",
+    ),
+    ("GroupState", "=Inactive"),
+    ("GroupState", "=Operational"),
+    (
+        "GroupState",
+        ".PendingCommit.Member.state.GroupMember.new_keypairs[].public_key",
+    ),
+    (
+        "GroupState",
+        ".PendingCommit.Member.state.GroupMember.update_path_leaf_node.payload",
+    ),
+    ("QueuedProposal", ".proposal.Update"),
+    ("QueuedProposal", ".proposal.AppDataUpdate.operation.Update"),
+    ("QueuedProposal", ".proposal.Remove.removed"),
+    ("QueuedProposal", ".proposal_or_ref_type=Reference"),
+    (
+        "StagedCommit",
+        ".staged_proposal_queue.queued_proposals[][].proposal.Add",
+    ),
+    (
+        "StagedCommit",
+        ".staged_proposal_queue.queued_proposals[][].proposal.AppDataUpdate.operation.Update",
+    ),
+    (
+        "StagedCommit",
+        ".staged_proposal_queue.queued_proposals[][].proposal.Remove.removed",
+    ),
+    (
+        "StagedCommit",
+        ".staged_proposal_queue.queued_proposals[][].proposal_or_ref_type=Proposal",
+    ),
+    (
+        "StagedCommit",
+        ".staged_proposal_queue.queued_proposals[][].proposal_or_ref_type=Reference",
+    ),
+    (
+        "StagedCommit",
+        ".state.GroupMember.new_keypairs[].public_key",
+    ),
+    (
+        "StagedCommit",
+        ".state.GroupMember.update_path_leaf_node.payload",
+    ),
+];
+
+/// Every integer stored under the map key `field`, at any depth.
+fn integers(value: &Cbor, field: &str, found: &mut Vec<i128>) {
+    match value {
+        Cbor::Map(entries) => {
+            for (key, value) in entries {
+                if let (Cbor::Text(name), Cbor::Integer(integer)) = (key, value)
+                    && name == field
+                {
+                    found.push(*integer);
+                }
+                integers(value, field, found);
+            }
+        }
+        Cbor::Array(items) => items.iter().for_each(|item| integers(item, field, found)),
+        Cbor::Tag(_, inner) => integers(inner, field, found),
+        _ => {}
     }
 }
 
-/// The frozen files hold the shapes XMTP groups store, not only a plain
-/// OpenMLS group: Unknown extensions, RequiredCapabilities, decryption
-/// ratchets, past epoch trees for XMTP's past epochs, an inactive group, and
-/// an own staged commit with a proposal and a new leaf.
+/// The newest frozen file holds the shapes XMTP groups store
+/// ([`PRODUCTION_SHAPES`]), message secrets that keep XMTP's past epochs, and
+/// an epoch and a generation above 255, so a stored integer narrowed to `u8`
+/// fails to load.
 #[xmtp_common::test(unwrap_try = true)]
 fn golden_rows_hold_production_shapes() {
-    for golden in goldens() {
-        let texts = texts(&golden);
-        for shape in [
-            "Unknown",
-            "RequiredCapabilities",
-            "LastResort",
-            "ApplicationId",
-            "AppDataDictionary",
-            "DecryptionRatchet",
-            "EncryptionRatchet",
-            "Inactive",
-            "Operational",
-            "PendingCommit",
-            "Member",
-        ] {
-            assert!(texts.contains(shape), "{} has no {shape}", golden.name);
+    let golden = newest();
+    let shapes = shapes(&golden);
+    for (label, path) in PRODUCTION_SHAPES {
+        let found = shapes
+            .iter()
+            .any(|(key, paths)| (key.ends_with(&format!(" {label}"))) && paths.contains(*path));
+        assert!(found, "{} has no {label} {path}", golden.name);
+    }
+
+    // Message secrets that keep XMTP's past epochs, with a past epoch.
+    let past_epochs = golden
+        .rows()
+        .filter(|row| row.label == "MessageSecrets")
+        .filter_map(|row| match cbor(&row.value) {
+            Cbor::Map(entries) => Some(entries),
+            _ => None,
+        })
+        .any(|entries| {
+            let field = |name: &str| {
+                entries
+                    .iter()
+                    .find(|(key, _)| matches!(key, Cbor::Text(text) if text == name))
+                    .map(|(_, value)| value)
+            };
+            matches!(field("max_epochs"), Some(Cbor::Integer(epochs)) if *epochs == MAX_PAST_EPOCHS as i128)
+                && matches!(field("past_epoch_trees"), Some(Cbor::Array(trees)) if !trees.is_empty())
+        });
+    assert!(past_epochs, "{} has no past epoch tree", golden.name);
+
+    for (label, field) in [("GroupContext", "epoch"), ("MessageSecrets", "generation")] {
+        let mut found = vec![];
+        for row in golden.rows().filter(|row| row.label == label) {
+            integers(&cbor(&row.value), field, &mut found);
         }
-
-        // Message secrets that keep XMTP's past epochs, with a past epoch.
-        let past_epochs = golden
-            .rows()
-            .filter(|row| row.label == "MessageSecrets")
-            .filter_map(|row| match cbor(&row.value) {
-                Cbor::Map(entries) => Some(entries),
-                _ => None,
-            })
-            .any(|entries| {
-                let field = |name: &str| {
-                    entries
-                        .iter()
-                        .find(|(key, _)| matches!(key, Cbor::Text(text) if text == name))
-                        .map(|(_, value)| value)
-                };
-                matches!(field("max_epochs"), Some(Cbor::Integer(epochs)) if *epochs == MAX_PAST_EPOCHS as i128)
-                    && matches!(field("past_epoch_trees"), Some(Cbor::Array(trees)) if !trees.is_empty())
-            });
-        assert!(past_epochs, "{} has no past epoch tree", golden.name);
-
-        // The own staged commit holds a proposal and a new leaf key pair.
-        let paths = shapes(&golden);
-        let staged = &paths["column StagedCommit"];
         assert!(
-            staged
-                .iter()
-                .any(|path| path.starts_with(".state.GroupMember.new_keypairs[].")),
-            "{} has no staged new leaf key pair: {staged:?}",
-            golden.name
-        );
-        assert!(
-            staged.iter().any(|path| path.contains("Add")),
-            "{} has no staged Add proposal: {staged:?}",
+            found.iter().any(|integer| *integer > 255),
+            "{}: no {label} {field} above 255: {found:?}",
             golden.name
         );
     }
@@ -1002,7 +1237,7 @@ fn golden_rows_hold_production_shapes() {
 /// add a new frozen file on purpose.
 #[xmtp_common::test(unwrap_try = true)]
 async fn this_build_writes_the_newest_golden_shapes() {
-    let newest = parse(GOLDEN_FILES.last().unwrap());
+    let newest = newest();
     let fresh = build().await;
     let fresh = Golden {
         name: "this build",
@@ -1049,62 +1284,86 @@ async fn this_build_writes_the_newest_golden_shapes() {
     }
 }
 
-/// Rows and columns with a public type decode with it and encode back to the
-/// same CBOR.
+/// Shapes of an older frozen file that a newer format removed on purpose, as
+/// (file, label or column key, key path), each with the reason in a comment.
+/// Every other shape of an older file must stay in the newest file.
+const REMOVED_SHAPES: &[(&str, &str, &str)] = &[];
+
+/// Every shape of an older frozen file is also in the newest one, so a
+/// renamed or removed field or variant in a crate-private type, which rows of
+/// the older file still hold, fails here even when it reads them with a
+/// default. Removals on purpose go in [`REMOVED_SHAPES`].
+#[xmtp_common::test(unwrap_try = true)]
+fn older_golden_files_keep_their_shapes() {
+    let newest = shapes(&newest());
+    for file in &GOLDEN_FILES[..GOLDEN_FILES.len() - 1] {
+        for (key, paths) in shapes(&parse(file)) {
+            for path in paths {
+                let kept = newest.get(&key).is_some_and(|newer| newer.contains(&path));
+                let removed = REMOVED_SHAPES.contains(&(file.name, key.as_str(), path.as_str()));
+                assert!(
+                    kept || removed,
+                    "{} {key} {path} is not in {}",
+                    file.name,
+                    GOLDEN_FILES.last().unwrap().name
+                );
+            }
+        }
+    }
+}
+
+/// Rows and columns of the newest frozen file with a public type decode with
+/// it and encode back to the same CBOR. An older file may hold a value this
+/// build writes with a new defaulted field; it must still load and run.
 #[xmtp_common::test(unwrap_try = true)]
 fn golden_rows_round_trip_their_public_types() {
-    for golden in goldens() {
-        let mut checked = BTreeSet::new();
-        for row in golden.rows() {
-            let what = format!("{} {}", golden.name, row.label);
-            match row.label.as_str() {
-                "KeyPackage" => round_trips::<KeyPackageBundle>(&what, &row.value),
-                "SignatureKeyPair" => round_trips::<SignatureKeyPair>(&what, &row.value),
-                "GroupContext" => round_trips::<openmls::group::GroupContext>(&what, &row.value),
-                "KeyPackageReferences" => round_trips::<KeyPackageRef>(&what, &row.value),
-                "KeyPackageWrapperPrivateKey" | "CommitLogSignerPrivateKey" => {
-                    round_trips::<Vec<u8>>(&what, &row.value)
-                }
-                "OwnLeafNodeIndex" => {
-                    round_trips::<openmls::prelude::LeafNodeIndex>(&what, &row.value)
-                }
-                "MlsGroupJoinConfig" => round_trips::<MlsGroupJoinConfig>(&what, &row.value),
-                "QueuedProposal" => {
-                    round_trips::<openmls::prelude::QueuedProposal>(&what, &row.value)
-                }
-                "GroupState" => round_trips::<openmls::group::MlsGroupState>(&what, &row.value),
-                "OwnLeafNodes" => {
-                    let items = decode_list(row.label.as_bytes(), &row.value)?;
-                    assert_eq!(
-                        *super::encode_list(row.label.as_bytes(), &items)?,
-                        row.value
-                    );
-                    for item in items.iter() {
-                        round_trips::<openmls::prelude::LeafNode>(&what, item);
-                    }
-                }
-                "ProposalQueueRefs" => {
-                    let items = decode_list(row.label.as_bytes(), &row.value)?;
-                    assert_eq!(
-                        *super::encode_list(row.label.as_bytes(), &items)?,
-                        row.value
-                    );
-                    for item in items.iter() {
-                        round_trips::<KeyPackageRef>(&what, item);
-                    }
-                }
-                _ => continue,
+    let golden = newest();
+    let mut checked = BTreeSet::new();
+    for row in golden.rows() {
+        let what = format!("{} {}", golden.name, row.label);
+        match row.label.as_str() {
+            "KeyPackage" => round_trips::<KeyPackageBundle>(&what, &row.value),
+            "SignatureKeyPair" => round_trips::<SignatureKeyPair>(&what, &row.value),
+            "GroupContext" => round_trips::<openmls::group::GroupContext>(&what, &row.value),
+            "KeyPackageReferences" => round_trips::<KeyPackageRef>(&what, &row.value),
+            "KeyPackageWrapperPrivateKey" | "CommitLogSignerPrivateKey" => {
+                round_trips::<Vec<u8>>(&what, &row.value)
             }
-            checked.insert(row.label.as_str());
+            "OwnLeafNodeIndex" => round_trips::<openmls::prelude::LeafNodeIndex>(&what, &row.value),
+            "MlsGroupJoinConfig" => round_trips::<MlsGroupJoinConfig>(&what, &row.value),
+            "QueuedProposal" => round_trips::<openmls::prelude::QueuedProposal>(&what, &row.value),
+            "GroupState" => round_trips::<openmls::group::MlsGroupState>(&what, &row.value),
+            "OwnLeafNodes" => {
+                let items = decode_list(row.label.as_bytes(), &row.value)?;
+                assert_eq!(
+                    *super::encode_list(row.label.as_bytes(), &items)?,
+                    row.value
+                );
+                for item in items.iter() {
+                    round_trips::<openmls::prelude::LeafNode>(&what, item);
+                }
+            }
+            "ProposalQueueRefs" => {
+                let items = decode_list(row.label.as_bytes(), &row.value)?;
+                assert_eq!(
+                    *super::encode_list(row.label.as_bytes(), &items)?,
+                    row.value
+                );
+                for item in items.iter() {
+                    round_trips::<KeyPackageRef>(&what, item);
+                }
+            }
+            _ => continue,
         }
-        assert_eq!(checked.len(), 12, "{}: {checked:?}", golden.name);
-        round_trips::<Credential>("Credential", &golden.columns["Credential"]);
-        round_trips::<XmtpInstallationCredential>(
-            "XmtpInstallationCredential",
-            &golden.columns["XmtpInstallationCredential"],
-        );
-        round_trips::<StagedCommit>("StagedCommit", &golden.columns["StagedCommit"]);
+        checked.insert(row.label.as_str());
     }
+    assert_eq!(checked.len(), 12, "{}: {checked:?}", golden.name);
+    round_trips::<Credential>("Credential", &golden.columns["Credential"]);
+    round_trips::<XmtpInstallationCredential>(
+        "XmtpInstallationCredential",
+        &golden.columns["XmtpInstallationCredential"],
+    );
+    round_trips::<StagedCommit>("StagedCommit", &golden.columns["StagedCommit"]);
 }
 
 /// Cut and corrupted copies of the rows with a public type are clean errors,
@@ -1171,44 +1430,45 @@ async fn huge_declared_lengths_are_errors() {
         assert_eq!(value[at], 0x81, "one export tree node");
         [&value[..at], &HUGE, &value[at + 1..]].concat()
     };
-    for golden in goldens() {
-        let rows: Vec<Row> = golden.stores["alice"]
-            .iter()
-            .map(|row| Row {
-                label: row.label.clone(),
-                key: row.key.clone(),
-                value: match row.label.as_str() {
-                    "ApplicationExportTree" => huge_nodes(&row.value),
-                    _ => row.value.clone(),
-                },
-            })
-            .collect();
-        let alice = provider().await;
-        restore(&alice, &rows);
-        for name in ["first", "second"] {
-            let (loaded, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
-                tracing::error_span!("load")
-                    .in_scope(|| MlsGroup::load(alice.storage(), &golden.group(name)).map(drop))
-            });
-            assert!(loaded.is_err(), "{name} loaded");
-            let logged = format!("{spans:?}");
-            assert!(logged.contains("ApplicationExportTree"), "{logged}");
-        }
-        let staged = huge_nodes(&golden.columns["StagedCommit"]);
-        assert!(value_from_slice::<StagedCommit>(&staged).is_err());
+    let golden = newest();
+    let rows: Vec<Row> = golden.stores["alice"]
+        .iter()
+        .map(|row| Row {
+            label: row.label.clone(),
+            key: row.key.clone(),
+            value: match row.label.as_str() {
+                "ApplicationExportTree" => huge_nodes(&row.value),
+                _ => row.value.clone(),
+            },
+        })
+        .collect();
+    let alice = provider().await;
+    restore(&alice, &rows);
+    for name in ["first", "second"] {
+        let (loaded, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+            tracing::error_span!("load")
+                .in_scope(|| MlsGroup::load(alice.storage(), &golden.group(name)).map(drop))
+        });
+        assert!(loaded.is_err(), "{name} loaded");
+        let logged = format!("{spans:?}");
+        assert!(logged.contains("ApplicationExportTree"), "{logged}");
     }
+    let staged = huge_nodes(&golden.columns["StagedCommit"]);
+    assert!(value_from_slice::<StagedCommit>(&staged).is_err());
 }
 
 /// OpenMLS reads the crate-private rows itself. Restored into new stores:
 /// - the key package and signature key rows read back through their keys,
 ///   and every encryption key pair reads back;
-/// - Bob decrypts the epoch-1 message from the past epoch trees;
-/// - Bob commits Alice's stored self-update, which Alice can only process
-///   with her stored own leaf node and its key pair;
+/// - Bob decrypts the held-back message from the past epoch trees, and the
+///   skipped message from his ratchet's skipped-generation secrets;
+/// - Bob commits Alice's stored proposals: her self-update, which Alice can
+///   only process with her stored own leaf node and its key pair, the
+///   AppDataUpdate, and the Remove;
 /// - Alice and Bob exchange messages;
 /// - Carol's group loads inactive;
 /// - Alice's second group loads with its staged commit, and the staged
-///   commit column merges into it.
+///   commit column merges into it with its dictionary update.
 #[xmtp_common::test(unwrap_try = true)]
 async fn golden_rows_load_and_run_the_groups() {
     for golden in goldens() {
@@ -1256,20 +1516,47 @@ async fn golden_rows_load_and_run_the_groups() {
             }
         }
 
+        // What the file's steps leave, recorded when it was written.
+        let expect = |name: &str| golden.json["expect"][name].as_u64().unwrap() as usize;
+        let expect_bytes =
+            |name: &str| hex::decode(golden.json["expect"][name].as_str().unwrap()).unwrap();
+        let message = |name: &str| hex::decode(golden.json[name].as_str().unwrap()).unwrap();
+
         let first = golden.group("first");
         let mut alice_group = MlsGroup::load(alice.storage(), &first)?.unwrap();
         let mut bob_group = MlsGroup::load(bob.storage(), &first)?.unwrap();
-        assert_eq!(alice_group.members().count(), 2);
-        assert_eq!(alice_group.pending_proposals().count(), 1);
-        assert_eq!(bob_group.pending_proposals().count(), 1);
+        assert_eq!(alice_group.members().count(), expect("first_members"));
+        for group in [&alice_group, &bob_group] {
+            assert_eq!(
+                group.pending_proposals().count(),
+                expect("first_pending_proposals")
+            );
+        }
 
-        let late = hex::decode(golden.json["late_message"].as_str().unwrap())?;
-        assert_eq!(read_message(bob, &mut bob_group, &late), LATE_MESSAGE);
+        assert_eq!(
+            read_message(bob, &mut bob_group, &message("late_message")),
+            LATE_MESSAGE
+        );
+        let skipped = read_message(bob, &mut bob_group, &message("skipped_message"));
+        assert!(skipped.starts_with(b"2 from alice"));
 
-        let (commit, _, _) = bob_group.commit_to_pending_proposals(bob, &signers["bob"])?;
+        // Bob commits Alice's stored proposals: her self-update, which Alice
+        // can only process with her own leaf node, the AppDataUpdate and the
+        // Remove.
+        let commit = commit_pending(bob, &mut bob_group, &signers["bob"], vec![], vec![], false);
         bob_group.merge_pending_commit(bob)?;
-        merge_commit(alice, &mut alice_group, &tls(&commit));
+        merge_commit(alice, &mut alice_group, &commit);
         assert_eq!(alice_group.epoch(), bob_group.epoch());
+        for group in [&alice_group, &bob_group] {
+            assert_eq!(
+                group.members().count(),
+                expect("first_members_after_commit")
+            );
+            assert_eq!(
+                membership(group),
+                Some(&*expect_bytes("first_membership_after_commit"))
+            );
+        }
         let from_alice = tls(&alice_group.create_message(alice, &signers["alice"], b"after")?);
         assert_eq!(read_message(bob, &mut bob_group, &from_alice), b"after");
         let from_bob = tls(&bob_group.create_message(bob, &signers["bob"], b"reply")?);
@@ -1284,7 +1571,14 @@ async fn golden_rows_load_and_run_the_groups() {
         let epoch = second.epoch();
         second.merge_staged_commit(alice, staged)?;
         assert_eq!(second.epoch().as_u64(), epoch.as_u64() + 1);
-        assert_eq!(second.members().count(), 2);
+        assert_eq!(
+            second.members().count(),
+            expect("second_members_after_merge")
+        );
+        assert_eq!(
+            membership(&second),
+            Some(&*expect_bytes("second_membership_after_merge"))
+        );
 
         // The XMTP labels read back as the production readers read them.
         for row in golden.rows() {
