@@ -3,18 +3,20 @@ use anyhow::Result;
 use tracing::info;
 use xmtp_db::{ConnectionExt, DbConnection, migrations::QueryMigrations};
 
-pub fn rollback(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+/// Reverts `target` and every later migration, and returns the reverted
+/// versions, latest first.
+pub fn rollback(conn: &impl ConnectionExt, target: &str) -> Result<Vec<String>> {
     confirm_destructive()?;
     rollback_confirmed(conn, target)
 }
 
-pub fn rollback_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+pub fn rollback_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<Vec<String>> {
     let db = DbConnection::new(conn);
     let reverted = db.rollback_to_version(target)?;
     for version in &reverted {
         info!("Reverted {version}");
     }
-    Ok(())
+    Ok(reverted)
 }
 
 pub fn run_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
@@ -59,6 +61,19 @@ mod tests {
         },
     };
 
+    // Migrations that have shipped. Migrations are append-only, so these stay
+    // the first embedded names, in this order. A new migration sorts after them.
+    const SHIPPED: [&str; 8] = [
+        "2026-09-08-000000_baseline",
+        "2026-09-24-000000_attachments",
+        "2026-09-28-000000-0000_received_proposals",
+        "2026-09-28-010000_conversation_list_expiry",
+        "2026-09-29-000000_conversation_list_latest_message_index",
+        "2026-10-09-000000_history_position",
+        "2026-10-09-010000_pending_history_position",
+        "2026-10-09-020000_group_reference",
+    ];
+
     // Kept migrations whose schema changes the test can observe.
     const ATTACHMENTS: &str = "20260924000000";
     const CONVERSATION_LIST_EXPIRY: &str = "20260928010000";
@@ -78,16 +93,23 @@ mod tests {
         (names, versions)
     }
 
-    /// The applied versions left after a rollback to `target`: every version
-    /// that Diesel orders before it.
-    fn remaining_after(applied: &[String], target: &str) -> Vec<String> {
+    /// Splits the applied versions at a rollback to `target`: the versions it
+    /// reverts (the target and every later one, latest first) and the versions
+    /// left applied (every version that Diesel orders before it).
+    fn rollback_split(applied: &[String], target: &str) -> (Vec<String>, Vec<String>) {
         let index = applied
             .iter()
             .position(|version| version == target)
             .unwrap_or_else(|| panic!("{target} is an embedded migration"));
-        applied[index + 1..].to_vec()
+        let (reverted, remaining) = applied.split_at(index + 1);
+        (reverted.to_vec(), remaining.to_vec())
     }
 
+    // Schema facts this test checks: the latest schema has no
+    // `conversation_list`, and has `local_attachments(mime_type, filename)` and
+    // `pending_attachments`. A rollback to CONVERSATION_LIST_EXPIRY restores
+    // `conversation_list`, and a rollback to ATTACHMENTS drops both attachment
+    // tables. A new migration that changes any of these must update this test.
     #[xmtp_common::test(unwrap_try = true)]
     async fn latest_migration_status_and_rollback() {
         let database = NativeDb::builder().ephemeral().build_unencrypted()?;
@@ -95,15 +117,15 @@ mod tests {
         let conn = database.conn();
         let db = DbConnection::new(&conn);
         let (expected_available, expected_applied) = embedded_migrations();
-        assert!(
-            expected_available
-                .iter()
-                .any(|name| name.ends_with("_baseline"))
-        );
 
         let mut available = db.available_migrations()?;
         available.sort();
         assert_eq!(available, expected_available);
+        assert_eq!(
+            available[..SHIPPED.len().min(available.len())],
+            SHIPPED,
+            "shipped migrations are never removed, renamed, or reordered"
+        );
         let applied = applied_migrations(&conn)?;
         assert_eq!(applied, expected_applied);
         assert!(
@@ -112,18 +134,17 @@ mod tests {
         );
 
         // Each rollback names a target version and reverts it and every later one.
-        rollback_confirmed(&conn, CONVERSATION_LIST_EXPIRY)?;
+        let (reverted, remaining) = rollback_split(&applied, CONVERSATION_LIST_EXPIRY);
         assert_eq!(
-            applied_migrations(&conn)?,
-            remaining_after(&applied, CONVERSATION_LIST_EXPIRY)
+            rollback_confirmed(&conn, CONVERSATION_LIST_EXPIRY)?,
+            reverted
         );
+        assert_eq!(applied_migrations(&conn)?, remaining);
         conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
 
-        rollback_confirmed(&conn, ATTACHMENTS)?;
-        assert_eq!(
-            applied_migrations(&conn)?,
-            remaining_after(&applied, ATTACHMENTS)
-        );
+        let (reverted, remaining) = rollback_split(&remaining, ATTACHMENTS);
+        assert_eq!(rollback_confirmed(&conn, ATTACHMENTS)?, reverted);
+        assert_eq!(applied_migrations(&conn)?, remaining);
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM local_attachments"))
                 .is_err()
@@ -134,10 +155,15 @@ mod tests {
         );
 
         let baseline = applied.last().expect("the baseline is applied");
-        rollback_confirmed(&conn, baseline)?;
+        assert_eq!(
+            rollback_confirmed(&conn, baseline)?,
+            std::slice::from_ref(baseline)
+        );
         assert!(applied_migrations(&conn)?.is_empty());
 
-        db.run_pending_migrations()?;
+        // Pending migrations run oldest first.
+        let oldest_first: Vec<String> = applied.iter().rev().cloned().collect();
+        assert_eq!(db.run_pending_migrations()?, oldest_first);
         assert_eq!(applied_migrations(&conn)?, applied);
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))
