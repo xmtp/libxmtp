@@ -621,17 +621,17 @@ mod tests {
         let group = alix.create_group(None, None).unwrap();
         let group_id = group.group_id;
 
-        // Clear the key store to ensure no stored key exists
-        key_store
-            .delete::<1>(
+        // Clear the key store to ensure no stored key exists. Store one
+        // first, so the check below shows the delete hit the stored row.
+        key_store.write_commit_log_key(group_id, &crypto.generate_commit_log_key()?)?;
+        key_store.delete::<1>(
+            xmtp_db::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &kv_codec::encode_key(
                 xmtp_db::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
-                &kv_codec::encode_key(
-                    xmtp_db::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
-                    &group_id,
-                )
-                .unwrap(),
-            )
-            .ok();
+                &group_id,
+            )?,
+        )?;
+        assert!(key_store.read_commit_log_key(group_id)?.is_none());
 
         // Set a consensus key that we don't have the private key for
         let consensus_key = crypto.generate_commit_log_key().unwrap();

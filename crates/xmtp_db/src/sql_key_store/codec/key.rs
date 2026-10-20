@@ -303,6 +303,10 @@ mod tests {
             format!("2000000000000000{}", "11".repeat(32))
         );
         assert_eq!(key(&hash_ref(&[0x22; 300])), length_prefixed(300, 0x22));
+        assert_eq!(
+            key(&hash_ref(&[0x23; 70_000])),
+            length_prefixed(70_000, 0x23)
+        );
     }
 
     /// The queued proposal key: a `(GroupId, ProposalRef)` tuple has no framing.
@@ -314,6 +318,19 @@ mod tests {
             hex::encode(key(&(&group_id, &proposal_ref))),
             "010000000000000067040000000000000033333333"
         );
+        // Long parts: each keeps its own `u64` length, back to back.
+        for (group_len, ref_len) in [(300, 70_000), (70_000, 300)] {
+            let group_id = GroupId::from_slice(&vec![0x34; group_len]);
+            let proposal_ref = hash_ref(&vec![0x35; ref_len]);
+            assert_eq!(
+                key(&(&group_id, &proposal_ref)),
+                [
+                    length_prefixed(group_len, 0x34),
+                    length_prefixed(ref_len, 0x35)
+                ]
+                .concat()
+            );
+        }
     }
 
     /// The epoch key pairs key: `(GroupId, GroupEpoch, u32 leaf index)`.
@@ -326,20 +343,33 @@ mod tests {
             "0100000000000000670807060504030201".to_owned() + "0d0c0b0a"
         );
         assert_eq!(hex::encode(key(&epoch)), "0807060504030201");
+        for len in [300, 70_000] {
+            let group_id = GroupId::from_slice(&vec![0x36; len]);
+            assert_eq!(
+                key(&(&group_id, &epoch, 0x0a0b_0c0du32)),
+                [
+                    length_prefixed(len, 0x36),
+                    hex::decode("08070605040302010d0c0b0a")?
+                ]
+                .concat()
+            );
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn signature_public_key() {
-        let id = StorageId::from(vec![0x44; 32]);
-        assert_eq!(key(&id), length_prefixed(32, 0x44));
+        for len in [32, 300, 70_000] {
+            let id = StorageId::from(vec![0x44; len]);
+            assert_eq!(key(&id), length_prefixed(len, 0x44));
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn encryption_key() {
-        let id = EncryptionKey::from(vec![0x55; 32]);
-        assert_eq!(key(&id), length_prefixed(32, 0x55));
-        let id = EncryptionKey::from(vec![0x56; 70_000]);
-        assert_eq!(key(&id), length_prefixed(70_000, 0x56));
+        for len in [32, 300, 70_000] {
+            let id = EncryptionKey::from(vec![0x55; len]);
+            assert_eq!(key(&id), length_prefixed(len, 0x55));
+        }
     }
 
     /// The commit log signer key: a group id as a byte slice, and the XMTP
@@ -350,7 +380,9 @@ mod tests {
         assert_eq!(key(raw.as_slice()), length_prefixed(16, 0x66));
         let group_id = xmtp_proto::types::GroupId::from(raw);
         assert_eq!(key(&group_id), length_prefixed(16, 0x66));
+        assert_eq!(key(&vec![0x67u8; 300]), length_prefixed(300, 0x67));
         assert_eq!(key(&vec![0x67u8; 65_536]), length_prefixed(65_536, 0x67));
+        assert_eq!(key(&vec![0x67u8; 70_000]), length_prefixed(70_000, 0x67));
     }
 
     /// Fixed-size arrays are tuples: no length.
@@ -360,6 +392,13 @@ mod tests {
         assert_eq!(hex::encode(key(&7u64)), "0700000000000000");
         assert_eq!(hex::encode(key(&7usize)), "0700000000000000");
         assert_eq!(hex::encode(key(&-2i16)), "feff");
+        assert_eq!(hex::encode(key(&0x0102u16)), "0201");
+        assert_eq!(hex::encode(key(&0x0102_0304u32)), "04030201");
+        assert_eq!(hex::encode(key(&-1i8)), "ff");
+        assert_eq!(hex::encode(key(&-2i32)), "feffffff");
+        assert_eq!(hex::encode(key(&-2i64)), "feffffffffffffff");
+        assert_eq!(hex::encode(key(&1u128)), format!("01{}", "00".repeat(15)));
+        assert_eq!(hex::encode(key(&-1i128)), "ff".repeat(16));
         assert_eq!(
             hex::encode(key(&serde_bytes_like())),
             "0200000000000000abcd"
@@ -375,6 +414,61 @@ mod tests {
             }
         }
         Bytes
+    }
+
+    /// Structs, tuple structs and newtype structs write their fields in order,
+    /// with no names and no length.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn struct_shapes() {
+        #[derive(Serialize)]
+        struct Tuple(u8, u16);
+        #[derive(Serialize)]
+        struct Named {
+            a: u8,
+            b: Vec<u8>,
+        }
+        #[derive(Serialize)]
+        struct Newtype(u32);
+        assert_eq!(hex::encode(key(&Tuple(1, 0x0203))), "010302");
+        assert_eq!(
+            hex::encode(key(&Named { a: 1, b: vec![9] })),
+            "01010000000000000009"
+        );
+        assert_eq!(hex::encode(key(&Newtype(5))), "05000000");
+        assert_eq!(
+            hex::encode(key(&(Newtype(5), Tuple(1, 0x0203)))),
+            "05000000010302"
+        );
+    }
+
+    /// A sequence whose length is unknown up front, as from a filtered iterator.
+    struct UnknownLength;
+    impl Serialize for UnknownLength {
+        fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            s.collect_seq([1u8, 2, 3].into_iter().filter(|b| *b != 2))
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn enum_variants_and_unknown_lengths_are_errors() {
+        #[derive(Serialize)]
+        enum Variant {
+            Newtype(u8),
+            Tuple(u8, u8),
+            Struct { a: u8 },
+        }
+        for variant in [
+            Variant::Newtype(1),
+            Variant::Tuple(1, 2),
+            Variant::Struct { a: 1 },
+        ] {
+            assert!(matches!(to_vec(&variant), Err(KeyError::Unsupported(_))));
+        }
+        assert!(matches!(
+            to_vec(&UnknownLength),
+            Err(KeyError::Unsupported(_))
+        ));
+        assert!(matches!(to_vec(&1.5f32), Err(KeyError::Unsupported(_))));
     }
 
     #[xmtp_common::test(unwrap_try = true)]

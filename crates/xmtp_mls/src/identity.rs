@@ -843,6 +843,12 @@ pub(crate) fn pq_key_package_references_key(raw_pub_key: &[u8]) -> Result<Vec<u8
 }
 
 /// Decode bytes from [`serialize_key_package_hash_ref`].
+///
+/// The input must be exactly one length-prefixed byte string. bincode allowed
+/// trailing bytes; this decoder rejects them on purpose. The only writer of
+/// the column is `serialize_key_package_hash_ref`, which never writes any, and
+/// the legacy archive conversion does not copy `key_package_history`. So the
+/// stricter check changes no result for a stored row.
 pub(crate) fn deserialize_key_package_hash_ref(
     hash_ref: &[u8],
 ) -> Result<HashReference, IdentityError> {
@@ -1054,6 +1060,8 @@ mod tests {
         assert_eq!(column, expected, "key_package_history column");
         assert_eq!(deserialize_key_package_hash_ref(&column)?, hash_ref);
         assert!(deserialize_key_package_hash_ref(&column[..column.len() - 1]).is_err());
+        // Strict on purpose: trailing bytes are rejected.
+        assert!(deserialize_key_package_hash_ref(&[column.as_slice(), &[0]].concat()).is_err());
 
         let stored = |key: &[u8]| -> Option<Vec<u8>> {
             let storage_key = [KEY_PACKAGE_REFERENCES, key, &1u16.to_be_bytes()].concat();

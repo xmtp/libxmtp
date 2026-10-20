@@ -1856,7 +1856,8 @@ pub(crate) mod tests {
 
     /// Every label stores the bytes the code before the codec module stored.
     /// The expected storage keys and values are built by hand from
-    /// `bincode::serialize`, and every value reads back.
+    /// `bincode::serialize`. Every value reads back, and every delete removes
+    /// the row at that storage key.
     #[xmtp_common::test(unwrap_try = true)]
     async fn every_label_keeps_todays_bytes() {
         use super::*;
@@ -1894,62 +1895,95 @@ pub(crate) mod tests {
         let group_key = bincode::serialize(&group_id)?;
 
         macro_rules! group_value {
-            ($label:expr, $write:ident, $read:ident, $n:expr) => {{
+            ($label:expr, $write:ident, $read:ident, $delete:expr, $n:expr) => {{
                 let v = value($n);
+                let storage_key = doubled($label, &group_key);
                 key_store.$write(&group_id, &v)?;
                 assert_eq!(
-                    stored(doubled($label, &group_key)),
+                    stored(storage_key.clone()),
                     Some(bincode::serialize(&v)?),
                     "{}",
                     String::from_utf8_lossy($label)
                 );
                 let read: Option<Value> = key_store.$read(&group_id)?;
                 assert_eq!(read, Some(v));
+                $delete;
+                assert_eq!(
+                    stored(storage_key),
+                    None,
+                    "{} delete",
+                    String::from_utf8_lossy($label)
+                );
             }};
         }
-        group_value!(TREE_LABEL, write_tree, tree, 1);
+        group_value!(
+            TREE_LABEL,
+            write_tree,
+            tree,
+            key_store.delete_tree(&group_id)?,
+            1
+        );
         group_value!(
             INTERIM_TRANSCRIPT_HASH_LABEL,
             write_interim_transcript_hash,
             interim_transcript_hash,
+            key_store.delete_interim_transcript_hash(&group_id)?,
             2
         );
-        group_value!(GROUP_CONTEXT_LABEL, write_context, group_context, 3);
+        group_value!(
+            GROUP_CONTEXT_LABEL,
+            write_context,
+            group_context,
+            key_store.delete_context(&group_id)?,
+            3
+        );
         group_value!(
             CONFIRMATION_TAG_LABEL,
             write_confirmation_tag,
             confirmation_tag,
+            key_store.delete_confirmation_tag(&group_id)?,
             4
         );
-        group_value!(GROUP_STATE_LABEL, write_group_state, group_state, 5);
+        group_value!(
+            GROUP_STATE_LABEL,
+            write_group_state,
+            group_state,
+            key_store.delete_group_state(&group_id)?,
+            5
+        );
         group_value!(
             MESSAGE_SECRETS_LABEL,
             write_message_secrets,
             message_secrets,
+            key_store.delete_message_secrets(&group_id)?,
             6
         );
         group_value!(
             OWN_LEAF_NODE_INDEX_LABEL,
             write_own_leaf_index,
             own_leaf_index,
+            key_store.delete_own_leaf_index(&group_id)?,
             7
         );
         group_value!(
             EPOCH_SECRETS_LABEL,
             write_group_epoch_secrets,
             group_epoch_secrets,
+            key_store.delete_group_epoch_secrets(&group_id)?,
             8
         );
         group_value!(
             JOIN_CONFIG_LABEL,
             write_mls_join_config,
             mls_group_join_config,
+            key_store.delete_group_config(&group_id)?,
             9
         );
         group_value!(
             APPLICATION_EXPORT_TREE_LABEL,
             write_application_export_tree,
             application_export_tree,
+            key_store.delete_application_export_tree::<_, Value>(&group_id)?,
             10
         );
 
@@ -1962,6 +1996,8 @@ pub(crate) mod tests {
         );
         let read: Option<Value> = key_store.resumption_psk_store(&group_id)?;
         assert_eq!(read, Some(v));
+        key_store.delete_all_resumption_psk_secrets(&group_id)?;
+        assert_eq!(stored(single(RESUMPTION_PSK_STORE_LABEL, &group_key)), None);
 
         let public_key = StorageId::from(vec![0x12; 32]);
         let v = value(12);
@@ -1975,6 +2011,14 @@ pub(crate) mod tests {
         );
         let read: Option<Value> = key_store.signature_key_pair(&public_key)?;
         assert_eq!(read, Some(v));
+        key_store.delete_signature_key_pair(&public_key)?;
+        assert_eq!(
+            stored(doubled(
+                SIGNATURE_KEY_PAIR_LABEL,
+                &bincode::serialize(&public_key)?
+            )),
+            None
+        );
 
         let key_package_ref = hash_ref(0x13);
         let v = value(13);
@@ -1988,6 +2032,14 @@ pub(crate) mod tests {
         );
         let read: Option<Value> = key_store.key_package(&key_package_ref)?;
         assert_eq!(read, Some(v));
+        key_store.delete_key_package(&key_package_ref)?;
+        assert_eq!(
+            stored(doubled(
+                KEY_PACKAGE_LABEL,
+                &bincode::serialize(&key_package_ref)?
+            )),
+            None
+        );
 
         let encryption_key = EncryptionKey::from(vec![0x14; 32]);
         let v = value(14);
@@ -2001,6 +2053,14 @@ pub(crate) mod tests {
         );
         let read: Option<Value> = key_store.encryption_key_pair(&encryption_key)?;
         assert_eq!(read, Some(v));
+        key_store.delete_encryption_key_pair(&encryption_key)?;
+        assert_eq!(
+            stored(doubled(
+                ENCRYPTION_KEY_PAIR_LABEL,
+                &bincode::serialize(&encryption_key)?
+            )),
+            None
+        );
 
         // The epoch key pairs key is the three parts back to back.
         let epoch = GroupEpoch::from(15);
@@ -2018,6 +2078,8 @@ pub(crate) mod tests {
         );
         let read: Vec<Value> = key_store.encryption_epoch_key_pairs(&group_id, &epoch, 17)?;
         assert_eq!(read, pairs);
+        key_store.delete_encryption_epoch_key_pairs(&group_id, &epoch, 17)?;
+        assert_eq!(stored(single(EPOCH_KEY_PAIRS_LABEL, &parts)), None);
 
         // Lists: each item is the bincode of one value.
         let (first, second) = (value(18), value(19));
@@ -2032,6 +2094,8 @@ pub(crate) mod tests {
         );
         let read: Vec<Value> = key_store.own_leaf_nodes(&group_id)?;
         assert_eq!(read, [first, second]);
+        key_store.delete_own_leaf_nodes(&group_id)?;
+        assert_eq!(stored(doubled(OWN_LEAF_NODES_LABEL, &group_key)), None);
 
         let (ref_1, ref_2) = (hash_ref(0x20), hash_ref(0x21));
         let (proposal_1, proposal_2) = (value(20), value(21));
@@ -2057,11 +2121,23 @@ pub(crate) mod tests {
             read,
             [(ref_1.clone(), proposal_1), (ref_2.clone(), proposal_2)]
         );
+        let proposal_key =
+            |proposal_ref: &KeyPackageRef| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+                Ok(single(
+                    QUEUED_PROPOSAL_LABEL,
+                    &bincode::serialize(&(&group_id, proposal_ref))?,
+                ))
+            };
         key_store.remove_proposal(&group_id, &ref_1)?;
         assert_eq!(
-            stored(refs_key),
+            stored(refs_key.clone()),
             Some(bincode::serialize(&vec![bincode::serialize(&ref_2)?])?)
         );
+        assert_eq!(stored(proposal_key(&ref_1)?), None);
+        assert!(stored(proposal_key(&ref_2)?).is_some());
+        key_store.clear_proposal_queue::<_, KeyPackageRef>(&group_id)?;
+        assert_eq!(stored(proposal_key(&ref_2)?), None);
+        assert_eq!(stored(refs_key), None);
 
         // A removal from a missing list writes a one-item array: no list
         // length, so the row does not decode as a list. Kept as it is today.
