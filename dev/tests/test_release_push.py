@@ -3,6 +3,8 @@
 
 import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import importlib.machinery
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -1005,6 +1007,44 @@ class XdbgImageTest(unittest.TestCase):
             [s for s in job["steps"] if s.get("name", "").startswith("Deploy")], []
         )
         self.assertNotIn("TERRAFORM_TOKEN", release.read_text())
+
+
+class KeepaliveProbeImageTest(unittest.TestCase):
+    def test_push_paths_cover_every_input_of_the_image_build(self):
+        # A change to any input of the image must republish it. The package
+        # comes from the Dockerfile's `cargo build`; its crates are the path
+        # dependencies that Cargo builds for it (no dev-dependencies).
+        dockerfile = (ROOT / "apps/keepalive-probe/docker/Dockerfile").read_text()
+        (package,) = re.findall(r"cargo build --release --package (\S+)", dockerfile)
+        loader = importlib.machinery.SourceFileLoader(
+            "ci_suites", str(ROOT / "dev/ci-suites")
+        )
+        suites = importlib.util.module_from_spec(
+            importlib.util.spec_from_loader(loader.name, loader)
+        )
+        loader.exec_module(suites)
+        graph = suites.CargoGraph(ROOT)
+        crates, queue = set(), [graph.by_name[package]]
+        while queue:
+            crate = queue.pop()
+            if crate not in crates:
+                crates.add(crate)
+                queue.extend(graph.dependencies(crate))
+        workflow = ".github/workflows/push-keepalive-probe.yml"
+        expected = {f"{crate}/**" for crate in crates} | {
+            workflow,
+            # xmtp_proto's build script compiles the workspace protos.
+            "proto/**",
+            # Workspace build settings: rustflags, the pinned toolchain that
+            # rustup installs in the builder, and the lock file.
+            ".cargo/config.toml",
+            "rust-toolchain.toml",
+            "Cargo.toml",
+            "Cargo.lock",
+        }
+        # PyYAML reads the `on` key as True.
+        push = yaml.safe_load((ROOT / workflow).read_text())[True]["push"]
+        self.assertEqual(sorted(push["paths"]), sorted(expected))
 
 
 class NpmPublishAuthorizationTest(unittest.TestCase):

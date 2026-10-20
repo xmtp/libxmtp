@@ -4,11 +4,23 @@ on:
   push:
     branches:
       - main
+    # Every input of the image build: this workflow, the crates of
+    # keepalive-probe's Cargo closure (normal and build dependencies), the
+    # protos that xmtp_proto's build script compiles, and the workspace build
+    # settings. dev/tests/test_release_push.py checks the list.
     paths:
+      - '.github/workflows/push-keepalive-probe.yml'
       - 'apps/keepalive-probe/**'
-      - 'crates/xmtp_proto/**'
       - 'crates/xmtp_common/**'
       - 'crates/xmtp_configuration/**'
+      - 'crates/xmtp_cryptography/**'
+      - 'crates/xmtp_events/**'
+      - 'crates/xmtp_logging/**'
+      - 'crates/xmtp_macro/**'
+      - 'crates/xmtp_proto/**'
+      - 'proto/**'
+      - '.cargo/config.toml'
+      - 'rust-toolchain.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
   workflow_dispatch:
