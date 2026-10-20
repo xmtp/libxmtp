@@ -7346,8 +7346,8 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openmls"
-version = "0.8.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.9.1"
+source = "git+https://github.com/xmtp/openmls?rev=b5be619c8ec0a5a7086303c0a8ec59400910c7ee#b5be619c8ec0a5a7086303c0a8ec59400910c7ee"
 dependencies = [
  "backtrace",
  "getrandom 0.4.3",
@@ -7376,8 +7376,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_basic_credential"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.6.0"
+source = "git+https://github.com/xmtp/openmls?rev=b5be619c8ec0a5a7086303c0a8ec59400910c7ee#b5be619c8ec0a5a7086303c0a8ec59400910c7ee"
 dependencies = [
  "ed25519-dalek",
  "ml-dsa",
@@ -7392,8 +7392,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_libcrux_crypto"
-version = "0.3.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.4.0"
+source = "git+https://github.com/xmtp/openmls?rev=b5be619c8ec0a5a7086303c0a8ec59400910c7ee#b5be619c8ec0a5a7086303c0a8ec59400910c7ee"
 dependencies = [
  "hpke-rs 0.7.0",
  "hpke-rs-crypto 0.7.0",
@@ -7413,8 +7413,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_memory_storage"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.6.0"
+source = "git+https://github.com/xmtp/openmls?rev=b5be619c8ec0a5a7086303c0a8ec59400910c7ee#b5be619c8ec0a5a7086303c0a8ec59400910c7ee"
 dependencies = [
  "hex",
  "log",
@@ -7426,8 +7426,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_rust_crypto"
-version = "0.5.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.6.0"
+source = "git+https://github.com/xmtp/openmls?rev=b5be619c8ec0a5a7086303c0a8ec59400910c7ee#b5be619c8ec0a5a7086303c0a8ec59400910c7ee"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -7453,7 +7453,7 @@ dependencies = [
 [[package]]
 name = "openmls_serialization_helpers"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+source = "git+https://github.com/xmtp/openmls?rev=b5be619c8ec0a5a7086303c0a8ec59400910c7ee#b5be619c8ec0a5a7086303c0a8ec59400910c7ee"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7463,8 +7463,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_sqlite_storage"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.3.0"
+source = "git+https://github.com/xmtp/openmls?rev=b5be619c8ec0a5a7086303c0a8ec59400910c7ee#b5be619c8ec0a5a7086303c0a8ec59400910c7ee"
 dependencies = [
  "openmls_traits",
  "refinery",
@@ -7474,8 +7474,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_test"
-version = "0.2.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.3.0"
+source = "git+https://github.com/xmtp/openmls?rev=b5be619c8ec0a5a7086303c0a8ec59400910c7ee#b5be619c8ec0a5a7086303c0a8ec59400910c7ee"
 dependencies = [
  "openmls_libcrux_crypto",
  "openmls_rust_crypto",
@@ -7487,8 +7487,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_traits"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.6.0"
+source = "git+https://github.com/xmtp/openmls?rev=b5be619c8ec0a5a7086303c0a8ec59400910c7ee#b5be619c8ec0a5a7086303c0a8ec59400910c7ee"
 dependencies = [
  "serde",
  "tls_codec 0.5.0",
@@ -12964,13 +12964,11 @@ dependencies = [
 name = "xmtp_legacy_migration"
 version = "1.12.0-dev"
 dependencies = [
- "bincode",
  "const-hex",
  "diesel",
  "futures",
  "js-sys",
  "libc",
- "openmls",
  "prost",
  "serde_json",
  "sha2 0.10.9",

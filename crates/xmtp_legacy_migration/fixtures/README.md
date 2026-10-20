@@ -40,23 +40,21 @@ the producer removes secret rows, and extract the context that contains
 ## Group context corpus
 
 `legacy-context-corpus.json` holds legacy `GroupContextGroupContext` records and
-the metadata each one decodes to. `src/metadata/oracle.rs` built them with the
-OpenMLS fork types at `3fabbf23` and bincode 1.3.3, and recorded the result of
-the legacy decoder. The cases cover each extension the std-only reader in
+the metadata each one decodes to. An oracle built them with the OpenMLS fork
+types at `3fabbf23` and bincode 1.3.3, and recorded the result of the legacy
+decoder. The cases cover each extension the std-only reader in
 `src/legacy_context.rs` accepts, pairs of them in both orders, every ciphersuite
 tag, the other protocol version, other extension types, truncations, and
 oversized lengths. A few cases are byte edits of fork output: a proposal tag the
 fork does not use, a repeated dictionary key, and a protocol version, extension
 type, or credential type tag one past the last variant.
 
-While the fork is pinned, the oracle tests check that a rebuild writes the same
-file and that the reader agrees with the legacy decoder, also on every
-truncation and on single-byte changes. A test checks the corpus hash in
-`hashes.json`. The rebuild writes the corpus and its hash. Run:
-
-```sh
-dev/nix-shell 'just test workspace -p xmtp_legacy_migration write_corpus_fixture --run-ignored only'
-```
+While the fork was pinned, the oracle also checked that the reader agreed with
+the legacy decoder on every truncation and on single-byte changes. The workspace
+now builds on upstream OpenMLS, which lacks the fork's types, so the oracle was
+removed and the corpus is frozen. Do not edit it. A test checks its hash in
+`hashes.json`. To rebuild it, check out a commit that still has
+`src/metadata/oracle.rs` and run its `write_corpus_fixture` test there.
 
 ## Controlled history
 

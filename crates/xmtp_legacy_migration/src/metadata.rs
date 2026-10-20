@@ -202,26 +202,24 @@ fn protobuf_fields(mut bytes: &[u8], mut visit: impl FnMut(u32, &[u8], Option<&[
 }
 
 #[cfg(test)]
-mod oracle;
-
-#[cfg(test)]
 mod tests {
     use super::{ImmutableMetadataSave, MutableMetadataSave};
     use prost::Message;
     use serde_json::{Value, json};
     use xmtp_proto::xmtp::mls::message_contents::{GroupMutableMetadataV1, Inboxes};
 
-    /// Group contexts written with the pinned legacy OpenMLS types and bincode,
-    /// and the metadata each one must decode to. `oracle.rs` built them.
-    pub(super) const CORPUS: &str = include_str!("../fixtures/legacy-context-corpus.json");
+    /// Group contexts written with the legacy OpenMLS fork types and bincode,
+    /// and the metadata each one must decode to. A decoder built on those
+    /// types made them while the fork was pinned. The corpus is now frozen.
+    const CORPUS: &str = include_str!("../fixtures/legacy-context-corpus.json");
 
-    pub(super) struct Case {
-        pub(super) name: String,
-        pub(super) context: Vec<u8>,
-        pub(super) expected: Value,
+    struct Case {
+        name: String,
+        context: Vec<u8>,
+        expected: Value,
     }
 
-    pub(super) fn corpus() -> Vec<Case> {
+    fn corpus() -> Vec<Case> {
         let corpus: Value = serde_json::from_str(CORPUS).unwrap();
         corpus["cases"]
             .as_array()
@@ -244,7 +242,7 @@ mod tests {
     }
 
     /// Decoded metadata in the corpus's JSON form.
-    pub(super) fn summary(
+    fn summary(
         (immutable, mutable): &(Option<ImmutableMetadataSave>, Option<MutableMetadataSave>),
     ) -> Value {
         json!({

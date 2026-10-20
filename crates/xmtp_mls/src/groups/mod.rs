@@ -403,9 +403,6 @@ impl From<ExtensionType> for MlsExtensionType {
             ExtensionType::ExternalPub => MlsExtensionType::ExternalPub,
             ExtensionType::ExternalSenders => MlsExtensionType::ExternalSenders,
             ExtensionType::LastResort => MlsExtensionType::LastResort,
-            // Only the xmtp OpenMLS fork names 0xf000. Upstream OpenMLS reports
-            // it as Unknown(0xf000), so report it the same way.
-            ExtensionType::ImmutableMetadata => MlsExtensionType::Unknown(u16::from(value)),
             ExtensionType::AppDataDictionary => MlsExtensionType::AppDataDictionary,
             ExtensionType::Unknown(id) => MlsExtensionType::Unknown(id),
             ExtensionType::Grease(id) => MlsExtensionType::Grease(id),
