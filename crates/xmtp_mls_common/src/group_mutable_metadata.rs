@@ -418,18 +418,18 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
 
     /// Converts a GroupMutableMetadataProto to GroupMutableMetadata.
     fn try_from(value: GroupMutableMetadataProto) -> Result<Self, Self::Error> {
-        let admin_list = value
+        // Move the attributes into the wiping owner first: a clone, or an early
+        // return below, would leave the proto's signer copy unwiped.
+        let mut metadata = Self::new(value.attributes, vec![], vec![]);
+        metadata.admin_list = value
             .admin_list
             .ok_or(GroupMutableMetadataError::MissingMetadataField)?
             .inbox_ids;
-
-        let super_admin_list = value
+        metadata.super_admin_list = value
             .super_admin_list
             .ok_or(GroupMutableMetadataError::MissingMetadataField)?
             .inbox_ids;
-
-        // Move the attributes: a clone would leave the proto's signer copy unwiped.
-        Ok(Self::new(value.attributes, admin_list, super_admin_list))
+        Ok(metadata)
     }
 }
 

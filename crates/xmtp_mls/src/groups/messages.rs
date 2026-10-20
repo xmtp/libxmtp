@@ -225,29 +225,35 @@ where
                     .ok_or_else(|| {
                         GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
                     })?;
-                // An older build stored this row before the creation check.
-                // It fails here and is never queued; the transaction commits.
-                // A saved prepared attempt may already be on the backend, so
-                // its outcome stays unknown and its saved bytes may still publish.
-                // implements: GMOD-035
-                if message.delivery_status != DeliveryStatus::Published
-                    && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
-                    && !self.has_saved_attempt(&db, &message.id)?
-                {
-                    if message.delivery_status == DeliveryStatus::Unpublished {
-                        db.set_delivery_status_to_failed(&message.id)?;
-                        self.emit_message_status_changed(
-                            message.id,
-                            xmtp_events::MessageStatus::Unpublished,
-                            xmtp_events::MessageStatus::Failed,
-                            events,
-                        );
+                // The content can hold a device-sync HMAC root key, or a
+                // commit-log signer an older build recorded, so it is wiped
+                // on every exit.
+                let outcome = (|| {
+                    // An older build stored this row before the creation check.
+                    // It fails here and is never queued; the transaction commits.
+                    // A saved prepared attempt may already be on the backend, so
+                    // its outcome stays unknown and its saved bytes may still publish.
+                    // implements: GMOD-035
+                    if message.delivery_status != DeliveryStatus::Published
+                        && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
+                        && !self.has_saved_attempt(&db, &message.id)?
+                    {
+                        if message.delivery_status == DeliveryStatus::Unpublished {
+                            db.set_delivery_status_to_failed(&message.id)?;
+                            self.emit_message_status_changed(
+                                message.id.clone(),
+                                xmtp_events::MessageStatus::Unpublished,
+                                xmtp_events::MessageStatus::Failed,
+                                events,
+                            );
+                        }
+                        return Ok(Continue(Err(GroupError::ReservedTranscriptContentType)));
                     }
-                    return Ok(Continue(Err(GroupError::ReservedTranscriptContentType)));
-                }
-                let queued = self.queue_stored_message(&db, events, &message);
+                    self.queue_stored_message(&db, events, &message)
+                        .map(|queued| Continue(Ok(queued)))
+                })();
                 message.decrypted_message_bytes.zeroize();
-                queued.map(|queued| Continue(Ok(queued)))
+                outcome
             },
         )?
         .into_continued()?;

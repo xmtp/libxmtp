@@ -185,3 +185,20 @@ fn expanded_change_debug_redacts_the_commit_log_signer() {
     );
     assert!(debug.contains("value_len: Some(32)"), "{debug}");
 }
+
+/// Metadata that holds the signer but omits a required inbox list fails to
+/// parse, and the failed parse frees no unwiped copy of the signer.
+#[xmtp_common::test(unwrap_try = true)]
+fn malformed_metadata_wipes_the_commit_log_signer() {
+    let mut proto = GroupMutableMetadataProto::decode(legacy_metadata_bytes().as_slice())?;
+    proto.admin_list = None;
+    let malformed = proto.encode_to_vec();
+    drop(proto);
+
+    let ((), hits) = scan(&[Canary::new(&SIGNER)], || {
+        assert!(GroupMutableMetadata::try_from(&malformed).is_err());
+    });
+    drop(malformed);
+
+    assert_eq!(hits, [0], "freed heap blocks held the commit-log signer");
+}

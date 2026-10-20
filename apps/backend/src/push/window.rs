@@ -80,6 +80,8 @@ pub(crate) async fn load(
         let channel = row.channel.ok_or_else(missing)?.try_into()?;
         let keys =
             [row.hmac_key_0, row.hmac_key_1, row.hmac_key_2].map(|key| key.map(Zeroizing::new));
+        // Wrap before the suppression check, so a suppressed delivery wipes it too.
+        let signing_key = row.signing_key.map(Zeroizing::new);
         if let Some(key) = super::suppress::key(
             row.server_ns.ok_or_else(missing)?,
             row.hmac_epoch_base,
@@ -124,7 +126,7 @@ pub(crate) async fn load(
                 secret_hash: row.secret_hash.ok_or_else(missing)?,
                 channel,
                 delivery: row.delivery.ok_or_else(missing)?,
-                signing_key: row.signing_key.map(Zeroizing::new),
+                signing_key,
             },
         });
     }
