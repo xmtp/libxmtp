@@ -18,8 +18,10 @@ pub trait QueryMigrations {
     /// Rollback all migrations after and including the specified version.
     ///
     /// Refused on a database with data when it would revert the CBOR storage
-    /// marker: every later open would reject the database as written before
-    /// it (`StorageError::OldEncodingDatabase`).
+    /// marker and keep some migrations, and so the data: every later open
+    /// would reject the database as written before the marker
+    /// (`StorageError::OldEncodingDatabase`). A rollback of every migration
+    /// drops every table, so it runs; the next open creates a new database.
     ///
     /// WARNING: This is destructive and may cause data loss.
     fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError>;
@@ -71,20 +73,20 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
         }
 
         // Versions compare as strings, as above: the rollback reverts the
-        // marker when the target sorts at or before it.
-        if target.as_str() <= super::CBOR_STORAGE_MIGRATION
-            && self
-                .applied_migrations()?
-                .iter()
-                .any(|v| v == super::CBOR_STORAGE_MIGRATION)
-            && self.raw_query(super::holds_client_data)?
-        {
+        // marker when the target sorts at or before it, and every migration
+        // when it sorts at or before the oldest applied one.
+        let marker = super::CBOR_STORAGE_MIGRATION;
+        let applied = self.applied_migrations()?;
+        let oldest = applied.iter().min().cloned().unwrap_or_default();
+        let reverts_marker = target.as_str() <= marker && applied.iter().any(|v| v == marker);
+        let reverts_all = target.as_str() <= oldest.as_str();
+        if reverts_marker && !reverts_all && self.raw_query(super::holds_client_data)? {
             return Err(ConnectionError::InvalidQuery(format!(
                 "Rolling back to {version} would revert the CBOR storage marker \
-                 {marker}, and the database could not be opened again. Roll back \
-                 to a later version, or use a database with no identity and no key \
-                 store rows.",
-                marker = super::CBOR_STORAGE_MIGRATION
+                 {marker} and keep this database's data, and every later open would \
+                 reject it as written before the marker. Roll back to a version after \
+                 {marker}, or roll back every migration (to {oldest} or earlier), \
+                 which drops all data."
             )));
         }
 
@@ -114,6 +116,20 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
                     tracing::warn!("Migration rollback stopped: {e:?}");
                     break;
                 }
+            }
+        }
+
+        // A full rollback that stopped after the marker, with data left, leaves
+        // a database no open accepts.
+        if reverts_marker && reverted.iter().any(|v| v == marker) {
+            let left = self.applied_migrations()?;
+            if !left.is_empty() && self.raw_query(super::holds_client_data)? {
+                return Err(ConnectionError::InvalidQuery(format!(
+                    "The rollback to {version} stopped at {stopped} after reverting \
+                     the CBOR storage marker {marker}, with data left. Every later \
+                     open rejects this database; delete it.",
+                    stopped = left.iter().max().cloned().unwrap_or_default()
+                )));
             }
         }
 
@@ -238,6 +254,38 @@ mod tests {
                 .iter()
                 .any(|version| version == CBOR_STORAGE_MIGRATION)
         );
+    }
+
+    /// A rollback of every migration on a database with data runs: it drops
+    /// every table, so the next open creates a new database, with no data.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_full_rollback_of_a_database_with_data_runs() {
+        use crate::{EncryptedMessageStore, TestDb, XmtpDb};
+        use diesel::connection::SimpleConnection;
+
+        let path = xmtp_common::tmp_path();
+        {
+            let store =
+                EncryptedMessageStore::new(TestDb::create_database(Some(path.clone())).await)?;
+            let conn = store.db();
+            conn.raw_query(|db| {
+                db.batch_execute("INSERT INTO identity (inbox_id, installation_keys, credential_bytes) VALUES ('inbox', x'01', x'02')")
+            })?;
+            assert!(!conn.rollback_to_version(BASELINE)?.is_empty());
+            assert!(conn.applied_migrations()?.is_empty());
+        }
+        let store = EncryptedMessageStore::new(TestDb::create_database(Some(path.clone())).await)?;
+        assert!(!store.db().raw_query(super::super::holds_client_data)?);
+        assert!(
+            store
+                .db()
+                .applied_migrations()?
+                .iter()
+                .any(|version| version == crate::encrypted_store::CBOR_STORAGE_MIGRATION)
+        );
+        drop(store);
+        EncryptedMessageStore::<()>::remove_db_files(path);
     }
 }
 
