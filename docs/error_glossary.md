@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **421 total error codes**.
+**39 error types** across **10 crates** with **418 total error codes**.
 
 ## xmtp_api
 
@@ -284,7 +284,6 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `DeserializationError::Deprecated` | Deprecated field. A deprecated field was used. Not retryable. |
 | `DeserializationError::HandleNotIdentifier` | Handle is not an identifier. A handle names an inbox in a lookup, but it is not an account identifier. Not retryable. |
 | `DeserializationError::Ed25519` | Ed25519 key error. Failed to create public key from bytes. Not retryable. |
-| `DeserializationError::Bincode` | Unable to deserialize. Bincode deserialization failed. Not retryable. |
 
 ### InvalidHandle <sub>struct</sub>
 
@@ -449,7 +448,6 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `DeviceSyncError::UTF8` | UTF-8 error. String is not valid UTF-8. Retryable. |
 | `DeviceSyncError::InvalidPayload` | Invalid payload. Sync message payload is malformed. Retryable. |
 | `DeviceSyncError::UnspecifiedDeviceSyncKind` | Unspecified sync kind. Device sync kind not specified. Not retryable. |
-| `DeviceSyncError::Bincode` | Bincode error. Binary serialization failed. Retryable. |
 | `DeviceSyncError::Archive` | Archive error. Sync archive operation failed. Retryable. |
 | `DeviceSyncError::Decode` | Decode error. Protobuf decoding failed. Retryable. |
 | `DeviceSyncError::MissingSyncGroup` | Missing sync group. Sync group not found. Not retryable. |
@@ -579,7 +577,6 @@ A handle operation that the client refuses.
 | `IdentityError::TooManyInstallations` | Too many installations. InboxID has reached max installation count. Not retryable. |
 | `IdentityError::InvalidExtension` | Invalid extension error. MLS extension validation failed. Not retryable. |
 | `IdentityError::MissingPostQuantumPublicKey` | Missing PQ public key. Post-quantum public key not found. Not retryable. |
-| `IdentityError::Bincode` | Bincode serialization error. Binary serialization failed. Not retryable. |
 | `IdentityError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
 
 ### LocalDeliveryError <sub>enum</sub>

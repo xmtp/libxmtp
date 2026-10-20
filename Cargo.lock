@@ -1886,15 +1886,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12834,7 +12825,6 @@ name = "xmtp_cryptography"
 version = "1.12.0-dev"
 dependencies = [
  "alloy",
- "bincode",
  "cbor4ii",
  "const-hex",
  "ctor",
@@ -13061,7 +13051,6 @@ dependencies = [
  "aes-gcm",
  "alloy",
  "async-trait",
- "bincode",
  "bon",
  "bytes",
  "chrono",
@@ -13200,8 +13189,8 @@ name = "xmtp_proto"
 version = "1.12.0-dev"
 dependencies = [
  "async-trait",
- "bincode",
  "bytes",
+ "cbor4ii",
  "chrono",
  "const-hex",
  "ctor",

@@ -308,15 +308,17 @@ mod tests {
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());
     }
 
+    /// The client database stores installation keys as CBOR.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_is_binary_compatible_with_mls_deser_serde() {
         // XmtpInstallationCredential needs to be serde compatible with
         // `SignatureKeyPair` from xmtp_basic_credential
         let keypair = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
-        let serialized: Vec<u8> = bincode::serialize(&keypair).unwrap();
+        let serialized: Vec<u8> = cbor4ii::serde::to_vec(Vec::new(), &keypair).unwrap();
 
-        let x_kp: XmtpInstallationCredential = bincode::deserialize(serialized.as_slice()).unwrap();
+        let x_kp: XmtpInstallationCredential =
+            cbor4ii::serde::from_slice(serialized.as_slice()).unwrap();
         assert_eq!(keypair.private(), x_kp.0.as_bytes());
         assert_eq!(keypair.public(), &x_kp.0.verifying_key().to_bytes());
     }
@@ -325,9 +327,9 @@ mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_is_binary_compatible_with_mls_ser_serde() {
         let keypair = XmtpInstallationCredential::new();
-        let serialized: Vec<u8> = bincode::serialize(&keypair).unwrap();
+        let serialized: Vec<u8> = cbor4ii::serde::to_vec(Vec::new(), &keypair).unwrap();
 
-        let mls_kp: SignatureKeyPair = bincode::deserialize(serialized.as_slice()).unwrap();
+        let mls_kp: SignatureKeyPair = cbor4ii::serde::from_slice(serialized.as_slice()).unwrap();
         assert_eq!(mls_kp.private(), keypair.0.as_bytes());
         assert_eq!(mls_kp.public(), &keypair.0.verifying_key().to_bytes());
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());

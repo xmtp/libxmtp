@@ -343,11 +343,6 @@ pub enum IdentityError {
     /// Post-quantum public key not found. Not retryable.
     #[error("Missing post quantum public key")]
     MissingPostQuantumPublicKey,
-    /// Bincode serialization error.
-    ///
-    /// Binary serialization failed. Not retryable.
-    #[error("Bincode serialization error")]
-    Bincode,
     /// Uninitialized field.
     ///
     /// Builder field not initialized. Not retryable.
@@ -1223,9 +1218,6 @@ mod tests {
 
         let err = IdentityError::RequiredIdentityNotFound;
         assert_eq!(err.error_code(), "IdentityError::RequiredIdentityNotFound");
-
-        let err = IdentityError::Bincode;
-        assert_eq!(err.error_code(), "IdentityError::Bincode");
 
         let err = IdentityError::MissingPostQuantumPublicKey;
         assert_eq!(

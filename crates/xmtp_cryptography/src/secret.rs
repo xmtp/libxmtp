@@ -144,9 +144,13 @@ mod tests {
             let bytes: Vec<u8> = (0..len).map(|i| i as u8).collect();
             let secret = Secret::new(bytes.clone());
 
-            let bincode_secret = bincode::serialize(&secret).unwrap();
-            assert_eq!(bincode_secret, bincode::serialize(&bytes).unwrap());
-            let decoded: Secret = bincode::deserialize(&bincode_secret).unwrap();
+            // CBOR, the client database's codec.
+            let cbor_secret = cbor4ii::serde::to_vec(Vec::new(), &secret).unwrap();
+            assert_eq!(
+                cbor_secret,
+                cbor4ii::serde::to_vec(Vec::new(), &bytes).unwrap()
+            );
+            let decoded: Secret = cbor4ii::serde::from_slice(&cbor_secret).unwrap();
             assert_eq!(decoded.as_slice(), bytes.as_slice());
 
             let json_secret = serde_json::to_vec(&secret).unwrap();
@@ -166,11 +170,15 @@ mod tests {
             assert!(serde_json::from_str::<Vec<u8>>(json).is_err(), "{json}");
             assert!(serde_json::from_str::<Secret>(json).is_err(), "{json}");
         }
-        // bincode: a length prefix longer than the input.
-        let mut truncated = bincode::serialize(&KEY.to_vec()).unwrap();
+        // CBOR: an array length longer than the input, and a byte string,
+        // which is not a sequence of `u8`.
+        let mut truncated = cbor4ii::serde::to_vec(Vec::new(), &KEY.to_vec()).unwrap();
         truncated.truncate(truncated.len() - 1);
-        assert!(bincode::deserialize::<Vec<u8>>(&truncated).is_err());
-        assert!(bincode::deserialize::<Secret>(&truncated).is_err());
+        assert!(cbor4ii::serde::from_slice::<Vec<u8>>(&truncated).is_err());
+        assert!(cbor4ii::serde::from_slice::<Secret>(&truncated).is_err());
+        let byte_string = [0x42, 0x01, 0x02];
+        assert!(cbor4ii::serde::from_slice::<Vec<u8>>(&byte_string).is_err());
+        assert!(cbor4ii::serde::from_slice::<Secret>(&byte_string).is_err());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
