@@ -1000,9 +1000,6 @@ class XdbgImageTest(unittest.TestCase):
             steps["Extract image labels"]["with"]["tags"],
             "type=raw,value=${{ needs.release-backend.outputs.version }}",
         )
-        # The builder layer holds the target directory and cannot be reused
-        # across commits, so the job exports no layer cache.
-        self.assertNotIn("cache-to", build)
         # Nothing deploys the image.
         self.assertEqual(
             [s for s in job["steps"] if s.get("name", "").startswith("Deploy")], []

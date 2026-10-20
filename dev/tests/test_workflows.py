@@ -1,4 +1,4 @@
-"""Repository-wide workflow rules: result gates and action pins."""
+"""Repository-wide workflow rules: result gates, image caches, and action pins."""
 
 import json
 import os
@@ -140,6 +140,39 @@ class PagesDeployTests(unittest.TestCase):
         )
         # actions/deploy-pages gives up after 10 minutes by default.
         self.assertGreater(jobs["deploy"].get("timeout-minutes", 0), 10)
+
+
+def steps_using(node, action):
+    """Every step under `node` whose `uses` names `action`, at any depth."""
+    if isinstance(node, dict):
+        if str(node.get("uses", "")).startswith(action + "@"):
+            yield node
+        for value in node.values():
+            yield from steps_using(value, action)
+    elif isinstance(node, list):
+        for value in node:
+            yield from steps_using(value, action)
+
+
+class ImageCacheTests(unittest.TestCase):
+    def test_no_image_build_exports_a_layer_cache(self):
+        """Each image's builder copies the whole tree before `cargo build`.
+
+        Every build that a source change starts misses that layer, which holds
+        the target directory. Exporting it to the GitHub Actions cache gains
+        nothing and evicts other caches from the repository's quota.
+        """
+        builds = []
+        for path in tracked(".github/*.yml", ".github/**/*.yml", ".github/**/*.yaml"):
+            for step in steps_using(
+                yaml.safe_load(path.read_text()), "docker/build-push-action"
+            ):
+                builds.append(path.name)
+                with self.subTest(workflow=path.name, step=step.get("name")):
+                    self.assertNotIn("cache-to", step.get("with") or {})
+        # Guards against a walk that finds nothing: the xdbg and
+        # keepalive-probe images at least.
+        self.assertGreaterEqual(len(builds), 2)
 
 
 class ActionPinTests(unittest.TestCase):
