@@ -8,6 +8,7 @@ from io import BytesIO
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -379,6 +380,21 @@ class PackageTests(unittest.TestCase):
             consumer_build.android_architectures(
                 {"components": {"android": {"native": {"riscv64-linux-android": {}}}}}
             )
+
+    def test_library_builds_only_the_abis_the_app_asks_for(self):
+        # The app passes the package's ABIs (android_architectures above) as
+        # reactNativeArchitectures. The library's CMake build links one
+        # libxmtp_sdk.so per ABI, so it must filter by that property, and
+        # without it build every ABI that a release package ships.
+        gradle = (package.ROOT / "sdks/react-native/android/build.gradle").read_text()
+        self.assertIn("ndk { abiFilters(*xmtpReactNativeArchitectures()) }", gradle)
+        self.assertIn("findProperty('reactNativeArchitectures')", gradle)
+        self.assertIn("findProperty('react.nativeArchitectures')", gradle)
+        default = re.search(r"return abis \?: \[([^\]]*)\]", gradle)[1]
+        self.assertEqual(
+            re.findall(r"'([^']+)'", default), list(consumer_build.ANDROID_ABI_ORDER)
+        )
+        self.assertEqual(set(consumer_build.ANDROID_ABI_ORDER), set(package.ANDROID))
 
     def test_corrupt_runtime_bytes_are_rejected(self):
         output = self.assemble()
