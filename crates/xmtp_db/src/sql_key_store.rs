@@ -2199,9 +2199,9 @@ pub(crate) mod tests {
     }
 
     /// Removing a proposal finds its ref by value, not by the bytes this build
-    /// writes. A ref stored in another valid CBOR encoding (here an
-    /// indefinite-length array) is removed too, so no ref is left without its
-    /// proposal and the group still loads.
+    /// writes. A ref stored in another valid CBOR encoding (here an array
+    /// length in two bytes where one is enough) is removed too, so no ref is
+    /// left without its proposal and the group still loads.
     #[xmtp_common::test(unwrap_try = true)]
     async fn removing_a_proposal_matches_its_ref_in_another_encoding() {
         use super::{PROPOSAL_QUEUE_REFS_LABEL, build_key, codec::encode_list};
@@ -2224,7 +2224,7 @@ pub(crate) mod tests {
         let (_, proposal_ref) =
             group.propose_self_update(&provider, &signer, LeafNodeParameters::default())?;
 
-        // Rewrite the stored ref with an indefinite-length array for its bytes.
+        // Rewrite the stored ref with a two-byte length for its 32-byte array.
         let key = build_key::<CURRENT_VERSION, _>(PROPOSAL_QUEUE_REFS_LABEL, group.group_id())?;
         let storage = provider.storage();
         let storage_key =
@@ -2238,7 +2238,7 @@ pub(crate) mod tests {
             .windows(2)
             .position(|window| window == [0x98, 0x20])
             .expect("a 32-byte array");
-        let other = [&item[..header], &[0x9f], &item[header + 2..], &[0xff]].concat();
+        let other = [&item[..header], &[0x99, 0x00, 0x20], &item[header + 2..]].concat();
         assert_ne!(&other, item);
         storage.write::<CURRENT_VERSION>(
             PROPOSAL_QUEUE_REFS_LABEL,

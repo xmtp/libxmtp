@@ -3,11 +3,12 @@
 //! No backend needed.
 //!
 //! A span or event field that copies a key must free that copy inside the
-//! scan. In CI the test macro installs no subscriber; tracing's `log` feature,
-//! which the workspace enables, still evaluates the fields then, for its log
-//! fallback. Each scan runs its key store calls under a trace layer
-//! ([`traced`]) as well, so the fields are evaluated whatever tracing's
-//! features, and the decode-failure log can be checked.
+//! scan, so each scan runs its key store calls under a trace layer
+//! ([`traced`]), which evaluates every field, and the decode-failure log can
+//! be checked. Without one, CI evaluates almost none: the test macro installs
+//! no subscriber there, and with no subscriber tracing's `log` feature builds
+//! an event's fields only for a `log` logger, which CI does not set, and a
+//! span's only until the process first sets any dispatcher.
 // The heap-canary harness is Unix-only (`libc::memmem`).
 #![cfg(unix)]
 
@@ -196,6 +197,52 @@ async fn signature_key_pair_is_wiped() {
 
     assert!(read_back);
     assert_eq!(hits, [0], "freed heap blocks held the signature key");
+}
+
+/// A signature key pair whose private key is an indefinite-length array.
+/// Serde would read it into a `Vec<u8>` that grows 8, 16, 32 and frees a
+/// block holding the first 16 key bytes. The codec's pre-scan rejects the
+/// row before any decode, so no part of the key is freed unwiped, also when
+/// the decode error is logged.
+#[xmtp_common::test(unwrap_try = true)]
+async fn signature_key_in_an_indefinite_length_array_is_wiped() {
+    let provider = provider().await;
+    let store = provider.storage();
+    let public = XmtpInstallationCredential::from_bytes(&SIGNATURE_KEY)?
+        .public_slice()
+        .to_vec();
+    let key_pair =
+        SignatureKeyPair::from_raw(SignatureScheme::ED25519, SIGNATURE_KEY.to_vec(), public);
+    let row = encode_value(PLAIN_LABEL, &key_pair)?;
+    // `private`, then its 32 items: `98 20` becomes `9f` and a break.
+    let private = [&[0x67][..], b"private", &[0x98, 0x20]].concat();
+    let at = row
+        .windows(private.len())
+        .position(|window| window == private)
+        .expect("the private key array")
+        + private.len();
+    let mut end = at;
+    for _ in 0..SIGNATURE_KEY.len() {
+        end += if row[end] == 0x18 { 2 } else { 1 };
+    }
+    let row = [&row[..at - 2], &[0x9f], &row[at..end], &[0xff], &row[end..]].concat();
+
+    let ((failed, logged), hits) = scan(&[Canary::new(&SIGNATURE_KEY[..16])], || {
+        store
+            .write::<CURRENT_VERSION>(PLAIN_LABEL, PLAIN_KEY, &row)
+            .unwrap();
+        let (read, logged) =
+            traced(|| store.read::<CURRENT_VERSION, SignatureKeyPair>(PLAIN_LABEL, PLAIN_KEY));
+        (read.is_err(), logged)
+    });
+
+    assert!(failed, "an indefinite-length private key array decoded");
+    assert!(logged, "the decode failure was not logged");
+    assert_eq!(
+        hits,
+        [0],
+        "freed heap blocks held part of the signature key"
+    );
 }
 
 /// A stored key with a byte after its value fails to decode, also through a

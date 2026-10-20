@@ -31,10 +31,12 @@ const DESERIALIZE_CAPACITY: usize = 64;
 /// Owned secret bytes. Wiped on drop; `Debug` shows only the length.
 ///
 /// Serializes as a byte string (`serialize_bytes`, CBOR major type 2), and
-/// deserializes one into a wiping buffer with a single copy. A type whose
-/// serde shape stores its secret as a sequence of `u8`, as OpenMLS's
-/// `SignatureKeyPair` does, reads it with [`deserialize_seq`]. Equality is
-/// constant time.
+/// deserializes one into a wiping buffer with a single copy. A human-readable
+/// format, such as JSON, has no byte strings: there it reads a sequence of
+/// `u8` and nothing else, so a JSON string is an error, not its text's bytes.
+/// A type whose serde shape stores its secret as a sequence of `u8`, as
+/// OpenMLS's `SignatureKeyPair` does, reads it with [`deserialize_seq`].
+/// Equality is constant time.
 #[derive(Clone)]
 pub struct Secret(Zeroizing<Vec<u8>>);
 
@@ -78,8 +80,8 @@ impl Eq for Secret {}
 
 impl ZeroizeOnDrop for Secret {}
 
-/// A secret is stored in the MLS key store with the same bytes as a
-/// `Vec<u8>`, and reading it through `Secret` wipes a partly decoded value.
+/// A secret is stored in the MLS key store as one CBOR byte string, and
+/// reading it through `Secret` copies the bytes once into a wiping buffer.
 impl openmls_traits::storage::Entity<{ openmls_traits::storage::CURRENT_VERSION }> for Secret {}
 
 impl serde::Serialize for Secret {
@@ -90,7 +92,11 @@ impl serde::Serialize for Secret {
 
 impl<'de> serde::Deserialize<'de> for Secret {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_bytes(SecretVisitor)
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_seq(SecretVisitor)
+        } else {
+            deserializer.deserialize_bytes(SecretVisitor)
+        }
     }
 }
 
@@ -105,9 +111,15 @@ pub fn deserialize_seq<'de, D: serde::Deserializer<'de>>(
 
 /// Reads secret bytes into a wiping buffer. Borrowed bytes are copied once
 /// into a buffer of their exact size; an owned buffer moves in without a
-/// copy; a sequence (from a format that has no byte strings, or from
+/// copy; a sequence (from a human-readable format, or from
 /// [`deserialize_seq`]) is pushed into a buffer that grows only through
-/// wiped copies. A decode that fails partway frees nothing unwiped.
+/// wiped copies.
+///
+/// A decode that fails partway frees nothing unwiped behind the client
+/// database's pre-scan (`xmtp_db`'s `value_from_slice`), which rejects a cut
+/// or indefinite-length item before any decode. Read directly, cbor4ii copies
+/// what it has of a cut byte string into a buffer that is not wiped before
+/// it fails.
 struct SecretVisitor;
 
 impl<'de> Visitor<'de> for SecretVisitor {
@@ -205,7 +217,11 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn serde_rejects_what_is_not_secret_bytes() {
-        for json in ["[256]", "[-1]", "[1,", "{}", "null", "7"] {
+        // JSON has no byte strings, and a string is not secret bytes:
+        // serde_json would hand its text's bytes to a byte visitor.
+        for json in [
+            "\"0x01\"", "\"AQI=\"", "[256]", "[-1]", "[1,", "{}", "null", "7",
+        ] {
             assert!(serde_json::from_str::<Secret>(json).is_err(), "{json}");
         }
         // CBOR: a byte string longer than the input, the `Vec<u8>` form (an

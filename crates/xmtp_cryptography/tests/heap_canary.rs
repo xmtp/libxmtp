@@ -40,6 +40,22 @@ fn dropped_hex_string_is_a_hit() {
     assert_eq!(hits, [1]);
 }
 
+/// tracing records a `&[u8]` field as lowercase hex with a space between
+/// bytes, `[5e 91 0c …]`. A freed copy of that text is a hit.
+#[test]
+fn dropped_spaced_hex_is_a_hit() {
+    let spaced = black_box(format!(
+        "[{}]",
+        KEY.iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    ));
+    assert!(!spaced.contains(&hex::encode(KEY)));
+    let ((), hits) = scan(&[Canary::new(&KEY)], || drop(black_box(spaced)));
+    assert_eq!(hits, [1]);
+}
+
 /// The client database stores a key in an OpenMLS type as a CBOR array of
 /// `u8`. A freed encoded value is a hit, though a CBOR array splits the raw
 /// bytes. The key holds both bytes at the item boundary: `0x17` is its own

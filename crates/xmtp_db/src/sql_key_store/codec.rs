@@ -41,6 +41,10 @@
 //!   plain values under XMTP labels and `Secret`. rc4 is the first release
 //!   that stores CBOR, so no reader of the integer-array form exists. Types
 //!   that OpenMLS owns keep their own serde shape, integer arrays included.
+//!   One libxmtp type keeps that shape on purpose: `XmtpInstallationCredential`
+//!   serializes through OpenMLS's `SignatureKeyPair`, and each must read the
+//!   other's rows, so its keys are integer arrays (the golden column pins
+//!   `.private[]:integer`).
 //! - Wiping depends on exact-size buffers. [`value_to_vec`] allocates the
 //!   final size once; the heap canary tests in `tests/zeroize.rs` check it.
 //!   A decoded `Vec<u8>` is sized exactly from the CBOR array length. The
@@ -49,11 +53,20 @@
 //!   arrays read into a `Vec<u8>`. `decoded_byte_vectors_are_sized_exactly`
 //!   is their only guard: a vector that grew 8, 16, 32 frees blocks that
 //!   each hold only part of a key, which no heap canary finds.
-//! - The pre-scan of [`value_from_slice`] rejects bytes after the value and
-//!   an indefinite-length byte string, before any decode. cbor4ii joins the
-//!   chunks of an indefinite-length byte string in a growing buffer that is
-//!   not wiped, so a private key in one would leave copies. libxmtp never
-//!   writes one.
+//! - The pre-scan of [`value_from_slice`] rejects bytes after the value, an
+//!   indefinite-length byte string and an indefinite-length array, before
+//!   any decode. cbor4ii joins the chunks of an indefinite-length byte string
+//!   in a growing buffer that is not wiped, and serde reads an
+//!   indefinite-length array into a `Vec<u8>` that grows by reallocation, so
+//!   a private key in either would leave copies. No writer emits one: cbor4ii
+//!   writes a definite length whenever serde gives one, and every OpenMLS and
+//!   libxmtp serializer of a stored type does.
+//! - Known limit: a well-formed row whose OpenMLS private key array has an
+//!   item of another type (`18 4d` retyped to `38 4d`) fails after the bytes
+//!   before it are pushed into serde's own `Vec<u8>`, which is freed
+//!   unwiped, and so is the log path's second decode. Closing that needs a
+//!   wiping decode for those fields in OpenMLS. libxmtp's own secrets are
+//!   byte strings, or read through `Secret` (`secret::deserialize_seq`).
 //! - Databases written with the earlier bincode values are rejected when they
 //!   open (`StorageError::OldEncodingDatabase`), so no reader handles both.
 //!
@@ -91,8 +104,8 @@ pub(crate) enum ValueError {
     Decode(#[from] DecodeError<Infallible>),
     #[error("{0} bytes follow the value")]
     TrailingBytes(usize),
-    #[error("the value holds an indefinite-length byte string")]
-    IndefiniteByteString,
+    #[error("the value holds an indefinite-length byte string or array")]
+    IndefiniteLength,
 }
 
 impl ValueError {
@@ -107,7 +120,7 @@ impl ValueError {
         match self {
             Self::Encode(_) => ("encode", ""),
             Self::TrailingBytes(_) => ("trailing bytes", ""),
-            Self::IndefiniteByteString => ("indefinite byte string", ""),
+            Self::IndefiniteLength => ("indefinite length", ""),
             Self::Decode(DecodeError::Custom(_)) => ("serde", ""),
             Self::Decode(DecodeError::Core(error)) => match error {
                 Core::Mismatch { name, .. } => ("mismatch", **name),
@@ -165,7 +178,8 @@ pub(crate) fn value_to_vec<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, 
 }
 
 /// Decode one value written by [`value_to_vec`]. Every decoded value comes
-/// from here. Bytes after the value, and an indefinite-length byte string,
+/// from here. Bytes after the value, and an indefinite-length byte string or
+/// array,
 /// are errors.
 ///
 /// It finds where the value ends before it decodes it, so a row with bytes
@@ -182,34 +196,36 @@ pub(crate) fn value_from_slice<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, V
 }
 
 /// The length of the one CBOR item at the start of `bytes`. Skipping an item
-/// copies none of it. An item that holds an indefinite-length byte string is
+/// copies none of it. An item that holds an indefinite-length byte string or
+/// array is
 /// an error (see the module doc).
 fn value_len(bytes: &[u8]) -> Result<usize, ValueError> {
     let mut reader = SliceReader::new(bytes);
     IgnoredAny::decode(&mut reader).map_err(DecodeError::from)?;
     let Ok(rest) = reader.fill(bytes.len());
     let len = bytes.len() - rest.as_ref().len();
-    if holds_indefinite_byte_string(&bytes[..len]) {
-        return Err(ValueError::IndefiniteByteString);
+    if holds_indefinite_length(&bytes[..len]) {
+        return Err(ValueError::IndefiniteLength);
     }
     Ok(len)
 }
 
 /// Whether `item`, one well-formed CBOR item, holds an indefinite-length byte
-/// string at any depth.
+/// string or array at any depth.
 ///
 /// Every header in a well-formed item is followed by its argument and, for a
 /// definite-length string, its content. Everything else an array, map, tag
 /// or indefinite-length string holds is more headers. So one pass over the
 /// headers, which skips string content, sees every item.
-fn holds_indefinite_byte_string(item: &[u8]) -> bool {
+fn holds_indefinite_length(item: &[u8]) -> bool {
     const BYTES: u8 = 2;
     const TEXT: u8 = 3;
+    const ARRAY: u8 = 4;
     const INDEFINITE: u8 = 31;
     let mut at = 0;
     while let Some(&header) = item.get(at) {
         let (major, info) = (header >> 5, header & 0x1f);
-        if major == BYTES && info == INDEFINITE {
+        if matches!(major, BYTES | ARRAY) && info == INDEFINITE {
             return true;
         }
         let argument_len = match info {
@@ -392,12 +408,13 @@ fn log_decode_error<V: DeserializeOwned>(label: &[u8], bytes: &[u8], error: &Val
 }
 
 /// The forms in which a log line or a span could hold `secret`: its raw hex,
-/// the hex of its CBOR array items (how an OpenMLS type stores a byte
-/// vector), and the `Debug` text of both, without the brackets. A byte string
-/// holds the raw bytes after its header, so the raw forms cover it. Negative log and span
-/// checks look for every form.
+/// the same hex with a space between bytes (how tracing records a `&[u8]`
+/// field), the hex of its CBOR array items (how an OpenMLS type stores a byte
+/// vector), and the `Debug` text of the raw bytes and the items, without the
+/// brackets. A byte string holds the raw bytes after its header, so the raw
+/// forms cover it. Negative log and span checks look for every form.
 #[cfg(test)]
-pub(crate) fn logged_forms(secret: &[u8]) -> [String; 4] {
+pub(crate) fn logged_forms(secret: &[u8]) -> [String; 5] {
     let cbor_items: Vec<u8> = secret
         .iter()
         .flat_map(|&byte| {
@@ -409,8 +426,14 @@ pub(crate) fn logged_forms(secret: &[u8]) -> [String; 4] {
         })
         .collect();
     let debug = |bytes: &[u8]| format!("{bytes:?}").replace(['[', ']'], "");
+    let spaced = secret
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ");
     [
         hex::encode(secret),
+        spaced,
         hex::encode(&cbor_items),
         debug(secret),
         debug(&cbor_items),
@@ -465,12 +488,13 @@ mod tests {
         }
     }
 
-    /// An indefinite-length byte string, at any depth, is an error before
-    /// any decode. Other items whose bytes look like its header read as
-    /// usual: string content, an integer, field names, an indefinite-length
-    /// text string and array.
+    /// An indefinite-length byte string or array, at any depth, is an error
+    /// before any decode. Other items whose bytes look like their headers
+    /// read as usual: string content, integers, field names, an
+    /// indefinite-length text string and map, and a definite array with a
+    /// longer length header than it needs.
     #[xmtp_common::test(unwrap_try = true)]
-    fn indefinite_length_byte_strings_are_errors() {
+    fn indefinite_lengths_are_errors() {
         use serde_bytes::ByteBuf;
         for row in [
             &[0x5f, 0x41, 0x01, 0xff][..],
@@ -478,12 +502,15 @@ mod tests {
             &[0x81, 0x5f, 0xff],
             &[0xa1, 0x61, b'k', 0x5f, 0x41, 0x01, 0xff],
             &[0xc1, 0x5f, 0xff],
-            &[0x9f, 0x5f, 0xff, 0xff],
+            &[0x9f, 0x01, 0xff],
+            &[0x9f, 0xff],
+            &[0x81, 0x9f, 0x01, 0xff],
+            &[0xa1, 0x61, b'k', 0x9f, 0xff],
         ] {
             assert!(
                 matches!(
                     value_from_slice::<serde::de::IgnoredAny>(row),
-                    Err(ValueError::IndefiniteByteString)
+                    Err(ValueError::IndefiniteLength)
                 ),
                 "{row:02x?}"
             );
@@ -498,7 +525,12 @@ mod tests {
         );
         assert_eq!(value_from_slice::<u8>(&[0x18, 0x5f])?, 0x5f);
         assert_eq!(value_from_slice::<String>(&[0x7f, 0x61, b'_', 0xff])?, "_");
-        assert_eq!(value_from_slice::<Vec<u8>>(&[0x9f, 0x01, 0xff])?, [1]);
+        assert_eq!(value_from_slice::<u8>(&[0x18, 0x9f])?, 0x9f);
+        assert_eq!(
+            value_from_slice::<std::collections::BTreeMap<u8, u8>>(&[0xbf, 0x01, 0x02, 0xff])?,
+            [(1, 2)].into()
+        );
+        assert_eq!(value_from_slice::<Vec<u8>>(&[0x99, 0x00, 0x01, 0x01])?, [1]);
         #[derive(Serialize, Deserialize, PartialEq, Debug)]
         struct Row {
             field_name: Vec<u8>,

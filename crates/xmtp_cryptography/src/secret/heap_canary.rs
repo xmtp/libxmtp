@@ -7,8 +7,10 @@
 //! [`scan_async`]. While a scan is armed, every freed block that is at least
 //! as long as the shortest armed form is searched for each form of each
 //! canary. A block that holds any form counts as one hit for that canary.
-//! The forms are the raw bytes, their lowercase hex, and the items of a CBOR
-//! array of `u8`. The client database stores values as CBOR. A secret that
+//! The forms are the raw bytes, their lowercase hex, their lowercase hex
+//! with a space between bytes, and the items of a CBOR array of `u8`.
+//! tracing records a `&[u8]` field as the spaced form (`[5e 91 0b …]`). The
+//! client database stores values as CBOR. A secret that
 //! libxmtp stores (a `Secret`, a plain value under an XMTP label) is a CBOR
 //! byte string, which holds the raw bytes after its header, so the raw form
 //! finds it. Serde writes a `Vec<u8>` field of an OpenMLS type, such as
@@ -57,9 +59,11 @@ pub const MIN_SECRET_LEN: usize = 16;
 /// Longest secret a canary accepts.
 pub const MAX_SECRET_LEN: usize = 64;
 
-/// Raw bytes, lowercase hex, CBOR array items, byte-reversed raw bytes.
-const MAX_FORMS: usize = 4;
-const MAX_FORM_LEN: usize = MAX_SECRET_LEN * 2;
+/// Raw bytes, lowercase hex, spaced lowercase hex, CBOR array items,
+/// byte-reversed raw bytes.
+const MAX_FORMS: usize = 5;
+/// The spaced hex form is the longest: three characters a byte, less one.
+const MAX_FORM_LEN: usize = MAX_SECRET_LEN * 3;
 
 /// One searchable byte form of a secret, stored inline.
 #[derive(Clone, Copy)]
@@ -78,6 +82,22 @@ impl Form {
         let mut form = Self::EMPTY;
         form.bytes[..secret.len()].copy_from_slice(secret);
         form.len = secret.len();
+        form
+    }
+
+    /// Lowercase hex with a space between bytes, as tracing records a
+    /// `&[u8]` field value, without its brackets.
+    fn spaced_hex(secret: &[u8]) -> Self {
+        let hex = Self::lower_hex(secret);
+        let mut form = Self::EMPTY;
+        for (i, pair) in hex.as_slice().chunks(2).enumerate() {
+            if i > 0 {
+                form.bytes[form.len] = b' ';
+                form.len += 1;
+            }
+            form.bytes[form.len..form.len + 2].copy_from_slice(pair);
+            form.len += 2;
+        }
         form
     }
 
@@ -131,8 +151,8 @@ pub struct Canary {
 }
 
 impl Canary {
-    /// Look for the raw bytes, their lowercase hex, and their CBOR array
-    /// items.
+    /// Look for the raw bytes, their lowercase hex, plain and spaced, and
+    /// their CBOR array items.
     ///
     /// # Panics
     ///
@@ -147,8 +167,9 @@ impl Canary {
         let mut forms = [Form::EMPTY; MAX_FORMS];
         forms[0] = Form::raw(secret);
         forms[1] = Form::lower_hex(secret);
-        forms[2] = Form::cbor_items(secret);
-        Self { forms, count: 3 }
+        forms[2] = Form::spaced_hex(secret);
+        forms[3] = Form::cbor_items(secret);
+        Self { forms, count: 4 }
     }
 
     /// Look for a secp256k1 key in the forms of [`Self::new`] and as
@@ -156,8 +177,8 @@ impl Canary {
     /// so the key it holds in memory is the big-endian key reversed.
     pub fn secp256k1(key: &[u8; 32]) -> Self {
         let mut canary = Self::new(key);
-        canary.forms[3] = Form::reversed(key);
-        canary.count = 4;
+        canary.forms[4] = Form::reversed(key);
+        canary.count = 5;
         canary
     }
 
