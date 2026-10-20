@@ -18,7 +18,9 @@
 //! - the rows this build writes now, from the same steps, have the same field
 //!   and variant names as the newest frozen file, so a dependency bump that
 //!   renames, adds or removes a stored field fails CI;
-//! - the frozen files hold the shapes XMTP stores.
+//! - the frozen files hold the shapes XMTP stores;
+//! - cut and corrupted rows, and rows that declare a length past their end,
+//!   are errors, not panics.
 //!
 //! A frozen file is never edited or rewritten: its SHA-256 is pinned. For a
 //! deliberate format change, run
