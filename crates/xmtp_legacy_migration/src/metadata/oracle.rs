@@ -6,7 +6,7 @@
 //! Remove this file and the bincode and openmls dev-dependencies when the pin
 //! moves to upstream OpenMLS. The corpus test in `metadata.rs` keeps the
 //! behavior.
-use super::tests::{Case, corpus, summary};
+use super::tests::{CORPUS, Case, corpus, summary};
 use super::{
     COMPONENT_REGISTRY, CREATOR, ImmutableMetadataSave, MAX_CONTEXT_BYTES,
     MUTABLE_METADATA_EXTENSION, MutableMetadataSave, decode, decode_legacy_immutable,
@@ -373,6 +373,46 @@ fn build_corpus() -> Vec<(String, Vec<u8>)> {
     let tag = unused_proposal_tag.len() - 12;
     unused_proposal_tag[tag..tag + 4].copy_from_slice(&7u32.to_le_bytes());
     cases.push(("proposal-tag-7".to_owned(), unused_proposal_tag));
+    // Tags one past the last variant. The RequiredCapabilities atom has the
+    // last valid ExtensionType and CredentialType tags, and
+    // protocol-version-other has the last valid ProtocolVersion tag.
+    // The extension type tag sits before the two empty lists.
+    let mut extension_type_tag = context(
+        &header,
+        &[
+            atom("immutable"),
+            Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
+                &[ExtensionType::ApplicationId],
+                &[],
+                &[],
+            )),
+        ],
+    );
+    let tag = extension_type_tag.len() - 20;
+    assert_eq!(extension_type_tag[tag..tag + 4], 0u32.to_le_bytes());
+    extension_type_tag[tag..tag + 4].copy_from_slice(&10u32.to_le_bytes());
+    cases.push(("extension-type-tag-10".to_owned(), extension_type_tag));
+    // The credential type tag ends the context.
+    let mut credential_type_tag = context(
+        &header,
+        &[
+            atom("immutable"),
+            Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
+                &[],
+                &[],
+                &[CredentialType::Basic],
+            )),
+        ],
+    );
+    let tag = credential_type_tag.len() - 4;
+    assert_eq!(credential_type_tag[tag..], 0u32.to_le_bytes());
+    credential_type_tag[tag..].copy_from_slice(&4u32.to_le_bytes());
+    cases.push(("credential-type-tag-4".to_owned(), credential_type_tag));
+    // The protocol version tag starts the context.
+    let mut protocol_version_tag = immutable.clone();
+    assert_eq!(protocol_version_tag[..4], 0u32.to_le_bytes());
+    protocol_version_tag[..4].copy_from_slice(&2u32.to_le_bytes());
+    cases.push(("protocol-version-tag-2".to_owned(), protocol_version_tag));
     // A dictionary whose last key repeats the creator key. The map decoder
     // keeps the last value.
     let later_creator = InboxId::from_hex(&"07".repeat(32))
@@ -456,6 +496,13 @@ fn build_corpus() -> Vec<(String, Vec<u8>)> {
     cases
 }
 
+/// The corpus fixture text that `build_corpus` gives.
+fn corpus_text() -> String {
+    let mut text = serde_json::to_string_pretty(&corpus_json(&build_corpus())).unwrap();
+    text.push('\n');
+    text
+}
+
 fn corpus_json(cases: &[(String, Vec<u8>)]) -> Value {
     json!({
         "description": "Legacy GroupContext records written with the xmtp OpenMLS fork 3fabbf23 and bincode 1.3, and the metadata each one decodes to. src/metadata/oracle.rs builds them.",
@@ -502,6 +549,11 @@ fn corpus_fixture_was_built_with_the_pinned_types() {
             "{name}: recorded metadata differs from the legacy decoder"
         );
     }
+    // A rebuild writes the same file.
+    assert!(
+        corpus_text() == CORPUS,
+        "rebuilding the corpus changes the file"
+    );
     // The corpus exercises both sides of the comparison.
     let readable_cases = built
         .iter()
@@ -650,11 +702,18 @@ fn over_budget_context_is_valid_but_unavailable() {
 /// `just test workspace -p xmtp_legacy_migration write_corpus_fixture --run-ignored only`.
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "rewrites fixtures/legacy-context-corpus.json"]
+#[ignore = "rewrites fixtures/legacy-context-corpus.json and its hash"]
 fn write_corpus_fixture() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("fixtures/legacy-context-corpus.json");
-    let mut text = serde_json::to_string_pretty(&corpus_json(&build_corpus()))?;
-    text.push('\n');
-    std::fs::write(path, text)?;
+    use sha2::Digest;
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+    let text = corpus_text();
+    std::fs::write(fixtures.join("legacy-context-corpus.json"), &text)?;
+    // Keep the hash record that fixtures/generate.py writes current.
+    let hashes_path = fixtures.join("hashes.json");
+    let mut hashes: Value = serde_json::from_str(&std::fs::read_to_string(&hashes_path)?)?;
+    hashes["legacy-context-corpus.json"] =
+        hex::encode(sha2::Sha256::digest(text.as_bytes())).into();
+    let mut hashes = serde_json::to_string_pretty(&hashes)?;
+    hashes.push('\n');
+    std::fs::write(hashes_path, hashes)?;
 }

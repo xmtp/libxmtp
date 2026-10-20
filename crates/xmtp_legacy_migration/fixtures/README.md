@@ -46,11 +46,13 @@ the legacy decoder. The cases cover each extension the std-only reader in
 `src/legacy_context.rs` accepts, pairs of them in both orders, every ciphersuite
 tag, the other protocol version, other extension types, truncations, and
 oversized lengths. A few cases are byte edits of fork output: a proposal tag the
-fork does not use, and a repeated dictionary key.
+fork does not use, a repeated dictionary key, and a protocol version, extension
+type, or credential type tag one past the last variant.
 
-While the fork is pinned, the oracle tests check that the saved bytes equal the
-fork's output and that the reader agrees with the legacy decoder, also on every
-truncation and on single-byte changes. To rebuild the file, run:
+While the fork is pinned, the oracle tests check that a rebuild writes the same
+file and that the reader agrees with the legacy decoder, also on every
+truncation and on single-byte changes. A test checks the corpus hash in
+`hashes.json`. The rebuild writes the corpus and its hash. Run:
 
 ```sh
 dev/nix-shell 'just test workspace -p xmtp_legacy_migration write_corpus_fixture --run-ignored only'

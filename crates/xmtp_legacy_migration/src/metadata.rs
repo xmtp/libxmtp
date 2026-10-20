@@ -213,7 +213,7 @@ mod tests {
 
     /// Group contexts written with the pinned legacy OpenMLS types and bincode,
     /// and the metadata each one must decode to. `oracle.rs` built them.
-    const CORPUS: &str = include_str!("../fixtures/legacy-context-corpus.json");
+    pub(super) const CORPUS: &str = include_str!("../fixtures/legacy-context-corpus.json");
 
     pub(super) struct Case {
         pub(super) name: String,
@@ -250,7 +250,8 @@ mod tests {
         json!({
             "creator": immutable.as_ref().map(|value| &value.creator_inbox_id),
             "mutable": mutable.as_ref().map(|value| json!({
-                "attributes": value.attributes,
+                // Sorted, so a rebuild writes the same bytes.
+                "attributes": value.attributes.iter().collect::<std::collections::BTreeMap<_, _>>(),
                 "admin_list": value.admin_list,
                 "super_admin_list": value.super_admin_list,
             })),
@@ -298,6 +299,16 @@ mod tests {
             .map(|case| case.name.as_str())
             .collect();
         assert!(failures.is_empty(), "wrong metadata for {failures:?}");
+    }
+
+    /// `fixtures/generate.py` records every fixture hash. A corpus rebuild
+    /// must update the record too.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn corpus_hash_is_recorded() {
+        use sha2::Digest;
+        let hashes: Value = serde_json::from_str(include_str!("../fixtures/hashes.json"))?;
+        let digest = hex::encode(sha2::Sha256::digest(CORPUS.as_bytes()));
+        assert_eq!(hashes["legacy-context-corpus.json"], digest.as_str());
     }
 
     // verifies: MIG-005
