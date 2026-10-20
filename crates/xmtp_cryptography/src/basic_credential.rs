@@ -116,9 +116,13 @@ impl XmtpInstallationCredential {
         self.0.with_context(context)
     }
 
-    /// Internal helper function to safely create a credential from its raw parts
-    /// private and public must be exactly 32 bytes large.
+    /// Internal helper function to safely create a credential from its raw parts.
+    /// Keys of any length other than 32 bytes are an error.
     fn from_raw(private: &[u8], public: &[u8]) -> Result<Self, ed25519_dalek::SignatureError> {
+        const KEY_LENGTH: usize = 32;
+        if private.len() != KEY_LENGTH || public.len() != KEY_LENGTH {
+            return Err(ed25519_dalek::SignatureError::new());
+        }
         let keypair = Zeroizing::new({
             let mut keypair = [0u8; 64];
             keypair[0..32].copy_from_slice(private);
@@ -333,6 +337,23 @@ mod tests {
         assert_eq!(mls_kp.private(), keypair.0.as_bytes());
         assert_eq!(mls_kp.public(), &keypair.0.verifying_key().to_bytes());
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());
+    }
+
+    /// A stored key pair whose private or public key is not 32 bytes is a
+    /// decode error, not a panic.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn wrong_key_lengths_are_decode_errors() {
+        for (private, public) in [
+            (vec![1; 31], vec![2; 32]),
+            (vec![1; 33], vec![2; 32]),
+            (vec![1; 32], vec![2; 31]),
+            (vec![1; 32], vec![2; 33]),
+        ] {
+            let keypair = SignatureKeyPair::from_raw(SignatureScheme::ED25519, private, public);
+            let bytes = cbor4ii::serde::to_vec(Vec::new(), &keypair).unwrap();
+            assert!(cbor4ii::serde::from_slice::<XmtpInstallationCredential>(&bytes).is_err());
+        }
     }
 
     /// A codec that stores field names reads a `SignatureKeyPair` as an
