@@ -10,7 +10,7 @@ use xmtp_db::group::StoredGroupCommitLogPublicKey;
 use xmtp_db::prelude::QueryGroup;
 use xmtp_db::{
     XmtpMlsStorageProvider,
-    sql_key_store::{COMMIT_LOG_SIGNER_PRIVATE_KEY, SqlKeyStoreError},
+    sql_key_store::{COMMIT_LOG_SIGNER_PRIVATE_KEY, SqlKeyStoreError, codec as kv_codec},
 };
 use xmtp_proto::backend_v1::CommitLogEntry as CommitLogEntryProto;
 
@@ -83,7 +83,7 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
         &self,
         group_id: impl AsRef<[u8]>,
     ) -> Result<Option<Secret>, Self::Error> {
-        let key = bincode::serialize(group_id.as_ref())?;
+        let key = kv_codec::encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id.as_ref())?;
         let value = self
             .read::<Vec<u8>>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key)?
             .map(Secret::new);
@@ -95,9 +95,9 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
         group_id: impl AsRef<[u8]>,
         value: &Secret,
     ) -> Result<(), Self::Error> {
-        let key = bincode::serialize(group_id.as_ref())?;
-        let value = Secret::new(bincode::serialize(value.as_slice())?);
-        self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key, value.as_slice())
+        let key = kv_codec::encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id.as_ref())?;
+        let value = kv_codec::encode_value(COMMIT_LOG_SIGNER_PRIVATE_KEY, value.as_slice())?;
+        self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key, &value)
     }
 }
 
@@ -208,6 +208,38 @@ mod tests {
 
     use super::*;
     use crate::tester;
+
+    /// The commit log signer key keeps today's bincode bytes: the key is the
+    /// group id as a byte slice and the value is the secret as a byte vector.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn commit_log_key_bytes_are_unchanged() {
+        use diesel::prelude::*;
+        use xmtp_db::{
+            ConnectionExt, XmtpTestDb, schema::openmls_key_value::dsl, sql_key_store::SqlKeyStore,
+        };
+
+        let store = xmtp_db::TestDb::create_persistent_store(None).await;
+        let key_store = SqlKeyStore::new(store.conn());
+        let group_id = GroupId::from([0x42; 16]);
+        let secret = Secret::new(vec![0x24; 32]);
+        key_store.write_commit_log_key(group_id, &secret)?;
+
+        let storage_key = [
+            COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &bincode::serialize(group_id.as_slice())?,
+            &1u16.to_be_bytes(),
+        ]
+        .concat();
+        let stored: Vec<u8> = store.conn().raw_query(|conn| {
+            dsl::openmls_key_value
+                .filter(dsl::key_bytes.eq(storage_key))
+                .select(dsl::value_bytes)
+                .first(conn)
+        })?;
+        assert_eq!(stored, bincode::serialize(&secret.as_slice().to_vec())?);
+        let read = key_store.read_commit_log_key(group_id)?;
+        assert_eq!(read.as_ref().map(Secret::as_slice), Some(secret.as_slice()));
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_read_write_commit_log_key() {
@@ -589,13 +621,17 @@ mod tests {
         let group = alix.create_group(None, None).unwrap();
         let group_id = group.group_id;
 
-        // Clear the key store to ensure no stored key exists
-        key_store
-            .delete::<1>(
+        // Clear the key store to ensure no stored key exists. Store one
+        // first, so the check below shows the delete hit the stored row.
+        key_store.write_commit_log_key(group_id, &crypto.generate_commit_log_key()?)?;
+        key_store.delete::<1>(
+            xmtp_db::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &kv_codec::encode_key(
                 xmtp_db::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
-                &bincode::serialize(&group_id).unwrap(),
-            )
-            .ok();
+                &group_id,
+            )?,
+        )?;
+        assert!(key_store.read_commit_log_key(group_id)?.is_none());
 
         // Set a consensus key that we don't have the private key for
         let consensus_key = crypto.generate_commit_log_key().unwrap();

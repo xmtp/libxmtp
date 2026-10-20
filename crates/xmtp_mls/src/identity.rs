@@ -12,7 +12,10 @@ use openmls::{
     credentials::errors::BasicCredentialError,
     extensions::Extension,
     key_packages::KeyPackage,
-    prelude::{Credential as OpenMlsCredential, tls_codec::Serialize},
+    prelude::{
+        Credential as OpenMlsCredential,
+        tls_codec::{Deserialize as _, Serialize, VLBytes},
+    },
 };
 use openmls_traits::types::CryptoError;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,7 +33,9 @@ use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
-use xmtp_db::sql_key_store::{KEY_PACKAGE_REFERENCES, SqlKeyStoreError};
+use xmtp_db::sql_key_store::{
+    KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError, codec as kv_codec,
+};
 use xmtp_db::{ConnectionExt, MlsProviderExt, TransactionOutcome};
 use xmtp_db::{Fetch, StorageError, StoredSecret};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
@@ -811,7 +816,11 @@ impl XmtpKeyPackageBuilder {
     }
 }
 
-/// Serialize the key package hash ref to a bincode friendly format that is compatible with `read` in the KeyStore
+/// The key package hash ref in the key store key layout (`kv_codec::encode_key`).
+///
+/// These bytes are the `KEY_PACKAGE_WRAPPER_PRIVATE_KEY` key and the
+/// `key_package_history.key_package_hash_ref` column. The key layout does not
+/// change with the value codec, so neither needs a migration when it does.
 pub(crate) fn serialize_key_package_hash_ref(
     kp: &KeyPackage,
     provider: &impl MlsProviderExt,
@@ -819,10 +828,13 @@ pub(crate) fn serialize_key_package_hash_ref(
     let key_package_hash_ref = kp
         .hash_ref(provider.crypto())
         .map_err(|_| IdentityError::UninitializedIdentity)?;
-    let serialized = bincode::serialize(&key_package_hash_ref)
-        .map_err(|_| IdentityError::UninitializedIdentity)?;
+    hash_ref_key(&key_package_hash_ref)
+}
 
-    Ok(serialized)
+/// A hash ref in the key store key layout.
+fn hash_ref_key(hash_ref: &HashReference) -> Result<Vec<u8>, IdentityError> {
+    kv_codec::encode_key(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)
+        .map_err(|_| IdentityError::UninitializedIdentity)
 }
 
 // Takes a post quantum public key and returns the key used to store it in the key package references table
@@ -830,13 +842,21 @@ pub(crate) fn pq_key_package_references_key(raw_pub_key: &[u8]) -> Result<Vec<u8
     Ok(raw_pub_key.tls_serialize_detached()?)
 }
 
+/// Decode bytes from [`serialize_key_package_hash_ref`].
+///
+/// The input must be exactly one length-prefixed byte string. bincode allowed
+/// trailing bytes; this decoder rejects them on purpose. The only writer of
+/// the column is `serialize_key_package_hash_ref`, which never writes any, and
+/// the legacy archive conversion does not copy `key_package_history`. So the
+/// stricter check changes no result for a stored row.
 pub(crate) fn deserialize_key_package_hash_ref(
     hash_ref: &[u8],
 ) -> Result<HashReference, IdentityError> {
-    let key_package_hash_ref: HashReference =
-        bincode::deserialize(hash_ref).map_err(|_| IdentityError::UninitializedIdentity)?;
-
-    Ok(key_package_hash_ref)
+    let raw = kv_codec::key::decode_bytes(hash_ref).ok_or(IdentityError::UninitializedIdentity)?;
+    // `HashReference` has no public constructor from bytes. Its TLS encoding
+    // is the variable-length byte string.
+    let tls = VLBytes::new(raw.to_vec()).tls_serialize_detached()?;
+    HashReference::tls_deserialize_exact(tls).map_err(|_| IdentityError::UninitializedIdentity)
 }
 
 pub(crate) fn create_credential(
@@ -869,19 +889,29 @@ pub(crate) fn store_key_package_references(
     // keyed by the TLS serialized public init key instead of the slice version.
     let public_init_key = kp.hpke_init_key().tls_serialize_detached()?;
 
-    let hash_ref = serialize_key_package_hash_ref(kp, provider)?;
+    // The hash ref is a value under KEY_PACKAGE_REFERENCES (value codec) and a
+    // key under KEY_PACKAGE_WRAPPER_PRIVATE_KEY (key layout).
+    let hash_ref = kp
+        .hash_ref(provider.crypto())
+        .map_err(|_| IdentityError::UninitializedIdentity)?;
+    let hash_ref_value = kv_codec::encode_value(KEY_PACKAGE_REFERENCES, &hash_ref)?;
     let storage = provider.key_store();
     // Write the normal init key to the key package references
-    storage.write(KEY_PACKAGE_REFERENCES, &public_init_key, &hash_ref)?;
+    storage.write(KEY_PACKAGE_REFERENCES, &public_init_key, &hash_ref_value)?;
 
     if let Some(post_quantum_keypair) = post_quantum_keypair {
         let post_quantum_public_key = pq_key_package_references_key(&post_quantum_keypair.public)?;
 
         // Write the post quantum wrapper encryption public key to the key package references
-        storage.write(KEY_PACKAGE_REFERENCES, &post_quantum_public_key, &hash_ref)?;
+        storage.write(
+            KEY_PACKAGE_REFERENCES,
+            &post_quantum_public_key,
+            &hash_ref_value,
+        )?;
 
         // The key is borrowed, and its encoding is wiped after the write.
-        storage.write_wrapper_private_key(&hash_ref, &post_quantum_keypair.private)?;
+        storage
+            .write_wrapper_private_key(&hash_ref_key(&hash_ref)?, &post_quantum_keypair.private)?;
     }
 
     Ok(())
@@ -1005,6 +1035,69 @@ mod tests {
         val
     }
 
+    /// The key package hash ref has three uses: the `KEY_PACKAGE_REFERENCES`
+    /// value (value codec), and the wrapper private key's storage key and the
+    /// `key_package_history` column (key layout). All three hold today's
+    /// bincode bytes, and the column decodes back to the hash ref.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn key_package_hash_ref_bytes_are_unchanged() {
+        use super::{deserialize_key_package_hash_ref, store_key_package_references};
+        use diesel::prelude::*;
+        use xmtp_db::{
+            ConnectionExt, XmtpTestDb, schema::openmls_key_value::dsl, sql_key_store::SqlKeyStore,
+            xmtp_openmls_provider::XmtpOpenMlsProvider,
+        };
+
+        let store = xmtp_db::TestDb::create_persistent_store(None).await;
+        let provider = XmtpOpenMlsProvider::new(SqlKeyStore::new(store.conn()));
+        let bundle = xmtp_db::test_utils::generate_key_package_bundle();
+        let post_quantum = xmtp_cryptography::post_quantum::generate_post_quantum_key()?;
+        store_key_package_references(&provider, bundle.key_package(), &Some(post_quantum.clone()))?;
+
+        let hash_ref = bundle.key_package().hash_ref(provider.crypto())?;
+        let expected = bincode::serialize(&hash_ref)?;
+        let column = serialize_key_package_hash_ref(bundle.key_package(), &provider)?;
+        assert_eq!(column, expected, "key_package_history column");
+        assert_eq!(deserialize_key_package_hash_ref(&column)?, hash_ref);
+        assert!(deserialize_key_package_hash_ref(&column[..column.len() - 1]).is_err());
+        // Strict on purpose: trailing bytes are rejected.
+        assert!(deserialize_key_package_hash_ref(&[column.as_slice(), &[0]].concat()).is_err());
+
+        let stored = |key: &[u8]| -> Option<Vec<u8>> {
+            let storage_key = [KEY_PACKAGE_REFERENCES, key, &1u16.to_be_bytes()].concat();
+            store
+                .conn()
+                .raw_query(|conn| {
+                    dsl::openmls_key_value
+                        .filter(dsl::key_bytes.eq(storage_key))
+                        .select(dsl::value_bytes)
+                        .first::<Vec<u8>>(conn)
+                        .optional()
+                })
+                .unwrap()
+        };
+        let init_key = bundle
+            .key_package()
+            .hpke_init_key()
+            .tls_serialize_detached()?;
+        let post_quantum_key = pq_key_package_references_key(&post_quantum.public)?;
+        assert_eq!(
+            stored(&init_key),
+            Some(expected.clone()),
+            "init key reference"
+        );
+        assert_eq!(
+            stored(&post_quantum_key),
+            Some(expected.clone()),
+            "post-quantum key reference"
+        );
+        let wrapper_key = provider.key_store().wrapper_private_key(&expected)?;
+        assert_eq!(
+            wrapper_key.as_deref().map(Vec::as_slice),
+            Some(&*post_quantum.private)
+        );
+    }
+
     #[xmtp_common::test]
     async fn ensure_pq_keys_are_deleted() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1051,7 +1144,11 @@ mod tests {
             .unwrap();
 
         // Make sure we can find the private key based on the init key
-        let serialized_hash_ref = bincode::serialize(&init_key_hash_ref.unwrap()).unwrap();
+        let serialized_hash_ref = xmtp_db::sql_key_store::codec::encode_key(
+            KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+            &init_key_hash_ref.unwrap(),
+        )
+        .unwrap();
         let pq_private_key = get_pq_private_key(&provider, &serialized_hash_ref);
         assert!(pq_private_key.is_some());
 

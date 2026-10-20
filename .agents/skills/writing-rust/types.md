@@ -109,7 +109,8 @@ secret. Every heap copy libxmtp owns is wiped before it is freed. Import from
 ```rust
 use xmtp_cryptography::secret::{Secret, Zeroizing};
 
-let bytes = Zeroizing::new(bincode::serialize(&key_pair)?);   // wiped on drop
+let bytes = Zeroizing::new(key_pair.tls_serialize_detached()?);   // wiped on drop
+let value = codec::encode_value(LABEL, &key_pair)?;  // key store values come back as Zeroizing
 let key = Secret::new(rand_vec::<32>());
 ```
 
