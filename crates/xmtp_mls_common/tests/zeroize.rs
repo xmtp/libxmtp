@@ -22,6 +22,7 @@ use xmtp_mls_common::{
             read_from_app_data_dict_from_extensions,
         },
         components::metadata_attributes::CommitLogSignerComponent,
+        creation::encode_metadata_attribute_value,
         typed::Component,
     },
     group_mutable_metadata::{
@@ -197,6 +198,26 @@ fn malformed_metadata_wipes_the_commit_log_signer() {
 
     let ((), hits) = scan(&[Canary::new(&SIGNER)], || {
         assert!(GroupMutableMetadata::try_from(&malformed).is_err());
+    });
+    drop(malformed);
+
+    assert_eq!(hits, [0], "freed heap blocks held the commit-log signer");
+}
+
+/// Signer hex that turns invalid in its last digit fails to decode, and the
+/// failed decode frees no unwiped copy of the key bytes decoded before it.
+/// const-hex decodes in 16-byte chunks and stops at the chunk with the bad
+/// digit, so the first chunk is the part that can leak.
+#[xmtp_common::test(unwrap_try = true)]
+fn malformed_signer_hex_wipes_the_decoded_prefix() {
+    let mut malformed = hex::encode(SIGNER);
+    malformed.pop();
+    malformed.push('z');
+
+    let ((), hits) = scan(&[Canary::new(&SIGNER[..16])], || {
+        assert!(
+            encode_metadata_attribute_value(ComponentId::COMMIT_LOG_SIGNER, &malformed).is_err()
+        );
     });
     drop(malformed);
 

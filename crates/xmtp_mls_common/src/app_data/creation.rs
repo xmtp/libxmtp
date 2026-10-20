@@ -7,7 +7,7 @@
 
 use tls_codec::Serialize;
 use xmtp_configuration::ApplicationComponentDefinition;
-use xmtp_cryptography::secret::{Zeroize, Zeroizing};
+use xmtp_cryptography::secret::Zeroizing;
 use xmtp_proto::types::ConversationType;
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentMetadata, ComponentPermissions, ComponentType,
@@ -400,18 +400,19 @@ fn encode_metadata_attribute_bytes(
     match component_id {
         // The returned key bytes go to OpenMLS as an AppData payload.
         ComponentId::COMMIT_LOG_SIGNER => {
-            let mut raw = hex::decode(legacy_value).map_err(|error| {
-                MigrationError::InvalidCommitLogSignerHex {
+            let mut raw = crate::group_mutable_metadata::decode_secret_hex(legacy_value).map_err(
+                |error| MigrationError::InvalidCommitLogSignerHex {
                     reason: error.to_string(),
-                }
-            })?;
+                },
+            )?;
             let expected = xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
             if raw.len() != expected {
-                let actual = raw.len();
-                raw.zeroize();
-                return Err(MigrationError::InvalidCommitLogSignerLength { expected, actual });
+                return Err(MigrationError::InvalidCommitLogSignerLength {
+                    expected,
+                    actual: raw.len(),
+                });
             }
-            Ok(raw)
+            Ok(std::mem::take(&mut *raw))
         }
         ComponentId::MESSAGE_DISAPPEAR_FROM_NS => {
             parse_disappearing_i64("messageDisappearFromNS", legacy_value)

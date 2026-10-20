@@ -299,14 +299,7 @@ impl GroupMutableMetadata {
         let hex_str = self
             .attributes
             .get(MetadataField::CommitLogSigner.as_str())?;
-        // `decode_to_slice` strips the prefix itself, so size the buffer
-        // without it.
-        let hex_str = hex_str
-            .strip_prefix("0x")
-            .or_else(|| hex_str.strip_prefix("0X"))
-            .unwrap_or(hex_str);
-        let mut key = Zeroizing::new(vec![0; hex_str.len() / 2]);
-        hex::decode_to_slice(hex_str, key.as_mut_slice()).ok()?;
+        let mut key = decode_secret_hex(hex_str).ok()?;
         Some(Secret::new(std::mem::take(&mut *key)))
     }
 
@@ -411,6 +404,21 @@ impl TryFrom<&Vec<u8>> for GroupMutableMetadata {
         let proto_val = GroupMutableMetadataProto::decode(value.as_slice())?;
         Self::try_from(proto_val)
     }
+}
+
+/// Decode hex that holds a secret, such as the commit-log signer, straight
+/// into a zeroizing buffer. `hex::decode` would leave a partly decoded secret
+/// in its own buffer on an error. A `0x` or `0X` prefix is accepted, as
+/// `hex::decode` does.
+pub fn decode_secret_hex(value: &str) -> Result<Zeroizing<Vec<u8>>, hex::FromHexError> {
+    // `decode_to_slice` strips the prefix itself, so size the buffer without it.
+    let digits = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .unwrap_or(value);
+    let mut bytes = Zeroizing::new(vec![0; digits.len() / 2]);
+    hex::decode_to_slice(digits, bytes.as_mut_slice())?;
+    Ok(bytes)
 }
 
 impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {

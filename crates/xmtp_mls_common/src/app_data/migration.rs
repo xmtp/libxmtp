@@ -295,21 +295,13 @@ pub fn synthesize_canonical_subset_from_extensions(
         .attributes()
         .get(MetadataField::CommitLogSigner.as_str())
     {
-        let mut raw =
-            hex::decode(hex_str).map_err(|e| MigrationError::InvalidCommitLogSignerHex {
-                reason: e.to_string(),
-            })?;
-        if raw.len() != xmtp_cryptography::configuration::ED25519_KEY_LENGTH {
-            let actual = raw.len();
-            raw.zeroize();
-            return Err(MigrationError::InvalidCommitLogSignerLength {
-                actual,
-                expected: xmtp_cryptography::configuration::ED25519_KEY_LENGTH,
-            });
-        }
+        let mut raw = encode_metadata_attribute_value(ComponentId::COMMIT_LOG_SIGNER, hex_str)?;
         strict.insert(
             ComponentId::COMMIT_LOG_SIGNER,
-            (AppDataUpdateOperationType::Update, raw),
+            (
+                AppDataUpdateOperationType::Update,
+                std::mem::take(&mut *raw),
+            ),
         );
     }
 
