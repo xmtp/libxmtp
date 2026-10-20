@@ -6,6 +6,8 @@
 
 use std::time::Duration;
 
+use prost::Message;
+
 use openmls::prelude::KeyPackageBundle;
 use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
 use xmtp_cryptography::{
@@ -38,6 +40,7 @@ use xmtp_mls::{
 use xmtp_proto::xmtp::device_sync::content::{
     HmacKeyUpdate as HmacKeyUpdateProto, preference_update::Update as UpdateProto,
 };
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 xmtp_cryptography::install_heap_canary!();
 
@@ -254,6 +257,37 @@ async fn hmac_keys_are_wiped_on_load_derive_send_and_sync() {
         stored.as_ref().map(StoredSecret::as_slice),
         Some(SYNCED_HMAC_ROOT_KEY.as_slice())
     );
+}
+
+/// Preparing a message whose content holds an HMAC root key, as a
+/// device-sync HMAC update does, frees no unwiped copy of the key: the
+/// content checks, the stored row, the envelope and the queued intent all
+/// wipe it. SQLite's own memory is not the Rust heap; publishing hands the
+/// envelope to OpenMLS, which is out of reach.
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
+async fn preparing_a_sync_message_wipes_its_content() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let content = EncodedContent {
+        r#type: Some(ContentTypeId {
+            authority_id: "xmtp.org".to_string(),
+            type_id: "application/x-protobuf".to_string(),
+            version_major: 1,
+            version_minor: 0,
+        }),
+        content: HMAC_ROOT_KEY.to_vec(),
+        ..Default::default()
+    }
+    .encode_to_vec();
+
+    let ((), hits) = scan(&[Canary::new(&HMAC_ROOT_KEY)], || {
+        group
+            .send_message_optimistic(&content, SendMessageOpts::default())
+            .unwrap();
+    });
+    drop(content);
+
+    assert_eq!(hits, [0], "freed heap blocks held the HMAC root key");
 }
 
 /// Building an update-commit-log-signer intent, encoding it, queueing it,

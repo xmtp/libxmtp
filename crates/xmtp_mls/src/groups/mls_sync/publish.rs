@@ -535,9 +535,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 if let Ok(PlaintextEnvelope {
                     content: Some(Content::V1(V1 { content, .. })),
                 }) = PlaintextEnvelope::decode(intent_data.message.as_slice())
-                    && Self::is_reserved_transcript_content(&content)
                 {
-                    return Err(GroupError::ReservedTranscriptContentType);
+                    // The content can hold a device-sync HMAC root key.
+                    let content = Zeroizing::new(content);
+                    if Self::is_reserved_transcript_content(&content) {
+                        return Err(GroupError::ReservedTranscriptContentType);
+                    }
                 }
                 // Pending proposals are handled at the API level (in send_message)
                 // by committing them before creating the SendMessage intent

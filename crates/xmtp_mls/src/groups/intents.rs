@@ -96,23 +96,33 @@ impl From<prost::DecodeError> for IntentError {
     }
 }
 
+/// The encoded envelope of a message to send. It can hold a device-sync
+/// HMAC root key, so it is wiped on drop and `Debug` shows only its length.
 #[derive(Debug, Clone)]
 pub struct SendMessageIntentData {
-    pub message: Vec<u8>,
+    pub message: xmtp_cryptography::Secret,
 }
 
 impl SendMessageIntentData {
     pub fn new(message: Vec<u8>) -> Self {
-        Self { message }
+        Self {
+            message: message.into(),
+        }
     }
 
+    /// The returned bytes are the stored intent. The proto temporary is wiped
+    /// after encoding.
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
-        SendMessageData {
+        let mut data = SendMessageData {
             version: Some(SendMessageVersion::V1(SendMessageV1 {
-                payload_bytes: self.message.clone(),
+                payload_bytes: self.message.as_slice().to_vec(),
             })),
+        };
+        let bytes = data.encode_to_vec();
+        if let Some(SendMessageVersion::V1(v1)) = &mut data.version {
+            v1.payload_bytes.zeroize();
         }
-        .encode_to_vec()
+        bytes
     }
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
@@ -1360,7 +1370,7 @@ pub(crate) mod tests {
         let as_bytes: Vec<u8> = intent.into();
         let restored_intent = SendMessageIntentData::from_bytes(as_bytes.as_slice()).unwrap();
 
-        assert_eq!(restored_intent.message, message);
+        assert_eq!(restored_intent.message.as_slice(), message.as_slice());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

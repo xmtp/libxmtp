@@ -37,14 +37,18 @@ pub mod id {
         decrypted_message_bytes: &[u8],
         idempotency_key: &str,
     ) -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        // Hash the parts in order instead of joining them, so the content,
+        // which can hold a device-sync HMAC root key, is never copied.
         let separator = b"\t";
-        let mut id_vec = Vec::new();
-        id_vec.extend_from_slice(group_id.as_ref());
-        id_vec.extend_from_slice(separator);
-        id_vec.extend_from_slice(idempotency_key.as_bytes());
-        id_vec.extend_from_slice(separator);
-        id_vec.extend_from_slice(decrypted_message_bytes);
-        super::hash::sha256(&id_vec)
+        Sha256::new()
+            .chain_update(group_id.as_ref())
+            .chain_update(separator)
+            .chain_update(idempotency_key.as_bytes())
+            .chain_update(separator)
+            .chain_update(decrypted_message_bytes)
+            .finalize()
+            .to_vec()
     }
 
     /// Calculate the message id for this intent.
@@ -79,6 +83,8 @@ pub mod id {
             return Ok(None);
         };
 
+        // The content can hold a device-sync HMAC root key.
+        let message = xmtp_cryptography::secret::Zeroizing::new(message);
         Ok(Some(calculate_message_id(intent.group_id, &message, &key)))
     }
 }
