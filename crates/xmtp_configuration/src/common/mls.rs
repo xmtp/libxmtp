@@ -26,7 +26,7 @@ pub const KEY_PACKAGE_ROTATION_INTERVAL_NS: i64 = NS_IN_30_DAYS; // 30 days
 
 pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 
-pub const MAX_GROUP_SIZE: usize = 250;
+pub const MAX_GROUP_SIZE: usize = 500;
 
 pub const MAX_INSTALLATIONS_PER_INBOX: usize = 10;
 
