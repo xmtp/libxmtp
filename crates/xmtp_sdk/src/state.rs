@@ -617,3 +617,24 @@ fn hmac_key_diagnostics_do_not_disclose_key_bytes() {
     assert_eq!(key.key, bytes);
     assert_eq!(key.epoch, 17);
 }
+
+/// Each core extension type keeps its id through the SDK record. 0xf000 is the
+/// fork's former `ImmutableMetadata` and reaches hosts as `unknown(id: 61440)`.
+#[cfg(test)]
+#[xmtp_common::test]
+fn mls_extension_types_keep_their_ids() {
+    use xmtp_mls::groups::MlsExtensionType as Core;
+
+    assert!(matches!(
+        MlsExtensionType::from(Core::Unknown(0xf000)),
+        MlsExtensionType::Unknown { id: 0xf000 }
+    ));
+    assert!(matches!(
+        MlsExtensionType::from(Core::Grease(0x0a0a)),
+        MlsExtensionType::Grease { id: 0x0a0a }
+    ));
+    assert!(matches!(
+        MlsExtensionType::from(Core::AppDataDictionary),
+        MlsExtensionType::AppDataDictionary
+    ));
+}
