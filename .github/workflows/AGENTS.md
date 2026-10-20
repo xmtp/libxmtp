@@ -320,10 +320,13 @@ outside Nix. `react-native-conformance` executes fresh installed bare/Expo
 proofs in test, post-merge, and release jobs. Post-merge `rn-*` cache jobs build
 and push the RN stages, the test package, and the bare Android test app;
 `rn-consumers` then builds, pushes, and pins the RN warm set
-(`ciSets.<system>.rn`, pin `rn-<system>`). `rn-smoke` runs every journey
-(`XMTP_RN_JOURNEYS=full`) in mode `read` without a token, and its Android leg
-then dry-runs the RN set in an empty store (`dev/ci/warm-closure`). `rn-alert`
-posts a Slack message when an RN job fails or times out.
+(`ciSets.<system>.rn`, pin `rn-<system>`), one leg for each system.
+`rn-smoke` runs every journey (`XMTP_RN_JOURNEYS=full`) in mode `read` without
+a token. `rn-alert` runs after the RN jobs whenever the run goes on, on a free
+runner: it dry-runs the RN set of each system whose set `xmtp` holds
+(`dev/ci/warm-closure`), so a platform that pinned is checked even when the
+other leg failed, and posts a Slack message when an RN job or that check fails
+or times out.
 
 The device chain is advisory, so an RN break can reach trunk. It must hold
 back only the RN jobs:
@@ -333,20 +336,23 @@ back only the RN jobs:
   request suites build: on Linux, the RN JavaScript layer (the JavaScript
   suites and the docs read it through `sdk_js`) and the `react-native` shell
   that `check_react_native` enters. No blocking suite builds RN on Darwin, so
-  every Darwin RN output is in rn. `closure` checks every set but `rn`, and
-  fails when a checked set builds an `rn` member.
+  every Darwin RN output is in rn. `closure` checks every set but `rn`.
+  `nix_eval` runs `dev/ci/rn-isolation`, which fails when a set other than
+  `rn` builds an `rn` member.
 - The RN cache jobs start after `build`, because the RN components share their
   native SDK builds with the Android and iOS release outputs: `build` compiles
   them once and the RN jobs substitute them. They also run when `build` fails.
   GitHub skips a job whose `if` calls no status function when any job before
   it, direct or not, did not succeed, so each RN job's `if` checks only the RN
-  job before it.
+  job before it, after `!cancelled()`: a cancelled run starts no RN job.
 
 The smoke waits for `build`, which pushes the backend and test services that
 it starts. `dev/tests/test_warm_sets.py` checks these rules with a model of
-GitHub's job rules and runs the warm, pin, and closure steps with a fake `nix`.
-The test package outputs (`testStages`) are not set members: the cache jobs
-warm the test package and the bare Android test app only. `ciStages` takes its
-members from the warm sets, so declare a new RN output in `rnAll` of
-`nix/ci-sets.nix`, and also in `rnBlocking` when a blocking suite builds it on
-Linux.
+GitHub's job rules, and runs the warm, pin, closure, and isolation steps with
+a fake `nix`, `cachix`, and `curl`. The test package outputs (`testStages`) are
+not set members: the cache jobs warm the test packages and the bare Android
+test app. No job warms the full-scope Android and iOS test apps, which only
+full-scope RN pull requests build; warming them would add a paid app build to
+every merge. `ciStages` takes its members from the warm sets, so declare a new
+RN output in `rnAll` of `nix/ci-sets.nix`, and also in `rnBlocking` when a
+blocking suite builds it on Linux.

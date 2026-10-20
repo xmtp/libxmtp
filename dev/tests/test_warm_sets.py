@@ -20,14 +20,14 @@ import unittest
 
 import yaml
 
-from test_react_native_workflow import expression, inner, status_expression
+from test_react_native_workflow import expression
 
 ROOT = Path(__file__).resolve().parents[2]
 JOBS = yaml.safe_load((ROOT / ".github/workflows/post-merge.yml").read_text())["jobs"]
 NIX = shutil.which("nix")
 # The jobs that warm and check the non-RN sets and publish the docs.
 NON_RN_JOBS = ("build", "closure", "docs-swift", "docs-kotlin", "docs", "deploy")
-# The RN jobs that cache and test; rn-alert reports on them.
+# The RN jobs that cache and test; rn-alert checks the RN sets and reports.
 RN_CHAIN = ("rn-components", "rn-package", "rn-consumers", "rn-smoke")
 STATUS_FUNCTION = re.compile(r"\b(?:success|failure|cancelled|always)\(\)")
 # The RN JavaScript layer: the SDK's JavaScript product and its build inputs.
@@ -40,6 +40,13 @@ RN_JS_LAYER = {
     "ubjs-react-native",
     "xmtp-sdk-generated-react-native",
     "xmtp-sdk-react-native-js",
+}
+# RN test outputs that no post-merge job warms. Only full-scope RN pull
+# request runs build these apps, and warming them would add a paid 16 vCPU
+# Linux or 12x macOS app build to every merge.
+COLD_TEST_OUTPUTS = {
+    "react-native-test-consumer-android",
+    "react-native-test-consumer-ios",
 }
 
 # A `nix` for the post-merge steps. `eval` applies the step's function to stub
@@ -105,6 +112,13 @@ import json, os, sys
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({{"cachix": sys.argv[1:]}}) + "\\n")
 """.format(python=sys.executable)
+# A `curl` for narinfo queries: 200 for the store hashes in FAKE_PRESENT.
+FAKE_CURL = """#!{python}
+import os, sys
+
+digest = sys.argv[-1].rsplit("/", 1)[1].removesuffix(".narinfo")
+sys.stdout.write("200" if digest in os.environ.get("FAKE_PRESENT", "").split() else "404")
+""".format(python=sys.executable)
 
 
 def nix_json(*args):
@@ -162,8 +176,9 @@ def stub_sets(sets):
     }
 
 
-def run_steps(steps, sets, env=None, closure=()):
-    """Run the `run` text of post-merge steps with the fake nix and cachix.
+def run_steps(steps, sets, env=None, closure=(), present=()):
+    """Run the `run` text of post-merge steps with the fake nix, cachix, and
+    curl.
 
     Returns the completed process and the calls that the fakes recorded.
     """
@@ -171,14 +186,20 @@ def run_steps(steps, sets, env=None, closure=()):
         temp = Path(temp)
         binary = temp / "bin"
         binary.mkdir()
-        for name, text in (("nix", FAKE_NIX), ("cachix", FAKE_CACHIX)):
+        for name, text in (
+            ("nix", FAKE_NIX),
+            ("cachix", FAKE_CACHIX),
+            ("curl", FAKE_CURL),
+        ):
             (binary / name).write_text(text)
             (binary / name).chmod(0o755)
         (temp / "sets.json").write_text(json.dumps(stub_sets(sets)))
         (temp / "runner").mkdir()
         log = temp / "log"
+        script = "\n".join(s["run"] for s in steps)
+        # A step's env, as GitHub sets it; the tests give the values.
         result = subprocess.run(
-            ["bash", "-eo", "pipefail", "-c", "\n".join(s["run"] for s in steps)],
+            ["bash", "-eo", "pipefail", "-c", script],
             cwd=ROOT,
             env=os.environ
             | {
@@ -187,7 +208,9 @@ def run_steps(steps, sets, env=None, closure=()):
                 "FAKE_LOG": str(log),
                 "FAKE_SETS": str(temp / "sets.json"),
                 "FAKE_CLOSURE": " ".join(closure),
+                "FAKE_PRESENT": " ".join(present),
                 "RUNNER_TEMP": str(temp / "runner"),
+                "TMPDIR": str(temp),
             }
             | (env or {}),
             capture_output=True,
@@ -201,8 +224,8 @@ def run_steps(steps, sets, env=None, closure=()):
         return result, calls
 
 
-def step(job, name):
-    (found,) = [s for s in JOBS[job]["steps"] if s.get("name") == name]
+def step(job, name, document=None):
+    (found,) = [s for s in (document or JOBS)[job]["steps"] if s.get("name") == name]
     return found
 
 
@@ -214,6 +237,45 @@ def warm_closure_steps():
         for s in spec.get("steps", [])
         if "dev/ci/warm-closure" in s.get("run", "")
     }
+
+
+def evaluate(
+    condition,
+    needs=None,
+    values=None,
+    cancelled=False,
+    succeeded=True,
+    failed=False,
+):
+    """Whether a job or step `if` is true.
+
+    GitHub adds `success()` to an `if` that calls no status function. For a
+    job, `success()` is true only when every job that it waits for, directly
+    or through other jobs, succeeded: "a failure or skip applies to all jobs
+    in the dependency chain from the point of failure or skip onwards"
+    (docs.github.com, workflow syntax, `jobs.<job_id>.needs`); for a step,
+    when no earlier step failed (expressions, status check functions).
+    """
+    text = condition.strip()
+    match = re.fullmatch(r"\$\{\{\s*(.*?)\s*\}\}", text, re.DOTALL)
+    if match:
+        text = match[1]
+    implicit = not STATUS_FUNCTION.search(text)
+    text = (
+        text.replace("success()", str(succeeded and not cancelled).lower())
+        .replace("failure()", str(failed).lower())
+        .replace("cancelled()", str(cancelled).lower())
+        .replace("always()", "true")
+    )
+    needs = needs or {}
+    text = re.sub(
+        r"contains\(needs\.\*\.result, '(\w+)'\)",
+        lambda m: str(m[1] in needs.values()).lower(),
+        text,
+    )
+    text = re.sub(r"needs\.([\w-]+)\.result", lambda m: repr(needs[m[1]]), text)
+    runs = bool(expression(text, values or {}))
+    return runs and (succeeded and not cancelled if implicit else True)
 
 
 def needed(job):
@@ -229,37 +291,33 @@ def needed(job):
     return found
 
 
-def run_graph(outcomes):
+def direct_needs(job):
+    needs = JOBS[job].get("needs", [])
+    return [needs] if isinstance(needs, str) else needs
+
+
+def run_graph(outcomes, finished=None):
     """The result of each job when the jobs in `outcomes` end that way and
     every other job that runs succeeds.
 
-    GitHub adds `success()` to a job `if` that calls no status function, and
-    `success()` is true only when every job that the job waits for, directly
-    or through other jobs, succeeded: "a failure or skip applies to all jobs
-    in the dependency chain from the point of failure or skip onwards"
-    (docs.github.com, workflow syntax, `jobs.<job_id>.needs`; expressions,
-    status check functions).
+    With `finished`, someone cancels the run once those jobs have finished:
+    every other job starts after the cancellation and sees `cancelled()` true.
     """
     results = {}
 
     def result(job):
         if job not in results:
-            needs = JOBS[job].get("needs", [])
-            needs = [needs] if isinstance(needs, str) else needs
             ancestors = needed(job)
             for name in ancestors:
                 result(name)
-            succeeded = all(results[name] == "success" for name in ancestors)
-            failed = any(results[name] == "failure" for name in ancestors)
-            condition = JOBS[job].get("if", "${{ true }}")
-            runs = succeeded or bool(STATUS_FUNCTION.search(condition))
-            condition = (
-                condition.replace("success()", str(succeeded).lower())
-                .replace("failure()", str(failed).lower())
-                .replace("always()", "true")
+            cancelled = finished is not None and job not in finished
+            runs = evaluate(
+                JOBS[job].get("if", "${{ true }}"),
+                needs={name: results[name] for name in direct_needs(job)},
+                cancelled=cancelled,
+                succeeded=all(results[name] == "success" for name in ancestors),
+                failed=any(results[name] == "failure" for name in ancestors),
             )
-            direct = {name: results[name] for name in needs}
-            runs = runs and status_expression(condition, direct, cancelled=False)
             results[job] = outcomes.get(job, "success") if runs else "skipped"
         return results[job]
 
@@ -268,29 +326,122 @@ def run_graph(outcomes):
     return results
 
 
-def blocking_shells():
-    """The dev shells that blocking CI suites enter: each `NIX_DEVSHELL` and
-    `--shell` of the workflow of a suite with `pr_filters`."""
-    suites = yaml.safe_load((ROOT / ".github/ci-suites.yml").read_text())["suites"]
-    found = set()
+def system_of(label):
+    """The Nix system of a runner label, or None for one without warm sets."""
+    if "macos" in label:
+        return "aarch64-darwin"
+    if "ubuntu" in label:
+        return "aarch64-linux" if "arm" in label else "x86_64-linux"
+    return None
 
-    def visit(node):
+
+def blocking_shells(root=ROOT):
+    """The dev shells that blocking CI suites enter, by the system of the
+    runner.
+
+    It reads the workflow of each suite with `pr_filters`, the local
+    workflows that it calls, and the local composite actions that they use:
+    each `NIX_DEVSHELL` and `--shell`. A runner label comes from the suite's
+    `runners`, a `with:` value, a workflow input default, the job matrix, or a
+    literal. `dev/nix-shell` without a shell enters `default`, which is never
+    an RN shell.
+    """
+    github = root / ".github"
+    suites = yaml.safe_load((github / "ci-suites.yml").read_text())["suites"]
+    found = {}
+
+    def shells(node):
+        names = set()
         if isinstance(node, dict):
             for key, value in node.items():
                 if key == "NIX_DEVSHELL":
-                    found.add(value)
-                visit(value)
+                    names.add(value)
+                names |= shells(value)
         elif isinstance(node, list):
             for value in node:
-                visit(value)
+                names |= shells(value)
         elif isinstance(node, str):
-            found.update(re.findall(r"--shell[ =]([\w-]+)", node))
+            names.update(re.findall(r"--shell[ =]([\w-]+)", node))
+            names.update(re.findall(r"NIX_DEVSHELL=([\w-]+)", node))
+        return names
+
+    def action(path):
+        """The shells of a local composite action and the actions it uses."""
+        spec = yaml.safe_load(next(path.glob("action.y*ml")).read_text())
+        names = set()
+        for s in spec["runs"].get("steps", []):
+            names |= shells({k: v for k, v in s.items() if k != "uses"})
+            names |= uses(s)
+        return names
+
+    def uses(s):
+        target = s.get("uses", "")
+        return (
+            action(root / target) if target.startswith("./.github/actions/") else set()
+        )
+
+    def labels(value, inputs, matrix):
+        match = re.fullmatch(r"\$\{\{(.*)\}\}", value.strip(), re.DOTALL)
+        if not match:
+            return {value}
+        body = match[1]
+        found = {v for v in re.findall(r"'([^']+)'", body) if system_of(v)}
+        for name in re.findall(r"inputs\.([\w-]+)", body):
+            found |= inputs[name]
+        for name in re.findall(r"matrix\.([\w-]+)", body):
+            include = matrix.get("include") or []
+            found |= {str(row[name]) for row in include if name in row}
+            found |= {str(v) for v in matrix.get(name, [])}
+        if not found:
+            raise AssertionError(f"no runner label in {value}")
+        return found
+
+    def workflow(path, inputs):
+        document = yaml.safe_load(path.read_text())
+        declared = (document.get(True) or document.get("on") or {}).get(
+            "workflow_call"
+        ) or {}
+        for name, spec in (declared.get("inputs") or {}).items():
+            if name not in inputs and "default" in spec:
+                inputs = inputs | {name: {str(spec["default"])}}
+        top = shells(document.get("env") or {})
+        for job in document["jobs"].values():
+            matrix = (job.get("strategy") or {}).get("matrix") or {}
+            if job.get("uses", "").startswith("./.github/workflows/"):
+                called = {
+                    name: labels(str(value), inputs, matrix)
+                    for name, value in (job.get("with") or {}).items()
+                    if isinstance(value, str)
+                }
+                workflow(root / job["uses"], called)
+                continue
+            names = top | shells(job.get("env") or {})
+            for s in job.get("steps", []):
+                names |= shells({k: v for k, v in s.items() if k != "uses"}) | uses(s)
+            for label in labels(str(job["runs-on"]), inputs, matrix):
+                if system_of(label):
+                    found.setdefault(system_of(label), set()).update(names)
 
     for suite in suites.values():
         if suite["pr_filters"]:
-            path = ROOT / ".github/workflows" / suite["workflow"]
-            visit(yaml.safe_load(path.read_text()))
+            inputs = {
+                name: set(pair.values())
+                for name, pair in (suite.get("runners") or {}).items()
+            }
+            workflow(github / "workflows" / suite["workflow"], inputs)
     return found
+
+
+def missing_shells(sets, shells):
+    """The (system, shell) pairs that a blocking suite enters but that no dev
+    set of that system holds. A system without warm sets has none."""
+    return {
+        (system, name)
+        for system, names in shells.items()
+        if system in sets
+        for name in names
+        if f"shell-{name}" not in sets[system]["dev"]
+    }
 
 
 class PostMergeOrderTests(unittest.TestCase):
@@ -321,12 +472,24 @@ class PostMergeOrderTests(unittest.TestCase):
         for build in ("success", "failure", "cancelled"):
             with self.subTest(build=build):
                 results = run_graph({"build": build})
-                for job in RN_CHAIN:
+                for job in (*RN_CHAIN, "rn-alert"):
                     self.assertEqual(results[job], "success", job)
-                self.assertEqual(results["rn-alert"], "skipped")
-                # An RN failure still alerts while `build` is broken.
-                results = run_graph({"build": build, "rn-package": "failure"})
-                self.assertEqual(results["rn-alert"], "success")
+
+    def test_a_cancelled_run_starts_no_later_job(self):
+        # A cancelled run must not start the RN cache jobs, which push with
+        # the trusted token and move the RN pins. A job that runs at the
+        # cancellation ends as cancelled.
+        for finished, outcomes in (
+            ({"build"}, {"build": "cancelled"}),
+            ({"build"}, {}),
+            ({"build", "rn-components"}, {}),
+            ({"build", "rn-components", "rn-package"}, {}),
+            ({"build", "rn-components", "rn-package", "rn-consumers"}, {}),
+        ):
+            with self.subTest(finished=sorted(finished), outcomes=outcomes):
+                results = run_graph(outcomes, finished=finished)
+                for name in set(JOBS) - finished:
+                    self.assertEqual(results[name], "skipped", name)
 
     def test_build_runs_no_rn_step(self):
         steps = JOBS["build"]["steps"]
@@ -338,6 +501,42 @@ class PostMergeOrderTests(unittest.TestCase):
         self.assertNotIn("react-native", script)
         for s in steps:
             self.assertNotIn("react-native", s.get("uses", ""))
+
+    def test_rn_alert_checks_the_pushed_sets_and_alerts_on_any_rn_failure(self):
+        check = step("rn-alert", "Dry-run the pushed RN sets in an empty store")
+        notify = step("rn-alert", "Notify Slack")
+        for broken, check_fails, checks, posts in (
+            (None, False, True, False),
+            # The check runs after its own earlier steps; a failed check posts.
+            (None, True, True, True),
+            # One rn-consumers leg failed: the other leg's set is checked.
+            ({"rn-consumers": "failure"}, False, True, True),
+            ({"rn-smoke": "failure"}, False, True, True),
+            # A job that hits its timeout ends as cancelled.
+            ({"rn-smoke": "cancelled"}, False, True, True),
+            ({"rn-package": "failure"}, False, False, True),
+        ):
+            with self.subTest(broken=broken, check_fails=check_fails):
+                results = run_graph(broken or {})
+                self.assertEqual(results["rn-alert"], "success")
+                needs = {name: results[name] for name in direct_needs("rn-alert")}
+                self.assertIs(evaluate(check["if"], needs=needs), checks)
+                outcome = (
+                    "failure" if check_fails else ("success" if checks else "skipped")
+                )
+                self.assertIs(
+                    evaluate(
+                        notify["if"],
+                        needs=needs,
+                        values={"steps.check.outcome": outcome},
+                        succeeded=not check_fails,
+                        failed=check_fails,
+                    ),
+                    posts,
+                )
+        # A cancelled run checks and alerts on nothing.
+        finished = set(RN_CHAIN) | {"build"}
+        self.assertEqual(run_graph({}, finished=finished)["rn-alert"], "skipped")
 
 
 class WarmSetTests(unittest.TestCase):
@@ -358,12 +557,15 @@ class WarmSetTests(unittest.TestCase):
         }
         cls.shells = blocking_shells()
         # The RN outputs that blocking suites build, so the non-RN sets may
-        # hold them: on Linux the JavaScript layer and the RN shells that
-        # blocking suites enter. Nothing on Darwin.
-        cls.blocking_rn = {system: set() for system in cls.sets}
-        cls.blocking_rn["x86_64-linux"] = RN_JS_LAYER | {
-            f"shell-{name}" for name in cls.shells if is_rn(name)
+        # hold them: the JavaScript layer on Linux, and the RN shells that
+        # blocking suites enter on each system.
+        cls.blocking_rn = {
+            system: {
+                f"shell-{name}" for name in cls.shells.get(system, ()) if is_rn(name)
+            }
+            for system in cls.sets
         }
+        cls.blocking_rn["x86_64-linux"] |= RN_JS_LAYER
         # Each stub member path, as (system, set, member).
         stub = stub_sets(cls.sets)
         cls.paths = {
@@ -371,6 +573,10 @@ class WarmSetTests(unittest.TestCase):
             for system, system_sets in stub.items()
             for name, spec in system_sets.items()
             for member_name, member in spec["passthru"]["members"].items()
+        }
+        cls.rn_set_digests = {
+            system: Path(system_sets["rn"]["outPath"]).name[:32]
+            for system, system_sets in stub.items()
         }
 
     def checked(self, paths):
@@ -384,16 +590,102 @@ class WarmSetTests(unittest.TestCase):
         }
 
     def test_blocking_suites_enter_warm_shells(self):
-        self.assertIn("react-native", self.shells)
-        warm = set(self.sets["x86_64-linux"]["dev"]) | set(
-            self.sets["aarch64-darwin"]["dev"]
+        self.assertIn("react-native", self.shells["x86_64-linux"])
+        self.assertIn("ios", self.shells["aarch64-darwin"])
+        self.assertEqual(missing_shells(self.sets, self.shells), set())
+
+    def test_a_blocking_macos_entry_into_an_rn_shell_needs_it_in_darwin_dev(self):
+        # A blocking suite on a macOS runner that enters the RN shell through
+        # a composite action of a called workflow.
+        with tempfile.TemporaryDirectory(prefix="warm-sets-shells-") as temp:
+            root = Path(temp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/actions/enter").mkdir(parents=True)
+            (root / ".github/ci-suites.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "suites": {
+                            "fixture": {
+                                "workflow": "fixture.yml",
+                                "pr_filters": ["sdks/**"],
+                                "runners": {
+                                    "runner": {
+                                        "pr": "warp-macos-15-arm64-6x",
+                                        "merge": "macos-15",
+                                    }
+                                },
+                            },
+                            "advisory": {
+                                "workflow": "advisory.yml",
+                                "pr_filters": [],
+                            },
+                        }
+                    }
+                )
+            )
+            (root / ".github/workflows/fixture.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "on": {
+                            "workflow_call": {"inputs": {"runner": {"type": "string"}}}
+                        },
+                        "jobs": {
+                            "call": {
+                                "uses": "./.github/workflows/called.yml",
+                                "with": {"runner": "${{ inputs.runner }}"},
+                            }
+                        },
+                    }
+                )
+            )
+            (root / ".github/workflows/called.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "on": {
+                            "workflow_call": {"inputs": {"runner": {"type": "string"}}}
+                        },
+                        "jobs": {
+                            "test": {
+                                "runs-on": "${{ inputs.runner }}",
+                                "steps": [{"uses": "./.github/actions/enter"}],
+                            }
+                        },
+                    }
+                )
+            )
+            (root / ".github/workflows/advisory.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "jobs": {
+                            "test": {
+                                "runs-on": "ubuntu-latest",
+                                "env": {"NIX_DEVSHELL": "react-native-local"},
+                                "steps": [{"run": "true"}],
+                            }
+                        }
+                    }
+                )
+            )
+            (root / ".github/actions/enter/action.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "runs": {
+                            "using": "composite",
+                            "steps": [
+                                {
+                                    "shell": "bash",
+                                    "run": "dev/nix-shell --shell react-native 'true'",
+                                }
+                            ],
+                        }
+                    }
+                )
+            )
+            shells = blocking_shells(root)
+        self.assertEqual(shells, {"aarch64-darwin": {"react-native"}})
+        self.assertEqual(
+            missing_shells(self.sets, shells), {("aarch64-darwin", "react-native")}
         )
-        for name in self.shells:
-            with self.subTest(shell=name):
-                self.assertIn(f"shell-{name}", warm)
-                if is_rn(name):
-                    # check_react_native runs on Linux.
-                    self.assertIn(f"shell-{name}", self.sets["x86_64-linux"]["dev"])
 
     def test_build_pins_only_the_dev_and_release_sets(self):
         for system in self.sets:
@@ -422,27 +714,33 @@ class WarmSetTests(unittest.TestCase):
                     ],
                 )
 
-    def test_an_rn_job_builds_pushes_and_pins_the_rn_set(self):
+    def test_an_rn_job_builds_pushes_and_pins_the_rn_set_on_each_leg(self):
         job = JOBS["rn-consumers"]
+        self.assertEqual(job["env"]["SYSTEM"], "${{ matrix.system }}")
         legs = job["strategy"]["matrix"]["include"]
         self.assertEqual({leg["system"] for leg in legs}, set(self.sets))
-        steps = [
-            step("rn-consumers", "Build the RN warm set"),
-            step("rn-consumers", "Push and pin the RN warm set"),
-        ]
+        names = ("Build the RN warm set", "Push and pin the RN warm set")
         self.assertEqual(
-            steps[1]["env"]["CACHIX_AUTH_TOKEN"], "${{ secrets.CACHIX_AUTH_TOKEN }}"
+            step("rn-consumers", names[1])["env"]["CACHIX_AUTH_TOKEN"],
+            "${{ secrets.CACHIX_AUTH_TOKEN }}",
         )
         for leg in legs:
             system = leg["system"]
             with self.subTest(system=system):
+                values = {f"matrix.{key}": value for key, value in leg.items()}
+                values["runner.os"] = "macOS" if "darwin" in system else "Linux"
+                steps = [
+                    s
+                    for s in job["steps"]
+                    if evaluate(s.get("if", "${{ true }}"), values=values)
+                ]
+                for name in names:
+                    (found,) = [s for s in steps if s.get("name") == name]
+                    self.assertNotIn("continue-on-error", found)
                 result, calls = run_steps(
-                    steps,
+                    [s for s in steps if s.get("name") in names],
                     self.sets,
-                    env={
-                        "SYSTEM": system,
-                        "RUNNER_OS": "macOS" if "darwin" in system else "Linux",
-                    },
+                    env={"SYSTEM": system, "RUNNER_OS": values["runner.os"]},
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 (built,) = [c["build"] for c in calls if "build" in c]
@@ -455,8 +753,21 @@ class WarmSetTests(unittest.TestCase):
                     cachix,
                 )
 
+    def test_every_rn_test_output_is_warmed_or_known_cold(self):
+        script = "\n".join(
+            s.get("run", "")
+            for job, spec in JOBS.items()
+            if job.startswith("rn-")
+            for s in spec.get("steps", [])
+        )
+        for system, outputs in self.outputs.items():
+            for name in sorted(n for n in outputs if "-test-" in n):
+                with self.subTest(system=system, output=name):
+                    warmed = re.search(rf"\.#{re.escape(name)}(?![\w-])", script)
+                    self.assertIs(bool(warmed), name not in COLD_TEST_OUTPUTS)
+
     def test_the_closure_check_reads_only_rn_outputs_that_blocking_suites_build(self):
-        self.assertEqual(set(warm_closure_steps()), {"closure", "rn-smoke"})
+        self.assertEqual(set(warm_closure_steps()), {"closure", "rn-alert"})
         result, calls = run_steps([warm_closure_steps()["closure"]], self.sets)
         self.assertEqual(result.returncode, 0, result.stderr)
         (dry_run,) = [c["dry-run"] for c in calls if "dry-run" in c]
@@ -469,44 +780,68 @@ class WarmSetTests(unittest.TestCase):
                     set(system_sets) - {"rn"},
                 )
                 reached = {
-                    m
+                    self.paths[p][2]
                     for p in dry_run
-                    if p in self.paths
-                    for s, _, m in [self.paths[p]]
-                    if s == system
+                    if p in self.paths and self.paths[p][0] == system
                 }
                 self.assertLessEqual(
                     {m for m in reached if is_rn(m)}, self.blocking_rn[system]
                 )
-        # The warm-up evaluation selects no set that the check leaves out.
-        (warm_up,) = [
-            c["result"] for c in calls if c.get("eval") == ".#ciSets.x86_64-linux"
-        ]
-        self.assertLessEqual(set(warm_up), set(self.sets["x86_64-linux"]) - {"rn"})
 
-    def test_the_closure_check_fails_when_a_checked_set_builds_an_rn_member(self):
-        rn_member = stub_sets(self.sets)["aarch64-darwin"]["rn"]["passthru"]["members"]
-        drv = next(iter(rn_member.values()))["drvPath"]
-        result, _ = run_steps(
-            [warm_closure_steps()["closure"]], self.sets, closure=[drv]
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(drv, result.stdout)
-
-    def test_the_rn_set_is_checked_after_the_rn_jobs_push_it(self):
-        check = warm_closure_steps()["rn-smoke"]
-        self.assertIn("rn-consumers", needed("rn-smoke"))
-        # Only the Android leg runs it: a free runner. It runs after a
-        # failed smoke too.
-        condition = inner(check["if"]).replace("cancelled()", "false")
-        self.assertTrue(expression(condition, {"matrix.platform": "android"}))
-        self.assertFalse(expression(condition, {"matrix.platform": "ios"}))
-        result, calls = run_steps([check], self.sets)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        (dry_run,) = [c["dry-run"] for c in calls if "dry-run" in c]
+    def test_rn_alert_checks_the_rn_set_of_each_system_that_xmtp_holds(self):
+        check = step("rn-alert", "Dry-run the pushed RN sets in an empty store")
         self.assertEqual(
-            self.checked(dry_run), {(system, "rn") for system in self.sets}
+            check["env"]["RN_CONSUMERS"], "${{ needs.rn-consumers.result }}"
         )
+        both = set(self.sets)
+        for consumers, present, returncode, checked in (
+            ("success", both, 0, both),
+            # One leg failed before its push: the other system is checked.
+            ("failure", {"x86_64-linux"}, 0, {"x86_64-linux"}),
+            ("failure", {"aarch64-darwin"}, 0, {"aarch64-darwin"}),
+            ("failure", set(), 0, set()),
+            # Every leg succeeded, so a missing set is an error.
+            ("success", {"x86_64-linux"}, 1, set()),
+        ):
+            with self.subTest(consumers=consumers, present=sorted(present)):
+                result, calls = run_steps(
+                    [check],
+                    self.sets,
+                    env={"RN_CONSUMERS": consumers},
+                    present=[self.rn_set_digests[s] for s in present],
+                )
+                self.assertEqual(
+                    result.returncode, returncode, result.stdout + result.stderr
+                )
+                dry_runs = [c["dry-run"] for c in calls if "dry-run" in c]
+                self.assertEqual(
+                    self.checked(dry_runs[0]) if dry_runs else set(),
+                    {(system, "rn") for system in checked},
+                )
+
+    def test_rn_isolation_fails_when_another_set_builds_an_rn_member(self):
+        nix_eval = yaml.safe_load((ROOT / ".github/workflows/nix-eval.yml").read_text())
+        (check,) = [
+            s
+            for s in nix_eval["jobs"]["ci-sets"]["steps"]
+            if "dev/ci/rn-isolation" in s.get("run", "")
+        ]
+        stub = stub_sets(self.sets)
+        result, calls = run_steps([check], self.sets)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        (evaluated,) = [c["result"] for c in calls if "eval" in c]
+        # It also evaluates every set's drvPath.
+        self.assertEqual(
+            {system: set(value["drvs"]) for system, value in evaluated.items()},
+            {system: set(sets) for system, sets in self.sets.items()},
+        )
+        for system in self.sets:
+            with self.subTest(system=system):
+                members = stub[system]["rn"]["passthru"]["members"]
+                drv = next(iter(members.values()))["drvPath"]
+                result, _ = run_steps([check], self.sets, closure=[drv])
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(drv, result.stdout)
 
     def test_the_rn_set_holds_every_other_rn_output(self):
         for system, sets in self.sets.items():
@@ -517,8 +852,9 @@ class WarmSetTests(unittest.TestCase):
                 self.assertTrue(all(is_rn(name) for name in rn), rn)
                 self.assertEqual(rn & blocking, set())
                 # Every RN output stays warm and pinned. The RN stages take
-                # their members from the sets. The cache jobs warm the test
-                # outputs without a set.
+                # their members from the sets. The test outputs are not set
+                # members; test_every_rn_test_output_is_warmed_or_known_cold
+                # covers them.
                 outputs = {
                     name for name in self.outputs[system] if "-test-" not in name
                 }

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Evaluate every `ciSets` drvPath of nix/ci-sets.nix, and fail when a set
+# other than `rn` builds a member of `rn`. The RN device chain is advisory, so
+# an RN output can break on trunk; the post-merge `build` and `closure` jobs
+# must not need one. .github/workflows/nix-eval.yml runs it on pull requests
+# and merges.
+set -euo pipefail
+
+temp=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/rn-isolation.XXXXXX")
+nix eval --json .#ciSets --apply '
+  builtins.mapAttrs (_: sets: {
+    drvs = builtins.mapAttrs (_: set: set.drvPath) sets;
+    rn = map (member: member.drvPath) (builtins.attrValues sets.rn.passthru.members);
+  })' > "$temp/sets.json"
+jq . "$temp/sets.json"
+# Each list goes through a file: bash ignores the exit status of a process
+# substitution, so a failed jq or nix would shrink the check.
+jq -r '.[].drvs | to_entries[] | select(.key != "rn") | .value' "$temp/sets.json" > "$temp/drvs.txt"
+jq -r '.[].rn[]' "$temp/sets.json" | sort -u > "$temp/rn.txt"
+drvs=()
+while read -r drv; do
+  drvs+=("$drv")
+done < "$temp/drvs.txt"
+nix derivation show -r "${drvs[@]}" |
+  jq -r '(.derivations // .) | keys[] | if startswith("/") then . else "/nix/store/" + . end' |
+  sort -u > "$temp/closure.txt"
+if [[ ! -s "$temp/rn.txt" || ! -s "$temp/closure.txt" ]]; then
+  echo "::error title=RN isolation::found no rn member or no derivation of the other sets"
+  exit 1
+fi
+comm -12 "$temp/rn.txt" "$temp/closure.txt" > "$temp/reached.txt"
+if [[ -s "$temp/reached.txt" ]]; then
+  echo "::error title=RN isolation::a set other than rn builds rn members, so an RN break would fail it"
+  cat "$temp/reached.txt"
+  exit 1
+fi
+echo "No other set builds an rn member ($(wc -l < "$temp/closure.txt") derivations)."

@@ -9,7 +9,9 @@ on:
 jobs:
   # post-merge.yml is the first job that builds the Darwin warm sets, so a pull
   # request that breaks their evaluation would pass. Evaluating every drvPath
-  # catches that in about 2.5 minutes.
+  # catches that in about 2.5 minutes. The same job fails when a set other than
+  # `rn` builds an `rn` member, which would let an RN break fail the post-merge
+  # `build` and the docs; that adds about 3 s.
   ci-sets:
     name: Evaluate CI build sets
     runs-on: ${{ inputs.runner }}
@@ -22,13 +24,7 @@ jobs:
         with:
           cache-mode: "ci"
           github-token: ${{ github.token }}
-      - name: Evaluate every ciSets drvPath
-        shell: bash
-        run: |
-          # The sets read the ubrn fork source through import from derivation.
-          # Its fetch has the same output path on every system, and this
-          # runner can run only the x86_64-linux fetch, so evaluate
-          # x86_64-linux first: the other systems then find the path valid
-          # even when no cache holds it yet.
-          nix eval --json .#ciSets.x86_64-linux --apply 'builtins.mapAttrs (_: set: set.drvPath)'
-          nix eval --json .#ciSets --apply 'builtins.mapAttrs (_: builtins.mapAttrs (_: set: set.drvPath))'
+      # Every set evaluates with allow-import-from-derivation false, so no
+      # system needs another one evaluated first.
+      - name: Evaluate every ciSets drvPath and keep RN members out of the other sets
+        run: dev/ci/rn-isolation

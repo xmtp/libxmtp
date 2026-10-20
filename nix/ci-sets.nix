@@ -18,9 +18,10 @@
 #
 # Every other set is a product group of .github/ci-suites.yml: CI builds
 # `ciSets.x86_64-linux.<group>` once per run in the job `products_<group>`.
-# post-merge.yml builds only dev and release, so keep each group member in
-# one of them. Its `closure` job checks every set but rn, and fails when a
-# checked set builds an rn member; the RN smoke checks rn.
+# post-merge.yml's `build` builds only dev and release, and an RN break can
+# stop rn, so keep each group member in dev or release. Its `closure` job
+# checks every set but rn, and `rn-alert` checks rn. dev/ci/rn-isolation
+# (in nix-eval.yml) fails when a set other than rn builds an rn member.
 { lib, withSystem, ... }:
 let
   # Every dev shell of the system, as `shell-<name>`.

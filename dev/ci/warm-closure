@@ -3,12 +3,11 @@
 # of every member of the selected sets and every crane dependency layer.
 # .github/workflows/post-merge.yml runs it after it pushes the sets.
 #
-# Usage: dev/ci/warm-closure SELECT [AVOID]
+# Usage: dev/ci/warm-closure [--system SYSTEM]... SELECT
 #
-# SELECT and AVOID are Nix functions from one system's `ciSets` to some of
-# them, such as 'sets: removeAttrs sets [ "rn" ]'. SELECT picks the sets to
-# check. AVOID picks sets whose members must stay out of the derivation
-# closure of the checked sets, so a break of those members cannot fail them.
+# SELECT is a Nix function from one system's `ciSets` to the sets to check,
+# such as 'sets: removeAttrs sets [ "rn" ]'. Each --system limits the check to
+# that system; with none, it checks every system.
 #
 # An empty-store dry run reads the narinfo of each path from the configured
 # substituters and walks the reference closure. It lists each set member (an
@@ -17,22 +16,35 @@
 # always-allow-substitutes overrides that.
 set -euo pipefail
 
-select=${1:?usage: dev/ci/warm-closure SELECT [AVOID]}
-avoid=${2:-}
+usage="usage: dev/ci/warm-closure [--system SYSTEM]... SELECT"
+systems=""
+while [[ $# -gt 1 && "$1" == --system ]]; do
+  if [[ ! "$2" =~ ^[a-z0-9_]+-[a-z0-9_]+$ ]]; then
+    echo "$usage" >&2
+    exit 2
+  fi
+  systems+="\"$2\" "
+  shift 2
+done
+if [[ $# -ne 1 ]]; then
+  echo "$usage" >&2
+  exit 2
+fi
+select=$1
+if [[ -n "$systems" ]]; then
+  only="builtins.intersectAttrs (builtins.listToAttrs (map (name: { inherit name; value = null; }) [ $systems]))"
+else
+  only="(ciSets: ciSets)"
+fi
 store="$RUNNER_TEMP/empty"
-# The sets read the ubrn fork source through import from derivation. Its
-# fetch has the same output path on every system, and this runner can run
-# only the x86_64-linux fetch, so evaluate x86_64-linux first: the Darwin sets
-# then find the path valid even when `xmtp` does not hold it.
-nix eval --store "$store" --json .#ciSets.x86_64-linux \
-  --apply "sets: builtins.mapAttrs (_: set: set.drvPath) (($select) sets)" > /dev/null
 # Write the drvs into the empty store: a drv of the host store is unknown
-# there.
+# there. Every set evaluates with allow-import-from-derivation false, so the
+# evaluation builds nothing in that store.
 nix eval --store "$store" --json .#ciSets --apply "
-  builtins.mapAttrs (_: sets: builtins.mapAttrs (_: set: {
+  ciSets: builtins.mapAttrs (_: sets: builtins.mapAttrs (_: set: {
     members = builtins.attrValues set.passthru.members;
     drv = set.drvPath;
-  }) (($select) sets))" > "$RUNNER_TEMP/ci-sets.json"
+  }) (($select) sets)) ($only ciSets)" > "$RUNNER_TEMP/ci-sets.json"
 # Each list goes through a file: bash ignores the exit status of a process
 # substitution, so a failed jq or nix would shrink the check.
 jq -r '.[][].members[]' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/members.txt"
@@ -47,28 +59,12 @@ while read -r drv; do
 done < "$RUNNER_TEMP/drvs.txt"
 # Lock-only stores and native download farms are explicit set members, so
 # their fixed-output closures are checked below too.
-nix derivation show --store "$store" -r "${drvs[@]}" > "$RUNNER_TEMP/derivations.json"
-if [[ -n "$avoid" ]]; then
-  nix eval --store "$store" --json .#ciSets --apply "
-    builtins.mapAttrs (_: sets: builtins.mapAttrs (_: set:
-      map (member: member.drvPath) (builtins.attrValues set.passthru.members)
-    ) (($avoid) sets))" > "$RUNNER_TEMP/avoid.json"
-  jq -r '.[][][]' "$RUNNER_TEMP/avoid.json" | sort -u > "$RUNNER_TEMP/avoid.txt"
-  jq -r '(.derivations // .) | keys[]
-    | if startswith("/") then . else "/nix/store/" + . end' \
-    "$RUNNER_TEMP/derivations.json" | sort -u > "$RUNNER_TEMP/closure.txt"
-  comm -12 "$RUNNER_TEMP/avoid.txt" "$RUNNER_TEMP/closure.txt" > "$RUNNER_TEMP/reached.txt"
-  if [[ -s "$RUNNER_TEMP/reached.txt" ]]; then
-    echo "::error title=Warm closure::the checked sets build members of the avoided sets"
-    cat "$RUNNER_TEMP/reached.txt"
-    exit 1
-  fi
-fi
 # Crane sets CRANE_BUILD_DEPS_ONLY on each dependency layer.
-jq -r '(.derivations // .) | to_entries[]
-  | select(.value.env.CRANE_BUILD_DEPS_ONLY != null) | .key
-  | if startswith("/") then . else "/nix/store/" + . end' \
-  "$RUNNER_TEMP/derivations.json" > "$RUNNER_TEMP/dependency-layers.txt"
+nix derivation show --store "$store" -r "${drvs[@]}" |
+  jq -r '(.derivations // .) | to_entries[]
+    | select(.value.env.CRANE_BUILD_DEPS_ONLY != null) | .key
+    | if startswith("/") then . else "/nix/store/" + . end' \
+    > "$RUNNER_TEMP/dependency-layers.txt"
 # Every set holds crane builds, so an empty list means the query broke.
 if [[ ! -s "$RUNNER_TEMP/dependency-layers.txt" ]]; then
   echo "::error title=Warm closure::found no crane dependency layer in the set derivations"

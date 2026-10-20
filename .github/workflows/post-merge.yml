@@ -187,8 +187,7 @@ jobs:
   # jobs pushed the package and apps; `build` pushed the backend and the test
   # services that the journeys start, so the smoke waits for it and builds
   # nothing. If `build` fails, the smoke still runs and builds what it
-  # misses. `build` does not wait for the smoke. The Android leg also checks
-  # that the RN set substitutes.
+  # misses. `build` does not wait for the smoke.
   rn-smoke:
     name: RN installed-app smoke (${{ matrix.platform }})
     needs: [rn-consumers, build]
@@ -242,26 +241,58 @@ jobs:
         with:
           platform: ${{ matrix.platform }}
           artifact-prefix: react-native-post-merge
-      # The RN set's own closure check, after the RN cache jobs pushed and
-      # pinned it: the Android leg runs on a free runner, and it runs after a
-      # failed smoke too.
-      - name: Dry-run the RN set in an empty store
-        if: ${{ !cancelled() && matrix.platform == 'android' }}
-        run: |
-          dev/ci/warm-closure 'sets: { inherit (sets) rn; }'
 
-  # A job that hits its timeout ends as cancelled while the run goes on, so
-  # a cancelled result alerts too. A cancelled run alerts on nothing.
+  # Runs after the RN jobs on a free runner whenever the run goes on, also
+  # when some RN jobs failed. It dry-runs the RN set of each system whose set
+  # `xmtp` holds: a leg of rn-consumers pushes and pins its system's set, so a
+  # platform that pinned is checked even when the other leg or the smoke
+  # failed. Then it alerts when an RN job or this check failed. A job that
+  # hits its timeout ends as cancelled while the run goes on, so a cancelled
+  # result alerts too. A cancelled run checks and alerts on nothing.
   rn-alert:
-    name: Alert on an RN failure
+    name: Check the RN sets and alert on an RN failure
     needs: [rn-components, rn-package, rn-consumers, rn-smoke]
-    if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
       - name: Check out the source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        if: ${{ needs.rn-consumers.result != 'skipped' }}
+        uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+      - name: Dry-run the pushed RN sets in an empty store
+        id: check
+        if: ${{ needs.rn-consumers.result != 'skipped' }}
+        shell: bash
+        env:
+          RN_CONSUMERS: ${{ needs.rn-consumers.result }}
+        run: |
+          nix eval --json .#ciSets --apply 'builtins.mapAttrs (_: sets: sets.rn.outPath)' > "$RUNNER_TEMP/rn-sets.json"
+          # The list goes through a file: bash ignores the exit status of a
+          # process substitution, so a failed jq would shrink the check.
+          jq -r 'to_entries[] | "\(.key) \(.value)"' "$RUNNER_TEMP/rn-sets.json" > "$RUNNER_TEMP/rn-sets.txt"
+          options=()
+          while read -r system path; do
+            # A binary cache serves <hash>.narinfo for each path it holds.
+            name=${path#/nix/store/}
+            status=$(curl -sS -o /dev/null -w '%{http_code}' "https://xmtp.cachix.org/${name%%-*}.narinfo")
+            if [[ "$status" == 200 ]]; then
+              options+=(--system "$system")
+            elif [[ "$status" == 404 && "$RN_CONSUMERS" != success ]]; then
+              echo "The RN set of $system is not in xmtp: its rn-consumers leg did not push it."
+            else
+              echo "::error title=RN sets::xmtp answered $status for the RN set of $system ($path)"
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/rn-sets.txt"
+          if (( ${#options[@]} > 0 )); then
+            dev/ci/warm-closure "${options[@]}" 'sets: { inherit (sets) rn; }'
+          fi
       - name: Notify Slack
+        if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || steps.check.outcome == 'failure') }}
         uses: ./.github/actions/slack-notify
         with:
           message: "Post-merge React Native failed for ${{ github.sha }}: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -357,12 +388,12 @@ jobs:
           github-token: ${{ github.token }}
       # dev/ci/warm-closure dry-runs every set member and crane dependency
       # layer in an empty store. This job checks every set but `rn`: the RN
-      # jobs warm and check that one, and this job does not wait for them. It
-      # also fails when a checked set builds an `rn` member, because an RN
-      # break would then fail `build`.
+      # jobs warm that one and rn-alert checks it, and this job does not wait
+      # for them. dev/ci/rn-isolation, in nix-eval.yml, keeps rn members out
+      # of the checked sets.
       - name: Dry-run the set members and dependency layers in an empty store
         run: |
-          dev/ci/warm-closure 'sets: removeAttrs sets [ "rn" ]' 'sets: { inherit (sets) rn; }'
+          dev/ci/warm-closure 'sets: removeAttrs sets [ "rn" ]'
 
   # Pages content comes only from trusted trunk pushes. The native references
   # and docs build after every member and dependency layer of the sets that

@@ -43,20 +43,6 @@ def expression(raw, values):
     return eval(raw, {"__builtins__": {}}, {"true": True, "false": False})
 
 
-def status_expression(raw, results, cancelled):
-    """Evaluate a job `if` built from cancelled(), contains(needs.*.result, X),
-    and needs.<job>.result comparisons."""
-    text = inner(raw)
-    text = text.replace("cancelled()", "true" if cancelled else "false")
-    text = re.sub(
-        r"contains\(needs\.\*\.result, '(\w+)'\)",
-        lambda m: "true" if m[1] in results.values() else "false",
-        text,
-    )
-    text = re.sub(r"needs\.([\w-]+)\.result", lambda m: repr(results[m[1]]), text)
-    return bool(expression(text, {}))
-
-
 def inner(raw):
     match = re.fullmatch(r"\$\{\{\s*(.*?)\s*\}\}", raw.strip(), re.DOTALL)
     assert match, raw
@@ -507,25 +493,6 @@ class ReactNativeWorkflowTests(unittest.TestCase):
         # The smoke substitutes the backend and the test services that
         # `build` pushes. test_warm_sets.py checks when it runs.
         self.assertIn("build", smoke["needs"])
-
-    def test_post_merge_alerts_on_rn_failures_and_timeouts(self):
-        alert = workflow("post-merge.yml")["jobs"]["rn-alert"]
-        jobs = alert["needs"]
-        # A job that hits its timeout ends as cancelled.
-        for broken, result, cancelled, expected in (
-            (None, None, False, False),
-            ("rn-smoke", "failure", False, True),
-            ("rn-smoke", "cancelled", False, True),
-            ("rn-package", "failure", False, True),
-            ("rn-smoke", "cancelled", True, False),
-        ):
-            with self.subTest(job=broken, result=result, run_cancelled=cancelled):
-                results = {job: "success" for job in jobs}
-                if broken:
-                    results[broken] = result
-                self.assertIs(
-                    status_expression(alert["if"], results, cancelled), expected
-                )
 
     def test_release_consumers_test_the_exchanged_full_package(self):
         document = workflow("release-react-native-sdk.yml")
