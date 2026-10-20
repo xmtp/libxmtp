@@ -129,20 +129,20 @@ lru = "0.18"
 mockall = { version = "0.15" }
 mockall_double = "0.3.1"
 once_cell = "1.21.4"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "1135c3f316f81072533addc279a580855990d835", default-features = false, features = [
+openmls = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "1135c3f316f81072533addc279a580855990d835" }
-openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "1135c3f316f81072533addc279a580855990d835", features = [
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5" }
+openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "1135c3f316f81072533addc279a580855990d835", features = [
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "1135c3f316f81072533addc279a580855990d835", features = [
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
