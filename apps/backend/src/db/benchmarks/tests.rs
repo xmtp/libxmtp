@@ -6,13 +6,26 @@ use sqlx::Row;
 use std::collections::HashSet;
 
 fn config() -> Config {
-    serde_json::from_str(include_str!("../../../benchmarks/baseline.json")).unwrap()
+    Config {
+        sizes: vec![1_000, 100_000, 10_000_000],
+        topic_counts: vec![1, 10, 100, 1_000],
+        writers: vec![1, 8],
+        batch_sizes: vec![1],
+        trials: 3,
+        read_ms: 1_000,
+        write_ms: 2_000,
+        warmup_requests: 20,
+        write_growth_percent: 10,
+        page_limit: 100,
+        seed: 42,
+        output: PathBuf::from("benchmark-test.jsonl"),
+    }
 }
 
 /// Explicit configuration rejects unknown fields; relative paths resolve from the repository, not Cargo's package cwd.
 #[xmtp_common::test(unwrap_try = true)]
 fn configuration_rejects_unknown_and_missing_fields() {
-    assert!(repository_path("apps/backend/benchmarks/baseline.json").is_file());
+    assert!(repository_path("apps/backend/Cargo.toml").is_file());
     assert_eq!(
         repository_path("/absolute/results.jsonl"),
         PathBuf::from("/absolute/results.jsonl")
