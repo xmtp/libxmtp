@@ -115,12 +115,19 @@ fn decode_legacy_immutable(bytes: &[u8]) -> Option<ImmutableMetadataSave> {
 fn decode_legacy_mutable(bytes: &[u8]) -> Option<MutableMetadataSave> {
     use xmtp_proto::xmtp::mls::message_contents::Inboxes;
 
-    if let Ok(value) = GroupMutableMetadataV1::decode(bytes) {
+    // The proto wipes the attribute values it still holds when it drops, so
+    // fields move out with `take`.
+    if let Ok(mut value) = GroupMutableMetadataV1::decode(bytes) {
         return Some(MutableMetadataSave {
-            attributes: value.attributes,
-            admin_list: value.admin_list.map(|v| v.inbox_ids).unwrap_or_default(),
+            attributes: std::mem::take(&mut value.attributes),
+            admin_list: value
+                .admin_list
+                .take()
+                .map(|v| v.inbox_ids)
+                .unwrap_or_default(),
             super_admin_list: value
                 .super_admin_list
+                .take()
                 .map(|v| v.inbox_ids)
                 .unwrap_or_default(),
         });
@@ -130,8 +137,10 @@ fn decode_legacy_mutable(bytes: &[u8]) -> Option<MutableMetadataSave> {
     protobuf_fields(bytes, |tag, raw, payload| {
         match tag {
             1 => match GroupMutableMetadataV1::decode(raw) {
-                Ok(value) => {
-                    result.attributes.extend(value.attributes);
+                Ok(mut value) => {
+                    result
+                        .attributes
+                        .extend(std::mem::take(&mut value.attributes));
                     recovered = true;
                 }
                 Err(_) => {
@@ -309,7 +318,7 @@ mod tests {
             admin_list: Some(Inboxes {
                 inbox_ids: vec!["01".repeat(32)],
             }),
-            ..Default::default()
+            super_admin_list: None,
         }
         .encode_to_vec();
         let mut invalid = field(1, b"description");
@@ -321,7 +330,7 @@ mod tests {
                 super_admin_list: Some(Inboxes {
                     inbox_ids: vec!["02".repeat(32)],
                 }),
-                ..Default::default()
+                admin_list: None,
             }
             .encode_to_vec(),
         );
@@ -339,7 +348,8 @@ mod tests {
     fn malformed_legacy_inbox_keeps_other_entries() {
         let mut bytes = GroupMutableMetadataV1 {
             attributes: [("group_name".into(), "Legacy Group".into())].into(),
-            ..Default::default()
+            admin_list: None,
+            super_admin_list: None,
         }
         .encode_to_vec();
         let mut admins = Inboxes {
@@ -367,7 +377,7 @@ mod tests {
             admin_list: Some(Inboxes {
                 inbox_ids: vec!["01".repeat(32)],
             }),
-            ..Default::default()
+            super_admin_list: None,
         }
         .encode_to_vec();
         bytes.extend([0x0a, 0xff]);

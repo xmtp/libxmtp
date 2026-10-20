@@ -461,6 +461,28 @@ where
     }
 }
 
+/// The payload of a sync message's outer `EncodedContent`, the only field the
+/// worker reads. It can hold an HMAC root key, so it is wiped on drop, also
+/// when prost drops a value whose decode fails part way.
+#[derive(Clone, PartialEq, prost::Message)]
+struct SyncPayload {
+    #[prost(bytes = "vec", tag = "4")]
+    content: Vec<u8>,
+}
+
+impl Drop for SyncPayload {
+    fn drop(&mut self) {
+        self.content.zeroize();
+    }
+}
+
+/// Decode a received sync message: the outer `EncodedContent`, then the
+/// supported device-sync content inside it.
+pub(super) fn decode_sync_message(plaintext: &[u8]) -> Option<ReceivedContent> {
+    let payload = SyncPayload::decode(plaintext).ok()?;
+    decode_supported_content(&payload.content)
+}
+
 /// Decode only device-sync content that this client supports.
 ///
 /// Old archive transfer fields decode as an unset oneof after their field

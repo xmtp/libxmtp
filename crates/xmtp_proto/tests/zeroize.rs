@@ -1,7 +1,8 @@
-//! Heap-canary proof that push notification messages and device-sync HMAC
-//! updates wipe their secrets on drop, in every copy libxmtp makes: the
-//! original, each retry clone, and a value a failed decode drops. prost's own
-//! encode and decode buffers are out of reach and not checked.
+//! Heap-canary proof that push notification messages, device-sync HMAC
+//! updates and the messages that carry the commit-log signer wipe their
+//! secrets on drop, in every copy libxmtp makes: the original, each retry
+//! clone, and a value a failed decode drops. prost's own encode and decode
+//! buffers are out of reach and not checked.
 // The heap-canary harness is Unix-only (`libc::memmem`).
 #![cfg(unix)]
 
@@ -15,6 +16,11 @@ use xmtp_proto::xmtp::device_sync::content::{
     DeviceSyncContent, HmacKeyUpdate, PreferenceUpdate, PreferenceUpdates,
     device_sync_content::Content, preference_update::Update,
 };
+use xmtp_proto::xmtp::mls::database::{
+    UpdateMetadataData,
+    update_metadata_data::{V1 as UpdateMetadataV1, Version as UpdateMetadataVersion},
+};
+use xmtp_proto::xmtp::mls::message_contents::GroupMutableMetadataV1;
 
 xmtp_cryptography::install_heap_canary!();
 
@@ -33,6 +39,15 @@ const HMAC_KEY: [u8; 42] = [
     0xc1, 0x4e, 0x03, 0xb7, 0x6c, 0xd9, 0x15, 0x88, 0xfa, 0x3d, 0xa2, 0x57, 0xe0, 0x0c, 0x93, 0x46,
     0xbb, 0x78, 0x21, 0xdc, 0x65, 0xf0, 0x1a, 0xa7, 0x5e, 0xc3,
 ];
+
+const SIGNER: [u8; 32] = [
+    0x71, 0xa8, 0x3d, 0xe6, 0x0b, 0x94, 0x52, 0xcf, 0x18, 0xb3, 0x6e, 0x05, 0xda, 0x47, 0x9c, 0x21,
+    0xf8, 0x63, 0x2a, 0xbd, 0x84, 0x1f, 0xc6, 0x59, 0x0e, 0xa1, 0x7b, 0x34, 0xe9, 0x56, 0x0d, 0x92,
+];
+
+/// A field header whose length runs past the end of the input, so a decode
+/// fails after the fields before it.
+const TRUNCATED_FIELD: [u8; 2] = [0x0a, 0x7f];
 
 fn register() -> RegisterRequest {
     RegisterRequest {
@@ -114,4 +129,38 @@ fn a_failed_sync_decode_wipes_the_hmac_key() {
     drop(input);
 
     assert_eq!(hits, [0], "freed heap blocks held the HMAC key");
+}
+
+/// Metadata and a metadata-update intent whose signer decodes before
+/// malformed trailing bytes fail to decode, and the partly decoded values
+/// prost drops wipe the signer. The inputs are `Bytes`, so prost slices them
+/// instead of copying through buffers of its own.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_failed_metadata_decode_wipes_the_commit_log_signer() {
+    let mut metadata = GroupMutableMetadataV1 {
+        attributes: [("_commit_log_signer".to_owned(), hex::encode(SIGNER))].into(),
+        admin_list: None,
+        super_admin_list: None,
+    }
+    .encode_to_vec();
+    metadata.extend_from_slice(&TRUNCATED_FIELD);
+    let metadata = bytes::Bytes::from(metadata);
+    let mut intent = UpdateMetadataData {
+        version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
+            field_name: "_commit_log_signer".to_owned(),
+            field_value: hex::encode(SIGNER),
+            expected_field_value: Some(hex::encode(SIGNER)),
+        })),
+    }
+    .encode_to_vec();
+    intent.extend_from_slice(&TRUNCATED_FIELD);
+    let intent = bytes::Bytes::from(intent);
+
+    let ((), hits) = scan(&[Canary::new(&SIGNER)], || {
+        assert!(GroupMutableMetadataV1::decode(metadata.clone()).is_err());
+        assert!(UpdateMetadataData::decode(intent.clone()).is_err());
+    });
+    drop((metadata, intent));
+
+    assert_eq!(hits, [0], "freed heap blocks held the commit-log signer");
 }

@@ -1,5 +1,5 @@
 use super::{
-    DeviceSyncClient, DeviceSyncError, ReceivedContent, decode_supported_content,
+    DeviceSyncClient, DeviceSyncError, ReceivedContent, decode_sync_message,
     preference_sync::{PreferenceUpdate, store_preference_updates},
 };
 use crate::{
@@ -15,7 +15,6 @@ use crate::{
 };
 use futures::TryFutureExt;
 use parking_lot::Mutex;
-use prost::Message;
 use std::{
     sync::{
         Arc,
@@ -31,12 +30,9 @@ use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
 use xmtp_events::{ClientEvent, Subscription};
 use xmtp_macro::log_event;
-use xmtp_proto::xmtp::{
-    device_sync::content::{
-        DeviceSyncAcknowledge, PreferenceUpdates as PreferenceUpdatesProto,
-        device_sync_content::Content as ContentProto,
-    },
-    mls::message_contents::EncodedContent,
+use xmtp_proto::xmtp::device_sync::content::{
+    DeviceSyncAcknowledge, PreferenceUpdates as PreferenceUpdatesProto,
+    device_sync_content::Content as ContentProto,
 };
 
 pub(super) fn log_incoming_preference_updates(
@@ -607,9 +603,7 @@ where
                     .mark_device_sync_msg_as_processed(&msg.id)?;
                 continue;
             }
-            let content = EncodedContent::decode(plaintext.as_slice())
-                .ok()
-                .and_then(|encoded| decode_supported_content(&Zeroizing::new(encoded.content)));
+            let content = decode_sync_message(plaintext.as_slice());
             let Some(content) = content else {
                 // Older installations can send archive transfer content. Its
                 // reserved oneof fields decode as unsupported content here.

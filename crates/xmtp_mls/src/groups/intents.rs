@@ -313,20 +313,16 @@ impl UpdateMetadataIntentData {
 /// temporary that is wiped after encoding.
 impl From<UpdateMetadataIntentData> for Vec<u8> {
     fn from(mut intent: UpdateMetadataIntentData) -> Self {
-        let mut data = UpdateMetadataData {
+        let data = UpdateMetadataData {
             version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
                 field_name: std::mem::take(&mut intent.field_name),
                 field_value: std::mem::take(&mut intent.field_value),
                 expected_field_value: intent.expected_field_value.take(),
             })),
         };
-        // Sized up front, so encoding never frees a partial copy.
-        let buf = data.encode_to_vec();
-        if let Some(UpdateMetadataVersion::V1(v1)) = &mut data.version {
-            v1.field_value.zeroize();
-            v1.expected_field_value.zeroize();
-        }
-        buf
+        // Sized up front, so encoding never frees a partial copy. The proto
+        // wipes its values when it drops.
+        data.encode_to_vec()
     }
 }
 
@@ -338,15 +334,15 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
     fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
         let data = Zeroizing::new(data);
         let msg = UpdateMetadataData::decode(data.as_slice())?;
-        let Some(UpdateMetadataVersion::V1(v1)) = msg.version else {
+        let Some(UpdateMetadataVersion::V1(mut v1)) = msg.version else {
             return Err(IntentError::MissingPayload);
         };
         // Absent on intents queued before the guard existed, and on payloads
         // written by a client that predates it — both mean last-writer-wins.
         Ok(Self {
-            field_name: v1.field_name,
-            field_value: v1.field_value,
-            expected_field_value: v1.expected_field_value,
+            field_name: std::mem::take(&mut v1.field_name),
+            field_value: std::mem::take(&mut v1.field_value),
+            expected_field_value: v1.expected_field_value.take(),
         })
     }
 }
