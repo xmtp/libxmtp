@@ -69,6 +69,12 @@ allows registration before the envelope row exists but forbids an orphan at
 commit; pruning deletes the registry row through the FK cascade. The storage
 contract remains append-only: deny updates of sequence/topic/hash through the
 writer role and reject such key changes with a trigger, including child writes.
+Treat registry rows as internal constraint state: the writer role must not
+insert, update, or delete them directly. Use a narrowly owned `SECURITY DEFINER`
+registration function with a fixed safe search path and schema-qualified names;
+the writer must not own the tables or be able to disable triggers. Protect
+registry key updates too. Trusted migration/provisioning privileges remain
+separate; validate complete one-to-one registry coverage after any backfill.
 
 The existing preliminary and locked duplicate checks probe the registry's
 global key, then join `envelopes` by the exact sequence ID to retrieve the
@@ -145,6 +151,12 @@ First implement only a **new versioned migration** and corresponding Store
 changes in a disposable experiment branch. Never edit the existing migrations.
 For large corpus seeding, precreate all ranges touched by the known seed range
 outside the timer, then use the same bulk seed and real registry enforcement.
+For the steady-state insert comparison, also precreate ranges covering the
+configured write-growth budget and report their setup cost/count separately.
+This is important at exactly 10,000,000 seeded IDs: the first write enters a
+new range, and untimed warmup must not silently hide its creation. Dedicated
+timed rollover trials must instead start without that next range and include
+the complete provision-and-retry latency.
 Do not disable the trigger, omit indexes, or synthesize empty registry state.
 Report the slower partitioned seed time separately if trigger/FK cost is material.
 
@@ -170,7 +182,8 @@ do not silently substitute an unbounded table rewrite at backend startup.
    process provisioners, sequence gaps, and a large sequence jump. Do not hide
    rollover DDL in normal untimed write warmup.
 4. Add regression tests for retries on either side of an edge, cross-partition
-   duplicates, forced SQL duplicate writes, cancellation/DDL failure, FK/trigger
+   duplicates, forced SQL duplicate writes, denied direct registry mutation,
+   immutable keys on parents/children/registry, cancellation/DDL failure, FK/trigger
    rollback and prune cleanup, wrong child bounds, restart recovery, maximum
    bigint IDs, old cursor paging, empty reads, newest on dormant topics, replica
    reads, push boundaries, and the existing publish/stream/retention suites.

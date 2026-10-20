@@ -1,6 +1,8 @@
 """Requirements for trustworthy benchmark summaries, using synthetic observations."""
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -58,6 +60,16 @@ class ReportTests(unittest.TestCase):
         self.events.pop()
         with self.assertRaises(ValueError):
             self.summarize()
+
+    def test_csv_uses_reproducible_unix_line_endings(self):
+        """Versioned summaries need LF output without platform-specific whitespace changes."""
+        self.summarize()
+        output = subprocess.check_output(
+            [sys.executable, str(Path(__file__).with_name("report.py")), str(self.path)]
+        )
+        self.assertNotIn(b"\r", output)
+        self.assertTrue(output.endswith(b"\n"))
+        self.assertEqual(len(output.splitlines()), 2)
 
     def test_missing_and_duplicate_trials_are_rejected(self):
         """Unequal trial coverage must not bias comparisons between schemas."""

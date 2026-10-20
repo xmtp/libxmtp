@@ -3,6 +3,7 @@
 
 Operators pass a raw run path; summarize() validates completion and trial coverage,
 then reports medians across trials, never averages of pooled tail percentiles.
+CSV output uses LF line endings for reproducible versioned summaries.
 """
 
 import argparse
@@ -78,7 +79,7 @@ def main():
     parser.add_argument("run", type=Path)
     args = parser.parse_args()
     rows = summarize(args.run)
-    writer = csv.DictWriter(sys.stdout, fieldnames=rows[0].keys())
+    writer = csv.DictWriter(sys.stdout, fieldnames=rows[0].keys(), lineterminator="\n")
     writer.writeheader()
     writer.writerows(rows)
 
