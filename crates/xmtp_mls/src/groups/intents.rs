@@ -128,7 +128,7 @@ impl SendMessageIntentData {
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let msg = SendMessageData::decode(data)?;
         let payload_bytes = match msg.version {
-            Some(SendMessageVersion::V1(v1)) => v1.payload_bytes,
+            Some(SendMessageVersion::V1(mut v1)) => std::mem::take(&mut v1.payload_bytes),
             None => return Err(IntentError::MissingPayload),
         };
 

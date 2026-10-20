@@ -532,15 +532,14 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 // An older build queued this intent before the creation check.
                 // implements: GMOD-035
+                // The envelope content can hold a device-sync HMAC root key;
+                // the decoded envelope wipes it on drop.
                 if let Ok(PlaintextEnvelope {
-                    content: Some(Content::V1(V1 { content, .. })),
+                    content: Some(Content::V1(v1)),
                 }) = PlaintextEnvelope::decode(intent_data.message.as_slice())
+                    && Self::is_reserved_transcript_content(&v1.content)
                 {
-                    // The content can hold a device-sync HMAC root key.
-                    let content = Zeroizing::new(content);
-                    if Self::is_reserved_transcript_content(&content) {
-                        return Err(GroupError::ReservedTranscriptContentType);
-                    }
+                    return Err(GroupError::ReservedTranscriptContentType);
                 }
                 // Pending proposals are handled at the API level (in send_message)
                 // by committing them before creating the SendMessage intent

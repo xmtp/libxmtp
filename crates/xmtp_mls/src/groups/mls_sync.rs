@@ -117,7 +117,7 @@ use xmtp_proto::xmtp::mls::{
     message_contents::{
         GroupUpdated, PlaintextEnvelope, WelcomeMetadata, WelcomePointer as WelcomePointerProto,
         group_updated,
-        plaintext_envelope::{Content, V1, V2},
+        plaintext_envelope::{Content, V2},
     },
 };
 use xmtp_proto::{

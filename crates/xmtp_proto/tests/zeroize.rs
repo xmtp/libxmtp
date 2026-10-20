@@ -17,10 +17,14 @@ use xmtp_proto::xmtp::device_sync::content::{
     device_sync_content::Content, preference_update::Update,
 };
 use xmtp_proto::xmtp::mls::database::{
-    UpdateMetadataData,
+    SendMessageData, UpdateMetadataData,
+    send_message_data::{V1 as SendMessageV1, Version as SendMessageVersion},
     update_metadata_data::{V1 as UpdateMetadataV1, Version as UpdateMetadataVersion},
 };
-use xmtp_proto::xmtp::mls::message_contents::GroupMutableMetadataV1;
+use xmtp_proto::xmtp::mls::message_contents::{
+    GroupMutableMetadataV1, PlaintextEnvelope,
+    plaintext_envelope::{Content as EnvelopeContent, V1 as EnvelopeV1},
+};
 
 xmtp_cryptography::install_heap_canary!();
 
@@ -163,4 +167,36 @@ fn a_failed_metadata_decode_wipes_the_commit_log_signer() {
     drop((metadata, intent));
 
     assert_eq!(hits, [0], "freed heap blocks held the commit-log signer");
+}
+
+/// A stored send intent and its plaintext envelope whose payload decodes
+/// before malformed trailing bytes fail to decode, and the partly decoded
+/// values prost drops wipe the payload, which can be an HMAC root key.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_failed_send_intent_decode_wipes_the_payload() {
+    let mut envelope = PlaintextEnvelope {
+        content: Some(EnvelopeContent::V1(EnvelopeV1 {
+            content: HMAC_KEY.to_vec(),
+            idempotency_key: "key".to_owned(),
+        })),
+    }
+    .encode_to_vec();
+    envelope.extend_from_slice(&TRUNCATED_FIELD);
+    let envelope = bytes::Bytes::from(envelope);
+    let mut intent = SendMessageData {
+        version: Some(SendMessageVersion::V1(SendMessageV1 {
+            payload_bytes: HMAC_KEY.to_vec(),
+        })),
+    }
+    .encode_to_vec();
+    intent.extend_from_slice(&TRUNCATED_FIELD);
+    let intent = bytes::Bytes::from(intent);
+
+    let ((), hits) = scan(&[Canary::new(&HMAC_KEY)], || {
+        assert!(PlaintextEnvelope::decode(envelope.clone()).is_err());
+        assert!(SendMessageData::decode(intent.clone()).is_err());
+    });
+    drop((envelope, intent));
+
+    assert_eq!(hits, [0], "freed heap blocks held the HMAC key");
 }

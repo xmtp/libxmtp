@@ -27,8 +27,8 @@ pub mod id {
 
     use crate::groups::intents::{IntentError, SendMessageIntentData};
     use prost::Message;
+    use xmtp_proto::xmtp::mls::message_contents::PlaintextEnvelope;
     use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
-    use xmtp_proto::xmtp::mls::message_contents::{PlaintextEnvelope, plaintext_envelope::V1};
 
     /// Relies on a client-created idempotency_key (which could be a timestamp)
     // implements: SEND-002
@@ -71,21 +71,17 @@ pub mod id {
         let data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
         let envelope: PlaintextEnvelope = PlaintextEnvelope::decode(data.message.as_slice())?;
 
-        // optimistic message should always have a plaintext envelope
-        let PlaintextEnvelope {
-            content:
-                Some(Content::V1(V1 {
-                    content: message,
-                    idempotency_key: key,
-                })),
-        } = envelope
-        else {
+        // optimistic message should always have a plaintext envelope. Its
+        // content can hold a device-sync HMAC root key; the envelope wipes it
+        // on drop.
+        let Some(Content::V1(v1)) = &envelope.content else {
             return Ok(None);
         };
-
-        // The content can hold a device-sync HMAC root key.
-        let message = xmtp_cryptography::secret::Zeroizing::new(message);
-        Ok(Some(calculate_message_id(intent.group_id, &message, &key)))
+        Ok(Some(calculate_message_id(
+            intent.group_id,
+            &v1.content,
+            &v1.idempotency_key,
+        )))
     }
 }
 
