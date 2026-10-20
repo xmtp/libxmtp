@@ -1,7 +1,7 @@
 // The attachment store of one open chat. The composer slots and the file
 // cards share it through the chat runtime. While any of them is mounted it is
-// attached: it loaded once, and a consent change (or a lagged stream) drops
-// every download.
+// attached: it loaded once, it shows each draft change of any screen, and a
+// consent change (or a lagged stream) drops every download.
 
 import { useEffect } from "react";
 
@@ -34,10 +34,18 @@ class ChatAttachments {
   attach(): () => void {
     this.#attached += 1;
     if (this.#attached === 1) {
-      this.#stop = this.#runtime.session.streams.onEvent((event) => {
+      const stopEvents = this.#runtime.session.streams.onEvent((event) => {
         if (event.kind === "changed") this.store.invalidateDownloads();
       });
-      if (!this.#loaded) {
+      const stopDrafts = this.store.watchDrafts();
+      this.#stop = () => {
+        stopEvents();
+        stopDrafts();
+      };
+      if (this.#loaded) {
+        // Drafts may have changed while no slot was mounted.
+        this.store.reloadDrafts();
+      } else {
         this.#loaded = true;
         void this.store.load();
       }

@@ -78,6 +78,8 @@ function Review({
           icon={backIcon}
           tintColor={palette.tint}
           accessibilityLabel={copy.back}
+          // A create already sent keeps running; stay to see it end.
+          disabled={state.busy}
           onPress={() => {
             router.back();
           }}
@@ -110,6 +112,8 @@ function Review({
         <FormSection>
           <TextFieldRow
             value={state.name}
+            // Create already sent the name, description and permissions.
+            editable={!state.busy}
             onChangeText={(text) => {
               store.setName(text);
             }}
@@ -119,6 +123,7 @@ function Review({
           <FormRow style={styles.descriptionRow}>
             <TextInput
               value={state.description}
+              editable={!state.busy}
               onChangeText={(text) => {
                 store.setDescription(text);
               }}
@@ -151,6 +156,7 @@ function Review({
         <FormRow key="change">
           <GlassButton
             title={copy.changePeople}
+            disabled={state.busy}
             onPress={() => {
               router.back();
             }}
@@ -166,6 +172,7 @@ function Review({
             title={copy.allMembers}
             detail={copy.allMembersDetail}
             selected={!state.adminOnly}
+            disabled={state.busy}
             onPress={() => {
               store.setAdminOnly(false);
             }}
@@ -174,6 +181,7 @@ function Review({
             title={copy.adminsOnly}
             detail={copy.adminsOnlyDetail}
             selected={state.adminOnly}
+            disabled={state.busy}
             onPress={() => {
               store.setAdminOnly(true);
             }}
@@ -196,16 +204,19 @@ function PermissionRow({
   title,
   detail,
   selected,
+  disabled,
   onPress,
 }: {
   readonly title: string;
   readonly detail: string;
   readonly selected: boolean;
+  readonly disabled: boolean;
   readonly onPress: () => void;
 }) {
   return (
     <FormRow
       onPress={onPress}
+      disabled={disabled}
       accessibilityLabel={`${title}, ${detail}`}
       accessibilityState={{ selected }}>
       <View style={styles.permissionText}>

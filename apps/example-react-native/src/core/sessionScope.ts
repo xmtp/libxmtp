@@ -1,13 +1,15 @@
 // Session-owned work. A session cancels and awaits all of it before it ends
 // its SDK client.
 
+import { errorLogText } from "./errorLog.ts";
+
 /** Work that runs until its signal aborts. */
 export type ScopedTask = (signal: AbortSignal) => Promise<void>;
 /** Teardown that runs when the session closes. */
 export type ScopedCleanup = () => void | Promise<void>;
 
 function report(error: unknown): void {
-  console.warn("Session cleanup failed", error);
+  console.warn("Session cleanup failed", errorLogText(error));
 }
 
 export class SessionScope {
@@ -48,7 +50,8 @@ export class SessionScope {
       try {
         await task(signal);
       } catch (error) {
-        if (!signal.aborted) console.warn("Session task failed", error);
+        if (!signal.aborted)
+          console.warn("Session task failed", errorLogText(error));
       }
     })().finally(() => {
       this.#tasks.delete(run);

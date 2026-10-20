@@ -45,15 +45,4 @@
             column="31"/>
     </issue>
 
-    <issue
-        id="GradleDependency"
-        message="A newer version of org.web3j:core than 4.9.4 is available: 5.0.1"
-        errorLine1="    androidTestImplementation &apos;org.web3j:core:4.9.4&apos;"
-        errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="build.gradle"
-            line="102"
-            column="31"/>
-    </issue>
-
 </issues>

@@ -257,7 +257,7 @@ export function MessageList({
   );
 }
 
-/** "Older messages" and the pending page buttons. */
+/** "Older messages" and "Older pending messages". */
 function PageButtons({ state }: { readonly state: TimelineState }) {
   const { runtime } = useChatContext();
   return (
@@ -273,20 +273,12 @@ function PageButtons({ state }: { readonly state: TimelineState }) {
         />
       ) : null}
       {state.morePending ? (
-        <>
-          <GlassButton
-            title={chatCopy.olderPending}
-            onPress={() => {
-              void runtime.timeline.olderPending();
-            }}
-          />
-          <GlassButton
-            title={chatCopy.newestPending}
-            onPress={() => {
-              void runtime.timeline.newestPending();
-            }}
-          />
-        </>
+        <GlassButton
+          title={chatCopy.olderPending}
+          onPress={() => {
+            void runtime.timeline.olderPending();
+          }}
+        />
       ) : null}
     </View>
   );

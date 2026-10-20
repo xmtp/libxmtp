@@ -168,6 +168,10 @@ xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_content_types = { path = "../xmtp_content_types", features = [
   "test-utils",
 ] }
+xmtp_cryptography = { workspace = true, features = [
+  "exposed-keys",
+  "test-utils",
+] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils-anvil"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
@@ -195,6 +199,10 @@ required-features = ["test-utils"]
 
 [[test]]
 name = "attachment_opfs"
+required-features = ["test-utils"]
+
+[[test]]
+name = "zeroize"
 required-features = ["test-utils"]
 
 [[bench]]

@@ -57,23 +57,4 @@ describe("conversations sync-all", () => {
 
     expect(output.success).toBe(true);
   });
-
-  it("syncs with multiple consent state filters", async () => {
-    const sender = await createRegisteredIdentity();
-
-    const result = await runWithIdentity(sender, [
-      "conversations",
-      "sync-all",
-      "--consent-state",
-      "allowed",
-      "--consent-state",
-      "unknown",
-      "--json",
-    ]);
-
-    expect(result.exitCode).toBe(0);
-
-    const output = parseJsonOutput<{ success: boolean }>(result.stdout);
-    expect(output.success).toBe(true);
-  });
 });

@@ -12,11 +12,14 @@ import {
   checkCollection,
   checkLatest,
   checkUnchanged,
+  draftChanged,
   draftChanges,
+  draftValue,
   emptyDraft,
   entryAction,
   fieldHeader,
   hexBytes,
+  markSaving,
   MetadataCopy,
   type MetadataField,
   metadataField,
@@ -154,6 +157,56 @@ test("the own draft writes only intentional changes", () => {
     { ...present, present: false, scalar: "" },
   ]);
   assert.equal(draftChanges(draft).size, 0);
+});
+
+test("a field edited while its save runs keeps the newest input", () => {
+  const status = field({
+    id: 0xc201,
+    name: "status",
+    shape: "userString",
+    userField: true,
+    present: true,
+    scalar: "Old",
+  });
+  const cases = [
+    // Changed back to the old value while the save commits "New".
+    { during: "Old", committed: "New", left: [[status.id, "Old"]] },
+    // Untouched: a committed save leaves nothing; a failed one keeps it.
+    { during: "New", committed: "New", left: [] },
+    { during: "New", committed: "Old", left: [[status.id, "New"]] },
+  ];
+  for (const { during, committed, left } of cases) {
+    let draft = mergeDraft(emptyDraft, [status]);
+    draft = setDraft(draft, status.id, { kind: "value", text: "New" });
+    draft = markSaving(draft);
+    draft = setDraft(draft, status.id, { kind: "value", text: during });
+    draft = mergeDraft(draft, [{ ...status, scalar: committed }]);
+    assert.deepEqual([...draftChanges(draft)], left, during + committed);
+  }
+});
+
+test("an uppercase byte value equal to the committed bytes leaves nothing to save", () => {
+  const key = field({
+    id: 0xc203,
+    name: "key",
+    shape: "userBytes",
+    userField: true,
+  });
+  let draft = mergeDraft(emptyDraft, [key]);
+  draft = setDraft(draft, key.id, { kind: "value", text: "ABCD" });
+  assert.equal(draftChanged(draft, key.id), true);
+  // The group stores bytes, and the SDK reads them back as lowercase hex.
+  const saved = { ...key, present: true, scalar: "abcd" };
+  draft = mergeDraft(draft, [saved]);
+  assert.equal(draftChanged(draft, key.id), false);
+  assert.equal(draftChanges(draft).size, 0);
+  // Typing the saved bytes in uppercase is no change either.
+  draft = setDraft(draft, key.id, { kind: "value", text: "ABCD" });
+  assert.equal(draftChanged(draft, key.id), false);
+  assert.equal(draftChanges(draft).size, 0);
+  // So a reload takes a value another device committed meanwhile.
+  draft = mergeDraft(draft, [{ ...saved, scalar: "ef01" }]);
+  assert.deepEqual(draftValue(draft, key.id), { kind: "value", text: "ef01" });
 });
 
 const base = (kind: string): MetadataPolicy =>

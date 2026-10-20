@@ -3,9 +3,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { type FileDraft, AttachmentCopy } from "@/core/attachments.ts";
+import { RecoveryChatsStore } from "@/core/recoveryChats.ts";
 import { createAttachmentStore } from "@/features/attachments/attachmentServices";
 import { recoveryCopy } from "@/features/attachments/copy";
-import { RecoveryChatsStore } from "@/features/attachments/recoveryChatsStore";
+import { chatServices } from "@/features/chat/chatServices";
+import { conversationQueries } from "@/features/chats/conversationServices";
 import { type ActiveSession, useActiveSession } from "@/session";
 import { FormRow, FormScreen, FormSection } from "@/ui/Form";
 import { GlassButton } from "@/ui/GlassButton";
@@ -39,16 +41,25 @@ function RecoveryList({ session }: { readonly session: ActiveSession }) {
     }),
   );
   const [choices] = useState(
-    () => new RecoveryChatsStore(session, () => mounted.current),
+    () =>
+      new RecoveryChatsStore({
+        queries: conversationQueries(session),
+        conversation: (id) => chatServices(session).queries.conversation(id),
+        alias: (id) => session.preferences.alias(id),
+        admit: () => mounted.current && session.isCurrent(),
+      }),
   );
   const state = useStore(store);
-  const { chats } = useStore(choices);
+  const { chats, error: chatsError } = useStore(choices);
   useEffect(() => {
     mounted.current = true;
+    // A chat's send can finish, stop or remove a draft while this is open.
+    const stopDrafts = store.watchDrafts();
     return () => {
       mounted.current = false;
+      stopDrafts();
     };
-  }, []);
+  }, [store]);
   useFocusEffect(
     useCallback(() => {
       void store.load();
@@ -86,17 +97,34 @@ function RecoveryList({ session }: { readonly session: ActiveSession }) {
             </Text>
           </FormRow>
           {draft.conversationId === undefined ? (
-            chats.map((chat) => (
-              <FormRow key={chat.id}>
-                <GlassButton
-                  title={recoveryCopy.assignTo(chat.title)}
-                  testID={`recovery.assign.${chat.id}`}
-                  onPress={() => {
-                    store.assign(draft.id, chat.id);
-                  }}
-                />
-              </FormRow>
-            ))
+            chatsError === undefined ? (
+              chats.map((chat) => (
+                <FormRow key={chat.id}>
+                  <GlassButton
+                    title={recoveryCopy.assignTo(chat.title)}
+                    testID={`recovery.assign.${chat.id}`}
+                    onPress={() => {
+                      store.assign(draft.id, chat.id);
+                    }}
+                  />
+                </FormRow>
+              ))
+            ) : (
+              [
+                <FormRow key="error">
+                  <Text color="systemRed" testID="recovery.chats-error">
+                    {chatsError}
+                  </Text>
+                </FormRow>,
+                <FormRow key="retry">
+                  <GlassButton
+                    title={recoveryCopy.retry}
+                    testID="recovery.chats-retry"
+                    onPress={() => void choices.load()}
+                  />
+                </FormRow>,
+              ]
+            )
           ) : (
             <FormRow>
               <GlassButton

@@ -640,6 +640,7 @@ mod reader_recovery;
 mod retained_content;
 mod shared_auth;
 mod signers;
+mod smart_contract_wallets;
 mod standard_sends;
 mod storage;
 mod storage_layout;

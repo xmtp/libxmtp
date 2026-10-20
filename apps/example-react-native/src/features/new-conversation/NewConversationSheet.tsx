@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { AccessibilityInfo, StyleSheet } from "react-native";
+import { AccessibilityInfo, BackHandler, StyleSheet } from "react-native";
 import Animated, {
   ReduceMotion,
   useAnimatedStyle,
@@ -23,6 +23,7 @@ import { newConversationQueries } from "@/features/new-conversation/sdkQueries";
 import { type ActiveSession, useActiveSession } from "@/session";
 import { useColors } from "@/ui/colors";
 import { reducedTiming } from "@/ui/motion";
+import { useStore } from "@/ui/useStore";
 
 // Reanimated skips animations under Reduce Motion unless told not to; this
 // cross-fade is the Reduce Motion presentation itself.
@@ -30,7 +31,7 @@ const fadeTiming = { ...reducedTiming, reduceMotion: ReduceMotion.Never };
 
 interface SheetContext {
   readonly store: NewConversationStore;
-  /** Closes the sheet (the xmark). */
+  /** Closes the sheet (the xmark); ignored while a create runs. */
   readonly close: () => void;
   /** True while the Reduce Motion sheet fades out: the toolbar is disabled. */
   readonly closing: boolean;
@@ -77,9 +78,11 @@ function useSheetReducedMotion(): boolean {
 /**
  * The New message sheet around its own stack. It owns one
  * `NewConversationStore` for both steps (a fresh one per presentation).
- * Create closes the sheet and pushes the new chat. With Reduce Motion the
- * sheet appears without the slide and its content cross-fades in and out
- * over 0.2 s.
+ * Create closes the sheet and pushes the new chat. A create already sent
+ * cannot be taken back, so while it runs the sheet cannot be dismissed: no
+ * swipe down, no Android back, no xmark. With Reduce Motion the sheet
+ * appears without the slide and its content cross-fades in and out over
+ * 0.2 s.
  */
 export function NewConversationSheet({
   children,
@@ -161,11 +164,29 @@ function SheetBody({
     return () => store.dispose();
   }, [store]);
 
+  // Dismissing the sheet disposes the store, which drops a sent create's
+  // result: the conversation would exist, but its chat would not open. So
+  // while the create call runs, the swipe down and Android's back do nothing;
+  // the store's finish closes the sheet when it ends. Not `usePreventRemove`:
+  // its block lifts a render after `creating` clears, so it would also stop
+  // that finish.
+  const { creating } = useStore(store);
+  useEffect(() => {
+    if (!creating) return;
+    navigation.setOptions({ gestureEnabled: false });
+    const back = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => {
+      back.remove();
+      // The root layout's sheet options: Reduce Motion turns the swipe off.
+      navigation.setOptions({ gestureEnabled: !reduceMotion });
+    };
+  }, [creating, navigation, reduceMotion]);
+
   const value = useMemo(
     () => ({
       store,
       close: () => {
-        dismiss();
+        if (!store.getState().creating) dismiss();
       },
       closing,
     }),

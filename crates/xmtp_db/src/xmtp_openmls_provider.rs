@@ -1,12 +1,13 @@
 use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::TransactionalKeyStore;
-use crate::sql_key_store::SqlKeyStoreError;
+use crate::sql_key_store::{KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError, serialize_value};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
 use openmls_traits::storage::{Entity, StorageProvider};
 use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_cryptography::secret::Zeroizing;
 
 /// Outcome of a [`XmtpMlsStorageProvider::transaction`] or
 /// [`XmtpMlsStorageProvider::savepoint`] closure.
@@ -109,6 +110,35 @@ pub trait XmtpMlsStorageProvider:
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>;
+
+    /// Store the post-quantum wrapper private key of the key package whose
+    /// bincode-serialized hash reference is `hash_ref`.
+    ///
+    /// The value is the bincode of the key as `Vec<u8>`, in a buffer that is
+    /// wiped on drop. With [`Self::wrapper_private_key`], this is the only code
+    /// that reads or writes values under [`KEY_PACKAGE_WRAPPER_PRIVATE_KEY`].
+    fn write_wrapper_private_key(
+        &self,
+        hash_ref: &[u8],
+        key: &[u8],
+    ) -> Result<(), SqlKeyStoreError> {
+        let value = serialize_value(key)?;
+        self.write(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref, &value)
+    }
+
+    /// Read the post-quantum wrapper private key of the key package whose
+    /// bincode-serialized hash reference is `hash_ref`. The key is wiped on
+    /// drop.
+    fn wrapper_private_key(
+        &self,
+        hash_ref: &[u8],
+    ) -> Result<Option<Zeroizing<Vec<u8>>>, SqlKeyStoreError> {
+        // Bincode sizes the decoded `Vec` exactly, and it moves straight into
+        // `Zeroizing`.
+        Ok(self
+            .read::<Vec<u8>>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)?
+            .map(Zeroizing::new))
+    }
 
     #[cfg(feature = "test-utils")]
     fn hash_all(&self) -> Result<Vec<u8>, SqlKeyStoreError>;

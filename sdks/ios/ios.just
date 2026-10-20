@@ -54,9 +54,13 @@ check-consumer:
 build:
     ./dev/bindings
 
-# Run the suite on an installed iOS simulator.
+# The two slowest simulator tests. `test` runs both on macOS against the same
+# Swift source, and they check nothing that is specific to iOS.
+_simulator_skip := "-skip-testing:XmtpSdkTests/LoggingTests/testGeneratedSwiftCallbacksKeepQueueOrderBoundAndGeneration -skip-testing:XmtpSdkTests/StreamLifecycleTests/testBackgroundSuspendsAndForegroundResumesALiveStream"
+
+# Run the suite on an installed iOS simulator, without `_simulator_skip`.
 test-simulator destination="platform=iOS Simulator,name=iPhone 17":
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" env -u LD xcodebuild test -scheme XmtpSdk -destination '{{ destination }}'
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" env -u LD xcodebuild test -scheme XmtpSdk -destination '{{ destination }}' {{ _simulator_skip }}
 
 # Generate a static DocC site. The output path is relative to the repository root.
 docs output="apps/docs/generated/reference/swift":

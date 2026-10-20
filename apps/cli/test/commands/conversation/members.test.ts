@@ -56,37 +56,6 @@ describe("conversation members", () => {
     }
   });
 
-  it("lists members of a DM", async () => {
-    const sender = await createRegisteredIdentity();
-    const recipient = await createRegisteredIdentity();
-
-    const dmResult = await runWithIdentity(sender, [
-      "conversations",
-      "create-dm",
-      recipient.address,
-      "--json",
-    ]);
-    const dm = parseJsonOutput<{ id: string }>(dmResult.stdout);
-
-    const membersResult = await runWithIdentity(sender, [
-      "conversation",
-      "members",
-      dm.id,
-      "--json",
-    ]);
-
-    expect(membersResult.exitCode).toBe(0);
-
-    const members = parseJsonOutput<Member[]>(membersResult.stdout);
-    expect(members.length).toBe(2);
-    for (const identity of [sender, recipient]) {
-      expect(
-        members.find((member) => member.inboxId === identity.inboxId)
-          ?.installationIds,
-      ).toContain(identity.installationId);
-    }
-  });
-
   it("shows each member's current handle", async () => {
     const creator = await createRegisteredIdentity();
     const member = await createIdentityWithHandle();

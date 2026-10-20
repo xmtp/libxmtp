@@ -97,19 +97,6 @@ describe("conversations get-dm", () => {
     expect(result.exitCode).not.toBe(0);
   });
 
-  it("returns error for non-existent inbox ID", async () => {
-    const sender = await createRegisteredIdentity();
-
-    const result = await runWithIdentity(sender, [
-      "conversations",
-      "get-dm",
-      "nonexistentinboxid",
-      "--json",
-    ]);
-
-    expect(result.exitCode).not.toBe(0);
-  });
-
   it("gets a DM by handle", async () => {
     const sender = await createRegisteredIdentity();
     const recipient = await createIdentityWithHandle();

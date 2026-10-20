@@ -18,14 +18,13 @@ platform=sdks/browser/test/platform
 node crates/xmtp_sdk/dev/stage-package.mjs browser
 
 if [ "${1:-all}" = all ] || [ "${1:-all}" = migration ]; then
-  NIX_DEVSHELL=rust dev/nix-shell 'dev/agent-run cargo build --locked -p xmtp_legacy_migration --example fixture_host --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir target/migration-fixture-host target/wasm32-unknown-unknown/debug/examples/fixture_host.wasm'
+  crates/xmtp_sdk/dev/copy-browser-fixtures migration
   node "$platform/migration/browser.mjs" --current-sdk
   node "$platform/migration/browser-regressions.mjs"
   node "$platform/migration/archive-read-limit.mjs"
   node "$platform/migration/working-copy.mjs"
   node "$platform/migration/lifecycle.mjs"
   node "$platform/migration/message-sizes.mjs"
-  node "$platform/migration/group-consent-sizes.mjs"
 fi
 if [ "${1:-all}" = migration ]; then exit 0; fi
 

@@ -37,10 +37,12 @@ public enum ConnectAction: Sendable { case appear, addressChanged(String), token
 		probe: any BackendProbe,
 		session: SessionController,
 		owner: RouteOwner,
-		defaultURL: String = ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"] ?? "http://127.0.0.1:5050",
+		defaultURL: String? = nil,
+		environment: [String: String] = ProcessInfo.processInfo.environment,
 	) {
 		self.probe = probe; self.session = session; self
-			.owner = owner; state = ConnectState(address: defaultURL)
+			.owner = owner
+		state = ConnectState(address: defaultURL ?? environment["XMTP_BACKEND_URL"] ?? "http://127.0.0.1:5050")
 	}
 
 	public func send(_ action: ConnectAction) {

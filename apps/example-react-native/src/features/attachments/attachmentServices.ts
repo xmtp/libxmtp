@@ -6,6 +6,7 @@ import type { RemoteAttachment } from "@xmtp/react-native-sdk";
 
 import { AttachmentDraftStore } from "@/core/attachments.ts";
 import { AttachmentStore } from "@/core/attachmentStore.ts";
+import { errorLogText } from "@/core/errorLog.ts";
 import { SdkAttachmentGateway } from "@/features/attachments/sdkAttachmentGateway";
 import { type ChatServices, chatServices } from "@/features/chat/chatServices";
 import {
@@ -25,6 +26,8 @@ export interface AttachmentServices {
   readonly staging: string;
   /** `<profile>/exports`. */
   readonly exports: string;
+  /** Draft IDs whose send runs in any store of the session. */
+  readonly activeSends: Set<string>;
 }
 
 const services = new WeakMap<ActiveSession, AttachmentServices>();
@@ -38,7 +41,7 @@ export function attachmentServices(session: ActiveSession): AttachmentServices {
     // Nothing stages before the first use in this session.
     removeAbandonedStaging(staging);
   } catch (error) {
-    console.warn("Cannot remove abandoned staged files", error);
+    console.warn("Cannot remove abandoned staged files", errorLogText(error));
   }
   const value: AttachmentServices = {
     session,
@@ -47,13 +50,14 @@ export function attachmentServices(session: ActiveSession): AttachmentServices {
     drafts: new AttachmentDraftStore(session.preferences),
     staging,
     exports: session.paths.exports,
+    activeSends: new Set(),
   };
   // Exported copies never outlive the session (sign out, reset).
   session.scope.addFinalCleanup(() => {
     try {
       removePath(value.exports);
     } catch (error) {
-      console.warn("Cannot remove exported files", error);
+      console.warn("Cannot remove exported files", errorLogText(error));
     }
   });
   services.set(session, value);
@@ -87,12 +91,16 @@ export function createAttachmentStore(
       : { conversationId: options.conversationId }),
     admit: () => options.admit() && session.isCurrent(),
     acceptsSession: () => session.isCurrent(),
+    run: (job) => {
+      void session.scope.add(() => job());
+    },
     allowed: options.allowed,
     ...(options.authorizeDownload === undefined
       ? {}
       : { authorizeDownload: options.authorizeDownload }),
     sendFile: (conversationId: string, file: RemoteAttachment) =>
       queries.queue(conversationId, { kind: "attachment", file }),
+    activeSends: value.activeSends,
     published: async (conversationId, messageId) => {
       const message = await queries.message(messageId);
       return (
@@ -104,7 +112,7 @@ export function createAttachmentStore(
       try {
         removeStaged(path, value.staging);
       } catch (error) {
-        console.warn("Cannot remove a staged file", error);
+        console.warn("Cannot remove a staged file", errorLogText(error));
       }
     },
     ...(options.changed === undefined ? {} : { changed: options.changed }),

@@ -71,7 +71,13 @@ export interface DetailsState {
   readonly details?: ConversationDetails;
   /** The Add member preview. */
   readonly recipient?: DetailsMember;
+  /**
+   * Why the Add member preview found no one. Apart from `error`, so a lookup
+   * typed during an action never reads as that action's failure.
+   */
+  readonly recipientError?: string;
   readonly busy: boolean;
+  /** Why the last action failed. */
   readonly error?: string;
   readonly pendingMembers: ReadonlyMap<string, DetailsMember>;
   readonly pendingRoles: ReadonlyMap<string, GroupRole>;
@@ -149,6 +155,9 @@ export class DetailsStore extends Store<DetailsState> {
   #disposed = false;
   #lookup = 0;
   #polling = false;
+  /** Reloads started, and the newest one whose result applied. */
+  #reloads = 0;
+  #shownReload = 0;
 
   constructor(
     queries: GroupQueries,
@@ -200,13 +209,18 @@ export class DetailsStore extends Store<DetailsState> {
 
   /**
    * Looks up the Add member input after 300 ms. A newer input or an empty
-   * one drops the attempt.
+   * one drops the attempt. Typing also clears the last action's error.
    */
   resolvePreview(input: string): void {
     this.#lookup += 1;
     const attempt = this.#lookup;
     this.#apply((state) => {
-      const { recipient: _recipient, error: _error, ...rest } = state;
+      const {
+        recipient: _recipient,
+        recipientError: _recipientError,
+        error: _error,
+        ...rest
+      } = state;
       return rest;
     });
     if (input.trim() === "") return;
@@ -221,7 +235,7 @@ export class DetailsStore extends Store<DetailsState> {
         if (attempt !== this.#lookup) return;
         this.#apply((state) => ({
           ...state,
-          error:
+          recipientError:
             error instanceof RecipientError
               ? error.message
               : DetailsCopy.recipientNotFound,
@@ -241,9 +255,18 @@ export class DetailsStore extends Store<DetailsState> {
     this.#run(() => this.#perform(action));
   }
 
+  /**
+   * Loads and shows the conversation. Actions and the poller reload
+   * independently, so a result older than the one shown is dropped: it
+   * could bring back a member or role that the shown one confirmed.
+   */
   async #reload(): Promise<void> {
     if (!this.#admits()) throw new Dropped();
+    this.#reloads += 1;
+    const reload = this.#reloads;
     const details = await this.#queries.load();
+    if (reload < this.#shownReload) return;
+    this.#shownReload = reload;
     this.#apply((state) => {
       const ids = new Set(details.members.map((member) => member.id));
       const roles = new Map(
@@ -351,7 +374,10 @@ export class DetailsStore extends Store<DetailsState> {
     });
   }
 
-  /** One poller per store: reloads every second while a change is pending. */
+  /**
+   * One poller per store: reloads every second while a change is pending.
+   * A failed reload is tried again after the next pause.
+   */
   async #pollPending(): Promise<void> {
     if (this.#polling) return;
     this.#polling = true;
@@ -362,7 +388,7 @@ export class DetailsStore extends Store<DetailsState> {
         try {
           await this.#reload();
         } catch {
-          return;
+          // The loop stops only when nothing is pending or the store closed.
         }
       }
     } finally {

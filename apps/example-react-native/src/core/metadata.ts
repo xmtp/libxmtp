@@ -454,19 +454,31 @@ const sameValue = (
 export interface OwnFieldDraft {
   readonly baseline: ReadonlyMap<number, OwnFieldValue>;
   readonly values: ReadonlyMap<number, OwnFieldValue>;
+  /** Each field's shape, for comparing values in canonical form. */
+  readonly shapes: ReadonlyMap<number, FieldShape>;
+  /** Fields a running save writes (`markSaving`); the next merge clears it. */
+  readonly saving?: ReadonlySet<number>;
 }
 
 export const emptyDraft: OwnFieldDraft = {
   baseline: new Map(),
   values: new Map(),
+  shapes: new Map(),
 };
 
 export function draftValue(draft: OwnFieldDraft, id: number): OwnFieldValue {
   return draft.values.get(id) ?? ABSENT;
 }
 
+/** True when the field's edit differs from the committed baseline. */
 export function draftChanged(draft: OwnFieldDraft, id: number): boolean {
-  return !sameValue(draft.values.get(id), draft.baseline.get(id));
+  const value = draft.values.get(id);
+  const baseline = draft.baseline.get(id);
+  const shape = draft.shapes.get(id);
+  if (value === undefined || baseline === undefined || shape === undefined) {
+    return !sameValue(value, baseline);
+  }
+  return !matchesCommitted(value, baseline, shape);
 }
 
 export function setDraft(
@@ -478,8 +490,30 @@ export function setDraft(
 }
 
 /**
+ * An edit matches a committed value once both are in the field's canonical
+ * form: the SDK reads bytes back as lowercase hex.
+ */
+function matchesCommitted(
+  edited: OwnFieldValue,
+  committed: OwnFieldValue,
+  shape: FieldShape,
+): boolean {
+  if (sameValue(edited, committed)) return true;
+  if (edited.kind !== "value" || committed.kind !== "value") return false;
+  try {
+    return scalarText(edited.text, shape) === committed.text;
+  } catch {
+    // Text the rules reject was never committed.
+    return false;
+  }
+}
+
+/**
  * Takes committed values for writable own fields, keeping an unsaved edit
  * that still differs from both its old baseline and the new committed value.
+ * A field the running save sent keeps any value the group did not commit,
+ * so input changed back to the old value during the save is not lost. The
+ * new baseline is the committed value, which a kept edit is compared with.
  */
 export function mergeDraft(
   draft: OwnFieldDraft,
@@ -487,6 +521,7 @@ export function mergeDraft(
 ): OwnFieldDraft {
   const baseline = new Map<number, OwnFieldValue>();
   const values = new Map<number, OwnFieldValue>();
+  const shapes = new Map<number, FieldShape>();
   for (const field of fields) {
     if (!field.userField || !canWrite(field)) continue;
     const committed: OwnFieldValue = field.present
@@ -494,20 +529,21 @@ export function mergeDraft(
       : ABSENT;
     const old = draft.baseline.get(field.id);
     const edited = draft.values.get(field.id);
+    baseline.set(field.id, committed);
+    shapes.set(field.id, field.shape);
     if (
       old !== undefined &&
       edited !== undefined &&
-      !sameValue(edited, old) &&
-      !sameValue(edited, committed)
+      (draft.saving?.has(field.id) === true ||
+        !matchesCommitted(edited, old, field.shape)) &&
+      !matchesCommitted(edited, committed, field.shape)
     ) {
-      baseline.set(field.id, old);
       values.set(field.id, edited);
     } else {
-      baseline.set(field.id, committed);
       values.set(field.id, committed);
     }
   }
-  return { baseline, values };
+  return { baseline, values, shapes };
 }
 
 /** Changed own fields: text to set, or undefined to clear. */
@@ -516,10 +552,15 @@ export function draftChanges(
 ): ReadonlyMap<number, string | undefined> {
   const changes = new Map<number, string | undefined>();
   for (const [id, value] of draft.values) {
-    if (sameValue(value, draft.baseline.get(id))) continue;
+    if (!draftChanged(draft, id)) continue;
     changes.set(id, value.kind === "value" ? value.text : undefined);
   }
   return changes;
+}
+
+/** Records the changed fields as sent when Save starts. */
+export function markSaving(draft: OwnFieldDraft): OwnFieldDraft {
+  return { ...draft, saving: new Set(draftChanges(draft).keys()) };
 }
 
 // The metadata store.

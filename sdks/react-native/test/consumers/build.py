@@ -75,15 +75,6 @@ def android_architectures(receipt):
     return [abi for abi in ANDROID_ABI_ORDER if abis.get(abi) in targets]
 
 
-LEGACY_INPUTS = (
-    "react-native-5.7.0.db3",
-    "react-native-5.7.0.db3.sqlcipher_salt",
-    "expected-records.json",
-    "source-inspection.json",
-    "unsupported-schema.db3",
-    "unsupported-schema.db3.sqlcipher_salt",
-    "unsupported-schema.json",
-)
 IGNORED_INPUTS = {
     "node_modules",
     "build",
@@ -127,11 +118,6 @@ def harness_identity(consumer):
         *(HERE.parent / "conformance").glob("*.ts"),
     ]:
         inputs[path.relative_to(HERE.parent).as_posix()] = path
-    for name in LEGACY_INPUTS:
-        path = HERE.parent / "conformance/legacy" / name
-        inputs[path.relative_to(HERE.parent).as_posix()] = path
-    logging_contract = HERE.parents[2] / "browser/test/platform/logging-contract.ts"
-    inputs["shared/browser/logging-contract.ts"] = logging_contract
     inputs["shared/node/standardSamples.ts"] = (
         HERE.parents[2] / "node/test/standardSamples.ts"
     )
@@ -379,13 +365,6 @@ def prepare(consumer, package, work, offline):
             hooks / f"{name}.mm",
             work / "ios" / f"XmtpConsumer{consumer.title()}" / f"{name}.mm",
         )
-    for assets in (
-        work / "android/app/src/main/assets/xmtp-legacy",
-        work / "ios/xmtp-legacy",
-    ):
-        assets.mkdir(parents=True)
-        for name in LEGACY_INPUTS:
-            shutil.copy2(HERE.parent / "conformance/legacy" / name, assets / name)
     shutil.copy2(
         hooks / "XmtpBackgroundReceiver.kt", android_hooks / "XmtpBackgroundReceiver.kt"
     )
@@ -399,8 +378,6 @@ def prepare(consumer, package, work, offline):
         + json.dumps(harness_identity(consumer))
         + ";\n"
     )
-    logging_contract = HERE.parents[2] / "browser/test/platform/logging-contract.ts"
-    shutil.copy2(logging_contract, harness / "logging-contract.ts")
     samples = HERE.parents[2] / "node/test/standardSamples.ts"
     (harness / "standardSamples.ts").write_text(
         samples.read_text()
@@ -414,13 +391,6 @@ def prepare(consumer, package, work, offline):
         vectors.write_text(
             vectors.read_text().replace(
                 "../../../node/test/standardSamples", "./standardSamples"
-            )
-        )
-    diagnostics = harness / "diagnostics.ts"
-    if diagnostics.is_file():
-        diagnostics.write_text(
-            diagnostics.read_text().replace(
-                "../../../browser/test/platform/logging-contract", "./logging-contract"
             )
         )
     shutil.copytree(HERE.parent / "conformance/type-tests", harness / "type-tests")

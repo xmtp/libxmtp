@@ -7,6 +7,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef } from "react";
 
+import { decimalToBigint } from "@/core/bigint.ts";
 import { attachmentDebug } from "@/features/attachments/sdkAttachmentGateway";
 
 export default function AttachmentProbe() {
@@ -22,10 +23,21 @@ export default function AttachmentProbe() {
     const id = `${params.action}|${params.bytes ?? ""}|${params.n ?? ""}`;
     if (ran.current === id) return;
     ran.current = id;
+    // Any app can open this URL: log fixed text or a known action name, never
+    // a value taken from the link.
+    let known = true;
     switch (params.action) {
-      case "limit":
-        attachmentDebug.limit = BigInt(params.bytes ?? "0");
+      case "limit": {
+        // A count that is not decimal digits leaves the limit as it was; the
+        // probe still goes back.
+        const bytes = decimalToBigint(params.bytes ?? "0");
+        if (bytes === undefined || bytes < 0n) {
+          console.warn("[attachment-probe] invalid bytes");
+        } else {
+          attachmentDebug.limit = bytes;
+        }
         break;
+      }
       case "clearLimit":
         attachmentDebug.limit = undefined;
         break;
@@ -36,9 +48,10 @@ export default function AttachmentProbe() {
         attachmentDebug.holdUploads = false;
         break;
       default:
-        console.warn(`[attachment-probe] unknown action ${params.action}`);
+        known = false;
+        console.warn("[attachment-probe] unknown action");
     }
-    console.log(`[attachment-probe] ${params.action}`);
+    if (known) console.log(`[attachment-probe] ${params.action}`);
     if (router.canGoBack()) router.back();
   }, [params.action, params.bytes, params.n]);
 

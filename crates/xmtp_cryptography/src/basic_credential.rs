@@ -77,14 +77,15 @@ pub struct XmtpInstallationCredential(Box<SigningKey>);
 
 impl Default for XmtpInstallationCredential {
     fn default() -> Self {
-        Self(Box::new(SigningKey::from_bytes(&crate::rand::rand_array())))
+        Self::new()
     }
 }
 
 impl XmtpInstallationCredential {
     /// Create a new [`XmtpInstallationCredential`] with [`rand_chacha::ChaCha20Rng`]
     pub fn new() -> Self {
-        Self(Box::new(SigningKey::from_bytes(&crate::rand::rand_array())))
+        let seed = Zeroizing::new(crate::rand::rand_array());
+        Self(Box::new(SigningKey::from_bytes(&seed)))
     }
 
     /// Get a reference to the public [`ed25519_dalek::VerifyingKey`]
@@ -135,10 +136,10 @@ impl XmtpInstallationCredential {
         Ok(Self(Box::new(key)))
     }
 
-    /// private key for this credential
+    /// private key for this credential, wiped when the returned value drops
     #[cfg(feature = "exposed-keys")]
-    pub fn private_bytes(&self) -> [u8; 32] {
-        self.0.to_bytes()
+    pub fn private_bytes(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(*self.0.as_bytes())
     }
 }
 
@@ -148,10 +149,13 @@ impl From<XmtpInstallationCredential> for SignaturePublicKey {
     }
 }
 
-/// The signer here must maintain compatibility with `SignatureKeyPair`
+/// Signs with the held key and returns the same bytes as `SignatureKeyPair::sign`:
+/// OpenMLS's Ed25519 signer makes the same deterministic `ed25519_dalek` call.
 impl Signer for XmtpInstallationCredential {
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, signatures::SignerError> {
-        SignatureKeyPair::from(self).sign(payload)
+        Ok(ed25519_dalek::Signer::sign(&*self.0, payload)
+            .to_bytes()
+            .to_vec())
     }
 
     fn signature_scheme(&self) -> SignatureScheme {
@@ -162,7 +166,7 @@ impl Signer for XmtpInstallationCredential {
 // The signer here must maintain compatibility with `SignatureKeyPair`
 impl Signer for &XmtpInstallationCredential {
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, signatures::SignerError> {
-        SignatureKeyPair::from(*self).sign(payload)
+        <XmtpInstallationCredential as Signer>::sign(self, payload)
     }
 
     fn signature_scheme(&self) -> SignatureScheme {
@@ -195,7 +199,7 @@ impl From<XmtpInstallationCredential> for SignatureKeyPair {
     fn from(key: XmtpInstallationCredential) -> SignatureKeyPair {
         SignatureKeyPair::from_raw(
             key.signature_scheme(),
-            key.0.to_bytes().into(),
+            key.0.as_bytes().to_vec(),
             key.0.verifying_key().to_bytes().into(),
         )
     }
@@ -205,7 +209,7 @@ impl<'a> From<&'a XmtpInstallationCredential> for SignatureKeyPair {
     fn from(key: &'a XmtpInstallationCredential) -> SignatureKeyPair {
         SignatureKeyPair::from_raw(
             key.signature_scheme(),
-            key.0.to_bytes().into(),
+            key.0.as_bytes().to_vec(),
             key.0.verifying_key().to_bytes().into(),
         )
     }
@@ -284,7 +288,7 @@ mod tests {
 
         keypair.tls_serialize(&mut serialized).unwrap();
         let x_kp = XmtpInstallationCredential::tls_deserialize(&mut serialized.as_slice()).unwrap();
-        assert_eq!(keypair.private(), &x_kp.0.to_bytes());
+        assert_eq!(keypair.private(), x_kp.0.as_bytes());
         assert_eq!(keypair.public(), &x_kp.0.verifying_key().to_bytes());
     }
 
@@ -296,7 +300,7 @@ mod tests {
 
         keypair.tls_serialize(&mut serialized).unwrap();
         let mls_kp = SignatureKeyPair::tls_deserialize(&mut serialized.as_slice()).unwrap();
-        assert_eq!(mls_kp.private(), &keypair.0.to_bytes());
+        assert_eq!(mls_kp.private(), keypair.0.as_bytes());
         assert_eq!(mls_kp.public(), &keypair.0.verifying_key().to_bytes());
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());
     }
@@ -310,7 +314,7 @@ mod tests {
         let serialized: Vec<u8> = bincode::serialize(&keypair).unwrap();
 
         let x_kp: XmtpInstallationCredential = bincode::deserialize(serialized.as_slice()).unwrap();
-        assert_eq!(keypair.private(), &x_kp.0.to_bytes());
+        assert_eq!(keypair.private(), x_kp.0.as_bytes());
         assert_eq!(keypair.public(), &x_kp.0.verifying_key().to_bytes());
     }
 
@@ -321,9 +325,29 @@ mod tests {
         let serialized: Vec<u8> = bincode::serialize(&keypair).unwrap();
 
         let mls_kp: SignatureKeyPair = bincode::deserialize(serialized.as_slice()).unwrap();
-        assert_eq!(mls_kp.private(), &keypair.0.to_bytes());
+        assert_eq!(mls_kp.private(), keypair.0.as_bytes());
         assert_eq!(mls_kp.public(), &keypair.0.verifying_key().to_bytes());
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn signs_like_signature_key_pair() {
+        let payloads: [&[u8]; 3] = [b"", b"an mls payload", &[0xa5; 1024]];
+        for seed in [[0x01u8; 32], [0x7f; 32], [0xc3; 32]] {
+            let credential = XmtpInstallationCredential::from_bytes(&seed).unwrap();
+            let key_pair = SignatureKeyPair::from(&credential);
+            let owned = SignatureKeyPair::from(credential.clone());
+            for pair in [&key_pair, &owned] {
+                assert_eq!(pair.private(), seed);
+                assert_eq!(pair.public(), credential.public_slice());
+            }
+            for payload in payloads {
+                let expected = key_pair.sign(payload).unwrap();
+                assert_eq!(Signer::sign(&credential, payload).unwrap(), expected);
+                assert_eq!(Signer::sign(&&credential, payload).unwrap(), expected);
+            }
+        }
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -334,6 +358,6 @@ mod tests {
 
         assert_ne!(keypair.public_bytes(), secret.as_bytes());
         assert_ne!(keypair.public_slice(), secret.as_bytes());
-        assert_ne!(keypair.verifying_key().as_bytes(), &secret.to_bytes());
+        assert_ne!(keypair.verifying_key().as_bytes(), secret.as_bytes());
     }
 }

@@ -1,5 +1,6 @@
 import { router } from "expo-router";
 
+import { errorLogText } from "@/core/errorLog.ts";
 import type { MessageMenuItem } from "@/core/messageInteractions.ts";
 import type { ChatRuntime } from "@/features/chat/chatRuntime";
 import { copyText } from "@/platform/clipboard";
@@ -30,7 +31,7 @@ export function runMenuItem(
       const text = runtime.copyText(messageId);
       if (text === undefined) return;
       copyText(text).catch((error: unknown) => {
-        console.warn("Cannot copy the message", error);
+        console.warn("Cannot copy the message", errorLogText(error));
       });
       return;
     }

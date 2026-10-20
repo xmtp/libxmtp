@@ -73,6 +73,8 @@ export interface AttachmentStorePorts {
   readonly admit: () => boolean;
   /** False once the session ended (cleanup still runs after the screen left). */
   readonly acceptsSession: () => boolean;
+  /** Runs work as session work: sign-out waits for it before ending the client. */
+  readonly run: (job: () => Promise<void>) => void;
   /** The conversation's consent is allowed (sends and downloads). */
   readonly allowed: () => boolean;
   /** Re-reads consent right before a download. */
@@ -87,6 +89,11 @@ export interface AttachmentStorePorts {
     conversationId: string,
     messageId: string,
   ) => Promise<boolean>;
+  /**
+   * Draft IDs whose send runs, shared by every store of the session: a load
+   * leaves their upload alone, and no other store sends them meanwhile.
+   */
+  readonly activeSends: Set<string>;
   /** Removes a staged copy (after `create`, whether it worked or not). */
   readonly removeStaged: (path: string) => void;
   /** Runs after a draft's message was published (the chat refreshes). */
@@ -109,7 +116,6 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   readonly #verified = new VerifiedFileCache();
   #revision = 0;
   readonly #admissions = new Map<string, object>();
-  readonly #activeSends = new Set<string>();
   readonly #discarded = new Set<string>();
   readonly #discardedFiles = new Map<string, RemoteAttachment>();
   readonly #generations = new Map<string, number>();
@@ -133,6 +139,13 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     if (this.#ports.admit()) this.setState(change);
   }
 
+  /** Starts `work` as session work, so sign-out waits for its SDK calls. */
+  #session(work: () => Promise<void>): Promise<void> {
+    const job = work();
+    this.#ports.run(() => job);
+    return job;
+  }
+
   #canSend(id: string, generation: number): boolean {
     if (
       !this.#ports.admit() ||
@@ -151,8 +164,8 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
 
   /**
    * Re-reads the saved drafts only: no SDK import and no reset of interrupted
-   * uploads, so a running send keeps its phase. The chat calls it on focus,
-   * after recovery may have discarded or assigned a draft.
+   * uploads, so a running send keeps its phase. A chat calls it when it
+   * attaches again, as drafts may have changed while it was detached.
    */
   reloadDrafts(): void {
     try {
@@ -168,11 +181,26 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   }
 
   /**
+   * Shows each draft any store of the session saves or removes, until the
+   * returned function runs. A screen watches while it shows drafts: another
+   * screen's send can finish, stop or remove a draft meanwhile.
+   */
+  watchDrafts(): () => void {
+    return this.#ports.drafts.onChange(() => {
+      this.reloadDrafts();
+    });
+  }
+
+  /**
    * Reads the server limit and the saved drafts: imports SDK pending uploads
    * as unassigned drafts, drops orphans, adopts accepted sends from the
    * journal, removes published ones and resets interrupted uploads.
    */
-  async load(): Promise<void> {
+  load(): Promise<void> {
+    return this.#session(() => this.#load());
+  }
+
+  async #load(): Promise<void> {
     try {
       const { gateway, drafts } = this.#ports;
       if (!this.#ports.admit() || !this.#ports.acceptsSession()) return;
@@ -201,8 +229,11 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
       await this.#reconcileAccepted(saved);
       if (!this.#ports.acceptsSession()) return;
       const current = drafts.all().map((draft) => {
-        // An upload this store is still running was not interrupted.
-        if (draft.phase !== "uploading" || this.#activeSends.has(draft.id)) {
+        // An upload a store of this session still runs was not interrupted.
+        if (
+          draft.phase !== "uploading" ||
+          this.#ports.activeSends.has(draft.id)
+        ) {
           return draft;
         }
         const waiting: FileDraft = { ...draft, phase: "waiting" };
@@ -227,10 +258,14 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
    * Hands a staged copy to the SDK and saves it as a draft of this chat. The
    * MIME type comes from the name, else the picker's type (`pickerType`).
    */
-  async stage(
+  stage(path: string, filename: string, pickerType?: string): Promise<void> {
+    return this.#session(() => this.#stage(path, filename, pickerType));
+  }
+
+  async #stage(
     path: string,
     filename: string,
-    pickerType?: string,
+    pickerType: string | undefined,
   ): Promise<void> {
     try {
       try {
@@ -257,10 +292,7 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
           retryable: true,
         };
         this.#ports.drafts.save(draft);
-        this.#apply((state) => ({
-          ...state,
-          drafts: [...state.drafts, draft],
-        }));
+        this.#reloadDrafts();
       } finally {
         this.#ports.removeStaged(path);
       }
@@ -282,8 +314,13 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   }
 
   /** Deletes the SDK's copy and the draft. A queued send cannot start after this. */
-  async discard(id: string): Promise<void> {
+  discard(id: string): Promise<void> {
+    return this.#session(() => this.#discard(id));
+  }
+
+  async #discard(id: string): Promise<void> {
     try {
+      if (!this.#ports.acceptsSession()) return;
       const draft = this.#ports.drafts.all().find((entry) => entry.id === id);
       if (draft === undefined) return;
       this.#generations.set(id, (this.#generations.get(id) ?? 0) + 1);
@@ -311,9 +348,20 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
    * (unless already complete), queues the message, publishes, and removes the
    * draft once the message is published.
    */
-  async send(id: string): Promise<void> {
-    if (this.#discarded.has(id) || this.#activeSends.has(id)) return;
-    this.#activeSends.add(id);
+  send(id: string): Promise<void> {
+    return this.#session(() => this.#send(id));
+  }
+
+  async #send(id: string): Promise<void> {
+    const { activeSends } = this.#ports;
+    if (
+      !this.#ports.acceptsSession() ||
+      this.#discarded.has(id) ||
+      activeSends.has(id)
+    ) {
+      return;
+    }
+    activeSends.add(id);
     try {
       const generation = this.#generations.get(id) ?? 0;
       const draft = this.#ports.drafts.all().find((entry) => entry.id === id);
@@ -344,7 +392,7 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     } catch (error) {
       this.#handleFailure(error, { kind: "send", id });
     } finally {
-      this.#activeSends.delete(id);
+      activeSends.delete(id);
     }
   }
 
@@ -360,10 +408,28 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     if (phase !== "complete") {
       throw new AttachmentError(AttachmentCopy.operationFailed, true);
     }
-    if (!this.#canSend(draft.id, generation)) return undefined;
+    // The upload finished, also when the send stops here (consent revoked,
+    // the screen closed): save that, so Send queues without uploading again.
+    // A draft that was discarded or changed meanwhile stays as it is.
     const complete: FileDraft = { ...uploading, phase: "complete" };
-    this.#ports.drafts.save(complete);
+    if (!this.#ports.acceptsSession() || !this.#replace(uploading, complete)) {
+      return undefined;
+    }
+    if (!this.#canSend(draft.id, generation)) {
+      this.#reloadDrafts();
+      return undefined;
+    }
     return complete;
+  }
+
+  /** Saves `next` only while the saved draft is still `expected`. */
+  #replace(expected: FileDraft, next: FileDraft): boolean {
+    const current = this.#ports.drafts
+      .all()
+      .find((entry) => entry.id === expected.id);
+    if (!sameDraft(current, expected)) return false;
+    this.#ports.drafts.save(next);
+    return true;
   }
 
   async #queue(
@@ -386,8 +452,13 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
           beforeQueue: () => {
             drafts.save({ ...draft, phase: "unknown" });
           },
+          // A draft discarded while the SDK call ran stays discarded; the
+          // journal still records the accepted message.
           acknowledge: (messageId) => {
-            drafts.save({ ...draft, acceptedId: messageId, phase: "complete" });
+            this.#replace(
+              { ...draft, phase: "unknown" },
+              { ...draft, acceptedId: messageId, phase: "complete" },
+            );
           },
         },
       );
@@ -406,11 +477,7 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     ) {
       return;
     }
-    const current = this.#ports.drafts
-      .all()
-      .find((entry) => entry.id === draft.id);
-    if (!sameDraft(current, { ...draft, phase: "unknown" })) return;
-    this.#ports.drafts.save(draft);
+    this.#replace({ ...draft, phase: "unknown" }, draft);
   }
 
   async #finishSend(draft: FileDraft): Promise<void> {
@@ -485,7 +552,14 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
    * Downloads and verifies a message's file. One download per message runs at
    * a time; consent is re-read first; an invalidation drops the result.
    */
-  async download(messageId: string, file: RemoteAttachment): Promise<void> {
+  download(messageId: string, file: RemoteAttachment): Promise<void> {
+    return this.#session(() => this.#downloadOnce(messageId, file));
+  }
+
+  async #downloadOnce(
+    messageId: string,
+    file: RemoteAttachment,
+  ): Promise<void> {
     if (this.#admissions.has(messageId)) return;
     const token = {};
     this.#admissions.set(messageId, token);

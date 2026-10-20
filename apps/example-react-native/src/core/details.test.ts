@@ -69,11 +69,10 @@ class FakeQueries implements GroupQueries {
   /** Lookups that fail (after their gate), by input. */
   failingInputs = new Set<string>();
 
+  /** A held load returns the group as it was when the load started. */
   async load(): Promise<ConversationDetails> {
     this.loads += 1;
-    if (this.holdLoads !== undefined) await this.holdLoads.wait();
-    if (this.loadFailure) throw new Error("load failed");
-    return {
+    const details: ConversationDetails = {
       record: { id: "group", kind: "group" },
       kind: "group",
       description: "",
@@ -86,6 +85,9 @@ class FakeQueries implements GroupQueries {
       retentionNs: 0n,
       pendingLeave: this.pendingLeave,
     };
+    if (this.holdLoads !== undefined) await this.holdLoads.wait();
+    if (this.loadFailure) throw new Error("load failed");
+    return details;
   }
 
   async resolve(input: string): Promise<DetailsMember> {
@@ -305,6 +307,50 @@ test("pending changes poll until the group confirms them, and a new change polls
   ticks.releaseAll();
 });
 
+test("a poll reload that started before an action cannot replace the action's newer result", async () => {
+  const ticks = new Gate();
+  const fake = new FakeQueries();
+  fake.members = [member("own", "superAdmin"), member("other")];
+  const store = makeStore(fake, { pause: ticks.wait });
+  store.send({ kind: "mutate", mutation: { kind: "remove", id: "other" } });
+  await eventually(() => ticks.waiters.length === 1);
+  // The poll's load starts while the group still lists the member.
+  const polled = new Gate();
+  fake.holdLoads = polled;
+  ticks.releaseAll();
+  await eventually(() => polled.waiters.length === 1);
+  fake.holdLoads = undefined;
+  // The removal commits, and a refresh shows it.
+  fake.members = [member("own", "superAdmin")];
+  store.send({ kind: "refresh" });
+  await finish(store);
+  assert.equal(memberPending(store.getState(), "other"), false);
+  polled.releaseAll();
+  await settle();
+  await settle();
+  assert.deepEqual(
+    store.getState().details?.members.map((entry) => entry.id),
+    ["own"],
+  );
+});
+
+test("a failed poll reload keeps polling until the group confirms the change", async () => {
+  const ticks = new Gate();
+  const fake = new FakeQueries();
+  fake.members = [member("own", "superAdmin"), member("other")];
+  const store = makeStore(fake, { pause: ticks.wait });
+  store.send({ kind: "mutate", mutation: { kind: "remove", id: "other" } });
+  await eventually(() => ticks.waiters.length === 1);
+  fake.loadFailure = true;
+  ticks.releaseAll();
+  await settle();
+  assert.ok(memberPending(store.getState(), "other"));
+  fake.loadFailure = false;
+  fake.members = [member("own", "superAdmin")];
+  ticks.releaseAll();
+  await eventually(() => !memberPending(store.getState(), "other"));
+});
+
 test("several pending actions share one poller", async () => {
   const ticks = new Gate();
   const fake = new FakeQueries();
@@ -387,7 +433,7 @@ test("a slow older lookup cannot replace a newer result or set an error", async 
   await settle();
   await settle();
   assert.equal(store.getState().recipient?.id, "newest");
-  assert.equal(store.getState().error, undefined);
+  assert.equal(store.getState().recipientError, undefined);
 });
 
 test("a recipient preview failure shows its copy", async () => {
@@ -395,14 +441,32 @@ test("a recipient preview failure shows its copy", async () => {
   fake.recipientError = new RecipientError("handleNotFound");
   const store = makeStore(fake);
   store.resolvePreview("nobody");
-  await eventually(() => store.getState().error !== undefined);
-  assert.equal(store.getState().error, RecipientCopy.handleNotFound);
+  await eventually(() => store.getState().recipientError !== undefined);
+  assert.equal(store.getState().recipientError, RecipientCopy.handleNotFound);
   fake.recipientError = new Error("offline");
   store.resolvePreview("somebody");
   // A new input clears the old error at once.
+  assert.equal(store.getState().recipientError, undefined);
+  await eventually(() => store.getState().recipientError !== undefined);
+  assert.equal(store.getState().recipientError, DetailsCopy.recipientNotFound);
+});
+
+test("a failed lookup typed during an add leaves no error when the add succeeds", async () => {
+  const fake = new FakeQueries();
+  const adding = new Gate();
+  fake.resolveGates.set("@sam", adding);
+  fake.failingInputs.add("nobody");
+  const store = makeStore(fake);
+  store.send({ kind: "mutate", mutation: { kind: "add", input: "@sam" } });
+  await eventually(() => adding.waiters.length === 1);
+  store.resolvePreview("nobody");
+  await eventually(() => fake.lookups.includes("nobody"));
+  adding.releaseAll();
+  await finish(store);
+  assert.equal(store.getState().pendingMembers.has("@sam"), true);
+  // Add member closes on a finished Add without an error.
   assert.equal(store.getState().error, undefined);
-  await eventually(() => store.getState().error !== undefined);
-  assert.equal(store.getState().error, DetailsCopy.recipientNotFound);
+  assert.equal(store.getState().recipientError, RecipientCopy.handleNotFound);
 });
 
 test("losing admission while an add resolves writes nothing", async () => {

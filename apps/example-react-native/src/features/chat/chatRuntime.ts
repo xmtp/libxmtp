@@ -12,6 +12,7 @@ import {
 } from "@/core/chatHistory.ts";
 import { type ChatMessage, contentText } from "@/core/chatMessages.ts";
 import { ChatTimeline } from "@/core/chatTimeline.ts";
+import { errorLogText } from "@/core/errorLog.ts";
 import { MessageActions } from "@/core/messageActions.ts";
 import { ValueStore } from "@/core/store.ts";
 import { logicalKey } from "@/core/titles.ts";
@@ -170,7 +171,7 @@ export class ChatRuntime {
     try {
       this.services.coordinator.recoverAccepted();
     } catch (error) {
-      console.warn("Cannot recover an accepted send", error);
+      console.warn("Cannot recover an accepted send", errorLogText(error));
     }
     this.#stops = [
       this.timeline.subscribe(() => {
@@ -222,7 +223,7 @@ export class ChatRuntime {
     }
     if (missing.length === 0) return;
     identities.load(missing).catch((error: unknown) => {
-      console.warn("Cannot read sender handles", error);
+      console.warn("Cannot read sender handles", errorLogText(error));
       for (const sender of missing) this.#requestedSenders.delete(sender);
     });
   }

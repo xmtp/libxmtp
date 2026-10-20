@@ -12,7 +12,13 @@ import { File, Paths } from "expo-file-system";
 import { launchImageLibraryAsync } from "expo-image-picker";
 import { Platform } from "react-native";
 
-import { exceedsLimit, photoName, safeFileName } from "@/core/attachments.ts";
+import {
+  exceedsLimit,
+  mimeTypeFor,
+  photoName,
+  safeFileName,
+} from "@/core/attachments.ts";
+import { errorLogText } from "@/core/errorLog.ts";
 import { isInside, joinPath, pathToUri, uriToPath } from "@/core/paths.ts";
 import {
   directoryNames,
@@ -133,7 +139,10 @@ export function removePickerCopy(uri: string): void {
       removePath(path);
     }
   } catch (error) {
-    console.warn("Cannot remove a picked file's cache copy", error);
+    console.warn(
+      "Cannot remove a picked file's cache copy",
+      errorLogText(error),
+    );
   }
 }
 
@@ -208,14 +217,33 @@ export async function previewFile(
   );
 }
 
-/** Save to Files. Resolves false when the user cancelled. */
-export async function saveFile(path: string, name: string): Promise<boolean> {
+/**
+ * Save to Files. Resolves false when the user cancelled; throws when the
+ * copy failed. `mimeType` is the verified file's type.
+ */
+export async function saveFile(
+  path: string,
+  name: string,
+  mimeType?: string,
+): Promise<boolean> {
   try {
-    await saveDocuments({
+    const results = await saveDocuments({
       sourceUris: [pathToUri(path)],
       copy: true,
       fileName: name,
+      // Android reads no type from a file:// URI and opens no dialog without
+      // one. The name's extension decides first, as when the file was sent.
+      mimeType: mimeTypeFor(name, mimeType),
     });
+    // Android reports a failed copy into the chosen file in its result. It
+    // reports an empty file the same way ("No data was copied"), but the
+    // dialog created the chosen file empty, so an empty file is saved.
+    if (
+      results.some((result) => typeof result.error === "string") &&
+      new File(pathToUri(path)).size > 0
+    ) {
+      throw new Error("The file could not be saved.");
+    }
     return true;
   } catch (error) {
     if (

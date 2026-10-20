@@ -1,44 +1,33 @@
 --- a/ios/XmtpConsumerBare.xcodeproj/project.pbxproj
 +++ b/ios/XmtpConsumerBare.xcodeproj/project.pbxproj
-@@ -7,6 +7,9 @@
+@@ -7,6 +7,8 @@
  	objects = {
  
  /* Begin PBXBuildFile section */
 +        A1460FE7307B128D3FEF2BD4 /* XmtpMigrationFixture.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1460FE7307B128D3FEF2BD3 /* XmtpMigrationFixture.mm */; };
-+        A1460FE7307B128D3FEF2BD6 /* xmtp-legacy in Resources */ = {isa = PBXBuildFile; fileRef = A1460FE7307B128D3FEF2BD5 /* xmtp-legacy */; };
 +		A1460FE7307B128D3FEF2BD2 /* XmtpRuntimeFixture.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1460FE7307B128D3FEF2BD1 /* XmtpRuntimeFixture.mm */; };
  		0C80B921A6F3F58F76C31292 /* libPods-XmtpConsumerBare.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-XmtpConsumerBare.a */; };
  		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
  		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
-@@ -15,6 +18,9 @@
+@@ -15,6 +17,8 @@
  /* End PBXBuildFile section */
  
  /* Begin PBXFileReference section */
 +        A1460FE7307B128D3FEF2BD3 /* XmtpMigrationFixture.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = XmtpConsumerBare/XmtpMigrationFixture.mm; sourceTree = "<group>"; };
-+        A1460FE7307B128D3FEF2BD5 /* xmtp-legacy */ = {isa = PBXFileReference; lastKnownFileType = folder; path = xmtp-legacy; sourceTree = "<group>"; };
 +		A1460FE7307B128D3FEF2BD1 /* XmtpRuntimeFixture.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = XmtpConsumerBare/XmtpRuntimeFixture.mm; sourceTree = "<group>"; };
  		13B07F961A680F5B00A75B9A /* XmtpConsumerBare.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = XmtpConsumerBare.app; sourceTree = BUILT_PRODUCTS_DIR; };
  		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = XmtpConsumerBare/Images.xcassets; sourceTree = "<group>"; };
  		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = XmtpConsumerBare/Info.plist; sourceTree = "<group>"; };
-@@ -43,6 +49,9 @@
+@@ -43,6 +47,8 @@
  		13B07FAE1A68108700A75B9A /* XmtpConsumerBare */ = {
  			isa = PBXGroup;
  			children = (
 +				A1460FE7307B128D3FEF2BD1 /* XmtpRuntimeFixture.mm */,
 +                A1460FE7307B128D3FEF2BD3 /* XmtpMigrationFixture.mm */,
-+                A1460FE7307B128D3FEF2BD5 /* xmtp-legacy */,
  				13B07FB51A68108700A75B9A /* Images.xcassets */,
  				761780EC2CA45674006654EE /* AppDelegate.swift */,
  				761780EE2CA45674006654EF /* SceneDelegate.swift */,
-@@ -160,6 +169,7 @@
- 			isa = PBXResourcesBuildPhase;
- 			buildActionMask = 2147483647;
- 			files = (
-+                A1460FE7307B128D3FEF2BD6 /* xmtp-legacy in Resources */,
- 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
- 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
- 			);
-@@ -247,6 +257,8 @@
+@@ -247,6 +253,8 @@
  			isa = PBXSourcesBuildPhase;
  			buildActionMask = 2147483647;
  			files = (

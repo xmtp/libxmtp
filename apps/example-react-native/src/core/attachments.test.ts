@@ -56,6 +56,10 @@ test("byte counts use decimal units: whole bytes and KB, one MB digit, two GB di
   assert.equal(byteCount(12), "12 bytes");
   assert.equal(byteCount(999), "999 bytes");
   assert.equal(byteCount(1000), "1 KB");
+  // Whole units keep their zeroes; only a fraction's trailing zeroes go.
+  assert.equal(byteCount(10_000), "10 KB");
+  assert.equal(byteCount(100_000), "100 KB");
+  assert.equal(byteCount(10_000_000), "10 MB");
   assert.equal(byteCount(17_400), "17 KB");
   assert.equal(byteCount(212_345), "212 KB");
   assert.equal(byteCount(1_234_567), "1.2 MB");

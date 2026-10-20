@@ -1,3 +1,5 @@
+import { commonCopy } from "@/copy/common";
+
 /**
  * Design gallery strings: fixed sample content, so screenshots of the
  * samples compare across builds.
@@ -158,4 +160,34 @@ export const galleryCopy = {
   connect: {
     footer: "Use a server address from someone you trust.",
   },
+} as const;
+
+/** The probes' confirmations for a link (`src/core/probeLinks.ts`). */
+export const probeLinkCopy = {
+  title: (action: string) => `Run ${action} from a link?`,
+  run: "Run",
+  cancel: commonCopy.cancel,
+  connect: (url: string) =>
+    `Any app can open this link. It ends the current session and joins ${url}.`,
+  join: (url: string) =>
+    `Any app can open this link. You are signed out, and it joins ${url} with an identity from this device.`,
+  retry:
+    "Any app can open this link. It ends the current session and opens it again.",
+  reopen:
+    "Any app can open this link. You are signed out, and it opens the saved account whose restore failed, if there is one.",
+  allowRequests:
+    "Any app can open this link. It accepts every message request.",
+  claim: (handle: string) =>
+    `Any app can open this link. It claims the handle ${handle}, and the claim stays in the identity log.`,
+  createGroup: (name: string, members: readonly string[]) =>
+    members.length === 0
+      ? `Any app can open this link. It creates the group ${name}.`
+      : `Any app can open this link. It creates the group ${name} with ${members.join(", ")}.`,
+  retryMessage:
+    "Any app can open this link. It sends an unsent message in this chat again.",
+  react: (emoji: string) =>
+    `Any app can open this link. It adds your ${emoji} reaction to a message in this chat, or removes it.`,
+  reply:
+    "Any app can open this link. It sets which message your draft in this chat replies to.",
+  edit: "Any app can open this link. It replaces the text of your draft in this chat with the text of a message.",
 } as const;

@@ -63,7 +63,7 @@ test("a reload closes downloads until the new consent read finishes", async () =
   assert.equal(store.getState().rows.length, 1);
 });
 
-test("only the latest load applies, and a failure shows the load error", async () => {
+test("only the latest load applies, a failure shows the load error, and Retry clears it", async () => {
   let rows: readonly ChatMessage[] = [];
   let hold: Promise<void> | undefined;
   let fail = false;
@@ -105,4 +105,15 @@ test("only the latest load applies, and a failure shows the load error", async (
   assert.equal(store.getState().error, undefined);
   await store.load();
   assert.equal(store.getState().error, SharedMediaCopy.loadFailed);
+  // Retry: a load that works clears the error, shows its rows and opens
+  // downloads again.
+  fail = false;
+  rows = [fileMessage(3, "retry.pdf")];
+  await store.load();
+  assert.equal(store.getState().error, undefined);
+  assert.equal(store.getState().allowed, true);
+  assert.deepEqual(
+    store.getState().rows.map((row) => row.id),
+    ["m0003"],
+  );
 });

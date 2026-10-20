@@ -21,20 +21,22 @@ pub async fn generate_keys() -> Arc<LocalSigningKey> {
 impl LocalSigningKey {
     /// Restore a 32-byte secp256k1 private key. The input is copied.
     #[uniffi::constructor]
-    pub async fn from_bytes(key: Vec<u8>) -> Result<Arc<Self>, XmtpError> {
+    pub async fn from_bytes(key: SecretBytes) -> Result<Arc<Self>, XmtpError> {
         Self::parse_bytes(&key)
     }
 
     /// Restore a private key encoded as 0x followed by exactly 64 hexadecimal digits.
     #[uniffi::constructor]
-    pub async fn from_hex(key: String) -> Result<Arc<Self>, XmtpError> {
+    pub async fn from_hex(key: SecretString) -> Result<Arc<Self>, XmtpError> {
         let encoded = key
             .strip_prefix("0x")
             .filter(|text| text.len() == PRIVATE_KEY_HEX_LENGTH)
             .ok_or_else(|| XmtpError::invalid("invalid local signer private key"))?;
-        let bytes = hex::decode(encoded)
+        // Accepts either hex case.
+        let mut bytes = Zeroizing::new([0u8; PRIVATE_KEY_LENGTH]);
+        hex::decode_to_slice(encoded, bytes.as_mut_slice())
             .map_err(|_| XmtpError::invalid("invalid local signer private key"))?;
-        Self::parse_bytes(&bytes)
+        Self::parse_bytes(bytes.as_slice())
     }
 
     pub async fn identity(&self) -> Result<PublicIdentity, XmtpError> {
@@ -68,14 +70,31 @@ impl LocalSigningKey {
         Ok(Arc::new(Self(signer)))
     }
 
-    // implements: IDENT-088
-    fn private_key_bytes(&self) -> Vec<u8> {
-        self.0.to_bytes().to_vec()
+    /// The one copy of the private key that export makes. alloy has no
+    /// borrowing accessor for the scalar.
+    fn private_key(&self) -> Zeroizing<[u8; PRIVATE_KEY_LENGTH]> {
+        // zeroize: the copy is held in the returned `Zeroizing`
+        #[allow(clippy::disallowed_methods)]
+        Zeroizing::new(self.0.to_bytes().0)
     }
 
     // implements: IDENT-088
+    fn private_key_bytes(&self) -> SecretBytes {
+        SecretBytes::from(self.private_key().to_vec())
+    }
+
+    /// The returned `String` is the only heap copy: digits are written
+    /// straight into it.
+    // implements: IDENT-088
     fn private_key_hex(&self) -> String {
-        format!("0x{}", hex::encode(self.0.to_bytes()))
+        const DIGITS: &[u8; 16] = b"0123456789abcdef";
+        let mut hex = String::with_capacity(2 + PRIVATE_KEY_HEX_LENGTH);
+        hex.push_str("0x");
+        for byte in self.private_key().iter() {
+            hex.push(char::from(DIGITS[usize::from(byte >> 4)]));
+            hex.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+        }
+        hex
     }
 }
 
@@ -83,7 +102,7 @@ impl LocalSigningKey {
 impl LocalSigningKey {
     /// Export a copy of the private key. Store it securely; it controls the account.
     #[sdk(immutable)]
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> SecretBytes {
         self.private_key_bytes()
     }
 
@@ -97,7 +116,7 @@ impl LocalSigningKey {
 #[xmtp_macro::sdk_export(wasm_only)]
 impl LocalSigningKey {
     /// Export a copy of the private key. Store it securely; it controls the account.
-    pub async fn to_bytes(&self) -> Vec<u8> {
+    pub async fn to_bytes(&self) -> SecretBytes {
         self.private_key_bytes()
     }
 
