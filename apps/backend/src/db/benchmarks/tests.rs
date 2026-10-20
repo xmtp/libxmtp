@@ -9,9 +9,14 @@ fn config() -> Config {
     serde_json::from_str(include_str!("../../../benchmarks/baseline.json")).unwrap()
 }
 
-/// Explicit configuration rejects unknown fields rather than silently running a different experiment.
+/// Explicit configuration rejects unknown fields; relative paths resolve from the repository, not Cargo's package cwd.
 #[xmtp_common::test(unwrap_try = true)]
 fn configuration_rejects_unknown_and_missing_fields() {
+    assert!(repository_path("apps/backend/benchmarks/baseline.json").is_file());
+    assert_eq!(
+        repository_path("/absolute/results.jsonl"),
+        PathBuf::from("/absolute/results.jsonl")
+    );
     let mut value = serde_json::to_value(config())?;
     value["typo"] = json!(10);
     assert!(serde_json::from_value::<Config>(value.clone()).is_err());

@@ -18,7 +18,7 @@ use serde_json::json;
 use std::{
     fs::OpenOptions,
     io::{BufWriter, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 use xmtp_common::time::{Duration, Instant};
 
@@ -92,6 +92,12 @@ fn record(output: &mut impl Write, value: serde_json::Value) -> TestResult {
     Ok(())
 }
 
+fn repository_path(path: impl AsRef<Path>) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(path)
+}
+
 async fn connect(database: &TestDatabase, connections: u32) -> TestResult<Store> {
     let mut config: BackendConfig =
         toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
@@ -110,14 +116,15 @@ async fn connect(database: &TestDatabase, connections: u32) -> TestResult<Store>
     disable_logging = true
 )]
 async fn baseline() {
-    let config: Config =
-        serde_json::from_slice(&std::fs::read(std::env::var("XMTP_BENCH_CONFIG")?)?)?;
+    let config: Config = serde_json::from_slice(&std::fs::read(repository_path(std::env::var(
+        "XMTP_BENCH_CONFIG",
+    )?))?)?;
     config.validate()?;
     let mut output = BufWriter::new(
         OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&config.output)?,
+            .open(repository_path(&config.output))?,
     );
     let started = Instant::now();
     let mut metadata = TestDatabase::new()?;

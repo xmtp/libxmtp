@@ -26,6 +26,8 @@ change an experiment; use the **identical config except output path** for the
 partitioned rerun. Outputs use exclusive creation: choose a new path rather
 than overwriting a baseline. A complete run ends with a `complete` event;
 the reporter rejects unfinished runs and missing/duplicate trials.
+Relative config and output paths resolve from the repository root, independent
+of Cargo's package working directory; absolute paths are also accepted.
 
 `sizes` accepts 1,000–1,000,000,000; `topic_counts` 1–1,000;
 `writers` 1–64; `batch_sizes` 1–100; `trials`, `read_ms`, `write_ms`, and
