@@ -22055,7 +22055,6 @@ public enum MlsExtensionType: Equatable, Hashable {
     case externalPub
     case externalSenders
     case lastResort
-    case immutableMetadata
     case appDataDictionary
     case unknown(id: UInt16
     )
@@ -22094,14 +22093,12 @@ public struct FfiConverterTypeMlsExtensionType: FfiConverterRustBuffer {
 
         case 6: return .lastResort
 
-        case 7: return .immutableMetadata
+        case 7: return .appDataDictionary
 
-        case 8: return .appDataDictionary
-
-        case 9: return .unknown(id: try FfiConverterUInt16.read(from: &buf)
+        case 8: return .unknown(id: try FfiConverterUInt16.read(from: &buf)
         )
 
-        case 10: return .grease(id: try FfiConverterUInt16.read(from: &buf)
+        case 9: return .grease(id: try FfiConverterUInt16.read(from: &buf)
         )
 
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -22136,21 +22133,17 @@ public struct FfiConverterTypeMlsExtensionType: FfiConverterRustBuffer {
             writeInt(&buf, Int32(6))
 
 
-        case .immutableMetadata:
+        case .appDataDictionary:
             writeInt(&buf, Int32(7))
 
 
-        case .appDataDictionary:
-            writeInt(&buf, Int32(8))
-
-
         case let .unknown(id):
-            writeInt(&buf, Int32(9))
+            writeInt(&buf, Int32(8))
             FfiConverterUInt16.write(id, into: &buf)
 
 
         case let .grease(id):
-            writeInt(&buf, Int32(10))
+            writeInt(&buf, Int32(9))
             FfiConverterUInt16.write(id, into: &buf)
 
         }
