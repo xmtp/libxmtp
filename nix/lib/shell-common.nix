@@ -28,6 +28,7 @@
   protolint,
   taplo,
   shellcheck,
+  ripgrep,
   ruff,
   nixfmt,
   lldb,
@@ -229,6 +230,9 @@ rec {
   lintTools = [
     taplo
     shellcheck
+    # dev/ci-failure-markers (`just ci-failures`, dev/tests/test_ci_failure_markers.py)
+    # filters logs with rg. GitHub-hosted runners have no rg on PATH.
+    ripgrep
     # dev/tests/test_script_lint.py lints extensionless Python scripts.
     ruff
     nixfmt
