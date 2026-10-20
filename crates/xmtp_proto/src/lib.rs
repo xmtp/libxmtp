@@ -13,6 +13,7 @@ pub mod codec;
 mod convert;
 mod error;
 mod impls;
+mod secret_drop;
 mod traits;
 pub mod types;
 

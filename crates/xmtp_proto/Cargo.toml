@@ -36,6 +36,7 @@ url.workspace = true
 xmtp_common.workspace = true
 xmtp_events.workspace = true
 xmtp_configuration.workspace = true
+zeroize.workspace = true
 
 # optional
 diesel = { workspace = true, optional = true, features = ["sqlite"] }
@@ -52,6 +53,7 @@ wasm-bindgen-test.workspace = true
 
 [dev-dependencies]
 bincode.workspace = true
+xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 mockall.workspace = true
 rstest.workspace = true
 tokio = { workspace = true }
@@ -60,6 +62,12 @@ xmtp_configuration = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
+
+# The dev-dependency above turns this feature on, so every test build,
+# including CI's, runs the heap-canary proof.
+[[test]]
+name = "zeroize"
+required-features = ["xmtp_cryptography/test-utils"]
 
 [build-dependencies]
 tonic-prost-build = "0.14"

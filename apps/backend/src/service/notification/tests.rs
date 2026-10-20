@@ -126,8 +126,8 @@ fn subscription(id: u8, keys: usize) -> api::Subscription {
 fn update(adds: Vec<api::Subscription>, removes: Vec<Vec<u8>>) -> api::UpdateSubscriptionsRequest {
     let register = registration();
     api::UpdateSubscriptionsRequest {
-        recipient_id: register.recipient_id,
-        recipient_secret: register.recipient_secret,
+        recipient_id: register.recipient_id.clone(),
+        recipient_secret: register.recipient_secret.clone(),
         adds,
         removes,
     }
@@ -136,77 +136,9 @@ fn update(adds: Vec<api::Subscription>, removes: Vec<Vec<u8>>) -> api::UpdateSub
 fn unregister() -> api::UnregisterRequest {
     let request = registration();
     api::UnregisterRequest {
-        recipient_id: request.recipient_id,
-        recipient_secret: request.recipient_secret,
+        recipient_id: request.recipient_id.clone(),
+        recipient_secret: request.recipient_secret.clone(),
     }
-}
-
-/// Whether every byte of `buffer`'s allocation is zero. A wipe keeps the
-/// allocation, so these are the bytes its later free releases; `clear` would
-/// leave them in place.
-///
-/// The buffer must have been built with its whole capacity written, as
-/// `vec![byte; len]` does.
-fn allocation_is_zero(buffer: &mut Vec<u8>) -> bool {
-    buffer.capacity() > 0
-        && buffer.iter().all(|&byte| byte == 0)
-        && buffer.spare_capacity_mut().iter().all(|byte| {
-            // SAFETY: the whole capacity was written when the buffer was
-            // built, and a wipe or `clear` only overwrites or shortens it, so
-            // every spare byte is initialized.
-            unsafe { byte.assume_init() == 0 }
-        })
-}
-
-/// Wiping a decoded request overwrites the whole allocation of each secret
-/// field it still holds, and leaves the other fields alone.
-#[xmtp_common::test]
-fn wiping_a_request_overwrites_every_secret_buffer() {
-    let mut register = registration();
-    register.delivery = Some(api::register_request::Delivery::Http(api::HttpDelivery {
-        url: "https://example.test/hook".into(),
-        signing_key: vec![33; 32],
-    }));
-    register.wipe_secrets();
-    assert!(allocation_is_zero(&mut register.recipient_secret));
-    let Some(api::register_request::Delivery::Http(http)) = &mut register.delivery else {
-        panic!("the delivery is still HTTP");
-    };
-    assert!(allocation_is_zero(&mut http.signing_key));
-    assert_eq!(http.url, "https://example.test/hook");
-
-    let mut unregister = unregister();
-    unregister.wipe_secrets();
-    assert!(allocation_is_zero(&mut unregister.recipient_secret));
-
-    let mut update = update(vec![subscription(1, 3), subscription(2, 1)], vec![]);
-    update.wipe_secrets();
-    assert!(allocation_is_zero(&mut update.recipient_secret));
-    let keys: Vec<_> = update
-        .adds
-        .iter_mut()
-        .flat_map(|add| &mut add.hmac_keys)
-        .collect();
-    assert_eq!(keys.len(), 4);
-    assert!(keys.into_iter().all(allocation_is_zero));
-}
-
-/// A secret buffer the test keeps after the request that wipes it drops.
-struct KeptSecret<'a>(&'a mut Vec<u8>);
-
-impl SecretFields for KeptSecret<'_> {
-    fn wipe_secrets(&mut self) {
-        self.0.zeroize();
-    }
-}
-
-/// Dropping a `Wiped` request wipes it, so a handler's early return frees no
-/// copy of a credential or HMAC key.
-#[xmtp_common::test]
-fn dropping_a_wiped_request_wipes_its_secrets() {
-    let mut secret = vec![44; 32];
-    drop(Wiped(KeptSecret(&mut secret)));
-    assert!(allocation_is_zero(&mut secret));
 }
 
 fn status(error: Status, code: Code, message: &str) {
@@ -217,13 +149,13 @@ fn status(error: Status, code: Code, message: &str) {
 async fn assert_count(server: &RunningServer, expected: i64) {
     let actual: i64 =
         sqlx::query_scalar("SELECT count(*) FROM push_subscription WHERE recipient_id = $1")
-            .bind(registration().recipient_id)
+            .bind(registration().recipient_id.clone())
             .fetch_one(&server.backend.store.primary)
             .await
             .unwrap();
     let topic_count: i32 =
         sqlx::query_scalar("SELECT topic_count FROM push_recipient WHERE recipient_id = $1")
-            .bind(registration().recipient_id)
+            .bind(registration().recipient_id.clone())
             .fetch_one(&server.backend.store.primary)
             .await
             .unwrap();
@@ -361,7 +293,7 @@ async fn updates_keep_start_positions_and_round_trip_key_slots() {
     let result = client
         .update_subscriptions(update(
             vec![replacement, subscription(4, 1)],
-            vec![adds[0].topic.clone(), subscription(99, 0).topic],
+            vec![adds[0].topic.clone(), subscription(99, 0).topic.clone()],
         ))
         .await?
         .into_inner();
@@ -378,7 +310,7 @@ async fn updates_keep_start_positions_and_round_trip_key_slots() {
     let row = sqlx::query(
         "SELECT hmac_epoch_base, include_commits FROM push_subscription WHERE topic = $1",
     )
-    .bind(subscription(2, 0).topic)
+    .bind(subscription(2, 0).topic.clone())
     .fetch_one(&server.backend.store.primary)
     .await?;
     assert_eq!(row.get::<i64, _>(0), 20);
@@ -409,7 +341,7 @@ async fn topic_limit_rolls_back_removes_and_adds_and_serializes_concurrent_updat
     let error = client
         .update_subscriptions(update(
             vec![subscription(3, 1), subscription(4, 1)],
-            vec![subscription(1, 0).topic],
+            vec![subscription(1, 0).topic.clone()],
         ))
         .await
         .unwrap_err();
@@ -425,7 +357,10 @@ async fn topic_limit_rolls_back_removes_and_adds_and_serializes_concurrent_updat
             .await?;
     assert_eq!(
         topics,
-        vec![subscription(1, 0).topic, subscription(2, 0).topic]
+        vec![
+            subscription(1, 0).topic.clone(),
+            subscription(2, 0).topic.clone()
+        ]
     );
     client.update_subscriptions(update(vec![], topics)).await?;
     let mut other = server.notifications();
@@ -458,7 +393,7 @@ async fn unregister_cascades_even_after_the_provider_is_removed() {
         server
             .backend
             .store
-            .load_recipient(&registration().recipient_id)
+            .load_recipient(&registration().recipient_id.clone())
             .await?
             .is_none()
     );

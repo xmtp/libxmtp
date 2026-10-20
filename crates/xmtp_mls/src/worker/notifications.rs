@@ -17,7 +17,6 @@ use xmtp_common::{NS_IN_HOUR, NS_IN_SEC, time};
 use xmtp_configuration::{
     NOTIFICATION_BATCH_TOPICS as REQUEST_TOPICS, NOTIFICATION_REQUEST_TIMEOUT,
 };
-use xmtp_cryptography::secret::Zeroize;
 use xmtp_db::{
     StorageError,
     TransactionOutcome::Continue,
@@ -384,21 +383,11 @@ pub(crate) fn diff(
 }
 
 /// A subscription update and the uploads it confirms. The request holds the
-/// recipient secret and derived HMAC keys. A batch whose request never reaches
-/// the transport wipes them on drop.
+/// recipient secret and derived HMAC keys, and wipes them on drop.
 struct Batch {
     request: UpdateSubscriptionsRequest,
     uploaded: Vec<UploadedTopic>,
     fingerprint: Vec<u8>,
-}
-
-impl Drop for Batch {
-    fn drop(&mut self) {
-        self.request.recipient_secret.zeroize();
-        for subscription in &mut self.request.adds {
-            subscription.hmac_keys.zeroize();
-        }
-    }
 }
 
 fn prepare_batch<Context: XmtpSharedContext>(
@@ -442,8 +431,9 @@ fn prepare_batch<Context: XmtpSharedContext>(
             let rule = &desired[&topic];
             let mut subscription = Subscription {
                 topic: topic.clone(),
+                hmac_epoch_base: 0,
+                hmac_keys: Vec::new(),
                 include_commits: rule.include_commits,
-                ..Default::default()
             };
             let (hmac_epoch_base, key_fingerprint) = if let Some(group_id) = rule.group_id {
                 let row = db

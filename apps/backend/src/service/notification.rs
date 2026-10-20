@@ -4,13 +4,10 @@
 mod tests;
 pub(crate) mod webhook_url;
 
-use std::{
-    collections::HashSet,
-    ops::{Deref, DerefMut},
-};
+use std::collections::HashSet;
 use subtle::ConstantTimeEq;
 use tonic::{Request, Response, Status};
-use xmtp_cryptography::secret::{Zeroize, Zeroizing};
+use xmtp_cryptography::secret::Zeroizing;
 use xmtp_proto::types::{Topic, TopicKind};
 
 use crate::{
@@ -28,61 +25,6 @@ const HMAC_KEY_BYTES: usize = 42;
 pub(crate) const MALFORMED_REQUEST: &str = "request is malformed";
 const MALFORMED_SUBSCRIPTION: &str = "subscription is malformed";
 
-/// The secret fields of a decoded notification request.
-trait SecretFields {
-    /// Overwrite every secret byte in place. Each buffer keeps its
-    /// allocation until the request drops.
-    fn wipe_secrets(&mut self);
-}
-
-impl SecretFields for api::RegisterRequest {
-    fn wipe_secrets(&mut self) {
-        self.recipient_secret.zeroize();
-        if let Some(api::register_request::Delivery::Http(http)) = &mut self.delivery {
-            http.signing_key.zeroize();
-        }
-    }
-}
-
-impl SecretFields for api::UnregisterRequest {
-    fn wipe_secrets(&mut self) {
-        self.recipient_secret.zeroize();
-    }
-}
-
-impl SecretFields for api::UpdateSubscriptionsRequest {
-    fn wipe_secrets(&mut self) {
-        self.recipient_secret.zeroize();
-        for key in self.adds.iter_mut().flat_map(|add| &mut add.hmac_keys) {
-            key.zeroize();
-        }
-    }
-}
-
-/// A decoded request whose secret fields are wiped when it drops, so an early
-/// return wipes them too. Validation moves each secret it keeps into
-/// `Zeroizing` with `std::mem::take`.
-struct Wiped<T: SecretFields>(T);
-
-impl<T: SecretFields> Drop for Wiped<T> {
-    fn drop(&mut self) {
-        self.0.wipe_secrets();
-    }
-}
-
-impl<T: SecretFields> Deref for Wiped<T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        &self.0
-    }
-}
-
-impl<T: SecretFields> DerefMut for Wiped<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        &mut self.0
-    }
-}
-
 // implements: PUSH-253
 #[tonic::async_trait]
 impl api::notification_service_server::NotificationService for Backend {
@@ -91,7 +33,7 @@ impl api::notification_service_server::NotificationService for Backend {
         &self,
         request: Request<api::RegisterRequest>,
     ) -> Result<Response<api::RecipientState>, Status> {
-        let mut request = Wiped(request.into_inner());
+        let mut request = request.into_inner();
         let hash = identity(&request.recipient_id, &request.recipient_secret)?;
         if let Some(recipient) = self.store.load_recipient(&request.recipient_id).await? {
             authenticate(&recipient, &hash)?;
@@ -117,7 +59,7 @@ impl api::notification_service_server::NotificationService for Backend {
         &self,
         request: Request<api::UnregisterRequest>,
     ) -> Result<Response<api::UnregisterResponse>, Status> {
-        let request = Wiped(request.into_inner());
+        let request = request.into_inner();
         let hash = identity(&request.recipient_id, &request.recipient_secret)?;
         let recipient = self
             .store
@@ -141,7 +83,7 @@ impl api::notification_service_server::NotificationService for Backend {
         &self,
         request: Request<api::UpdateSubscriptionsRequest>,
     ) -> Result<Response<api::RecipientState>, Status> {
-        let mut request = Wiped(request.into_inner());
+        let mut request = request.into_inner();
         let hash = identity(&request.recipient_id, &request.recipient_secret)?;
         let recipient = self
             .store

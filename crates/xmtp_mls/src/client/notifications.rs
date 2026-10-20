@@ -76,8 +76,8 @@ impl NotificationConfig {
         }
     }
 
-    /// The request copies the signing key and the recipient secret. It is
-    /// handed to the transport, which owns those copies.
+    /// The request copies the signing key and the recipient secret. Each copy
+    /// of the request wipes them on drop.
     pub(crate) fn registration(&self, record: &StoredNotification) -> backend_v1::RegisterRequest {
         let delivery = match &self.channel {
             NotificationChannel::Apns { token } => Delivery::Apns(backend_v1::ApnsDelivery {
@@ -101,7 +101,7 @@ impl NotificationConfig {
     }
 }
 
-/// A copy of the stored recipient secret for a request handed to the transport.
+/// A copy of the stored recipient secret for a request, which wipes it on drop.
 pub(crate) fn recipient_secret(record: &StoredNotification) -> Vec<u8> {
     record
         .push_recipient_secret

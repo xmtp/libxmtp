@@ -12472,7 +12472,6 @@ dependencies = [
  "xmtp_id",
  "xmtp_mls_validation",
  "xmtp_proto",
- "zeroize",
 ]
 
 [[package]]
@@ -13225,7 +13224,9 @@ dependencies = [
  "wasm-bindgen-test",
  "xmtp_common",
  "xmtp_configuration",
+ "xmtp_cryptography",
  "xmtp_events",
+ "zeroize",
 ]
 
 [[package]]
