@@ -347,6 +347,7 @@
       ],
       "crates": [
         "apps/backend/**",
+        "apps/db_tools/**",
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp-workspace-hack/**",
         "crates/xmtp_api/**",
@@ -589,6 +590,7 @@
       ],
       "crates": [
         "apps/backend/**",
+        "apps/db_tools/**",
         "crates/xmtp-workspace-hack/**",
         "crates/xmtp_api/**",
         "crates/xmtp_api_backend/**",
@@ -766,6 +768,7 @@
       ],
       "crates": [
         "apps/backend/**",
+        "apps/db_tools/**",
         "apps/error_glossary/**",
         "crates/xmtp-workspace-hack/**",
         "crates/xmtp_api/**",
