@@ -678,7 +678,7 @@ The new API also adds backend configuration reads, credentials, catch-up state, 
 
 ## Handle typed errors
 
-The old exported error classes (`ClientNotInitializedError`, `SignerUnavailableError`, `InboxReassignError`, `AccountAlreadyAssociatedError`, `GroupNotFoundError`, `StreamNotFoundError`, `StreamFailedError`, `StreamInvalidRetryAttemptsError`, `OpfsNotInitializedError`, and `OpfsInitializationError`) are removed. Catch the new `XmtpError` base or a public typed subclass. Read `details.code`, `category`, `retryable`, and `message`. Do not classify a failure by display text.
+The old exported error classes (`ClientNotInitializedError`, `SignerUnavailableError`, `InboxReassignError`, `AccountAlreadyAssociatedError`, `GroupNotFoundError`, `StreamNotFoundError`, `StreamFailedError`, `StreamInvalidRetryAttemptsError`, `OpfsNotInitializedError`, and `OpfsInitializationError`) are removed. Catch the new `XmtpError` base or a public typed subclass. Read `details.code`, `category`, `retryable`, and `message`. Do not classify a failure by display text. A database written in an older, unsupported format is an `XmtpError.Storage` whose code is `StorageError::PreTransitionDatabase`, `StorageError::OldStreamDatabase` or `StorageError::OldEncodingDatabase`.
 
 ```ts source="migration-browser.ts" region="errors"
 

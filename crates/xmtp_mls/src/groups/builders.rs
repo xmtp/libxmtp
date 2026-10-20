@@ -100,9 +100,10 @@ pub fn build_group_membership_extension(group_membership: &GroupMembership) -> E
 pub(crate) fn build_group_config(
     dictionary: openmls::extensions::AppDataDictionary,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
+    // No `LastResort`: key packages carry their last-resort mark in the
+    // AppDataDictionary extension.
     let required_extension_types = &[
         ExtensionType::AppDataDictionary,
-        ExtensionType::LastResort,
         ExtensionType::ApplicationId,
     ];
     let required_proposal_types = &[ProposalType::AppDataUpdate];

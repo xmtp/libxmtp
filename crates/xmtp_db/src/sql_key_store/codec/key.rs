@@ -1,8 +1,8 @@
-//! The storage key layout: today's bincode 1.3 bytes, without the bincode crate.
+//! The storage key layout: the bytes bincode 1.3 wrote, without the bincode crate.
 //!
-//! The store never decodes a key; it only compares key bytes. Keys keep this
-//! layout when the value codec changes, so every existing row stays reachable
-//! with one lookup and no key migration.
+//! The store never decodes a key; it only compares key bytes. Keys did not
+//! change when the value codec moved from bincode to CBOR. The golden vectors
+//! below pin every key type the store writes.
 //!
 //! Layout (bincode 1.3 `bincode::serialize`: fixed-width integers, little endian):
 //! - integers: fixed width, little endian;
@@ -50,20 +50,6 @@ pub fn decode_bytes(key: &[u8]) -> Option<&[u8]> {
     let (len, rest) = key.split_first_chunk::<8>()?;
     let len = usize::try_from(u64::from_le_bytes(*len)).ok()?;
     (rest.len() == len).then_some(rest)
-}
-
-/// Test builds compare every key with `bincode::serialize`, so the xmtp_db and
-/// xmtp_mls suites check the layout for every key type they reach.
-#[cfg(any(test, feature = "test-utils"))]
-pub(crate) fn assert_bincode_layout<K: Serialize + ?Sized>(label: &[u8], key: &K, bytes: &[u8]) {
-    let expected = bincode::serialize(key).expect("bincode serializes every key type");
-    assert_eq!(
-        bytes,
-        expected.as_slice(),
-        "the key layout differs from bincode for label {} ({})",
-        String::from_utf8_lossy(label),
-        std::any::type_name::<K>()
-    );
 }
 
 struct KeySerializer<'a> {
@@ -236,7 +222,7 @@ impl<'a> ser::SerializeStruct for &mut KeySerializer<'a> {
 #[cfg(test)]
 mod tests {
     //! Golden key vectors: the exact bytes of each key type the key store
-    //! writes. They pin the layout without the bincode crate.
+    //! writes, as bincode 1.3 wrote them.
     use super::{KeyError, decode_bytes, to_vec};
     use crate::sql_key_store::codec::encode_key;
     use openmls::prelude::tls_codec::{Serialize as _, VLBytes};
@@ -250,7 +236,7 @@ mod tests {
 
     const LABEL: &[u8] = b"GoldenKey";
 
-    /// Encode through the codec, so test builds also compare with bincode.
+    /// Encode through the codec, as the key store does.
     fn key<K: Serialize + ?Sized>(k: &K) -> Vec<u8> {
         encode_key(LABEL, k).expect("a supported key shape")
     }

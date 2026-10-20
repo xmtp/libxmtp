@@ -110,7 +110,9 @@ A database created before the transition is rejected with this error:
 This database predates the backend transition. Delete the database file and create a new client.
 ```
 
-The error is not retryable. The SDK leaves the database intact. Close the old
+It is a storage error whose `details.code` is
+`StorageError::PreTransitionDatabase`. Match the code, not the message. The
+error is not retryable. The SDK leaves the database intact. Close the old
 client before file operations. Use prepareMigrationArchive from the normal SDK
 package to convert a supported legacy database into an encrypted history archive.
 The converter uses a temporary copy and does not need a client or network access.

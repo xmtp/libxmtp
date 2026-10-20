@@ -284,11 +284,22 @@ where
         }
     }
 
+    /// Remove the first list item whose bytes equal `value`.
     pub fn remove_item<const VERSION: u16>(
         &self,
         label: &[u8],
         key: &[u8],
         value: &[u8],
+    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        self.remove_list_item::<VERSION>(label, key, |item| item == value)
+    }
+
+    /// Remove the first list item that `matches`.
+    fn remove_list_item<const VERSION: u16>(
+        &self,
+        label: &[u8],
+        key: &[u8],
+        matches: impl Fn(&[u8]) -> bool,
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         tracing::trace!("remove_item {}", String::from_utf8_lossy(label));
 
@@ -298,7 +309,7 @@ where
         if let Some(entry) = data.into_iter().next() {
             // The value in the storage is an array of array of bytes.
             let mut list = decode_list(label, &entry.value_bytes)?;
-            let vpos = list.iter().position(|v| v == value);
+            let vpos = list.iter().position(|v| matches(v));
 
             if let Some(pos) = vpos {
                 // The removed element is wiped as well.
@@ -309,10 +320,9 @@ where
             let _ = self.update_query::<VERSION>(&storage_key, &modified_data)?;
             Ok(())
         } else {
-            // Add a first entry. A one-item array encodes as a tuple, with no
-            // list length, so this row does not decode as a list. Kept
-            // byte-for-byte until the value codec change.
-            let value_bytes = encode_value(label, &[value])?;
+            // Removing from a missing list leaves an empty list, as in
+            // OpenMLS's own stores.
+            let value_bytes = encode_list::<&[u8]>(label, &[])?;
             let _ = self.replace_query::<VERSION>(&storage_key, &value_bytes)?;
             Ok(())
         }
@@ -927,7 +937,7 @@ where
         self.read(OWN_LEAF_NODE_INDEX_LABEL, &key)
     }
 
-    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), own_leaf_index = %hex_kv(own_leaf_index)), err)]
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_own_leaf_index<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNodeIndex: traits::LeafNodeIndex<CURRENT_VERSION>,
@@ -1092,7 +1102,7 @@ where
         self.read(JOIN_CONFIG_LABEL, &key)
     }
 
-    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), config = %hex_kv(config)), err)]
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_mls_join_config<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MlsGroupJoinConfig: traits::MlsGroupJoinConfig<CURRENT_VERSION>,
@@ -1120,7 +1130,7 @@ where
         self.read_list(OWN_LEAF_NODES_LABEL, &key)
     }
 
-    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), leaf_node = %hex_kv(leaf_node)), err)]
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn append_own_leaf_node<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNode: traits::LeafNode<CURRENT_VERSION>,
@@ -1202,10 +1212,14 @@ where
         group_id: &GroupId,
         proposal_ref: &ProposalRef,
     ) -> Result<(), Self::Error> {
-        // Delete the proposal ref
+        // Delete the proposal ref. Match it by value: a ref stored in another
+        // valid encoding is the same ref, and leaving it would point at the
+        // proposal deleted below.
         let key = build_key::<CURRENT_VERSION, &GroupId>(PROPOSAL_QUEUE_REFS_LABEL, group_id)?;
         let value = encode_value(PROPOSAL_QUEUE_REFS_LABEL, proposal_ref)?;
-        self.remove_item::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, &value)?;
+        self.remove_list_item::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, |item| {
+            codec::same_value::<ProposalRef>(item, &value)
+        })?;
 
         // Delete the proposal
         let key = encode_key(QUEUED_PROPOSAL_LABEL, &(group_id, proposal_ref))?;
@@ -1254,11 +1268,12 @@ where
     }
 }
 
-/// Hex bincode of `v` for tracing fields. Empty string on serialize fail (field exprs can't propagate).
-/// Record only storage keys and public values: never a value that holds a private key.
+/// Hex of a storage key part, in the key layout, for tracing fields. Empty on
+/// an unsupported shape (field expressions cannot propagate an error).
+/// Record only storage keys, never a value: a value can hold a private key.
 /// A `GroupContext` holds one: the commit-log signer in its AppData dictionary.
-fn hex_kv<T: Serialize + ?Sized>(v: &T) -> String {
-    bincode::serialize(v).map(hex::encode).unwrap_or_default()
+fn hex_kv<T: Serialize + ?Sized>(key: &T) -> String {
+    codec::key::to_vec(key).map(hex::encode).unwrap_or_default()
 }
 
 /// Build a key with version and label.
@@ -1702,129 +1717,42 @@ pub(crate) mod tests {
             .unwrap();
     }
 
-    /// An HPKE key pair as a key store entity. OpenMLS keeps its own
-    /// `EncryptionKeyPair` crate-private.
-    #[derive(Serialize, Deserialize, Clone)]
-    struct KeyPair(openmls_traits::types::HpkeKeyPair);
-    impl traits::HpkeKeyPair<CURRENT_VERSION> for KeyPair {}
-    impl Entity<CURRENT_VERSION> for KeyPair {}
-
-    /// The value bytes stored under `label` and `key`, as `write` stores them.
-    fn stored_value<C: crate::ConnectionExt>(
-        store: &SqlKeyStore<C>,
-        label: &[u8],
-        key: &[u8],
-    ) -> Vec<u8> {
-        let storage_key = super::build_key_from_vec::<CURRENT_VERSION>(label, key.to_vec());
-        let rows = store.select_query::<CURRENT_VERSION>(&storage_key).unwrap();
-        rows.into_iter()
-            .next()
-            .expect("a stored value")
-            .value_bytes
-            .to_vec()
+    /// The CBOR of `v`, written by cbor4ii itself: the reference for what the
+    /// codec stores.
+    fn cbor<T: Serialize>(v: &T) -> Vec<u8> {
+        cbor4ii::serde::to_vec(Vec::new(), v).unwrap()
     }
 
-    /// Wiping changes no stored bytes. Each key package entity, the
-    /// post-quantum wrapper key and each list rewrite store the bincode that
-    /// the code before wiping stored for the same value.
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn stored_bytes_are_unchanged() {
-        use super::{
-            ENCRYPTION_KEY_PAIR_LABEL, EPOCH_KEY_PAIRS_LABEL, KEY_PACKAGE_LABEL,
-            KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SIGNATURE_KEY_PAIR_LABEL, build_key,
-            epoch_key_pairs_id,
-        };
-        use crate::xmtp_openmls_provider::XmtpMlsStorageProvider;
-        use openmls::{prelude::GroupEpoch, treesync::EncryptionKey};
-        use openmls_traits::crypto::OpenMlsCrypto;
+    /// A CBOR head, built by hand: the major type and a length, in its
+    /// shortest form.
+    fn cbor_head(major: u8, len: usize) -> Vec<u8> {
+        let major = major << 5;
+        match len {
+            0..=23 => vec![major | len as u8],
+            24..=0xff => vec![major | 24, len as u8],
+            0x100..=0xffff => [&[major | 25][..], &(len as u16).to_be_bytes()].concat(),
+            _ => [&[major | 26][..], &(len as u32).to_be_bytes()].concat(),
+        }
+    }
 
-        let store = crate::TestDb::create_persistent_store(None).await;
-        let provider = XmtpOpenMlsProvider::new(SqlKeyStore::new(store.conn()));
-        let key_store = provider.storage();
+    /// A stored list, built by hand: an array of byte strings.
+    fn cbor_list<I: AsRef<[u8]>>(items: &[I]) -> Vec<u8> {
+        let mut out = cbor_head(4, items.len());
+        for item in items {
+            out.extend(cbor_head(2, item.as_ref().len()));
+            out.extend_from_slice(item.as_ref());
+        }
+        out
+    }
 
-        let bundle = crate::test_utils::generate_key_package_bundle();
-        let hash_ref = bundle.key_package().hash_ref(provider.crypto())?;
-        key_store.write_key_package(&hash_ref, &bundle)?;
-        let key = build_key::<CURRENT_VERSION, _>(KEY_PACKAGE_LABEL, &hash_ref)?;
-        assert!(
-            stored_value(key_store, KEY_PACKAGE_LABEL, &key) == bincode::serialize(&bundle)?,
-            "key package bundle"
-        );
-
-        let key_pair = KeyPair(
-            provider
-                .crypto()
-                .derive_hpke_keypair(CIPHERSUITE.hpke_config(), &[1; 32])?,
-        );
-        let public_key = EncryptionKey::from(key_pair.0.public.clone());
-        key_store.write_encryption_key_pair(&public_key, &key_pair)?;
-        let key = build_key::<CURRENT_VERSION, _>(ENCRYPTION_KEY_PAIR_LABEL, &public_key)?;
-        assert!(
-            stored_value(key_store, ENCRYPTION_KEY_PAIR_LABEL, &key)
-                == bincode::serialize(&key_pair)?,
-            "encryption key pair"
-        );
-
-        let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
-        let public_key = StorageId::from(signature_key_pair.to_public_vec());
-        key_store.write_signature_key_pair(&public_key, &signature_key_pair)?;
-        let key = build_key::<CURRENT_VERSION, _>(SIGNATURE_KEY_PAIR_LABEL, &public_key)?;
-        assert!(
-            stored_value(key_store, SIGNATURE_KEY_PAIR_LABEL, &key)
-                == bincode::serialize(&signature_key_pair)?,
-            "signature key pair"
-        );
-
-        let group_id = GroupId::from_slice(b"stored bytes");
-        let epoch = GroupEpoch::from(3);
-        let epoch_key_pairs = [
-            key_pair.clone(),
-            KeyPair(
-                provider
-                    .crypto()
-                    .derive_hpke_keypair(CIPHERSUITE.hpke_config(), &[2; 32])?,
-            ),
-        ];
-        key_store.write_encryption_epoch_key_pairs(&group_id, &epoch, 1, &epoch_key_pairs)?;
-        let key = epoch_key_pairs_id(&group_id, &epoch, 1)?;
-        assert!(
-            stored_value(key_store, EPOCH_KEY_PAIRS_LABEL, &key)
-                == bincode::serialize(epoch_key_pairs.as_slice())?,
-            "epoch key pairs"
-        );
-
-        // The post-quantum key compares with the expression `identity.rs` used
-        // before it called `write_wrapper_private_key`.
-        let post_quantum = xmtp_cryptography::post_quantum::generate_post_quantum_key()?;
-        let hash_ref = bincode::serialize(&hash_ref)?;
-        key_store.write_wrapper_private_key(&hash_ref, &post_quantum.private)?;
-        assert!(
-            stored_value(key_store, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)
-                == bincode::serialize(&post_quantum.private.to_vec())?,
-            "post-quantum wrapper private key"
-        );
-
-        const LIST: &[u8] = b"StoredBytesList";
-        let (first, second) = (b"first entry".as_slice(), b"second entry".as_slice());
-        key_store.append::<CURRENT_VERSION>(LIST, b"key", first)?;
-        assert!(
-            stored_value(key_store, LIST, b"key") == bincode::serialize(&vec![first])?,
-            "first list entry"
-        );
-        key_store.append::<CURRENT_VERSION>(LIST, b"key", second)?;
-        assert!(
-            stored_value(key_store, LIST, b"key") == bincode::serialize(&vec![first, second])?,
-            "appended list entry"
-        );
-        key_store.remove_item::<CURRENT_VERSION>(LIST, b"key", first)?;
-        assert!(
-            stored_value(key_store, LIST, b"key") == bincode::serialize(&vec![second])?,
-            "removed list entry"
-        );
+    /// A key part in the key layout, built by hand: a `u64` LE length, then
+    /// the bytes.
+    fn length_prefixed(bytes: &[u8]) -> Vec<u8> {
+        [&(bytes.len() as u64).to_le_bytes()[..], bytes].concat()
     }
 
     /// A value for every OpenMLS value trait. Its long byte string makes the
-    /// bincode length exceed 65,535.
+    /// CBOR array length exceed 65,535.
     #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
     struct Value(Vec<u8>, u64);
     impl Entity<CURRENT_VERSION> for Value {}
@@ -1854,12 +1782,11 @@ pub(crate) mod tests {
         Value(vec![n; 70_000], u64::from(n))
     }
 
-    /// Every label stores the bytes the code before the codec module stored.
-    /// The expected storage keys and values are built by hand from
-    /// `bincode::serialize`. Every value reads back, and every delete removes
-    /// the row at that storage key.
+    /// Every label stores its value as CBOR under the key layout. The
+    /// expected storage keys, values and lists are built by hand. Every value
+    /// reads back, and every delete removes the row at that storage key.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn every_label_keeps_todays_bytes() {
+    async fn every_label_stores_cbor_under_the_key_layout() {
         use super::*;
         use openmls::{
             prelude::{
@@ -1892,7 +1819,7 @@ pub(crate) mod tests {
         };
 
         let group_id = GroupId::from_slice(&[0x5a; 300]);
-        let group_key = bincode::serialize(&group_id)?;
+        let group_key = length_prefixed(&[0x5a; 300]);
 
         macro_rules! group_value {
             ($label:expr, $write:ident, $read:ident, $delete:expr, $n:expr) => {{
@@ -1901,7 +1828,7 @@ pub(crate) mod tests {
                 key_store.$write(&group_id, &v)?;
                 assert_eq!(
                     stored(storage_key.clone()),
-                    Some(bincode::serialize(&v)?),
+                    Some(cbor(&v)),
                     "{}",
                     String::from_utf8_lossy($label)
                 );
@@ -1992,7 +1919,7 @@ pub(crate) mod tests {
         key_store.write_resumption_psk_store(&group_id, &v)?;
         assert_eq!(
             stored(single(RESUMPTION_PSK_STORE_LABEL, &group_key)),
-            Some(bincode::serialize(&v)?)
+            Some(cbor(&v))
         );
         let read: Option<Value> = key_store.resumption_psk_store(&group_id)?;
         assert_eq!(read, Some(v));
@@ -2000,67 +1927,34 @@ pub(crate) mod tests {
         assert_eq!(stored(single(RESUMPTION_PSK_STORE_LABEL, &group_key)), None);
 
         let public_key = StorageId::from(vec![0x12; 32]);
+        let public_key_key = doubled(SIGNATURE_KEY_PAIR_LABEL, &length_prefixed(&[0x12; 32]));
         let v = value(12);
         key_store.write_signature_key_pair(&public_key, &v)?;
-        assert_eq!(
-            stored(doubled(
-                SIGNATURE_KEY_PAIR_LABEL,
-                &bincode::serialize(&public_key)?
-            )),
-            Some(bincode::serialize(&v)?)
-        );
+        assert_eq!(stored(public_key_key.clone()), Some(cbor(&v)));
         let read: Option<Value> = key_store.signature_key_pair(&public_key)?;
         assert_eq!(read, Some(v));
         key_store.delete_signature_key_pair(&public_key)?;
-        assert_eq!(
-            stored(doubled(
-                SIGNATURE_KEY_PAIR_LABEL,
-                &bincode::serialize(&public_key)?
-            )),
-            None
-        );
+        assert_eq!(stored(public_key_key), None);
 
         let key_package_ref = hash_ref(0x13);
+        let key_package_key = doubled(KEY_PACKAGE_LABEL, &length_prefixed(&[0x13; 32]));
         let v = value(13);
         key_store.write_key_package(&key_package_ref, &v)?;
-        assert_eq!(
-            stored(doubled(
-                KEY_PACKAGE_LABEL,
-                &bincode::serialize(&key_package_ref)?
-            )),
-            Some(bincode::serialize(&v)?)
-        );
+        assert_eq!(stored(key_package_key.clone()), Some(cbor(&v)));
         let read: Option<Value> = key_store.key_package(&key_package_ref)?;
         assert_eq!(read, Some(v));
         key_store.delete_key_package(&key_package_ref)?;
-        assert_eq!(
-            stored(doubled(
-                KEY_PACKAGE_LABEL,
-                &bincode::serialize(&key_package_ref)?
-            )),
-            None
-        );
+        assert_eq!(stored(key_package_key), None);
 
         let encryption_key = EncryptionKey::from(vec![0x14; 32]);
+        let encryption_key_key = doubled(ENCRYPTION_KEY_PAIR_LABEL, &length_prefixed(&[0x14; 32]));
         let v = value(14);
         key_store.write_encryption_key_pair(&encryption_key, &v)?;
-        assert_eq!(
-            stored(doubled(
-                ENCRYPTION_KEY_PAIR_LABEL,
-                &bincode::serialize(&encryption_key)?
-            )),
-            Some(bincode::serialize(&v)?)
-        );
+        assert_eq!(stored(encryption_key_key.clone()), Some(cbor(&v)));
         let read: Option<Value> = key_store.encryption_key_pair(&encryption_key)?;
         assert_eq!(read, Some(v));
         key_store.delete_encryption_key_pair(&encryption_key)?;
-        assert_eq!(
-            stored(doubled(
-                ENCRYPTION_KEY_PAIR_LABEL,
-                &bincode::serialize(&encryption_key)?
-            )),
-            None
-        );
+        assert_eq!(stored(encryption_key_key), None);
 
         // The epoch key pairs key is the three parts back to back.
         let epoch = GroupEpoch::from(15);
@@ -2068,29 +1962,26 @@ pub(crate) mod tests {
         key_store.write_encryption_epoch_key_pairs(&group_id, &epoch, 17, &pairs)?;
         let parts = [
             group_key.clone(),
-            bincode::serialize(&epoch)?,
-            bincode::serialize(&17u32)?,
+            15u64.to_le_bytes().to_vec(),
+            17u32.to_le_bytes().to_vec(),
         ]
         .concat();
         assert_eq!(
             stored(single(EPOCH_KEY_PAIRS_LABEL, &parts)),
-            Some(bincode::serialize(pairs.as_slice())?)
+            Some(cbor(&pairs.as_slice()))
         );
         let read: Vec<Value> = key_store.encryption_epoch_key_pairs(&group_id, &epoch, 17)?;
         assert_eq!(read, pairs);
         key_store.delete_encryption_epoch_key_pairs(&group_id, &epoch, 17)?;
         assert_eq!(stored(single(EPOCH_KEY_PAIRS_LABEL, &parts)), None);
 
-        // Lists: each item is the bincode of one value.
+        // Lists: an array of byte strings, each the CBOR of one value.
         let (first, second) = (value(18), value(19));
         key_store.append_own_leaf_node(&group_id, &first)?;
         key_store.append_own_leaf_node(&group_id, &second)?;
         assert_eq!(
             stored(doubled(OWN_LEAF_NODES_LABEL, &group_key)),
-            Some(bincode::serialize(&vec![
-                bincode::serialize(&first)?,
-                bincode::serialize(&second)?
-            ])?)
+            Some(cbor_list(&[cbor(&first), cbor(&second)]))
         );
         let read: Vec<Value> = key_store.own_leaf_nodes(&group_id)?;
         assert_eq!(read, [first, second]);
@@ -2101,60 +1992,93 @@ pub(crate) mod tests {
         let (proposal_1, proposal_2) = (value(20), value(21));
         key_store.queue_proposal(&group_id, &ref_1, &proposal_1)?;
         key_store.queue_proposal(&group_id, &ref_2, &proposal_2)?;
-        assert_eq!(
-            stored(single(
+        let proposal_key = |byte: u8| {
+            single(
                 QUEUED_PROPOSAL_LABEL,
-                &bincode::serialize(&(&group_id, &ref_1))?
-            )),
-            Some(bincode::serialize(&proposal_1)?)
-        );
+                &[group_key.as_slice(), &length_prefixed(&[byte; 32])].concat(),
+            )
+        };
+        assert_eq!(stored(proposal_key(0x20)), Some(cbor(&proposal_1)));
         let refs_key = doubled(PROPOSAL_QUEUE_REFS_LABEL, &group_key);
         assert_eq!(
             stored(refs_key.clone()),
-            Some(bincode::serialize(&vec![
-                bincode::serialize(&ref_1)?,
-                bincode::serialize(&ref_2)?
-            ])?)
+            Some(cbor_list(&[cbor(&ref_1), cbor(&ref_2)]))
         );
         let read: Vec<(KeyPackageRef, Value)> = key_store.queued_proposals(&group_id)?;
         assert_eq!(
             read,
             [(ref_1.clone(), proposal_1), (ref_2.clone(), proposal_2)]
         );
-        let proposal_key =
-            |proposal_ref: &KeyPackageRef| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-                Ok(single(
-                    QUEUED_PROPOSAL_LABEL,
-                    &bincode::serialize(&(&group_id, proposal_ref))?,
-                ))
-            };
         key_store.remove_proposal(&group_id, &ref_1)?;
-        assert_eq!(
-            stored(refs_key.clone()),
-            Some(bincode::serialize(&vec![bincode::serialize(&ref_2)?])?)
-        );
-        assert_eq!(stored(proposal_key(&ref_1)?), None);
-        assert!(stored(proposal_key(&ref_2)?).is_some());
+        assert_eq!(stored(refs_key.clone()), Some(cbor_list(&[cbor(&ref_2)])));
+        assert_eq!(stored(proposal_key(0x20)), None);
+        assert!(stored(proposal_key(0x21)).is_some());
         key_store.clear_proposal_queue::<_, KeyPackageRef>(&group_id)?;
-        assert_eq!(stored(proposal_key(&ref_2)?), None);
+        assert_eq!(stored(proposal_key(0x21)), None);
         assert_eq!(stored(refs_key), None);
 
-        // A removal from a missing list writes a one-item array: no list
-        // length, so the row does not decode as a list. Kept as it is today.
+        // A removal from a missing list leaves an empty list, which reads back.
         let other_group = GroupId::from_slice(b"no queue");
         key_store.remove_proposal(&other_group, &ref_2)?;
-        let ref_bytes = bincode::serialize(&ref_2)?;
         assert_eq!(
             stored(doubled(
                 PROPOSAL_QUEUE_REFS_LABEL,
-                &bincode::serialize(&other_group)?
+                &length_prefixed(b"no queue")
             )),
-            Some(bincode::serialize(&[ref_bytes.as_slice()])?)
+            Some(vec![0x80])
         );
+        let refs: Vec<KeyPackageRef> = key_store.queued_proposal_refs(&other_group)?;
+        assert!(refs.is_empty());
+
+        // The XMTP labels' typed writers store one byte string under a key
+        // built in place: the post-quantum wrapper key under its hash ref in
+        // the key layout, and the commit-log signer under the group id.
+        use crate::xmtp_openmls_provider::XmtpMlsStorageProvider;
+        let byte_string = |byte: u8| [&[0x58, 0x20][..], &[byte; 32]].concat();
+        let wrapper_hash_ref = length_prefixed(&[0x5a; 32]);
+        let wrapper_key = single(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &wrapper_hash_ref);
+        key_store.write_wrapper_private_key(&wrapper_hash_ref, &[0x5a; 32])?;
+        assert_eq!(stored(wrapper_key.clone()), Some(byte_string(0x5a)));
+        assert_eq!(
+            key_store
+                .wrapper_private_key(&wrapper_hash_ref)?
+                .map(|key| key.to_vec()),
+            Some(vec![0x5a; 32])
+        );
+        key_store.delete::<CURRENT_VERSION>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &wrapper_hash_ref)?;
+        assert_eq!(stored(wrapper_key), None);
+
+        let signer_key = single(COMMIT_LOG_SIGNER_PRIVATE_KEY, &group_key);
+        key_store.write_commit_log_signer(group_id.as_slice(), &[0x24; 32])?;
+        assert_eq!(stored(signer_key.clone()), Some(byte_string(0x24)));
+        assert_eq!(
+            key_store
+                .commit_log_signer(group_id.as_slice())?
+                .map(|key| key.as_slice().to_vec()),
+            Some(vec![0x24; 32])
+        );
+        key_store.delete::<CURRENT_VERSION>(
+            COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id.as_slice())?,
+        )?;
+        assert_eq!(stored(signer_key), None);
+
+        // A list under a raw label: each append and removal rewrites the
+        // whole list.
+        const LIST: &[u8] = b"StoredBytesList";
+        let list_key = single(LIST, b"key");
+        let (first, second) = (b"first entry".as_slice(), b"second entry".as_slice());
+        key_store.append::<CURRENT_VERSION>(LIST, b"key", first)?;
+        assert_eq!(stored(list_key.clone()), Some(cbor_list(&[first])));
+        key_store.append::<CURRENT_VERSION>(LIST, b"key", second)?;
+        assert_eq!(stored(list_key.clone()), Some(cbor_list(&[first, second])));
+        key_store.remove_item::<CURRENT_VERSION>(LIST, b"key", first)?;
+        assert_eq!(stored(list_key), Some(cbor_list(&[second])));
     }
 
-    /// The `write_key_package` span records the hash reference, never the
-    /// bundle with its init and leaf encryption private keys.
+    /// The `write_key_package` span records the hash reference, and no
+    /// exported span or event records the bundle with its init and leaf
+    /// encryption private keys.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn write_key_package_span_records_no_private_key() {
@@ -2171,23 +2095,28 @@ pub(crate) mod tests {
             .iter()
             .find(|span| span.name == "write_key_package")
             .expect("the key store exports its write_key_package span");
-        let attributes = format!("{:?}", span.attributes);
         assert!(
-            attributes.contains(&hex::encode(bincode::serialize(&hash_ref)?)),
+            format!("{:?}", span.attributes)
+                .contains(&hex::encode(super::codec::key::to_vec(&hash_ref)?)),
             "the span records the hash reference"
         );
+        // Names, attributes and events of every exported span.
+        let exported = format!("{spans:?}");
         for private_key in [bundle.init_private_key(), bundle.encryption_private_key()] {
-            assert!(
-                !attributes.contains(&hex::encode(&**private_key)),
-                "the span records a private key"
-            );
+            for form in super::codec::logged_forms(private_key) {
+                assert!(
+                    !exported.contains(&form),
+                    "a span records a private key: {form}"
+                );
+            }
         }
     }
 
     /// The group context's AppData dictionary holds the commit-log signer, a
     /// group-shared private key, and OpenMLS writes the context on every epoch
     /// change. The `write_context` span records the group id, never the
-    /// context, and no other key store span records the signer.
+    /// context, and no span or event exported while the group is built
+    /// records the signer.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn write_context_span_records_no_private_key() {
@@ -2233,13 +2162,17 @@ pub(crate) mod tests {
                 .build(&provider, &signer, credential_with_key)
         });
         let group = group?;
-        let signer_hex = hex::encode(&commit_log_signer);
+        let signer_forms = super::codec::logged_forms(&commit_log_signer);
         let stored_context: GroupContext = provider
             .storage()
             .group_context(group.group_id())?
             .expect("OpenMLS stores the group context");
-        assert!(
-            hex::encode(bincode::serialize(&stored_context)?).contains(&signer_hex),
+        assert_eq!(
+            stored_context
+                .extensions()
+                .app_data_dictionary()
+                .and_then(|extension| extension.dictionary().get(&COMMIT_LOG_SIGNER)),
+            Some(commit_log_signer.as_slice()),
             "the stored group context holds the commit-log signer"
         );
 
@@ -2249,15 +2182,78 @@ pub(crate) mod tests {
             .expect("the key store exports its write_context span");
         assert!(
             format!("{:?}", span.attributes)
-                .contains(&hex::encode(bincode::serialize(group.group_id())?)),
+                .contains(&hex::encode(super::codec::key::to_vec(group.group_id())?)),
             "the span records the group id"
         );
+        // Name, attributes and events of each exported span.
         for span in &spans {
-            assert!(
-                !format!("{:?}", span.attributes).contains(&signer_hex),
-                "the {} span records the commit-log signer",
-                span.name
-            );
+            let exported = format!("{span:?}");
+            for form in &signer_forms {
+                assert!(
+                    !exported.contains(form),
+                    "the {} span records the commit-log signer",
+                    span.name
+                );
+            }
         }
+    }
+
+    /// Removing a proposal finds its ref by value, not by the bytes this build
+    /// writes. A ref stored in another valid CBOR encoding (here an array
+    /// length in two bytes where one is enough) is removed too, so no ref is
+    /// left without its proposal and the group still loads.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn removing_a_proposal_matches_its_ref_in_another_encoding() {
+        use super::{PROPOSAL_QUEUE_REFS_LABEL, build_key, codec::encode_list};
+        use openmls::{
+            group::MlsGroup,
+            prelude::{BasicCredential, CredentialWithKey, LeafNodeParameters},
+        };
+
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let provider = XmtpOpenMlsProvider::new(SqlKeyStore::new(store.conn()));
+        let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
+        let mut group = MlsGroup::builder().ciphersuite(CIPHERSUITE).build(
+            &provider,
+            &signer,
+            CredentialWithKey {
+                credential: BasicCredential::new(b"proposal refs".to_vec()).into(),
+                signature_key: signer.to_public_vec().into(),
+            },
+        )?;
+        let (_, proposal_ref) =
+            group.propose_self_update(&provider, &signer, LeafNodeParameters::default())?;
+
+        // Rewrite the stored ref with a two-byte length for its 32-byte array.
+        let key = build_key::<CURRENT_VERSION, _>(PROPOSAL_QUEUE_REFS_LABEL, group.group_id())?;
+        let storage = provider.storage();
+        let storage_key =
+            super::build_key_from_vec::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, key.clone());
+        let rows = storage.select_query::<CURRENT_VERSION>(&storage_key)?;
+        let items = super::codec::decode_list(PROPOSAL_QUEUE_REFS_LABEL, &rows[0].value_bytes)?;
+        let [item] = items.as_slice() else {
+            panic!("one queued ref");
+        };
+        let header = item
+            .windows(2)
+            .position(|window| window == [0x98, 0x20])
+            .expect("a 32-byte array");
+        let other = [&item[..header], &[0x99, 0x00, 0x20], &item[header + 2..]].concat();
+        assert_ne!(&other, item);
+        storage.write::<CURRENT_VERSION>(
+            PROPOSAL_QUEUE_REFS_LABEL,
+            &key,
+            &encode_list(PROPOSAL_QUEUE_REFS_LABEL, &[other])?,
+        )?;
+        assert_eq!(group.pending_proposals().count(), 1);
+
+        group.remove_pending_proposal(storage, &proposal_ref)?;
+        let refs: Vec<openmls::prelude::KeyPackageRef> =
+            storage.queued_proposal_refs(group.group_id())?;
+        assert!(
+            refs.is_empty(),
+            "the ref in another encoding was not removed"
+        );
+        assert!(MlsGroup::load(storage, group.group_id())?.is_some());
     }
 }

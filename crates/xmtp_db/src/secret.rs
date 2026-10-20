@@ -16,8 +16,8 @@ use xmtp_cryptography::secret::{Secret, Zeroizing};
 /// Secret bytes in a database column. Wiped on drop; `Debug` shows only the
 /// length.
 ///
-/// Stored as the same `BLOB` as a `Vec<u8>`, and serde encodes it as a
-/// `Vec<u8>`, so stored bytes do not change. Equality is constant time.
+/// Stored as the same `BLOB` as a `Vec<u8>`. Serde encodes it as a byte
+/// string, like [`Secret`]. Equality is constant time.
 ///
 /// It has no `Drop` of its own, so a row struct's Diesel `Insertable` impl can
 /// move it. Every move, clone and builder copy is still wiped on drop.
@@ -66,14 +66,13 @@ impl Eq for StoredSecret {}
 
 impl serde::Serialize for StoredSecret {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // Same as `Vec<u8>`: a sequence of `u8`.
-        serializer.collect_seq(self.as_slice())
+        serializer.serialize_bytes(self.as_slice())
     }
 }
 
 impl<'de> serde::Deserialize<'de> for StoredSecret {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        // `Secret` decodes like `Vec<u8>` without freeing a partial copy.
+        // `Secret` decodes a byte string without freeing a partial copy.
         Secret::deserialize(deserializer).map(Self::from)
     }
 }
@@ -96,13 +95,15 @@ impl FromSql<Binary, Sqlite> for StoredSecret {
 mod tests {
     use super::*;
 
+    /// The column codec stores a secret as a CBOR byte string.
     #[xmtp_common::test]
-    fn serde_matches_vec() {
+    fn serde_is_a_byte_string() {
+        use crate::{db_deserialize, db_serialize};
         let bytes: Vec<u8> = (0..=200u8).collect();
         let secret = StoredSecret::from(bytes.clone());
-        let encoded = bincode::serialize(&secret).unwrap();
-        assert_eq!(encoded, bincode::serialize(&bytes).unwrap());
-        let decoded: StoredSecret = bincode::deserialize(&encoded).unwrap();
+        let encoded = db_serialize(&secret).unwrap();
+        assert_eq!(encoded, [&[0x58, 201][..], &bytes].concat());
+        let decoded: StoredSecret = db_deserialize(&encoded).unwrap();
         assert_eq!(decoded.as_slice(), bytes.as_slice());
     }
 

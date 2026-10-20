@@ -453,3 +453,44 @@ async fn in_memory_delete_is_invalid_input_and_keeps_client_open() {
     client.conversations().create_group(vec![], None).await?;
     client.end().await?;
 }
+
+/// A database written before the CBOR storage marker fails to open with the
+/// typed `Storage` error, its cause code, and a message that says what to do.
+/// It is not retryable and not `Unknown`.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn opening_a_database_written_before_cbor_storage_is_a_typed_storage_error() {
+    use xmtp_db::diesel::{Connection, SqliteConnection, connection::SimpleConnection};
+
+    let path = std::env::temp_dir().join(format!(
+        "sdk-old-encoding-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns()
+    ));
+    let path_text = path.to_string_lossy().into_owned();
+    let storage = StorageOptions::default();
+    drop(crate::client::open_store(&storage, Some(&path_text)).await?);
+    // A build before the switch stored a bincode key store row and never
+    // applied the marker migration `2026-10-20-000000_cbor_storage_format`.
+    let mut conn = SqliteConnection::establish(&path_text)?;
+    conn.batch_execute(
+        "INSERT INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (x'0102', 1, x'0300000000000000aabbcc'); \
+         DELETE FROM __diesel_schema_migrations WHERE version = '20261020000000';",
+    )?;
+    drop(conn);
+
+    match crate::client::open_store(&storage, Some(&path_text)).await {
+        Err(XmtpError::Storage(details)) => {
+            assert_eq!(details.code, "StorageError::OldEncodingDatabase");
+            assert!(matches!(details.category, crate::ErrorCategory::Storage));
+            assert!(!details.retryable);
+            assert_eq!(
+                details.message,
+                "This database uses an older storage encoding. Keep a backup and create a new client database."
+            );
+        }
+        Err(error) => panic!("expected a typed storage error, got {error:?}"),
+        Ok(_) => panic!("a database written before the CBOR switch opened"),
+    }
+    let _ = std::fs::remove_file(path);
+}

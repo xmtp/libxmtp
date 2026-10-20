@@ -61,7 +61,8 @@ Never copy a function between crates; move it and import it. Read the package's
 | MLS message id | `utils::id::calculate_message_id(..)` | `xmtp_mls` |
 | Own secret bytes (field, return, binding) | `Secret::new(bytes)`, `.as_slice()` | `xmtp_cryptography::secret` |
 | Transient secret buffer | `Zeroizing::new(buf)` where the buffer is made | `xmtp_cryptography::secret` |
-| Database column that holds a secret | `StoredSecret` (`BLOB`, serde as `Vec<u8>`) | `xmtp_db` |
+| Database column that holds a secret | `StoredSecret` (`BLOB`, serde as a byte string) | `xmtp_db` |
+| Byte field of a stored libxmtp type | `#[serde(with = "xmtp_db::byte_string")]` (`byte_strings`, `optional_byte_strings`) | `xmtp_db` |
 | Hand-written secret holder | `Zeroize`, `ZeroizeOnDrop` | `xmtp_cryptography::secret` |
 | Prove a wipe in a test | `install_heap_canary!()`, `Canary`, `scan` / `scan_async` | `xmtp_cryptography::secret::heap_canary` |
 

@@ -228,26 +228,6 @@ mod tests {
         );
     }
 
-    /// Oracle while the xmtp OpenMLS fork is pinned: the fork exports its
-    /// `EncryptContext`. Remove this test when the pin moves to upstream OpenMLS.
-    #[xmtp_common::test(unwrap_try = true)]
-    fn hpke_info_matches_openmls_encrypt_context() {
-        let long_label = "l".repeat(100);
-        let long_context = vec![9u8; 300];
-        let cases: [(&str, &[u8]); 5] = [
-            (WELCOME_HPKE_LABEL, &[]),
-            (TEST_LABEL, &[]),
-            ("", &[]),
-            ("label", &[1, 2, 3]),
-            (&long_label, &long_context),
-        ];
-        for (label, context) in cases {
-            let fork = openmls::prelude::hpke::EncryptContext::from((label, context))
-                .tls_serialize_detached()?;
-            assert_eq!(hpke_info(label, context)?, fork, "label {label:?}");
-        }
-    }
-
     #[xmtp_common::test(unwrap_try = true)]
     fn legacy_xwing_key_encoding_is_stable() {
         let hpke = WrapperAlgorithm::XWingMLKEM768Draft6.to_hpke_config();

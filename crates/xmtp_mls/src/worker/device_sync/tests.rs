@@ -400,14 +400,15 @@ async fn test_hmac_and_consent_preference_sync() {
         Some(InternalEvent::SyncMessagePublished)
     ));
 
-    alix2
-        .worker()
-        .register_interest(SyncMetric::ConsentReceived, 1)
-        .wait()
-        .await?;
-
-    let alix2_dm = alix2.group(&dm.group_id)?;
-    assert_eq!(alix2_dm.consent_state()?, ConsentState::Denied);
+    // Wait for the state, not for a ConsentReceived count: the count is
+    // cumulative, and alix2 may already have received alix1's earlier
+    // Allowed update for the DM, which would end the wait before Denied
+    // arrives.
+    xmtp_common::wait_for_eq(
+        || async { alix2.group(&dm.group_id).unwrap().consent_state().unwrap() },
+        ConsentState::Denied,
+    )
+    .await?;
 
     // Now alix1 receives a group from bo, alix1 consents. Alix2 should see the group as consented as well.
     let bo_group = bo
@@ -429,13 +430,12 @@ async fn test_hmac_and_consent_preference_sync() {
 
     alix2.sync_all_welcomes_and_groups(None).await?;
 
-    alix2
-        .worker()
-        .register_interest(SyncMetric::ConsentReceived, 2)
-        .wait()
-        .await?;
     let alix2_group = alix2.group(&bo_group.group_id)?;
-    assert_eq!(alix2_group.consent_state()?, ConsentState::Allowed);
+    xmtp_common::wait_for_eq(
+        || async { alix2_group.consent_state().unwrap() },
+        ConsentState::Allowed,
+    )
+    .await?;
 }
 
 // verifies: SYNC-014

@@ -52,7 +52,6 @@ dev = ["xmtp_configuration/dev", "xmtp_proto/dev", "xmtp_api_backend/dev"]
 [dependencies]
 aes-gcm.workspace = true
 async-trait.workspace = true
-bincode.workspace = true
 bon.workspace = true
 bytes.workspace = true
 derive_builder.workspace = true
@@ -142,6 +141,7 @@ web-sys.workspace = true
 
 [dev-dependencies]
 alloy.workspace = true
+cbor4ii.workspace = true
 diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",

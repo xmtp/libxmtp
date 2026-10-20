@@ -40,23 +40,101 @@ the producer removes secret rows, and extract the context that contains
 ## Group context corpus
 
 `legacy-context-corpus.json` holds legacy `GroupContextGroupContext` records and
-the metadata each one decodes to. `src/metadata/oracle.rs` built them with the
-OpenMLS fork types at `3fabbf23` and bincode 1.3.3, and recorded the result of
-the legacy decoder. The cases cover each extension the std-only reader in
-`src/legacy_context.rs` accepts, pairs of them in both orders, every ciphersuite
-tag, the other protocol version, other extension types, truncations, and
-oversized lengths. A few cases are byte edits of fork output: a proposal tag the
-fork does not use, a repeated dictionary key, and a protocol version, extension
-type, or credential type tag one past the last variant.
+the metadata the std-only reader in `src/legacy_context.rs` must return for
+each. An oracle built them with the OpenMLS fork types at `3fabbf23` and
+bincode 1.3.3. For a context whose extensions are all of the four types the
+reader reads (RequiredCapabilities, ImmutableMetadata, Unknown and
+AppDataDictionary), it recorded the fork decoder's result. For any other
+context it recorded no metadata. The cases cover each extension the reader
+accepts, pairs of them in both orders, every ciphersuite tag, the other
+protocol version, other extension types, truncations, and oversized lengths. A
+few cases are byte edits of fork output: a proposal tag the fork does not use,
+a repeated dictionary key, and a protocol version, extension type, or
+credential type tag one past the last variant.
 
-While the fork is pinned, the oracle tests check that a rebuild writes the same
-file and that the reader agrees with the legacy decoder, also on every
-truncation and on single-byte changes. A test checks the corpus hash in
-`hashes.json`. The rebuild writes the corpus and its hash. Run:
+While the fork was pinned, the oracle also checked that the reader agreed with
+the fork decoder on every truncation and on single-byte changes of the corpus
+and of the fixture databases. The workspace now builds on upstream OpenMLS,
+which lacks the fork's types, so the oracle was removed and the corpus is
+frozen. Do not edit its cases. Tests that need no oracle remain: every case decodes
+to its recorded metadata, every cut of a case and of each fixture database
+context has no metadata, single-byte changes of `everything` decode to the
+fork decoder's frozen results (see below), and the hashes in `hashes.json`
+match.
+
+To rebuild the corpus, check out libxmtp `b9ce66d008`, the last commit with
+`src/metadata/oracle.rs`, and run there:
 
 ```sh
 dev/nix-shell 'just test workspace -p xmtp_legacy_migration write_corpus_fixture --run-ignored only'
 ```
+
+The rebuild reproduces every case and its expected metadata, not the
+description line: that commit wrote a description naming the oracle as the
+builder, and the frozen file's description was rewritten once when the oracle
+was removed. So a rebuilt file differs from the frozen one in that line and in
+its hash (`5e75ff12…` against the `91f32e16…` in `hashes.json`).
+
+## Changed-byte results
+
+`legacy-context-mutations.json` freezes what the fork decoder returned for each
+single-byte change of the corpus case `everything`: each byte set to `0x00`,
+`0xff`, and the byte with its low bit flipped. It lists each change that yields
+metadata as `[index, value, result]`, where `result` indexes the distinct
+metadata in `results`. Every other change yields none. The test
+`changed_bytes_do_not_panic` in `src/metadata.rs` checks that the std-only
+reader still returns exactly these results. Do not edit the file.
+
+A one-off built it at libxmtp `b9ce66d008` and was not committed. To rebuild
+it, check out that commit, append this test to
+`crates/xmtp_legacy_migration/src/metadata/oracle.rs`:
+
+```rust
+#[ignore = "one-off: freezes the oracle's mutation results"]
+#[xmtp_common::test(unwrap_try = true)]
+fn write_mutation_results() {
+    let everything = corpus()
+        .into_iter()
+        .find(|case| case.name == "everything")
+        .unwrap()
+        .context;
+    let (mut results, mut mutations) = (Vec::<Value>::new(), vec![]);
+    for (index, &byte) in everything.iter().enumerate() {
+        for value in [0x00, 0xff, byte ^ 0x01] {
+            let mut bytes = everything.clone();
+            bytes[index] = value;
+            let expected = expected(&bytes);
+            assert_eq!(decode(&bytes), expected, "everything[{index}] = {value:#04x}");
+            if expected != (None, None) {
+                let summary = summary(&expected);
+                let result = match results.iter().position(|known| *known == summary) {
+                    Some(result) => result,
+                    None => {
+                        results.push(summary);
+                        results.len() - 1
+                    }
+                };
+                mutations.push(json!([index, value, result]));
+            }
+        }
+    }
+    let text = serde_json::to_string_pretty(&json!({
+        "description": "The legacy decoder's metadata for each changed byte of the corpus case \"everything\" (byte set to 0x00, 0xff, or byte ^ 0x01) that yields metadata: [index, value, result], where result indexes results. Every other change yields none. Frozen: see README.md.",
+        "results": results,
+        "mutations": mutations,
+    }))? + "\n";
+    std::fs::write(std::env::var("MUTATIONS_OUT")?, text)?;
+}
+```
+
+and run there, with an absolute output path:
+
+```sh
+dev/nix-shell 'MUTATIONS_OUT=/tmp/legacy-context-mutations.json just test workspace -p xmtp_legacy_migration write_mutation_results --run-ignored only'
+```
+
+The test also checks that the reader at that commit agreed with the fork
+decoder on every change. A rebuild reproduces the file byte for byte.
 
 ## Controlled history
 

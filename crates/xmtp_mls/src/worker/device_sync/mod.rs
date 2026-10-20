@@ -171,11 +171,6 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     #[error_code(inherit)]
     Subscribe(#[from] SubscribeError),
-    /// Bincode error.
-    ///
-    /// Binary serialization failed. Retryable.
-    #[error(transparent)]
-    Bincode(#[from] bincode::Error),
     /// Archive error.
     ///
     /// Sync archive operation failed. Retryable.

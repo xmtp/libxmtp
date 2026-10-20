@@ -40,6 +40,37 @@ fn dropped_hex_string_is_a_hit() {
     assert_eq!(hits, [1]);
 }
 
+/// tracing records a `&[u8]` field as lowercase hex with a space between
+/// bytes, `[5e 91 0c …]`. A freed copy of that text is a hit.
+#[test]
+fn dropped_spaced_hex_is_a_hit() {
+    let spaced = black_box(format!(
+        "[{}]",
+        KEY.iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    ));
+    assert!(!spaced.contains(&hex::encode(KEY)));
+    let ((), hits) = scan(&[Canary::new(&KEY)], || drop(black_box(spaced)));
+    assert_eq!(hits, [1]);
+}
+
+/// The client database stores a key in an OpenMLS type as a CBOR array of
+/// `u8`. A freed encoded value is a hit, though a CBOR array splits the raw
+/// bytes. The key holds both bytes at the item boundary: `0x17` is its own
+/// item, and `0x18` takes the one-byte prefix.
+#[test]
+fn dropped_cbor_encoding_is_a_hit() {
+    let mut key = KEY;
+    key[0] = 0x17;
+    key[1] = 0x18;
+    let encoded = black_box(cbor4ii::serde::to_vec(Vec::new(), &key.to_vec()).unwrap());
+    assert!(!encoded.windows(key.len()).any(|window| window == key));
+    let ((), hits) = scan(&[Canary::new(&key)], || drop(black_box(encoded)));
+    assert_eq!(hits, [1]);
+}
+
 #[test]
 fn finds_42_and_16_byte_secrets() {
     let long: [u8; 42] = std::array::from_fn(|i| 0x80 ^ (i as u8).wrapping_mul(37));

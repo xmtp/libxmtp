@@ -8,10 +8,7 @@ use xmtp_cryptography::Secret;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::group::StoredGroupCommitLogPublicKey;
 use xmtp_db::prelude::QueryGroup;
-use xmtp_db::{
-    XmtpMlsStorageProvider,
-    sql_key_store::{COMMIT_LOG_SIGNER_PRIVATE_KEY, SqlKeyStoreError, codec as kv_codec},
-};
+use xmtp_db::{XmtpMlsStorageProvider, sql_key_store::SqlKeyStoreError};
 use xmtp_proto::backend_v1::CommitLogEntry as CommitLogEntryProto;
 
 use xmtp_proto::types::GroupId;
@@ -83,11 +80,7 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
         &self,
         group_id: impl AsRef<[u8]>,
     ) -> Result<Option<Secret>, Self::Error> {
-        let key = kv_codec::encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id.as_ref())?;
-        let value = self
-            .read::<Vec<u8>>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key)?
-            .map(Secret::new);
-        Ok(value)
+        self.commit_log_signer(group_id.as_ref())
     }
 
     fn write_commit_log_key(
@@ -95,9 +88,7 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
         group_id: impl AsRef<[u8]>,
         value: &Secret,
     ) -> Result<(), Self::Error> {
-        let key = kv_codec::encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id.as_ref())?;
-        let value = kv_codec::encode_value(COMMIT_LOG_SIGNER_PRIVATE_KEY, value.as_slice())?;
-        self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key, &value)
+        self.write_commit_log_signer(group_id.as_ref(), value.as_slice())
     }
 }
 
@@ -204,15 +195,17 @@ pub(crate) fn get_or_create_signing_key(
 #[cfg(test)]
 mod tests {
     use xmtp_db::MlsProviderExt;
+    use xmtp_db::sql_key_store::{COMMIT_LOG_SIGNER_PRIVATE_KEY, codec as kv_codec};
     use xmtp_proto::backend_v1::CommitLogEntry as CommitLogEntryProto;
 
     use super::*;
     use crate::tester;
 
-    /// The commit log signer key keeps today's bincode bytes: the key is the
-    /// group id as a byte slice and the value is the secret as a byte vector.
+    /// The commit log signer key: the storage key is the group id in the key
+    /// layout, and the value is the secret as one CBOR byte string. The two
+    /// encodings differ, so a site that used the other one fails here.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn commit_log_key_bytes_are_unchanged() {
+    async fn commit_log_key_uses_the_key_layout_and_cbor() {
         use diesel::prelude::*;
         use xmtp_db::{
             ConnectionExt, XmtpTestDb, schema::openmls_key_value::dsl, sql_key_store::SqlKeyStore,
@@ -224,9 +217,13 @@ mod tests {
         let secret = Secret::new(vec![0x24; 32]);
         key_store.write_commit_log_key(group_id, &secret)?;
 
+        // The key layout: a `u64` LE length, then the bytes.
+        let key_layout = [&16u64.to_le_bytes()[..], &[0x42; 16]].concat();
+        // CBOR: a byte string of 32 bytes, then the bytes.
+        let cbor = [&[0x58, 0x20][..], &[0x24; 32]].concat();
         let storage_key = [
             COMMIT_LOG_SIGNER_PRIVATE_KEY,
-            &bincode::serialize(group_id.as_slice())?,
+            &key_layout,
             &1u16.to_be_bytes(),
         ]
         .concat();
@@ -236,7 +233,7 @@ mod tests {
                 .select(dsl::value_bytes)
                 .first(conn)
         })?;
-        assert_eq!(stored, bincode::serialize(&secret.as_slice().to_vec())?);
+        assert_eq!(stored, cbor);
         let read = key_store.read_commit_log_key(group_id)?;
         assert_eq!(read.as_ref().map(Secret::as_slice), Some(secret.as_slice()));
     }

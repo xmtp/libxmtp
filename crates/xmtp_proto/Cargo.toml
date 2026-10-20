@@ -52,7 +52,7 @@ tonic = { workspace = true, features = ["channel", "codegen"] }
 wasm-bindgen-test.workspace = true
 
 [dev-dependencies]
-bincode.workspace = true
+cbor4ii.workspace = true
 xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 mockall.workspace = true
 rstest.workspace = true

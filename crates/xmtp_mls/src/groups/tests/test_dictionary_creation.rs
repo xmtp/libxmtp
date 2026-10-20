@@ -125,12 +125,13 @@ async fn test_group_context_shape_at_creation() {
             actual.sort();
             let mut expected = vec![
                 ExtensionType::AppDataDictionary,
-                ExtensionType::LastResort,
                 ExtensionType::ApplicationId,
             ];
             expected.sort();
             assert_eq!(actual, expected);
             assert_eq!(required.proposal_types(), &[ProposalType::AppDataUpdate]);
+            // META-002 names the codepoint: `app_data_update` is 0x0008.
+            assert_eq!(u16::from(ProposalType::AppDataUpdate), 0x0008);
             let dictionary = extensions.app_data_dictionary().unwrap().dictionary();
             assert_eq!(
                 dictionary.get(&ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16()),

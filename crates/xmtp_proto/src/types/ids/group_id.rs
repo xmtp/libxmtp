@@ -418,20 +418,21 @@ mod test {
         assert_ne!(*wrong_len, id);
     }
 
+    /// The client database stores values as CBOR.
     #[xmtp_common::test(unwrap_try = true)]
     fn test_serde_roundtrip() {
         let id = GroupId::from([7u8; 16]);
-        let bytes = bincode::serialize(&id).unwrap();
-        let decoded: GroupId = bincode::deserialize(&bytes).unwrap();
+        let bytes = cbor4ii::serde::to_vec(Vec::new(), &id).unwrap();
+        let decoded: GroupId = cbor4ii::serde::from_slice(&bytes).unwrap();
         assert_eq!(decoded, id);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn test_serde_wrong_length_fails() {
-        // Manually craft a bincode-encoded Vec<u8> of length 8.
+        // A CBOR byte sequence of length 8.
         let bad: Vec<u8> = vec![1, 2, 3, 4, 5, 6, 7, 8];
-        let bytes = bincode::serialize(&bad).unwrap();
-        assert!(bincode::deserialize::<GroupId>(&bytes).is_err());
+        let bytes = cbor4ii::serde::to_vec(Vec::new(), &bad).unwrap();
+        assert!(cbor4ii::serde::from_slice::<GroupId>(&bytes).is_err());
     }
 
     #[xmtp_common::test(unwrap_try = true)]

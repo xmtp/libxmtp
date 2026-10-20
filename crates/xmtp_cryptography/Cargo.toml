@@ -62,7 +62,7 @@ exposed-keys = []
 test-utils = ["openmls/test-utils", "dep:libc"]
 
 [dev-dependencies]
-bincode.workspace = true
+cbor4ii.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
 openmls_basic_credential = { workspace = true, features = ["test-utils"] }
 serde_json = { workspace = true, features = ["std"] }

@@ -1,4 +1,5 @@
 use diesel::migration::{Migration, MigrationSource, MigrationVersion};
+use diesel::{QueryResult, SqliteConnection};
 use diesel_migrations::MigrationHarness;
 
 use super::{ConnectionExt, MIGRATIONS, Sqlite, db_connection::DbConnection};
@@ -16,6 +17,16 @@ pub trait QueryMigrations {
     fn available_migrations(&self) -> Result<Vec<String>, ConnectionError>;
 
     /// Rollback all migrations after and including the specified version.
+    ///
+    /// Refused on a database with data when it would revert the CBOR storage
+    /// marker and keep some migrations, and so the data: every later open
+    /// would reject the database as written before the marker
+    /// (`StorageError::OldEncodingDatabase`). A rollback of every migration
+    /// drops every table, so it runs; the next open creates a new database.
+    ///
+    /// The data check and the reverts run in one exclusive transaction, so no
+    /// other connection writes between them. A revert that fails undoes the
+    /// whole rollback and returns its error.
     ///
     /// WARNING: This is destructive and may cause data loss.
     fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError>;
@@ -66,36 +77,49 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
             )));
         }
 
-        let mut reverted = Vec::new();
-
-        loop {
-            let applied = self.applied_migrations()?;
-            let Some(current_version) = applied.first() else {
-                break;
-            };
-
-            if current_version.as_str() < target.as_str() {
-                break;
-            }
-
-            let result = self.raw_query(|conn| {
-                conn.revert_last_migration(MIGRATIONS)
-                    .map(|v| v.to_string())
-                    .map_err(diesel::result::Error::QueryBuilderError)
-            });
-
-            match result {
-                Ok(version) => {
-                    reverted.push(version);
+        // Versions compare as strings, as above: the rollback reverts the
+        // marker when the target sorts at or before it, and every migration
+        // when it sorts at or before the oldest applied one.
+        let marker = super::CBOR_STORAGE_MIGRATION;
+        let outcome = self.raw_query(|conn| {
+            conn.exclusive_transaction(|conn| {
+                let applied = |conn: &mut SqliteConnection| -> QueryResult<Vec<String>> {
+                    Ok(conn
+                        .applied_migrations()
+                        .map_err(diesel::result::Error::QueryBuilderError)?
+                        .into_iter()
+                        .map(|version| version.to_string())
+                        .collect())
+                };
+                let versions = applied(conn)?;
+                let oldest = versions.iter().min().cloned().unwrap_or_default();
+                let reverts_marker =
+                    target.as_str() <= marker && versions.iter().any(|v| v == marker);
+                let reverts_all = target.as_str() <= oldest.as_str();
+                if reverts_marker && !reverts_all && super::holds_client_data(conn)? {
+                    return Ok(Err(format!(
+                        "Rolling back to {version} would revert the CBOR storage marker \
+                         {marker} and keep this database's data, and every later open \
+                         would reject it as written before the marker. Roll back to a \
+                         version after {marker}, or roll back every migration (to \
+                         {oldest} or earlier), which drops all data."
+                    )));
                 }
-                Err(e) => {
-                    tracing::warn!("Migration rollback stopped: {e:?}");
-                    break;
-                }
-            }
-        }
 
-        Ok(reverted)
+                let mut reverted = Vec::new();
+                while let Some(current) = applied(conn)?.first().cloned() {
+                    if current.as_str() < target.as_str() {
+                        break;
+                    }
+                    let version = conn
+                        .revert_last_migration(MIGRATIONS)
+                        .map_err(diesel::result::Error::QueryBuilderError)?;
+                    reverted.push(version.to_string());
+                }
+                Ok(Ok(reverted))
+            })
+        })?;
+        outcome.map_err(ConnectionError::InvalidQuery)
     }
 
     fn run_migration(&self, name: &str) -> Result<(), ConnectionError> {
@@ -182,8 +206,103 @@ mod tests {
         ));
         assert!(remaining.iter().any(|version| version == BASELINE));
     }
+
+    /// A rollback that would revert the CBOR marker on a database with data
+    /// is refused: every later open would reject the database as written
+    /// before the marker. Nothing is reverted, and the refusal names the
+    /// marker and the target of a full rollback, the admin's only
+    /// instructions. On an empty database it runs.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rollback_keeps_the_cbor_marker_of_a_database_with_data() {
+        use crate::encrypted_store::CBOR_STORAGE_MIGRATION;
+        use diesel::connection::SimpleConnection;
+
+        const BEFORE_MARKER: &str = "20261009020000";
+        let store = crate::TestDb::create_ephemeral_store().await;
+        let conn = store.db();
+        conn.raw_query(|db| {
+            db.batch_execute("INSERT INTO identity (inbox_id, installation_keys, credential_bytes) VALUES ('inbox', x'01', x'02')")
+        })?;
+        let before = conn.applied_migrations()?;
+        for target in [BEFORE_MARKER, CBOR_STORAGE_MIGRATION] {
+            let Err(ConnectionError::InvalidQuery(refusal)) = conn.rollback_to_version(target)
+            else {
+                panic!("the rollback to {target} was not refused");
+            };
+            assert!(
+                refusal.contains(&format!("marker {CBOR_STORAGE_MIGRATION} ")),
+                "{refusal}"
+            );
+            assert!(
+                refusal.contains(&format!("(to {BASELINE} or earlier)")),
+                "{refusal}"
+            );
+        }
+        assert_eq!(conn.applied_migrations()?, before);
+
+        conn.raw_query(|db| db.batch_execute("DELETE FROM identity"))?;
+        conn.rollback_to_version(BEFORE_MARKER)?;
+        assert!(
+            !conn
+                .applied_migrations()?
+                .iter()
+                .any(|version| version == CBOR_STORAGE_MIGRATION)
+        );
+    }
+
+    /// The data check and the reverts are one exclusive transaction: when a
+    /// revert fails, the whole rollback is undone, the marker's revert
+    /// included, and the error is returned.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_failed_revert_undoes_the_whole_rollback() {
+        use diesel::connection::SimpleConnection;
+
+        let store = crate::TestDb::create_ephemeral_store().await;
+        let conn = store.db();
+        // The down migration that runs after the marker's drops this index.
+        conn.raw_query(|db| db.batch_execute("DROP INDEX group_messages_group_reference"))?;
+        let before = conn.applied_migrations()?;
+        assert!(conn.rollback_to_version(BASELINE).is_err());
+        assert_eq!(conn.applied_migrations()?, before);
+    }
+
+    /// A rollback of every migration on a database with data runs: it drops
+    /// every table, so the next open creates a new database, with no data.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_full_rollback_of_a_database_with_data_runs() {
+        use crate::{EncryptedMessageStore, TestDb};
+        use diesel::connection::SimpleConnection;
+
+        let path = xmtp_common::tmp_path();
+        {
+            let store =
+                EncryptedMessageStore::new(TestDb::create_database(Some(path.clone())).await)?;
+            let conn = store.db();
+            conn.raw_query(|db| {
+                db.batch_execute("INSERT INTO identity (inbox_id, installation_keys, credential_bytes) VALUES ('inbox', x'01', x'02')")
+            })?;
+            assert!(!conn.rollback_to_version(BASELINE)?.is_empty());
+            assert!(conn.applied_migrations()?.is_empty());
+        }
+        let store = EncryptedMessageStore::new(TestDb::create_database(Some(path.clone())).await)?;
+        assert!(!store.db().raw_query(super::super::holds_client_data)?);
+        assert!(
+            store
+                .db()
+                .applied_migrations()?
+                .iter()
+                .any(|version| version == crate::encrypted_store::CBOR_STORAGE_MIGRATION)
+        );
+        drop(store);
+        EncryptedMessageStore::<()>::remove_db_files(path);
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "migrations/tests.rs"]
 mod upgrade_tests;
+
+#[cfg(test)]
+#[path = "migrations/storage_format_tests.rs"]
+mod storage_format_tests;
