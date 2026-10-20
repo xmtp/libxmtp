@@ -455,8 +455,8 @@ async fn in_memory_delete_is_invalid_input_and_keeps_client_open() {
 }
 
 /// A database written before the CBOR storage marker fails to open with the
-/// typed `Storage` error and a message that says what to do. It is not
-/// retryable and not `Unknown`.
+/// typed `Storage` error, its cause code, and a message that says what to do.
+/// It is not retryable and not `Unknown`.
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn opening_a_database_written_before_cbor_storage_is_a_typed_storage_error() {
@@ -481,7 +481,7 @@ async fn opening_a_database_written_before_cbor_storage_is_a_typed_storage_error
 
     match crate::client::open_store(&storage, Some(&path_text)).await {
         Err(XmtpError::Storage(details)) => {
-            assert_eq!(details.code, "Storage");
+            assert_eq!(details.code, "StorageError::OldEncodingDatabase");
             assert!(matches!(details.category, crate::ErrorCategory::Storage));
             assert!(!details.retryable);
             assert_eq!(
