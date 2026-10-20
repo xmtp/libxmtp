@@ -998,6 +998,53 @@ fn cut_and_corrupted_golden_rows_are_errors() {
     assert!(checked >= 8, "only {checked} rows checked");
 }
 
+/// A declared array length far past the end of a row is an error, not a
+/// panic, also when the failure is logged. OpenMLS reads an export tree's
+/// nodes into a HashMap sized from the declared length, so serde must never
+/// read bytes that fail the codec's pre-scan: not for the value, and not for
+/// the logged field path.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn huge_declared_lengths_are_errors() {
+    const NODES: &[u8] = b"\x65nodes";
+    const HUGE: [u8; 9] = [0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+    let huge_nodes = |value: &[u8]| -> Vec<u8> {
+        let at = value
+            .windows(NODES.len())
+            .position(|window| window == NODES)
+            .expect("a nodes array")
+            + NODES.len();
+        assert_eq!(value[at], 0x81, "one export tree node");
+        [&value[..at], &HUGE, &value[at + 1..]].concat()
+    };
+    for golden in goldens() {
+        let rows: Vec<Row> = golden.stores["alice"]
+            .iter()
+            .map(|row| Row {
+                label: row.label.clone(),
+                key: row.key.clone(),
+                value: match row.label.as_str() {
+                    "ApplicationExportTree" => huge_nodes(&row.value),
+                    _ => row.value.clone(),
+                },
+            })
+            .collect();
+        let alice = provider().await;
+        restore(&alice, &rows);
+        for name in ["first", "second"] {
+            let (loaded, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+                tracing::error_span!("load")
+                    .in_scope(|| MlsGroup::load(alice.storage(), &golden.group(name)).map(drop))
+            });
+            assert!(loaded.is_err(), "{name} loaded");
+            let logged = format!("{spans:?}");
+            assert!(logged.contains("ApplicationExportTree"), "{logged}");
+        }
+        let staged = huge_nodes(&golden.columns["StagedCommit"]);
+        assert!(value_from_slice::<StagedCommit>(&staged).is_err());
+    }
+}
+
 /// OpenMLS reads the crate-private rows itself. Restored into new stores:
 /// - the key package and signature key rows read back through their keys,
 ///   and every encryption key pair reads back;

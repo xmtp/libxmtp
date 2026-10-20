@@ -284,22 +284,26 @@ impl<'de> Deserialize<'de> for ListItems {
 /// [`ValueError::kind`]).
 ///
 /// The path comes from a second decode through `serde_path_to_error`, which
-/// runs only when the `openmls_kv` target logs errors. A row with bytes after
-/// its value has no failing field, and is not decoded again: the decode would
-/// build the whole value.
+/// runs only when the `openmls_kv` target logs errors, and only on bytes that
+/// hold exactly one well-formed item (the pre-scan of [`value_from_slice`]
+/// passes):
+/// - Serde on malformed bytes can size an allocation from a declared length
+///   that the bytes do not hold. OpenMLS reads an export tree with
+///   `HashMap::with_capacity` of that length, which panics near `u64::MAX`.
+/// - A row with bytes after its value has no failing field, and the decode
+///   would build the whole value.
 fn log_decode_error<V: DeserializeOwned>(label: &[u8], bytes: &[u8], error: &ValueError) {
     if !tracing::event_enabled!(target: OPENMLS_KV_TARGET, tracing::Level::ERROR) {
         return;
     }
-    let path = match error {
-        ValueError::TrailingBytes(_) => String::new(),
-        _ => {
-            let mut reader = SliceReader::new(bytes);
-            match serde_path_to_error::deserialize::<_, V>(&mut Deserializer::new(&mut reader)) {
-                Err(error) => error.path().to_string(),
-                Ok(_) => String::new(),
-            }
+    let path = if value_len(bytes).is_ok_and(|len| len == bytes.len()) {
+        let mut reader = SliceReader::new(bytes);
+        match serde_path_to_error::deserialize::<_, V>(&mut Deserializer::new(&mut reader)) {
+            Err(error) => error.path().to_string(),
+            Ok(_) => String::new(),
         }
+    } else {
+        String::new()
     };
     let (kind, item) = error.kind();
     tracing::error!(
