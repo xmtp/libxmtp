@@ -85,7 +85,6 @@ pub fn build_key_package(
     let capability_extensions = vec![
         ExtensionType::LastResort,
         ExtensionType::ApplicationId,
-        ExtensionType::ImmutableMetadata,
         // Clients can join groups that use AppDataUpdate.
         ExtensionType::AppDataDictionary,
         ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
@@ -137,6 +136,10 @@ mod tests {
     use openmls::prelude::tls_codec::Serialize;
     use openmls_rust_crypto::OpenMlsRustCrypto;
 
+    /// The extension type the xmtp OpenMLS fork names `ImmutableMetadata`.
+    /// Upstream OpenMLS reports it as `Unknown(0xf000)`.
+    const FORK_IMMUTABLE_METADATA_EXTENSION_ID: u16 = 0xf000;
+
     #[xmtp_common::test(unwrap_try = true)]
     // verifies: JOIN-004
     fn generated_package_preserves_options_and_verifies() {
@@ -178,6 +181,14 @@ mod tests {
                         "key package advertises removed legacy extension {legacy_extension:?}",
                     );
                 }
+                assert!(
+                    !leaf
+                        .capabilities()
+                        .extensions()
+                        .iter()
+                        .any(|ext| u16::from(*ext) == FORK_IMMUTABLE_METADATA_EXTENSION_ID),
+                    "key package advertises the fork's ImmutableMetadata extension",
+                );
                 assert!(
                     leaf.capabilities()
                         .proposals()
