@@ -1290,12 +1290,6 @@ fn epoch_key_pairs_id(
     encode_key(EPOCH_KEY_PAIRS_LABEL, &(group_id, epoch, leaf_index))
 }
 
-impl From<bincode::Error> for SqlKeyStoreError {
-    fn from(_: bincode::Error) -> Self {
-        Self::SerializationError
-    }
-}
-
 #[cfg(any(test, feature = "test-utils"))]
 impl SqlKeyStore<crate::test_utils::MemoryStorage> {
     pub fn kv_pairs(&self) -> String {
