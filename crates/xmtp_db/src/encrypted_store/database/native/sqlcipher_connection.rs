@@ -637,8 +637,9 @@ mod tests {
         );
     }
 
-    /// An encrypted database file written before the CBOR marker is rejected
-    /// at open, and the open changes no byte of the file or its salt.
+    /// An encrypted database file written before the CBOR marker, and closed
+    /// cleanly, is rejected at open, and the open changes no byte of the file
+    /// or its salt.
     #[xmtp_common::test(unwrap_try = true)]
     async fn rejecting_a_database_written_before_cbor_storage_leaves_its_file_unchanged() {
         use crate::encrypted_store::CBOR_STORAGE_MIGRATION;
@@ -666,20 +667,14 @@ mod tests {
             })?;
         }
         let salt = EncryptedConnection::salt_file(&path)?;
-        // The database, its salt, and its WAL and shared-memory files, which
-        // may be absent.
-        let files = || -> std::io::Result<Vec<Option<Vec<u8>>>> {
-            let optional = |file: String| match std::fs::read(file) {
-                Ok(bytes) => Ok(Some(bytes)),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-                Err(error) => Err(error),
-            };
-            Ok(vec![
-                Some(std::fs::read(&path)?),
-                Some(std::fs::read(&salt)?),
-                optional(format!("{path}-wal"))?,
-                optional(format!("{path}-shm"))?,
-            ])
+        // The database and its salt. SQLite checkpoints and deletes the -wal
+        // and -shm files when the last connection closes, so neither exists
+        // here. A database closed with WAL frames not yet checkpointed (after
+        // a crash) has them checkpointed into its main file by the pool's
+        // connection pragmas before the fence runs: its rows stay, its bytes
+        // change. That predates the fence.
+        let files = || -> std::io::Result<(Vec<u8>, Vec<u8>)> {
+            Ok((std::fs::read(&path)?, std::fs::read(&salt)?))
         };
         let before = files()?;
 
