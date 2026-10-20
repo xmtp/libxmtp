@@ -284,11 +284,22 @@ where
         }
     }
 
+    /// Remove the first list item whose bytes equal `value`.
     pub fn remove_item<const VERSION: u16>(
         &self,
         label: &[u8],
         key: &[u8],
         value: &[u8],
+    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        self.remove_list_item::<VERSION>(label, key, |item| item == value)
+    }
+
+    /// Remove the first list item that `matches`.
+    fn remove_list_item<const VERSION: u16>(
+        &self,
+        label: &[u8],
+        key: &[u8],
+        matches: impl Fn(&[u8]) -> bool,
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         tracing::trace!("remove_item {}", String::from_utf8_lossy(label));
 
@@ -298,7 +309,7 @@ where
         if let Some(entry) = data.into_iter().next() {
             // The value in the storage is an array of array of bytes.
             let mut list = decode_list(label, &entry.value_bytes)?;
-            let vpos = list.iter().position(|v| v == value);
+            let vpos = list.iter().position(|v| matches(v));
 
             if let Some(pos) = vpos {
                 // The removed element is wiped as well.
@@ -1201,10 +1212,14 @@ where
         group_id: &GroupId,
         proposal_ref: &ProposalRef,
     ) -> Result<(), Self::Error> {
-        // Delete the proposal ref
+        // Delete the proposal ref. Match it by value: a ref stored in another
+        // valid encoding is the same ref, and leaving it would point at the
+        // proposal deleted below.
         let key = build_key::<CURRENT_VERSION, &GroupId>(PROPOSAL_QUEUE_REFS_LABEL, group_id)?;
         let value = encode_value(PROPOSAL_QUEUE_REFS_LABEL, proposal_ref)?;
-        self.remove_item::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, &value)?;
+        self.remove_list_item::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, |item| {
+            codec::same_value::<ProposalRef>(item, &value)
+        })?;
 
         // Delete the proposal
         let key = encode_key(QUEUED_PROPOSAL_LABEL, &(group_id, proposal_ref))?;
@@ -2250,5 +2265,64 @@ pub(crate) mod tests {
                 );
             }
         }
+    }
+
+    /// Removing a proposal finds its ref by value, not by the bytes this build
+    /// writes. A ref stored in another valid CBOR encoding (here an
+    /// indefinite-length array) is removed too, so no ref is left without its
+    /// proposal and the group still loads.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn removing_a_proposal_matches_its_ref_in_another_encoding() {
+        use super::{PROPOSAL_QUEUE_REFS_LABEL, build_key, codec::encode_list};
+        use openmls::{
+            group::MlsGroup,
+            prelude::{BasicCredential, CredentialWithKey, LeafNodeParameters},
+        };
+
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let provider = XmtpOpenMlsProvider::new(SqlKeyStore::new(store.conn()));
+        let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
+        let mut group = MlsGroup::builder().ciphersuite(CIPHERSUITE).build(
+            &provider,
+            &signer,
+            CredentialWithKey {
+                credential: BasicCredential::new(b"proposal refs".to_vec()).into(),
+                signature_key: signer.to_public_vec().into(),
+            },
+        )?;
+        let (_, proposal_ref) =
+            group.propose_self_update(&provider, &signer, LeafNodeParameters::default())?;
+
+        // Rewrite the stored ref with an indefinite-length array for its bytes.
+        let key = build_key::<CURRENT_VERSION, _>(PROPOSAL_QUEUE_REFS_LABEL, group.group_id())?;
+        let storage = provider.storage();
+        let storage_key =
+            super::build_key_from_vec::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, key.clone());
+        let rows = storage.select_query::<CURRENT_VERSION>(&storage_key)?;
+        let items = super::codec::decode_list(PROPOSAL_QUEUE_REFS_LABEL, &rows[0].value_bytes)?;
+        let [item] = items.as_slice() else {
+            panic!("one queued ref");
+        };
+        let header = item
+            .windows(2)
+            .position(|window| window == [0x98, 0x20])
+            .expect("a 32-byte array");
+        let other = [&item[..header], &[0x9f], &item[header + 2..], &[0xff]].concat();
+        assert_ne!(&other, item);
+        storage.write::<CURRENT_VERSION>(
+            PROPOSAL_QUEUE_REFS_LABEL,
+            &key,
+            &encode_list(PROPOSAL_QUEUE_REFS_LABEL, &[other])?,
+        )?;
+        assert_eq!(group.pending_proposals().count(), 1);
+
+        group.remove_pending_proposal(storage, &proposal_ref)?;
+        let refs: Vec<openmls::prelude::KeyPackageRef> =
+            storage.queued_proposal_refs(group.group_id())?;
+        assert!(
+            refs.is_empty(),
+            "the ref in another encoding was not removed"
+        );
+        assert!(MlsGroup::load(storage, group.group_id())?.is_some());
     }
 }

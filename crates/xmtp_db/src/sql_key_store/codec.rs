@@ -169,6 +169,17 @@ fn value_len(bytes: &[u8]) -> Result<usize, ValueError> {
     Ok(bytes.len() - rest.as_ref().len())
 }
 
+/// Whether `item` holds the value whose encoding is `encoded`: the same bytes,
+/// or bytes that decode as a `V` and encode back to them. A value can have
+/// more than one valid encoding, for example after a field's serde shape
+/// changes but still reads the old form.
+pub(crate) fn same_value<V: Serialize + DeserializeOwned>(item: &[u8], encoded: &[u8]) -> bool {
+    item == encoded
+        || value_from_slice::<V>(item)
+            .and_then(|value| value_to_vec(&value).map(Zeroizing::new))
+            .is_ok_and(|bytes| *bytes == *encoded)
+}
+
 /// Encode the key part of a storage key: no label and no version.
 pub fn encode_key<K: Serialize + ?Sized>(
     label: &[u8],
