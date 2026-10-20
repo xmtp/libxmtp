@@ -1,7 +1,10 @@
 //! One durable task owns notification registration, renewal, and subscription sync.
 
 use crate::{
-    client::notifications::{NotificationConfig, NotificationError, decode, effective, encode},
+    client::notifications::{
+        NotificationConfig, NotificationError, decode, effective, encode, recipient_secret,
+        stored_config,
+    },
     context::XmtpSharedContext,
     groups::MlsGroup,
     state_tx::{state_write, state_write_with_events},
@@ -379,6 +382,8 @@ pub(crate) fn diff(
     (adds, removes)
 }
 
+/// A subscription update and the uploads it confirms. The request holds the
+/// recipient secret and derived HMAC keys, and wipes them on drop.
 struct Batch {
     request: UpdateSubscriptionsRequest,
     uploaded: Vec<UploadedTopic>,
@@ -394,16 +399,15 @@ fn prepare_batch<Context: XmtpSharedContext>(
     state_write(context.mls_storage(), |tx| {
         let storage = tx.storage();
         let db = storage.db();
-        let mut root = StoredUserPreferences::load(&db)?.hmac_key;
-        if root.is_none() && desired.values().any(|topic| topic.group_id.is_some()) {
-            let key = HmacKey::random_key();
-            StoredUserPreferences::store_hmac_key(&db, &key, None)?;
-            root = Some(key);
-        }
-        let root_fingerprint = root
-            .as_ref()
-            .map(|key| xmtp_common::sha256_array(key).to_vec())
-            .unwrap_or_default();
+        let root_fingerprint = match StoredUserPreferences::load(&db)?.hmac_key {
+            Some(key) => xmtp_common::sha256_array(key.as_slice()).to_vec(),
+            None if desired.values().any(|topic| topic.group_id.is_some()) => {
+                let key = HmacKey::random_key();
+                StoredUserPreferences::store_hmac_key(&db, key.as_slice(), None)?;
+                xmtp_common::sha256_array(key.as_slice()).to_vec()
+            }
+            None => Vec::new(),
+        };
         let epoch = crate::utils::time::hmac_epoch();
         let (adds, removes) = diff(
             desired,
@@ -412,19 +416,24 @@ fn prepare_batch<Context: XmtpSharedContext>(
             &root_fingerprint,
             record.push_suppressed.as_deref() == Some(fingerprint.as_slice()),
         );
-        let mut request = UpdateSubscriptionsRequest {
-            recipient_id: record.push_recipient_id.clone().unwrap_or_default(),
-            recipient_secret: record.push_recipient_secret.clone().unwrap_or_default(),
-            adds: Vec::new(),
-            removes,
+        // Built first, so an error below drops a batch that wipes its secrets.
+        let mut batch = Batch {
+            request: UpdateSubscriptionsRequest {
+                recipient_id: record.push_recipient_id.clone().unwrap_or_default(),
+                recipient_secret: recipient_secret(record),
+                adds: Vec::with_capacity(adds.len()),
+                removes,
+            },
+            uploaded: Vec::with_capacity(adds.len()),
+            fingerprint,
         };
-        let mut uploaded = Vec::with_capacity(adds.len());
         for topic in adds {
             let rule = &desired[&topic];
             let mut subscription = Subscription {
                 topic: topic.clone(),
+                hmac_epoch_base: 0,
+                hmac_keys: Vec::new(),
                 include_commits: rule.include_commits,
-                ..Default::default()
             };
             let (hmac_epoch_base, key_fingerprint) = if let Some(group_id) = rule.group_id {
                 let row = db
@@ -440,25 +449,22 @@ fn prepare_batch<Context: XmtpSharedContext>(
                 let keys = group.hmac_keys_in(&db, -1..=1)?;
                 subscription.hmac_epoch_base =
                     keys.first().map(|key| key.epoch).unwrap_or(epoch - 1);
-                subscription.hmac_keys = keys.into_iter().map(|key| key.key.to_vec()).collect();
+                // The request goes to the transport, which holds these copies.
+                subscription.hmac_keys = keys.iter().map(|key| key.key.to_vec()).collect();
                 (Some(subscription.hmac_epoch_base), root_fingerprint.clone())
             } else {
                 (None, Vec::new())
             };
-            uploaded.push(UploadedTopic {
+            batch.uploaded.push(UploadedTopic {
                 topic,
                 hmac_epoch_base,
                 include_commits: rule.include_commits,
                 root_key_fingerprint: key_fingerprint,
                 stale: false,
             });
-            request.adds.push(subscription);
+            batch.request.adds.push(subscription);
         }
-        Ok::<_, StorageError>(Continue(Batch {
-            request,
-            uploaded,
-            fingerprint,
-        }))
+        Ok::<_, StorageError>(Continue(batch))
     })
     .map(|outcome| outcome.into_continued())
     .map_err(NotificationError::from)
@@ -472,12 +478,7 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
     if record.push_state != 1 {
         return Ok(TaskOutcome::Done);
     }
-    let config: NotificationConfig = decode(
-        record
-            .push_config
-            .as_deref()
-            .ok_or(StorageError::DbDeserialize)?,
-    )?;
+    let config = stored_config(&record)?;
     let deadlines = deadlines(&record)?;
     if record.push_last_state.is_none()
         || deadlines.registration_owed
@@ -497,7 +498,7 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
     }
     let revision = context.task_channels().notification_revision();
     let desired = desired(context, &config)?;
-    let batch = prepare_batch(context, &record, &desired)?;
+    let mut batch = prepare_batch(context, &record, &desired)?;
     #[cfg(test)]
     tests::support::before_request();
     if context.task_channels().notification_revision() != revision {
@@ -532,7 +533,11 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
     {
         return finish_turn(context, Ok(()));
     }
-    let result = match bounded(context.api().update_subscriptions(batch.request.clone())).await {
+    // The request moves to the transport, which owns its copies of the
+    // secrets. A retry builds a new batch from the stored state.
+    let request = std::mem::take(&mut batch.request);
+    let removes = request.removes.clone();
+    let result = match bounded(context.api().update_subscriptions(request)).await {
         Ok(response) => {
             confirm(
                 context,
@@ -540,7 +545,7 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
                 &config,
                 &response,
                 &batch.uploaded,
-                &batch.request.removes,
+                &removes,
             )?;
             Ok(())
         }

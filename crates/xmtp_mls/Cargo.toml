@@ -52,7 +52,6 @@ dev = ["xmtp_configuration/dev", "xmtp_proto/dev", "xmtp_api_backend/dev"]
 [dependencies]
 aes-gcm.workspace = true
 async-trait.workspace = true
-bincode.workspace = true
 bon.workspace = true
 bytes.workspace = true
 derive_builder.workspace = true
@@ -142,6 +141,7 @@ web-sys.workspace = true
 
 [dev-dependencies]
 alloy.workspace = true
+cbor4ii.workspace = true
 diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
@@ -166,6 +166,10 @@ xmtp_archive = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils-network"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_content_types = { path = "../xmtp_content_types", features = [
+  "test-utils",
+] }
+xmtp_cryptography = { workspace = true, features = [
+  "exposed-keys",
   "test-utils",
 ] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
@@ -195,6 +199,10 @@ required-features = ["test-utils"]
 
 [[test]]
 name = "attachment_opfs"
+required-features = ["test-utils"]
+
+[[test]]
+name = "zeroize"
 required-features = ["test-utils"]
 
 [[bench]]

@@ -18,6 +18,7 @@ just validation check                  # standalone native/wasm consumer and dep
 just validation test                   # native/wasm payload tests and canonical encoding vectors
 just validation                        # both
 just test workspace -p xmtp_mls_validation --features test-utils
+just test workspace -p xmtp_mls_validation --test zeroize   # commit-log signer heap-canary proof
 dev/nix-shell 'dev/agent-run cargo test --locked -p xmtp_mls_validation --target wasm32-unknown-unknown --features test-utils'
 ```
 

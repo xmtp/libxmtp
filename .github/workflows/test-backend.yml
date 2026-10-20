@@ -1,80 +1,43 @@
-name: Test self-hosted backend
-
+name: "Test: Backend Docker image"
 on:
   workflow_dispatch:
   workflow_call:
-
+    inputs:
+      runner:
+        description: The amd64 runner label. ci.yml passes it from .github/ci-suites.yml (runners); a dispatch uses the default.
+        type: string
+        default: blacksmith-16vcpu-ubuntu-2404
+    secrets:
+      CACHIX_PR_AUTH_TOKEN:
+        required: false
 permissions:
   contents: read
-
 env:
   NIX_DEVSHELL: rust
 jobs:
-  test-backend:
-    name: Test backend (native)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          cache-mode: "ci"
-          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-          github-token: ${{ github.token }}
-      # The derivation starts its own PostgreSQL primary, streaming replica,
-      # and VersityGW in the build sandbox. Cachix keeps a passed result, so
-      # unchanged backend inputs skip the build. A failure shows the end of
-      # the build log, which holds the failed tests.
-      - name: Test backend, replica recovery, HTTPS streaming, and SQL cache
-        run: nix build --no-link --log-lines 500 .#backend-tests.x86_64-linux
-
-  native:
-    name: Native backend contract
-    # Fork pull requests do not run this job.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          cache-mode: "ci"
-          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
-          github-token: ${{ github.token }}
-      # The wrapper process contract on macOS: start, wait, exit status, and
-      # no process or state left behind.
-      - name: Check service processes
-        run: dev/nix-shell 'python3.11 -B -m unittest dev/tests/test_services.py'
-      # The Darwin backend tests with the storage services in the build
-      # sandbox; nix/package/backend-tests.nix lists the tests that Darwin
-      # skips. The CI cache keeps a passed result, so an unchanged backend
-      # fetches it.
-      - name: Test backend on macOS
-        run: nix build --no-link --log-lines 500 .#backend-tests.aarch64-darwin
-
+  # The Docker backend job: the backend image starts with only the database,
+  # then the full stack passes the observability check. The backend's own
+  # tests run in test-nix-checks.yml.
   backend-image:
-    name: Backend image (${{ matrix.arch }})
+    name: Image smoke and observability (${{ matrix.arch }})
     strategy:
       fail-fast: true
       matrix:
         # Automatic runs test amd64. Manual runs also test arm64.
         arch: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["amd64", "arm64"]' || '["amd64"]') }}
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || inputs.runner || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 60
-    env:
-      NIX_DEVSHELL: rust
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
-      - name: Build backend image
-        run: just backend image
+      - name: dev/nix-shell 'just backend image'
+        run: dev/nix-shell 'just backend image'
       - name: Load backend image
         run: docker load --input result-backend-image
       - name: Check image architecture
@@ -83,15 +46,14 @@ jobs:
         run: |
           actual_arch="$(docker image inspect ghcr.io/xmtp/backend:self-hosted --format '{{.Architecture}}')"
           test "$actual_arch" = "$EXPECTED_ARCH"
-      # This smoke test proves the image starts, serves gRPC health, and reaches
-      # PostgreSQL. It runs no chain call, and the database subset has no anvil,
-      # so the chain URL points at a name that does not resolve. A smart-contract
-      # wallet test needs the full stack from `just backend up`.
-      - name: Run backend image
+      # The image starts, serves gRPC health, and reaches PostgreSQL with only
+      # the database: no anvil, and the chain URL points at a name that does
+      # not resolve. A smart-contract wallet test needs the full stack.
+      - name: Run backend image with only the database
         env:
           PLATFORM: linux/${{ matrix.arch }}
         run: |
-          just backend db-up
+          dev/nix-shell 'just backend db-up'
           # The Compose project name is per-worktree, so the network name is too.
           # CI is a clone, not a worktree, so this resolves to `libxmtp_default`.
           . dev/docker/load-env
@@ -103,9 +65,19 @@ jobs:
             -v "$PWD/dev/backend/local.toml:/config.toml:ro" \
             ghcr.io/xmtp/backend:self-hosted --config-file /config.toml
           dev/nix-shell 'for attempt in {1..30}; do grpc-health-probe -addr=127.0.0.1:55050 && exit 0; sleep 1; done; exit 1'
-      - name: Backend logs and cleanup
+      - name: Image logs and cleanup
         if: always()
         run: |
           docker logs backend-smoke || true
           docker rm --force backend-smoke || true
-          just backend down
+          dev/nix-shell 'just backend down'
+      # `just backend up` loads the image built above. The check builds xdbg
+      # as a traffic client and checks the traces, metrics, and dashboard.
+      - name: dev/nix-shell 'just backend up && just backend observe-check'
+        run: dev/nix-shell 'just backend up && just backend observe-check'
+      - name: dev/nix-shell 'just backend logs' || true
+        if: failure()
+        run: dev/nix-shell 'just backend logs' || true
+      - name: dev/nix-shell 'just backend down'
+        if: always()
+        run: dev/nix-shell 'just backend down'

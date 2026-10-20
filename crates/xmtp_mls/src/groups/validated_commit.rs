@@ -2,7 +2,6 @@
 mod identity_tests;
 use crate::{
     context::XmtpSharedContext,
-    groups::app_data::bootstrap_validator::BootstrapValidationError,
     identity_updates::{
         IdentityDependencyError, IdentityRequirement, InstallationDiff, InstallationDiffError,
         get_installation_diff_local, require_association_state,
@@ -64,12 +63,6 @@ pub enum CommitValidationError {
     InstallationDiff(#[from] InstallationDiffError),
     #[error(transparent)]
     StorageError(#[from] StorageError),
-    /// All bootstrap-commit-validator failures. The bootstrap path runs
-    /// only during the one-time AppData migration; isolating its many
-    /// failure modes in a sub-enum keeps the steady-state validator's
-    /// surface from being dominated by migration-specific noise.
-    #[error(transparent)]
-    Bootstrap(#[from] BootstrapValidationError),
     /// The commit breaks a validation rule.
     #[error(transparent)]
     Rule(#[from] CommitRuleError),
@@ -113,11 +106,6 @@ impl CommitValidationError {
                 | IdentityDependencyError::InvalidSequence(_),
             ) => true,
             Self::Rule(error) => error.is_safe_rejection(),
-            Self::Bootstrap(error) => !matches!(
-                error,
-                BootstrapValidationError::ProtocolVersionTooLow(_)
-                    | BootstrapValidationError::Synthesis(_)
-            ),
             Self::InstalledState(_)
             | Self::IdentityDependency(_)
             | Self::InstallationDiff(_)
@@ -273,7 +261,7 @@ impl ValidatedCommit {
                 )
                 .map_err(xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from)?;
         let minimum_supported_protocol_version = match min_version_bytes {
-                Some(bytes) => Some(String::from_utf8(bytes).map_err(|e| {
+                Some(bytes) => Some(std::str::from_utf8(&bytes).map(str::to_owned).map_err(|e| {
                     CommitValidationError::Rule(CommitRuleError::GroupMutableMetadata(
                         GroupMutableMetadataError::MalformedComponent {
                             component_id: Some(
@@ -470,6 +458,8 @@ impl ValidatedCommit {
         for raw_id in proposed_component_ids {
             let id = xmtp_mls_common::app_data::component_id::ComponentId::from(raw_id);
             let before = read_from_app_data_dict(id, openmls_group);
+            // The post-commit value is wiped on drop: it can be the
+            // commit-log signer's private key.
             let after =
                 xmtp_mls_common::app_data::component_source::read_post_commit_component_bytes(
                     id,
@@ -478,7 +468,7 @@ impl ValidatedCommit {
                     &registry,
                 )
                 .map_err(GroupMutableMetadataError::from)?;
-            if before != after {
+            if before != after.as_deref().map(Vec::as_slice) {
                 metadata_component_ids.push(raw_id);
             }
         }

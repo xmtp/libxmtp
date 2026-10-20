@@ -1,4 +1,4 @@
-name: Build public Node SDK platforms
+name: "Build: Node SDK package"
 on:
   workflow_call:
     inputs:
@@ -16,7 +16,7 @@ on:
         value: sdk_node_public
 jobs:
   plan:
-    name: Node platform matrix
+    name: Read Node platform matrix
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -24,7 +24,8 @@ jobs:
       cargo: ${{ steps.matrix.outputs.cargo }}
       load: ${{ steps.matrix.outputs.load }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the platform list
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
           sparse-checkout: nix/sdk-platforms.json
@@ -44,8 +45,8 @@ jobs:
           ALLOWED_LIBRARIES: '["libxmtp_sdk.dylib", "libxmtp_sdk.so", "xmtp_sdk.dll"]'
           ALLOWED_GLIBC_FLOOR: "2.27"
           ALLOWED_RUNNERS: >-
-            ["blacksmith-16vcpu-ubuntu-2404", "ubuntu-24.04-arm", "ubuntu-latest",
-            "warp-macos-15-arm64-6x", "windows-latest"]
+            ["blacksmith-16vcpu-ubuntu-2404", "ubuntu-24.04", "ubuntu-24.04-arm",
+            "ubuntu-latest", "macos-15", "warp-macos-15-arm64-6x", "windows-latest"]
           ALLOWED_IMAGES: >-
             ["node:22.12.0-bookworm-slim@sha256:35531c52ce27b6575d69755c73e65d4468dba93a25644eed56dc12879cae9213",
             "node:22.12.0-alpine@sha256:51eff88af6dff26f59316b6e356188ffa2c422bd3c3b76f2556a2e7e89d080bd"]
@@ -110,14 +111,28 @@ jobs:
             done <<< "$mismatched"
             exit 1
           fi
+          # The Nix pairs and the smoke tests run one job per runner label, so
+          # the four Linux pairs, all cross outputs of x86_64-linux, share one
+          # job. `os` and `label` name the job; `pairs` lists its targets
+          # (`target:library` words for the build, which runs on macOS too).
           {
-            echo "build=$(jq -c '[.node[] | select(.nixSystems != []) | {target, library, runner}]' nix/sdk-platforms.json)"
+            echo "build=$(jq -c '
+              [.node[] | select(.nixSystems != [])] | group_by(.runner)
+              | map({runner: .[0].runner, first: .[0].target,
+                  os: (if (.[0].runner | test("macos")) then "macOS" else "Linux" end),
+                  pairs: (map("\(.target):\(.library)") | join(" "))})' nix/sdk-platforms.json)"
             echo "cargo=$(jq -c '[.node[] | select(.nixSystems == []) | {target, rustTarget, library, runner}]' nix/sdk-platforms.json)"
-            echo "load=$(jq -c '[.node[] | {target, runner: .loadRunner, image: (.loadImage // "")}]' nix/sdk-platforms.json)"
+            echo "load=$(jq -c '
+              [.node[] | {target, runner: .loadRunner, image: (.loadImage // "")}]
+              | group_by(.runner)
+              | map({runner: .[0].runner,
+                  label: (.[0].target | split("-")
+                    | ({"linux": "Linux", "darwin": "macOS", "win32": "Windows"}[.[0]]) + " " + .[1]),
+                  pairs: map({target, image})})' nix/sdk-platforms.json)"
           } >> "$GITHUB_OUTPUT"
 
   unix:
-    name: Node pair (${{ matrix.target }})
+    name: Build Node pairs (${{ matrix.os }}, Nix)
     needs: plan
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -129,30 +144,46 @@ jobs:
         # them; the arm64 load jobs still test them on arm64.
         include: ${{ fromJSON(needs.plan.outputs.build) }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: ${{ inputs.cache-mode }}
           cachix-pr-auth-token: ${{ inputs.cache-mode == 'ci' && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
-      - name: Build matched SDK and pinned runtime pair
+      - name: Build matched SDK and pinned runtime pairs
         env:
-          TARGET: ${{ matrix.target }}
-          LIBRARY: ${{ matrix.library }}
+          PAIRS: ${{ matrix.pairs }}
         run: |
-          nix build .#xmtp-sdk-node-"$TARGET" --out-link target/sdk-node-pair
-          dev/nix-shell --shell js-node 'python3.11 crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-pair/lib/"$LIBRARY" --addon target/sdk-node-pair/runtime/uniffi-runtime-napi."$TARGET".node --native-provenance target/sdk-node-pair/native-provenance.json --runtime-provenance target/sdk-node-pair/runtime/runtime-provenance.json'
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+          set -euo pipefail
+          # The plan job allowlists every target and library, so the words
+          # split safely. macOS runs this with bash 3.2.
+          installables=()
+          for pair in $PAIRS; do
+            installables+=(".#xmtp-sdk-node-${pair%%:*}")
+          done
+          # One build for every pair, so Nix substitutes or builds them in
+          # parallel; the per-pair builds below only add the links.
+          nix build --no-link "${installables[@]}"
+          for pair in $PAIRS; do
+            TARGET="${pair%%:*}" LIBRARY="${pair#*:}"
+            export TARGET LIBRARY
+            nix build .#xmtp-sdk-node-"$TARGET" --out-link target/sdk-node-pair-"$TARGET"
+            dev/nix-shell --shell js-node 'python3.11 crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-pair-"$TARGET"/lib/"$LIBRARY" --addon target/sdk-node-pair-"$TARGET"/runtime/uniffi-runtime-napi."$TARGET".node --native-provenance target/sdk-node-pair-"$TARGET"/native-provenance.json --runtime-provenance target/sdk-node-pair-"$TARGET"/runtime/runtime-provenance.json'
+          done
+      - name: Store the built pairs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: sdk_node_pair_${{ matrix.target }}
+          name: sdk_node_pair_${{ matrix.first }}
           path: target/sdk-node-platforms
           retention-days: 1
 
   # The platforms that no Nix system builds. They build with cargo on Windows.
   windows:
-    name: Node pair (${{ matrix.target }})
+    name: Build Node pair (${{ matrix.target }}, cargo)
     needs: plan
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -165,17 +196,19 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.cargo) }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
       # The pair is cached by the source key of its SDK inputs, build recipe
       # (this file), and compiler, not by commit, so a re-dispatch with
       # unchanged SDK sources reuses it. A run restores
-      # entries from its own ref, then from main (the nightly and dispatches
+      # entries from its own ref, then from main (dev releases dispatched
       # on main save there). This is a release-only exception to selecting
       # nothing by cache status: Windows has no Nix store to substitute from.
       # The key names the compiler (`rustc -vV`), so install the toolchain of
-      # rust-toolchain.toml first; setup-rust and its cache run only on a miss.
+      # rust-toolchain.toml first; the targets and the Rust cache are set up
+      # only on a miss.
       - name: Pinned Rust toolchain
         shell: bash
         run: rustup toolchain install
@@ -200,13 +233,20 @@ jobs:
         with:
           path: target/sdk-node-platforms/${{ matrix.target }}
           key: sdk-node-pair-${{ matrix.target }}-${{ steps.key.outputs.key }}
-      - uses: ./.github/actions/setup-rust
+      - name: Add the Rust target
         if: steps.restore.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          RUST_TARGET: ${{ matrix.rustTarget }}
+        run: rustup target add "$RUST_TARGET"
+      - name: Restore the Rust build cache
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
-          targets: ${{ matrix.rustTarget }}
           workspaces: .
-      - uses: crazy-max/ghaction-chocolatey@dfdcf5bba9c0a16358a21c13a06ec5c89024b3ac # v4
+      - name: Install protoc
         if: steps.restore.outputs.cache-hit != 'true'
+        uses: crazy-max/ghaction-chocolatey@dfdcf5bba9c0a16358a21c13a06ec5c89024b3ac # v4
         with:
           args: install protoc
       - name: Verify protoc for Rust builds
@@ -256,34 +296,39 @@ jobs:
         with:
           path: target/sdk-node-platforms/${{ matrix.target }}
           key: ${{ steps.restore.outputs.cache-primary-key }}
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - name: Store the built pair
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sdk_node_pair_${{ matrix.target }}
           path: target/sdk-node-platforms
           retention-days: 1
 
   assemble:
-    name: Assemble one supported-platform public package
+    name: Assemble Node package
     needs: [unix, windows]
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       NIX_DEVSHELL: js-node
       # The common binding is the release-profile Nix tree that CI tested.
       XMTP_SDK_BUILD: nix
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: ${{ inputs.cache-mode }}
           cachix-pr-auth-token: ${{ inputs.cache-mode == 'ci' && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/setup-js
+      - name: Set up JavaScript
+        uses: ./.github/actions/setup-js
         with:
           cache-mode: ${{ inputs.cache-mode }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      - name: Download the built pairs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: sdk_node_pair_*
           merge-multiple: true
@@ -294,7 +339,8 @@ jobs:
         run: dev/nix-shell 'dev/js/sdk-package node'
       - name: Check installed aggregate Node ESM package
         run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs node'
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - name: Store the package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sdk_node_public
           path: target/sdk-packages/node
@@ -302,7 +348,7 @@ jobs:
           retention-days: 1
 
   load:
-    name: Installed public Node package (${{ matrix.target }})
+    name: Smoke-test installed package (${{ matrix.label }})
     needs: [plan, assemble]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
@@ -311,21 +357,38 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.load) }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      - name: Download the package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: sdk_node_public
           path: target/sdk-packages/node
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - name: Install Node.js 22.12.0
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22.12.0"
+      # Each Linux target loads in the pinned image of its libc.
       - name: Installed package on Linux without build-host libraries
         if: runner.os == 'Linux'
         env:
-          NODE_IMAGE: ${{ matrix.image }}
-        run: docker run --rm -v "$PWD:/work" -w /work "$NODE_IMAGE" node crates/xmtp_sdk/dev/package-smoke.mjs node
+          PAIRS: ${{ toJSON(matrix.pairs) }}
+        run: |
+          set -euo pipefail
+          # The list goes through a file: bash ignores the exit status of a
+          # process substitution, so a failed jq would smoke nothing.
+          jq -r '.[] | "\(.target) \(.image)"' <<< "$PAIRS" > "$RUNNER_TEMP/smoke-pairs"
+          if [[ ! -s "$RUNNER_TEMP/smoke-pairs" ]]; then
+            echo "::error::No Linux target to smoke"
+            exit 1
+          fi
+          while read -r TARGET NODE_IMAGE <&3; do
+            echo "::group::$TARGET"
+            docker run --rm -v "$PWD:/work" -w /work "$NODE_IMAGE" node crates/xmtp_sdk/dev/package-smoke.mjs node
+            echo "::endgroup::"
+          done 3< "$RUNNER_TEMP/smoke-pairs"
       - name: Installed package on macOS or Windows
         if: runner.os != 'Linux'
         shell: bash

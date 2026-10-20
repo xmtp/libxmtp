@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- An `XmtpError.Storage` for a database written in an older, unsupported format now has the Rust cause code in `details.code`: `StorageError::PreTransitionDatabase`, `StorageError::OldStreamDatabase` or `StorageError::OldEncodingDatabase` (a database written before the CBOR storage format). Other storage errors keep the code `Storage`. Match the code, not the message.
 - `conversations.streamDeletedMessages()` no longer delivers the content of a message whose expiry had passed. Such a message arrives as a deleted-message placeholder (content type `xmtp.org/deletedMessage:1.0`) with its id, conversation, and sender, but no content or fallback. This includes messages removed by disappearing-message cleanup and deletes of an already expired message.
 - `conversations.streamAllMessages()` now streams allowed and unknown conversations by default. Pass an explicit `consentStates` list to select other states.
 

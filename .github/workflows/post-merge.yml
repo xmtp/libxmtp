@@ -2,10 +2,15 @@
 # the newest push, pushes them to the trusted Cachix cache `xmtp`, and pins
 # them; release, developers, and CI jobs then substitute these outputs. Then it
 # checks that the sets substitute, builds the docs, and deploys GitHub Pages.
+# The RN device chain is advisory, so an RN break can reach trunk. The RN jobs
+# warm, pin, and check the RN set after `build`, and no other job waits for
+# them: an RN break fails and alerts the RN jobs alone. The other sets hold
+# only the RN outputs that blocking pull request suites build.
+# dev/tests/test_warm_sets.py checks the job graph and the sets.
 #
 # Trusted: only pushes to trunk start this workflow, and only the writer
 # environment holds the trusted Cachix token.
-name: Post-merge
+name: "Post-merge: caches and docs"
 on:
   push:
     branches:
@@ -18,8 +23,19 @@ concurrency:
   group: post-merge-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  # The RN cache jobs build and push the RN stages to `xmtp`; they install and
+  # test nothing. Each stage substitutes the previous one from `xmtp`, so they
+  # exchange no artifacts. The test packages (with and without iOS) and the
+  # bare Android test app are warmed too, so pull requests that do not change
+  # them substitute them. The RN components share their native SDK builds with
+  # the Android and iOS release outputs, so the chain starts after `build` and
+  # substitutes them. It also runs when `build` fails: GitHub skips a job whose
+  # `if` calls no status function when any job before it, direct or not, did
+  # not succeed, so each RN job checks only the RN job before it.
   rn-components:
-    name: RN components (${{ matrix.system }})
+    name: Cache RN components (${{ matrix.system }})
+    needs: build
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -32,20 +48,24 @@ jobs:
     timeout-minutes: 90
     environment: kache-s3-writer
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: trusted
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Build the components
+        uses: ./.github/actions/react-native-product
         with:
           stage: components
           system: ${{ matrix.system }}
           source-sha: ${{ github.sha }}
           package-version: ""
+          exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
       - name: Finish component cache uploads
@@ -53,40 +73,54 @@ jobs:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         shell: bash
         run: |
-          jq -r '.roots[]' target/rn-exchange/components/manifest.json > "$RUNNER_TEMP/rn-roots"
+          jq -r '.[]' "$XMTP_RN_ROOTS" > "$RUNNER_TEMP/rn-roots"
           while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-roots"
 
   rn-package:
-    name: Assemble the canonical RN package
+    name: Cache RN package
     needs: rn-components
+    if: ${{ !cancelled() && needs.rn-components.result == 'success' }}
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     environment: kache-s3-writer
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: trusted
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Assemble the package
+        uses: ./.github/actions/react-native-product
         with:
           stage: package
           system: x86_64-linux
           source-sha: ${{ github.sha }}
           package-version: ""
+          exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
-      - name: Finish package cache upload
+      - name: Assemble the pull request test packages
+        shell: bash
+        run: |
+          nix build --no-link --print-out-paths \
+            .#xmtp-sdk-react-native-test-package \
+            .#xmtp-sdk-react-native-test-package-android > "$RUNNER_TEMP/rn-test-packages"
+      - name: Finish package cache uploads
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        run: cachix push xmtp "$XMTP_RN_PACKAGE_DIR"
+        run: |
+          cachix push xmtp "$XMTP_RN_PACKAGE_DIR"
+          while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-test-packages"
 
   rn-consumers:
-    name: RN installed consumers (${{ matrix.platform }})
+    name: Cache RN apps (${{ matrix.platform }})
     needs: rn-package
+    if: ${{ !cancelled() && needs.rn-package.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -103,38 +137,179 @@ jobs:
     env:
       SYSTEM: ${{ matrix.system }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: trusted
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/react-native-product
+      - name: Build the apps
+        uses: ./.github/actions/react-native-product
         with:
           stage: consumers
           system: ${{ matrix.system }}
           source-sha: ${{ github.sha }}
           package-version: ""
+          exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
-      - name: Finish consumer cache uploads
+      # The RN warm set (`ciSets.<system>.rn`) holds the RN stage members but
+      # the JavaScript layer, the app build inputs, and the RN shells, so a
+      # cold pull request build downloads them instead of fetching each one
+      # again. The earlier stages pushed the components and the package.
+      - name: Build the RN warm set
+        shell: bash
+        run: |
+          options=(--no-link --print-out-paths)
+          if [[ "$RUNNER_OS" == macOS ]]; then options+=(--option sandbox relaxed); fi
+          targets=(".#ciSets.$SYSTEM.rn")
+          if [[ "$SYSTEM" == x86_64-linux ]]; then targets+=(.#react-native-test-consumer-android-bare); fi
+          nix build "${options[@]}" "${targets[@]}" > "$RUNNER_TEMP/rn-apps"
+      # Only this job pins the RN set, so the `dev-*` and `release-*` pins of
+      # `build` move on while RN is broken, and this pin keeps the last good
+      # RN revisions.
+      - name: Push and pin the RN warm set
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        run: cachix push xmtp "$(nix eval --raw ".#ciStages.$SYSTEM.consumers.outPath")"
+        shell: bash
+        run: |
+          while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-apps"
+          # nix/ci-sets.nix names each set `ci-set-<name>`.
+          path=$(grep -x '/nix/store/[0-9a-z]\{32\}-ci-set-rn' "$RUNNER_TEMP/rn-apps")
+          cachix pin xmtp "rn-$SYSTEM" "$path" --keep-revisions 3
+
+  # The RN device smoke of each merge: the full package's bare and Expo apps,
+  # with every journey. It reads only `xmtp` and holds no token. The cache
+  # jobs pushed the package and apps; `build` pushed the backend and the test
+  # services that the journeys start, so the smoke waits for it and builds
+  # nothing. If `build` fails, the smoke still runs and builds what it
+  # misses. `build` does not wait for the smoke.
+  rn-smoke:
+    name: RN installed-app smoke (${{ matrix.platform }})
+    needs: [rn-consumers, build]
+    if: ${{ !cancelled() && needs.rn-consumers.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub-hosted: KVM for the emulator (GitHub changelog 2024-04-02).
+          # Revert label: blacksmith-16vcpu-ubuntu-2404.
+          - platform: android
+            system: x86_64-linux
+            runner: ubuntu-latest
+          # Installs and runs only. Revert label: warp-macos-26-arm64-12x.
+          - platform: ios
+            system: aarch64-darwin
+            runner: warp-macos-26-arm64-6x
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      XMTP_SDK_BUILD: nix
+      XMTP_RN_JOURNEYS: full
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Install the Node peer dependencies
+        uses: ./.github/actions/setup-js
+        with:
+          cache-mode: read
+          filter: "@xmtp/node-sdk..."
+      - name: Fetch the cached apps
+        uses: ./.github/actions/react-native-product
+        with:
+          stage: consumers
+          system: ${{ matrix.system }}
+          source-sha: ${{ github.sha }}
+          package-version: ""
+          exchange: "false"
+          substitute-only: "true"
+          artifact-prefix: rn
+          cache-mode: read
+      - name: Run the installed-app tests
+        uses: ./.github/actions/react-native-conformance
+        with:
+          platform: ${{ matrix.platform }}
+          artifact-prefix: react-native-post-merge
+
+  # Runs after the RN jobs on a free runner whenever the run goes on, also
+  # when some RN jobs failed. It dry-runs the RN set of each system whose set
+  # `xmtp` holds: a leg of rn-consumers pushes and pins its system's set, so a
+  # platform that pinned is checked even when the other leg or the smoke
+  # failed. Then it alerts when an RN job or this check failed. A job that
+  # hits its timeout ends as cancelled while the run goes on, so a cancelled
+  # result alerts too. A cancelled run checks and alerts on nothing.
+  rn-alert:
+    name: Check the RN sets and alert on an RN failure
+    needs: [rn-components, rn-package, rn-consumers, rn-smoke]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        if: ${{ needs.rn-consumers.result != 'skipped' }}
+        uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+      - name: Dry-run the pushed RN sets in an empty store
+        id: check
+        if: ${{ needs.rn-consumers.result != 'skipped' }}
+        shell: bash
+        env:
+          RN_CONSUMERS: ${{ needs.rn-consumers.result }}
+        run: |
+          nix eval --json .#ciSets --apply 'builtins.mapAttrs (_: sets: sets.rn.outPath)' > "$RUNNER_TEMP/rn-sets.json"
+          # The list goes through a file: bash ignores the exit status of a
+          # process substitution, so a failed jq would shrink the check.
+          jq -r 'to_entries[] | "\(.key) \(.value)"' "$RUNNER_TEMP/rn-sets.json" > "$RUNNER_TEMP/rn-sets.txt"
+          options=()
+          while read -r system path; do
+            # A binary cache serves <hash>.narinfo for each path it holds.
+            name=${path#/nix/store/}
+            status=$(curl -sS -o /dev/null -w '%{http_code}' "https://xmtp.cachix.org/${name%%-*}.narinfo")
+            if [[ "$status" == 200 ]]; then
+              options+=(--system "$system")
+            elif [[ "$status" == 404 && "$RN_CONSUMERS" != success ]]; then
+              echo "The RN set of $system is not in xmtp: its rn-consumers leg did not push it."
+            else
+              echo "::error title=RN sets::xmtp answered $status for the RN set of $system ($path)"
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/rn-sets.txt"
+          if (( ${#options[@]} > 0 )); then
+            dev/ci/warm-closure "${options[@]}" 'sets: { inherit (sets) rn; }'
+          fi
+      - name: Notify Slack
+        if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || steps.check.outcome == 'failure') }}
+        uses: ./.github/actions/slack-notify
+        with:
+          message: "Post-merge React Native failed for ${{ github.sha }}: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   build:
-    needs: [rn-components, rn-package, rn-consumers]
-    name: Build (${{ matrix.system }})
+    name: Cache dev and release outputs (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - system: x86_64-linux
+            os: Linux
             runner: blacksmith-16vcpu-ubuntu-2404
           # The macOS image of the iOS test and release jobs.
           - system: aarch64-darwin
+            os: macOS
             runner: warp-macos-15-arm64-12x
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -142,31 +317,26 @@ jobs:
     env:
       SYSTEM: ${{ matrix.system }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
       # and a build with another fails, so select it before the build.
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         if: runner.os == 'macOS'
         with:
           xcode-version: "26.3"
       - name: Show the Xcode version
         if: runner.os == 'macOS'
         run: xcodebuild -version
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "trusted"
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
       - name: Build the warm sets
-        run: |
-          if [[ "$SYSTEM" == aarch64-darwin ]]; then
-            # Require the already-pushed app closure without allowing any builder.
-            # Keep it rooted while the aggregate retains its existing build mode.
-            nix build --max-jobs 0 --option builders "" \
-              --option always-allow-substitutes true \
-              --out-link "$RUNNER_TEMP/rn-consumer-inputs" .#react-native-consumer-ios
-          fi
-          nix build --keep-going --no-link ".#ciSets.$SYSTEM.dev" ".#ciSets.$SYSTEM.release"
+        run: nix build --keep-going --no-link ".#ciSets.$SYSTEM.dev" ".#ciSets.$SYSTEM.release"
       # The Cachix daemon pushes each path that this job builds. `cachix push`
       # pushes every closure path that Cachix reports missing, also paths that
       # this job substituted; `xmtp` reports a path of its upstream
@@ -175,7 +345,7 @@ jobs:
       - name: Push and pin the warm sets
         run: |
           # One evaluation for both sets: each takes 25-35 s.
-          paths=$(nix eval --json ".#ciSets.$SYSTEM" --apply 'builtins.mapAttrs (_: set: set.outPath)')
+          paths=$(nix eval --json ".#ciSets.$SYSTEM" --apply 'sets: builtins.mapAttrs (_: set: set.outPath) { inherit (sets) dev release; }')
           for set in dev release; do
             path=$(jq -r --arg set "$set" '.[$set]' <<< "$paths")
             cachix push xmtp "$path"
@@ -192,130 +362,112 @@ jobs:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/setup-js
+      - name: Install JS dependencies (pnpm)
+        uses: ./.github/actions/setup-js
         with:
           cache-mode: trusted
 
   closure:
-    name: Check that the warm sets substitute
+    name: Verify cached dev and release outputs
     # Waits for both build jobs, after their post steps finish the uploads.
     needs: build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
-      # An empty-store dry run reads the narinfo of each path from the
-      # configured substituters and walks the reference closure. It lists
-      # each set member (an output path) and each crane dependency layer
-      # (a build-time input outside the runtime closure). The link farms set
-      # allowSubstitutes = false; always-allow-substitutes overrides that.
+      # dev/ci/warm-closure dry-runs every set member and crane dependency
+      # layer in an empty store. This job checks every set but `rn`: the RN
+      # jobs warm that one and rn-alert checks it, and this job does not wait
+      # for them. dev/ci/rn-isolation, in nix-eval.yml, keeps rn members out
+      # of the checked sets.
       - name: Dry-run the set members and dependency layers in an empty store
-        # bash -eo pipefail: a failed nix or jq in a pipeline fails the step.
-        # Without `shell`, GitHub runs bash -e only.
-        shell: bash
         run: |
-          store="$RUNNER_TEMP/empty"
-          # The sets read the ubrn fork source through import from derivation.
-          # Its fetch has the same output path on every system, and this
-          # runner can run only the x86_64-linux fetch, so evaluate
-          # x86_64-linux first: the Darwin sets then find the path valid even
-          # when `xmtp` does not hold it.
-          nix eval --store "$store" --json .#ciSets.x86_64-linux \
-            --apply 'builtins.mapAttrs (_: set: set.drvPath)' > /dev/null
-          # Write the drvs into the empty store: a drv of the host store is
-          # unknown there.
-          nix eval --store "$store" --json .#ciSets --apply '
-            builtins.mapAttrs (_: builtins.mapAttrs (_: set: {
-              members = builtins.attrValues set.passthru.members;
-              drv = set.drvPath;
-            }))' > "$RUNNER_TEMP/ci-sets.json"
-          # Each list goes through a file: bash ignores the exit status of a
-          # process substitution, so a failed jq or nix would shrink the check.
-          jq -r '.[][].members[]' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/members.txt"
-          jq -r '.[][].drv' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/drvs.txt"
-          paths=()
-          while read -r member; do
-            paths+=("$member")
-          done < "$RUNNER_TEMP/members.txt"
-          drvs=()
-          while read -r drv; do
-            drvs+=("$drv")
-          done < "$RUNNER_TEMP/drvs.txt"
-          # RN lock-only stores and native download farms are explicit set
-          # members, so their fixed-output closures are checked above too.
-          # Crane sets CRANE_BUILD_DEPS_ONLY on each dependency layer.
-          nix derivation show --store "$store" -r "${drvs[@]}" |
-            jq -r '(.derivations // .) | to_entries[]
-              | select(.value.env.CRANE_BUILD_DEPS_ONLY != null) | .key
-              | if startswith("/") then . else "/nix/store/" + . end' \
-            > "$RUNNER_TEMP/dependency-layers.txt"
-          # Every set holds crane builds, so an empty list means the query broke.
-          if [[ ! -s "$RUNNER_TEMP/dependency-layers.txt" ]]; then
-            echo "::error title=Warm closure::found no crane dependency layer in the set derivations"
-            exit 1
-          fi
-          while read -r layer; do
-            paths+=("$layer^out")
-          done < "$RUNNER_TEMP/dependency-layers.txt"
-          echo "Checking ${#paths[@]} set members, fixed-output inputs, and dependency layers"
-          # The dry run exits 0 also when a path cannot substitute, and has no
-          # machine-readable form (--json lists the requested paths only).
-          nix build --dry-run --store "$store" --option always-allow-substitutes true \
-            "${paths[@]}" 2>&1 | tee "$RUNNER_TEMP/dry-run.txt"
-          # Fail closed: accept only one "will be fetched" header (it holds
-          # the count and the sizes) and exactly as many indented store paths
-          # as it announces. A "will be built" or "don't know how to build"
-          # section, or any other line, fails. The store is empty, so a run
-          # that fetches nothing checked nothing.
-          # Nix 2.31 prints sizes in MiB; Nix 2.34 picks the unit (KiB to
-          # GiB and up) with one decimal. dev/tests/test_post_merge_closure.py
-          # holds both forms.
-          header='^(this path|these ([0-9]+) paths) will be fetched \([0-9.]+ [KMGTPEZY]iB download, [0-9.]+ [KMGTPEZY]iB unpacked\):$'
-          path='^  /nix/store/[0-9a-df-np-sv-z]{32}-[^[:space:]]+$'
-          fetching=false
-          headers=0
-          announced=0
-          fetched=0
-          unexpected=()
-          while IFS= read -r line; do
-            if [[ -z "$line" ]]; then
-              continue
-            elif [[ "$line" =~ $header ]]; then
-              headers=$((headers + 1))
-              # "this path" announces one.
-              announced=${BASH_REMATCH[2]:-1}
-              fetching=true
-            elif $fetching && [[ "$line" =~ $path ]]; then
-              fetched=$((fetched + 1))
-            else
-              fetching=false
-              unexpected+=("$line")
-            fi
-          done < "$RUNNER_TEMP/dry-run.txt"
-          if (( ${#unexpected[@]} > 0 || headers != 1 || fetched == 0 || fetched != announced )); then
-            echo "::error title=Warm closure::$headers fetch headers announce $announced paths and list $fetched; ${#unexpected[@]} lines show a path that cannot substitute or output this check does not know"
-            printf '%s\n' "${unexpected[@]}"
-            exit 1
-          fi
-          echo "Every set member and dependency layer substitutes ($fetched paths)."
+          dev/ci/warm-closure 'sets: removeAttrs sets [ "rn" ]'
 
-  # Pages content comes only from trusted trunk pushes. docs builds the site
-  # and native references after every warm member and dependency substitutes.
-  # A failed warm, upload, pin, or closure gate holds back deployment.
-  docs:
-    name: Docs
+  # Pages content comes only from trusted trunk pushes. The native references
+  # and docs build after every member and dependency layer of the sets that
+  # `closure` checks substitutes. A failed warm, upload, pin, or closure gate
+  # of those sets holds back deployment; an RN failure does not.
+  docs-swift:
+    name: Swift reference
     needs: closure
-    if: ${{ !cancelled() && needs.closure.result == 'success' }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: ios
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix),
+      # and sdks/ios/dev/bindings fails in CI with another. The image default is
+      # older.
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: "26.3"
+      - name: Show the Xcode version
+        run: xcodebuild -version
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: dev/nix-shell 'just ios docs apps/docs/generated/reference/swift'
+        run: dev/nix-shell 'just ios docs apps/docs/generated/reference/swift'
+      - name: Archive Swift reference
+        env:
+          COPYFILE_DISABLE: "1"
+        run: tar -cf "${RUNNER_TEMP}/docs-swift.tar" -C apps/docs/generated/reference/swift .
+      - name: Upload docs-swift
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-swift
+          path: ${{ runner.temp }}/docs-swift.tar
+          if-no-files-found: error
+  docs-kotlin:
+    name: Kotlin reference
+    needs: closure
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      NIX_DEVSHELL: android
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: dev/nix-shell 'just android docs-generated'
+        run: dev/nix-shell 'just android docs-generated'
+      - name: Upload docs-kotlin
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: docs-kotlin
+          path: sdks/android/library/build/dokka/html
+          if-no-files-found: error
+  # The docs compose job downloads the docs-swift and docs-kotlin artifacts of
+  # this run, so it waits for both references.
+  docs:
+    name: Docs site
+    needs: [closure, docs-swift, docs-kotlin]
     uses: ./.github/workflows/deploy-docs.yml
     with:
       deploy: true
+      runner: ubuntu-24.04
+      compose-runner: ubuntu-24.04
     # Mode read: the docs jobs need only the Kache reader keys.
     secrets:
       KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}

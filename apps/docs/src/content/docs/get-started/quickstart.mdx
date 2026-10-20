@@ -62,7 +62,7 @@ services:
       retries: 30
 
   backend:
-    image: ghcr.io/xmtp/backend:8.0.0-rc2
+    image: ghcr.io/xmtp/backend:8.0.0-rc3
     depends_on:
       db:
         condition: service_healthy
@@ -95,8 +95,7 @@ configuration.
 
 ## 2. Install the SDK
 
-Use SDK **8.0.0-rc2** for Browser, Node, Kotlin, and Swift. React Native uses
-**8.0.0** with the same backend image. See
+Use SDK **8.0.0-rc3** for Browser, Node, React Native, Kotlin, and Swift. See
 [Install the XMTP SDK](/get-started/install/) for other package managers.
 
 <Tabs syncKey="sdk">
@@ -108,7 +107,7 @@ Create a Vite app in the `xmtp-quickstart` directory and install the SDK:
 npm create vite@latest web -- --template vanilla-ts --no-interactive
 cd web
 npm install
-npm install --save-exact @xmtp/browser-sdk@8.0.0-rc2
+npm install --save-exact @xmtp/browser-sdk@8.0.0-rc3
 ```
 
 </TabItem>
@@ -120,14 +119,14 @@ SDK:
 ```sh
 npm init -y
 npm pkg set type=module
-npm install --save-exact @xmtp/node-sdk@8.0.0-rc2
+npm install --save-exact @xmtp/node-sdk@8.0.0-rc3
 ```
 
 </TabItem>
 <TabItem label="React Native">
 
 Follow [React Native and Expo setup](/get-started/react-native/). Add
-`@xmtp/react-native-sdk@8.0.0` to a native app with Hermes and New Architecture,
+`@xmtp/react-native-sdk@8.0.0-rc3` to a native app with Hermes and New Architecture,
 install iOS pods, and rebuild the native app. Use an Expo development build;
 Expo Go cannot load the module.
 

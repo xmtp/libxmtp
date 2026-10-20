@@ -98,7 +98,8 @@ impl XmtpMlsStorageProvider for MockSqlKeyStore {
         self.in_memory.delete::<CURRENT_VERSION>(label, key)
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
+    // The value may hold a private key; record only the label and key.
+    #[tracing::instrument(level = "trace", skip(self, value))]
     fn write(
         &self,
         label: &[u8],

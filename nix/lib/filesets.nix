@@ -331,7 +331,11 @@ let
   # Files that only a package's own tests read.
   testData = {
     "crates/xmtp_legacy_migration" = [ (src + /crates/xmtp_legacy_migration/fixtures) ];
-    "crates/xmtp_mls" = [ (src + /crates/xmtp_legacy_migration/fixtures) ];
+    "crates/xmtp_mls" = [
+      (src + /crates/xmtp_legacy_migration/fixtures)
+      # The frozen prepared attempts, read at compile time.
+      (src + /crates/xmtp_mls/src/groups/mls_sync/publish/fixtures)
+    ];
     "apps/backend" = [
       (src + /docs/backend-observability.md)
       (src + /docs/specs/OPS-backend-operations.md)

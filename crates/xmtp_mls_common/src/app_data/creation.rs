@@ -7,6 +7,7 @@
 
 use tls_codec::Serialize;
 use xmtp_configuration::ApplicationComponentDefinition;
+use xmtp_cryptography::secret::Zeroizing;
 use xmtp_proto::types::ConversationType;
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentMetadata, ComponentPermissions, ComponentType,
@@ -28,7 +29,6 @@ use crate::{
     },
     group_mutable_metadata::MetadataField,
     inbox_id::InboxId,
-    tls_set::TlsSetDelta,
 };
 
 /// Produce a populated [`ComponentRegistry`] from the legacy
@@ -382,17 +382,28 @@ pub(crate) fn membership_policy_to_metadata_policy(
 ///   attribute is a decimal-stringified `i64`; emit 8 big-endian bytes.
 /// - String-typed attributes (group name/description/url/app data/min
 ///   version): emit the raw UTF-8 bytes unchanged.
+///
+/// The result can be the commit-log signer's private key, so it is returned
+/// in `Zeroizing`. Take the bytes only where they move into OpenMLS.
 pub fn encode_metadata_attribute_value(
+    component_id: ComponentId,
+    legacy_value: &str,
+) -> Result<Zeroizing<Vec<u8>>, MigrationError> {
+    encode_metadata_attribute_bytes(component_id, legacy_value).map(Zeroizing::new)
+}
+
+fn encode_metadata_attribute_bytes(
     component_id: ComponentId,
     legacy_value: &str,
 ) -> Result<Vec<u8>, MigrationError> {
     match component_id {
+        // The returned key bytes go to OpenMLS as an AppData payload.
         ComponentId::COMMIT_LOG_SIGNER => {
-            let raw = hex::decode(legacy_value).map_err(|error| {
-                MigrationError::InvalidCommitLogSignerHex {
+            let mut raw = crate::group_mutable_metadata::decode_secret_hex(legacy_value).map_err(
+                |error| MigrationError::InvalidCommitLogSignerHex {
                     reason: error.to_string(),
-                }
-            })?;
+                },
+            )?;
             let expected = xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
             if raw.len() != expected {
                 return Err(MigrationError::InvalidCommitLogSignerLength {
@@ -400,7 +411,7 @@ pub fn encode_metadata_attribute_value(
                     actual: raw.len(),
                 });
             }
-            Ok(raw)
+            Ok(std::mem::take(&mut *raw))
         }
         ComponentId::MESSAGE_DISAPPEAR_FROM_NS => {
             parse_disappearing_i64("messageDisappearFromNS", legacy_value)
@@ -426,65 +437,6 @@ pub(crate) fn parse_disappearing_i64(
             },
         )?;
     Ok(n.to_be_bytes().to_vec())
-}
-
-/// Encode hex inbox ids as a `TlsSet<InboxId>`. Must stay byte-identical
-/// to the bridge's `encode_inbox_id_set` or byte-compare validation
-/// fails.
-/// Encode an inbox-id set as a **bootstrap wire delta**: a
-/// `TlsSetDelta<InboxId>` of all-`Insert` mutations. The wire is
-/// always a delta; bootstrap is the case where the prior set is
-/// empty, so every mutation is an `Insert`. The dict stores the
-/// materialized `TlsSet` snapshot; receivers translate wire → dict
-/// via [`apply_wire_bytes`].
-pub(crate) fn encode_inbox_id_set(inbox_ids_hex: &[String]) -> Result<Vec<u8>, MigrationError> {
-    let ids: Vec<InboxId> = inbox_ids_hex
-        .iter()
-        .map(|s| InboxId::from_hex(s))
-        .collect::<Result<Vec<_>, _>>()?;
-    // Sort so the wire bytes are deterministic across senders. The
-    // canonical-subset validator byte-compares this output against
-    // the actual proposal, so non-determinism here would let an
-    // honest sender's payload mismatch the validator's expectation.
-    let mut sorted_ids: Vec<InboxId> = ids;
-    sorted_ids.sort();
-    sorted_ids.dedup();
-    let mut delta: TlsSetDelta<InboxId> = TlsSetDelta::new();
-    for id in sorted_ids {
-        delta = delta.insert(id);
-    }
-    Ok(delta.tls_serialize_detached()?)
-}
-
-/// Encode the DM's two members as a **bootstrap wire delta**: a
-/// `TlsSetDelta<InboxId>` of all-`Insert` mutations. (DM_MEMBERS is
-/// declared as `ComponentType::TlsSetInboxId`; the dict stores the
-/// materialized `TlsSet` snapshot.)
-pub(crate) fn encode_dm_members(
-    dm: &crate::group_metadata::DmMembers<xmtp_id::InboxId>,
-) -> Result<Vec<u8>, MigrationError> {
-    // Decode first, then compare on InboxId — hex strings can differ
-    // only in case ("ABC..." vs "abc...") and still represent the same
-    // inbox id. Self-DMs would otherwise slip past a string-compare
-    // and `TlsSet` would silently collapse to one element, losing
-    // fidelity.
-    let one_str: &str = dm.member_one_inbox_id.as_ref();
-    let two_str: &str = dm.member_two_inbox_id.as_ref();
-    let one = InboxId::from_hex(one_str)?;
-    let two = InboxId::from_hex(two_str)?;
-    if one == two {
-        // Include both raw inputs so case-divergent self-references
-        // ("ABC..." vs "abc...") are visible in logs without having
-        // to reproduce.
-        return Err(MigrationError::DmMembersSelfReference(format!(
-            "{} (member_one={one_str}, member_two={two_str})",
-            one.to_hex(),
-        )));
-    }
-    // Sort for deterministic wire bytes (validator byte-compare).
-    let (a, b) = if one <= two { (one, two) } else { (two, one) };
-    let delta = TlsSetDelta::<InboxId>::new().insert(a).insert(b);
-    Ok(delta.tls_serialize_detached()?)
 }
 
 /// `CONVERSATION_TYPE` payload codec: 4-byte big-endian `i32` matching
@@ -722,7 +674,10 @@ pub fn initial_dictionary(
         (ComponentId::APP_DATA, opts.app_data.as_ref()),
     ] {
         if let Some(value) = value {
-            dictionary.insert(id.as_u16(), encode_metadata_attribute_value(id, value)?);
+            dictionary.insert(
+                id.as_u16(),
+                std::mem::take(&mut *encode_metadata_attribute_value(id, value)?),
+            );
         }
     }
     if let Some(settings) = &opts.message_disappearing_settings {

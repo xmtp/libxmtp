@@ -512,7 +512,7 @@ mod event_subscription_tests {
                 None,
                 Some(InternalEvent::PreferencesChanged {
                     updates: vec![PreferenceUpdate::Hmac {
-                        key: vec![value as u8],
+                        key: vec![value as u8].into(),
                         cycled_at_ns: value,
                     }],
                     origin: PreferenceOrigin::Local,

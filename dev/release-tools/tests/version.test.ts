@@ -96,72 +96,9 @@ describe("computeVersion", () => {
   it("throws if dev release has no shortSha", () => {
     expect(() => computeVersion("4.10.0", "dev")).toThrow();
   });
-
-  it("appends nightly suffix with timestamp and short sha", () => {
-    expect(
-      computeVersion("4.10.0", "nightly", {
-        timestamp: "20260428060000",
-        shortSha: "cc66682",
-      }),
-    ).toBe("4.10.0-pre.20260428060000.nightly.cc66682");
-  });
-
-  it("throws if nightly release has no timestamp", () => {
-    expect(() =>
-      computeVersion("4.10.0", "nightly", { shortSha: "cc66682" }),
-    ).toThrow(/timestamp/);
-  });
-
-  it("throws if nightly release has no shortSha", () => {
-    expect(() =>
-      computeVersion("4.10.0", "nightly", { timestamp: "20260428060000" }),
-    ).toThrow(/shortSha/);
-  });
-
-  it("nightly versions sort lexicographically by timestamp", () => {
-    const versions = [
-      computeVersion("4.10.0", "nightly", {
-        timestamp: "20260429060000",
-        shortSha: "bbbbbbb",
-      }),
-      computeVersion("4.10.0", "nightly", {
-        timestamp: "20260427060000",
-        shortSha: "aaaaaaa",
-      }),
-      computeVersion("4.10.0", "nightly", {
-        timestamp: "20260428060000",
-        shortSha: "ccccccc",
-      }),
-    ];
-    const lexSorted = [...versions].sort();
-    const semverSorted = [...versions].sort(semver.compare);
-    expect(lexSorted).toEqual([
-      "4.10.0-pre.20260427060000.nightly.aaaaaaa",
-      "4.10.0-pre.20260428060000.nightly.ccccccc",
-      "4.10.0-pre.20260429060000.nightly.bbbbbbb",
-    ]);
-    expect(lexSorted).toEqual(semverSorted);
-  });
-
-  it("nightly is a valid semver prerelease", () => {
-    const v = computeVersion("4.10.0", "nightly", {
-      timestamp: "20260428060000",
-      shortSha: "cc66682",
-    });
-    expect(semver.parse(v)).not.toBeNull();
-  });
 });
 
 describe("unified pre.* prerelease ordering", () => {
-  it("formats main-cut nightly as pre.<ts>.nightly.<sha>", () => {
-    expect(
-      computeVersion("4.9.0", "nightly", {
-        timestamp: "20260825060000",
-        shortSha: "a53a97e",
-      }),
-    ).toBe("4.9.0-pre.20260825060000.nightly.a53a97e");
-  });
-
   it("formats main-cut dev as pre.<ts>.dev.<sha>", () => {
     expect(
       computeVersion("4.9.0", "dev", {
@@ -178,30 +115,18 @@ describe("unified pre.* prerelease ordering", () => {
     );
   });
 
-  it("orders the unified timeline by timestamp across channels", () => {
-    const nightly = computeVersion("4.9.0", "nightly", {
+  it("orders main-cut devs by timestamp", () => {
+    const earlier = computeVersion("4.9.0", "dev", {
       timestamp: "20260825060000",
       shortSha: "a53a97e",
+      fromMain: true,
     });
-    const dev = computeVersion("4.9.0", "dev", {
+    const later = computeVersion("4.9.0", "dev", {
       timestamp: "20260825153000",
       shortSha: "999b077",
       fromMain: true,
     });
-    expect(semver.gt(dev, nightly)).toBe(true); // later dev beats earlier nightly
-  });
-
-  it("orders a later nightly above an earlier dev", () => {
-    const dev = computeVersion("4.9.0", "dev", {
-      timestamp: "20260825060000",
-      shortSha: "999b077",
-      fromMain: true,
-    });
-    const nightly = computeVersion("4.9.0", "nightly", {
-      timestamp: "20260825153000",
-      shortSha: "a53a97e",
-    });
-    expect(semver.gt(nightly, dev)).toBe(true);
+    expect(semver.gt(later, earlier)).toBe(true);
   });
 
   it("ignores the timestamp for a branch-cut dev", () => {
@@ -214,7 +139,7 @@ describe("unified pre.* prerelease ordering", () => {
   });
 
   it("sorts legacy shapes below all pre.* and rc above", () => {
-    const pre = "4.9.0-pre.20260825060000.nightly.a53a97e";
+    const pre = "4.9.0-pre.20260825060000.dev.a53a97e";
     expect(semver.gt(pre, "4.9.0-nightly.20260826.fffffff")).toBe(true);
     expect(semver.gt(pre, "4.9.0-dev.999b077")).toBe(true);
     expect(semver.gt("4.9.0-rc1", pre)).toBe(true);
@@ -234,34 +159,28 @@ describe("unified pre.* prerelease ordering", () => {
   });
 
   // Regression: with minute precision, two runs starting in the same UTC
-  // minute shared an ordering key, so semver fell through to the channel
-  // identifier ("dev" < "nightly" alphabetically) and then the sha. A dev cut
-  // seconds AFTER a nightly therefore sorted BELOW it — a silent backwards
-  // upgrade for anything resolving latest. Second precision separates them.
-  it("orders same-minute runs by seconds, not by channel name", () => {
-    const nightly = computeVersion("4.9.0", "nightly", {
+  // minute shared an ordering key, so semver fell through to the sha, which
+  // is arbitrary. Second precision separates them.
+  it("orders same-minute runs by seconds, not by sha", () => {
+    const earlier = computeVersion("4.9.0", "dev", {
       timestamp: "20260825060000",
-      shortSha: "a53a97e",
-    });
-    const dev = computeVersion("4.9.0", "dev", {
-      timestamp: "20260825060030",
-      shortSha: "999b077",
+      shortSha: "fffffff",
       fromMain: true,
     });
-    expect(semver.gt(dev, nightly)).toBe(true);
-    // ...and the reverse ordering within the same minute holds too.
-    const laterNightly = computeVersion("4.9.0", "nightly", {
-      timestamp: "20260825060059",
-      shortSha: "ccccccc",
+    const later = computeVersion("4.9.0", "dev", {
+      timestamp: "20260825060030",
+      shortSha: "aaaaaaa",
+      fromMain: true,
     });
-    expect(semver.gt(laterNightly, dev)).toBe(true);
+    expect(semver.gt(later, earlier)).toBe(true);
   });
 
   it("keeps the widened stamp a numeric semver identifier", () => {
     const parsed = semver.parse(
-      computeVersion("4.9.0", "nightly", {
+      computeVersion("4.9.0", "dev", {
         timestamp: "20260825060000",
         shortSha: "a53a97e",
+        fromMain: true,
       }),
     );
     // Numeric (not string) => semver compares stamps arithmetically, and the
@@ -271,9 +190,6 @@ describe("unified pre.* prerelease ordering", () => {
   });
 
   it("requires timestamp for main-cut builds", () => {
-    expect(() =>
-      computeVersion("4.9.0", "nightly", { shortSha: "a53a97e" }),
-    ).toThrow(/timestamp/);
     expect(() =>
       computeVersion("4.9.0", "dev", { shortSha: "a", fromMain: true }),
     ).toThrow(/timestamp/);

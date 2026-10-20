@@ -1,6 +1,11 @@
-name: Check Rust compiler lint
+name: "Test: Rust Clippy"
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
     secrets:
       KACHE_S3_ACCESS_KEY_ID:
         description: "Optional compiler cache reader access key ID"
@@ -9,17 +14,22 @@ on:
         description: "Optional compiler cache reader secret access key"
         required: false
 jobs:
-  native:
-    name: Check (native all-feature Clippy)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+  # Native and WASM Clippy in one job and one Kache scope. `wasm` is an alias
+  # of the rust shell (flake.nix), so one shell serves every step.
+  clippy:
+    name: Clippy (native, SDK generator, WASM)
+    runs-on: ${{ inputs.runner }}
+    # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
+    timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
     environment:
       name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'kache-s3-writer' || '' }}
     env:
       NIX_DEVSHELL: rust
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'ci' }}
           github-token: ${{ github.token }}
@@ -29,39 +39,17 @@ jobs:
           kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
           kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
           kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-          kache-scope: rust-clippy-native
+          kache-scope: rust-clippy
           kache-readonly: "false"
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
-      - name: Run native all-feature Clippy
+      - name: dev/nix-shell 'dev/agent-run cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings'
+        id: native
         run: dev/nix-shell 'dev/agent-run cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings'
-      - name: Run SDK generator Clippy
+      # The later checks also run when native Clippy fails, so one run reports
+      # every Clippy failure. They do not run when setup failed.
+      - name: dev/nix-shell 'dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings'
         # The generator is not a default workspace member.
+        if: ${{ !cancelled() && steps.native.outcome != 'skipped' }}
         run: dev/nix-shell 'dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings'
-  wasm:
-    name: Check (WASM Clippy)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    environment:
-      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'kache-s3-writer' || '' }}
-    timeout-minutes: 30
-    env:
-      NIX_DEVSHELL: wasm
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
-        with:
-          cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'ci' }}
-          github-token: ${{ github.token }}
-          kache: "true"
-          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
-          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
-          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
-          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-          kache-scope: rust-clippy-wasm
-          kache-readonly: "false"
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
-      - uses: ./.github/actions/setup-js
-        with:
-          cache-mode: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'ci' }}
-      - name: Run WASM Clippy
-        run: just wasm lint
+      - name: dev/nix-shell 'just wasm lint'
+        if: ${{ !cancelled() && steps.native.outcome != 'skipped' }}
+        run: dev/nix-shell 'just wasm lint'

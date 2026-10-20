@@ -445,3 +445,60 @@ async fn test_first_metadata_update_reports_empty_old_value() {
     );
     assert_eq!(change.new_value.as_deref(), Some("foo"));
 }
+
+/// A commit that changes the commit-log signer records no change for it:
+/// neither the committer's nor a member's stored transcript names
+/// `_commit_log_signer`, and no INFO log through the production filter holds
+/// the key's hex.
+// verifies: META-074, LOG-014
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn commit_log_signer_change_is_not_recorded() {
+    use xmtp_db::group_message::GroupMessageKind;
+    use xmtp_logging::{Level, test_logging::LogCapture};
+    use xmtp_mls_common::group_mutable_metadata::MetadataField;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    let signer = xmtp_cryptography::rand::rand_secret::<32>();
+    let signer_hex = hex::encode(signer.as_slice());
+
+    let capture = LogCapture::new(Level::Info);
+    {
+        // The current-thread runtime polls spawned tasks on this thread too.
+        let _logging = tracing::dispatcher::set_default(&capture.dispatch());
+        alix_group.update_commit_log_signer(signer.clone()).await?;
+        bo_group.sync().await?;
+    }
+
+    for group in [&alix_group, &bo_group] {
+        let committed = group.mutable_metadata()?.commit_log_signer();
+        assert_eq!(
+            committed.as_ref().map(|key| key.as_slice()),
+            Some(signer.as_slice()),
+            "the commit changed the signer"
+        );
+        for message in group.find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::MembershipChange),
+            ..Default::default()
+        })? {
+            let update = decode_group_updated(&message.decrypted_message_bytes);
+            assert!(
+                update
+                    .metadata_field_changes
+                    .iter()
+                    .all(|change| change.field_name != MetadataField::CommitLogSigner.as_str()),
+                "a transcript recorded the signer change: {:?}",
+                update.metadata_field_changes
+            );
+        }
+    }
+    assert!(
+        !capture.output().contains(&signer_hex),
+        "an INFO log holds the commit-log signer"
+    );
+}

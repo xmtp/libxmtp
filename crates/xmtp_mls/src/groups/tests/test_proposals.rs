@@ -1,9 +1,8 @@
-//! Tests for proposal support detection and proposal-based group operations.
+//! Tests for proposal-based group operations.
 //!
 //! These tests verify:
-//! 1. That `all_members_support_proposals` correctly detects extension support
-//! 2. That proposal-based add/remove member flows work correctly
-//! 3. That proposal-based group operations work on dictionary-native groups
+//! 1. That proposal-based add/remove member flows work correctly
+//! 2. That proposal-based group operations work on dictionary-native groups
 
 use crate::{
     context::XmtpSharedContext,
@@ -63,59 +62,6 @@ pub(super) fn assert_insufficient_permissions(error: crate::groups::GroupError) 
     ));
     assert!(summary.publish_errors.is_empty());
     assert!(summary.post_commit_errors.is_empty());
-}
-
-// =============================================================================
-// Proposal Support Detection Tests
-// =============================================================================
-
-/// Test that all_members_support_proposals returns consistent results for various group sizes.
-#[rstest]
-#[case::single_member(0)]
-#[case::two_members(1)]
-#[case::three_members(2)]
-#[case::five_members(4)]
-#[xmtp_common::test]
-async fn test_all_members_support_proposals_consistency(#[case] additional_members: usize) {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-    tester!(dave);
-    tester!(eve);
-
-    let all_members = [bo, caro, dave, eve];
-    let inboxes = all_members.each_ref().map(|m| m.inbox_id());
-    let members_to_add = &inboxes[..additional_members];
-
-    let alix_group = if members_to_add.is_empty() {
-        alix.create_group(None, None).unwrap()
-    } else {
-        alix.create_group_with_members(members_to_add, None, None)
-            .await
-            .unwrap()
-    };
-
-    for member in &all_members[..additional_members] {
-        member.sync_welcomes().await.unwrap();
-    }
-
-    // Check proposal support multiple times - should be consistent
-    for _ in 0..3 {
-        let supports = alix_group
-            .load_mls_group_with_lock_async(async |mls_group| {
-                alix_group.all_members_support_proposals(&mls_group).await
-            })
-            .await
-            .unwrap();
-        assert!(supports, "All test members should support proposals");
-    }
-
-    // Verify member count (skip for single-member groups as members list
-    // isn't populated until first sync with other members)
-    if additional_members > 0 {
-        let members = alix_group.members().await.unwrap();
-        assert_eq!(members.len(), additional_members + 1);
-    }
 }
 
 // =============================================================================

@@ -35,62 +35,6 @@ pub(crate) fn parse_canonical_dm_id(dm_id: Option<&str>) -> Result<DmMembers<Str
     Ok(members)
 }
 
-#[cfg(test)]
-pub(crate) fn build_protected_metadata_extension(
-    creator_inbox_id: &str,
-    conversation_type: ConversationType,
-    oneshot_message: Option<OneshotMessage>,
-) -> Result<Extension, MetadataPermissionsError> {
-    assert!(conversation_type != ConversationType::Dm);
-    let metadata = GroupMetadata::new(
-        conversation_type,
-        creator_inbox_id.to_string(),
-        None,
-        oneshot_message,
-    );
-    let protected_metadata = Metadata::new(metadata.try_into()?);
-
-    Ok(Extension::ImmutableMetadata(protected_metadata))
-}
-
-#[cfg(test)]
-pub(in crate::groups) fn build_dm_protected_metadata_extension(
-    creator_inbox_id: &str,
-    dm_inbox_id: InboxId,
-) -> Result<Extension, GroupError> {
-    let dm_members = Some(DmMembers {
-        member_one_inbox_id: creator_inbox_id.to_string(),
-        member_two_inbox_id: dm_inbox_id,
-    });
-
-    let metadata = GroupMetadata::new(
-        ConversationType::Dm,
-        creator_inbox_id.to_string(),
-        dm_members,
-        None,
-    );
-    let protected_metadata = Metadata::new(
-        metadata
-            .try_into()
-            .map_err(MetadataPermissionsError::from)?,
-    );
-
-    Ok(Extension::ImmutableMetadata(protected_metadata))
-}
-
-#[cfg(test)]
-pub(crate) fn build_mutable_permissions_extension(
-    policies: PolicySet,
-) -> Result<Extension, MetadataPermissionsError> {
-    let permissions: Vec<u8> = GroupMutablePermissions::new(policies).try_into()?;
-    let unknown_gc_extension = UnknownExtension(permissions);
-
-    Ok(Extension::Unknown(
-        GROUP_PERMISSIONS_EXTENSION_ID,
-        unknown_gc_extension,
-    ))
-}
-
 pub fn build_mutable_metadata_extension_default(
     creator_inbox_id: &str,
     opts: GroupMetadataOptions,
@@ -156,9 +100,10 @@ pub fn build_group_membership_extension(group_membership: &GroupMembership) -> E
 pub(crate) fn build_group_config(
     dictionary: openmls::extensions::AppDataDictionary,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
+    // No `LastResort`: key packages carry their last-resort mark in the
+    // AppDataDictionary extension.
     let required_extension_types = &[
         ExtensionType::AppDataDictionary,
-        ExtensionType::LastResort,
         ExtensionType::ApplicationId,
     ];
     let required_proposal_types = &[ProposalType::AppDataUpdate];
@@ -184,92 +129,6 @@ pub(crate) fn build_group_config(
             &[CredentialType::Basic],
         )),
     ])?;
-    Ok(MlsGroupCreateConfig::builder()
-        .with_group_context_extensions(extensions)
-        .capabilities(capabilities)
-        .ciphersuite(CIPHERSUITE)
-        .wire_format_policy(WireFormatPolicy::default())
-        .max_past_epochs(MAX_PAST_EPOCHS)
-        .use_ratchet_tree_extension(true)
-        .build())
-}
-
-// Legacy extension fixtures remain until the legacy reader tests are removed.
-#[cfg(test)]
-pub(crate) fn build_legacy_test_group_config(
-    protected_metadata_extension: Extension,
-    mutable_metadata_extension: Extension,
-    group_membership_extension: Extension,
-    mutable_permission_extension: Extension,
-) -> Result<MlsGroupCreateConfig, GroupError> {
-    // Extensions that all group members MUST support (enforced by RequiredCapabilities)
-    let required_extension_types = &[
-        ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
-        ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
-        ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
-        ExtensionType::ImmutableMetadata,
-        ExtensionType::LastResort,
-        ExtensionType::ApplicationId,
-    ];
-
-    // Extensions the creator's leaf node advertises support for (superset of required).
-    // `AppDataDictionary` is listed here so the group can be migrated
-    // later, but is NOT in required_extension_types so members without
-    // support can join the pre-migration legacy group.
-    let mut creator_capability_extensions = required_extension_types.to_vec();
-    creator_capability_extensions.push(ExtensionType::Unknown(
-        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
-    ));
-    creator_capability_extensions.push(ExtensionType::Unknown(
-        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
-    ));
-    // AppDataDictionary capability — needed for the bootstrap commit
-    // and steady-state AppDataUpdate proposals. Required-vs-supported
-    // is enforced by RequiredCapabilities (which adds it only after
-    // bootstrap), so advertising here unconditionally is safe and lets
-    // a fresh group's creator be the migration trigger.
-    creator_capability_extensions.push(ExtensionType::AppDataDictionary);
-
-    let required_proposal_types = &[ProposalType::GroupContextExtensions];
-
-    // Leaf-node-advertised proposal types: a superset of `required_proposal_types`.
-    // We advertise `AppDataUpdate` here so that the new path (commit-with-inline-
-    // AppDataUpdate-proposal) is supported, but we DO NOT add it to
-    // `required_proposal_types` because that would break backwards compatibility
-    // with members whose leaf nodes don't yet advertise it. The capability check
-    // OpenMLS performs at commit-build time inspects every member leaf node's
-    // proposal capabilities — adding it here ensures the creator advertises
-    // support; joining clients pick it up via their own key package (see
-    // `identity.rs`).
-    let creator_capability_proposals = &[
-        ProposalType::GroupContextExtensions,
-        ProposalType::AppDataUpdate,
-    ];
-
-    let capabilities = Capabilities::new(
-        None,
-        None,
-        Some(&creator_capability_extensions),
-        Some(creator_capability_proposals),
-        None,
-    );
-    let credentials = &[CredentialType::Basic];
-
-    let required_capabilities =
-        Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
-            required_extension_types,
-            required_proposal_types,
-            credentials,
-        ));
-
-    let extensions = Extensions::from_vec(vec![
-        protected_metadata_extension,
-        mutable_metadata_extension,
-        group_membership_extension,
-        mutable_permission_extension,
-        required_capabilities,
-    ])?;
-
     Ok(MlsGroupCreateConfig::builder()
         .with_group_context_extensions(extensions)
         .capabilities(capabilities)

@@ -132,8 +132,8 @@ the build sandbox, through `services-test` of the storage services (a
 PostgreSQL primary, a streaming replica, and VersityGW on free loopback
 ports). Linux runs all tests. Darwin skips the tests that need the system TLS
 trust service or fast replica replay. Build it with `nix build --no-link .#backend-tests.<system>`.
-`test-backend.yml` builds it on Linux and, in the `Native backend contract`
-job, on macOS.
+`test-nix-checks.yml` builds it on Linux. No CI job builds the Darwin
+variant; `test_ios` runs the backend and the test services on macOS.
 
 ## Bindgen fork pin
 
@@ -291,13 +291,10 @@ retain their existing behavior.
 Import the checked canonical package before building consumers. All four
 reachable native `__noChroot=true` derivations are behind that already-realized
 package output, so the consumer step does not build them. CI and release select
-the mode only for the Darwin consumer command. Trusted warming builds and pushes
-consumers first. Before the later aggregate, a Darwin-only substitute-only
-build (`--max-jobs 0 --option builders "" --option always-allow-substitutes true`)
-roots the pushed app closure. The substitution override permits the link farm's
-cached output despite its default `allowSubstitutes = false`.
-A missing substitution fails before any app builder can run; the aggregate
-keeps its existing mode and uses the rooted outputs.
+the mode only for the Darwin consumer command. Trusted warming builds the
+consumers in the post-merge RN cache job, which builds the RN warm set
+(`ciSets.<system>.rn`) with the same mode. The dev and release sets hold no
+consumer, so their build needs no relaxed sandbox.
 
 On a local trusted Nix installation,
 a canonical consumer build can use the same narrow per-command options:
@@ -314,8 +311,9 @@ the exact versioned Xcode path and export mode `canonical`. Both remove Nix's
 must keep their local identity; they do not satisfy canonical CI admission.
 
 `react-native-js-tools-deps` retains the four exact compiler/declaration
-archives as a narrow warm-set member. Keep it in each producer stage and dev
-set so the empty-store closure gate also checks these build-time inputs.
+archives as a narrow warm-set member. Keep it in each producer stage and in a
+warm set (dev on Linux, rn on Darwin) so an empty-store closure check also
+covers these build-time inputs.
 
 RN Gradle runs on JDK 21. Its included settings plugin compiles with the
 declared JDK 17. The Gradle installation properties name both JDKs and disable
@@ -330,6 +328,12 @@ both immutable component inputs. Export/import them with
 `python3.11 nix/react-native-exchange.py` through the RN recipes. Assembly must
 follow both producers; consumer bundles follow assembly. PR exports stay in
 CI jobs. Trusted writers receive only exports from the same main run.
+Jobs with a Cachix token skip the exchange; `react-native-exchange.py roots`
+prints a stage's roots. `--kind test` selects
+`legacyPackages.<system>.reactNative.testStages`, the stages of the partial
+`xmtp-sdk-react-native-test-package`; `--kind test-android` selects
+`androidTestStages`, the Linux-only stages of
+`xmtp-sdk-react-native-test-package-android` (the Android smoke).
 
 Check export admission with
 `dev/nix-shell 'python3.11 -B nix/lib/test_react_native_exchange.py'`.

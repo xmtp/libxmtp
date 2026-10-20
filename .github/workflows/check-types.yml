@@ -1,6 +1,11 @@
-name: Check JavaScript types and full lint
+name: "Test: JS types"
 'on':
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 env:
   NIX_DEVSHELL: js
   # Stage release-profile Nix products before workspace types and full lint.
@@ -8,22 +13,30 @@ env:
   XMTP_SDK_BUILD: nix
 jobs:
   check:
-    name: Check (JavaScript types and full lint)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+    name: Typecheck and type-aware Oxlint
+    runs-on: ${{ inputs.runner }}
+    # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
+    timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
     steps:
-    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-    - uses: ./.github/actions/setup-nix
+    - name: Check out the source
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+    - name: Set up Nix
+      uses: ./.github/actions/setup-nix
       with:
         cache-mode: ci
         github-token: ${{ github.token }}
-    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
-    - uses: ./.github/actions/setup-js
+    - name: Install JS dependencies (pnpm)
+      uses: ./.github/actions/setup-js
       with:
         cache-mode: ci
-    - name: Prepare Node, Browser, and React Native declarations
-      run: just js sdk-products all
-    - name: Typecheck JavaScript workspace
+    - name: dev/nix-shell 'just js sdk-products all'
+      run: dev/nix-shell 'just js sdk-products all'
+    - name: dev/nix-shell 'pnpm -r run typecheck'
       run: dev/nix-shell 'pnpm -r run typecheck'
-    - name: Full Oxlint rules
-      run: dev/nix-shell 'pnpm -r run lint'
+    # A recursive `lint` runs each package's `build` first (the task graph in
+    # pnpm-workspace.yaml). The docs build is the site, which docs_site builds,
+    # so the docs package is linted on its own, without a build.
+    - name: dev/nix-shell "pnpm -r --filter '!@xmtp/docs' run lint"
+      run: dev/nix-shell "pnpm -r --filter '!@xmtp/docs' run lint"
+    - name: dev/nix-shell 'just docs lint'
+      run: dev/nix-shell 'just docs lint'

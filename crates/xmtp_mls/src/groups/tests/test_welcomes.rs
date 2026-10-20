@@ -21,6 +21,47 @@ use xmtp_mls_common::group::GroupMetadataOptions;
 
 use xmtp_proto::types::GroupId;
 
+/// Every key package is last resort: two Welcomes addressed to the one key
+/// package an installation published both open, so the first join does not
+/// delete its private keys. Without a mark OpenMLS recognizes, the first
+/// Welcome consumes the package and the second finds no key package.
+// verifies: JOIN-003
+#[xmtp_common::test(unwrap_try = true)]
+async fn one_key_package_opens_two_welcomes() {
+    use openmls_traits::OpenMlsProvider;
+
+    tester!(alix, disable_workers);
+    tester!(bo);
+    tester!(caro);
+    let installation = alix.installation_public_key().to_vec();
+    let newest_key_package = || async {
+        alix.get_key_packages_for_installation_ids(vec![installation.clone()])
+            .await
+            .unwrap()
+            .remove(&installation)
+            .unwrap()
+            .unwrap()
+            .inner
+            .hash_ref(alix.context.mls_provider().crypto())
+            .unwrap()
+    };
+    let published = newest_key_package().await;
+
+    let first = bo.create_group(None, None)?;
+    first.add_members(&[alix.inbox_id()]).await?;
+    let second = caro.create_group(None, None)?;
+    second.add_members(&[alix.inbox_id()]).await?;
+    // Both Welcomes name the same key package: alix has not rotated it.
+    assert_eq!(newest_key_package().await, published);
+
+    let joined = alix.sync_welcomes().await?;
+    let mut joined: Vec<_> = joined.iter().map(|group| group.group_id).collect();
+    joined.sort();
+    let mut expected = vec![first.group_id, second.group_id];
+    expected.sort();
+    assert_eq!(joined, expected);
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn ordinary_welcome_rejects_peer_admin_combinator() {
     use openmls::{component::ComponentData, messages::proposals::AppDataUpdateOperation};

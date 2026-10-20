@@ -22,6 +22,12 @@ pub enum StorageError {
         "This database uses an older self-hosted format. Keep a backup and create a new client database."
     )]
     OldStreamDatabase,
+    /// The database was written before the key store and serialized columns
+    /// moved from bincode to CBOR. Not retryable.
+    #[error(
+        "This database uses an older storage encoding. Keep a backup and create a new client database."
+    )]
+    OldEncodingDatabase,
     /// Durable stream storage rejected an operation or reached a capacity limit.
     #[error(transparent)]
     #[error_code(inherit)]
@@ -281,6 +287,7 @@ impl RetryableError for StorageError {
             Self::Stream(e) => retryable!(e),
             Self::PreTransitionDatabase
             | Self::OldStreamDatabase
+            | Self::OldEncodingDatabase
             | Self::MigrationError(_)
             | Self::Conversion(_)
             | Self::NotFound(_)
@@ -352,19 +359,6 @@ impl RetryableError<Mls> for openmls::group::NewGroupError<sql_key_store::SqlKey
         match self {
             Self::StorageError(storage) => retryable!(storage),
             _ => false,
-        }
-    }
-}
-
-impl RetryableError<Mls>
-    for openmls::group::UpdateGroupMembershipError<sql_key_store::SqlKeyStoreError>
-{
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::CreateCommitError(create_commit) => retryable!(create_commit),
-            Self::GroupStateError(group_state) => retryable!(group_state),
-            Self::StorageError(storage) => retryable!(storage),
-            Self::CommitBuilderError(commit_builder) => retryable!(commit_builder),
         }
     }
 }

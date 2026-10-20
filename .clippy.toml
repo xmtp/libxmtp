@@ -8,8 +8,19 @@ ignore-interior-mutability = ["xmtp_mls::groups::MlsGroup", "bytes::Bytes"]
 #
 # Clippy resolves paths, so this also catches `use reqwest::Client; Client::new()`, which a grep
 # for `reqwest::Client::new` misses.
+#
+# The signing-key accessors below copy a private key into a bare array that is freed or dropped
+# unwiped. Borrow the key (`SigningKey::as_bytes()`) or move it (`from_signing_key`). Where a copy
+# is unavoidable, `#[allow(clippy::disallowed_methods)]` with a `// zeroize:` comment that names the
+# `Zeroizing` binding holding the result, or says why none exists.
 disallowed-methods = [
   { path = "reqwest::Client::new", reason = "use xmtp_common::http::client()" },
   { path = "reqwest::Client::builder", reason = "use xmtp_common::http::client_builder()" },
   { path = "reqwest::ClientBuilder::new", reason = "use xmtp_common::http::client_builder()" },
+  { path = "ed25519_dalek::SigningKey::to_bytes", reason = "copies the private key; borrow with as_bytes()" },
+  { path = "ed25519_dalek::SigningKey::to_keypair_bytes", reason = "copies the private key; borrow with as_bytes()" },
+  { path = "alloy_signer_local::LocalSigner::to_bytes", reason = "copies the private key; hold the copy in Zeroizing" },
+  { path = "alloy_signer_local::LocalSigner::to_field_bytes", reason = "copies the private key; hold the copy in Zeroizing" },
+  { path = "ecdsa::SigningKey::to_bytes", reason = "copies the private key; hold the copy in Zeroizing" },
+  { path = "elliptic_curve::SecretKey::to_bytes", reason = "copies the private key; hold the copy in Zeroizing" },
 ]

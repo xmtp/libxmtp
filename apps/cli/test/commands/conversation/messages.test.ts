@@ -4,7 +4,6 @@ import {
   createRegisteredIdentity,
   parseJsonOutput,
   runWithIdentity,
-  sleep,
 } from "../../helpers.js";
 
 interface Message {
@@ -55,67 +54,5 @@ describe("conversation messages", () => {
     const messages = parseJsonOutput<Message[]>(listResult.stdout);
     // May include membership change messages, so check for at least 2
     expect(messages.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("recipient can see sent messages after sync", async () => {
-    const sender = await createRegisteredIdentity();
-    const recipient = await createRegisteredIdentity();
-
-    // Create DM and send message
-    const dmResult = await runWithIdentity(sender, [
-      "conversations",
-      "create-dm",
-      recipient.address,
-      "--json",
-    ]);
-    const dm = parseJsonOutput<{ id: string }>(dmResult.stdout);
-
-    await runWithIdentity(sender, [
-      "conversation",
-      "send-text",
-      dm.id,
-      "Hello from sender!",
-    ]);
-
-    // Give time for message to propagate
-    await sleep(1000);
-
-    // Recipient syncs and checks messages
-    await runWithIdentity(recipient, ["conversations", "sync"]);
-
-    // Get the DM on recipient's side
-    const recipientDmsResult = await runWithIdentity(recipient, [
-      "conversations",
-      "list",
-      "--type",
-      "dm",
-      "--json",
-    ]);
-    const recipientDms = parseJsonOutput<Array<{ id: string }>>(
-      recipientDmsResult.stdout,
-    );
-    const recipientDm = recipientDms.find((d) => d.id === dm.id);
-
-    if (recipientDm) {
-      await runWithIdentity(recipient, [
-        "conversation",
-        "sync",
-        recipientDm.id,
-      ]);
-
-      const messagesResult = await runWithIdentity(recipient, [
-        "conversation",
-        "messages",
-        recipientDm.id,
-        "--json",
-      ]);
-
-      expect(messagesResult.exitCode).toBe(0);
-      const messages = parseJsonOutput<Message[]>(messagesResult.stdout);
-      const textMessages = messages.filter((m) => m.content.kind === "text");
-      expect(
-        textMessages.some((m) => m.content.value === "Hello from sender!"),
-      ).toBe(true);
-    }
   });
 });

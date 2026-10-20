@@ -1,26 +1,38 @@
-name: Test Android example
+name: "Test: Android example app"
 'on':
   workflow_call:
+    inputs:
+      emulator:
+        description: >-
+          false runs the APK, JVM test, lint, and build job; true runs the
+          emulator tests. Two suites call this file, one per job, so the
+          emulator tests can run as advisory on pull requests (decision D1).
+        type: boolean
+        required: true
 permissions:
   contents: read
 jobs:
   # Job ids stay unique across test-android.yml and this file (setup-gradle
   # keys its entries by job id and the calling workflow).
   messenger-build:
-    name: APK, unit tests, lint, and builds (Messenger)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    name: APK, JVM tests, lint (Gradle)
+    if: ${{ !inputs.emulator }}
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 45
     env:
       # The slim CI shell: no Rust toolchain, no emulator.
       NIX_DEVSHELL: android-ci
     steps:
-    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-    - uses: ./.github/actions/setup-nix
+    - name: Check out the source
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    - name: Set up Nix
+      uses: ./.github/actions/setup-nix
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
         github-token: ${{ github.token }}
-    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       with:
         # CI-only Gradle cache: protected trunk pushes write it, and every
         # other run only reads it. Release and deploy jobs never restore it.
@@ -29,31 +41,32 @@ jobs:
     # restored Gradle User Home, and needs no backend.
     - name: Build and verify the signed universal APK
       run: nix build .#example-android-apk --no-link
-    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
-    - name: Start backend
-      run: dev/nix-shell 'just backend up'
     # One Gradle call: unit tests, Spotless, Android Lint, and every variant
-    # build, then the APK package checks.
-    - name: Test, lint, and build Messenger
+    # build, then the APK package checks. No JVM test creates a client, so
+    # the job starts no backend.
+    - name: dev/nix-shell 'just example-android check-all'
       run: dev/nix-shell 'just example-android check-all'
   integration-tests:
-    name: Integration tests (Messenger)
+    name: Emulator tests (API 34)
+    if: ${{ inputs.emulator }}
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 45
     steps:
-    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-    - uses: ./.github/actions/setup-nix
+    - name: Check out the source
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    - name: Set up Nix
+      uses: ./.github/actions/setup-nix
       with:
         cache-mode: "ci"
         cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
         github-token: ${{ github.token }}
-    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       with:
         # CI-only Gradle cache: protected trunk pushes write it, and every
         # other run only reads it. Release and deploy jobs never restore it.
         cache-read-only: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main') }}
-    - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
-    - name: Start backend
+    - name: dev/nix-shell 'just backend up'
       env:
         NIX_DEVSHELL: android-ci-emulator
       run: dev/nix-shell 'just backend up'
@@ -65,7 +78,7 @@ jobs:
         sudo udevadm trigger --name-match=kvm
 
         '
-    - name: Run Messenger integration tests
+    - name: dev/nix-shell 'just example-android test-integration'
       timeout-minutes: 30
       env:
         NIX_DEVSHELL: android-ci-emulator
@@ -88,15 +101,3 @@ jobs:
           ${{ runner.temp }}/messenger-metadata-backend/
           ${{ runner.temp }}/messenger-emulator-startup/
         include-hidden-files: 'true'
-  results:
-    name: Require Android example checks
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 1
-    if: always()
-    needs:
-    - messenger-build
-    - integration-tests
-    steps:
-    - env:
-        PASSED: ${{ needs.messenger-build.result == 'success' && needs.integration-tests.result == 'success' }}
-      run: test "$PASSED" = true

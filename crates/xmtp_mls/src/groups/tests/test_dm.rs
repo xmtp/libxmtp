@@ -422,46 +422,6 @@ async fn test_dictionary_native_dm_accepts_valid_permissions() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn canonical_dm_registry_matches_validation_expectation() {
-    use crate::groups::group_permissions::PolicySet;
-    use xmtp_mls_common::app_data::{
-        component_registry::ComponentRegistry,
-        migration::synthesize_canonical_subset_from_extensions,
-    };
-    tester!(alix);
-    let added_by = hex::encode([0x42; 32]);
-    let legacy_dm = TestMlsGroup::create_test_dm_group(
-        alix.context.clone(),
-        added_by.clone(),
-        None,
-        None,
-        None,
-        None,
-        None,
-    )?;
-    let entries = legacy_dm.load_mls_group_with_lock(alix.context.mls_storage(), |group| {
-        Ok(
-            synthesize_canonical_subset_from_extensions(group.extensions())
-                .unwrap()
-                .expected_registry,
-        )
-    })?;
-    let mut registry = ComponentRegistry::new();
-    for (id, metadata) in entries {
-        registry.set(id, metadata)?;
-    }
-    let group = dictionary_native_dm_with_registry(&alix.context, &added_by, registry);
-    let actual =
-        crate::groups::group_permissions::policy_set_from_dictionary(group.extensions())?.policies;
-    let expected = PolicySet::new_dm();
-    assert_eq!(actual.add_member_policy, expected.add_member_policy);
-    assert_eq!(actual.remove_member_policy, expected.remove_member_policy);
-    assert_eq!(actual.add_admin_policy, expected.add_admin_policy);
-    assert_eq!(actual.remove_admin_policy, expected.remove_admin_policy);
-    crate::groups::validate_dm_group(&alix.context, &group, &added_by)?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
 async fn test_dictionary_native_dm_rejects_add_member_policy_alone() {
     use crate::groups::{DmValidationError, MetadataPermissionsError};
 

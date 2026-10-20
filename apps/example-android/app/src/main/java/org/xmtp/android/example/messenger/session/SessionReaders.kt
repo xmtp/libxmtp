@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.messenger.ActiveSession
@@ -12,6 +13,7 @@ import org.xmtp.android.example.messenger.SessionKey
 import uniffi.xmtp_sdk.ConnectionState
 import uniffi.xmtp_sdk.ConsentState
 import uniffi.xmtp_sdk.ConversationStreamOptions
+import uniffi.xmtp_sdk.Message
 import uniffi.xmtp_sdk.MessageStreamOptions
 import uniffi.xmtp_sdk.XmtpException
 import uniffi.xmtp_sdk.stream
@@ -58,32 +60,41 @@ internal class SessionReaders(
             }
     }
 
-    fun startMessages(owner: ActiveSession) {
+    fun startMessages(owner: ActiveSession) =
+        startMessages(owner.key, { options -> owner.client.conversations.streamAllMessages(options) }) { message ->
+            projection.handle(owner, message)
+        }
+
+    /** The default reader loop. [open] opens one SDK message stream; JVM tests pass a fake one. */
+    internal fun startMessages(
+        key: SessionKey,
+        open: (MessageStreamOptions) -> Flow<Message>,
+        handle: suspend (Message) -> Unit,
+    ) {
         check(!messagesStarted) { "The default reader is already started" }
         messageJob =
             scope.launch {
-                while (accepts(owner.key)) {
+                while (accepts(key)) {
                     try {
-                        owner.client.conversations
-                            .streamAllMessages(
-                                MessageStreamOptions(
-                                    consentStates = listOf(ConsentState.ALLOWED, ConsentState.UNKNOWN),
-                                    onConnectionStateChange = { _, value -> connection(owner.key, value.toString()) },
-                                ),
-                            ).collect { message ->
-                                if (!accepts(owner.key)) throw CancellationException("Session changed")
-                                // Direct collection must await required handling before the next SDK read.
-                                projection.handle(owner, message)
-                                if (!accepts(owner.key)) throw CancellationException("Session changed during handling")
-                            }
+                        open(
+                            MessageStreamOptions(
+                                consentStates = listOf(ConsentState.ALLOWED, ConsentState.UNKNOWN),
+                                onConnectionStateChange = { _, value -> connection(key, value.toString()) },
+                            ),
+                        ).collect { message ->
+                            if (!accepts(key)) throw CancellationException("Session changed")
+                            // Direct collection must await required handling before the next SDK read.
+                            handle(message)
+                            if (!accepts(key)) throw CancellationException("Session changed during handling")
+                        }
                         return@launch
                     } catch (failure: XmtpException.ConsumerOwned) {
                         // A killed process can leave its lease. Retry until the lease expires.
-                        connection(owner.key, ConnectionState.RECONNECTING.toString())
+                        connection(key, ConnectionState.RECONNECTING.toString())
                         delay(1_000)
                     } catch (failure: Throwable) {
                         if (failure is CancellationException) throw failure
-                        readerFailure(owner.key, failure)
+                        readerFailure(key, failure)
                         return@launch
                     }
                 }

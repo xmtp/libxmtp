@@ -1,5 +1,6 @@
 use super::*;
 use crate::db::PushChannel;
+use xmtp_cryptography::secret::Zeroizing;
 
 fn delivery(id: u64, channel: PushChannel) -> Delivery {
     Delivery {
@@ -9,7 +10,7 @@ fn delivery(id: u64, channel: PushChannel) -> Delivery {
             secret_hash: vec![9; 32],
             channel,
             delivery: "https://example.org/push".into(),
-            signing_key: Some(vec![7; 32]),
+            signing_key: Some(Zeroizing::new(vec![7; 32])),
         },
     }
 }
@@ -177,13 +178,16 @@ fn deletion_discards_only_matching_pending_configuration() {
     let mut work = Work::new(0);
     let old = delivery(1, PushChannel::Http);
     let mut renewed = old.clone();
-    renewed.config.signing_key = Some(vec![9; 32]);
+    renewed.config.signing_key = Some(Zeroizing::new(vec![9; 32]));
     work.add_page(1, 1, false, vec![old.clone(), renewed]);
     work.deleted(&old.config);
     assert_eq!(work.queue.len(), 1);
     assert_eq!(work.low_watermark(), 0);
     let pending = work.next(Instant::now())?;
-    assert_eq!(pending.delivery.config.signing_key, Some(vec![9; 32]));
+    assert_eq!(
+        pending.delivery.config.signing_key,
+        Some(Zeroizing::new(vec![9; 32]))
+    );
     work.complete(pending, Outcome::Delivered, 3);
     assert_eq!(work.low_watermark(), 1);
 }

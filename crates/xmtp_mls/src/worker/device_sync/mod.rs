@@ -20,7 +20,7 @@ use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
 use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
-use xmtp_content_types::encoded_content_to_bytes;
+use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_db::tasks::NewTask;
 use xmtp_db::{NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs};
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
@@ -30,6 +30,7 @@ use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_proto::xmtp::{
     device_sync::content::{
         DeviceSyncContent as DeviceSyncContentProto, device_sync_content::Content as ContentProto,
+        preference_update::Update as PreferenceUpdateProto,
     },
     mls::{
         database::{
@@ -50,11 +51,20 @@ pub use xmtp_archive::archive_options::{ArchiveOptions, BackupElementSelection};
 mod tests;
 
 /// Encode sync content as the `EncodedContent` bytes of a sync message.
-fn sync_message_bytes(content: ContentProto) -> Vec<u8> {
-    let content = DeviceSyncContentProto {
+///
+/// Sync content can hold an HMAC root key. Every buffer that holds it here is
+/// wiped: the key fields of `content` after encoding, the inner encoding, and
+/// the returned bytes when the caller drops them.
+fn sync_message_bytes(content: ContentProto) -> Zeroizing<Vec<u8>> {
+    let mut content = DeviceSyncContentProto {
         content: Some(content),
     };
-    encoded_content_to_bytes(EncodedContent {
+    // `encode_to_vec` sizes its buffer up front, so it never frees a partial copy.
+    let inner = content.encode_to_vec();
+    if let Some(content) = &mut content.content {
+        wipe_hmac_keys(content);
+    }
+    let mut encoded = EncodedContent {
         r#type: Some(ContentTypeId {
             authority_id: "xmtp.org".to_string(),
             type_id: "application/x-protobuf".to_string(),
@@ -64,8 +74,32 @@ fn sync_message_bytes(content: ContentProto) -> Vec<u8> {
         parameters: HashMap::new(),
         fallback: None,
         compression: None,
-        content: content.encode_to_vec(),
-    })
+        content: inner,
+    };
+    let bytes = Zeroizing::new(encoded.encode_to_vec());
+    encoded.content.zeroize();
+    bytes
+}
+
+/// Wipe the HMAC root key of every preference update in `content`.
+fn wipe_hmac_keys(content: &mut ContentProto) {
+    if let ContentProto::PreferenceUpdates(updates) = content {
+        for update in &mut updates.updates {
+            if let Some(PreferenceUpdateProto::Hmac(hmac)) = &mut update.update {
+                hmac.key.zeroize();
+            }
+        }
+    }
+}
+
+/// Sync content decoded from a received message. Its HMAC root keys are wiped
+/// on drop, on every path out of processing.
+pub(super) struct ReceivedContent(pub(super) ContentProto);
+
+impl Drop for ReceivedContent {
+    fn drop(&mut self) {
+        wipe_hmac_keys(&mut self.0);
+    }
 }
 
 /// A sync group belongs to the own inbox only when that inbox added this
@@ -137,11 +171,6 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     #[error_code(inherit)]
     Subscribe(#[from] SubscribeError),
-    /// Bincode error.
-    ///
-    /// Binary serialization failed. Retryable.
-    #[error(transparent)]
-    Bincode(#[from] bincode::Error),
     /// Archive error.
     ///
     /// Sync archive operation failed. Retryable.
@@ -282,6 +311,9 @@ where
         &self,
         content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
+        // Encode first: the content can hold an HMAC root key, and only the
+        // encoding wipes it, so every later return drops wiped bytes.
+        let content_bytes = sync_message_bytes(content);
         let sync_group = self.get_sync_group().await?;
 
         let msg = format!(
@@ -289,8 +321,6 @@ where
             xmtp_common::fmt::debug_hex(sync_group.group_id)
         );
         tracing::info!("{}", msg.yellow());
-
-        let content_bytes = sync_message_bytes(content);
 
         let message_id = sync_group.prepare_message(
             &content_bytes,
@@ -426,11 +456,39 @@ where
     }
 }
 
+/// The payload of a sync message's outer `EncodedContent`, the only field the
+/// worker reads. It can hold an HMAC root key, so it is wiped on drop, also
+/// when prost drops a value whose decode fails part way.
+#[derive(Clone, PartialEq, prost::Message)]
+struct SyncPayload {
+    #[prost(bytes = "vec", tag = "4")]
+    content: Vec<u8>,
+}
+
+impl Drop for SyncPayload {
+    fn drop(&mut self) {
+        self.content.zeroize();
+    }
+}
+
+/// Decode a received sync message: the outer `EncodedContent`, then the
+/// supported device-sync content inside it.
+pub(super) fn decode_sync_message(plaintext: &[u8]) -> Option<ReceivedContent> {
+    let payload = SyncPayload::decode(plaintext).ok()?;
+    decode_supported_content(&payload.content)
+}
+
 /// Decode only device-sync content that this client supports.
 ///
 /// Old archive transfer fields decode as an unset oneof after their field
 /// numbers became reserved. Ignore them so older installations do not make
 /// the sync worker fail or retry the message.
-fn decode_supported_content(bytes: &[u8]) -> Option<ContentProto> {
-    DeviceSyncContentProto::decode(bytes).ok()?.content
+///
+/// `bytes` can hold an HMAC root key: the caller wipes them, and the content
+/// wipes its keys on drop.
+fn decode_supported_content(bytes: &[u8]) -> Option<ReceivedContent> {
+    DeviceSyncContentProto::decode(bytes)
+        .ok()?
+        .content
+        .map(ReceivedContent)
 }

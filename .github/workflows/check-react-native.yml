@@ -1,0 +1,47 @@
+# The blocking React Native unit checks: package admission, the React
+# ownership tests, and the native helper compile. They need no device, no
+# mobile build, and no products job. The device chain is test-react-native.yml.
+name: "Test: React Native unit checks"
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  unit:
+    name: Package, React, and native-helper checks
+    runs-on: ${{ inputs.runner }}
+    # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
+    timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
+    env:
+      # One shell for every recipe; its react-native.just recipes run in it.
+      NIX_DEVSHELL: react-native
+      XMTP_SDK_BUILD: nix
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: ci
+          github-token: ${{ github.token }}
+      - name: Install the React Native SDK dependencies
+        uses: ./.github/actions/setup-js
+        with:
+          cache-mode: ci
+          filter: "@xmtp/react-native-sdk..."
+      - name: dev/nix-shell 'just react-native check-package'
+        run: dev/nix-shell 'just react-native check-package'
+      - name: dev/nix-shell 'just react-native test-react'
+        run: dev/nix-shell 'just react-native test-react'
+      - name: dev/nix-shell 'just react-native test-native'
+        run: dev/nix-shell 'just react-native test-native'
+      # Reload settlement needs no device. The journey trim may delete this
+      # test; the step then has nothing to run.
+      - name: dev/nix-shell 'just react-native test-control'
+        if: hashFiles('sdks/react-native/test/conformance/peer-runtime.test.mjs') != ''
+        run: dev/nix-shell 'just react-native test-control'

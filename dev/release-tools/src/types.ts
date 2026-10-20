@@ -27,11 +27,9 @@ export interface SdkConfig {
   artifactTagSuffix: string;
   /** Provider for reading/writing the version manifest */
   manifest: ManifestProvider;
-  /** How this SDK's version relates to the libxmtp 1.x version */
-  versionTrack: VersionTrack;
 }
 
-export type ReleaseType = "dev" | "rc" | "final" | "nightly";
+export type ReleaseType = "dev" | "rc" | "final";
 
 export type BumpType = "major" | "minor" | "patch";
 
@@ -39,13 +37,6 @@ export type BumpOption = BumpType | "none";
 
 /** Valid bump options for CLI commands */
 export const BUMP_OPTIONS = ["major", "minor", "patch", "none"] as const;
-
-/**
- * How an SDK's version relates to the libxmtp (1.x) version computed from commits.
- * - follows-libxmtp: take the 1.x oracle number verbatim (libxmtp)
- * - independent: own base version; mirror the 1.x bump KIND onto it (iOS/Android)
- */
-export type VersionTrack = "follows-libxmtp" | "independent";
 
 /** Shape of the global CLI options (defined in cli.ts) */
 export interface GlobalArgs {

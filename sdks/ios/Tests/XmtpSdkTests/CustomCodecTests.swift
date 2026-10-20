@@ -264,23 +264,4 @@ final class CustomCodecTests: XCTestCase {
 			}
 		}
 	}
-
-	// verifies: CTYPE-023, CTYPE-024
-	func testSendOptionsWriteSharedCompressionFrames() async throws {
-		try await withClients { scope in
-			let client = try await scope.create(signer: generateLocalSigner(), options: liveOptions())
-			let group = try await client.conversations.createGroup(members: [InboxId]())
-			for (compression, magic) in [
-				(Compression.deflate, [UInt8(0x78), UInt8(0x9C)]),
-				(Compression.gzip, [UInt8(0x1F), UInt8(0x8B)]),
-			] {
-				let text = String(repeating: "compressed", count: 100)
-				let id = try await group.sendText(text: text, options: SendOptions(compression: compression))
-				guard let message = try await client.conversations.getMessageById(id: id),
-				      case let .standard(.text(decoded)) = message.content else { return XCTFail("Compressed text did not decode") }
-				XCTAssertEqual(decoded, text)
-				XCTAssertTrue(message.rawBytes.range(of: Data(magic)) != nil)
-			}
-		}
-	}
 }

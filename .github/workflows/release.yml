@@ -74,13 +74,15 @@ on:
         required: false
         type: boolean
         default: false
-  schedule:
-    # Nightly: 06:00 UTC daily (~11pm PT / 02am ET). Schedule-only, never manual.
-    - cron: "0 6 * * *"
 
 jobs:
   validate:
+    name: Resolve source and versions
     runs-on: ubuntu-latest
+    # This job runs the release tools from the source, so it holds no App or
+    # publish secret and only reads the repository.
+    permissions:
+      contents: read
     outputs:
       release-type: ${{ steps.resolve.outputs.release-type }}
       ref: ${{ steps.resolve.outputs.ref }}
@@ -95,12 +97,17 @@ jobs:
       cli: ${{ steps.resolve.outputs.cli }}
       backend: ${{ steps.resolve.outputs.backend }}
       dry-run: ${{ steps.resolve.outputs.dry-run }}
-      skip: ${{ steps.skip-check.outputs.skip }}
+      version-ios: ${{ steps.versions.outputs.version-ios }}
+      version-android: ${{ steps.versions.outputs.version-android }}
+      version-node-sdk: ${{ steps.versions.outputs.version-node-sdk }}
+      version-browser-sdk: ${{ steps.versions.outputs.version-browser-sdk }}
+      version-agent-sdk: ${{ steps.versions.outputs.version-agent-sdk }}
+      version-react-native-sdk: ${{ steps.versions.outputs.version-react-native-sdk }}
+      version-cli: ${{ steps.versions.outputs.version-cli }}
     steps:
       - name: Resolve release parameters
         id: resolve
         env:
-          EVENT_NAME: ${{ github.event_name }}
           INPUT_RELEASE_TYPE: ${{ inputs.release-type }}
           INPUT_REF: ${{ inputs.ref }}
           GITHUB_REF: ${{ github.ref }}
@@ -114,37 +121,24 @@ jobs:
           INPUT_BACKEND: ${{ inputs.backend }}
           INPUT_DRY_RUN: ${{ inputs.dry-run }}
         run: |
-          if [ "$EVENT_NAME" = "schedule" ]; then
-            echo "release-type=nightly" >> "$GITHUB_OUTPUT"
-            echo "ref=main" >> "$GITHUB_OUTPUT"
-            echo "ios=true" >> "$GITHUB_OUTPUT"
-            echo "android=true" >> "$GITHUB_OUTPUT"
-            echo "node-sdk=true" >> "$GITHUB_OUTPUT"
-            echo "browser-sdk=true" >> "$GITHUB_OUTPUT"
-            echo "agent-sdk=true" >> "$GITHUB_OUTPUT"
-            echo "react-native-sdk=true" >> "$GITHUB_OUTPUT"
-            echo "cli=true" >> "$GITHUB_OUTPUT"
-            echo "backend=false" >> "$GITHUB_OUTPUT"
-            echo "dry-run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "release-type=$INPUT_RELEASE_TYPE" >> "$GITHUB_OUTPUT"
-            echo "ref=${INPUT_REF:-$GITHUB_REF}" >> "$GITHUB_OUTPUT"
-            echo "ios=$INPUT_IOS" >> "$GITHUB_OUTPUT"
-            echo "android=$INPUT_ANDROID" >> "$GITHUB_OUTPUT"
-            echo "node-sdk=$INPUT_NODE_SDK" >> "$GITHUB_OUTPUT"
-            echo "browser-sdk=$INPUT_BROWSER_SDK" >> "$GITHUB_OUTPUT"
-            echo "agent-sdk=$INPUT_AGENT_SDK" >> "$GITHUB_OUTPUT"
-            echo "react-native-sdk=$INPUT_REACT_NATIVE_SDK" >> "$GITHUB_OUTPUT"
-            echo "cli=$INPUT_CLI" >> "$GITHUB_OUTPUT"
-            echo "backend=$INPUT_BACKEND" >> "$GITHUB_OUTPUT"
-            echo "dry-run=${INPUT_DRY_RUN:-false}" >> "$GITHUB_OUTPUT"
-          fi
-      # Use one timestamp for all SDK versions in this release run.
+          {
+            echo "release-type=$INPUT_RELEASE_TYPE"
+            echo "ref=${INPUT_REF:-$GITHUB_REF}"
+            echo "ios=$INPUT_IOS"
+            echo "android=$INPUT_ANDROID"
+            echo "node-sdk=$INPUT_NODE_SDK"
+            echo "browser-sdk=$INPUT_BROWSER_SDK"
+            echo "agent-sdk=$INPUT_AGENT_SDK"
+            echo "react-native-sdk=$INPUT_REACT_NATIVE_SDK"
+            echo "cli=$INPUT_CLI"
+            echo "backend=$INPUT_BACKEND"
+            echo "dry-run=${INPUT_DRY_RUN:-false}"
+          } >> "$GITHUB_OUTPUT"
+      # Use one timestamp for all versions in this release run.
       #
       # Second precision, not minute: the stamp is the semver ordering key, so
-      # two runs sharing one stamp fall through to comparing `dev` vs `nightly`
-      # (alphabetical — a newer dev would sort BELOW an older nightly) and then
-      # sha. Seconds keep separate runs on separate keys.
+      # two runs sharing one stamp fall through to comparing the sha, which is
+      # arbitrary. Seconds keep separate runs on separate keys.
       - name: Mint release timestamp
         id: timestamp
         run: echo "timestamp=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
@@ -181,7 +175,8 @@ jobs:
             echo "::error::RC releases require a positive integer rc-number"
             exit 1
           fi
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ steps.resolve.outputs.ref }}
           persist-credentials: false
@@ -189,188 +184,141 @@ jobs:
         id: source
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Skip-if-no-new-commits (nightly only)
-        id: skip-check
-        if: steps.resolve.outputs.release-type == 'nightly'
+      - name: Set up release tools
+        uses: ./.github/actions/setup-release-tools
+      # Every selected SDK gets its version here, once, from the pinned
+      # source and the run timestamp. The SDK workflows publish these values.
+      # The backend computes its own version after it pins its source.
+      - name: Compute SDK versions
+        id: versions
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
-          REPO: ${{ github.repository }}
+          RELEASE_TYPE: ${{ steps.resolve.outputs.release-type }}
+          RC_NUMBER: ${{ inputs.rc-number }}
+          REF: ${{ steps.resolve.outputs.ref }}
+          TIMESTAMP: ${{ steps.timestamp.outputs.timestamp }}
+          IOS: ${{ steps.resolve.outputs.ios }}
+          ANDROID: ${{ steps.resolve.outputs.android }}
+          NODE_SDK: ${{ steps.resolve.outputs.node-sdk }}
+          BROWSER_SDK: ${{ steps.resolve.outputs.browser-sdk }}
+          AGENT_SDK: ${{ steps.resolve.outputs.agent-sdk }}
+          REACT_NATIVE_SDK: ${{ steps.resolve.outputs.react-native-sdk }}
+          CLI: ${{ steps.resolve.outputs.cli }}
         run: |
           set -euo pipefail
-          HEAD_SHA=${SOURCE_SHA:0:7}
-          LAST_TAG=$(gh api "repos/${REPO}/git/matching-refs/tags/ios-" \
-            --jq '[.[] | .ref | sub("refs/tags/"; "")] | map(select(test("-pre\\..*\\.nightly\\."))) | sort | last // ""')
-          if [ -n "$LAST_TAG" ]; then
-            LAST_SHA=$(echo "$LAST_TAG" | grep -oE '[0-9a-f]{7}$' || true)
-            if [ "$LAST_SHA" = "$HEAD_SHA" ]; then
-              echo "::notice::No new commits since last nightly ($LAST_TAG); skipping."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
+          for entry in "ios:$IOS" "android:$ANDROID" "node-sdk:$NODE_SDK" \
+            "browser-sdk:$BROWSER_SDK" "agent-sdk:$AGENT_SDK" \
+            "react-native-sdk:$REACT_NATIVE_SDK" "cli:$CLI"; do
+            sdk="${entry%%:*}"
+            if [ "${entry#*:}" != true ]; then
+              continue
             fi
-          fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-
-  # Nightly blocking relies on TWO mechanisms that must BOTH be preserved (see hub job below):
-  #  1. gate-skip == 'true' (a legitimate "not green yet" skip; gate job succeeds), and
-  #  2. job-dependency skip on plan FAILURE.
-  # The cross-test gate + version oracle live in the reusable release-gate-plan
-  # workflow (one source of truth, shared with nightly-dry-run.yml). This `plan`
-  # job runs it for the real nightly. Outputs: sha, gate-skip, version, kind,
-  # nothing-pending.
-  plan:
-    needs: [validate]
-    if: needs.validate.outputs.release-type == 'nightly' && needs.validate.outputs.skip != 'true'
-    uses: ./.github/workflows/release-gate-plan.yml
-    with:
-      ref: ${{ needs.validate.outputs.source-sha }}
-    secrets: inherit
+            args=(--sdk "$sdk" --release-type "$RELEASE_TYPE")
+            case "$RELEASE_TYPE" in
+              rc) args+=(--rc-number "$RC_NUMBER") ;;
+              dev) args+=(--source-ref "$REF" --timestamp "$TIMESTAMP") ;;
+            esac
+            version=$(xmtp-release compute-version "${args[@]}")
+            echo "version-$sdk=$version" >> "$GITHUB_OUTPUT"
+            echo "$sdk: $version"
+          done
 
   release-ios:
-    needs: [validate, plan]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.ios == 'true' && needs.validate.outputs.skip != 'true'
-      && needs.validate.outputs.dry-run != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
+    name: iOS SDK
+    needs: [validate]
+    if: needs.validate.outputs.ios == 'true' && needs.validate.outputs.dry-run != 'true'
     uses: ./.github/workflows/release-ios.yml
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
       source-sha: ${{ needs.validate.outputs.source-sha }}
-      timestamp: ${{ needs.validate.outputs.timestamp }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
+      version: ${{ needs.validate.outputs.version-ios }}
     secrets: inherit
 
   release-android:
-    needs: [validate, plan]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.android == 'true' && needs.validate.outputs.skip != 'true'
-      && needs.validate.outputs.dry-run != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
+    name: Android SDK
+    needs: [validate]
+    if: needs.validate.outputs.android == 'true' && needs.validate.outputs.dry-run != 'true'
     uses: ./.github/workflows/release-android.yml
     permissions:
       contents: write
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
       source-sha: ${{ needs.validate.outputs.source-sha }}
-      timestamp: ${{ needs.validate.outputs.timestamp }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
+      version: ${{ needs.validate.outputs.version-android }}
     secrets: inherit
 
   release-node-sdk:
-    needs: [validate, plan]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.node-sdk == 'true' && needs.validate.outputs.skip != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
+    name: Node SDK
+    needs: [validate]
+    if: needs.validate.outputs.node-sdk == 'true'
     uses: ./.github/workflows/release-node-sdk.yml
     with:
-      release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
       source-sha: ${{ needs.validate.outputs.source-sha }}
-      timestamp: ${{ needs.validate.outputs.timestamp }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
+      version: ${{ needs.validate.outputs.version-node-sdk }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
   release-browser-sdk:
-    needs: [validate, plan]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.browser-sdk == 'true' && needs.validate.outputs.skip != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
+    name: Browser SDK
+    needs: [validate]
+    if: needs.validate.outputs.browser-sdk == 'true'
     uses: ./.github/workflows/release-browser-sdk.yml
     with:
-      release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
       source-sha: ${{ needs.validate.outputs.source-sha }}
-      timestamp: ${{ needs.validate.outputs.timestamp }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
+      version: ${{ needs.validate.outputs.version-browser-sdk }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
   # Depends on release-node-sdk so the published agent-sdk pins the node-sdk
   # version shipped by this same run; when node-sdk is deselected (skipped),
   # the empty version input falls back to npm latest inside the workflow.
+  # `!cancelled()` lets this job run when release-node-sdk was skipped.
   release-agent-sdk:
-    needs: [validate, plan, release-node-sdk]
+    name: Agent SDK
+    needs: [validate, release-node-sdk]
     if: >-
       !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.agent-sdk == 'true' && needs.validate.outputs.skip != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
+      && needs.validate.outputs.agent-sdk == 'true'
     uses: ./.github/workflows/release-agent-sdk.yml
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
       source-sha: ${{ needs.validate.outputs.source-sha }}
-      timestamp: ${{ needs.validate.outputs.timestamp }}
+      version: ${{ needs.validate.outputs.version-agent-sdk }}
       node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
   release-react-native-sdk:
-    needs: [validate, plan]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.react-native-sdk == 'true' && needs.validate.outputs.skip != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
+    name: React Native SDK
+    needs: [validate]
+    if: needs.validate.outputs.react-native-sdk == 'true'
     uses: ./.github/workflows/release-react-native-sdk.yml
     with:
-      release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
       source-sha: ${{ needs.validate.outputs.source-sha }}
-      timestamp: ${{ needs.validate.outputs.timestamp }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
+      version: ${{ needs.validate.outputs.version-react-native-sdk }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
   # Depends on release-node-sdk so the published CLI pins the node-sdk version
   # shipped by this run, falling back to npm latest when node-sdk is skipped.
   release-cli:
-    needs: [validate, plan, release-node-sdk]
+    name: CLI
+    needs: [validate, release-node-sdk]
     if: >-
       !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.cli == 'true' && needs.validate.outputs.skip != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
+      && needs.validate.outputs.cli == 'true'
     uses: ./.github/workflows/release-cli.yml
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
       source-sha: ${{ needs.validate.outputs.source-sha }}
-      timestamp: ${{ needs.validate.outputs.timestamp }}
+      version: ${{ needs.validate.outputs.version-cli }}
       node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
   release-backend:
+    name: Backend
     needs: [validate]
-    if: needs.validate.outputs.backend == 'true' && needs.validate.outputs.skip != 'true'
+    if: needs.validate.outputs.backend == 'true'
     uses: ./.github/workflows/release-backend.yml
     permissions:
       contents: write
@@ -386,7 +334,80 @@ jobs:
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
+  # A backend release publishes the xdbg monitoring image
+  # (apps/xmtp_debug/README.md), built from the backend's pinned source and
+  # tagged with the backend release version. It pushes the image only when the
+  # source commit is on main or a release/** branch: a dev release may come
+  # from any branch, and a dry run publishes nothing, so those build the image
+  # without pushing it. Nothing deploys it.
+  release-xdbg:
+    name: Publish xdbg image
+    needs: [validate, release-backend]
+    if: needs.release-backend.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ needs.release-backend.outputs.version }}
+      pushed: ${{ steps.release-source.outcome == 'success' }}
+    env:
+      IMAGE: ghcr.io/xmtp/xdbg
+    steps:
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.validate.outputs.source-sha }}
+          persist-credentials: false
+      # The same check as check-release-push.yml (test_release_push.py runs
+      # it). Here a failure only keeps the image from being pushed.
+      - name: Check that the source is on a release branch
+        id: release-source
+        if: needs.validate.outputs.dry-run != 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Commits only: the check needs history, not trees or blobs.
+          git fetch --quiet --no-tags --filter=tree:0 origin \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/heads/release/*:refs/remotes/origin/release/*'
+          branches=$(git for-each-ref --contains HEAD --format='%(refname:lstrip=3)' \
+            refs/remotes/origin/main 'refs/remotes/origin/release/')
+          if [[ -z "$branches" ]]; then
+            echo "::error title=Release source::$(git rev-parse HEAD) is not on main or a release/** branch"
+            exit 1
+          fi
+          echo "Release source is on: $(tr '\n' ' ' <<< "$branches")"
+      - name: Say that the image is not published
+        if: steps.release-source.outcome != 'success'
+        run: echo "::notice title=xdbg image::Built, not pushed. Only a non-dry release from main or a release/** branch pushes it."
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Log in to GHCR
+        if: steps.release-source.outcome == 'success'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract image labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: type=raw,value=${{ needs.release-backend.outputs.version }}
+      - name: Build and push image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: ./apps/xmtp_debug/docker/Dockerfile
+          push: ${{ steps.release-source.outcome == 'success' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
   merge-pr:
+    name: Merge release PR
     # dry-run must not mutate the repo: a final + dry-run would otherwise merge
     # and delete the release branch even though the release-* jobs were skipped
     # (skipped ≠ failure, so the !contains(failure) check alone lets it through).
@@ -413,234 +434,16 @@ jobs:
           # Use squash and keep the release branch for later maintenance.
           gh pr merge "$PR_NUMBER" --squash
 
-  # Nightly blocking + non-nightly compatibility rely on the `if` pattern shared
-  # by the release-* jobs and this hub job:
-  #   !cancelled() && !contains(needs.*.result, 'failure') && <type/gate clauses>
-  # Why each piece matters:
-  #  - `!cancelled()` forces the `if` to be EVALUATED even when a `needs` job was
-  #    SKIPPED. Without it, gate/pending being skipped for dev/rc/final auto-skips
-  #    every release-* job (GitHub's implicit success() on needs) — which silently
-  #    breaks all non-nightly releases.
-  #  - `!contains(needs.*.result, 'failure')` still blocks when a needs job (e.g. a
-  #    nightly gate error) FAILED — fail-closed for nightlies.
-  #  - the `gate-skip != 'true'` clause blocks a nightly when cross-test isn't green.
-  # Do NOT drop any of the three; they jointly make non-nightly run and nightly
-  # block-on-not-green / block-on-error.
-  hub:
-    needs: [validate, plan, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli, release-backend]
-    if: >-
-      needs.validate.outputs.release-type == 'nightly'
-      && needs.plan.outputs.gate-skip != 'true'
-      && needs.plan.outputs.nothing-pending != 'true'
-      && needs.validate.outputs.dry-run != 'true'
-      && !cancelled() && !contains(needs.*.result, 'failure')
-    # Serialize hub runs for the same pending version so two overlapping nightly
-    # runs (e.g. cron + a manual dispatch) can't both create the same tag/release
-    # and race on `gh release create`. Scoped to the pending version (resolved by
-    # the `plan` job); cancel-in-progress: false so a second run waits rather
-    # than clobbering an in-flight tag/release.
-    concurrency:
-      group: hub-release-${{ needs.plan.outputs.version }}
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      should-release: ${{ steps.guard.outputs.should-release }}
-      version: ${{ steps.hubver.outputs.version }}
-      source-sha: ${{ steps.tag.outputs.source-sha }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.validate.outputs.source-sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: ./.github/actions/setup-release-tools
-      # Don't mint an empty hub release. A manual nightly dispatch can disable
-      # every SDK (ios=android=node=browser=false), which would otherwise produce a
-      # libxmtp Release with an all-"—" rollup. Require at least one SDK to have
-      # shipped a version. (The cron path always enables all four, so this only
-      # guards manual dispatch.)
-      - name: Guard against empty rollup
-        id: guard
-        env:
-          IOS_VERSION: ${{ needs.release-ios.outputs.version }}
-          ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
-          NODE_VERSION: ${{ needs.release-node-sdk.outputs.version }}
-          BROWSER_VERSION: ${{ needs.release-browser-sdk.outputs.version }}
-          REACT_NATIVE_VERSION: ${{ needs.release-react-native-sdk.outputs.version }}
-        run: |
-          set -euo pipefail
-          if [ -z "${IOS_VERSION}${ANDROID_VERSION}${NODE_VERSION}${BROWSER_VERSION}${REACT_NATIVE_VERSION}" ]; then
-            echo "should-release=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No SDK shipped a version; skipping the empty hub release."
-          else
-            echo "should-release=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Compute libxmtp hub version
-        id: hubver
-        if: steps.guard.outputs.should-release == 'true'
-        env:
-          TIMESTAMP: ${{ needs.validate.outputs.timestamp }}
-        run: |
-          set -euo pipefail
-          VERSION=$(xmtp-release resolve-sdk-version \
-            --sdk libxmtp --release-type nightly \
-            --timestamp "$TIMESTAMP" \
-            --pending-version "${{ needs.plan.outputs.version }}" \
-            --pending-kind "${{ needs.plan.outputs.kind }}")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Install git-cliff
-        if: steps.guard.outputs.should-release == 'true'
-        run: |
-          set -euo pipefail
-          cargo binstall -y git-cliff --version 2.13.1 \
-            || cargo install git-cliff --version 2.13.1 --locked
-          git cliff --version
-      # Per-nightly changelog: the delta since the PREVIOUS nightly tag (not
-      # since the last stable). Computed BEFORE tagging this run, so the newest
-      # existing nightly tag is genuinely the prior nightly. Both eras are
-      # globbed — legacy `v*-nightly.<date>.<sha>` and unified
-      # `v*-pre.<ts>.nightly.<sha>` — so the range stays correct across the
-      # transition. First-ever nightly (no prior nightly tag) falls back to
-      # since-last-stable.
-      - name: Compute per-nightly changelog
-        id: nightly_changelog
-        if: steps.guard.outputs.should-release == 'true'
-        run: |
-          set -euo pipefail
-          PREV_NIGHTLY=$(git tag -l 'v*-nightly.*' 'v*-pre.*.nightly.*' --sort=-creatordate | head -1 || true)
-          if [ -n "$PREV_NIGHTLY" ]; then
-            echo "::notice::Changelog range ${PREV_NIGHTLY}..HEAD"
-            git cliff --config cliff.toml "${PREV_NIGHTLY}..HEAD" --strip header > /tmp/nightly-changelog.md 2>/dev/null || true
-          else
-            echo "::notice::No prior nightly tag; changelog falls back to since-last-stable."
-            git cliff --config cliff.toml --unreleased --strip header > /tmp/nightly-changelog.md 2>/dev/null || true
-          fi
-          # Collapse to empty if git-cliff produced only whitespace/heading noise.
-          if ! grep -qE '^- ' /tmp/nightly-changelog.md; then
-            : > /tmp/nightly-changelog.md
-          fi
-      # This job runs repository code, so it only creates the tag locally.
-      # push-release-tag.yml pushes it with the release GitHub App token, in
-      # a job that runs no repository code. A v* tag ruleset can list the App
-      # as its bypass actor; it cannot list GITHUB_TOKEN.
-      - name: Tag libxmtp hub
-        id: tag
-        if: steps.guard.outputs.should-release == 'true'
-        env:
-          VERSION: ${{ steps.hubver.outputs.version }}
-        run: |
-          set -euo pipefail
-          xmtp-release tag-release --sdk libxmtp --version "$VERSION" --ignore-if-exists --no-push
-          # On a retry the tag already exists; push that tag again.
-          echo "source-sha=$(git rev-parse "refs/tags/v${VERSION}^{commit}")" >> "$GITHUB_OUTPUT"
-          mkdir -p "$RUNNER_TEMP/release-tag"
-          git bundle create "$RUNNER_TEMP/release-tag/release.bundle" "refs/tags/v${VERSION}"
-          mkdir -p "$RUNNER_TEMP/hub-changelog"
-          cp /tmp/nightly-changelog.md "$RUNNER_TEMP/hub-changelog/nightly-changelog.md"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: steps.guard.outputs.should-release == 'true'
-        with:
-          name: release-tag-libxmtp
-          path: ${{ runner.temp }}/release-tag
-          if-no-files-found: error
-      # hub-release reads only the changelog, not the tag bundle and its history.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: steps.guard.outputs.should-release == 'true'
-        with:
-          name: hub-changelog
-          path: ${{ runner.temp }}/hub-changelog
-          if-no-files-found: error
-
-  hub-tag:
-    needs: [hub]
-    if: needs.hub.outputs.should-release == 'true'
-    uses: ./.github/workflows/push-release-tag.yml
-    with:
-      sdk: libxmtp
-      version: ${{ needs.hub.outputs.version }}
-      source-sha: ${{ needs.hub.outputs.source-sha }}
-    secrets: inherit
-
-  hub-release:
-    needs: [plan, hub, hub-tag, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli]
-    if: >-
-      !cancelled() && needs.hub.outputs.should-release == 'true'
-      && needs.hub-tag.result == 'success'
-    concurrency:
-      group: hub-release-notes-${{ needs.plan.outputs.version }}
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: hub-changelog
-          path: ${{ runner.temp }}/hub-changelog
-      - name: Create hub GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          HUB_VERSION: ${{ needs.hub.outputs.version }}
-          CHANGELOG: ${{ runner.temp }}/hub-changelog/nightly-changelog.md
-          IOS_VERSION: ${{ needs.release-ios.outputs.version }}
-          ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
-          NODE_VERSION: ${{ needs.release-node-sdk.outputs.version }}
-          BROWSER_VERSION: ${{ needs.release-browser-sdk.outputs.version }}
-          AGENT_VERSION: ${{ needs.release-agent-sdk.outputs.version }}
-          REACT_NATIVE_VERSION: ${{ needs.release-react-native-sdk.outputs.version }}
-          CLI_VERSION: ${{ needs.release-cli.outputs.version }}
-        run: |
-          set -euo pipefail
-          BODY=$(cat <<EOF
-          ## libxmtp ${HUB_VERSION}
-
-          Nightly release. SDKs shipped from this libxmtp release:
-
-          | SDK | Version |
-          | --- | --- |
-          | iOS | ${IOS_VERSION:-—} |
-          | Android | ${ANDROID_VERSION:-—} |
-          | Node | ${NODE_VERSION:-—} |
-          | Browser | ${BROWSER_VERSION:-—} |
-          | Agent | ${AGENT_VERSION:-—} |
-          | React Native | ${REACT_NATIVE_VERSION:-—} |
-          | CLI | ${CLI_VERSION:-—} |
-
-          See per-SDK release notes under \`docs/release-notes/\`.
-          EOF
-          )
-          # Append the per-nightly changelog (delta since the previous nightly),
-          # if git-cliff produced any entries.
-          if [ -s "$CHANGELOG" ]; then
-            BODY="${BODY}
-
-          ## Changes since the last nightly
-
-          $(cat "$CHANGELOG")"
-          fi
-          if gh release view "v${HUB_VERSION}" >/dev/null 2>&1; then
-            gh release edit "v${HUB_VERSION}" \
-              --title "libxmtp ${HUB_VERSION}" \
-              --notes "$BODY" \
-              --prerelease
-          else
-            # --verify-tag: the App pushed the tag; never create it here.
-            gh release create "v${HUB_VERSION}" --verify-tag \
-              --title "libxmtp ${HUB_VERSION}" \
-              --notes "$BODY" \
-              --prerelease
-          fi
-
   notify:
-    needs: [validate, plan, hub, hub-tag, hub-release, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli, release-backend, merge-pr]
-    if: always() && inputs.dry-run != true && needs.validate.outputs.skip != 'true' && needs.validate.outputs.dry-run != 'true'
+    name: Notify Slack
+    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli, release-backend, release-xdbg, merge-pr]
+    if: always() && inputs.dry-run != true && needs.validate.outputs.dry-run != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - id: compute
+      - name: Check out the Slack action
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Compose the release message
+        id: compute
         env:
           IOS_RESULT: ${{ needs.release-ios.result }}
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
@@ -658,6 +461,9 @@ jobs:
           CLI_VERSION: ${{ needs.release-cli.outputs.version }}
           BACKEND_RESULT: ${{ needs.release-backend.result }}
           BACKEND_VERSION: ${{ needs.release-backend.outputs.version }}
+          XDBG_RESULT: ${{ needs.release-xdbg.result }}
+          XDBG_VERSION: ${{ needs.release-xdbg.outputs.version }}
+          XDBG_PUSHED: ${{ needs.release-xdbg.outputs.pushed }}
           DRY_RUN: ${{ needs.validate.outputs.dry-run }}
           RELEASE_TYPE: ${{ needs.validate.outputs.release-type }}
         run: |
@@ -689,8 +495,12 @@ jobs:
           if [ -n "$BACKEND_VERSION" ] || [ "$BACKEND_RESULT" != "skipped" ]; then
             MSG="$MSG Backend ${BACKEND_VERSION:-failed} (${BACKEND_RESULT})"
           fi
+          if [ -n "$XDBG_VERSION" ] || [ "$XDBG_RESULT" != "skipped" ]; then
+            MSG="$MSG xdbg image ${XDBG_VERSION:-failed} (${XDBG_RESULT}$([ "$XDBG_PUSHED" = true ] || echo ', not pushed'))"
+          fi
           echo "message=$MSG" >> "$GITHUB_OUTPUT"
-      - uses: ./.github/actions/slack-notify
+      - name: Post to Slack
+        uses: ./.github/actions/slack-notify
         with:
           message: ${{ steps.compute.outputs.message }}
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

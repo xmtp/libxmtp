@@ -248,9 +248,8 @@ impl ComponentRegistry {
     /// Wire-format encoding (a `TlsMapDelta` describing changes) is done
     /// piecemeal at the call site — there is no whole-registry wire encoder,
     /// because every steady-state update emits only the few entries it
-    /// touches, and the bootstrap encoder builds its `TlsMapDelta`-from-empty
-    /// inline at the synthesis site (see
-    /// `xmtp_mls::groups::app_data::migration::synthesize_initial_component_values`).
+    /// touches. Group creation stores the whole registry with this snapshot
+    /// encoding (see [`crate::app_data::creation::initial_dictionary`]).
     // implements: META-016
     pub fn to_bytes(&self) -> Result<Vec<u8>, ComponentRegistryError> {
         Ok(self.inner.tls_serialize_detached()?)

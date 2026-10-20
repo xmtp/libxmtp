@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Link the React Native SDK product that package.json installs from
+# .build/sdk/package (a `file:` directory dependency).
+#
+#   dev/sdk native  The canonical npm product: JS, Android and iOS binaries.
+#                   It is an x86_64-linux output that needs Xcode 26.3, so a
+#                   Mac only substitutes it from Cachix. Verified.
+#   dev/sdk js      The JS-only product (JS and types, no binaries). Enough for
+#                   typecheck, lint and unit tests. Builds anywhere.
+#
+# XMTP_RN_SDK_REV=<git revision> takes the native product from that revision
+# instead of this checkout. Use it when this checkout's SDK identity is not in
+# Cachix yet, for example a branch that edits the root Cargo.toml: the
+# identity covers the workspace manifests.
+set -euo pipefail
+app="$(cd "$(dirname "$0")/.." && pwd -P)"
+root="$(git -C "$app" rev-parse --show-toplevel)"
+kind="${1:-native}"
+mkdir -p "$app/.build/sdk"
+case "$kind" in
+  native)
+    flake="$root"
+    manifest="$(cat "$root/sdks/react-native/package.json")"
+    if [[ -n "${XMTP_RN_SDK_REV:-}" ]]; then
+      commit="$(git -C "$root" rev-parse --verify "$XMTP_RN_SDK_REV^{commit}")"
+      flake="git+file://$root?rev=$commit"
+      manifest="$(git -C "$root" show "$commit:sdks/react-native/package.json")"
+      echo "Using the SDK package of $XMTP_RN_SDK_REV ($commit), not this checkout's."
+    fi
+    attribute="$flake#packages.x86_64-linux.xmtp-sdk-react-native-package"
+    # Fail fast when Nix would have to build the package itself: it would fetch
+    # the Linux toolchains before failing.
+    if [[ "$(uname -s)" == Darwin ]] &&
+      nix build --dry-run "$attribute" 2>&1 | grep -qF "$(nix eval --raw "$attribute.drvPath")"; then
+      echo "The SDK package of ${XMTP_RN_SDK_REV:-this checkout} is not in Cachix and a Mac cannot build it." >&2
+      if [[ -z "${XMTP_RN_SDK_REV:-}" ]]; then
+        base="$(git -C "$root" merge-base HEAD origin/main 2>/dev/null || true)"
+        echo "Use the package of a merged revision, for example the merge base:" >&2
+        echo "  XMTP_RN_SDK_REV=${base:-origin/main} dev/nix-shell 'just example-react-native sdk'" >&2
+      fi
+      exit 1
+    fi
+    nix build --out-link "$app/.build/sdk-native" "$attribute"
+    version="$(python3.11 -c 'import json, sys; print(json.load(sys.stdin)["version"])' <<<"$manifest")"
+    python3.11 -B "$root/sdks/react-native/scripts/package.py" verify-package \
+      "$app/.build/sdk-native/package" --version "$version" \
+      --source "$(nix eval --raw "$flake#sdkProvenance.source")"
+    target=../sdk-native/package
+    ;;
+  js)
+    nix build --out-link "$app/.build/sdk-js" "$root#xmtp-sdk-react-native-js"
+    target=../sdk-js
+    ;;
+  *)
+    echo "Usage: $0 [native|js]" >&2
+    exit 2
+    ;;
+esac
+ln -sfn "$target" "$app/.build/sdk/package"
+printf 'Linked the %s SDK: %s\n' "$kind" "$(readlink -f "$app/.build/sdk/package")"

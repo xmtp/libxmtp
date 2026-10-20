@@ -124,7 +124,7 @@ impl xmtp_logging::LogSinkTarget for QueueCapture {
     }
 }
 
-// verifies: LOG-001, LOG-010
+// verifies: LOG-001, LOG-014
 #[xmtp_common::test(unwrap_try = true)]
 async fn client_log_secrets_are_redacted() {
     let credential = "LOG_CREDENTIAL_SENTINEL_89d42";
@@ -161,7 +161,7 @@ async fn client_log_secrets_are_redacted() {
         .await;
         assert!(result.is_err());
         assert!(
-            crate::local_signer_from_private_key(signing_key.to_vec())
+            crate::local_signer_from_private_key(signing_key.to_vec().into())
                 .await
                 .is_err()
         );

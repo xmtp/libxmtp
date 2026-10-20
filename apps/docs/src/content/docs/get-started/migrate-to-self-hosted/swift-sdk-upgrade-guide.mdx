@@ -17,12 +17,12 @@ The examples below compare `main` at `cc878025dab2f93bca18b67fa9fca562a65f2247` 
 
 ## Install the recommended version
 
-Use Swift SDK **8.0.0-rc2** with backend **8.0.0-rc2**. Select the
-`ios-8.0.0-rc2` tag from `xmtp/libxmtp` and add the `XmtpSdk` product to your app:
+Use Swift SDK **8.0.0-rc3** with backend **8.0.0-rc3**. Select the
+`ios-8.0.0-rc3` tag from `xmtp/libxmtp` and add the `XmtpSdk` product to your app:
 
 ```swift
 // In Package.dependencies:
-.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc2")
+.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc3")
 
 // In your app target's dependencies:
 .product(name: "XmtpSdk", package: "libxmtp")
@@ -395,24 +395,24 @@ func groupDetails(group: Group) async throws -> (String, Bool, [Member]) {
 
 ## Change members, metadata, and permissions
 
-| Old method                                                          | New method                                  | Parameter and result change                                                     |
-| ------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------- |
-| `addMembers(inboxIds:)`                                             | `addMembers(members: [InboxId])`            | `GroupMembershipResult` becomes `MembershipResult`.                             |
-| `addMembersByIdentity(identities:)`                                 | `addMembers(members: [PublicIdentity])`     | Same new result.                                                                |
-| `removeMembers(inboxIds:)`                                          | `removeMembers(members: [InboxId])`         | Async throwing `Void`.                                                          |
-| `removeMembersByIdentity(identities:)`                              | `removeMembers(members: [PublicIdentity])`  | Async throwing `Void`.                                                          |
-| `isAdmin(inboxId:)`, `isSuperAdmin(inboxId:)`                       | Same names and labels                       | Now async throwing `Bool`.                                                      |
-| `listAdmins()`, `listSuperAdmins()`                                 | Same names                                  | Now async throwing `[InboxId]`.                                                 |
-| `membershipCapabilities()`                                          | Same name                                   | Same outer record; installation ID is now `InstallationId`, rather than `Data`. |
-| `updateName(name:)`                                                 | `updateName(value:)`                        | Async throwing `Void`.                                                          |
-| `updateDescription(description:)`                                   | `updateDescription(value:)`                 | Async throwing `Void`.                                                          |
-| `updateImageUrl(imageUrl:)`                                         | `updateImageUrl(value:)`                    | Async throwing `Void`.                                                          |
-| `updateAppData(appData:expectedAppData:)`                           | `updateAppData(value:expected:)`            | Pass `expected: nil` when no comparison is needed.                              |
-| `updateConsentState(state:)`                                        | Same method                                 | Async throwing `Void`.                                                          |
-| `updateDisappearingMessageSettings(...)`                            | `updateDisappearingSettings(settings:)`     | Pass `DisappearingSettings?`.                                                   |
-| `clearDisappearingMessageSettings()`                                | `updateDisappearingSettings(settings: nil)` | Clear with the same method.                                                     |
-| `leaveGroup()`                                                      | `requestRemoval()`                          | Async throwing `Void`; sends a removal request.                                 |
-| `proposalsEnabled()`, `unstable.enableProposals(force:minVersion:)` | No matching switch                          | There is no Swift proposal-upgrade API in the new surface.                      |
+| Old method                                                          | New method                                  | Parameter and result change                                                                                                                                                                              |
+| ------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `addMembers(inboxIds:)`                                             | `addMembers(members: [InboxId])`            | `GroupMembershipResult` becomes `MembershipResult`.                                                                                                                                                      |
+| `addMembersByIdentity(identities:)`                                 | `addMembers(members: [PublicIdentity])`     | Same new result.                                                                                                                                                                                         |
+| `removeMembers(inboxIds:)`                                          | `removeMembers(members: [InboxId])`         | Async throwing `Void`.                                                                                                                                                                                   |
+| `removeMembersByIdentity(identities:)`                              | `removeMembers(members: [PublicIdentity])`  | Async throwing `Void`.                                                                                                                                                                                   |
+| `isAdmin(inboxId:)`, `isSuperAdmin(inboxId:)`                       | Same names and labels                       | Now async throwing `Bool`.                                                                                                                                                                               |
+| `listAdmins()`, `listSuperAdmins()`                                 | Same names                                  | Now async throwing `[InboxId]`.                                                                                                                                                                          |
+| `membershipCapabilities()`                                          | Same name                                   | Same outer record; installation ID is now `InstallationId`, rather than `Data`. The `.immutableMetadata` extension case is removed; that extension type now arrives as `.unknown(id: 61440)` (`0xf000`). |
+| `updateName(name:)`                                                 | `updateName(value:)`                        | Async throwing `Void`.                                                                                                                                                                                   |
+| `updateDescription(description:)`                                   | `updateDescription(value:)`                 | Async throwing `Void`.                                                                                                                                                                                   |
+| `updateImageUrl(imageUrl:)`                                         | `updateImageUrl(value:)`                    | Async throwing `Void`.                                                                                                                                                                                   |
+| `updateAppData(appData:expectedAppData:)`                           | `updateAppData(value:expected:)`            | Pass `expected: nil` when no comparison is needed.                                                                                                                                                       |
+| `updateConsentState(state:)`                                        | Same method                                 | Async throwing `Void`.                                                                                                                                                                                   |
+| `updateDisappearingMessageSettings(...)`                            | `updateDisappearingSettings(settings:)`     | Pass `DisappearingSettings?`.                                                                                                                                                                            |
+| `clearDisappearingMessageSettings()`                                | `updateDisappearingSettings(settings: nil)` | Clear with the same method.                                                                                                                                                                              |
+| `leaveGroup()`                                                      | `requestRemoval()`                          | Async throwing `Void`; sends a removal request.                                                                                                                                                          |
+| `proposalsEnabled()`, `unstable.enableProposals(force:minVersion:)` | No matching switch                          | There is no Swift proposal-upgrade API in the new surface.                                                                                                                                               |
 
 ```swift title="Before"
 func updateGroup(group: Group, peer: InboxId, startNs: Int64) async throws {
@@ -956,7 +956,7 @@ The statistics schema changes with the backend. `ApiStats` now has `publish`, `q
 
 The new writer entry takes a directory `String`, `LogRotation`, `maxFiles: UInt32`, `LogLevel`, and `LogProcessType`. The old helper took an optional directory `URL`, `maxFiles: Int`, and FFI enum types. Entry and exit are now throwing `Void` calls. `initLogging` is async throwing. `setLogSink` is async throwing and accepts `nil` to remove the sink. `flushTelemetry()` is async and nonthrowing.
 
-Use public `ErrorDetails` and typed SDK errors. Do not use old `ClientError.creationError` text as an error-code contract. Pure envelope functions can throw; client and reader operations also report typed failures and cancellation.
+Use public `ErrorDetails` and typed SDK errors. Do not use old `ClientError.creationError` text as an error-code contract. A database written in an older, unsupported format is an `XmtpError.Storage` whose `details.code` is `StorageError::PreTransitionDatabase`, `StorageError::OldStreamDatabase` or `StorageError::OldEncodingDatabase`. Pure envelope functions can throw; client and reader operations also report typed failures and cancellation.
 
 The old `XMTPEnvironment.customLocalAddress`, `customHistorySyncUrl`, `isSecure`, and `getHistorySyncUrl()` members, and `getLocalAddressFromEnvironment()` / `getHistorySyncUrlFromEnvironment()` functions, are absent. Read your app configuration and pass the backend URL directly. The old `getVersionInfo()` helper becomes the public SDK/version reads. The generated Ethereum signing and address helpers (`ethereumAddressFromPubkey`, `ethereumGeneratePublicKey`, `ethereumHashPersonal`, `ethereumSignRecoverable`) have no direct exported replacements; use a `Signer` and your wallet library. `generateInboxId(accountIdentifier:nonce:)` now takes `identity: PublicIdentity` and optional `nonce`. Raw `connectToBackend`, `createClient`, `applySignatureRequest`, `getInboxIdForIdentifier`, `inboxStateFromInboxIds`, `isConnected`, and `revokeInstallations` calls must move to the client/backend methods above.
 

@@ -3,23 +3,16 @@ import XCTest
 import XmtpSdk
 
 final class LocalSigningKeyTests: XCTestCase {
-	// verifies: IDENT-088, IDENT-089
-	func testExportRestoreAndSignerConformance() async throws {
+	/// The generated `extension LocalSigningKey: Signer` lets client creation take
+	/// the key itself. Rust `signer/local_tests.rs` tests export and restore.
+	func testKeyIsAcceptedDirectlyAsASigner() async throws {
 		let key = await SDKClient.generateKeys()
-		let bytes = key.toBytes()
-		let hex = key.toHex()
-		XCTAssertEqual(bytes.count, 32)
-		let restored = try await LocalSigningKey.fromHex(key: hex)
-		let restoredBytes = restored.toBytes()
-		XCTAssertEqual(restoredBytes, bytes)
-		let owner: Signer = try await LocalSigningKey.fromBytes(key: bytes)
-		let identity = try await owner.identity()
-		let originalIdentity = try await key.identity()
-		XCTAssertEqual(identity, originalIdentity)
+		let identity = try await key.identity()
 		try await withClients { scope in
-			let client = try await scope.create(signer: restored)
+			let client = try await scope.create(signer: key)
 			let registered = try await client.isRegistered()
 			XCTAssertTrue(registered)
+			XCTAssertEqual(client.identity(), identity)
 		}
 	}
 

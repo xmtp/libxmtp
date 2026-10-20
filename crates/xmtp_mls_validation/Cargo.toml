@@ -44,4 +44,11 @@ openmls_basic_credential.workspace = true
 tokio.workspace = true
 wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
+
+# The dev-dependency above turns this feature on, so every test build,
+# including CI's, runs the heap-canary proof.
+[[test]]
+name = "zeroize"
+required-features = ["xmtp_cryptography/test-utils"]

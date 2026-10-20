@@ -1,0 +1,32 @@
+name: "Lint: React Native example app"
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
+    secrets:
+      CACHIX_PR_AUTH_TOKEN:
+        required: false
+permissions:
+  contents: read
+env:
+  # The check needs Node and pnpm only, not the native React Native toolchain.
+  NIX_DEVSHELL: js-node
+jobs:
+  lint:
+    name: Typecheck, lint, unit tests
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+      - name: dev/nix-shell 'just example-react-native check'
+        run: dev/nix-shell 'just example-react-native check'

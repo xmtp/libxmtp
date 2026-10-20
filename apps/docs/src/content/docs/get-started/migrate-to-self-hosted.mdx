@@ -16,26 +16,25 @@ This guide compares two fixed source versions:
 
 These are source baselines, not one shared release number. The examples marked
 **Before** use the old SDK. The examples marked **After** use the new SDK. Do not
-mix imports or generated runtime assets from the two versions. React Native 8.0.0 is included; every pre-8.0.0 React Native app must migrate.
+mix imports or generated runtime assets from the two versions. React Native 8.0.0-rc3 is included; every pre-8.0.0 React Native app must migrate.
 
 ## Recommended versions
 
-Use **8.0.0-rc2** for Browser, Node, Kotlin, Swift, Agent, and the backend.
-Use **8.0.0** for React Native. Pin the exact package
-version in your app and deployment configuration.
+Use **8.0.0-rc3** for Browser, Node, React Native, Kotlin, Swift, Agent, and the
+backend. Pin the exact package version in your app and deployment configuration.
 
 | Component    | Package or image                                    | Recommended version               |
 | ------------ | --------------------------------------------------- | --------------------------------- |
-| Browser      | `@xmtp/browser-sdk`                                 | `8.0.0-rc2`                       |
-| Node         | `@xmtp/node-sdk`                                    | `8.0.0-rc2`                       |
-| React Native | `@xmtp/react-native-sdk`                            | `8.0.0`                           |
-| Android      | `org.xmtp:android`                                  | `8.0.0-rc2`                       |
-| iOS          | Swift package product `XmtpSdk` from `xmtp/libxmtp` | `8.0.0-rc2` (tag `ios-8.0.0-rc2`) |
-| Agent        | `@xmtp/agent-sdk`                                   | `8.0.0-rc2`                       |
-| Backend      | `ghcr.io/xmtp/backend`                              | `8.0.0-rc2`                       |
+| Browser      | `@xmtp/browser-sdk`                                 | `8.0.0-rc3`                       |
+| Node         | `@xmtp/node-sdk`                                    | `8.0.0-rc3`                       |
+| React Native | `@xmtp/react-native-sdk`                            | `8.0.0-rc3`                       |
+| Android      | `org.xmtp:android`                                  | `8.0.0-rc3`                       |
+| iOS          | Swift package product `XmtpSdk` from `xmtp/libxmtp` | `8.0.0-rc3` (tag `ios-8.0.0-rc3`) |
+| Agent        | `@xmtp/agent-sdk`                                   | `8.0.0-rc3`                       |
+| Backend      | `ghcr.io/xmtp/backend`                              | `8.0.0-rc3`                       |
 
 See [Install the XMTP SDK](/get-started/install/) for the exact package commands.
-Run the backend with `ghcr.io/xmtp/backend:8.0.0-rc2`; see
+Run the backend with `ghcr.io/xmtp/backend:8.0.0-rc3`; see
 [Run the backend](/get-started/run-the-backend/#run-the-container-image).
 
 ## Migration order
@@ -111,7 +110,9 @@ A database created before the transition is rejected with this error:
 This database predates the backend transition. Delete the database file and create a new client.
 ```
 
-The error is not retryable. The SDK leaves the database intact. Close the old
+It is a storage error whose `details.code` is
+`StorageError::PreTransitionDatabase`. Match the code, not the message. The
+error is not retryable. The SDK leaves the database intact. Close the old
 client before file operations. Use prepareMigrationArchive from the normal SDK
 package to convert a supported legacy database into an encrypted history archive.
 The converter uses a temporary copy and does not need a client or network access.

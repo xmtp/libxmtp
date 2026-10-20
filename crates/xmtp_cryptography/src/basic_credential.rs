@@ -77,14 +77,15 @@ pub struct XmtpInstallationCredential(Box<SigningKey>);
 
 impl Default for XmtpInstallationCredential {
     fn default() -> Self {
-        Self(Box::new(SigningKey::from_bytes(&crate::rand::rand_array())))
+        Self::new()
     }
 }
 
 impl XmtpInstallationCredential {
     /// Create a new [`XmtpInstallationCredential`] with [`rand_chacha::ChaCha20Rng`]
     pub fn new() -> Self {
-        Self(Box::new(SigningKey::from_bytes(&crate::rand::rand_array())))
+        let seed = Zeroizing::new(crate::rand::rand_array());
+        Self(Box::new(SigningKey::from_bytes(&seed)))
     }
 
     /// Get a reference to the public [`ed25519_dalek::VerifyingKey`]
@@ -115,9 +116,13 @@ impl XmtpInstallationCredential {
         self.0.with_context(context)
     }
 
-    /// Internal helper function to safely create a credential from its raw parts
-    /// private and public must be exactly 32 bytes large.
+    /// Internal helper function to safely create a credential from its raw parts.
+    /// Keys of any length other than 32 bytes are an error.
     fn from_raw(private: &[u8], public: &[u8]) -> Result<Self, ed25519_dalek::SignatureError> {
+        const KEY_LENGTH: usize = 32;
+        if private.len() != KEY_LENGTH || public.len() != KEY_LENGTH {
+            return Err(ed25519_dalek::SignatureError::new());
+        }
         let keypair = Zeroizing::new({
             let mut keypair = [0u8; 64];
             keypair[0..32].copy_from_slice(private);
@@ -135,10 +140,10 @@ impl XmtpInstallationCredential {
         Ok(Self(Box::new(key)))
     }
 
-    /// private key for this credential
+    /// private key for this credential, wiped when the returned value drops
     #[cfg(feature = "exposed-keys")]
-    pub fn private_bytes(&self) -> [u8; 32] {
-        self.0.to_bytes()
+    pub fn private_bytes(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(*self.0.as_bytes())
     }
 }
 
@@ -148,10 +153,13 @@ impl From<XmtpInstallationCredential> for SignaturePublicKey {
     }
 }
 
-/// The signer here must maintain compatibility with `SignatureKeyPair`
+/// Signs with the held key and returns the same bytes as `SignatureKeyPair::sign`:
+/// OpenMLS's Ed25519 signer makes the same deterministic `ed25519_dalek` call.
 impl Signer for XmtpInstallationCredential {
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, signatures::SignerError> {
-        SignatureKeyPair::from(self).sign(payload)
+        Ok(ed25519_dalek::Signer::sign(&*self.0, payload)
+            .to_bytes()
+            .to_vec())
     }
 
     fn signature_scheme(&self) -> SignatureScheme {
@@ -162,7 +170,7 @@ impl Signer for XmtpInstallationCredential {
 // The signer here must maintain compatibility with `SignatureKeyPair`
 impl Signer for &XmtpInstallationCredential {
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, signatures::SignerError> {
-        SignatureKeyPair::from(*self).sign(payload)
+        <XmtpInstallationCredential as Signer>::sign(self, payload)
     }
 
     fn signature_scheme(&self) -> SignatureScheme {
@@ -195,7 +203,7 @@ impl From<XmtpInstallationCredential> for SignatureKeyPair {
     fn from(key: XmtpInstallationCredential) -> SignatureKeyPair {
         SignatureKeyPair::from_raw(
             key.signature_scheme(),
-            key.0.to_bytes().into(),
+            key.0.as_bytes().to_vec(),
             key.0.verifying_key().to_bytes().into(),
         )
     }
@@ -205,7 +213,7 @@ impl<'a> From<&'a XmtpInstallationCredential> for SignatureKeyPair {
     fn from(key: &'a XmtpInstallationCredential) -> SignatureKeyPair {
         SignatureKeyPair::from_raw(
             key.signature_scheme(),
-            key.0.to_bytes().into(),
+            key.0.as_bytes().to_vec(),
             key.0.verifying_key().to_bytes().into(),
         )
     }
@@ -249,12 +257,20 @@ impl<'de> serde::Deserialize<'de> for XmtpInstallationCredential {
     where
         D: serde::Deserializer<'de>,
     {
+        // `private` is a `Secret`, so it is wiped on drop also when a later
+        // field fails to decode and the struct is never built. The row keeps
+        // the serde shape of OpenMLS's `SignatureKeyPair`, which this type
+        // serializes through, so the key is a sequence of `u8`.
         #[derive(serde::Deserialize, zeroize::ZeroizeOnDrop)]
         struct SignatureKeyPairRemote {
-            private: Vec<u8>,
+            #[serde(deserialize_with = "crate::secret::deserialize_seq")]
+            private: crate::Secret,
             public: Vec<u8>,
             #[allow(dead_code)]
             #[zeroize(skip)]
+            // `SignatureKeyPair` names this field `signature_scheme`. Codecs
+            // that store field names need the same name.
+            #[serde(rename = "signature_scheme")]
             _signature_scheme: SignatureScheme,
         }
 
@@ -284,7 +300,7 @@ mod tests {
 
         keypair.tls_serialize(&mut serialized).unwrap();
         let x_kp = XmtpInstallationCredential::tls_deserialize(&mut serialized.as_slice()).unwrap();
-        assert_eq!(keypair.private(), &x_kp.0.to_bytes());
+        assert_eq!(keypair.private(), x_kp.0.as_bytes());
         assert_eq!(keypair.public(), &x_kp.0.verifying_key().to_bytes());
     }
 
@@ -296,21 +312,24 @@ mod tests {
 
         keypair.tls_serialize(&mut serialized).unwrap();
         let mls_kp = SignatureKeyPair::tls_deserialize(&mut serialized.as_slice()).unwrap();
-        assert_eq!(mls_kp.private(), &keypair.0.to_bytes());
+        assert_eq!(mls_kp.private(), keypair.0.as_bytes());
         assert_eq!(mls_kp.public(), &keypair.0.verifying_key().to_bytes());
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());
     }
 
+    /// The client database stores installation keys as CBOR. CBOR stores
+    /// field names, so this also pins the `signature_scheme` rename.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_is_binary_compatible_with_mls_deser_serde() {
         // XmtpInstallationCredential needs to be serde compatible with
         // `SignatureKeyPair` from xmtp_basic_credential
         let keypair = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
-        let serialized: Vec<u8> = bincode::serialize(&keypair).unwrap();
+        let serialized: Vec<u8> = cbor4ii::serde::to_vec(Vec::new(), &keypair).unwrap();
 
-        let x_kp: XmtpInstallationCredential = bincode::deserialize(serialized.as_slice()).unwrap();
-        assert_eq!(keypair.private(), &x_kp.0.to_bytes());
+        let x_kp: XmtpInstallationCredential =
+            cbor4ii::serde::from_slice(serialized.as_slice()).unwrap();
+        assert_eq!(keypair.private(), x_kp.0.as_bytes());
         assert_eq!(keypair.public(), &x_kp.0.verifying_key().to_bytes());
     }
 
@@ -318,12 +337,49 @@ mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_is_binary_compatible_with_mls_ser_serde() {
         let keypair = XmtpInstallationCredential::new();
-        let serialized: Vec<u8> = bincode::serialize(&keypair).unwrap();
+        let serialized: Vec<u8> = cbor4ii::serde::to_vec(Vec::new(), &keypair).unwrap();
 
-        let mls_kp: SignatureKeyPair = bincode::deserialize(serialized.as_slice()).unwrap();
-        assert_eq!(mls_kp.private(), &keypair.0.to_bytes());
+        let mls_kp: SignatureKeyPair = cbor4ii::serde::from_slice(serialized.as_slice()).unwrap();
+        assert_eq!(mls_kp.private(), keypair.0.as_bytes());
         assert_eq!(mls_kp.public(), &keypair.0.verifying_key().to_bytes());
         assert_eq!(mls_kp.signature_scheme(), keypair.scheme());
+    }
+
+    /// A stored key pair whose private or public key is not 32 bytes is a
+    /// decode error, not a panic.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn wrong_key_lengths_are_decode_errors() {
+        for (private, public) in [
+            (vec![1; 31], vec![2; 32]),
+            (vec![1; 33], vec![2; 32]),
+            (vec![1; 32], vec![2; 31]),
+            (vec![1; 32], vec![2; 33]),
+        ] {
+            let keypair = SignatureKeyPair::from_raw(SignatureScheme::ED25519, private, public);
+            let bytes = cbor4ii::serde::to_vec(Vec::new(), &keypair).unwrap();
+            assert!(cbor4ii::serde::from_slice::<XmtpInstallationCredential>(&bytes).is_err());
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn signs_like_signature_key_pair() {
+        let payloads: [&[u8]; 3] = [b"", b"an mls payload", &[0xa5; 1024]];
+        for seed in [[0x01u8; 32], [0x7f; 32], [0xc3; 32]] {
+            let credential = XmtpInstallationCredential::from_bytes(&seed).unwrap();
+            let key_pair = SignatureKeyPair::from(&credential);
+            let owned = SignatureKeyPair::from(credential.clone());
+            for pair in [&key_pair, &owned] {
+                assert_eq!(pair.private(), seed);
+                assert_eq!(pair.public(), credential.public_slice());
+            }
+            for payload in payloads {
+                let expected = key_pair.sign(payload).unwrap();
+                assert_eq!(Signer::sign(&credential, payload).unwrap(), expected);
+                assert_eq!(Signer::sign(&&credential, payload).unwrap(), expected);
+            }
+        }
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -334,6 +390,6 @@ mod tests {
 
         assert_ne!(keypair.public_bytes(), secret.as_bytes());
         assert_ne!(keypair.public_slice(), secret.as_bytes());
-        assert_ne!(keypair.verifying_key().as_bytes(), &secret.to_bytes());
+        assert_ne!(keypair.verifying_key().as_bytes(), secret.as_bytes());
     }
 }

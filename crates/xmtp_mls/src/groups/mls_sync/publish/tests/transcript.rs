@@ -2,7 +2,7 @@ use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
 use xmtp_events::{ClientEvent, EventFilter, EventKind, MessageStatus};
 use xmtp_proto::api::HasStats;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, plaintext_envelope::V1};
 
 fn transcript_content(type_id: &str, version_major: u32, authority: &str) -> Vec<u8> {
     use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;

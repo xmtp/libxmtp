@@ -35,7 +35,7 @@ just test                    # test default members
 just test crate <name>       # test one crate
 just test workspace -p <name> <args> # focused nextest options and filters
 just test dev                # dev tool tests: dev/tests/run, Fly dashboard, release tools
-just lint                    # CI lint except lint_ios/example_ios/android/example_android, plus spec-check
+just lint                    # CI Linux lint and Clippy (no Swift, Android, or RN example lint), plus spec-check
 dev/nix-shell 'just lint-js-source' # source Oxlint without generated SDK products
 dev/nix-shell 'just lint-rust-source' # Rust manifests, without Clippy
 just backend up              # shared services
@@ -48,7 +48,8 @@ just disk                    # free space and target/ size of each worktree
 ```
 
 `just lint` runs its checks in parallel. Output interleaves; use
-`just --jobs 1 lint` for unmixed output.
+`just --jobs 1 lint` for unmixed output. The React Native example is a
+standalone pnpm project; check it with `just example-react-native check`.
 
 The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
 `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
@@ -62,7 +63,7 @@ port block, and backend image tag, so run `just backend status` for the checkout
 `working-with-worktrees` skill.
 `just test` excludes backend database tests; run them with `just backend test`.
 
-`default-members` = `apps/backend`, `crates/*`. Other apps: see their `AGENTS.md`.
+`default-members` = `apps/backend`, `apps/db_tools`, `crates/*`. Other apps: see their `AGENTS.md`.
 
 ## Rules
 
@@ -93,7 +94,9 @@ port block, and backend image tag, so run `just backend status` for the checkout
   checks local log fixtures.
 - `dev/nix-shell 'just lint-config'` checks Rust and config format with
   treefmt, checks the CI suite declaration, and lints the release tools.
-- `dev/nix-shell 'just test dev'` runs the dev tool tests. `dev/tests/run` runs
+- `dev/nix-shell 'just test dev'` runs the dev tool tests. Dev tests check
+  rules and script behavior, not the current shape of a workflow. Review a
+  filter edit with `dev/ci-suites explain` or `replay` instead of a path table. `dev/tests/run` runs
   every `test_*.py` in the directories it lists, one process per module, in
   parallel. A new test there needs no recipe edit. The tests check CI
   selection, result gates, action pins, release pushes, cache modes, Android

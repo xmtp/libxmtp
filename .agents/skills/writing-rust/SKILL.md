@@ -59,6 +59,12 @@ Never copy a function between crates; move it and import it. Read the package's
 | Group or installation id | `GroupId::try_from(&[u8])`, `InstallationId::from([u8; 32])` | `xmtp_proto::types` |
 | Topic bytes | `Topic::new_group_message(id)`, `Topic::parse(bytes)` | `xmtp_proto::types` |
 | MLS message id | `utils::id::calculate_message_id(..)` | `xmtp_mls` |
+| Own secret bytes (field, return, binding) | `Secret::new(bytes)`, `.as_slice()` | `xmtp_cryptography::secret` |
+| Transient secret buffer | `Zeroizing::new(buf)` where the buffer is made | `xmtp_cryptography::secret` |
+| Database column that holds a secret | `StoredSecret` (`BLOB`, serde as a byte string) | `xmtp_db` |
+| Byte field of a stored libxmtp type | `#[serde(with = "xmtp_db::byte_string")]` (`byte_strings`, `optional_byte_strings`) | `xmtp_db` |
+| Hand-written secret holder | `Zeroize`, `ZeroizeOnDrop` | `xmtp_cryptography::secret` |
+| Prove a wipe in a test | `install_heap_canary!()`, `Canary`, `scan` / `scan_async` | `xmtp_cryptography::secret::heap_canary` |
 
 `xmtp_common` re-exports `retry`, `wasm`, `stream_handles`, `const`,
 `event_logging`, `hash`, and `rand` at its root. `time`, `fmt`, `hex`, `http`,
@@ -84,6 +90,10 @@ Never copy a function between crates; move it and import it. Read the package's
 | Editing `schema_gen.rs`, `dist/`, or `src/gen/**` | the regeneration command in the owning `AGENTS.md` |
 | `println!` in a library crate | `tracing`; `println!` only in `apps/*` binaries |
 | `.ok()` that hides an error | `optify!(result, "why")` |
+| Secret bytes in a bare `Vec<u8>`, `[u8; N]` or `String` | `Secret`, or `Zeroizing<T>` for a transient buffer. See [types.md](types.md#secrets) |
+| `#[derive(Debug)]` on a type with a secret field whose `Debug` prints it (bare bytes, `Zeroizing<T>`, an OpenMLS HPKE key) | a hand-written `Debug` that shows only the length, or a redacting field type (`Secret`, `StoredSecret`) |
+| Formatting `HpkePrivateKey`, `HpkeKeyPair`, `KeyPackageBundle`, `SecretVLBytes` or `Zeroizing<T>` (`{:?}`, `?field`) | log a public value or a length; these `Debug` impls print the key |
+| `SigningKey::to_bytes()` and other key-copying accessors | borrow (`as_bytes()`) or move (`from_signing_key`); clippy bans them |
 
 ## Reference
 
@@ -92,6 +102,6 @@ Read one when you start that kind of work.
 - [errors.md](errors.md) — `ErrorCode` derive forms, `RetryableError`, the glossary, binding error wrappers
 - [async.md](async.md) — time, spawn and `StreamHandle`, retry, `Send` bounds, platform macros, locks, HTTP
 - [logging.md](logging.md) — span macros, `log_event!`, the never-log list, id truncation
-- [types.md](types.md) — newtypes, configuration layout, cryptography and identity entry points
+- [types.md](types.md) — newtypes, configuration layout, cryptography, secrets and identity entry points
 - [database.md](database.md) — client transactions and table macros, backend storage rules
 - [crates.md](crates.md) — crate layout, features, workspace deps, hakari, RustDoc, bindings

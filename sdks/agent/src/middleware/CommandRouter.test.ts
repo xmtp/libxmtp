@@ -108,6 +108,29 @@ describe("CommandRouter", () => {
         }),
       );
     });
+
+    it("does not change the content of the caller's context", async () => {
+      const router = new CommandRouter();
+      const handler = vi.fn();
+      router.command("/echo", handler);
+
+      const otherClient = await createClient();
+      const dm = await otherClient.conversations.createDm(client.inboxId);
+      const messageId = await dm.sendText("/echo hello world");
+      const message = (await otherClient.conversations.getMessageById(
+        messageId,
+      ))! as DecodedMessageWithContent<string>;
+      const ctx = new MessageContext<string>({
+        message,
+        conversation: dm,
+        client: otherClient,
+      });
+
+      expect(await router.handle(ctx)).toBe(true);
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0]?.[0].content).toBe("hello world");
+      expect(ctx.content).toBe("/echo hello world");
+    });
   });
 
   describe("commandList", () => {

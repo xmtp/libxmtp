@@ -170,13 +170,13 @@ impl XmtpBackendClient for ScriptedApi {
 
     async fn register(
         &self,
-        request: wire::RegisterRequest,
+        mut request: wire::RegisterRequest,
     ) -> Result<wire::RecipientState, Self::Error> {
         self.peer.gate(Call::Register).await?;
         {
             let mut state = self.peer.state.lock();
             state.registered = true;
-            state.delivery = request.delivery;
+            state.delivery = request.delivery.take();
         }
         Ok(self.peer.response())
     }
@@ -197,7 +197,7 @@ impl XmtpBackendClient for ScriptedApi {
 
     async fn update_subscriptions(
         &self,
-        request: wire::UpdateSubscriptionsRequest,
+        mut request: wire::UpdateSubscriptionsRequest,
     ) -> Result<wire::RecipientState, Self::Error> {
         self.peer.gate(Call::Update).await?;
         {
@@ -209,10 +209,10 @@ impl XmtpBackendClient for ScriptedApi {
                 return Err(status(tonic::Code::NotFound));
             }
             let mut next = state.subscriptions.clone();
-            for topic in request.removes {
+            for topic in std::mem::take(&mut request.removes) {
                 next.remove(&topic);
             }
-            for subscription in request.adds {
+            for subscription in std::mem::take(&mut request.adds) {
                 next.insert(subscription.topic.clone(), subscription);
             }
             if state.limit.is_some_and(|limit| next.len() > limit) {

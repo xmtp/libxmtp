@@ -12,7 +12,7 @@ use openmls::{
 };
 use openmls_traits::signatures::Signer;
 use prost::Message;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use openmls::extensions::AppDataDictionary;
 use tls_codec::{Deserialize, VLBytes};
@@ -34,7 +34,7 @@ use xmtp_mls_common::{
     tls_set::{TlsSetDelta, TlsSetMutation},
 };
 use xmtp_mls_validation::commit::{
-    AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
+    AppDataPostStates, AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
     validate_app_data_update_sequence,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -313,13 +313,13 @@ pub(crate) fn field_writes_commit(
         .map(|extension| extension.dictionary());
     let snapshot = FieldSnapshot::new(committed, &[])?;
     let values = pending_dictionary(openmls_group)?;
-    let updates = snapshot.resolve_writes(Some(&values), own, writes)?;
+    let updates = snapshot.resolve_writes(Some(&*values), own, writes)?;
     authorize_updates(openmls_group, snapshot.registry(), &values, &updates)?;
     let empty = AppDataDictionary::default();
     let mut carried = false;
     for write in writes.iter().map(std::slice::from_ref) {
         if !snapshot
-            .resolve_writes(Some(&values), own, write)?
+            .resolve_writes(Some(&*values), own, write)?
             .is_empty()
         {
             continue;
@@ -342,7 +342,7 @@ pub(crate) fn field_writes_commit(
                 openmls_group,
                 snapshot.registry(),
                 &values,
-                &snapshot.write_operations(Some(&values), own, write)?,
+                &snapshot.write_operations(Some(&*values), own, write)?,
             )?,
         }
         carried = true;
@@ -371,11 +371,13 @@ fn authorize_updates(
         &immutable,
         &mutable,
     )?;
-    let value = |id: ComponentId| values.get(&id.as_u16()).map(<[u8]>::to_vec);
+    let value = |id: ComponentId| values.get(&id.as_u16());
     let members = value(ComponentId::GROUP_MEMBERSHIP)
         .and_then(|bytes| TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes).ok())
         .map(|map| map.keys().copied().collect::<HashSet<_>>());
-    let mut states = HashMap::new();
+    // Post-states can hold the commit-log signer's private key; each is
+    // wiped on drop.
+    let mut states = AppDataPostStates::new();
     for (id, operation) in updates {
         let update = AppDataUpdateInCommit {
             component_id: *id,
@@ -385,7 +387,10 @@ fn authorize_updates(
         };
         let post = validate_app_data_update_sequence(
             [update],
-            |id| states.get(&id).cloned().unwrap_or_else(|| value(id)),
+            |id| match states.get(&id) {
+                Some(state) => state.as_deref().map(Vec::as_slice),
+                None => value(id),
+            },
             registry,
             immutable.dm_members.as_ref(),
             members.as_ref(),

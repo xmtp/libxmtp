@@ -1,0 +1,193 @@
+import { commonCopy } from "@/copy/common";
+
+/**
+ * Design gallery strings: fixed sample content, so screenshots of the
+ * samples compare across builds.
+ */
+export const galleryCopy = {
+  title: "Design gallery",
+  sections: {
+    components: "Components",
+    settings: "Settings replica",
+    details: "Group details replica",
+    chats: "Chats replica",
+    chat: "Chat bubbles replica",
+    connect: "Connect footer replica",
+  },
+  sectionsHeader: "Replicas",
+  sectionsFooter:
+    "Each replica uses fixed content, so screenshots compare across builds.",
+
+  typography: "Typography",
+  colors: "Colors",
+  symbols: "Symbols",
+  avatars: "Avatars",
+  identity: "Identity text",
+  buttons: "Glass buttons",
+  surfaces: "Glass surfaces",
+  banners: "Connection banner",
+  rows: "Form rows",
+  plainRows: "Plain list rows",
+  empty: "Content unavailable",
+  sheetHeader: "Sheet header",
+  bubbles: "Bubbles",
+  dialogs: "Dialogs",
+  motion: "Motion",
+
+  sample: "The quick brown fox jumps over the lazy dog",
+  joinServer: "Join a server",
+  joiningServer: "Joining server…",
+  retry: "Retry",
+  accept: "Accept",
+  deleteRequest: "Delete request",
+  block: "Block",
+  senderDetails: "Sender details",
+  addAttachment: "Add attachment",
+  send: "Send message",
+  search: "Search",
+  reconnecting: "Reconnecting to your server…",
+  disconnected: "Disconnected. Retrying…",
+  addMember: "Add member",
+  disappearingShort: "Disappearing",
+  showAlert: "Show alert",
+  showConfirmation: "Show confirmation dialog",
+  alertTitle: "Sign out?",
+  alertMessage: "Your messages and account keys will stay on this device.",
+  signOut: "Sign out",
+  cancel: "Cancel",
+  blockConfirm: "Block conversation?",
+  toggleMotion: "Toggle the motion sample",
+  motionSample: "motion.transition",
+  reduceMotionSuffix: " (Reduce Motion)",
+  newMessage: "New message",
+  step1: "Step 1 of 2",
+  notifications: "Notifications",
+  localName: "Local name",
+  durationPlaceholder: "Duration in seconds",
+
+  settings: {
+    title: "Settings",
+    handle: "nick",
+    handleCaption: "Your handle on this server",
+    changeHandle: "Change handle",
+    inboxId: "Inbox ID",
+    inboxIdValue:
+      "21b5db7ac4ae9b8719f2b95d31c1a9b3b25bad746cafe0123456789abcdef0011",
+    copyInboxId: "Copy inbox ID",
+    server: "Server",
+    name: "Name",
+    serverUrl: "http://127.0.0.1:5150",
+    address: "Address",
+    copyServerAddress: "Copy server address",
+    serverFooter: "To change servers, sign out and join another server.",
+    notifications: "Notifications",
+    status: "Status",
+    statusValue: "Off: APNs is not configured",
+    notificationsFooter:
+      "Get alerts when new messages arrive. You can use Chats with notifications off.",
+    appearance: "Appearance",
+    automatic: "Automatic",
+    light: "Light",
+    dark: "Dark",
+    appearanceFooter: "Choose how Chats looks on this device.",
+    privacy: "Privacy",
+    messageRequests: "Message requests",
+    privacyFooter:
+      "Message requests let you choose who can contact you. Files are verified before they can be opened or saved. Request files are not downloaded automatically.",
+    sendReview: "Send needs review",
+    noSends: "No sends need review",
+    developer: "Developer tools",
+    attachmentRecovery: "Attachment recovery",
+    developerFooter:
+      "Unread counts use local insertion time. Equal timestamps and imported messages can change these counts. Open conversation details for raw metadata fields.",
+    device: "This device",
+    signOut: "Sign out",
+    deleteLocalData: "Delete local data",
+    deviceFooter:
+      "Sign out ends this session and clears its access token. Your identity and saved messages stay on this device. Delete local data removes this server’s identity, saved messages and local files from this device.",
+  },
+  details: {
+    title: "Protocol design",
+    subtitle: "Group · 2 members",
+    nameHeader: "Name on this device",
+    nameFooter:
+      "Use a local name to find this conversation. Other people do not see this name.",
+    notificationsOff: "Notifications are not configured in this build.",
+    membersHeader: "Members · 2",
+    member: "Member",
+    superAdmin: "Super admin",
+    memberA: "visual883de4caf0",
+    memberB: "fidelity883de4caf0",
+    permissions: "Permissions",
+    permissionsValue: "All members",
+    disappearing: "Disappearing messages",
+    off: "Off",
+    mediaAndFiles: "Media and files",
+    allMembers: "All members",
+    allMembersDetail: "Members can update group details and add people.",
+    adminsOnly: "Admins only",
+    adminsOnlyDetail: "Only admins can update group details and add people.",
+    oneHour: "1 hour",
+    oneDay: "1 day",
+    selected: "Selected",
+  },
+  chats: {
+    title: "Chats",
+    requests: "Message requests",
+    requestsCount: "· 0",
+    requestsDetail: "Choose who can contact you",
+    emptyTitle: "Your chats start here",
+    emptyDetail:
+      "Send a message to someone you know. Messages from new people appear in requests.",
+    emptyAction: "Start a conversation",
+    rowTitle: "Protocol design",
+    rowPreview:
+      "priya: Pushed the key package rotation. Can you check the commit before lunch?",
+    rowTime: "9:41 AM",
+  },
+  chat: {
+    thereYouGo: "There you go 👆",
+    welcome: "Welcome back! The coast looks amazing",
+    moveWentFine:
+      "Move went fine, thanks. Only three boxes left 📦Saturday at 7 works for me",
+    cantWait: "Can't wait 🙌I'll bring wine",
+    bringWine: "I'll bring wine",
+    thankYou: "Thank you!! I already miss it",
+    perfect: "Perfect, see you Saturday!",
+    sent: "Sent",
+    deleted: "Message deleted",
+  },
+  connect: {
+    footer: "Use a server address from someone you trust.",
+  },
+} as const;
+
+/** The probes' confirmations for a link (`src/core/probeLinks.ts`). */
+export const probeLinkCopy = {
+  title: (action: string) => `Run ${action} from a link?`,
+  run: "Run",
+  cancel: commonCopy.cancel,
+  connect: (url: string) =>
+    `Any app can open this link. It ends the current session and joins ${url}.`,
+  join: (url: string) =>
+    `Any app can open this link. You are signed out, and it joins ${url} with an identity from this device.`,
+  retry:
+    "Any app can open this link. It ends the current session and opens it again.",
+  reopen:
+    "Any app can open this link. You are signed out, and it opens the saved account whose restore failed, if there is one.",
+  allowRequests:
+    "Any app can open this link. It accepts every message request.",
+  claim: (handle: string) =>
+    `Any app can open this link. It claims the handle ${handle}, and the claim stays in the identity log.`,
+  createGroup: (name: string, members: readonly string[]) =>
+    members.length === 0
+      ? `Any app can open this link. It creates the group ${name}.`
+      : `Any app can open this link. It creates the group ${name} with ${members.join(", ")}.`,
+  retryMessage:
+    "Any app can open this link. It sends an unsent message in this chat again.",
+  react: (emoji: string) =>
+    `Any app can open this link. It adds your ${emoji} reaction to a message in this chat, or removes it.`,
+  reply:
+    "Any app can open this link. It sets which message your draft in this chat replies to.",
+  edit: "Any app can open this link. It replaces the text of your draft in this chat with the text of a message.",
+} as const;

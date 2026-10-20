@@ -5,14 +5,19 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use xmtp_proto::backend_v1::EnvelopeMeta;
 
+// Byte fields are CBOR byte strings, as in `prepared.rs`. rc4 is the first
+// release that stores them as CBOR, so no reader of the integer-array form
+// exists.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// Exact follow-up bytes anchored to one accepted membership commit.
 pub(crate) struct PreparedWelcomes {
     /// Ordered commit cursor included in the Welcome metadata.
     pub(super) commit_sequence_id: i64,
     /// Saved direct, pointer, and pointee envelopes. Retries reuse these bytes.
+    #[serde(with = "xmtp_db::byte_strings")]
     pub(super) envelopes: Vec<Vec<u8>>,
     /// Backend receipts for the complete required batch.
+    #[serde(default, with = "xmtp_db::optional_byte_strings")]
     pub(super) receipts: Option<Vec<Vec<u8>>>,
 }
 

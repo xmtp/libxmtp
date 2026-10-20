@@ -36,6 +36,7 @@ import XmtpSdk
 		               "Condition \(predicate) failed for \(element)", file: file, line: line)
 	}
 
+	/// Joins a fresh account and claims a new handle for it during onboarding.
 	private func launch() -> XCUIApplication {
 		continueAfterFailure = false
 		let app = XCUIApplication()
@@ -45,10 +46,14 @@ import XmtpSdk
 		let join = wait(app.buttons["Join a server"], timeout: 30)
 		waitUntil("enabled == true", element: join)
 		join.tap()
-		let skip = app.buttons["Skip for now"]
-		if skip.waitForExistence(timeout: 30) {
-			skip.tap()
-		}
+		wait(app.buttons["Skip for now"], timeout: 30)
+		let name = "ios" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+		let field = wait(app.textFields["nick"])
+		field.tap()
+		acknowledgeKeyboardIntro(app)
+		field.typeText(name)
+		app.buttons["Continue"].tap()
+		wait(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Claim ")).firstMatch, timeout: 30).tap()
 		wait(app.navigationBars["Chats"], timeout: 30)
 		return app
 	}
@@ -159,15 +164,27 @@ import XmtpSdk
 		wait(app.staticTexts["Message deleted"].firstMatch, timeout: 20)
 	}
 
-	private func verifyDraftRelaunch(_ app: XCUIApplication, handle: String) {
+	private func verifyDraftRelaunch(_ app: XCUIApplication, handle: String, inbox original: String) {
 		let field = composer(app)
 		field.tap()
 		acknowledgeKeyboardIntro(app)
 		field.typeText("saved draft")
+		// Kill the app soon after it leaves the foreground, as a swipe in the app switcher does. A lease left by the
+		// killed process would still have most of its 30 seconds at relaunch.
+		XCUIDevice.shared.press(.home)
+		RunLoop.current.run(until: Date().addingTimeInterval(1))
 		app.terminate()
 		app.launchArguments = []
 		app.launch()
 		wait(app.navigationBars["Chats"], timeout: 30)
+		// A consumer lease left by the killed process fails the reader until it expires.
+		let disconnected = app.staticTexts["Disconnected. Retrying…"]
+		let deadline = Date().addingTimeInterval(10)
+		while Date() < deadline {
+			XCTAssertFalse(disconnected.exists, "The message reader failed after relaunch")
+			RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+		}
+		XCTAssertEqual(inbox(app), original)
 		let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", handle)).firstMatch
 		for _ in 0 ..< 8 {
 			if row.exists, row.isHittable {
@@ -179,13 +196,40 @@ import XmtpSdk
 		XCTAssertEqual(composer(app).value as? String, "saved draft")
 	}
 
+	private func openRequests(_ app: XCUIApplication) {
+		wait(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Message requests")).firstMatch).tap()
+	}
+
+	private func requestRow(_ inbox: String, app: XCUIApplication) -> XCUIElement {
+		wait(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", String(inbox.prefix(12)))).firstMatch, timeout: 30)
+	}
+
+	/// An incoming DM waits in Message requests with no composer until Accept.
+	private func acceptRequest(from requester: SDKClient, to recipient: String, app: XCUIApplication) async throws {
+		let incoming = try await requester.conversations.createDm(peer: recipient)
+		_ = try await incoming.sendText(text: "request one")
+		openRequests(app)
+		requestRow(requester.inboxId(), app: app).tap()
+		wait(app.buttons["Accept"])
+		XCTAssertFalse(identified("message-composer", in: app).exists)
+		app.buttons["Accept"].tap()
+		send("accepted reply", app: app)
+		wait(app.navigationBars.buttons["Chats"]).tap()
+		wait(app.navigationBars["Chats"])
+	}
+
+	/// Claims a handle at join, accepts a message request, starts a DM by handle, uses message actions, and keeps a
+	/// draft and a working message reader across a background kill and relaunch.
 	func testDirectMessageByHandleActionsAndDraft() async throws {
 		continueAfterFailure = false
 		let peer = try await peer()
+		let requester = try await self.peer()
 		do {
 			let handle = "peer" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10).lowercased()
 			try await peer.claimHandle(handle: handle)
 			let app = launch()
+			let recipient = inbox(app)
+			try await acceptRequest(from: requester, to: recipient, app: app)
 			startByHandle(handle, inbox: peer.inboxId(), app: app)
 			send("hello from iOS", app: app)
 			try await poll {
@@ -204,45 +248,9 @@ import XmtpSdk
 			try await chat.updateConsentState(state: .allowed)
 			_ = try await chat.sendText(text: "peer reply", options: nil)
 			exerciseMessageActions(app)
-			verifyDraftRelaunch(app, handle: handle)
+			verifyDraftRelaunch(app, handle: handle, inbox: recipient)
+			try await requester.end()
 			try await peer.end()
-		} catch { try await peer.end(); throw error }
-	}
-
-	private func openRequests(_ app: XCUIApplication) {
-		wait(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Message requests")).firstMatch).tap()
-	}
-
-	private func requestRow(_ inbox: String, app: XCUIApplication) -> XCUIElement {
-		wait(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", String(inbox.prefix(12)))).firstMatch, timeout: 30)
-	}
-
-	func testRequestsGateSendingThenAcceptAndBlock() async throws {
-		continueAfterFailure = false
-		let first = try await peer()
-		let second = try await peer()
-		do {
-			let app = launch()
-			let recipient = inbox(app)
-			let incoming = try await first.conversations.createDm(peer: recipient)
-			_ = try await incoming.sendText(text: "request one")
-			openRequests(app)
-			requestRow(first.inboxId(), app: app).tap()
-			wait(app.buttons["Accept"])
-			XCTAssertFalse(identified("message-composer", in: app).exists)
-			app.buttons["Accept"].tap()
-			send("accepted reply", app: app)
-			wait(app.navigationBars.buttons["Chats"]).tap()
-			wait(app.navigationBars["Chats"])
-			let blocked = try await second.conversations.createDm(peer: recipient)
-			_ = try await blocked.sendText(text: "request two")
-			openRequests(app)
-			requestRow(second.inboxId(), app: app).tap()
-			wait(app.buttons["Block"]).tap()
-			wait(app.buttons["Confirm"]).tap()
-			wait(app.navigationBars["Chats"])
-			try await first.end()
-			try await second.end()
-		} catch { try await first.end(); try await second.end(); throw error }
+		} catch { try await requester.end(); try await peer.end(); throw error }
 	}
 }

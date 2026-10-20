@@ -4,6 +4,7 @@ use hmac::{Hmac, Mac};
 use prost::Message;
 use sha2::Sha256;
 use std::collections::HashMap;
+use xmtp_cryptography::secret::Zeroizing;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn empty_fanout_preserves_bounds_and_never_reads_payloads() {
@@ -122,7 +123,7 @@ async fn terminal_response_compares_every_delivery_field() {
         match field {
             0 => attempted.channel = PushChannel::Apns,
             1 => attempted.delivery.push_str("/old"),
-            2 => attempted.signing_key = Some(vec![99; 32]),
+            2 => attempted.signing_key = Some(Zeroizing::new(vec![99; 32])),
             _ => attempted.secret_hash = vec![99; 32],
         }
         assert!(!dispatcher::delete_dead(&fixture.store, &attempted).await?);

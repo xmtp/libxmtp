@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Build the iOS simulator app into .build/DerivedData.
+#   CONFIGURATION       Debug (default): loads JS from Metro on
+#                       XMTP_RN_METRO_PORT (default 8081), stamped into the app.
+#                       Release: embeds the Hermes bundle and needs no Metro.
+# It links the native SDK and installs dependencies when they are missing or
+# out of date.
+set -euo pipefail
+app="$(cd "$(dirname "$0")/.." && pwd -P)"
+configuration="${CONFIGURATION:-Debug}"
+port="${XMTP_RN_METRO_PORT:-8081}"
+if [[ ! -d "$app/.build/sdk/package/ios/XmtpSdkFFI.xcframework" ]]; then
+  "$app/dev/sdk" native
+fi
+if [[ ! -f "$app/ios/Pods/Manifest.lock" ]] ||
+  ! cmp -s "$app/ios/Podfile.lock" "$app/ios/Pods/Manifest.lock"; then
+  "$app/dev/install"
+else
+  "$app/dev/install" --js-only
+fi
+cd "$app/ios"
+# The Nix shell's LD breaks Debug links (`ld: -objc_abi_version`); xcodebuild
+# reads environment variables as build settings.
+env -u LD xcodebuild build -quiet \
+  -workspace XMTPMessenger.xcworkspace -scheme XMTPMessenger \
+  -configuration "$configuration" -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath "$app/.build/DerivedData" \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
+  RCT_METRO_PORT="$port"
+product="$app/.build/DerivedData/Build/Products/$configuration-iphonesimulator/XMTPMessenger.app"
+test -d "$product"
+printf 'Built %s (Metro port %s)\n' "$product" "$port"

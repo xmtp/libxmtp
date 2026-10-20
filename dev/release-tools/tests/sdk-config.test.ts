@@ -146,16 +146,6 @@ describe("SDK configs", () => {
     });
   });
 
-  it("declares a version track for every SDK", () => {
-    expect(getSdkConfig("ios").versionTrack).toBe("independent");
-    expect(getSdkConfig("android").versionTrack).toBe("independent");
-    expect(getSdkConfig("browser-sdk").versionTrack).toBe("independent");
-    expect(getSdkConfig("node-sdk").versionTrack).toBe("independent");
-    expect(getSdkConfig("react-native-sdk").versionTrack).toBe("independent");
-    expect(getSdkConfig("cli").versionTrack).toBe("independent");
-    expect(getSdkConfig("libxmtp").versionTrack).toBe("follows-libxmtp");
-  });
-
   it("uses the moved SDK directories", () => {
     expect(getSdkConfig("browser-sdk").manifestPath).toBe(
       "sdks/browser/package.json",

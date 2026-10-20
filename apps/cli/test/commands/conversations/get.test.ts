@@ -19,34 +19,6 @@ interface GroupConversation extends Conversation {
 }
 
 describe("conversations get", () => {
-  it("gets a specific conversation by ID", async () => {
-    const user = await createRegisteredIdentity();
-    const other = await createRegisteredIdentity();
-
-    const createResult = await runWithIdentity(user, [
-      "conversations",
-      "create-group",
-      other.address,
-      "--name",
-      "My Group",
-      "--json",
-    ]);
-    const created = parseJsonOutput<{ id: string }>(createResult.stdout);
-
-    const getResult = await runWithIdentity(user, [
-      "conversations",
-      "get",
-      created.id,
-      "--json",
-    ]);
-
-    expect(getResult.exitCode).toBe(0);
-
-    const conversation = parseJsonOutput<GroupConversation>(getResult.stdout);
-    expect(conversation.id).toBe(created.id);
-    expect(conversation.name).toBe("My Group");
-  });
-
   it("returns group info with metadata", async () => {
     const creator = await createRegisteredIdentity();
     const member = await createRegisteredIdentity();

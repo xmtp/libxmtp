@@ -75,6 +75,61 @@ inside an Apple static library, so the bindings call it explicitly
 Installation keys: `XmtpInstallationCredential` with `CredentialSign` and
 `CredentialVerify`. Test wallet: `generate_local_wallet()`.
 
+## Secrets
+
+A secret is any private key, HMAC key, webhook signing key or push recipient
+secret. Every heap copy libxmtp owns is wiped before it is freed. Import from
+`xmtp_cryptography::secret`, the one path for these helpers.
+
+- `Secret` owns secret bytes in a struct field, a return value or a long-lived
+  binding. It is wiped on drop, its `Debug` shows only the length, its serde
+  form is a byte string (`serialize_bytes`), and `==` is constant time. A
+  field whose stored shape another crate owns as a `Vec<u8>` reads it with
+  `#[serde(deserialize_with = "xmtp_cryptography::secret::deserialize_seq")]`.
+- `Zeroizing<T>` wraps a transient buffer where it is created: a serialization
+  output, a `to_vec()`, a decoded hex string, an FFI argument. Its `Debug`
+  prints the bytes, so never format it.
+- `xmtp_db::StoredSecret` is the column type for a client secret. It stores
+  the same `BLOB` as `Vec<u8>`, its serde form is a byte string like
+  `Secret`'s, and a row struct keeps its derives: every move, clone and
+  builder copy is wiped on drop.
+- Dependency key types that already wipe on drop stay as they are:
+  `ed25519_dalek::SigningKey`, `k256::ecdsa::SigningKey`, alloy
+  `PrivateKeySigner`, OpenMLS `SignatureKeyPair` and `HpkePrivateKey`.
+- A struct that holds bare secret bytes (`Vec<u8>`, `[u8; N]`, `String`,
+  `Zeroizing<T>`) or an OpenMLS HPKE key gets a hand-written `Debug` that
+  omits it. A struct whose secret fields all redact in `Debug` may derive it:
+  `Secret`, `StoredSecret`, `XmtpInstallationCredential`, the ed25519, k256
+  and alloy signing keys, and OpenMLS `SignatureKeyPair`. `StoredIdentity` and
+  `Identity` derive `Debug` this way.
+- OpenMLS `HpkePrivateKey`, `HpkeKeyPair` and `KeyPackageBundle` print their
+  keys in `Debug`; never format them.
+- `.clippy.toml` bans `to_bytes()` on signing keys. Borrow with `as_bytes()` or
+  move the key. An `#[allow(clippy::disallowed_methods)]` carries a
+  `// zeroize:` comment naming the `Zeroizing` binding that holds the result,
+  or saying why none exists.
+
+```rust
+use xmtp_cryptography::secret::{Secret, Zeroizing};
+
+let bytes = Zeroizing::new(key_pair.tls_serialize_detached()?);   // wiped on drop
+let value = codec::encode_value(LABEL, &key_pair)?;  // key store values come back as Zeroizing
+let key = Secret::new(rand_vec::<32>());
+```
+
+Prove a wipe with the heap canary (feature `test-utils`, native only). Each
+test binary calls `xmtp_cryptography::install_heap_canary!()` once, builds the
+secret before arming, and expects zero hits:
+
+```rust
+xmtp_cryptography::install_heap_canary!();
+let canary = Canary::new(&key);                 // raw bytes and lowercase hex
+let (_, hits) = scan_async(&[canary], async { /* code under test */ }).await;
+assert_eq!(hits, [0]);
+```
+
+Remove the wipe once and see the test fail before you commit it.
+
 ## Identity
 
 `xmtp_id` owns inbox ids, associations, signature requests, and smart-contract

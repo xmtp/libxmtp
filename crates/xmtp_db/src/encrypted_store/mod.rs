@@ -69,6 +69,25 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::{ops::Deref, sync::Arc};
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
+/// Version of the marker migration `2026-10-20-000000_cbor_storage_format`.
+/// Only a database created by a build that stores CBOR values has it.
+pub(crate) const CBOR_STORAGE_MIGRATION: &str = "20261020000000";
+
+/// Whether the database holds an identity or a key store row: the data a
+/// database written before the CBOR marker holds as bincode.
+pub(crate) fn holds_client_data(conn: &mut SqliteConnection) -> QueryResult<bool> {
+    #[derive(QueryableByName)]
+    struct ClientData {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        present: bool,
+    }
+    Ok(sql_query(
+        "SELECT EXISTS (SELECT 1 FROM identity) OR EXISTS (SELECT 1 FROM openmls_key_value) AS present",
+    )
+    .get_result::<ClientData>(conn)?
+    .present)
+}
+
 #[derive(ZeroizeOnDrop, Clone)]
 pub struct EncryptionKey([u8; 32]);
 impl std::fmt::Debug for EncryptionKey {
@@ -339,6 +358,18 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     ).get_result::<MigrationTable>(conn).optional()?;
                     if has_configuration.is_none() {
                         return Ok(Err(StorageError::OldStreamDatabase));
+                    }
+                    // Builds before the CBOR marker stored bincode key store
+                    // values and columns, which this build cannot read. Reject
+                    // such a database before any migration, so its data stays
+                    // as it was. Diesel commits each migration on its own, so
+                    // a new database whose first open stopped before the
+                    // marker has some migrations and no data: let it finish.
+                    let has_marker = applied
+                        .iter()
+                        .any(|version| version.to_string() == CBOR_STORAGE_MIGRATION);
+                    if !has_marker && holds_client_data(conn)? {
+                        return Ok(Err(StorageError::OldEncodingDatabase));
                     }
                 }
             }

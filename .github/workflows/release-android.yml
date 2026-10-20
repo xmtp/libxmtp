@@ -1,4 +1,4 @@
-name: Release Android SDK
+name: "Release: Android SDK"
 
 on:
   workflow_call:
@@ -7,27 +7,13 @@ on:
         required: true
         type: string
         description: "dev, rc, or final"
-      rc-number:
-        required: false
-        type: string
-        description: "RC number (required for rc releases)"
       source-sha:
         description: Fixed source commit resolved by the release caller
-        required: false
-        type: string
-      ref:
         required: true
         type: string
-        description: "Git ref to build from"
-      timestamp:
-        required: false
-        type: string
-        description: "Shared UTC YYYYMMDDHHMMSS stamp minted once per Release run"
-      pending-version:
-        required: false
-        type: string
-      pending-kind:
-        required: false
+      version:
+        description: The version to publish, computed once by release.yml
+        required: true
         type: string
     outputs:
       version:
@@ -39,67 +25,46 @@ permissions:
 
 jobs:
   check-push-permissions:
+    name: Source
     uses: ./.github/workflows/check-release-push.yml
     with:
-      ref: ${{ inputs.source-sha || inputs.ref }}
+      ref: ${{ inputs.source-sha }}
     secrets: inherit
 
   publish:
+    name: Build and publish to Maven Central
     needs: [check-push-permissions]
+    # Paid Linux: the android-ci shell closure is about 3 GiB plus an Android
+    # SDK closure of 6 to 11 GiB, before the APK build and Gradle downloads,
+    # which is more than the 14 GB disk of a free hosted runner.
     runs-on: blacksmith-16vcpu-ubuntu-2404
     env:
       # The slim Android shell: the release builds no Rust.
       NIX_DEVSHELL: android-ci
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      version: ${{ inputs.version }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
           fetch-depth: 0
           # Full history for the release tag, without blobs; git-cliff, which
           # fails on a blobless clone, does not run here.
           filter: blob:none
-      - uses: ./.github/actions/setup-release-tools
+      - name: Set up release tools
+        uses: ./.github/actions/setup-release-tools
       # No ~/.gradle disk: CI jobs commit it, and a release reads no store that
       # CI jobs write. Gradle downloads its distribution and dependencies.
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
+          cache-mode: read
           github-token: ${{ github.token }}
-
-      - name: Compute version
-        id: version
-        env:
-          REF: ${{ inputs.ref }}
-          TIMESTAMP: ${{ inputs.timestamp }}
-        run: |
-          if [ "${{ inputs.release-type }}" = "rc" ]; then
-            VERSION=$(xmtp-release compute-version --sdk android --release-type rc --rc-number ${{ inputs.rc-number }})
-          elif [ "${{ inputs.release-type }}" = "dev" ]; then
-            VERSION=$(xmtp-release compute-version --sdk android --release-type dev --source-ref "$REF" --timestamp "$TIMESTAMP")
-          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
-            # Belt-and-suspenders: release.yml already skips this whole job when
-            # the gate isn't green or there are no conventional commits
-            # (nothing-pending), so pending-* are populated whenever we reach
-            # here. This guard only fires if that orchestration is bypassed.
-            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
-              echo "::error::nightly resolve called with empty pending version/kind"
-              exit 1
-            fi
-            VERSION=$(xmtp-release resolve-sdk-version \
-              --sdk android --release-type nightly \
-              --timestamp "$TIMESTAMP" \
-              --pending-version "${{ inputs.pending-version }}" \
-              --pending-kind "${{ inputs.pending-kind }}")
-          else
-            VERSION=$(xmtp-release compute-version --sdk android --release-type final)
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Computed version: $VERSION"
 
       - name: Set version in gradle.properties
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ inputs.version }}
         run: xmtp-release set-manifest-version --sdk android --version "$VERSION"
 
       - name: Build Android bindings
@@ -107,17 +72,16 @@ jobs:
 
       # Publish only: CI tests the release commit (the Android suites), and a
       # live-backend test here once failed a release.
-      - uses: taiki-e/install-action@844d13d3ed6991e61a4ebc2c067073e3ed4f5ee1 # just
       - name: Build example APK
         env:
-          XMTP_EXAMPLE_VERSION: ${{ steps.version.outputs.version }}
+          XMTP_EXAMPLE_VERSION: ${{ inputs.version }}
         run: dev/nix-shell 'just example-android apk'
 
       - name: Retain example APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-example-apk
-          path: apps/example-android/build/apk/xmtp-messenger-${{ steps.version.outputs.version }}.apk
+          path: apps/example-android/build/apk/xmtp-messenger-${{ inputs.version }}.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -132,11 +96,12 @@ jobs:
 
       - name: Prepare release tag
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ inputs.version }}
         run: |
           xmtp-release tag-release --sdk android --version "$VERSION" --no-push
           git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/android-$VERSION"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Store release tag
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-tag-android
           path: ${{ runner.temp }}/release.bundle
@@ -144,6 +109,7 @@ jobs:
           retention-days: 1
 
   push-tag:
+    name: Tag
     needs: [publish, check-push-permissions]
     uses: ./.github/workflows/push-release-tag.yml
     with:
@@ -153,12 +119,14 @@ jobs:
     secrets: inherit
 
   publish-apk:
+    name: Attach Messenger APK
     needs: [publish, push-tag]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - name: Download example APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: android-example-apk
           path: apk

@@ -35,7 +35,11 @@ impl From<NotificationChannel> for core::NotificationChannel {
         match value {
             NotificationChannel::Apns { token } => Self::Apns { token },
             NotificationChannel::Fcm { token } => Self::Fcm { token },
-            NotificationChannel::Http { url, signing_key } => Self::Http { url, signing_key },
+            // The key moves into a `Secret` without a copy.
+            NotificationChannel::Http { url, signing_key } => Self::Http {
+                url,
+                signing_key: signing_key.into(),
+            },
         }
     }
 }
@@ -174,5 +178,22 @@ mod tests {
             assert!(!debug.contains("secret.example"));
             assert!(!debug.contains("115, 105, 103, 110"));
         }
+    }
+
+    /// The HTTP signing key moves into the core channel's `Secret`: the
+    /// converted key is the caller's buffer, not a copy left unwiped.
+    #[xmtp_common::test]
+    fn http_signing_key_moves_into_the_core_channel() {
+        let signing_key: Vec<u8> = (0..32).collect();
+        let input = signing_key.as_ptr();
+        let channel = core::NotificationChannel::from(NotificationChannel::Http {
+            url: "https://example.test".into(),
+            signing_key,
+        });
+        let core::NotificationChannel::Http { signing_key, .. } = &channel else {
+            panic!("an HTTP channel converts to an HTTP channel");
+        };
+        assert_eq!(signing_key.as_slice(), (0..32).collect::<Vec<u8>>());
+        assert_eq!(signing_key.as_slice().as_ptr(), input);
     }
 }
