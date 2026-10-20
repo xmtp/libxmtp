@@ -31,7 +31,7 @@ use xmtp_cryptography::{
 };
 use xmtp_db::{
     DefaultMlsStore, TestDb, XmtpMlsStorageProvider, XmtpOpenMlsProvider, XmtpTestDb,
-    sql_key_store::{SqlKeyStore, codec::encode_value},
+    sql_key_store::{KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStore, codec::encode_value},
     test_utils::generate_key_package_bundle,
 };
 
@@ -164,6 +164,34 @@ async fn signature_key_pair_is_wiped() {
 
     assert!(read_back);
     assert_eq!(hits, [0], "freed heap blocks held the signature key");
+}
+
+/// A stored secret with a byte after its value fails to decode. The key is
+/// never left in a freed buffer, also when the decode error is logged.
+#[xmtp_common::test(unwrap_try = true)]
+async fn secret_with_trailing_bytes_is_wiped() {
+    let provider = provider().await;
+    let store = provider.storage();
+    let key = LIST_KEYS[0];
+    let mut row = encode_value(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, key.as_slice())?;
+    row.push(0);
+
+    let ((failed, logged), hits) = scan(&[Canary::new(&key)], || {
+        store
+            .write::<CURRENT_VERSION>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, WRAPPER_HASH_REF, &row)
+            .unwrap();
+        // With a subscriber, the openmls_kv target logs the failure.
+        let (read, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+            tracing::error_span!("read")
+                .in_scope(|| store.wrapper_private_key(WRAPPER_HASH_REF).map(drop))
+        });
+        let logged = format!("{spans:?}").contains("key store value decode failed");
+        (read.is_err(), logged)
+    });
+
+    assert!(failed, "a row with a trailing byte decoded");
+    assert!(logged, "the decode failure was not logged");
+    assert_eq!(hits, [0], "freed heap blocks held the stored key");
 }
 
 /// Appending to a list, reading it and removing an entry rewrite the whole

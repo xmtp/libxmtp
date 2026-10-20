@@ -2159,10 +2159,12 @@ pub(crate) mod tests {
             "the span records the hash reference"
         );
         for private_key in [bundle.init_private_key(), bundle.encryption_private_key()] {
-            assert!(
-                !attributes.contains(&hex::encode(&**private_key)),
-                "the span records a private key"
-            );
+            for form in super::codec::logged_forms(private_key) {
+                assert!(
+                    !attributes.contains(&form),
+                    "the span records a private key: {form}"
+                );
+            }
         }
     }
 
@@ -2215,20 +2217,7 @@ pub(crate) mod tests {
                 .build(&provider, &signer, credential_with_key)
         });
         let group = group?;
-        // The signer as a span could record it: its raw hex, the hex of its
-        // CBOR items (how a stored value holds a byte vector), and `Debug`.
-        let mut signer_cbor = vec![];
-        for &byte in &commit_log_signer {
-            if byte >= 0x18 {
-                signer_cbor.push(0x18);
-            }
-            signer_cbor.push(byte);
-        }
-        let signer_forms = [
-            hex::encode(&commit_log_signer),
-            hex::encode(&signer_cbor),
-            format!("{commit_log_signer:?}").replace(['[', ']'], ""),
-        ];
+        let signer_forms = super::codec::logged_forms(&commit_log_signer);
         let stored_context: GroupContext = provider
             .storage()
             .group_context(group.group_id())?

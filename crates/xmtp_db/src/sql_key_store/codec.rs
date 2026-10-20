@@ -46,7 +46,11 @@
 
 use std::convert::Infallible;
 
-use cbor4ii::core::{dec::Read as _, enc, utils::SliceReader};
+use cbor4ii::core::{
+    dec::{Decode as _, IgnoredAny, Read as _},
+    enc,
+    utils::SliceReader,
+};
 use cbor4ii::serde::{DecodeError, Deserializer, EncodeError, Serializer};
 use serde::{
     Deserialize, Serialize,
@@ -70,6 +74,37 @@ pub(crate) enum ValueError {
     Decode(#[from] DecodeError<Infallible>),
     #[error("{0} bytes follow the value")]
     TrailingBytes(usize),
+}
+
+impl ValueError {
+    /// The kind of failure and the CBOR item it concerns, for logs.
+    ///
+    /// cbor4ii's error text can quote the header byte it did not expect, and
+    /// a byte below 24 is its own header: one byte of the value. serde's text
+    /// can quote a decoded number or string. So logs carry only these static
+    /// names.
+    fn kind(&self) -> (&'static str, &'static str) {
+        use cbor4ii::core::error::DecodeError as Core;
+        match self {
+            Self::Encode(_) => ("encode", ""),
+            Self::TrailingBytes(_) => ("trailing bytes", ""),
+            Self::Decode(DecodeError::Custom(_)) => ("serde", ""),
+            Self::Decode(DecodeError::Core(error)) => match error {
+                Core::Mismatch { name, .. } => ("mismatch", **name),
+                Core::Unsupported { name, .. } => ("unsupported", **name),
+                Core::Eof { name, .. } => ("eof", **name),
+                Core::RequireLength { name, .. } => ("require length", **name),
+                Core::RequireBorrowed { name } => ("require borrowed", **name),
+                Core::RequireUtf8 { name } => ("require utf-8", **name),
+                Core::LengthOverflow { name, .. } => ("length overflow", **name),
+                Core::CastOverflow { name } => ("cast overflow", **name),
+                Core::ArithmeticOverflow { name, .. } => ("arithmetic overflow", **name),
+                Core::DepthOverflow { name } => ("depth overflow", **name),
+                Core::Custom { name, .. } => ("custom", **name),
+                _ => ("other", ""),
+            },
+        }
+    }
 }
 
 /// Counts the bytes of an encoding.
@@ -111,14 +146,27 @@ pub(crate) fn value_to_vec<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, 
 
 /// Decode one value written by [`value_to_vec`]. Every decoded value comes
 /// from here. Bytes after the value are an error.
+///
+/// It finds where the value ends before it decodes it, so a row with bytes
+/// after the value is rejected without building the value: a private key in
+/// it would be dropped unwiped.
 pub(crate) fn value_from_slice<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ValueError> {
-    let mut reader = SliceReader::new(bytes);
-    let value = T::deserialize(&mut Deserializer::new(&mut reader))?;
-    let Ok(rest) = reader.fill(bytes.len());
-    match rest.as_ref().len() {
-        0 => Ok(value),
+    match bytes.len() - value_len(bytes)? {
+        0 => {
+            let mut reader = SliceReader::new(bytes);
+            Ok(T::deserialize(&mut Deserializer::new(&mut reader))?)
+        }
         trailing => Err(ValueError::TrailingBytes(trailing)),
     }
+}
+
+/// The length of the one CBOR item at the start of `bytes`. Skipping an item
+/// copies none of it.
+fn value_len(bytes: &[u8]) -> Result<usize, ValueError> {
+    let mut reader = SliceReader::new(bytes);
+    IgnoredAny::decode(&mut reader).map_err(DecodeError::from)?;
+    let Ok(rest) = reader.fill(bytes.len());
+    Ok(bytes.len() - rest.as_ref().len())
 }
 
 /// Encode the key part of a storage key: no label and no version.
@@ -146,11 +194,13 @@ pub fn encode_value<V: Serialize + ?Sized>(
     value: &V,
 ) -> Result<Zeroizing<Vec<u8>>, SqlKeyStoreError> {
     value_to_vec(value).map(Zeroizing::new).map_err(|error| {
+        let (kind, item) = error.kind();
         tracing::error!(
             target: OPENMLS_KV_TARGET,
             label = %String::from_utf8_lossy(label),
             type_name = std::any::type_name::<V>(),
-            %error,
+            error_kind = kind,
+            error_item = item,
             "key store value encode failed",
         );
         SqlKeyStoreError::SerializationError
@@ -217,30 +267,65 @@ impl<'de> Deserialize<'de> for ListItems {
     }
 }
 
-/// Log a failed decode: the label, the type, the byte length and the path of
-/// the failing field. Never the value bytes, which can hold a private key.
+/// Log a failed decode: the label, the type, the byte length, the kind of
+/// failure and the path of the failing field. Never the value bytes, which
+/// can hold a private key, and never the codec's error text (see
+/// [`ValueError::kind`]).
 ///
 /// The path comes from a second decode through `serde_path_to_error`, which
-/// runs only when the `openmls_kv` target logs errors.
+/// runs only when the `openmls_kv` target logs errors. A row with bytes after
+/// its value has no failing field, and is not decoded again: the decode would
+/// build the whole value.
 fn log_decode_error<V: DeserializeOwned>(label: &[u8], bytes: &[u8], error: &ValueError) {
     if !tracing::event_enabled!(target: OPENMLS_KV_TARGET, tracing::Level::ERROR) {
         return;
     }
-    let mut reader = SliceReader::new(bytes);
-    let path = match serde_path_to_error::deserialize::<_, V>(&mut Deserializer::new(&mut reader)) {
-        Err(error) => error.path().to_string(),
-        // Only bytes after the value failed: no field path.
-        Ok(_) => String::new(),
+    let path = match error {
+        ValueError::TrailingBytes(_) => String::new(),
+        _ => {
+            let mut reader = SliceReader::new(bytes);
+            match serde_path_to_error::deserialize::<_, V>(&mut Deserializer::new(&mut reader)) {
+                Err(error) => error.path().to_string(),
+                Ok(_) => String::new(),
+            }
+        }
     };
+    let (kind, item) = error.kind();
     tracing::error!(
         target: OPENMLS_KV_TARGET,
         label = %String::from_utf8_lossy(label),
         type_name = std::any::type_name::<V>(),
         bytes_len = bytes.len(),
         path = %path,
-        %error,
+        error_kind = kind,
+        error_item = item,
         "key store value decode failed",
     );
+}
+
+/// The forms in which a log line or a span could hold `secret`: its raw hex,
+/// the hex of its CBOR array items (how a stored value holds a byte vector),
+/// and the `Debug` text of both, without the brackets. Negative log and span
+/// checks look for every form.
+#[cfg(test)]
+pub(crate) fn logged_forms(secret: &[u8]) -> [String; 4] {
+    let cbor_items: Vec<u8> = secret
+        .iter()
+        .flat_map(|&byte| {
+            if byte >= 0x18 {
+                vec![0x18, byte]
+            } else {
+                vec![byte]
+            }
+        })
+        .collect();
+    let debug = |bytes: &[u8]| format!("{bytes:?}").replace(['[', ']'], "");
+    [
+        hex::encode(secret),
+        hex::encode(&cbor_items),
+        debug(secret),
+        debug(&cbor_items),
+    ]
 }
 
 #[cfg(test)]
@@ -424,8 +509,26 @@ mod tests {
         assert!(logged.contains("inner.count"));
         assert!(logged.contains(&bytes.len().to_string()));
         assert!(!logged.contains(&hex::encode(&bytes)));
-        assert!(!logged.contains(&hex::encode(&secret)));
-        assert!(!logged.contains(&format!("{:?}", secret.as_slice())));
+        for form in super::logged_forms(&secret) {
+            assert!(!logged.contains(&form), "the log holds the secret: {form}");
+        }
+    }
+
+    /// cbor4ii's error text quotes the header byte it did not expect, and a
+    /// byte below 24 is its own header. The log names the kind of failure
+    /// and the item instead.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn decode_failures_log_no_byte_of_the_value() {
+        let bytes = value_to_vec(&vec![5u8; 32])?;
+        let (result, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+            tracing::error_span!("decode").in_scope(|| decode_value::<Vec<bool>>(LABEL, &bytes))
+        });
+        assert!(matches!(result, Err(SqlKeyStoreError::SerializationError)));
+        let logged = format!("{spans:?}");
+        assert!(logged.contains("key store value decode failed"), "{logged}");
+        assert!(logged.contains("mismatch"), "{logged}");
+        assert!(!logged.contains("found"), "{logged}");
     }
 
     #[xmtp_common::test(unwrap_try = true)]
