@@ -17,6 +17,10 @@ pub trait QueryMigrations {
 
     /// Rollback all migrations after and including the specified version.
     ///
+    /// Refused on a database with data when it would revert the CBOR storage
+    /// marker: every later open would reject the database as written before
+    /// it (`StorageError::OldEncodingDatabase`).
+    ///
     /// WARNING: This is destructive and may cause data loss.
     fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError>;
 
@@ -63,6 +67,24 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
         if target.is_empty() {
             return Err(ConnectionError::InvalidQuery(format!(
                 "Invalid migration version: {version}"
+            )));
+        }
+
+        // Versions compare as strings, as above: the rollback reverts the
+        // marker when the target sorts at or before it.
+        if target.as_str() <= super::CBOR_STORAGE_MIGRATION
+            && self
+                .applied_migrations()?
+                .iter()
+                .any(|v| v == super::CBOR_STORAGE_MIGRATION)
+            && self.raw_query(super::holds_client_data)?
+        {
+            return Err(ConnectionError::InvalidQuery(format!(
+                "Rolling back to {version} would revert the CBOR storage marker \
+                 {marker}, and the database could not be opened again. Roll back \
+                 to a later version, or use a database with no identity and no key \
+                 store rows.",
+                marker = super::CBOR_STORAGE_MIGRATION
             )));
         }
 
@@ -181,6 +203,41 @@ mod tests {
             |version| version != RECEIVED_PROPOSALS && version != CONVERSATION_LIST_EXPIRY
         ));
         assert!(remaining.iter().any(|version| version == BASELINE));
+    }
+
+    /// A rollback that would revert the CBOR marker on a database with data
+    /// is refused: every later open would reject the database as written
+    /// before the marker. Nothing is reverted. On an empty database it runs.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rollback_keeps_the_cbor_marker_of_a_database_with_data() {
+        use crate::encrypted_store::CBOR_STORAGE_MIGRATION;
+        use diesel::connection::SimpleConnection;
+
+        const BEFORE_MARKER: &str = "20261009020000";
+        let store = crate::TestDb::create_ephemeral_store().await;
+        let conn = store.db();
+        conn.raw_query(|db| {
+            db.batch_execute("INSERT INTO identity (inbox_id, installation_keys, credential_bytes) VALUES ('inbox', x'01', x'02')")
+        })?;
+        let before = conn.applied_migrations()?;
+        assert!(matches!(
+            conn.rollback_to_version(BEFORE_MARKER),
+            Err(ConnectionError::InvalidQuery(_))
+        ));
+        assert!(matches!(
+            conn.rollback_to_version(CBOR_STORAGE_MIGRATION),
+            Err(ConnectionError::InvalidQuery(_))
+        ));
+        assert_eq!(conn.applied_migrations()?, before);
+
+        conn.raw_query(|db| db.batch_execute("DELETE FROM identity"))?;
+        conn.rollback_to_version(BEFORE_MARKER)?;
+        assert!(
+            !conn
+                .applied_migrations()?
+                .iter()
+                .any(|version| version == CBOR_STORAGE_MIGRATION)
+        );
     }
 }
 

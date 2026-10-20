@@ -73,6 +73,21 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 /// Only a database created by a build that stores CBOR values has it.
 pub(crate) const CBOR_STORAGE_MIGRATION: &str = "20261020000000";
 
+/// Whether the database holds an identity or a key store row: the data a
+/// database written before the CBOR marker holds as bincode.
+pub(crate) fn holds_client_data(conn: &mut SqliteConnection) -> QueryResult<bool> {
+    #[derive(QueryableByName)]
+    struct ClientData {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        present: bool,
+    }
+    Ok(sql_query(
+        "SELECT EXISTS (SELECT 1 FROM identity) OR EXISTS (SELECT 1 FROM openmls_key_value) AS present",
+    )
+    .get_result::<ClientData>(conn)?
+    .present)
+}
+
 #[derive(ZeroizeOnDrop, Clone)]
 pub struct EncryptionKey([u8; 32]);
 impl std::fmt::Debug for EncryptionKey {
@@ -353,18 +368,8 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     let has_marker = applied
                         .iter()
                         .any(|version| version.to_string() == CBOR_STORAGE_MIGRATION);
-                    if !has_marker {
-                        #[derive(QueryableByName)]
-                        struct ClientData {
-                            #[diesel(sql_type = diesel::sql_types::Bool)]
-                            present: bool,
-                        }
-                        let data = sql_query(
-                            "SELECT EXISTS (SELECT 1 FROM identity) OR EXISTS (SELECT 1 FROM openmls_key_value) AS present",
-                        ).get_result::<ClientData>(conn)?;
-                        if data.present {
-                            return Ok(Err(StorageError::OldEncodingDatabase));
-                        }
+                    if !has_marker && holds_client_data(conn)? {
+                        return Ok(Err(StorageError::OldEncodingDatabase));
                     }
                 }
             }
