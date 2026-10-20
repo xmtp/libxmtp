@@ -22,8 +22,8 @@ arc-swap.workspace = true
 ascii_table = { version = "5", optional = true, features = [
   "auto_table_width",
 ] }
-bincode.workspace = true
 bon.workspace = true
+cbor4ii.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true
 diesel = { workspace = true, features = [
@@ -45,7 +45,8 @@ parking_lot.workspace = true
 prost.workspace = true
 rand.workspace = true
 serde.workspace = true
-serde_path_to_error = { workspace = true, optional = true }
+serde_bytes.workspace = true
+serde_path_to_error.workspace = true
 strum.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
@@ -111,8 +112,6 @@ uuid = { workspace = true, features = ["js"] }
 update-schema = ["dep:toml"]
 # Enables the database benchmarks and the latency-injecting SQLite VFS.
 bench = []
-# Re-decode bincode failures via serde_path_to_error to log failing field path on `openmls_kv` target.
-deserialize-paths = ["dep:serde_path_to_error"]
 test-utils = [
   "dep:futures",
   "xmtp_common/test-utils",

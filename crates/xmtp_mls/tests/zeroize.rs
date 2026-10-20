@@ -22,6 +22,7 @@ use xmtp_db::{
     StoredSecret, XmtpMlsStorageProvider, XmtpOpenMlsProviderRef, XmtpTestDb,
     group_intent::{IntentKind, QueryGroupIntent},
     identity::StoredIdentity,
+    sql_key_store::{KEY_PACKAGE_WRAPPER_PRIVATE_KEY, codec::encode_key},
     user_preferences::StoredUserPreferences,
 };
 use xmtp_id::{InboxOwner, associations::test_utils::MockSmartContractSignatureVerifier};
@@ -181,7 +182,7 @@ async fn welcome_keys_are_wiped_when_joining() {
         .expect("alix stores the published bundle");
     let wrapper_key = provider
         .storage()
-        .wrapper_private_key(&bincode::serialize(&hash_ref)?)?
+        .wrapper_private_key(&encode_key(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)?)?
         .expect("the package has a post-quantum wrapper key");
     let canaries = [
         Canary::new(bundle.init_private_key()),

@@ -25,13 +25,14 @@ use xmtp_cryptography::{
     XmtpInstallationCredential,
     configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE},
     secret::{
-        Secret, Zeroizing,
+        Secret,
         heap_canary::{Canary, scan},
     },
 };
 use xmtp_db::{
     DefaultMlsStore, TestDb, XmtpMlsStorageProvider, XmtpOpenMlsProvider, XmtpTestDb,
-    sql_key_store::SqlKeyStore, test_utils::generate_key_package_bundle,
+    sql_key_store::{SqlKeyStore, codec::encode_value},
+    test_utils::generate_key_package_bundle,
 };
 
 xmtp_cryptography::install_heap_canary!();
@@ -171,9 +172,8 @@ async fn signature_key_pair_is_wiped() {
 async fn list_entries_are_wiped() {
     let provider = provider().await;
     let store = provider.storage();
-    let [first, second] = LIST_KEYS.map(|key| {
-        Zeroizing::new(bincode::serialize(&ListEntry(Secret::new(key.to_vec()))).unwrap())
-    });
+    let [first, second] = LIST_KEYS
+        .map(|key| encode_value(LIST_LABEL, &ListEntry(Secret::new(key.to_vec()))).unwrap());
     let canaries = LIST_KEYS.map(|key| Canary::new(&key));
 
     let (read_back, hits) = scan(&canaries, || {

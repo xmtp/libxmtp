@@ -135,9 +135,9 @@ pub trait XmtpMlsStorageProvider:
         &self,
         hash_ref: &[u8],
     ) -> Result<Option<Zeroizing<Vec<u8>>>, SqlKeyStoreError> {
-        // The value decoder sizes the decoded `Vec` exactly, and it moves
-        // straight into `Zeroizing`. A value codec change must keep this (see
-        // the `codec` module doc).
+        // The value decoder sizes the decoded `Vec` exactly from the CBOR
+        // array length, and it moves straight into `Zeroizing`. A value codec
+        // change must keep this (see the `codec` module doc).
         Ok(self
             .read::<Vec<u8>>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)?
             .map(Zeroizing::new))

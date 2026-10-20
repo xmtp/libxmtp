@@ -209,10 +209,11 @@ mod tests {
     use super::*;
     use crate::tester;
 
-    /// The commit log signer key keeps today's bincode bytes: the key is the
-    /// group id as a byte slice and the value is the secret as a byte vector.
+    /// The commit log signer key: the storage key is the group id in the key
+    /// layout, and the value is the secret as a CBOR byte vector. The two
+    /// encodings differ, so a site that used the other one fails here.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn commit_log_key_bytes_are_unchanged() {
+    async fn commit_log_key_uses_the_key_layout_and_cbor() {
         use diesel::prelude::*;
         use xmtp_db::{
             ConnectionExt, XmtpTestDb, schema::openmls_key_value::dsl, sql_key_store::SqlKeyStore,
@@ -224,9 +225,13 @@ mod tests {
         let secret = Secret::new(vec![0x24; 32]);
         key_store.write_commit_log_key(group_id, &secret)?;
 
+        // The key layout: a `u64` LE length, then the bytes.
+        let key_layout = [&16u64.to_le_bytes()[..], &[0x42; 16]].concat();
+        // CBOR: an array of 32 integers; 0x24 is above 23, so `0x18 0x24`.
+        let cbor = [&[0x98, 0x20][..], &[0x18, 0x24].repeat(32)].concat();
         let storage_key = [
             COMMIT_LOG_SIGNER_PRIVATE_KEY,
-            &bincode::serialize(group_id.as_slice())?,
+            &key_layout,
             &1u16.to_be_bytes(),
         ]
         .concat();
@@ -236,7 +241,7 @@ mod tests {
                 .select(dsl::value_bytes)
                 .first(conn)
         })?;
-        assert_eq!(stored, bincode::serialize(&secret.as_slice().to_vec())?);
+        assert_eq!(stored, cbor);
         let read = key_store.read_commit_log_key(group_id)?;
         assert_eq!(read.as_ref().map(Secret::as_slice), Some(secret.as_slice()));
     }

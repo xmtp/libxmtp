@@ -96,13 +96,15 @@ impl FromSql<Binary, Sqlite> for StoredSecret {
 mod tests {
     use super::*;
 
+    /// The column codec stores a secret exactly like a `Vec<u8>`.
     #[xmtp_common::test]
     fn serde_matches_vec() {
+        use crate::{db_deserialize, db_serialize};
         let bytes: Vec<u8> = (0..=200u8).collect();
         let secret = StoredSecret::from(bytes.clone());
-        let encoded = bincode::serialize(&secret).unwrap();
-        assert_eq!(encoded, bincode::serialize(&bytes).unwrap());
-        let decoded: StoredSecret = bincode::deserialize(&encoded).unwrap();
+        let encoded = db_serialize(&secret).unwrap();
+        assert_eq!(encoded, db_serialize(&bytes).unwrap());
+        let decoded: StoredSecret = db_deserialize(&encoded).unwrap();
         assert_eq!(decoded.as_slice(), bytes.as_slice());
     }
 

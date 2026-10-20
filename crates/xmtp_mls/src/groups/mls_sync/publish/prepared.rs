@@ -110,71 +110,16 @@ pub(crate) struct PreparedAttempt {
     pub unsettled: Option<Unsettled>,
 }
 
-/// Prior bincode layouts. New fields cannot be supplied by serde defaults at EOF.
-#[derive(Deserialize)]
-struct PreparedAttemptV2 {
-    version: u8,
-    base: PreparedBase,
-    payload_hash: Vec<u8>,
-    envelopes: Vec<Vec<u8>>,
-    proposals: Vec<PreparedProposal>,
-    receipts: Option<Vec<Vec<u8>>>,
-    welcomes: Option<PreparedWelcomes>,
-    rejection: Option<PreparedRejection>,
-}
-
-#[derive(Deserialize)]
-struct PreparedAttemptV1 {
-    version: u8,
-    base: PreparedBase,
-    payload_hash: Vec<u8>,
-    envelopes: Vec<Vec<u8>>,
-    proposals: Vec<PreparedProposal>,
-    receipts: Option<Vec<Vec<u8>>>,
-    welcomes: Option<PreparedWelcomes>,
-}
-
 impl PreparedAttempt {
     /// Decode local state and verify its inner payload identity before reuse.
+    ///
+    /// The column is CBOR, which stores field names. A field added later as
+    /// an `Option` reads older rows as `None`, so it needs no new version.
+    /// Bump [`PREPARED_ATTEMPT_VERSION`] only for a change older code cannot
+    /// read; a row with another version is invalid.
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self, GroupError> {
-        let attempt: Self = match bytes.first() {
-            Some(1) => {
-                let prior: PreparedAttemptV1 = xmtp_db::db_deserialize(bytes)?;
-                if prior.version != 1 {
-                    return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-                }
-                Self {
-                    version: PREPARED_ATTEMPT_VERSION,
-                    base: prior.base,
-                    payload_hash: prior.payload_hash,
-                    envelopes: prior.envelopes,
-                    proposals: prior.proposals,
-                    receipts: prior.receipts,
-                    welcomes: prior.welcomes,
-                    rejection: None,
-                    unsettled: None,
-                }
-            }
-            Some(2) => {
-                let prior: PreparedAttemptV2 = xmtp_db::db_deserialize(bytes)?;
-                if prior.version != 2 {
-                    return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-                }
-                Self {
-                    version: PREPARED_ATTEMPT_VERSION,
-                    base: prior.base,
-                    payload_hash: prior.payload_hash,
-                    envelopes: prior.envelopes,
-                    proposals: prior.proposals,
-                    receipts: prior.receipts,
-                    welcomes: prior.welcomes,
-                    rejection: prior.rejection,
-                    unsettled: None,
-                }
-            }
-            Some(&PREPARED_ATTEMPT_VERSION) => xmtp_db::db_deserialize(bytes)?,
-            _ => return Err(OutgoingPreparationError::InvalidPreparedAttempt.into()),
-        };
+        let attempt: Self = xmtp_db::db_deserialize(bytes)
+            .map_err(|_| OutgoingPreparationError::InvalidPreparedAttempt)?;
         if attempt.version != PREPARED_ATTEMPT_VERSION
             || attempt.payload_hash.len() != 32
             || attempt.envelopes.is_empty()

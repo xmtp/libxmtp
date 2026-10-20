@@ -13,7 +13,8 @@ pub(crate) struct PreparedRejection {
     code: RejectionCode,
 }
 
-/// Bincode stores variant positions. Append new codes; do not reorder existing codes.
+/// The stored row names each code (CBOR stores the variant name). Never rename
+/// or remove a code: stored rows would stop decoding. Adding a code is safe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum RejectionCode {
     InsufficientPermissions,
@@ -243,6 +244,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
 mod tests {
     use super::*;
 
+    /// A CBOR text string shorter than 256 bytes, built by hand.
+    fn cbor_text(text: &str) -> Vec<u8> {
+        let head = match text.len() {
+            len @ 0..=23 => vec![0x60 | len as u8],
+            len => vec![0x78, u8::try_from(len).unwrap()],
+        };
+        [head.as_slice(), text.as_bytes()].concat()
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     fn stored_rejections_preserve_exact_unit_causes_without_private_error_data() {
         use CommitRuleError as C;
@@ -266,7 +276,17 @@ mod tests {
                 code: RejectionCode::capture(&G::CommitValidation(error.into())),
             };
             let bytes = xmtp_db::db_serialize(&saved)?;
-            assert_eq!(bytes.len(), 12);
+            // map(2) "sequence_id" 17 "code" <the variant name>
+            let name = format!("{:?}", saved.code);
+            let expected = [
+                &[0xa2, 0x6b][..],
+                b"sequence_id",
+                &[0x11, 0x64],
+                b"code",
+                &cbor_text(&name),
+            ]
+            .concat();
+            assert_eq!(bytes, expected);
             let restored: PreparedRejection = xmtp_db::db_deserialize(&bytes)?;
             let G::CommitValidation(CommitValidationError::Rule(error)) = restored.code.error()
             else {
@@ -278,7 +298,7 @@ mod tests {
             C::InboxValidationFailed("private credential data".into()).into(),
         ));
         let bytes = xmtp_db::db_serialize(&code)?;
-        assert_eq!(bytes.len(), 4);
+        assert_eq!(bytes, cbor_text("InboxValidation"));
         assert!(matches!(
             code.error(),
             G::RejectedIntent("inbox_validation")

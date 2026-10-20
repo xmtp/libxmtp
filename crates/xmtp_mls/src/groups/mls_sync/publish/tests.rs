@@ -163,45 +163,70 @@ async fn prepare_kind<C: XmtpSharedContext>(
     Ok((requirements.intent, attempt))
 }
 
+/// The stored attempt is CBOR: a map keyed by field names, so its first byte
+/// is the map header, not the version. Decoding still rejects another
+/// version, a row in another format, and a cut row. A row written before a
+/// later `Option` field existed reads it as `None`.
 #[xmtp_common::test(unwrap_try = true)]
-async fn prepared_attempt_reads_the_prior_format_without_changing_envelopes() {
+async fn prepared_attempt_is_cbor_and_checks_its_version() {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
-    group.send_message_optimistic(b"prior prepared format", Default::default())?;
+    group.send_message_optimistic(b"cbor prepared format", Default::default())?;
     let (_, attempt) = prepare_message(&group).await?;
 
-    // A tuple has the same bincode field layout as a prior struct.
-    let v1 = xmtp_db::db_serialize(&(
-        1u8,
-        attempt.base.clone(),
-        attempt.payload_hash.clone(),
-        attempt.envelopes.clone(),
-        attempt.proposals.clone(),
-        attempt.receipts.clone(),
-        attempt.welcomes.clone(),
-    ))?;
-    let v2 = xmtp_db::db_serialize(&(
-        2u8,
-        attempt.base.clone(),
-        attempt.payload_hash.clone(),
-        attempt.envelopes.clone(),
-        attempt.proposals.clone(),
-        attempt.receipts.clone(),
-        attempt.welcomes.clone(),
-        attempt.rejection.clone(),
-    ))?;
-    for prior in [v1, v2] {
-        let restored = PreparedAttempt::decode(&prior)?;
-        assert_eq!(restored.version, prepared::PREPARED_ATTEMPT_VERSION);
-        assert_eq!(restored.unsettled, None);
-        assert_eq!(restored, attempt);
-        assert!(restored.same_attempt(&attempt));
-        assert_eq!(
-            PreparedAttempt::decode(&xmtp_db::db_serialize(&restored)?)?,
-            attempt
-        );
+    let invalid = |bytes: &[u8]| {
+        matches!(
+            PreparedAttempt::decode(bytes),
+            Err(GroupError::OutgoingPreparation(
+                OutgoingPreparationError::InvalidPreparedAttempt
+            ))
+        )
+    };
+
+    let bytes = xmtp_db::db_serialize(&attempt)?;
+    // A map of nine fields.
+    assert_eq!(bytes[0], 0xa9);
+    assert_eq!(PreparedAttempt::decode(&bytes)?, attempt);
+
+    let other_version = PreparedAttempt {
+        version: prepared::PREPARED_ATTEMPT_VERSION + 1,
+        ..attempt.clone()
+    };
+    assert!(invalid(&xmtp_db::db_serialize(&other_version)?));
+    // A row that starts with the version byte, as a positional format would.
+    assert!(invalid(
+        &[&[prepared::PREPARED_ATTEMPT_VERSION][..], &bytes[1..]].concat()
+    ));
+    assert!(invalid(&bytes[..bytes.len() - 1]));
+
+    // The same row without its last field, `unsettled`: a map of eight
+    // fields, as a build before that field would have written it.
+    #[derive(serde::Serialize)]
+    struct WithoutUnsettled<'a> {
+        version: u8,
+        base: &'a prepared::PreparedBase,
+        payload_hash: &'a [u8],
+        envelopes: &'a [Vec<u8>],
+        proposals: &'a [prepared::PreparedProposal],
+        receipts: &'a Option<Vec<Vec<u8>>>,
+        welcomes: &'a Option<welcomes::PreparedWelcomes>,
+        rejection: &'a Option<rejection::PreparedRejection>,
     }
+    let older = xmtp_db::db_serialize(&WithoutUnsettled {
+        version: attempt.version,
+        base: &attempt.base,
+        payload_hash: &attempt.payload_hash,
+        envelopes: &attempt.envelopes,
+        proposals: &attempt.proposals,
+        receipts: &attempt.receipts,
+        welcomes: &attempt.welcomes,
+        rejection: &attempt.rejection,
+    })?;
+    assert_eq!(older[0], 0xa8);
+    let restored = PreparedAttempt::decode(&older)?;
+    assert_eq!(restored.unsettled, None);
+    assert!(restored.same_attempt(&attempt));
 }
 
 #[cfg(not(target_arch = "wasm32"))]

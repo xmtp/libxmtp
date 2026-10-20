@@ -196,17 +196,10 @@ impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
 pub(crate) mod tests {
     use super::*;
     use crate::test_utils::with_connection;
-    use serde::{Deserialize, Serialize};
     use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
-    #[derive(Serialize, Deserialize)]
     pub struct MockState {
         inbox_id: String,
-    }
-    impl From<StoredAssociationState> for MockState {
-        fn from(v: StoredAssociationState) -> MockState {
-            crate::db_deserialize(&v.state).unwrap()
-        }
     }
     impl From<AssociationStateProto> for MockState {
         fn from(v: AssociationStateProto) -> Self {

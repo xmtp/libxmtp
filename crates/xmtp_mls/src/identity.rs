@@ -1035,12 +1035,13 @@ mod tests {
         val
     }
 
-    /// The key package hash ref has three uses: the `KEY_PACKAGE_REFERENCES`
-    /// value (value codec), and the wrapper private key's storage key and the
-    /// `key_package_history` column (key layout). All three hold today's
-    /// bincode bytes, and the column decodes back to the hash ref.
+    /// The key package hash ref has three uses. The wrapper private key's
+    /// storage key and the `key_package_history` column use the key layout.
+    /// The `KEY_PACKAGE_REFERENCES` value uses the value codec, CBOR. The two
+    /// encodings differ, so a site that used the other one fails here. The
+    /// column decodes back to the hash ref.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn key_package_hash_ref_bytes_are_unchanged() {
+    async fn key_package_hash_ref_uses_the_key_layout_and_cbor() {
         use super::{deserialize_key_package_hash_ref, store_key_package_references};
         use diesel::prelude::*;
         use xmtp_db::{
@@ -1055,13 +1056,33 @@ mod tests {
         store_key_package_references(&provider, bundle.key_package(), &Some(post_quantum.clone()))?;
 
         let hash_ref = bundle.key_package().hash_ref(provider.crypto())?;
-        let expected = bincode::serialize(&hash_ref)?;
+        let raw = hash_ref.as_slice();
+        // The key layout: a `u64` LE length, then the bytes.
+        let key_layout = [&(raw.len() as u64).to_le_bytes()[..], raw].concat();
+        // CBOR: {"value": {"vec": [the bytes as integers]}}.
+        let mut cbor = [
+            &[0xa1, 0x65][..],
+            b"value",
+            &[0xa1, 0x63],
+            b"vec",
+            &[0x98, u8::try_from(raw.len())?],
+        ]
+        .concat();
+        for &byte in raw {
+            if byte >= 0x18 {
+                cbor.push(0x18);
+            }
+            cbor.push(byte);
+        }
+        assert_ne!(key_layout, cbor);
+
         let column = serialize_key_package_hash_ref(bundle.key_package(), &provider)?;
-        assert_eq!(column, expected, "key_package_history column");
+        assert_eq!(column, key_layout, "key_package_history column");
         assert_eq!(deserialize_key_package_hash_ref(&column)?, hash_ref);
         assert!(deserialize_key_package_hash_ref(&column[..column.len() - 1]).is_err());
         // Strict on purpose: trailing bytes are rejected.
         assert!(deserialize_key_package_hash_ref(&[column.as_slice(), &[0]].concat()).is_err());
+        assert!(deserialize_key_package_hash_ref(&cbor).is_err());
 
         let stored = |key: &[u8]| -> Option<Vec<u8>> {
             let storage_key = [KEY_PACKAGE_REFERENCES, key, &1u16.to_be_bytes()].concat();
@@ -1081,21 +1102,18 @@ mod tests {
             .hpke_init_key()
             .tls_serialize_detached()?;
         let post_quantum_key = pq_key_package_references_key(&post_quantum.public)?;
-        assert_eq!(
-            stored(&init_key),
-            Some(expected.clone()),
-            "init key reference"
-        );
+        assert_eq!(stored(&init_key), Some(cbor.clone()), "init key reference");
         assert_eq!(
             stored(&post_quantum_key),
-            Some(expected.clone()),
+            Some(cbor.clone()),
             "post-quantum key reference"
         );
-        let wrapper_key = provider.key_store().wrapper_private_key(&expected)?;
+        let wrapper_key = provider.key_store().wrapper_private_key(&key_layout)?;
         assert_eq!(
             wrapper_key.as_deref().map(Vec::as_slice),
             Some(&*post_quantum.private)
         );
+        assert!(provider.key_store().wrapper_private_key(&cbor)?.is_none());
     }
 
     #[xmtp_common::test]

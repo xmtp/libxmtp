@@ -11,10 +11,12 @@
 //!   version`, where the version is a `u16` big endian. The resumption PSK
 //!   store, queued proposals, epoch key pairs and the XMTP labels pass a key to
 //!   `write` directly: `label || key || version`.
-//! - [`encode_key`] uses the bincode 1.3 layout in [`key`], whatever the value
-//!   codec.
-//! - A value is `encode_value(value)`.
-//! - A list is `encode_list(items)`, where each item is `encode_value(item)`.
+//! - [`encode_key`] uses the fixed layout in [`key`]: the bytes bincode 1.3
+//!   wrote. Keys did not change when values moved to CBOR.
+//! - A value is `encode_value(value)`: CBOR (RFC 8949), written by cbor4ii
+//!   through serde.
+//! - A list is `encode_list(items)`: a CBOR array of byte strings, where each
+//!   item is `encode_value(item)`.
 //! - `KEY_PACKAGE_REFERENCES` keys are not encoded here. They are the TLS
 //!   encoding of an HPKE public key: the init key (`identity.rs`
 //!   `store_key_package_references`) or the post-quantum wrapper key
@@ -22,40 +24,31 @@
 //!   bytes, so the lookup in `decrypted_welcome.rs` uses those bytes as they
 //!   are.
 //!
-//! # Changing the value codec
+//! # The value codec
 //!
 //! Every value byte string is encoded by [`value_to_vec`] and decoded by
-//! [`value_from_slice`]. Today they use bincode 1.3 default options. Changing
-//! that pair is not enough on its own. These callers depend on the bincode
-//! layout and must change with it:
+//! [`value_from_slice`].
 //!
-//! - `xmtp_mls/src/groups/mls_sync/publish/prepared.rs`:
-//!   `PreparedAttempt::decode` picks a decoder from the first stored byte.
-//!   bincode writes the `version: u8` field first; a codec that writes a
-//!   struct as a map starts with a map header. `PreparedAttemptV1` and
-//!   `PreparedAttemptV2` decode prior positional layouts.
-//! - `xmtp_mls/src/groups/mls_sync/publish/rejection.rs`: the `RejectionCode`
-//!   comment says variants are stored by position. A codec that stores
-//!   variant names changes which edits are safe. The test asserts the bincode
-//!   lengths 12 and 4.
-//! - `xmtp_mls/src/groups/mls_sync/publish/tests.rs`
-//!   (`prepared_attempt_reads_the_prior_format_without_changing_envelopes`):
-//!   builds prior attempts from tuples, because a bincode tuple has the layout
-//!   of a struct.
-//! - `xmtp_db/tests/zeroize.rs` (`list_entries_are_wiped`) and
-//!   `xmtp_mls/tests/zeroize.rs` build key store bytes with bare `bincode`.
-//! - Wiping depends on exact-size buffers. [`value_to_vec`] must allocate the
-//!   final size once. `XmtpMlsStorageProvider::wrapper_private_key` relies on
-//!   the decoder sizing a `Vec<u8>` exactly. The heap canary tests in
-//!   `tests/zeroize.rs` check both.
-//! - The byte tests in this crate and in `xmtp_mls` compare with
-//!   `bincode::serialize` on purpose. They pin today's bytes.
+//! - CBOR stores struct field names and enum variant names. A field added
+//!   with a serde default reads old rows. A renamed field or variant makes
+//!   every stored row unreadable.
+//! - Wiping depends on exact-size buffers. [`value_to_vec`] allocates the
+//!   final size once. A decoded `Vec<u8>` is sized exactly from the CBOR
+//!   array length, which `XmtpMlsStorageProvider::wrapper_private_key`
+//!   relies on. The heap canary tests in `tests/zeroize.rs` check both.
 //!
 //! The legacy archive conversion (`xmtp_legacy_migration`) reads old
-//! databases with its own bincode decoder. It does not use this module and
-//! must not change with it.
+//! databases with its own reader. It does not use this module and must not
+//! change with it.
 
-use serde::{Serialize, de::DeserializeOwned};
+use std::convert::Infallible;
+
+use cbor4ii::core::{dec::Read as _, enc, utils::SliceReader};
+use cbor4ii::serde::{DecodeError, Deserializer, EncodeError, Serializer};
+use serde::{
+    Deserialize, Serialize,
+    de::{DeserializeOwned, SeqAccess, Visitor},
+};
 use xmtp_configuration::OPENMLS_KV_TARGET;
 use xmtp_cryptography::secret::Zeroizing;
 
@@ -64,19 +57,63 @@ use super::SqlKeyStoreError;
 pub mod key;
 
 /// The error of the value codec.
-pub(crate) type ValueError = bincode::Error;
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ValueError {
+    #[error("CBOR encode failed: {0}")]
+    Encode(#[from] EncodeError<Infallible>),
+    #[error("CBOR decode failed: {0}")]
+    Decode(#[from] DecodeError<Infallible>),
+    #[error("{0} bytes follow the value")]
+    TrailingBytes(usize),
+}
+
+/// Counts the bytes of an encoding.
+struct ByteCount(usize);
+
+impl enc::Write for ByteCount {
+    type Error = Infallible;
+
+    fn push(&mut self, input: &[u8]) -> Result<(), Infallible> {
+        self.0 += input.len();
+        Ok(())
+    }
+}
+
+/// Appends to a buffer that already has room for the whole encoding.
+struct Buffer(Vec<u8>);
+
+impl enc::Write for Buffer {
+    type Error = Infallible;
+
+    fn push(&mut self, input: &[u8]) -> Result<(), Infallible> {
+        self.0.extend_from_slice(input);
+        Ok(())
+    }
+}
 
 /// Encode a value with the value codec. Every encoded value comes from here.
 ///
-/// `bincode::serialize` allocates the exact size first, so encoding never
-/// reallocates and frees a partial copy of a private key.
+/// It measures the encoding first and then writes it into a buffer of that
+/// exact size, so encoding never reallocates and frees a partial copy of a
+/// private key.
 pub(crate) fn value_to_vec<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, ValueError> {
-    bincode::serialize(value)
+    let mut count = Serializer::new(ByteCount(0));
+    value.serialize(&mut count)?;
+    let mut buffer = Serializer::new(Buffer(Vec::with_capacity(count.into_inner().0)));
+    value.serialize(&mut buffer)?;
+    Ok(buffer.into_inner().0)
 }
 
-/// Decode a value written by [`value_to_vec`]. Every decoded value comes from here.
+/// Decode one value written by [`value_to_vec`]. Every decoded value comes
+/// from here. Bytes after the value are an error.
 pub(crate) fn value_from_slice<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ValueError> {
-    bincode::deserialize(bytes)
+    let mut reader = SliceReader::new(bytes);
+    let value = T::deserialize(&mut Deserializer::new(&mut reader))?;
+    let Ok(rest) = reader.fill(bytes.len());
+    match rest.as_ref().len() {
+        0 => Ok(value),
+        trailing => Err(ValueError::TrailingBytes(trailing)),
+    }
 }
 
 /// Encode the key part of a storage key: no label and no version.
@@ -84,7 +121,7 @@ pub fn encode_key<K: Serialize + ?Sized>(
     label: &[u8],
     key: &K,
 ) -> Result<Vec<u8>, SqlKeyStoreError> {
-    let bytes = key::to_vec(key).map_err(|error| {
+    key::to_vec(key).map_err(|error| {
         tracing::error!(
             target: OPENMLS_KV_TARGET,
             label = %String::from_utf8_lossy(label),
@@ -93,10 +130,7 @@ pub fn encode_key<K: Serialize + ?Sized>(
             "key store key encode failed",
         );
         SqlKeyStoreError::SerializationError
-    })?;
-    #[cfg(any(test, feature = "test-utils"))]
-    key::assert_bincode_layout(label, key, &bytes);
-    Ok(bytes)
+    })
 }
 
 /// Encode a value, in a buffer that is wiped on drop.
@@ -135,7 +169,10 @@ pub fn encode_list<I: AsRef<[u8]>>(
     label: &[u8],
     items: &[I],
 ) -> Result<Zeroizing<Vec<u8>>, SqlKeyStoreError> {
-    let items: Vec<&[u8]> = items.iter().map(AsRef::as_ref).collect();
+    let items: Vec<&serde_bytes::Bytes> = items
+        .iter()
+        .map(|item| serde_bytes::Bytes::new(item.as_ref()))
+        .collect();
     encode_value(label, &items)
 }
 
@@ -144,79 +181,246 @@ pub fn decode_list(
     label: &[u8],
     bytes: &[u8],
 ) -> Result<Zeroizing<Vec<Vec<u8>>>, SqlKeyStoreError> {
-    decode_value(label, bytes).map(Zeroizing::new)
+    decode_value::<ListItems>(label, bytes).map(|items| items.0)
 }
 
-/// With the `deserialize-paths` feature and the `openmls_kv` target enabled,
-/// decode with bincode again through `serde_path_to_error` and log the path of
-/// the failing field.
-#[cfg_attr(not(feature = "deserialize-paths"), allow(unused_variables))]
-fn log_decode_error<V: DeserializeOwned>(label: &[u8], bytes: &[u8], error: &ValueError) {
-    #[cfg(feature = "deserialize-paths")]
-    if tracing::event_enabled!(target: OPENMLS_KV_TARGET, tracing::Level::ERROR) {
-        use bincode::Options;
-        let opts = bincode::DefaultOptions::new()
-            .with_fixint_encoding()
-            .allow_trailing_bytes();
-        let mut de = bincode::de::Deserializer::from_slice(bytes, opts);
-        match serde_path_to_error::deserialize::<_, V>(&mut de) {
-            Ok(_) => {
-                // The second pass succeeded: a bincode option mismatch. Log
-                // the error without a path.
-                tracing::error!(
-                    target: OPENMLS_KV_TARGET,
-                    label = %String::from_utf8_lossy(label),
-                    type_name = std::any::type_name::<V>(),
-                    bytes_len = bytes.len(),
-                    error = %error,
-                    "bincode deserialize failed (no path captured)",
-                );
+/// The items of a list. Each item goes straight into a buffer that is wiped on
+/// drop, also when a later item fails to decode.
+struct ListItems(Zeroizing<Vec<Vec<u8>>>);
+
+impl<'de> Deserialize<'de> for ListItems {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ItemsVisitor;
+
+        impl<'de> Visitor<'de> for ItemsVisitor {
+            type Value = ListItems;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("an array of byte strings")
             }
-            Err(e) => {
-                let path = e.path().to_string();
-                let inner = e.into_inner();
-                tracing::error!(
-                    target: OPENMLS_KV_TARGET,
-                    label = %String::from_utf8_lossy(label),
-                    path = %path,
-                    type_name = std::any::type_name::<V>(),
-                    bytes_len = bytes.len(),
-                    error = %inner,
-                    "bincode deserialize failed",
-                );
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<ListItems, A::Error> {
+                let mut items = ListItems(Zeroizing::new(Vec::new()));
+                while let Some(item) = seq.next_element::<serde_bytes::ByteBuf>()? {
+                    items.0.push(item.into_vec());
+                }
+                Ok(items)
             }
         }
+
+        deserializer.deserialize_seq(ItemsVisitor)
     }
+}
+
+/// Log a failed decode: the label, the type, the byte length and the path of
+/// the failing field. Never the value bytes, which can hold a private key.
+///
+/// The path comes from a second decode through `serde_path_to_error`, which
+/// runs only when the `openmls_kv` target logs errors.
+fn log_decode_error<V: DeserializeOwned>(label: &[u8], bytes: &[u8], error: &ValueError) {
+    if !tracing::event_enabled!(target: OPENMLS_KV_TARGET, tracing::Level::ERROR) {
+        return;
+    }
+    let mut reader = SliceReader::new(bytes);
+    let path = match serde_path_to_error::deserialize::<_, V>(&mut Deserializer::new(&mut reader)) {
+        Err(error) => error.path().to_string(),
+        // Only bytes after the value failed: no field path.
+        Ok(_) => String::new(),
+    };
+    tracing::error!(
+        target: OPENMLS_KV_TARGET,
+        label = %String::from_utf8_lossy(label),
+        type_name = std::any::type_name::<V>(),
+        bytes_len = bytes.len(),
+        path = %path,
+        %error,
+        "key store value decode failed",
+    );
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_list, decode_value, encode_list, encode_value};
+    use super::{
+        ValueError, decode_list, decode_value, encode_list, encode_value, value_from_slice,
+        value_to_vec,
+    };
     use crate::sql_key_store::SqlKeyStoreError;
+    use serde::{Deserialize, Serialize};
 
     const LABEL: &[u8] = b"CodecTest";
 
-    /// Values and lists keep today's bincode bytes.
+    /// A value encodes as plain cbor4ii CBOR. The exact-size buffer changes
+    /// no byte.
     #[xmtp_common::test(unwrap_try = true)]
-    fn values_and_lists_keep_bincode_bytes() {
+    fn values_are_cbor() {
         let value = (7u32, vec![1u8, 2, 3], [9u8; 4]);
         let encoded = encode_value(LABEL, &value)?;
-        assert_eq!(*encoded, bincode::serialize(&value)?);
+        assert_eq!(*encoded, cbor4ii::serde::to_vec(Vec::new(), &value)?);
+        assert_eq!(
+            hex::encode(&*encoded),
+            // array(3), 7, array(3) 1 2 3, array(4) 9 9 9 9
+            "8307830102038409090909"
+        );
+        assert_eq!(encoded.capacity(), encoded.len());
         assert_eq!(
             decode_value::<(u32, Vec<u8>, [u8; 4])>(LABEL, &encoded)?,
             value
         );
+    }
 
-        let items = [b"first".to_vec(), vec![0xab; 300]];
+    /// A decoded `Vec<u8>` has exactly its length as capacity, so it moves into
+    /// `Zeroizing` with no unwiped spare copy. `wrapper_private_key` relies on
+    /// this.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn decoded_byte_vectors_are_sized_exactly() {
+        for len in [0, 1, 32, 2_400, 70_000] {
+            let encoded = encode_value(LABEL, vec![0x5au8; len].as_slice())?;
+            let decoded: Vec<u8> = decode_value(LABEL, &encoded)?;
+            assert_eq!(decoded.len(), len);
+            assert_eq!(decoded.capacity(), len);
+        }
+    }
+
+    /// A struct is a map keyed by field names, and an enum variant is its name.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn structs_and_enums_store_names() {
+        #[derive(Serialize)]
+        struct Row {
+            id: u8,
+            kind: Kind,
+        }
+        #[derive(Serialize)]
+        enum Kind {
+            Unit,
+        }
+        assert_eq!(
+            hex::encode(value_to_vec(&Row {
+                id: 1,
+                kind: Kind::Unit
+            })?),
+            // map(2) "id" 1 "kind" "Unit"
+            "a262696401646b696e6464556e6974"
+        );
+    }
+
+    /// A field added later with a default reads rows written before it, and a
+    /// reader ignores a field it does not know.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn added_and_unknown_fields() {
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        struct Before {
+            id: u8,
+        }
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        struct After {
+            id: u8,
+            #[serde(default)]
+            added: Option<u8>,
+        }
+        let old = value_to_vec(&Before { id: 1 })?;
+        assert_eq!(
+            value_from_slice::<After>(&old)?,
+            After { id: 1, added: None }
+        );
+        let new = value_to_vec(&After {
+            id: 2,
+            added: Some(3),
+        })?;
+        assert_eq!(value_from_slice::<Before>(&new)?, Before { id: 2 });
+    }
+
+    /// A list is an array of byte strings.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn lists_are_arrays_of_byte_strings() {
+        let items = [b"ab".to_vec(), vec![0xcc; 300]];
         let list = encode_list(LABEL, &items)?;
-        assert_eq!(*list, bincode::serialize(&items.to_vec())?);
+        let expected = [
+            &[0x82, 0x42, b'a', b'b', 0x59, 0x01, 0x2c][..],
+            &[0xcc; 300][..],
+        ]
+        .concat();
+        assert_eq!(*list, expected);
         let slices: Vec<&[u8]> = items.iter().map(Vec::as_slice).collect();
         assert_eq!(*encode_list(LABEL, &slices)?, *list);
         assert_eq!(*decode_list(LABEL, &list)?, items.to_vec());
-        assert_eq!(
-            *encode_list::<Vec<u8>>(LABEL, &[])?,
-            bincode::serialize(&Vec::<Vec<u8>>::new())?
-        );
+        assert_eq!(*encode_list::<Vec<u8>>(LABEL, &[])?, [0x80]);
+        assert!(decode_list(LABEL, &[0x80])?.is_empty());
+    }
+
+    /// Bytes that are not one whole value are an error, never a panic: an
+    /// empty row, a cut row, a row with bytes after the value, a row of the
+    /// wrong type, and a corrupted header.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn bad_rows_are_errors() {
+        let value = (7u32, vec![1u8; 40], "text".to_owned());
+        let encoded = value_to_vec(&value)?;
+        for end in 0..encoded.len() {
+            assert!(
+                value_from_slice::<(u32, Vec<u8>, String)>(&encoded[..end]).is_err(),
+                "a row cut at {end} decoded"
+            );
+        }
+        let longer = [encoded.as_slice(), &[0]].concat();
+        assert!(matches!(
+            value_from_slice::<(u32, Vec<u8>, String)>(&longer),
+            Err(ValueError::TrailingBytes(1))
+        ));
+        assert!(value_from_slice::<u64>(&encoded).is_err());
+        for header in [0xff, 0x1f, 0x5f, 0xfe] {
+            let mut corrupt = encoded.clone();
+            corrupt[0] = header;
+            assert!(value_from_slice::<(u32, Vec<u8>, String)>(&corrupt).is_err());
+        }
+        // A length far past the end of the row.
+        assert!(value_from_slice::<Vec<u8>>(&[0x9b, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0]).is_err());
+        assert!(value_from_slice::<serde_bytes::ByteBuf>(&[0x5a, 0xff, 0xff, 0xff, 0xff]).is_err());
+    }
+
+    /// A failed decode logs the label, the type, the byte length and the path
+    /// of the failing field, and never the value bytes.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn decode_failures_log_the_field_path_and_no_value_bytes() {
+        #[derive(Serialize, Deserialize)]
+        struct Inner {
+            secret: Vec<u8>,
+            count: u32,
+        }
+        #[derive(Serialize, Deserialize)]
+        struct Outer {
+            inner: Inner,
+        }
+        #[derive(Serialize)]
+        struct WrongInner {
+            secret: Vec<u8>,
+            count: &'static str,
+        }
+        #[derive(Serialize)]
+        struct WrongOuter {
+            inner: WrongInner,
+        }
+        let secret = vec![0xa7; 32];
+        let bytes = value_to_vec(&WrongOuter {
+            inner: WrongInner {
+                secret: secret.clone(),
+                count: "not a number",
+            },
+        })?;
+
+        let (result, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+            tracing::error_span!("decode")
+                .in_scope(|| decode_value::<Outer>(LABEL, &bytes).map(drop))
+        });
+        assert!(matches!(result, Err(SqlKeyStoreError::SerializationError)));
+        let logged = format!("{spans:?}");
+        assert!(logged.contains("key store value decode failed"), "{logged}");
+        assert!(logged.contains("CodecTest"));
+        assert!(logged.contains("Outer"));
+        assert!(logged.contains("inner.count"));
+        assert!(logged.contains(&bytes.len().to_string()));
+        assert!(!logged.contains(&hex::encode(&bytes)));
+        assert!(!logged.contains(&hex::encode(&secret)));
+        assert!(!logged.contains(&format!("{:?}", secret.as_slice())));
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -226,7 +430,11 @@ mod tests {
             Err(SqlKeyStoreError::SerializationError)
         ));
         assert!(matches!(
-            decode_list(LABEL, &[0x05]),
+            decode_list(LABEL, &[0x81, 0x01]),
+            Err(SqlKeyStoreError::SerializationError)
+        ));
+        assert!(matches!(
+            decode_list(LABEL, &[0x82, 0x41]),
             Err(SqlKeyStoreError::SerializationError)
         ));
     }

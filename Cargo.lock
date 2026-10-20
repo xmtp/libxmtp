@@ -12869,8 +12869,8 @@ version = "1.12.0-dev"
 dependencies = [
  "arc-swap",
  "ascii_table",
- "bincode",
  "bon",
+ "cbor4ii",
  "const-hex",
  "criterion",
  "ctor",
@@ -12892,6 +12892,7 @@ dependencies = [
  "rand 0.10.2",
  "rstest",
  "serde",
+ "serde_bytes",
  "serde_path_to_error",
  "sqlite-wasm-rs",
  "sqlite-wasm-vfs",
