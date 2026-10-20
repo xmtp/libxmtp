@@ -84,10 +84,9 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
         group_id: impl AsRef<[u8]>,
     ) -> Result<Option<Secret>, Self::Error> {
         let key = kv_codec::encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id.as_ref())?;
-        let value = self
-            .read::<Vec<u8>>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key)?
-            .map(Secret::new);
-        Ok(value)
+        // Decoded straight into a `Secret`, so a decode that fails partway
+        // frees no unwiped part of the key.
+        self.read::<Secret>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key)
     }
 
     fn write_commit_log_key(

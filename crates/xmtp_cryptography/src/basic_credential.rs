@@ -257,9 +257,11 @@ impl<'de> serde::Deserialize<'de> for XmtpInstallationCredential {
     where
         D: serde::Deserializer<'de>,
     {
+        // `private` is a `Secret`, so it is wiped on drop also when a later
+        // field fails to decode and the struct is never built.
         #[derive(serde::Deserialize, zeroize::ZeroizeOnDrop)]
         struct SignatureKeyPairRemote {
-            private: Vec<u8>,
+            private: crate::Secret,
             public: Vec<u8>,
             #[allow(dead_code)]
             #[zeroize(skip)]

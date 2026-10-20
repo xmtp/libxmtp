@@ -74,6 +74,10 @@ impl Eq for Secret {}
 
 impl ZeroizeOnDrop for Secret {}
 
+/// A secret is stored in the MLS key store with the same bytes as a
+/// `Vec<u8>`, and reading it through `Secret` wipes a partly decoded value.
+impl openmls_traits::storage::Entity<{ openmls_traits::storage::CURRENT_VERSION }> for Secret {}
+
 impl serde::Serialize for Secret {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         // `Vec<u8>` serializes as a sequence of `u8`, not as `serialize_bytes`.

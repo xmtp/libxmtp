@@ -9,7 +9,7 @@ use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
 use openmls_traits::storage::{Entity, StorageProvider};
 use xmtp_common::{MaybeSend, MaybeSync};
-use xmtp_cryptography::secret::Zeroizing;
+use xmtp_cryptography::secret::{Secret, Zeroizing};
 
 /// Outcome of a [`XmtpMlsStorageProvider::transaction`] or
 /// [`XmtpMlsStorageProvider::savepoint`] closure.
@@ -135,12 +135,12 @@ pub trait XmtpMlsStorageProvider:
         &self,
         hash_ref: &[u8],
     ) -> Result<Option<Zeroizing<Vec<u8>>>, SqlKeyStoreError> {
-        // The value decoder sizes the decoded `Vec` exactly from the CBOR
-        // array length, and it moves straight into `Zeroizing`. A value codec
-        // change must keep this (see the `codec` module doc).
+        // `Secret` decodes into a buffer that is wiped on drop, also when the
+        // decode fails partway; a plain `Vec<u8>` would free the bytes read
+        // so far unwiped.
         Ok(self
-            .read::<Vec<u8>>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)?
-            .map(Zeroizing::new))
+            .read::<Secret>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)?
+            .map(Zeroizing::from))
     }
 
     #[cfg(feature = "test-utils")]

@@ -194,6 +194,78 @@ async fn secret_with_trailing_bytes_is_wiped() {
     assert_eq!(hits, [0], "freed heap blocks held the stored key");
 }
 
+/// A stored secret whose last byte item is retyped (`0x18` to `0x38`, one
+/// bit) is still one well-formed CBOR item, so it passes the codec's
+/// pre-scan and fails partway through the key. The bytes read so far are
+/// never left in a freed buffer, with or without the decode error logged.
+#[xmtp_common::test(unwrap_try = true)]
+async fn secret_with_a_retyped_item_is_wiped() {
+    let provider = provider().await;
+    let store = provider.storage();
+    let key = LIST_KEYS[0];
+    let mut row = encode_value(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, key.as_slice())?;
+    let at = row.len() - 2;
+    assert_eq!(
+        row[at], 0x18,
+        "the last key byte is a one-byte integer item"
+    );
+    row[at] = 0x38;
+    for logged in [false, true] {
+        let (failed, hits) = scan(&[Canary::new(&key[..31])], || {
+            store
+                .write::<CURRENT_VERSION>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, WRAPPER_HASH_REF, &row)
+                .unwrap();
+            let (read, _spans) = xmtp_logging::test_logging::with_trace_layer(logged, || {
+                tracing::error_span!("read")
+                    .in_scope(|| store.wrapper_private_key(WRAPPER_HASH_REF).map(drop))
+            });
+            read.is_err()
+        });
+        assert!(failed, "a retyped item decoded (logged: {logged})");
+        assert_eq!(
+            hits,
+            [0],
+            "freed heap blocks held the partial key (logged: {logged})"
+        );
+    }
+}
+
+/// An identity row that fails to decode partway frees no unwiped copy of the
+/// installation key: neither when its private key has a retyped item, nor
+/// when the key decodes and a later field (an unknown signature scheme)
+/// fails.
+#[xmtp_common::test(unwrap_try = true)]
+fn installation_key_row_that_fails_partway_is_wiped() {
+    let row = xmtp_db::db_serialize(&XmtpInstallationCredential::from_bytes(&SIGNATURE_KEY)?)?;
+    let field = |name: &[u8]| {
+        let text = [&[0x60 | name.len() as u8], name].concat();
+        row.windows(text.len())
+            .position(|window| window == text)
+            .expect("a field of the row")
+    };
+    let mut retyped = row.clone();
+    let at = field(b"public") - 2;
+    assert_eq!(
+        retyped[at], 0x18,
+        "the last private key byte is a one-byte integer item"
+    );
+    retyped[at] = 0x38;
+    let mut unknown_scheme = row.clone();
+    let scheme = field(b"ED25519") + b"ED25519".len();
+    unknown_scheme[scheme] ^= 1;
+
+    for (row, canary) in [
+        (retyped, &SIGNATURE_KEY[..31]),
+        (unknown_scheme, &SIGNATURE_KEY[..]),
+    ] {
+        let (failed, hits) = scan(&[Canary::new(canary)], || {
+            xmtp_db::db_deserialize::<XmtpInstallationCredential>(&row).is_err()
+        });
+        assert!(failed, "a corrupted identity row decoded");
+        assert_eq!(hits, [0], "freed heap blocks held the installation key");
+    }
+}
+
 /// Appending to a list, reading it and removing an entry rewrite the whole
 /// list. Neither the list nor the removed entry is freed unwiped.
 #[xmtp_common::test(unwrap_try = true)]
