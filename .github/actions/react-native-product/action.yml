@@ -70,8 +70,17 @@ runs:
         PIN_VERSION: ${{ steps.xcode.outputs.version }}
         PIN_BUILD: ${{ steps.xcode.outputs.build }}
       run: |
-        test "$(xcode-select -p)" = "$PIN_DIRECTORY"
-        test "$(xcodebuild -version)" = "$(printf 'Xcode %s\nBuild version %s' "$PIN_VERSION" "$PIN_BUILD")"
+        directory=$(xcode-select -p)
+        found=$(xcodebuild -version) || found=""
+        if [[ "$directory" != "$PIN_DIRECTORY" || "$found" != "$(printf 'Xcode %s\nBuild version %s' "$PIN_VERSION" "$PIN_BUILD")" ]]; then
+          echo "::error title=RN Xcode pin not on this runner::RN needs Xcode $PIN_VERSION ($PIN_BUILD) at $PIN_DIRECTORY (lib.reactNativeXcode); the runner selected ${found//$'\n'/, } at $directory"
+          # The installs on this image, to choose a new pin from.
+          for app in /Applications/Xcode*.app; do
+            version=$("$app/Contents/Developer/usr/bin/xcodebuild" -version 2>/dev/null) || version="no xcodebuild"
+            printf '%s -> %s: %s\n' "$app" "$(realpath "$app")" "${version//$'\n'/, }"
+          done
+          exit 1
+        fi
     - name: Download the component closures
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
       if: inputs.stage == 'package' && inputs.exchange == 'true'
