@@ -319,18 +319,38 @@ mod tests {
     }
 
     /// Each byte of a context with every readable extension type, changed
-    /// three ways, decodes without a panic.
+    /// three ways, decodes without a panic and to the fork decoder's result,
+    /// frozen in `fixtures/legacy-context-mutations.json`: the listed
+    /// changes yield their metadata, and every other change yields none.
     // verifies: MIG-005
     #[xmtp_common::test(unwrap_try = true)]
     fn changed_bytes_do_not_panic() {
+        let frozen: Value =
+            serde_json::from_str(include_str!("../fixtures/legacy-context-mutations.json"))?;
+        let results = frozen["results"].as_array().unwrap();
+        let mut expected = std::collections::BTreeMap::new();
+        for mutation in frozen["mutations"].as_array().unwrap() {
+            let index = mutation[0].as_u64().unwrap() as usize;
+            let value = mutation[1].as_u64().unwrap() as u8;
+            let result = &results[mutation[2].as_u64().unwrap() as usize];
+            expected.insert((index, value), result);
+        }
+        assert!(expected.len() > 1_000, "only {} changes", expected.len());
+
+        let none = summary(&(None, None));
         let everything = context("everything");
+        let mut failures = vec![];
         for (index, &byte) in everything.iter().enumerate() {
             for value in [0x00, 0xff, byte ^ 0x01] {
                 let mut bytes = everything.clone();
                 bytes[index] = value;
-                let _ = super::decode(&bytes);
+                let decoded = summary(&super::decode(&bytes));
+                if decoded != **expected.get(&(index, value)).unwrap_or(&&none) {
+                    failures.push(format!("everything[{index}] = {value:#04x}"));
+                }
             }
         }
+        assert!(failures.is_empty(), "changed results: {failures:?}");
     }
 
     /// Every group context in the SQLite fixtures, read from temporary copies.
