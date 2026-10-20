@@ -63,13 +63,17 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
-      # Before any build: a bad scope fails at once.
+      # Before any build: a bad scope or package fails at once. A
+      # workflow_call package is a free string, and RN_PACKAGE_KIND maps any
+      # unknown value to release. Empty means auto, as in RN_PACKAGE_KIND.
       - name: Check the scope
         env:
           SCOPE: ${{ inputs.scope }}
+          PACKAGE: ${{ inputs.package }}
           KIND: ${{ env.RN_PACKAGE_KIND }}
         run: |
           case "$SCOPE" in full|android-smoke) ;; *) echo "::error::unknown scope: $SCOPE"; exit 1 ;; esac
+          case "$PACKAGE" in ""|auto|test|release) ;; *) echo "::error::unknown package: $PACKAGE"; exit 1 ;; esac
           # Only the Android-only test package has the bare-only Android app,
           # and only the Android smoke uses that package.
           if [[ "$SCOPE" == android-smoke && "$KIND" != test-android ]]; then

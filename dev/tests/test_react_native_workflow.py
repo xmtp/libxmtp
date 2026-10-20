@@ -530,6 +530,62 @@ class ReactNativeWorkflowTests(unittest.TestCase):
                         not token,
                     )
 
+    def test_scope_check_rejects_unknown_scope_and_package(self):
+        # workflow_call passes scope and package as free strings, and
+        # RN_PACKAGE_KIND maps any unknown package to release. The first step
+        # of components must reject them before any build.
+        document = workflow("test-react-native.yml")
+        components = document["jobs"]["components"]
+        step = components["steps"][0]
+        self.assertEqual(step["name"], "Check the scope")
+        self.assertEqual(step["env"]["PACKAGE"], "${{ inputs.package }}")
+        # The check runs on every event: neither it nor its job is skipped.
+        self.assertNotIn("if", components)
+        self.assertNotIn("if", step)
+        kind = inner(document["env"]["RN_PACKAGE_KIND"])
+
+        def check(scope, package):
+            values = {
+                "inputs.package": package,
+                "inputs.scope": scope,
+                "github.event_name": "workflow_dispatch",
+            }
+            return subprocess.run(
+                ["/bin/bash", "-euo", "pipefail", "-c", step["run"]],
+                env={
+                    "PATH": os.environ["PATH"],
+                    "SCOPE": scope,
+                    "PACKAGE": package,
+                    "KIND": expression(kind, values),
+                },
+                capture_output=True,
+                text=True,
+            )
+
+        for scope, package in (
+            ("full", "auto"),
+            ("full", "test"),
+            ("full", "release"),
+            # Empty means auto, as in RN_PACKAGE_KIND.
+            ("full", ""),
+            ("android-smoke", ""),
+            ("android-smoke", "auto"),
+            ("android-smoke", "test"),
+        ):
+            with self.subTest(scope=scope, package=package):
+                result = check(scope, package)
+                self.assertEqual(result.returncode, 0, result.stdout)
+        for scope, package, error in (
+            ("full", "relase", "::error::unknown package: relase"),
+            ("full", "Test", "::error::unknown package: Test"),
+            ("android", "auto", "::error::unknown scope: android"),
+            ("android-smoke", "release", "::error::scope android-smoke needs"),
+        ):
+            with self.subTest(scope=scope, package=package):
+                result = check(scope, package)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(error, result.stdout)
+
     def test_android_smoke_runs_no_macos_job(self):
         # The Android smoke builds no iOS part, so no job of the chain runs on
         # a macOS label. The full scope keeps its macOS jobs.
