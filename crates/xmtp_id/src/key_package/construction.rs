@@ -219,6 +219,9 @@ mod tests {
     /// empty data, and rejects it with any other data.
     const LAST_RESORT_COMPONENT: u16 = 0x0004;
 
+    /// An application component that is not the last-resort mark.
+    const OTHER_COMPONENT: u16 = 0x8001;
+
     /// A key package whose `app_data_dictionary` holds the last-resort
     /// component with `data`. Its capabilities advertise AppDataDictionary, as
     /// upstream's builder sets them for that component. `legacy` also adds
@@ -227,11 +230,22 @@ mod tests {
         data: Vec<u8>,
         legacy: bool,
     ) -> (OpenMlsRustCrypto, Vec<u8>) {
+        key_package_with_components(&[(LAST_RESORT_COMPONENT, data)], legacy)
+    }
+
+    /// A key package whose `app_data_dictionary` holds `components`, as
+    /// [`key_package_with_last_resort_component`] builds it.
+    fn key_package_with_components(
+        components: &[(u16, Vec<u8>)],
+        legacy: bool,
+    ) -> (OpenMlsRustCrypto, Vec<u8>) {
         use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
         let provider = OpenMlsRustCrypto::default();
         let key = XmtpInstallationCredential::new();
         let mut dictionary = AppDataDictionary::new();
-        let _ = dictionary.insert(LAST_RESORT_COMPONENT, data);
+        for (component, data) in components {
+            let _ = dictionary.insert(*component, data.clone());
+        }
         let mut extensions = vec![Extension::AppDataDictionary(
             AppDataDictionaryExtension::new(dictionary),
         )];
@@ -283,7 +297,11 @@ mod tests {
             assert!(
                 matches!(
                     VerifiedKeyPackageV2::from_bytes(provider.crypto(), &bytes),
-                    Err(crate::key_package::KeyPackageVerificationError::MlsValidation(_))
+                    Err(
+                        crate::key_package::KeyPackageVerificationError::MlsValidation(
+                            openmls::prelude::KeyPackageVerifyError::MalformedLastResortComponent
+                        )
+                    )
                 ),
                 "a last-resort component with data verified (legacy extension: {legacy})"
             );
@@ -301,6 +319,24 @@ mod tests {
             let verified = VerifiedKeyPackageV2::from_bytes(provider.crypto(), &bytes)?;
             assert_eq!(verified.credential.inbox_id, "inbox");
         }
+    }
+
+    /// The check is on the last-resort mark only: data in another component
+    /// is accepted, as upstream accepts it, next to an empty mark and the
+    /// legacy extension. A stricter check would reject commits that future
+    /// members accept, and the group would fork the other way.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: JOIN-082
+    fn other_components_with_data_verify() {
+        let (provider, bytes) = key_package_with_components(
+            &[
+                (OTHER_COMPONENT, vec![1, 2, 3]),
+                (LAST_RESORT_COMPONENT, vec![]),
+            ],
+            true,
+        );
+        let verified = VerifiedKeyPackageV2::from_bytes(provider.crypto(), &bytes)?;
+        assert_eq!(verified.credential.inbox_id, "inbox");
     }
 
     #[xmtp_common::test(unwrap_try = true)]

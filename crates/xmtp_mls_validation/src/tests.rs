@@ -294,6 +294,51 @@ async fn key_package_parse_precedes_existing_cryptographic_validation() {
     ));
 }
 
+// verifies: JOIN-082, API-230
+#[xmtp_common::test(unwrap_try = true)]
+async fn key_package_admission_rejects_a_last_resort_mark_with_data() {
+    // The empty mark, alone or next to another component with data, is
+    // admitted.
+    for components in [
+        vec![(LAST_RESORT_COMPONENT, vec![])],
+        vec![(0x8001, vec![1, 2, 3]), (LAST_RESORT_COMPONENT, vec![])],
+    ] {
+        let parsed = parse_envelope(app_data_key_package_envelope(&components).envelope)?;
+        assert!(
+            validate_envelope(
+                &parsed,
+                &[],
+                MockSmartContractSignatureVerifier::new(false),
+                &TestChain::at(1),
+            )
+            .await?
+            .is_none()
+        );
+    }
+
+    let parsed = parse_envelope(
+        app_data_key_package_envelope(&[(LAST_RESORT_COMPONENT, vec![1])]).envelope,
+    )?;
+    let error = validate_envelope(
+        &parsed,
+        &[],
+        MockSmartContractSignatureVerifier::new(false),
+        &TestChain::at(1),
+    )
+    .await
+    .err()
+    .expect("a last-resort mark with data must fail admission");
+    assert!(matches!(
+        &error,
+        ValidationError::KeyPackage(
+            xmtp_id::key_package::KeyPackageVerificationError::MlsValidation(
+                openmls::prelude::KeyPackageVerifyError::MalformedLastResortComponent
+            )
+        )
+    ));
+    assert_eq!(error.reason(), Reason::InvalidKeyPackage);
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_admission_folds_real_history_and_a_passkey_update() {
     let fixture = identity_history_with_passkey().await;
