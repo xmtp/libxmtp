@@ -80,8 +80,9 @@ impl HmacKey {
     }
 }
 
-impl From<xmtp_db::user_preferences::HmacKey> for HmacKey {
-    fn from(value: xmtp_db::user_preferences::HmacKey) -> Self {
+/// The returned key is a deliberate export: the app owns that copy.
+impl From<&xmtp_db::user_preferences::HmacKey> for HmacKey {
+    fn from(value: &xmtp_db::user_preferences::HmacKey) -> Self {
         Self {
             key: value.key.to_vec(),
             epoch: value.epoch,

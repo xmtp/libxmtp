@@ -23,7 +23,7 @@ private final class RecordingSink: LogSink, @unchecked Sendable {
 /// rules are tested in Rust (`xmtp_logging/src/sink_queue/tests.rs`). The Swift
 /// callback forwards record fields unchanged. A Rust test checks that the
 /// credential, signing-key and database-key failures it exercises reach the app
-/// sink and the native log without those secrets (LOG-010):
+/// sink and the native log without those secrets (LOG-014):
 /// `xmtp_sdk/src/logging/sink/tests.rs::client_log_secrets_are_redacted`.
 final class LoggingTests: XCTestCase {
 	override func tearDown() async throws {

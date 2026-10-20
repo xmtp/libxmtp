@@ -377,7 +377,7 @@ where
                 tracing::debug!("could not read mutable metadata for field {field_name}: {err}")
             })
             .ok()?;
-        Some(metadata.attributes.get(field_name).cloned())
+        Some(metadata.attributes().get(field_name).cloned())
     }
 
     /// Store a proposal the ordered prefix delivered, with durable evidence of
@@ -583,7 +583,7 @@ where
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), IntentError> {
         if intent.kind == MetadataUpdate {
-            let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+            let data = UpdateMetadataIntentData::try_from(intent.data.as_slice().to_vec())?;
 
             match data.field_name.as_str() {
                 field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {

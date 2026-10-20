@@ -10,7 +10,7 @@ Client diagnostic logs go to native logging layers or to an optional app sink. T
 
 In scope: client diagnostic log delivery, sink lifetime, queue capacity, drop reporting, failure isolation, and client secret redaction.
 
-Out of scope: audit logging, backend telemetry, and message bodies. AUTH-027 owns redaction in backend logs and does not replace LOG-010.
+Out of scope: audit logging, backend telemetry, and message bodies. AUTH-027 owns redaction in backend logs and does not replace LOG-014.
 
 ## Terms
 
@@ -35,7 +35,7 @@ The client sends diagnostic records to its logging layers by default. When an ap
 | LOG-007 | Sink replacement boundary | When clearing or replacing a sink, the client MUST stop old-generation handoffs before the operation returns, without waiting for a callback already handed off. | Waiting can deadlock a sink that replaces itself. |
 | LOG-008 | Reentrant sink calls | When a sink callback calls an SDK operation, the client MUST let that operation complete without waiting for the calling callback. | A callback must not wait on itself or a held client lock. |
 | LOG-009 | Sink failure isolation | When an app sink throws or rejects a record, the client MUST keep messaging and its configured native logging layers operational. | Diagnostic code must not stop the client. |
-| LOG-010 | Client secret redaction | When emitting a log to an app sink or native logging layer, the client MUST omit authentication credential values, private signing keys, and database encryption keys. | An app log destination must not receive secrets used by the client. |
+| LOG-014 | Client secret redaction | When emitting a log to an app sink or native logging layer, the client MUST omit authentication credential values, private keys, and database encryption keys. | An app log destination must not receive secrets used by the client. |
 | LOG-011 | Replacement discards queued logs | When clearing or replacing a sink, the client MUST discard that generation's queued records and pending drop count without a final reporting callback. | Sink replacement cannot promise delivery after it stops handoffs. |
 | LOG-012 | Old callback result isolation | When a callback from a cleared or replaced generation completes, the client MUST ignore its result for the installed generation's drop count and queue. | A late completion must not erase or add another sink's diagnostics. |
 | LOG-013 | Report dispatched drops | While a sink generation remains installed, the client MUST include the pending drop count captured at dispatch in each call's `droppedRecords` field, clear only that reported count on success, and keep it pending on failure. Drops after dispatch MUST remain pending for a later delivery attempt. LOG-011 and LOG-012 govern a cleared or replaced generation. | A failed callback must not erase overflow evidence, and a delayed handoff must not lose later drops. |

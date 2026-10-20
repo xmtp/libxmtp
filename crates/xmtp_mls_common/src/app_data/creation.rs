@@ -7,6 +7,7 @@
 
 use tls_codec::Serialize;
 use xmtp_configuration::ApplicationComponentDefinition;
+use xmtp_cryptography::secret::Zeroizing;
 use xmtp_proto::types::ConversationType;
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentMetadata, ComponentPermissions, ComponentType,
@@ -382,17 +383,28 @@ pub(crate) fn membership_policy_to_metadata_policy(
 ///   attribute is a decimal-stringified `i64`; emit 8 big-endian bytes.
 /// - String-typed attributes (group name/description/url/app data/min
 ///   version): emit the raw UTF-8 bytes unchanged.
+///
+/// The result can be the commit-log signer's private key, so it is returned
+/// in `Zeroizing`. Take the bytes only where they move into OpenMLS.
 pub fn encode_metadata_attribute_value(
+    component_id: ComponentId,
+    legacy_value: &str,
+) -> Result<Zeroizing<Vec<u8>>, MigrationError> {
+    encode_metadata_attribute_bytes(component_id, legacy_value).map(Zeroizing::new)
+}
+
+fn encode_metadata_attribute_bytes(
     component_id: ComponentId,
     legacy_value: &str,
 ) -> Result<Vec<u8>, MigrationError> {
     match component_id {
+        // The returned key bytes go to OpenMLS as an AppData payload.
         ComponentId::COMMIT_LOG_SIGNER => {
-            let raw = hex::decode(legacy_value).map_err(|error| {
-                MigrationError::InvalidCommitLogSignerHex {
+            let mut raw = crate::group_mutable_metadata::decode_secret_hex(legacy_value).map_err(
+                |error| MigrationError::InvalidCommitLogSignerHex {
                     reason: error.to_string(),
-                }
-            })?;
+                },
+            )?;
             let expected = xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
             if raw.len() != expected {
                 return Err(MigrationError::InvalidCommitLogSignerLength {
@@ -400,7 +412,7 @@ pub fn encode_metadata_attribute_value(
                     actual: raw.len(),
                 });
             }
-            Ok(raw)
+            Ok(std::mem::take(&mut *raw))
         }
         ComponentId::MESSAGE_DISAPPEAR_FROM_NS => {
             parse_disappearing_i64("messageDisappearFromNS", legacy_value)
@@ -722,7 +734,10 @@ pub fn initial_dictionary(
         (ComponentId::APP_DATA, opts.app_data.as_ref()),
     ] {
         if let Some(value) = value {
-            dictionary.insert(id.as_u16(), encode_metadata_attribute_value(id, value)?);
+            dictionary.insert(
+                id.as_u16(),
+                std::mem::take(&mut *encode_metadata_attribute_value(id, value)?),
+            );
         }
     }
     if let Some(settings) = &opts.message_disappearing_settings {

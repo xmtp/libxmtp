@@ -126,8 +126,8 @@ fn subscription(id: u8, keys: usize) -> api::Subscription {
 fn update(adds: Vec<api::Subscription>, removes: Vec<Vec<u8>>) -> api::UpdateSubscriptionsRequest {
     let register = registration();
     api::UpdateSubscriptionsRequest {
-        recipient_id: register.recipient_id,
-        recipient_secret: register.recipient_secret,
+        recipient_id: register.recipient_id.clone(),
+        recipient_secret: register.recipient_secret.clone(),
         adds,
         removes,
     }
@@ -136,8 +136,8 @@ fn update(adds: Vec<api::Subscription>, removes: Vec<Vec<u8>>) -> api::UpdateSub
 fn unregister() -> api::UnregisterRequest {
     let request = registration();
     api::UnregisterRequest {
-        recipient_id: request.recipient_id,
-        recipient_secret: request.recipient_secret,
+        recipient_id: request.recipient_id.clone(),
+        recipient_secret: request.recipient_secret.clone(),
     }
 }
 
@@ -149,13 +149,13 @@ fn status(error: Status, code: Code, message: &str) {
 async fn assert_count(server: &RunningServer, expected: i64) {
     let actual: i64 =
         sqlx::query_scalar("SELECT count(*) FROM push_subscription WHERE recipient_id = $1")
-            .bind(registration().recipient_id)
+            .bind(registration().recipient_id.clone())
             .fetch_one(&server.backend.store.primary)
             .await
             .unwrap();
     let topic_count: i32 =
         sqlx::query_scalar("SELECT topic_count FROM push_recipient WHERE recipient_id = $1")
-            .bind(registration().recipient_id)
+            .bind(registration().recipient_id.clone())
             .fetch_one(&server.backend.store.primary)
             .await
             .unwrap();
@@ -293,7 +293,7 @@ async fn updates_keep_start_positions_and_round_trip_key_slots() {
     let result = client
         .update_subscriptions(update(
             vec![replacement, subscription(4, 1)],
-            vec![adds[0].topic.clone(), subscription(99, 0).topic],
+            vec![adds[0].topic.clone(), subscription(99, 0).topic.clone()],
         ))
         .await?
         .into_inner();
@@ -310,7 +310,7 @@ async fn updates_keep_start_positions_and_round_trip_key_slots() {
     let row = sqlx::query(
         "SELECT hmac_epoch_base, include_commits FROM push_subscription WHERE topic = $1",
     )
-    .bind(subscription(2, 0).topic)
+    .bind(subscription(2, 0).topic.clone())
     .fetch_one(&server.backend.store.primary)
     .await?;
     assert_eq!(row.get::<i64, _>(0), 20);
@@ -341,7 +341,7 @@ async fn topic_limit_rolls_back_removes_and_adds_and_serializes_concurrent_updat
     let error = client
         .update_subscriptions(update(
             vec![subscription(3, 1), subscription(4, 1)],
-            vec![subscription(1, 0).topic],
+            vec![subscription(1, 0).topic.clone()],
         ))
         .await
         .unwrap_err();
@@ -357,7 +357,10 @@ async fn topic_limit_rolls_back_removes_and_adds_and_serializes_concurrent_updat
             .await?;
     assert_eq!(
         topics,
-        vec![subscription(1, 0).topic, subscription(2, 0).topic]
+        vec![
+            subscription(1, 0).topic.clone(),
+            subscription(2, 0).topic.clone()
+        ]
     );
     client.update_subscriptions(update(vec![], topics)).await?;
     let mut other = server.notifications();
@@ -390,7 +393,7 @@ async fn unregister_cascades_even_after_the_provider_is_removed() {
         server
             .backend
             .store
-            .load_recipient(&registration().recipient_id)
+            .load_recipient(&registration().recipient_id.clone())
             .await?
             .is_none()
     );

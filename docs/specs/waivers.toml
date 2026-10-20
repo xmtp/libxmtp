@@ -287,11 +287,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "layers::sink::deliver contains callback errors and panics, and native logging layers remain separate from SinkSlot. Existing sink error and panic tests do not prove messaging and native-log survival through every public target. Follow-up Task 7 owns the missing proof."
 
 [[waiver]]
-id = "LOG-010"
+id = "LOG-014"
 kind = "untested"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "IdentityStrategy::initialize_identity logs only a fixed strategy name and stored-identity presence. AuthBridge::on_auth_required replaces credential callback failures with fixed messages, and mobile create_client logs database-key presence and length rather than key bytes. The identity source-event test proves the removed legacy-key leak stays closed, but no complete test proves authentication credential, private signing-key, and database encryption-key omission through app sinks and native output on every public target. Follow-up Task 7 owns the remaining emitter audit and destination proof."
+reason = "IdentityStrategy::initialize_identity logs only a fixed strategy name and stored-identity presence. AuthBridge::on_auth_required replaces credential callback failures with fixed messages, and mobile create_client logs database-key presence and length rather than key bytes. SqlKeyStore::write_key_package no longer records the key package bundle, so its decryption keys stay out of spans, and the commit validator skips commit-log signer changes (META-074), so MLSProcessedStagedCommit logs no signer. The identity source-event test proves the removed legacy-key leak stays closed, and the signer test proves the signer stays out of INFO logs, but no complete test proves authentication credential, private-key, and database encryption-key omission through app sinks and native output on every public target. Follow-up Task 7 owns the remaining emitter audit and destination proof."
 
 [[waiver]]
 id = "STORE-019"

@@ -440,11 +440,11 @@ async fn canonical_dm_registry_matches_validation_expectation() {
         None,
     )?;
     let entries = legacy_dm.load_mls_group_with_lock(alix.context.mls_storage(), |group| {
-        Ok(
-            synthesize_canonical_subset_from_extensions(group.extensions())
+        Ok(std::mem::take(
+            &mut synthesize_canonical_subset_from_extensions(group.extensions())
                 .unwrap()
                 .expected_registry,
-        )
+        ))
     })?;
     let mut registry = ComponentRegistry::new();
     for (id, metadata) in entries {

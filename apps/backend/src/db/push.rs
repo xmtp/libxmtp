@@ -1,6 +1,7 @@
 //! Recipient writes serialize on the recipient row before changing subscriptions.
 
 use subtle::ConstantTimeEq;
+use xmtp_cryptography::secret::Zeroizing;
 
 use super::{
     PushRecipientRecord, PushSubscriptionRecord, RecipientStateRecord, Store, SubscriptionChanges,
@@ -24,7 +25,7 @@ impl Store {
                 secret_hash: row.secret_hash,
                 channel: row.channel.try_into()?,
                 delivery: row.delivery,
-                signing_key: row.signing_key,
+                signing_key: row.signing_key.map(Zeroizing::new),
                 renewed_ns: row.renewed_ns,
             })
         })
@@ -48,7 +49,7 @@ impl Store {
             WHERE push_recipient.secret_hash = $2
             RETURNING topic_count, channel, renewed_ns",
             &record.recipient_id, &record.secret_hash, record.channel as i16,
-            &record.delivery, record.signing_key.as_deref(), record.renewed_ns
+            &record.delivery, record.signing_key.as_ref().map(|key| key.as_slice()), record.renewed_ns
         ).fetch_optional(&self.primary).await?.ok_or(Error::PushSecretInvalid)?;
         Ok(RecipientStateRecord {
             topic_count: row.topic_count,
@@ -85,7 +86,7 @@ impl Store {
         &self,
         recipient_id: &[u8],
         secret_hash: &[u8],
-        adds: &[PushSubscriptionRecord],
+        adds: Vec<PushSubscriptionRecord>,
         removes: &[Vec<u8>],
         max_topics: i32,
         renewed_ns: i64,
@@ -111,12 +112,21 @@ impl Store {
         .execute(&mut *tx)
         .await?
         .rows_affected();
-        let topics: Vec<_> = adds.iter().map(|item| item.topic.clone()).collect();
-        let epochs: Vec<_> = adds.iter().map(|item| item.hmac_epoch_base).collect();
-        let key_0: Vec<_> = adds.iter().map(|item| item.hmac_keys[0].clone()).collect();
-        let key_1: Vec<_> = adds.iter().map(|item| item.hmac_keys[1].clone()).collect();
-        let key_2: Vec<_> = adds.iter().map(|item| item.hmac_keys[2].clone()).collect();
-        let flags: Vec<_> = adds.iter().map(|item| item.include_commits).collect();
+        let mut topics = Vec::with_capacity(adds.len());
+        let mut epochs = Vec::with_capacity(adds.len());
+        let mut flags = Vec::with_capacity(adds.len());
+        // Each key moves out of its record into a column that is wiped on drop.
+        let mut key_columns: [Zeroizing<Vec<Option<Vec<u8>>>>; 3] =
+            std::array::from_fn(|_| Zeroizing::new(Vec::with_capacity(adds.len())));
+        for mut item in adds {
+            topics.push(item.topic);
+            epochs.push(item.hmac_epoch_base);
+            flags.push(item.include_commits);
+            for (column, key) in key_columns.iter_mut().zip(&mut item.hmac_keys) {
+                column.push(key.as_mut().map(|key| std::mem::take(&mut **key)));
+            }
+        }
+        let [key_0, key_1, key_2] = &key_columns;
         let added = sqlx::query_scalar!(
             r#"INSERT INTO push_subscription (recipient_id, topic, since_sequence_id, hmac_epoch_base, hmac_key_0, hmac_key_1, hmac_key_2, include_commits)
             SELECT $1, topic, $2, epoch, key_0, key_1, key_2, include_commits
@@ -128,8 +138,8 @@ impl Store {
                 include_commits = EXCLUDED.include_commits
             RETURNING (xmax = 0) AS "inserted!""#,
             recipient_id, boundary, &topics, &epochs as &[Option<i64>],
-            &key_0 as &[Option<Vec<u8>>], &key_1 as &[Option<Vec<u8>>],
-            &key_2 as &[Option<Vec<u8>>], &flags
+            key_0.as_slice() as &[Option<Vec<u8>>], key_1.as_slice() as &[Option<Vec<u8>>],
+            key_2.as_slice() as &[Option<Vec<u8>>], &flags
         ).fetch_all(&mut *tx).await?.into_iter().filter(|inserted| *inserted).count() as u64;
         let count = i64::from(recipient.topic_count) - removed as i64 + added as i64;
         if count > i64::from(max_topics) {

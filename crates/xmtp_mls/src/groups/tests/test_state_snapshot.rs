@@ -1,5 +1,5 @@
 use crate::client::notifications::{
-    NotificationChannel, NotificationConfig, NotificationOverride, encode,
+    NotificationChannel, NotificationConfig, NotificationOverride, encode_config,
 };
 use crate::context::XmtpSharedContext;
 use crate::groups::{GroupError, SendMessageOpts, UpdateAdminListType};
@@ -73,7 +73,7 @@ async fn test_state_snapshot_matches_getters() {
     let db = alix.context.db();
     let mut notification = db.notification_record()?;
     notification.push_state = 1;
-    notification.push_config = Some(encode(&NotificationConfig::new(
+    notification.push_config = Some(encode_config(&NotificationConfig::new(
         NotificationChannel::Fcm {
             token: "snapshot-test".into(),
         },

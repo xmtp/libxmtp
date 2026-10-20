@@ -552,7 +552,7 @@ async fn test_update_group_name_via_app_data_update() {
     let bo_meta = bo_group.mutable_metadata()?;
     assert_eq!(
         bo_meta
-            .attributes
+            .attributes()
             .get(MetadataField::GroupName.as_str())
             .map(String::as_str),
         Some("AppData Group Name")

@@ -1533,11 +1533,14 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
 
     // Verify the group name was actually updated
     assert_eq!(
-        alix_updated_metadata.attributes.get("group_name").unwrap(),
+        alix_updated_metadata
+            .attributes()
+            .get("group_name")
+            .unwrap(),
         "New Group Name"
     );
     assert_eq!(
-        bo_updated_metadata.attributes.get("group_name").unwrap(),
+        bo_updated_metadata.attributes().get("group_name").unwrap(),
         "New Group Name"
     );
 

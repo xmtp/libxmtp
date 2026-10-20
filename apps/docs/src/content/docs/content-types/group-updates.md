@@ -20,7 +20,7 @@ Type ID: `xmtp.org/group_updated:1.0`. The payload is a `GroupUpdated` protobuf.
 | `addedSuperAdminInboxes`   | Inboxes made super admin              |
 | `removedSuperAdminInboxes` | Inboxes no longer super admin         |
 
-One message can contain several changes. `metadataFieldChanges` can identify the group name, description, group image URL, disappearing-message settings, minimum protocol version, app data, or commit-log signer.
+One message can contain several changes. `metadataFieldChanges` can identify the group name, description, group image URL, disappearing-message settings, minimum protocol version, or app data. A commit-log signer change is never recorded, because its value is a private key. Messages stored by older clients can still list `_commit_log_signer`.
 
 The public SDK record uses arrays of `InboxId` values for each inbox list. The wire protobuf uses `Inbox` records, each with an `inboxId` string.
 
@@ -43,7 +43,6 @@ The public SDK record uses arrays of `InboxId` values for each inbox list. The w
 | `message_disappear_in_ns`            | Disappearing messages, duration |
 | `minimum_supported_protocol_version` | Minimum protocol version        |
 | `app_data`                           | Application data                |
-| `_commit_log_signer`                 | Commit-log signer               |
 
 ## When this message appears
 
