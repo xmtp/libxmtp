@@ -311,8 +311,9 @@ the exact versioned Xcode path and export mode `canonical`. Both remove Nix's
 must keep their local identity; they do not satisfy canonical CI admission.
 
 `react-native-js-tools-deps` retains the four exact compiler/declaration
-archives as a narrow warm-set member. Keep it in each producer stage and dev
-set so the empty-store closure gate also checks these build-time inputs.
+archives as a narrow warm-set member. Keep it in each producer stage and in a
+warm set (dev on Linux, rn on Darwin) so an empty-store closure check also
+covers these build-time inputs.
 
 RN Gradle runs on JDK 21. Its included settings plugin compiles with the
 declared JDK 17. The Gradle installation properties name both JDKs and disable

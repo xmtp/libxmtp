@@ -505,22 +505,8 @@ class ReactNativeWorkflowTests(unittest.TestCase):
         alert = workflow("post-merge.yml")["jobs"]["rn-alert"]
         self.assertIn("rn-smoke", alert["needs"])
         # The smoke substitutes the backend and the test services that
-        # `build` pushes, and still runs when `build` fails.
+        # `build` pushes. test_warm_sets.py checks when it runs.
         self.assertIn("build", smoke["needs"])
-        for consumers, built, runs in (
-            ("success", "success", True),
-            ("success", "failure", True),
-            ("failure", "success", False),
-        ):
-            with self.subTest(consumers=consumers, build=built):
-                self.assertIs(
-                    status_expression(
-                        smoke["if"],
-                        {"rn-consumers": consumers, "build": built},
-                        cancelled=False,
-                    ),
-                    runs,
-                )
 
     def test_post_merge_alerts_on_rn_failures_and_timeouts(self):
         alert = workflow("post-merge.yml")["jobs"]["rn-alert"]

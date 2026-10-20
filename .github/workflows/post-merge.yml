@@ -3,8 +3,10 @@
 # them; release, developers, and CI jobs then substitute these outputs. Then it
 # checks that the sets substitute, builds the docs, and deploys GitHub Pages.
 # The RN device chain is advisory, so an RN break can reach trunk. The RN jobs
-# warm and pin only the RN set, after `build`, and no other job waits for
-# them: an RN break fails and alerts the RN jobs alone.
+# warm, pin, and check the RN set after `build`, and no other job waits for
+# them: an RN break fails and alerts the RN jobs alone. The other sets hold
+# only the RN outputs that blocking pull request suites build.
+# dev/tests/test_warm_sets.py checks the job graph and the sets.
 #
 # Trusted: only pushes to trunk start this workflow, and only the writer
 # environment holds the trusted Cachix token.
@@ -27,7 +29,9 @@ jobs:
   # bare Android test app are warmed too, so pull requests that do not change
   # them substitute them. The RN components share their native SDK builds with
   # the Android and iOS release outputs, so the chain starts after `build` and
-  # substitutes them; it also runs when `build` fails.
+  # substitutes them. It also runs when `build` fails: GitHub skips a job whose
+  # `if` calls no status function when any job before it, direct or not, did
+  # not succeed, so each RN job checks only the RN job before it.
   rn-components:
     name: Cache RN components (${{ matrix.system }})
     needs: build
@@ -75,6 +79,7 @@ jobs:
   rn-package:
     name: Cache RN package
     needs: rn-components
+    if: ${{ !cancelled() && needs.rn-components.result == 'success' }}
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     environment: kache-s3-writer
@@ -115,6 +120,7 @@ jobs:
   rn-consumers:
     name: Cache RN apps (${{ matrix.platform }})
     needs: rn-package
+    if: ${{ !cancelled() && needs.rn-package.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -181,7 +187,8 @@ jobs:
   # jobs pushed the package and apps; `build` pushed the backend and the test
   # services that the journeys start, so the smoke waits for it and builds
   # nothing. If `build` fails, the smoke still runs and builds what it
-  # misses. `build` does not wait for the smoke.
+  # misses. `build` does not wait for the smoke. The Android leg also checks
+  # that the RN set substitutes.
   rn-smoke:
     name: RN installed-app smoke (${{ matrix.platform }})
     needs: [rn-consumers, build]
@@ -235,6 +242,13 @@ jobs:
         with:
           platform: ${{ matrix.platform }}
           artifact-prefix: react-native-post-merge
+      # The RN set's own closure check, after the RN cache jobs pushed and
+      # pinned it: the Android leg runs on a free runner, and it runs after a
+      # failed smoke too.
+      - name: Dry-run the RN set in an empty store
+        if: ${{ !cancelled() && matrix.platform == 'android' }}
+        run: |
+          dev/ci/warm-closure 'sets: { inherit (sets) rn; }'
 
   # A job that hits its timeout ends as cancelled while the run goes on, so
   # a cancelled result alerts too. A cancelled run alerts on nothing.
@@ -341,102 +355,14 @@ jobs:
         uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
-      # An empty-store dry run reads the narinfo of each path from the
-      # configured substituters and walks the reference closure. It lists
-      # each set member (an output path) and each crane dependency layer
-      # (a build-time input outside the runtime closure). The link farms set
-      # allowSubstitutes = false; always-allow-substitutes overrides that.
-      # It checks every set but `rn`: the RN jobs warm that one, and this job
-      # does not wait for them.
+      # dev/ci/warm-closure dry-runs every set member and crane dependency
+      # layer in an empty store. This job checks every set but `rn`: the RN
+      # jobs warm and check that one, and this job does not wait for them. It
+      # also fails when a checked set builds an `rn` member, because an RN
+      # break would then fail `build`.
       - name: Dry-run the set members and dependency layers in an empty store
-        # bash -eo pipefail: a failed nix or jq in a pipeline fails the step.
-        # Without `shell`, GitHub runs bash -e only.
-        shell: bash
         run: |
-          store="$RUNNER_TEMP/empty"
-          # The sets read the ubrn fork source through import from derivation.
-          # Its fetch has the same output path on every system, and this
-          # runner can run only the x86_64-linux fetch, so evaluate
-          # x86_64-linux first: the Darwin sets then find the path valid even
-          # when `xmtp` does not hold it.
-          nix eval --store "$store" --json .#ciSets.x86_64-linux \
-            --apply 'sets: builtins.mapAttrs (_: set: set.drvPath) (removeAttrs sets [ "rn" ])' > /dev/null
-          # Write the drvs into the empty store: a drv of the host store is
-          # unknown there.
-          nix eval --store "$store" --json .#ciSets --apply '
-            builtins.mapAttrs (_: sets: builtins.mapAttrs (_: set: {
-              members = builtins.attrValues set.passthru.members;
-              drv = set.drvPath;
-            }) (removeAttrs sets [ "rn" ]))' > "$RUNNER_TEMP/ci-sets.json"
-          # Each list goes through a file: bash ignores the exit status of a
-          # process substitution, so a failed jq or nix would shrink the check.
-          jq -r '.[][].members[]' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/members.txt"
-          jq -r '.[][].drv' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/drvs.txt"
-          paths=()
-          while read -r member; do
-            paths+=("$member")
-          done < "$RUNNER_TEMP/members.txt"
-          drvs=()
-          while read -r drv; do
-            drvs+=("$drv")
-          done < "$RUNNER_TEMP/drvs.txt"
-          # The JavaScript layer's lock-only store is an explicit set member,
-          # so its fixed-output closure is checked above too.
-          # Crane sets CRANE_BUILD_DEPS_ONLY on each dependency layer.
-          nix derivation show --store "$store" -r "${drvs[@]}" |
-            jq -r '(.derivations // .) | to_entries[]
-              | select(.value.env.CRANE_BUILD_DEPS_ONLY != null) | .key
-              | if startswith("/") then . else "/nix/store/" + . end' \
-            > "$RUNNER_TEMP/dependency-layers.txt"
-          # Every set holds crane builds, so an empty list means the query broke.
-          if [[ ! -s "$RUNNER_TEMP/dependency-layers.txt" ]]; then
-            echo "::error title=Warm closure::found no crane dependency layer in the set derivations"
-            exit 1
-          fi
-          while read -r layer; do
-            paths+=("$layer^out")
-          done < "$RUNNER_TEMP/dependency-layers.txt"
-          echo "Checking ${#paths[@]} set members, fixed-output inputs, and dependency layers"
-          # The dry run exits 0 also when a path cannot substitute, and has no
-          # machine-readable form (--json lists the requested paths only).
-          nix build --dry-run --store "$store" --option always-allow-substitutes true \
-            "${paths[@]}" 2>&1 | tee "$RUNNER_TEMP/dry-run.txt"
-          # Fail closed: accept only one "will be fetched" header (it holds
-          # the count and the sizes) and exactly as many indented store paths
-          # as it announces. A "will be built" or "don't know how to build"
-          # section, or any other line, fails. The store is empty, so a run
-          # that fetches nothing checked nothing.
-          # Nix 2.31 prints sizes in MiB; Nix 2.34 picks the unit (KiB to
-          # GiB and up) with one decimal. dev/tests/test_post_merge_closure.py
-          # holds both forms.
-          header='^(this path|these ([0-9]+) paths) will be fetched \([0-9.]+ [KMGTPEZY]iB download, [0-9.]+ [KMGTPEZY]iB unpacked\):$'
-          path='^  /nix/store/[0-9a-df-np-sv-z]{32}-[^[:space:]]+$'
-          fetching=false
-          headers=0
-          announced=0
-          fetched=0
-          unexpected=()
-          while IFS= read -r line; do
-            if [[ -z "$line" ]]; then
-              continue
-            elif [[ "$line" =~ $header ]]; then
-              headers=$((headers + 1))
-              # "this path" announces one.
-              announced=${BASH_REMATCH[2]:-1}
-              fetching=true
-            elif $fetching && [[ "$line" =~ $path ]]; then
-              fetched=$((fetched + 1))
-            else
-              fetching=false
-              unexpected+=("$line")
-            fi
-          done < "$RUNNER_TEMP/dry-run.txt"
-          if (( ${#unexpected[@]} > 0 || headers != 1 || fetched == 0 || fetched != announced )); then
-            echo "::error title=Warm closure::$headers fetch headers announce $announced paths and list $fetched; ${#unexpected[@]} lines show a path that cannot substitute or output this check does not know"
-            printf '%s\n' "${unexpected[@]}"
-            exit 1
-          fi
-          echo "Every set member and dependency layer substitutes ($fetched paths)."
+          dev/ci/warm-closure 'sets: removeAttrs sets [ "rn" ]' 'sets: { inherit (sets) rn; }'
 
   # Pages content comes only from trusted trunk pushes. The native references
   # and docs build after every member and dependency layer of the sets that

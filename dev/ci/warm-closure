@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Check that warm sets of nix/ci-sets.nix substitute: an empty-store dry run
+# of every member of the selected sets and every crane dependency layer.
+# .github/workflows/post-merge.yml runs it after it pushes the sets.
+#
+# Usage: dev/ci/warm-closure SELECT [AVOID]
+#
+# SELECT and AVOID are Nix functions from one system's `ciSets` to some of
+# them, such as 'sets: removeAttrs sets [ "rn" ]'. SELECT picks the sets to
+# check. AVOID picks sets whose members must stay out of the derivation
+# closure of the checked sets, so a break of those members cannot fail them.
+#
+# An empty-store dry run reads the narinfo of each path from the configured
+# substituters and walks the reference closure. It lists each set member (an
+# output path) and each crane dependency layer (a build-time input outside
+# the runtime closure). The link farms set allowSubstitutes = false;
+# always-allow-substitutes overrides that.
+set -euo pipefail
+
+select=${1:?usage: dev/ci/warm-closure SELECT [AVOID]}
+avoid=${2:-}
+store="$RUNNER_TEMP/empty"
+# The sets read the ubrn fork source through import from derivation. Its
+# fetch has the same output path on every system, and this runner can run
+# only the x86_64-linux fetch, so evaluate x86_64-linux first: the Darwin sets
+# then find the path valid even when `xmtp` does not hold it.
+nix eval --store "$store" --json .#ciSets.x86_64-linux \
+  --apply "sets: builtins.mapAttrs (_: set: set.drvPath) (($select) sets)" > /dev/null
+# Write the drvs into the empty store: a drv of the host store is unknown
+# there.
+nix eval --store "$store" --json .#ciSets --apply "
+  builtins.mapAttrs (_: sets: builtins.mapAttrs (_: set: {
+    members = builtins.attrValues set.passthru.members;
+    drv = set.drvPath;
+  }) (($select) sets))" > "$RUNNER_TEMP/ci-sets.json"
+# Each list goes through a file: bash ignores the exit status of a process
+# substitution, so a failed jq or nix would shrink the check.
+jq -r '.[][].members[]' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/members.txt"
+jq -r '.[][].drv' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/drvs.txt"
+paths=()
+while read -r member; do
+  paths+=("$member")
+done < "$RUNNER_TEMP/members.txt"
+drvs=()
+while read -r drv; do
+  drvs+=("$drv")
+done < "$RUNNER_TEMP/drvs.txt"
+# Lock-only stores and native download farms are explicit set members, so
+# their fixed-output closures are checked below too.
+nix derivation show --store "$store" -r "${drvs[@]}" > "$RUNNER_TEMP/derivations.json"
+if [[ -n "$avoid" ]]; then
+  nix eval --store "$store" --json .#ciSets --apply "
+    builtins.mapAttrs (_: sets: builtins.mapAttrs (_: set:
+      map (member: member.drvPath) (builtins.attrValues set.passthru.members)
+    ) (($avoid) sets))" > "$RUNNER_TEMP/avoid.json"
+  jq -r '.[][][]' "$RUNNER_TEMP/avoid.json" | sort -u > "$RUNNER_TEMP/avoid.txt"
+  jq -r '(.derivations // .) | keys[]
+    | if startswith("/") then . else "/nix/store/" + . end' \
+    "$RUNNER_TEMP/derivations.json" | sort -u > "$RUNNER_TEMP/closure.txt"
+  comm -12 "$RUNNER_TEMP/avoid.txt" "$RUNNER_TEMP/closure.txt" > "$RUNNER_TEMP/reached.txt"
+  if [[ -s "$RUNNER_TEMP/reached.txt" ]]; then
+    echo "::error title=Warm closure::the checked sets build members of the avoided sets"
+    cat "$RUNNER_TEMP/reached.txt"
+    exit 1
+  fi
+fi
+# Crane sets CRANE_BUILD_DEPS_ONLY on each dependency layer.
+jq -r '(.derivations // .) | to_entries[]
+  | select(.value.env.CRANE_BUILD_DEPS_ONLY != null) | .key
+  | if startswith("/") then . else "/nix/store/" + . end' \
+  "$RUNNER_TEMP/derivations.json" > "$RUNNER_TEMP/dependency-layers.txt"
+# Every set holds crane builds, so an empty list means the query broke.
+if [[ ! -s "$RUNNER_TEMP/dependency-layers.txt" ]]; then
+  echo "::error title=Warm closure::found no crane dependency layer in the set derivations"
+  exit 1
+fi
+while read -r layer; do
+  paths+=("$layer^out")
+done < "$RUNNER_TEMP/dependency-layers.txt"
+echo "Checking ${#paths[@]} set members, fixed-output inputs, and dependency layers"
+# The dry run exits 0 also when a path cannot substitute, and has no
+# machine-readable form (--json lists the requested paths only).
+nix build --dry-run --store "$store" --option always-allow-substitutes true \
+  "${paths[@]}" 2>&1 | tee "$RUNNER_TEMP/dry-run.txt"
+# Fail closed: accept only one "will be fetched" header (it holds the count
+# and the sizes) and exactly as many indented store paths as it announces. A
+# "will be built" or "don't know how to build" section, or any other line,
+# fails. The store is empty, so a run that fetches nothing checked nothing.
+# Nix 2.31 prints sizes in MiB; Nix 2.34 picks the unit (KiB to GiB and up)
+# with one decimal. dev/tests/test_post_merge_closure.py holds both forms.
+header='^(this path|these ([0-9]+) paths) will be fetched \([0-9.]+ [KMGTPEZY]iB download, [0-9.]+ [KMGTPEZY]iB unpacked\):$'
+path='^  /nix/store/[0-9a-df-np-sv-z]{32}-[^[:space:]]+$'
+fetching=false
+headers=0
+announced=0
+fetched=0
+unexpected=()
+while IFS= read -r line; do
+  if [[ -z "$line" ]]; then
+    continue
+  elif [[ "$line" =~ $header ]]; then
+    headers=$((headers + 1))
+    # "this path" announces one.
+    announced=${BASH_REMATCH[2]:-1}
+    fetching=true
+  elif $fetching && [[ "$line" =~ $path ]]; then
+    fetched=$((fetched + 1))
+  else
+    fetching=false
+    unexpected+=("$line")
+  fi
+done < "$RUNNER_TEMP/dry-run.txt"
+if ((${#unexpected[@]} > 0 || headers != 1 || fetched == 0 || fetched != announced)); then
+  echo "::error title=Warm closure::$headers fetch headers announce $announced paths and list $fetched; ${#unexpected[@]} lines show a path that cannot substitute or output this check does not know"
+  printf '%s\n' "${unexpected[@]}"
+  exit 1
+fi
+echo "Every set member and dependency layer substitutes ($fetched paths)."

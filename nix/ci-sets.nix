@@ -3,14 +3,14 @@
 #
 # `ciSets.<system>.dev` holds what developers and CI jobs use;
 # `ciSets.<system>.release` holds what release jobs use. The post-merge
-# `build` job builds and pins both. `ciSets.<system>.rn` holds the other RN
-# outputs and the RN dev shells; the post-merge RN cache jobs build and pin it
-# after `build`. The RN device chain is advisory, so an RN break can reach
-# trunk. dev and release hold no RN output but the RN JavaScript layer
-# (`rnJs`), which blocking pull request suites build, so such a break holds
-# back only the RN jobs, not the other sets or the docs. Each set is a link
-# farm, so one store path holds the runtime closure of every member, and
-# `passthru.members` lists the members for the closure check of post-merge.yml.
+# `build` job builds and pins both. `ciSets.<system>.rn` holds the RN outputs
+# and RN dev shells; the post-merge RN cache jobs build and pin it after
+# `build`. The RN device chain is advisory, so an RN break can reach trunk.
+# dev and release hold only the RN outputs that blocking pull request suites
+# build (`rnBlocking`, Linux only), so such a break holds back only the RN
+# jobs, not the other sets or the docs. Each set is a link farm, so one store
+# path holds the runtime closure of every member, and `passthru.members`
+# lists the members for the closure check of post-merge.yml.
 #
 # A dev shell enters as its `inputDerivation`, whose runtime closure holds
 # every shell input. Add a member only when a job, a release, or a developer
@@ -19,7 +19,8 @@
 # Every other set is a product group of .github/ci-suites.yml: CI builds
 # `ciSets.x86_64-linux.<group>` once per run in the job `products_<group>`.
 # post-merge.yml builds only dev and release, so keep each group member in
-# one of them; its closure check covers every set but rn.
+# one of them. Its `closure` job checks every set but rn, and fails when a
+# checked set builds an rn member; the RN smoke checks rn.
 { lib, withSystem, ... }:
 let
   # Every dev shell of the system, as `shell-<name>`.
@@ -36,8 +37,7 @@ let
     };
 
   # The RN JavaScript layer: the SDK's JavaScript product and its build
-  # inputs. The JavaScript suites and the docs read it (`sdk_js`), and
-  # blocking pull request suites build it, so it stays in dev.
+  # inputs.
   rnJs = p: {
     inherit (p)
       react-native-js-tools
@@ -50,13 +50,14 @@ let
 
   isRnShell = name: lib.hasPrefix "shell-react-native" name;
 
-  # Every other RN output, and the RN dev shells.
-  rnOutputs =
+  # Every RN output and RN dev shell of the system.
+  rnAll =
     pkgs: self':
     let
       p = self'.packages;
     in
-    lib.filterAttrs (name: _: isRnShell name) (shells self')
+    rnJs p
+    // lib.filterAttrs (name: _: isRnShell name) (shells self')
     // {
       inherit (p)
         react-native-consumer-deps-bare
@@ -83,6 +84,18 @@ let
         ;
     };
 
+  # The RN outputs that blocking pull request suites build, so an RN break
+  # cannot reach them. Only Linux has them: the JavaScript layer, which the
+  # JavaScript suites and the docs read (`sdk_js`), and the `react-native`
+  # shell that `check_react_native` enters. No blocking suite builds RN on
+  # Darwin.
+  rnBlocking =
+    self':
+    rnJs self'.packages
+    // {
+      inherit (shells self') shell-react-native;
+    };
+
   # The dev shells but the RN ones.
   nonRnShells = self': lib.filterAttrs (name: _: !isRnShell name) (shells self');
 
@@ -93,10 +106,12 @@ let
         p = self'.packages;
       in
       {
-        rn = mkSet pkgs "rn" (rnOutputs pkgs self');
+        rn = mkSet pkgs "rn" (
+          builtins.removeAttrs (rnAll pkgs self') (builtins.attrNames (rnBlocking self'))
+        );
         dev = mkSet pkgs "dev" (
           nonRnShells self'
-          // rnJs p
+          // rnBlocking self'
           // {
             inherit (p)
               xmtp-sdk-libs
@@ -155,10 +170,9 @@ let
         p = self'.packages;
       in
       {
-        rn = mkSet pkgs "rn" (rnOutputs pkgs self');
+        rn = mkSet pkgs "rn" (rnAll pkgs self');
         dev = mkSet pkgs "dev" (
           nonRnShells self'
-          // rnJs p
           // {
             inherit (p)
               android-sdk-libs-fast
