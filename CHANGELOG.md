@@ -1,0 +1,618 @@
+# Changelog
+
+All notable changes to this project are documented here.
+
+## [unreleased]
+
+### Features
+
+- *(telemetry)* Add bidi.* transport spans (#3932)
+- *(telemetry)* Add context and caller spans to the reference-ID parse warn (#3938)
+- *(telemetry)* Export spans across send/sync/welcome/stream paths; log swallowed errors (#3939)
+- *(agent-sdk)* Migrate @xmtp/agent-sdk from xmtp-js (#3979)
+- *(xmtp_db)* Add IntentState::Superseded for abandoned guarded intents (#4019)
+- *(xmtp_mls)* Report app data changes and guard updates against clobbering (#4011)
+- *(bindings_mobile)* Expose the app data change callback and update guard (#4012)
+- *(android-sdk)* Surface app data change callbacks and the update guard (#4016)
+- *(bindings_wasm)* Expose the app data change callback and update guard (#4014)
+- *(bindings_node)* Expose the app data change callback and update guard (#4013)
+- *(node-sdk)* Surface app data change callbacks and the update guard (#4017)
+- *(ios-sdk)* Surface app data change callbacks and the update guard (#4015)
+- *(release)* Automated consumer bump PRs for dev releases (#4027)
+- *(release)* Unified semver ordering for main-cut prereleases (#4048)
+- *(logging)* Sentry telemetry backend (core plumbing) (#4049)
+- *(bindings/mobile)* Uniffi surface for Sentry telemetry (#4050)
+- *(xmtp_mls)* Bound app-data change callback with a timeout (#4052)
+- Implement self-hosted backend API and persistence (#4069)
+- Native streaming, replica recovery, and request logging (#4070)
+- Self-hosted backend static subscriptions and lifecycle (#4072)
+- *(backend)* Add [auth.api_keys] configuration (#4133)
+- *(backend)* Admit API keys before JWT and expose the key name (#4134)
+- Migrate xmtp CLI into libxmtp (#4126)
+- Migrate xmtp.chat into libxmtp (#4131)
+- *(mls)* Add GroupActionPolicies component and dictionary permissions (#4150)
+- *(mls)* Create every group and DM with the app-data dictionary (#4152)
+- *(docs)* Clone the homepage prototype (#4166)
+- *(sdk)* Add consistent backend auth callbacks (#4169)
+- *(web-chat)* Add auth token entry and stop the empty-backend error (#4173)
+- *(docs)* Refine homepage agent design (#4177)
+- *(events)* Add per-client event bus and typed filters (#4213)
+- *(events)* Dispatch local events after state commits (#4220)
+- *(events)* Route background workers through event bus (#4221)
+- *(events)* Emit group and message changes (#4222)
+- *(events)* Emit client-level changes (#4223)
+- *(xmtp_mls)* Read conversation state without loading the MLS group (#4226)
+- *(xmtp_logging)* Add a replaceable log sink layer (#4228)
+- *(xmtp_sdk)* Add the SDK façade slice and export attributes (#4231)
+- *(xmtp_content_types)* Decompress content safely and encrypt any encoded content (#4232)
+- *(xmtp_mls)* Always wait for registration visibility (IDENT-072) (#4233)
+- *(xmtp_mls)* Look up a message with its group and register with an owner (#4235)
+- *(xmtp_sdk_bindgen)* Generate Swift, Kotlin, and TypeScript from the façade (#4236)
+- *(xmtp_sdk)* Run the façade slice on Swift, Kotlin, Node, and the browser (#4239)
+- *(xmtp_sdk)* Export client, identity, and configuration families (#4244)
+- *(xmtp_sdk)* Export live events and dispatch listeners in Rust (#4251)
+- *(xmtp_sdk)* Export conversations, messages, and content (#4245)
+- *(xmtp_sdk)* Complete the static runtimes, forwarding, and pure codecs (#4253)
+- *(xmtp_sdk)* Export message and conversation readers with stream adapters (#4250)
+- *(xmtp_sdk_bindgen)* Generate the browser bridge and serve pure functions on the main thread (#4256)
+- *(proto,api)* Attachment wire types and CreateUpload client path (#4248)
+- *(backend)* Optional S3 attachment storage and CreateUpload (#4252)
+- *(xmtp_attachments)* Streaming crypto, storage, transfers, and attachment events (#4254)
+- *(xmtp_mls)* Client.attachments() — create, upload, download, local files, storage location (#4258)
+- *(xmtp_sdk)* Set final SDK contract and ID surface (#4271)
+- *(app_data)* Self-owned policy, profile/image ids, application catalogue wire [murmur:dev/meta-fields-pr1] (#4313)
+- *(sdk)* Add typed Swift and Kotlin codec value records (#4348)
+- *(sdk)* Use one bounded asynchronous log sink (#4353)
+- *(ios)* Switch the public Swift package to the generated SDK (#4373)
+- *(node)* Switch Node, Agent and CLI to the generated SDK (#4397)
+- *(sdk)* Unify conversation and message stream methods (#4438)
+- *(sdk)* Add indexed stable history pages (#4486)
+- *(android)* Add Compose XMTP Messenger (#4475)
+- *(android)* Add recoverable Messenger attachments (#4477)
+- *(android)* Add Messenger metadata editors (#4478)
+- *(android)* Add optional Messenger notifications (#4479)
+- *(android-example)* Redesign messenger flows and interactions (#4493)
+- *(identity, backend)* Add inbox handle claims, lookup, and admission (#4508)
+- *(client)* Resolve, search, and claim inbox handles, and emit handle.changed (#4517)
+- *(sdk, apps)* Inbox handles in the SDKs, agent SDK, CLI, web chat, Android example, and docs (#4518)
+- *(android)* Publish sideloadable example APKs with Nix (#4527)
+- *(sdk)* Add exportable local signing keys (#4525)
+- *(ios-example)* Add native app foundation and launcher
+- *(example-android)* Streamline direct message creation (#4584)
+- *(config)* Validated configuration, set bounds, and key-named refusals (#4607)
+- *(cryptography)* Zeroize secret key copies with shared helpers (#4617)
+- *(db)* Wipe key package private keys in the key store and Welcome lookup (#4618)
+
+### Bug Fixes
+
+- *(ci)* Accept release/vX.Y maintenance branches in release-notes validation (#3924)
+- *(scw)* Replace panic with error on empty API response in signature verification (#3927)
+- *(xmtp_api_grpc)* Relax h2 keepalive defaults to stop bidi stream churn (#3933)
+- *(xmtp_api_d14n)* Track in-wave bidi replay progress per topic (#3934)
+- Preserve ordered welcome cursor retries (#3931)
+- *(xmtp_common)* Stop Android device-sync abort by using webpki roots (the gRPC path already does this) (#3940)
+- *(ios)* Remove duplicate onTermination in Conversations.stream() (#3507)
+- *(node)* Surface failed_installations from addMembers (#3763) (#3944)
+- *(xmtp_mls)* Skip phantom members on partial key package failure (#3945) (#3946)
+- *(xmtp_mls)* Treat membership sequence_id 0 as unset when resolving association state (#3948)
+- *(xmtp_api_d14n)* Surface extraction errors instead of silently dropping them (#3961)
+- *(xmtp_mls)* Silence unused_mut warning without breaking test-utils build (#3962)
+- *(xmtp_mls)* Detect unprocessed MLS commits in filter_groups_with_new_messages (#3959)
+- *(xmtp_mls)* Record publish-time key package failures in group membership (#3949)
+- *(deps)* Bump lru to 0.18.2 for RUSTSEC-2026-0253 (#3967)
+- Fix consent prefs sync test (#3965)
+- *(node-sdk,browser-sdk)* Make stream end() terminal and race-safe in createStream (#3978)
+- *(node-sdk,browser-sdk)* Reschedule when the native stream closes during restart (#3980)
+- *(xmtp_mls)* Defer unknown task kinds instead of deleting them (#4020)
+- *(logging)* Caller-supplied component tag wins over the libxmtp default (#4053)
+- Clean leaked backend transactions on pool release (#4073)
+- Recover rejoin messages and repair CI streaming checks (#4085)
+- *(deps)* Upgrade rustls to 0.23.45 for RUSTSEC-2026-0285 (#4114)
+- *(backend)* Suppress health check request logs (#4145)
+- *(nix)* Reset native Apple tools in the Rust shell (#4146)
+- *(grafana)* Preserve gRPC grouping labels in Fly queries (#4148)
+- *(cli)* Support API keys and verify Fly deployments over TLS (#4147)
+- *(api)* Pause the wire under receive backpressure instead of dropping the lease (#4155)
+- *(mls)* Correct three dictionary-native group defects (#4149)
+- *(mls)* Repair timestamp-cursor paging in duplicate detection (#4151)
+- *(db)* Rank a joined DM above a Restored placeholder when picking the winner (#4161)
+- *(db)* Compute the inserted_at_ns default from unixepoch subsec (#4160)
+- *(ci)* Install protoc for Windows Node releases (#4164)
+- *(ci)* Drop the incorrect project-token check from the web-chat deploy (#4174)
+- *(specs)* Clear the real spec-checker warnings and unblock the legacy-spec deletion (#4182)
+- *(push)* Avoid full-table scans during idle polling (#4191)
+- *(mls)* Select valid membership proposals for publication (#4200)
+- Preserve durable stream failures and delivery progress (#4201)
+- *(events)* Retry failed delivery lease release (#4224)
+- *(sdk)* Format and regenerate the SDK manifest tooling (#4237)
+- *(dev/sdk)* Use stable source identities in API manifest (#4240)
+- *(core)* Keep reaction content out of logs, bound archive frames, and check content authority (#4257)
+- *(nix)* Set CFFIXED_USER_HOME for WASM Chrome tests on macOS (#4263)
+- *(mls)* Check for a blocked connection before catch-up (#4268)
+- *(xmtp_sdk)* Wait for running calls before a client ends (#4269)
+- *(mls)* Omit identity secrets from startup logs (#4275)
+- *(mls)* Refuse malformed admin inbox IDs before queueing (#4318)
+- *(mls)* Accept and use only own-inbox sync groups (#4320)
+- *(dms)* Validate and stitch DM history (#4276)
+- *(core)* Enforce message visibility and send invariants (#4278)
+- *(mls)* Reject reserved transcript content on send (#4308)
+- *(mls)* Hide deletion items that expire in the core buffer, and name the admin (#4325)
+- *(mls)* Do not subscribe Restored groups until a Welcome activates them (PROC-051) (#4322)
+- *(archive)* Archive I/O, consent merge, offline gate, and restored group history (#4316)
+- *(mls)* Repair self-hosted after #4322/#4316 and notify on archive restore (#4329)
+- *(mls)* Apply PROC-051 at selection time only; remove the Restored recheck (#4330)
+- *(nix)* Build generated SDK without JavaScript formatter (#4338)
+- *(mls)* Report the deployment check error from sync, catch-up and push processing after a blocked connection (CONF-075/077) (#4335)
+- *(ci)* Sync the Android emulator clock and remove devcontainer CI (#4341)
+- *(sdk)* Decode received browser content once in the worker (#4352)
+- *(mls)* Release shared transports with their client owners (#4360)
+- *(sdk-bindgen)* Stop Swift native cancellation after completion (#4361)
+- *(sdk)* Repair conformance generation and benchmark arguments (#4365)
+- *(sdk)* Track compiler inputs and admit Windows package assets (#4366)
+- *(web-chat)* Pin Vercel Node.js version to 24.x (#4381)
+- *(sdk)* Preserve reader progress until final ACK commit admission (#4368)
+- Keep pnpm output out of release versions (#4426)
+- *(android)* Repair release documentation and JVM test setup (#4430)
+- *(release)* Repair macOS pod validation and remove consumer PR jobs (#4433)
+- *(browser)* Preserve hidden package assets in release uploads (#4435)
+- *(node)* Pin release builds and publication to one commit (#4437)
+- *(nix)* Wait for an exiting emulator leader on Darwin EPERM (#4436)
+- *(release)* Prepare SDK 8 RCs from self-hosted (#4441)
+- Reconnect Android root transport and isolate host diagnostics (#4443)
+- *(android)* Load live backend before release publication (#4442)
+- *(ci)* Authorize mobile release tag pushes with release app (#4449)
+- *(ci)* Snapshot selected mobile release source ref (#4456)
+- *(ci)* Isolate npm tags and preserve release ref classification (#4457)
+- *(docs)* Keep group chat searches on the conversation guide (#4463)
+- Upgrade both HPKE providers to libcrux-kem 0.0.10 (#4465)
+- *(android)* Align NDK stripping and increase build heap (#4483)
+- *(backend)* Clean up startup transactions after timeout (#4497)
+- *(deps)* Update ChaCha20 and record advisory exceptions (#4496)
+- *(backend)* Report identity decode failures as invalid identity updates (#4501)
+- Order HMAC keys and prove consent merge (#4505)
+- *(dev)* Give each worktree its own backend image tag (#4510)
+- *(android)* Enable emulator hardware keyboard (#4526)
+- *(xmtp_mls)* Wait through a blocking state change's receipt (#4524)
+- *(storage)* Prevent database recreation after deletion (#4528)
+- *(xmtp_api_backend)* Split static stream frames above the receive limits (#4522)
+- *(android)* Reject completed failed picker targets (#4531)
+- *(web-chat)* Support handles across recipient and chat UI (#4530)
+- *(android)* Support handle recipients and explicit mute state (#4529)
+- *(dev)* Install JS dependencies for lint-config when missing (#4543)
+- *(nix)* Drop the NDK reference from Android SDK libraries (#4542)
+- *(ci)* Expect the literal Kache scope of the merged SDK browser job (#4544)
+- *(nix)* Make every Nix test result substitutable (#4541)
+- *(ios-example)* Render root and sheet routes safely
+- *(ios-example)* Compile native simulator scaffold
+- *(ios-example)* Guard direct restore and align foundation guarantees
+- *(ios-example)* Link UI test package products
+- *(ios-example)* Complete launcher and design foundation
+- *(ios-example)* Follow current Nix cache caller rules
+- *(ios-example)* Align suite declarations with Nix cache policy
+- *(ios)* Wait for shared session teardown before reset
+- *(ios)* Isolate native notification submission cleanup
+- *(agent-sdk)* Do not evict entries when updating existing keys in LimitedMap (#3996)
+- *(dev)* Send every Darwin compile through Kache and configure it by file (#4575)
+- *(examples)* Defer server errors until Join and accept pasted bearer tokens (#4583)
+- *(examples)* Release the message reader lease when the app leaves the foreground (#4586)
+- *(nix)* Give the React Native consumer Android builds a 4 GiB heap (#4610)
+- *(agent-sdk)* Stop CommandRouter from rewriting the caller's context (#4609)
+
+### Performance
+
+- *(xmtp_mls)* Read group metadata from GroupContext, not a full MlsGroup load (#4023)
+- *(dev)* Batch Nix input hashing (#4195)
+- *(db)* Select the conversation page before its latest messages (#4324)
+- *(nix)* Generate SDK products by platform (#4412)
+- *(nix)* Reuse SDK compilation across source edits (#4414)
+- *(dev)* Move the dev tool tests out of lint and run them in parallel (#4579)
+
+### Refactor
+
+- Share MLS validation and portable fixtures (#4067)
+- Refactor (1/5): split the largest test files (#4104)
+- Refactor (2/5): split groups/tests/mod.rs (#4105)
+- Refactor (3/5): split mls_sync.rs into concern modules (#4106)
+- Refactor (4/5): split groups/mod.rs into concern modules (#4107)
+- Refactor (5/5): split bindings/mobile/src/mls.rs (#4108)
+- *(mls)* Collapse the dictionary/legacy routing branches (#4153)
+- *(mls)* Delete the migration bridge and the unstable proposals API (#4154)
+- *(node)* Remove stream pre-sync and verify recovery (#4205)
+- Remove the vestigial proposals API (#4229)
+- *(xmtp_sdk)* Split oversized source and test files (#4292)
+- *(android-example)* Separate session and feature ownership (#4492)
+- *(config)* Move the backend configuration into xmtp_backend_config (#4596)
+
+### Documentation
+
+- Phase 0 documentation for the self-hosted transition (#4059)
+- Record self-hosted backend contracts and fix Markdown lint (#4060)
+- *(wasm)* Mark the remaining wasm test commands as service-dependent
+- Add the self-hosted documentation site and reference pipelines (#4082)
+- Document the Agent SDK and enable its API reference (#4083)
+- Define durable client stream contracts (#4086)
+- Add the Fly.io deployment guide (#4111)
+- Add AWS ECS Fargate deployment guide (#4113)
+- Add locally validated Kubernetes Helm deployment guide (#4116)
+- Add the Railway deployment guide (#4118)
+- Record completed phases and retire deletions.md
+- *(specs)* Add approved spec 006 server configuration
+- Add self-hosted migration and deployment requirements (#4170)
+- Link specs to implementation and test evidence (#4175)
+- Update the migration guide to the 4b7b477 dev releases (#4178)
+- Move push configuration to the Deploy section (#4180)
+- Point migration guide at release run 35742600105
+- Attribute the dev release to self-hosted
+- *(specs)* Define live client event contract (#4212)
+- *(specs)* Replace CTYPE-006 with compression rules (#4225)
+- *(self-hosted)* Add the SDK API manifest (#4234)
+- *(specs)* Add codec, storage, pre-authentication, and offline URL rows (#4260)
+- *(wasm)* Correct the backend port and macOS test notes (#4309)
+- *(skills)* Explain gh stack CI base in check-ci (#4307)
+- *(specs)* Add the ATCH remote attachments spec (#4247)
+- Update homepage layout and add spam protection (#4346)
+- Fix homepage text contrast (#4347)
+- Point homepage links to SDK guides (#4363)
+- *(sdk)* Prepare migration examples and cutover inventory (#4357)
+- Preserve identity and cleanup in SDK migration examples (#4371)
+- Require local external link checks before submission (#4376)
+- Fix Swift reference module path (#4404)
+- Add unlisted legacy data migration guide (#4439)
+- Split self-hosted migration into SDK Upgrade Guides (#4454)
+- Recommend 8.0.0-rc1 for self-hosted migration (#4450)
+- Explain configurable metadata and native attachments (#4459)
+- Add local hosting guide with Tailscale (#4467)
+- Overhaul README for developers (#4495)
+- *(specs)* Add inbox handles to IDENT, API, CONF, OPS, and EVENT (#4499)
+- Check staged origins and preserve signature routes (#4513)
+- Point SDK and backend references to 8.0.0-rc2
+- Point SDK and backend references to 8.0.0-rc2 (#4568)
+- Add message volume proof below homepage hero (#4572)
+- Clarify migration history and clean up SDK references (#4573)
+- Run the SDK quickstart against a local Compose backend (#4576)
+- Allow AI contributions with human accountability (#4574)
+- Retry push lookup after processing pending welcomes
+- Pass saved database key and explain archive trust
+- Filter quickstart consent and qualify legacy archive guarantees
+- Add REVIEW.md with shared review priorities (#4605)
+- *(specs)* Make the backend configuration file a CONF contract (#4595)
+- *(react-native)* Expand the upgrade guide and pin SDKs to 8.0.0-rc3 (#4615)
+
+### Testing
+
+- Phase 0 test deletions for the self-hosted transition (#4058)
+- *(xmtp_mls)* Cover API key auth through the existing client middleware (#4135)
+- *(agent-sdk)* Give network waits a network-sized budget [murmur:dev/agent-sdk-waitfor-flakes] (#4215)
+- *(xmtp_mls)* Prove the stream-replacing event kinds (#4230)
+- *(node)* Wait for both sides of storage recovery (#4238)
+- *(xmtp_sdk)* Move binding logic tests into the façade and close gaps G4 to G6 (#4255)
+- *(xmtp_sdk)* Run browser bridge conformance in Chromium (#4266)
+- *(xmtp_sdk)* Fix the cancelled-create Web Lock flake (a test race) (#4323)
+- *(sdk)* Prove reader cleanup on loop exit (#4350)
+- *(sdk)* Prove the exported codec author contract (#4351)
+- *(sdk)* Cover callback and constructor lifetime (#4355)
+- *(sdk)* Add matched SDK benchmark gates (#4356)
+- Consolidate MLS and SDK client fixtures (#4470)
+- *(android)* Prove Messenger flows and bounded performance (#4482)
+- Prove Welcome, rejection, and event paths (#4506)
+- *(sdk)* Prove storage and registration lifecycle (#4502)
+- Prove shared diagnostics, auth state, and log dispatch (#4503)
+- *(example-android)* Give Compose sheet and card waits 30 s (#4519)
+- *(xmtp_api)* Wait for the read pool before newest assertions (#4521)
+- *(example-android)* Drop the release transport instrumented tests (#4559)
+- *(dev)* Restore four CI and release guards and fix stale docs after the script cleanup (#4560)
+- Restore global.fetch after mocking in NameResolver tests (#4571)
+- *(android)* Synchronize attachment picker reopen actions (#4582)
+- Delete SDK copies of Rust tests and trim the device suites (#4623)
+
+### Miscellaneous
+
+- Bump manifests to next dev versions after 1.11.0 (#3923)
+- *(ci)* Consolidate nix sticky disks into closure families (#3935)
+- *(deps)* Cargo update ruint security advisory (#3942)
+- *(deps-dev)* Bump the node-dev group across 1 directory with 2 updates (#3957)
+- *(xmtp_proto)* Regenerate protos for the metadata update guard (#4018)
+- *(deny)* Patch h2 to 0.4.16, ignore residual test-only advisory (RUSTSEC-2026-0258) (#4024)
+- *(logging)* Normalize tracing attribute keys across the workspace (#4046)
+- *(android)* Raise integration test timeouts (#4044) (#4054)
+- Defer transition workflows and remove retired cross-version drivers (#4064)
+- Generate protobufs from local authoritative schemas (#4065)
+- Scaffold and package the self-hosted backend (#4068)
+- *(dev)* Add opt-in sccache shared build cache (#4087)
+- *(agents)* Cut agent context cost (#4100)
+- Run fh-cache on self-hosted branch pushes (#4115)
+- *(agents)* Route Codex commands through Nix and share Serena (#4117)
+- *(murmur)* Install gh-stack in agent image (#4129)
+- Enable browser and wasm dev releases (#4158)
+- *(zed)* Disable the nil language server for Nix
+- *(web-chat)* Deploy xmtp.chat to Vercel on merges to self-hosted (#4172)
+- *(fly)* Disable backend auth (#4176)
+- *(js)* Consolidate packages into a pnpm workspace (#4179)
+- *(js)* Replace ESLint with type-aware Oxlint (#4183)
+- *(js)* Adopt TypeScript 7 and tsdown (#4185)
+- *(dev)* Align Zed Rust checks with Nix (#4190)
+- *(js)* Use native Vite tsconfig path resolution (#4198)
+- *(dev)* Keep incremental builds with sccache (#4194)
+- *(bindings)* Bump UniFFI to 0.32.2 (#4227)
+- Apply session-retro fixes (manifest check, test-hook check, bench env, skill rules) (#4242)
+- *(docs)* Skip generated source links in the link check (#4270)
+- Fail spec compliance only for proven regressions (#4279)
+- *(node-sdk)* Run recovery budget tests only on request (#4310)
+- *(macroscope)* Treat recorded limitations and waivers as advisory (#4306)
+- *(dev)* Add just disk and minute-level incremental cleanup (#4305)
+- Track Codex environment and ignore conformance builds
+- *(sdk)* Stage matched generated packages and mobile artifacts (#4354)
+- Stop hung WASM tests after two minutes (#4370)
+- Run macOS tests with native backend services (#4364)
+- Limit automatic Node and backend tests to Linux x64 (#4440)
+- *(ios)* Remove CocoaPods publication from releases (#4446)
+- Lower API 23 smoke emulator memory to 3072 MiB (#4491)
+- *(sdk)* Run each SDK check once per run (#4539)
+- *(nix)* Build derivations in parallel, scope Kache, drop sticky disks (#4540)
+- *(lint)* Discover dev tests and make local lint match CI lint (#4538)
+- *(docs)* Serialize only the Pages deploy and accept a replaced deploy (#4545)
+- *(docs)* Queue Pages deploys in one group (follow-up to #4545) (#4549)
+- *(select)* Narrow backend and tool filters, replace Android lint and cargo-deny jobs (#4546)
+- Add a CI metrics script and delete warm-deps (#4547)
+- *(nix)* Cache the xdbg compile across commits (#4548)
+- Trusted Nix cache boundary, post-merge warm and Pages workflow, Android CI in 5 jobs, iOS Xcode key (#4550)
+- *(nix)* In-build test services, sandboxed nextest, WASM archive and partitions, JUnit, one iOS job (#4551)
+- *(nix)* One SDK graph — one toolchain and platform list, no IFD, one renderer, read-only staging, JS CI on Nix products (#4552)
+- *(nix)* Release ships the tested Nix products; cached, layered dev shells (#4553)
+- *(dev)* Delete dead scripts and recipes, lint scripts by shebang, cut Python tests (#4554)
+- *(ios)* Regenerate selection for layered Nix shells
+- *(ios)* Reconcile final upstream fixture and selection cleanup
+- *(ios)* Pin workflow actions and format the CI script
+- Activate main and xmtp.org (#4515)
+- Select mobile example tests by app paths, Nix inputs, or labels (#4577)
+
+### Security
+
+- Delete the legacy specs under one blanket disposition (#4192)
+
+### Other
+
+- Deflake should stream prefs (#3964)
+- H2 0.4.16 -> 0.4.19 (#4043)
+- More docs changes
+- Update project plan
+- Phase 3 (1/4): test infrastructure on the self-hosted backend and history-sync removal (#4074)
+- Phase 3 (2/4): rebind the client to the self-hosted backend (#4075)
+- Phase 3 (3/4): move the Android, iOS, and JavaScript SDKs to the backend URL (#4077)
+- Phase 3 (4/4): retire dead requirements and correct the record (#4078)
+- Phase 4.5: metrics and telemetry (#4081)
+- Implement durable client receipt, state processing, and Rust readers (#4088)
+- Add durable SDK delivery and focused regression tests (#4089)
+- Fix stream liveness defects found reviewing #4088 (#4096)
+- Phase 4.3 (1/3): ephemeral backend for xmtp_mls tests (#4092)
+- Phase 4.3 (2/3): backend JWT verification (#4093)
+- Phase 4.3 (3/3): client credential refetch and lockout (#4094)
+- Isolate the local Docker stack per worktree (#4091)
+- Accept inline backend TOML and document PostgreSQL 17 support (#4101)
+- Nm/backend multiarch images (#4102)
+- Nm/deploy overview (#4110)
+- Add reusable HAProxy TLS terminator and local ingress checks (#4112)
+- Add Murmur config
+- Remove the Graphite CLI from the Nix shells
+- Add notification registration API and storage (#4119)
+- Add push dispatcher and signed HTTPS delivery (#4120)
+- Implement APNs and FCM push delivery with bounded credentials (#4122)
+- Add client notification sync and bindings (#4123)
+- Add SDK notification APIs and remove legacy push (#4124)
+- Add rebake settings
+- Add rebake settings
+- Speed up agent VMs and PR CI (#4125)
+- Bound every bake warm step to one shared deadline (#4128)
+- Fix push delivery policy refresh and subscription retry (#4127)
+- Write nix settings to nix.custom.conf so murmur is a trusted user (#4130)
+- Publish server configuration from the backend [murmur:dev/spec006-server-config] (#4136)
+- Resolve and apply the deployment's server configuration [murmur:dev/spec006-server-config] (#4137)
+- Expose the server configuration through every binding and SDK [murmur:dev/spec006-server-config] (#4138)
+- Pre-pull the TLS stack's image too (#4132)
+- Deploy persistent Fly development backend and private observability (#4143)
+- Improve agent navigation and command output (#4144)
+- Add the spec format, its checker, and the specs skeleton (#4159)
+- Add the JOIN and CONF specs (#4162)
+- Draft the remaining 18 specs (#4165)
+- Use Oxfmt across the JavaScript workspace (#4188)
+- Write the 24 missing requirements behind the ?PREFIX markers (#4186)
+- Keep local Tempo traces for six hours on disk (#4193)
+- Add local chaos suite with trace diagnostics (#4181)
+- Correct fork diagnostics and commit-log progress (#4199)
+- Bound Core application stream recovery (#4202)
+- Start Agent streams under Core recovery (#4206)
+- Remove obsolete reaction message query (#4209)
+- Remove obsolete message stream callback adapters (#4208)
+- Remove legacy controls from message stream options (#4210)
+- Remove duplicate enriched message query (#4211)
+- Move LibXMTPVersion to xmtp_mls_common (#4216)
+- Move the app data component codec to xmtp_mls_common (#4217)
+- Move pure commit validation rules to xmtp_mls_validation (#4218)
+- Add Macroscope review agents and streamline project guidance (#4241)
+- Limit WASM incremental build data (#4259)
+- Canonicalize identity replay keys (IDENT-050) [murmur:dev/spec-4280] (#4294)
+- Bind Welcome wrappers to advertised key packages (JOIN-056/076) [murmur:dev/spec-4282] (#4297)
+- Make send state transitions atomic (SEND-003/009) [murmur:dev/spec-4285] (#4295)
+- Reject invalid identity updates and retire legacy signatures [murmur:dev/spec-4281] (#4299)
+- Reject unsupported and incomplete archives (ARCH-003/018) [murmur:dev/spec-4290] (#4304)
+- Compute message expiry from sent time (META-050) [murmur:dev/spec-4284] (#4301)
+- Record installations with no key package as failed (JOIN-012/GMOD-009) [murmur:dev/spec-4288] (#4303)
+- Settle ambiguous OUT_OF_RANGE publishes (SEND-007) [murmur:dev/spec-4286] (#4298)
+- Enforce smart-wallet admission freshness (IDENT-062) [murmur:dev/spec-4283] (#4300)
+- Distinguish absent proposals from lost local state (PROC-011/012) [murmur:dev/spec-4291] (#4311)
+- Validate complete committed proposal lists (GMOD-001/030) [murmur:dev/spec-4287] (#4302)
+- Export archives from one complete snapshot (ARCH-007/017) [murmur:dev/spec-4289] (#4312)
+- Publish and persist the application component catalogue [murmur:dev/meta-fields-pr2] (#4314)
+- Seed configured fields and add profile values [murmur:dev/meta-fields-pr3] (#4317)
+- Typed metadata fields and user data in Rust core [murmur:dev/meta-fields-pr4] (#4319)
+- Export archives straight into the return buffer [murmur:dev/spec-4289] (#4315)
+- SDK cutover: cursored readers, public Client, and TS public layer (F3; F4 in progress) (#4293)
+- SDK cutover: TypeScript public layer for the browser (Task 4 slice 4) (#4326)
+- SDK cutover: switch the TypeScript package roots to the public layer (Task 4 slice 5) (#4327)
+- Typed codec sends and CodecEncodeFailed in TypeScript (F5, 1 of 3) (#4331)
+- Typed Swift content codecs and codec sends (F5, 2 of 3) (#4332)
+- Typed Kotlin content codecs, codec sends, and closeout (F5, 3 of 3) (#4333)
+- Actionable error codes from typed core causes (F6, 1 of 2) (#4336)
+- Cancelled error code, callback-failure proof, and codec follow-ups (F6, 2 of 2) (#4337)
+- Preserve mobile configuration failures and recheck selected missing groups (#4343)
+- Simplify legacy decode handling and restored archive metadata (#4342)
+- Generated metadata fields and profile access (#4334)
+- Generated attachments, storage layout and attachment events (#4339)
+- Retain content failures and continue host streams (#4345)
+- Fix Swift Event shutdown and discarded Client cleanup (#4374)
+- Fix callback harness bounds, cleanup, and failure controls (#4377)
+- Test CI failure markers and fix conformance fixture formatting (#4379)
+- Verify Android staging build inputs (#4382)
+- Keep Android verification metadata within the file-size limit (#4388)
+- Remove retired SDK edit-isolation gate (#4385)
+- Preserve caller Cargo parallelism in SDK builds (#4386)
+- Validate benchmark inputs and exclude stream cleanup from timing (#4384)
+- Reset inherited host linkers in the Android shell (#4390)
+- Select target OpenSSL and archive tools for Android builds (#4391)
+- Verify Android release annotation dependencies (#4392)
+- Run strict Android SDK staging in CI (#4393)
+- Use target OpenSSL libraries for iOS mobile builds (#4394)
+- Poll device sync events during native and Wasm startup (#4399)
+- Use the merged SDK runtime wake and setup repair (#4395)
+- Use the generated SDK in Android (#4402)
+- Migrate Browser SDK and Web Chat to the generated client (#4398)
+- Make sdk-artifacts render regenerate and drop admission receipts (#4409)
+- Trim the iOS SDK test suite to smoke coverage (#4408)
+- Remove duplicate façade tests and rename cutover-named modules (#4407)
+- Chaos suite: new profile/role/leave ops, fix wedged admin-list intents and super-admin removal brick [murmur:dev/chaos-suite-validation] (#4405)
+- Split SDK packaging tests under the file-size limit (#4411)
+- Rewrite iOS runtime script tests as XCTest cases (#4410)
+- Delete the old-vs-new SDK benchmark harness (#4406)
+- Trim the Browser SDK test suite to smoke coverage (#4413)
+- Supervise Android emulator startup and test teardown (#4415)
+- Move the browser conformance residue into the Browser SDK suite (#4419)
+- Add a single-side SDK benchmark suite (#4418)
+- Trim the Node SDK test suite to smoke coverage (#4420)
+- Move the Swift conformance residue into the iOS SDK suite (#4421)
+- Delete conformance families that never run in CI (#4422)
+- Trim the Android SDK test suites to smoke coverage (#4423)
+- Read sdk_export markers in the SDK generator instead of name tables (#4416)
+- Move the Node conformance residue into the Node SDK suite (#4424)
+- Return InvalidInput for a storage encryption key that is not 32 bytes (#4427)
+- Generate redacted Kotlin and Swift diagnostics from #[sdk(redact)] (#4417)
+- Audit docs and expand SDK migration, Events, and benchmark guides (#4428)
+- Crash the emulator test fixture with SIGUSR1, not SIGSEGV (#4432)
+- Wait for replica-visible welcomes in xmtp_mls group tests (#4431)
+- Move the Kotlin conformance residue into the Android SDK suite (#4434)
+- Generate the SDK Client statics and Message accessors, and lint the runtime in the generated trees (#4425)
+- Add an explicit-only local smoke-check skill (#4444)
+- Add tagged backend releases to the Release workflow (#4447)
+- Validate backend release source before running repository tools (#4448)
+- Fix release branch creation workflow permission grant (#4451)
+- Fix stream docs and smoke bot consumers (#4452)
+- Remove crates/xmtp_sdk/conformance (#4458)
+- Cut stale SDK docs and fold the Android example into sdks/android (#4460)
+- Simplify PR CI with Kache and targeted checks (#4466)
+- Trim duplicate core tests and keep contract coverage (#4469)
+- Consolidate CLI, SDK host, and release test fixtures (#4471)
+- Use S3 for Kache CI pilots (#4468)
+- Retry missing allocation boundary during backend startup (#4474)
+- Select CI checks from matched filters and explain full runs (#4481)
+- Expand S3 Kache coverage across CI workflows (#4485)
+- Declare CI suites in one file and select them by changed paths (#4487)
+- Narrow Nix check sources and run backend tests in Nix (#4490)
+- Build shared Compose UI with the current Android SDK (#4473)
+- Move Android Messenger to apps/example-android (#4489)
+- Add legacy database migration to the normal SDK packages (#4455)
+- Avoid duplicate browser migration archive copy (#4500)
+- Validate content codec values and prove current SDK paths (#4504)
+- Focus Macroscope spec review on material contract defects (#4523)
+- Fix backend token checks and stream completion (#4507)
+- Keep optimistic WASM messages in send order (#4557)
+- Wait for Android notification setup before paused group push checks (#4558)
+- Replace toxiproxy fork with workspace reqwest client (#4556)
+- Wait for per-test database replay before connecting to replicas (#4555)
+- *(ios-example)* Match SDK Swift formatting
+- *(ios-example)* Format lint tooling
+- Fix iOS build flags, sheet dismissal, and privacy declaration
+- Localize iOS foundation screens
+- Fix foundation admission and recovery edge cases
+- Regenerate example iOS CI for updated suite schema
+- Fix foundation startup and cancellation feedback
+- Limit iOS workflow secrets and retain failed journey evidence
+- Describe the iOS foundation scaffold accurately
+- Align iOS example CI with the shared native test pattern
+- Align iOS SDK CI with the shared Nix product graph
+- Implement iOS accounts with resilient lifecycle and transient form credentials
+- Fix accounts recovery and review findings
+- Fix accounts admission and CI feedback
+- Fix accounts recovery and review findings
+- Fix accounts lifecycle, recovery, and runtime defects
+- Fix accounts lifecycle, recovery, and runtime defects
+- Fix accounts lifecycle, recovery, and runtime defects
+- Make advanced server disclosure tap area cover its full row
+- Match muted token-required title hierarchy
+- Fix accounts admission and recovery edge cases
+- Fix accounts admission and recovery edge cases
+- Hide unknown group limit until setup recovers
+- Fix accounts startup and cancellation feedback
+- Avoid duplicate unknown-consent request reads
+- Normalize equivalent server URL profile keys
+- Reuse canonical stored profiles and restart bounded search hydration
+- Implement iOS messaging with retryable cleanup and composer recovery
+- Fence pending-page requests and complete durable discard after route exit
+- Include the shared conversation title view in the messaging PR
+- Fix messaging recovery and review findings
+- Fix exports cleanup ownership
+- Fix messaging admission and CI feedback
+- Fix messaging recovery and review findings
+- Fix messaging lifecycle, recovery, and runtime defects
+- Fix messaging lifecycle, recovery, and runtime defects
+- Fix messaging lifecycle, recovery, and runtime defects
+- Fix messaging admission and recovery edge cases
+- Fix messaging startup and cancellation feedback
+- Deduplicate pending downloads and wait for Reply readiness
+- Redact active deletions and acknowledge the keyboard tutorial
+- Localize the send review section title
+- Implement iOS groups and polish with readable metadata and valid collection actions
+- Fix groups recovery and review findings
+- Fix journey cleanup ownership
+- Fix polish admission and CI feedback
+- Fix polish recovery and review findings
+- Target member confirmation within the visible sheet
+- Fix polish lifecycle, recovery, and runtime defects
+- Fix polish lifecycle, recovery, and runtime defects
+- Fix polish lifecycle, recovery, and runtime defects
+- Fix polish admission and recovery edge cases
+- Fix polish admission and recovery edge cases
+- Fix polish startup and cancellation feedback
+- Preserve tested session controller after restacking
+- Preserve unrelated notifications during scoped privacy changes
+- Complete the Chats mute localization catalog
+- Add simulator screenshots to the iOS example README
+- Respect member action policies and retain distinct notification tests
+- *(ci)* Format the resolved scoped-secret fixture
+- Complete iOS group tools push and native polish (#4537)
+- Add React Native 8 SDK and reproducible native package builds
+- Reject unregistered native owner handles and observe React creation
+- Refresh React Native evidence after the native owner guard
+- Add React Native 8 SDK and pinned native package builds (#4591)
+- Integrate React Native releases and require complete native conformance
+- Correct the React Native release version selector label
+- Integrate React Native releases and require complete native conformance (#4592)
+- Document React Native across the SDK guides and API references
+- Publish verified React Native consumer configurations
+- Use native history cursors and document archive trust
+- Keep notification setup and push synchronization scoped
+- Document React Native across the SDK guides and API references (#4593)
+- Simplify React Native builds and preserve cold-cache correctness
+- Complete shared RN build and cache integration
+- Remove obsolete fixture wrapper CI selector
+- Fix React Native package artifact handoff and host receipts
+- Make Messenger retry consent fixture deterministic
+- Make Apple SDK native builds reproducible across build roots
+- Use deterministic archive indexes for Apple SDK outputs
+- Handle optional RN versions with macOS Bash
+- Record current RN cold-build and installed-package proof
+- Format historical RN evidence arrays
+- Simplify React Native builds and harden cold-cache behavior (#4602)
+- Add a React Native example: account, Chats, Message requests and Settings (#4608)
+- Add messaging to the React Native example: New message, the chat, reactions and Send needs review (#4612)
+- Add groups and files to the React Native example: Details, members, permissions, attachments (#4614)
+- Fix review follow-ups in the React Native example (#4616)
+
