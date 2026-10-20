@@ -40,11 +40,10 @@ pub struct WelcomeMembership {
 impl WelcomeMembership {
     /// Copy public data from a trial without retaining staged MLS state.
     pub(crate) fn from_staged(welcome: &StagedWelcome) -> Result<Self, GroupError> {
-        let extensions = welcome.public_group().group_context().extensions();
+        let extensions = welcome.group_context().extensions();
         let membership =
             extract_group_membership(extensions).map_err(|_| GroupError::InvalidWelcomeMetadata)?;
         let members = welcome
-            .public_group()
             .members()
             .map(|member| {
                 let credential = BasicCredential::try_from(member.credential.clone())?;

@@ -237,27 +237,16 @@ where
     /// Zero is valid only for epoch zero or an Oneshot Welcome.
     // implements: JOIN-036, JOIN-037, JOIN-038
     fn join_anchor(&self, decrypted: &DecryptedWelcome) -> Result<Cursor, GroupError> {
-        let metadata = extract_group_metadata(
-            decrypted
-                .staged_welcome
-                .public_group()
-                .group_context()
-                .extensions(),
-        )
-        .map_err(MetadataPermissionsError::from)?;
+        let metadata =
+            extract_group_metadata(decrypted.staged_welcome.group_context().extensions())
+                .map_err(MetadataPermissionsError::from)?;
         let anchor = match &decrypted.welcome_metadata {
             Some(metadata) => metadata.message_cursor,
             None if metadata.conversation_type == ConversationType::Oneshot => 0,
             None => return Err(GroupError::InvalidWelcomeMetadata),
         };
         let initial = metadata.conversation_type == ConversationType::Oneshot
-            || decrypted
-                .staged_welcome
-                .public_group()
-                .group_context()
-                .epoch()
-                .as_u64()
-                == 0;
+            || decrypted.staged_welcome.group_context().epoch().as_u64() == 0;
         if anchor >= self.welcome.sequence_id() || (anchor == 0 && !initial) {
             return Err(GroupError::InvalidWelcomeMetadata);
         }
@@ -361,16 +350,15 @@ where
             added_by_installation_id,
             welcome_metadata: _,
         } = decrypted;
-        let metadata =
-            extract_group_metadata(staged_welcome.public_group().group_context().extensions())
-                .map_err(MetadataPermissionsError::from)?;
+        let metadata = extract_group_metadata(staged_welcome.group_context().extensions())
+            .map_err(MetadataPermissionsError::from)?;
         // Reject before identity checks, which can wait on the network.
         // implements: SYNC-010
         if metadata.conversation_type == ConversationType::Sync
             && !is_own_sync_group(
                 context.inbox_id(),
                 &added_by_inbox_id,
-                staged_welcome.public_group().members(),
+                staged_welcome.members(),
             )
         {
             tracing::warn!(
@@ -383,7 +371,7 @@ where
         // implements: DMS-015, JOIN-081
         // A Restored row carries historical identity. A Welcome can activate
         // it only when its authenticated kind and DM pair are unchanged.
-        let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
+        let group_id = GroupId::try_from(staged_welcome.group_context().group_id())?;
         let existing_group = db.find_group(&group_id)?;
         if let Some(existing) = &existing_group
             && existing.membership_state == GroupMembershipState::Restored
@@ -423,7 +411,7 @@ where
             let mut current = OpenMlsGroup::load(&storage, &group_id.to_openmls())?
                 .ok_or(xmtp_db::NotFound::MlsGroup(group_id))?;
             let processed = db.latest_cursor_for_id(group_id, &[EntityKind::ApplicationMessage])?;
-            let incoming_epoch = staged_welcome.public_group().group_context().epoch();
+            let incoming_epoch = staged_welcome.group_context().epoch();
             let active = current.is_active();
             // A remove-and-re-add commit can retire this installation at the join anchor.
             // Removal can advance its public epoch without installing that epoch's secrets.
