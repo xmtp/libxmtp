@@ -837,8 +837,7 @@ pub fn read_super_admin_list_from_extensions(
 /// Synthesize a [`GroupMetadata`] from the AppData dictionary.
 /// Returns `Ok(None)` if the critical immutable seeds are absent.
 ///
-/// Encoding mirrors the sender-side synthesis in
-/// [`crate::app_data::migration::synthesize_canonical_subset_for_validation`]:
+/// Encoding mirrors the writer, [`crate::app_data::creation::initial_dictionary`]:
 /// - `CONVERSATION_TYPE`: 4 big-endian bytes of `ConversationType as i32`
 ///   (see `encode_conversation_type` there).
 /// - `CREATOR_INBOX_ID`: the versioned `InboxId` TLS wire form
@@ -847,10 +846,9 @@ pub fn read_super_admin_list_from_extensions(
 ///   hex-encodes the decoded id back into the legacy
 ///   `GroupMetadata::creator_inbox_id: String` slot.
 /// - `DM_MEMBERS`: `TlsSet<InboxId>` with exactly two elements —
-///   matches the declared `ComponentType::TlsSetInboxId` and the
-///   sender's `encode_dm_members`. The writer rejects self-DMs
-///   (identical slots) up front; readers that see a 1-element set
-///   surface `MalformedComponentValue`.
+///   matches the declared `ComponentType::TlsSetInboxId`. The writer
+///   rejects self-DMs (identical slots) up front; readers that see a
+///   1-element set surface `MalformedComponentValue`.
 /// - `ONESHOT_MESSAGE`: prost-encoded `OneshotMessage`.
 pub fn read_group_metadata_from_dict(
     mls_group: &OpenMlsGroup,

@@ -29,7 +29,6 @@ use crate::{
     },
     group_mutable_metadata::MetadataField,
     inbox_id::InboxId,
-    tls_set::TlsSetDelta,
 };
 
 /// Produce a populated [`ComponentRegistry`] from the legacy
@@ -438,65 +437,6 @@ pub(crate) fn parse_disappearing_i64(
             },
         )?;
     Ok(n.to_be_bytes().to_vec())
-}
-
-/// Encode hex inbox ids as a `TlsSet<InboxId>`. Must stay byte-identical
-/// to the bridge's `encode_inbox_id_set` or byte-compare validation
-/// fails.
-/// Encode an inbox-id set as a **bootstrap wire delta**: a
-/// `TlsSetDelta<InboxId>` of all-`Insert` mutations. The wire is
-/// always a delta; bootstrap is the case where the prior set is
-/// empty, so every mutation is an `Insert`. The dict stores the
-/// materialized `TlsSet` snapshot; receivers translate wire → dict
-/// via [`apply_wire_bytes`].
-pub(crate) fn encode_inbox_id_set(inbox_ids_hex: &[String]) -> Result<Vec<u8>, MigrationError> {
-    let ids: Vec<InboxId> = inbox_ids_hex
-        .iter()
-        .map(|s| InboxId::from_hex(s))
-        .collect::<Result<Vec<_>, _>>()?;
-    // Sort so the wire bytes are deterministic across senders. The
-    // canonical-subset validator byte-compares this output against
-    // the actual proposal, so non-determinism here would let an
-    // honest sender's payload mismatch the validator's expectation.
-    let mut sorted_ids: Vec<InboxId> = ids;
-    sorted_ids.sort();
-    sorted_ids.dedup();
-    let mut delta: TlsSetDelta<InboxId> = TlsSetDelta::new();
-    for id in sorted_ids {
-        delta = delta.insert(id);
-    }
-    Ok(delta.tls_serialize_detached()?)
-}
-
-/// Encode the DM's two members as a **bootstrap wire delta**: a
-/// `TlsSetDelta<InboxId>` of all-`Insert` mutations. (DM_MEMBERS is
-/// declared as `ComponentType::TlsSetInboxId`; the dict stores the
-/// materialized `TlsSet` snapshot.)
-pub(crate) fn encode_dm_members(
-    dm: &crate::group_metadata::DmMembers<xmtp_id::InboxId>,
-) -> Result<Vec<u8>, MigrationError> {
-    // Decode first, then compare on InboxId — hex strings can differ
-    // only in case ("ABC..." vs "abc...") and still represent the same
-    // inbox id. Self-DMs would otherwise slip past a string-compare
-    // and `TlsSet` would silently collapse to one element, losing
-    // fidelity.
-    let one_str: &str = dm.member_one_inbox_id.as_ref();
-    let two_str: &str = dm.member_two_inbox_id.as_ref();
-    let one = InboxId::from_hex(one_str)?;
-    let two = InboxId::from_hex(two_str)?;
-    if one == two {
-        // Include both raw inputs so case-divergent self-references
-        // ("ABC..." vs "abc...") are visible in logs without having
-        // to reproduce.
-        return Err(MigrationError::DmMembersSelfReference(format!(
-            "{} (member_one={one_str}, member_two={two_str})",
-            one.to_hex(),
-        )));
-    }
-    // Sort for deterministic wire bytes (validator byte-compare).
-    let (a, b) = if one <= two { (one, two) } else { (two, one) };
-    let delta = TlsSetDelta::<InboxId>::new().insert(a).insert(b);
-    Ok(delta.tls_serialize_detached()?)
 }
 
 /// `CONVERSATION_TYPE` payload codec: 4-byte big-endian `i32` matching

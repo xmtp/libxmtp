@@ -58,8 +58,6 @@ pub use intents::UpdateGroupMembershipResult;
 // An error type that other errors wrap transparently, so a caller that walks
 // an error chain can open it.
 pub use mls_sync::GroupMessageProcessingError;
-#[cfg(test)]
-use openmls::extensions::Metadata;
 use openmls::{
     credentials::CredentialType,
     extensions::{
@@ -74,8 +72,6 @@ use std::collections::HashMap;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_common::{Event, log_event, time::now_ns};
-#[cfg(test)]
-use xmtp_configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use xmtp_configuration::{
     GROUP_MEMBERSHIP_EXTENSION_ID, MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
     SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,

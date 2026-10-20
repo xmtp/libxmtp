@@ -63,7 +63,6 @@ impl RejectionCode {
         use GroupMessageProcessingError as G;
         match error {
             G::CommitValidation(V::IdentityDependency(_)) => Self::IdentityReference,
-            G::CommitValidation(V::Bootstrap(_)) => Self::Bootstrap,
             G::CommitValidation(V::Rule(error)) => match error {
                 C::InsufficientPermissions => Self::InsufficientPermissions,
                 C::ActorCouldNotBeFound => Self::ActorCouldNotBeFound,
