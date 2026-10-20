@@ -214,6 +214,98 @@ mod tests {
         }
     }
 
+    /// The draft-10 `last_resort_key_package` application component.
+    /// Upstream OpenMLS (#2133) marks a last-resort key package with it, with
+    /// empty data, and rejects it with any other data.
+    const LAST_RESORT_COMPONENT: u16 = 0x0004;
+
+    /// A key package whose `app_data_dictionary` holds the last-resort
+    /// component with `data`. Its capabilities advertise AppDataDictionary, as
+    /// upstream's builder sets them for that component. `legacy` also adds
+    /// the `last_resort` extension.
+    fn key_package_with_last_resort_component(
+        data: Vec<u8>,
+        legacy: bool,
+    ) -> (OpenMlsRustCrypto, Vec<u8>) {
+        use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
+        let provider = OpenMlsRustCrypto::default();
+        let key = XmtpInstallationCredential::new();
+        let mut dictionary = AppDataDictionary::new();
+        let _ = dictionary.insert(LAST_RESORT_COMPONENT, data);
+        let mut extensions = vec![Extension::AppDataDictionary(
+            AppDataDictionaryExtension::new(dictionary),
+        )];
+        if legacy {
+            extensions.push(Extension::LastResort(LastResortExtension::default()));
+        }
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::AppDataDictionary,
+            ]),
+            None,
+            None,
+        );
+        let bundle = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
+            .leaf_node_extensions(
+                Extensions::single(Extension::ApplicationId(ApplicationIdExtension::new(
+                    b"inbox",
+                )))
+                .unwrap(),
+            )
+            .key_package_extensions(Extensions::from_vec(extensions).unwrap())
+            .build(
+                CIPHERSUITE,
+                &provider,
+                &key,
+                CredentialWithKey {
+                    credential: create_credential("inbox"),
+                    signature_key: key.public_slice().into(),
+                },
+            )
+            .unwrap();
+        let bytes = bundle.key_package().tls_serialize_detached().unwrap();
+        (provider, bytes)
+    }
+
+    /// Upstream OpenMLS rejects a key package whose last-resort component has
+    /// data, so rc4 must reject it too. Otherwise an rc4 member could Add it
+    /// and future members would reject that commit: the group would fork.
+    // The pin lacks the upstream #2133 check. Remove the ignore when the
+    // OpenMLS pin moves to the PR 1 commit that backports it.
+    #[ignore = "needs the OpenMLS pin with the #2133 last-resort check"]
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: JOIN-008
+    fn last_resort_component_with_data_fails_verification() {
+        for legacy in [false, true] {
+            let (provider, bytes) = key_package_with_last_resort_component(vec![1], legacy);
+            assert!(
+                matches!(
+                    VerifiedKeyPackageV2::from_bytes(provider.crypto(), &bytes),
+                    Err(crate::key_package::KeyPackageVerificationError::MlsValidation(_))
+                ),
+                "a last-resort component with data verified (legacy extension: {legacy})"
+            );
+        }
+    }
+
+    /// Upstream OpenMLS main marks a last-resort key package with the
+    /// component and empty data. rc4 accepts it, with or without the legacy
+    /// extension next to it.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: JOIN-008
+    fn upstream_last_resort_component_verifies() {
+        for legacy in [false, true] {
+            let (provider, bytes) = key_package_with_last_resort_component(vec![], legacy);
+            let verified = VerifiedKeyPackageV2::from_bytes(provider.crypto(), &bytes)?;
+            assert_eq!(verified.credential.inbox_id, "inbox");
+        }
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     // verifies: JOIN-008
     fn configured_expired_lifetime_still_fails_verification() {
