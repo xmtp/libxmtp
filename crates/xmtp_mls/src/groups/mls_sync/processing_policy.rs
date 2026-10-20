@@ -175,7 +175,7 @@ mod tests {
     }
 
     /// A received commit that Adds a key package whose last-resort mark
-    /// carries data (JOIN-082) is a terminal rejection: the receiver keeps
+    /// carries data is a terminal rejection: the receiver keeps
     /// its epoch, and a later commit that Adds a package with an empty mark
     /// applies. The error is the one libxmtp's receive path gets from
     /// OpenMLS, mapped as that path maps it.
