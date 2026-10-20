@@ -171,7 +171,7 @@ fn group_save(
         }),
         // The archive is a deliberate export, so it owns these values.
         mutable_metadata: Some(MutableMetadataSave {
-            attributes: std::mem::take(&mut mutable.attributes),
+            attributes: mutable.take_attributes(),
             admin_list: std::mem::take(&mut mutable.admin_list),
             super_admin_list: std::mem::take(&mut mutable.super_admin_list),
         }),

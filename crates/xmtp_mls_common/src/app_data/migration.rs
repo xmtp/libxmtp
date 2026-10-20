@@ -277,7 +277,7 @@ pub fn synthesize_canonical_subset_from_extensions(
     // entries here would only pollute the dict with values readers
     // would surface as `MissingExtension` anyway.
     for (field, component_id, _) in metadata_field_registry_mapping() {
-        if let Some(s) = gmm.attributes.get(field.as_str()) {
+        if let Some(s) = gmm.attributes().get(field.as_str()) {
             strict.insert(
                 *component_id,
                 (
@@ -291,7 +291,10 @@ pub fn synthesize_canonical_subset_from_extensions(
     // COMMIT_LOG_SIGNER lives in the same GMM attributes map. The
     // legacy form is hex-encoded; the AppData wire form is the raw
     // 32-byte private key.
-    if let Some(hex_str) = gmm.attributes.get(MetadataField::CommitLogSigner.as_str()) {
+    if let Some(hex_str) = gmm
+        .attributes()
+        .get(MetadataField::CommitLogSigner.as_str())
+    {
         let mut raw =
             hex::decode(hex_str).map_err(|e| MigrationError::InvalidCommitLogSignerHex {
                 reason: e.to_string(),

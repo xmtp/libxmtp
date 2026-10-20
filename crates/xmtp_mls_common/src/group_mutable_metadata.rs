@@ -130,15 +130,16 @@ impl MessageDisappearingSettings {
 /// This struct is stored as an MLS Unknown Group Context Extension.
 ///
 /// The `_commit_log_signer` attribute holds the group's commit-log private key
-/// as hex. `Debug` redacts it and it is wiped on drop. Change attributes
-/// through [`GroupMutableMetadata::insert_attribute`] and
+/// as hex. `Debug` redacts it and it is wiped on drop. The attribute map is
+/// private: read it with [`GroupMutableMetadata::attributes`] and change it
+/// with [`GroupMutableMetadata::insert_attribute`] and
 /// [`GroupMutableMetadata::remove_attribute`], which wipe the value they
 /// replace or remove.
 #[derive(Clone, PartialEq)]
 pub struct GroupMutableMetadata {
     /// Map to store various metadata attributes (e.g., group name, description).
     /// Allows libxmtp to receive attributes from updated versions not yet captured in MetadataField.
-    pub attributes: HashMap<String, String>,
+    attributes: HashMap<String, String>,
     /// List of admin inbox IDs for this group.
     /// See `GroupMutablePermissions` for more details on admin permissions.
     pub admin_list: Vec<String>,
@@ -301,6 +302,18 @@ impl GroupMutableMetadata {
         let mut key = Zeroizing::new(vec![0; hex_str.len() / 2]);
         hex::decode_to_slice(hex_str, key.as_mut_slice()).ok()?;
         Some(Secret::new(std::mem::take(&mut *key)))
+    }
+
+    /// The attributes, read-only. Change them with
+    /// [`Self::insert_attribute`] and [`Self::remove_attribute`].
+    pub fn attributes(&self) -> &HashMap<String, String> {
+        &self.attributes
+    }
+
+    /// Move the attributes out, leaving the map empty. The caller owns the
+    /// values, the commit-log signer included.
+    pub fn take_attributes(&mut self) -> HashMap<String, String> {
+        std::mem::take(&mut self.attributes)
     }
 
     /// Set an attribute, wiping the value it replaces.

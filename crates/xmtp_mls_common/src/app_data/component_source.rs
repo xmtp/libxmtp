@@ -2267,7 +2267,7 @@ mod tests {
         merge_app_data_into_mutable_metadata_from_extensions(&mut base, &exts)
             .expect("merge ignores registry parseability and reads field directly");
         assert_eq!(
-            base.attributes
+            base.attributes()
                 .get(MetadataField::GroupName.as_str())
                 .map(String::as_str),
             Some("My Group"),

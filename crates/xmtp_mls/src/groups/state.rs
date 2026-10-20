@@ -84,7 +84,7 @@ where
                 .map_err(|error| GroupError::MetadataPermissionsError(error.into()))?;
             let field = |key: MetadataField| {
                 metadata
-                    .attributes
+                    .attributes()
                     .get(key.as_str())
                     .cloned()
                     .unwrap_or_default()

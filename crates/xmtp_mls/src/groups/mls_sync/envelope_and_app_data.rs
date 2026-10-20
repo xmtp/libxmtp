@@ -377,7 +377,7 @@ where
                 tracing::debug!("could not read mutable metadata for field {field_name}: {err}")
             })
             .ok()?;
-        Some(metadata.attributes.get(field_name).cloned())
+        Some(metadata.attributes().get(field_name).cloned())
     }
 
     /// Store a proposal the ordered prefix delivered, with durable evidence of

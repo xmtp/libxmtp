@@ -82,7 +82,7 @@ pub(crate) fn decode(bytes: &[u8]) -> (Option<ImmutableMetadataSave>, Option<Mut
                 );
             }
             mutable = Some(MutableMetadataSave {
-                attributes: std::mem::take(&mut result.attributes),
+                attributes: result.take_attributes(),
                 admin_list: std::mem::take(&mut result.admin_list),
                 super_admin_list: std::mem::take(&mut result.super_admin_list),
             });

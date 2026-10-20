@@ -1417,9 +1417,9 @@ fn mutable_metadata_field_changes(
     new_metadata: &GroupMutableMetadata,
 ) -> Vec<MetadataFieldChange> {
     let all_keys = old_metadata
-        .attributes
+        .attributes()
         .keys()
-        .chain(new_metadata.attributes.keys())
+        .chain(new_metadata.attributes().keys())
         .filter(|key| key.as_str() != MetadataField::CommitLogSigner.as_str())
         .fold(HashSet::new(), |mut key_set, key| {
             key_set.insert(key);
@@ -1429,8 +1429,8 @@ fn mutable_metadata_field_changes(
     all_keys
         .into_iter()
         .filter_map(|key| {
-            let old_val = old_metadata.attributes.get(key);
-            let new_val = new_metadata.attributes.get(key);
+            let old_val = old_metadata.attributes().get(key);
+            let new_val = new_metadata.attributes().get(key);
             if old_val.ne(&new_val) {
                 Some(MetadataFieldChange::new(
                     key.clone(),
