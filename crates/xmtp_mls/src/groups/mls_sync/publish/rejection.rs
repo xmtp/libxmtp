@@ -57,6 +57,17 @@ enum RejectionCode {
     OtherSupportedInput,
 }
 
+#[cfg(test)]
+impl PreparedRejection {
+    /// A rejection with a fixed cursor and code, for stored-format tests.
+    pub(super) fn sample() -> Self {
+        Self {
+            sequence_id: 42,
+            code: RejectionCode::InboxValidation,
+        }
+    }
+}
+
 impl RejectionCode {
     fn capture(error: &GroupMessageProcessingError) -> Self {
         use CommitRuleError as C;
@@ -251,6 +262,134 @@ mod tests {
             len => vec![0x78, u8::try_from(len).unwrap()],
         };
         [head.as_slice(), text.as_bytes()].concat()
+    }
+
+    /// Stored rows name each code. Every name is written out here, so a
+    /// renamed code fails this test instead of every stored row of an
+    /// in-flight intent. A new code must be added to both lists.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn every_rejection_code_is_stored_by_its_name() {
+        let codes = [
+            (
+                RejectionCode::InsufficientPermissions,
+                "InsufficientPermissions",
+            ),
+            (RejectionCode::ActorCouldNotBeFound, "ActorCouldNotBeFound"),
+            (RejectionCode::ActorNotMember, "ActorNotMember"),
+            (RejectionCode::SubjectDoesNotExist, "SubjectDoesNotExist"),
+            (RejectionCode::MultipleActors, "MultipleActors"),
+            (
+                RejectionCode::MissingGroupMembership,
+                "MissingGroupMembership",
+            ),
+            (
+                RejectionCode::MissingMutableMetadata,
+                "MissingMutableMetadata",
+            ),
+            (RejectionCode::SequenceIdDecreased, "SequenceIdDecreased"),
+            (RejectionCode::NoPskSupport, "NoPskSupport"),
+            (RejectionCode::ProposerNotFound, "ProposerNotFound"),
+            (RejectionCode::ProposalsNotEnabled, "ProposalsNotEnabled"),
+            (
+                RejectionCode::IntentAlreadyProcessed,
+                "IntentAlreadyProcessed",
+            ),
+            (RejectionCode::InvalidPayload, "InvalidPayload"),
+            (
+                RejectionCode::OwnMessageWithoutAttempt,
+                "OwnMessageWithoutAttempt",
+            ),
+            (RejectionCode::InvalidSender, "InvalidSender"),
+            (RejectionCode::MalformedEnvelope, "MalformedEnvelope"),
+            (RejectionCode::InvalidMlsInput, "InvalidMlsInput"),
+            (RejectionCode::WrongCredentialType, "WrongCredentialType"),
+            (
+                RejectionCode::UnsupportedMessageType,
+                "UnsupportedMessageType",
+            ),
+            (RejectionCode::FutureEpoch, "FutureEpoch"),
+            (
+                RejectionCode::MessageAlreadyProcessed,
+                "MessageAlreadyProcessed",
+            ),
+            (RejectionCode::IdentityReference, "IdentityReference"),
+            (
+                RejectionCode::IdentitySequenceOrder,
+                "IdentitySequenceOrder",
+            ),
+            (RejectionCode::InboxValidation, "InboxValidation"),
+            (RejectionCode::InvalidVersion, "InvalidVersion"),
+            (
+                RejectionCode::UnexpectedInstallationAdded,
+                "UnexpectedInstallationAdded",
+            ),
+            (
+                RejectionCode::UnexpectedInstallationsRemoved,
+                "UnexpectedInstallationsRemoved",
+            ),
+            (RejectionCode::GroupMetadata, "GroupMetadata"),
+            (RejectionCode::MlsCredential, "MlsCredential"),
+            (RejectionCode::GroupMutableMetadata, "GroupMutableMetadata"),
+            (
+                RejectionCode::GroupMutablePermissions,
+                "GroupMutablePermissions",
+            ),
+            (RejectionCode::TooManyCharacters, "TooManyCharacters"),
+            (RejectionCode::MinVersionDowngrade, "MinVersionDowngrade"),
+            (RejectionCode::MinVersionRemove, "MinVersionRemove"),
+            (RejectionCode::ComponentSource, "ComponentSource"),
+            (RejectionCode::Bootstrap, "Bootstrap"),
+            (RejectionCode::Conversion, "Conversion"),
+            (RejectionCode::OtherSupportedInput, "OtherSupportedInput"),
+        ];
+        for (code, name) in codes {
+            // Fails to compile when a code is added without a name above.
+            match code {
+                RejectionCode::InsufficientPermissions
+                | RejectionCode::ActorCouldNotBeFound
+                | RejectionCode::ActorNotMember
+                | RejectionCode::SubjectDoesNotExist
+                | RejectionCode::MultipleActors
+                | RejectionCode::MissingGroupMembership
+                | RejectionCode::MissingMutableMetadata
+                | RejectionCode::SequenceIdDecreased
+                | RejectionCode::NoPskSupport
+                | RejectionCode::ProposerNotFound
+                | RejectionCode::ProposalsNotEnabled
+                | RejectionCode::IntentAlreadyProcessed
+                | RejectionCode::InvalidPayload
+                | RejectionCode::OwnMessageWithoutAttempt
+                | RejectionCode::InvalidSender
+                | RejectionCode::MalformedEnvelope
+                | RejectionCode::InvalidMlsInput
+                | RejectionCode::WrongCredentialType
+                | RejectionCode::UnsupportedMessageType
+                | RejectionCode::FutureEpoch
+                | RejectionCode::MessageAlreadyProcessed
+                | RejectionCode::IdentityReference
+                | RejectionCode::IdentitySequenceOrder
+                | RejectionCode::InboxValidation
+                | RejectionCode::InvalidVersion
+                | RejectionCode::UnexpectedInstallationAdded
+                | RejectionCode::UnexpectedInstallationsRemoved
+                | RejectionCode::GroupMetadata
+                | RejectionCode::MlsCredential
+                | RejectionCode::GroupMutableMetadata
+                | RejectionCode::GroupMutablePermissions
+                | RejectionCode::TooManyCharacters
+                | RejectionCode::MinVersionDowngrade
+                | RejectionCode::MinVersionRemove
+                | RejectionCode::ComponentSource
+                | RejectionCode::Bootstrap
+                | RejectionCode::Conversion
+                | RejectionCode::OtherSupportedInput => {}
+            }
+            assert_eq!(xmtp_db::db_serialize(&code)?, cbor_text(name), "{name}");
+            assert_eq!(
+                xmtp_db::db_deserialize::<RejectionCode>(&cbor_text(name))?,
+                code
+            );
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]

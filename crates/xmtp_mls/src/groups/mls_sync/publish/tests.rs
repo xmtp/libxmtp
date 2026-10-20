@@ -163,6 +163,79 @@ async fn prepare_kind<C: XmtpSharedContext>(
     Ok((requirements.intent, attempt))
 }
 
+/// A stored attempt with every optional field set, written by this build:
+/// receipts, a Welcome batch with receipts, a rejection, an unsettled batch,
+/// and a standalone proposal. Every name in it, nested ones included, is now
+/// stored in rc4 rows. Rewrite it only for a deliberate format change, with
+/// `just test workspace -p xmtp_mls write_golden_prepared_attempt --run-ignored only`.
+const GOLDEN_PREPARED_ATTEMPT: &str = include_str!("fixtures/prepared_attempt.cbor.hex");
+
+/// The golden attempt's values that are not copied from a prepared message.
+fn golden_attempt_parts() -> (
+    Vec<Vec<u8>>,
+    welcomes::PreparedWelcomes,
+    prepared::PreparedProposal,
+) {
+    let receipt = xmtp_proto::backend_v1::EnvelopeMeta::default().encode_to_vec();
+    (
+        vec![receipt.clone()],
+        welcomes::PreparedWelcomes {
+            commit_sequence_id: 7,
+            envelopes: vec![vec![1, 2, 3]],
+            receipts: Some(vec![receipt]),
+        },
+        prepared::PreparedProposal {
+            payload_hash: vec![9; 32],
+            proposal: vec![4, 5, 6],
+        },
+    )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[ignore = "rewrites fixtures/prepared_attempt.cbor.hex"]
+#[xmtp_common::test(unwrap_try = true)]
+async fn write_golden_prepared_attempt() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.send_message_optimistic(b"golden prepared attempt", Default::default())?;
+    let (_, mut attempt) = prepare_message(&group).await?;
+    let (receipts, welcomes, proposal) = golden_attempt_parts();
+    attempt.receipts = Some(receipts);
+    attempt.welcomes = Some(welcomes);
+    attempt.proposals = vec![proposal];
+    attempt.rejection = Some(rejection::PreparedRejection::sample());
+    attempt.unsettled = Some(Unsettled::Welcomes);
+    std::fs::write(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/groups/mls_sync/publish/fixtures/prepared_attempt.cbor.hex"),
+        hex::encode(xmtp_db::db_serialize(&attempt)?) + "\n",
+    )?;
+}
+
+/// The golden attempt decodes with every field in place, and encodes back to
+/// the same bytes. A renamed field, nested or not, or a renamed variant fails
+/// here: a required one fails to decode, and an optional one would read as
+/// `None`.
+#[xmtp_common::test(unwrap_try = true)]
+fn golden_prepared_attempt_keeps_every_field() {
+    let bytes = hex::decode(GOLDEN_PREPARED_ATTEMPT.trim())?;
+    let attempt = PreparedAttempt::decode(&bytes)?;
+    let (receipts, welcomes, proposal) = golden_attempt_parts();
+    assert_eq!(attempt.version, prepared::PREPARED_ATTEMPT_VERSION);
+    assert!(!attempt.base.authenticator.is_empty());
+    assert_eq!(attempt.payload_hash.len(), 32);
+    assert_eq!(attempt.envelopes.len(), 1);
+    assert_eq!(attempt.proposals, [proposal]);
+    assert_eq!(attempt.receipts, Some(receipts));
+    assert_eq!(attempt.welcomes, Some(welcomes));
+    assert_eq!(
+        attempt.rejection,
+        Some(rejection::PreparedRejection::sample())
+    );
+    assert_eq!(attempt.unsettled, Some(Unsettled::Welcomes));
+    assert_eq!(xmtp_db::db_serialize(&attempt)?, bytes);
+}
+
 /// The stored attempt is CBOR: a map keyed by field names, so its first byte
 /// is the map header, not the version. Decoding still rejects another
 /// version, a row in another format, and a cut row. A row written before a
