@@ -328,6 +328,20 @@ mod tests {
         }
     }
 
+    /// The reader ignores bytes after the context, as the legacy decoder did.
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn trailing_bytes_after_a_context_are_ignored() {
+        let case = corpus()
+            .into_iter()
+            .find(|case| case.name == "everything")
+            .unwrap();
+        assert_ne!(case.expected["creator"], Value::Null);
+        let mut bytes = case.context;
+        bytes.extend([0xff; 3]);
+        assert_eq!(summary(&super::decode(&bytes)), case.expected);
+    }
+
     // verifies: MIG-005
     #[xmtp_common::test(unwrap_try = true)]
     fn unavailable_appdata_creator_keeps_legacy_creator() {
