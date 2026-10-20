@@ -106,15 +106,46 @@ fn store_labels() -> BTreeSet<&'static str> {
         .unwrap();
     production
         .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            let declaration = line.strip_prefix("pub ").unwrap_or(line);
-            let (_, label) = declaration
-                .strip_prefix("const ")?
-                .split_once(": &[u8] = b\"")?;
-            label.strip_suffix("\";")
-        })
+        .filter_map(byte_string_constant)
         .collect()
+}
+
+/// The value of a one-line `const` or `static` of type `&[u8]` or
+/// `&[u8; N]` set to a byte string literal, with any visibility and any
+/// comment after it.
+fn byte_string_constant(line: &str) -> Option<&str> {
+    let mut line = line.trim_start();
+    if let Some(rest) = line.strip_prefix("pub") {
+        line = match rest.strip_prefix('(') {
+            Some(scope) => scope.split_once(')')?.1,
+            None => rest,
+        };
+        line = line.trim_start();
+    }
+    let declaration = line
+        .strip_prefix("const ")
+        .or_else(|| line.strip_prefix("static "))?;
+    let (_, typed) = declaration.split_once(':')?;
+    let (ty, value) = typed.split_once('=')?;
+    if !ty.trim().starts_with("&[u8") {
+        return None;
+    }
+    Some(value.trim_start().strip_prefix("b\"")?.split_once('"')?.0)
+}
+
+/// The items of a list row: a CBOR array of byte strings, each an encoded
+/// value (`encode_list`). Any other row holds one value.
+fn list_items(value: &[u8]) -> Option<Vec<Vec<u8>>> {
+    match cbor(value) {
+        Cbor::Array(items) if !items.is_empty() => items
+            .into_iter()
+            .map(|item| match item {
+                Cbor::Bytes(bytes) => Some(bytes),
+                _ => None,
+            })
+            .collect(),
+        _ => None,
+    }
 }
 
 #[derive(Debug)]
@@ -778,15 +809,13 @@ fn key_paths(row: &Row, paths: &mut BTreeSet<String>) {
             _ => {}
         }
     }
-    if matches!(row.label.as_str(), "OwnLeafNodes" | "ProposalQueueRefs") {
-        for item in decode_list(row.label.as_bytes(), &row.value)
-            .unwrap()
-            .iter()
-        {
-            walk(&cbor(item), "[]", paths);
+    match list_items(&row.value) {
+        Some(items) => {
+            for item in items {
+                walk(&cbor(&item), "[]", paths);
+            }
         }
-    } else {
-        walk(&cbor(&row.value), "", paths);
+        None => walk(&cbor(&row.value), "", paths),
     }
 }
 
@@ -831,13 +860,7 @@ fn texts(golden: &Golden) -> BTreeSet<String> {
     }
     let mut texts = BTreeSet::new();
     for row in golden.rows() {
-        let mut values = vec![row.value.clone()];
-        if matches!(row.label.as_str(), "OwnLeafNodes" | "ProposalQueueRefs") {
-            values = decode_list(row.label.as_bytes(), &row.value)
-                .unwrap()
-                .to_vec();
-        }
-        for value in values {
+        for value in list_items(&row.value).unwrap_or_else(|| vec![row.value.clone()]) {
             walk(&cbor(&value), &mut texts);
         }
     }
@@ -857,6 +880,29 @@ fn golden_files_are_frozen() {
             "{} changed; frozen golden files are never edited",
             file.name
         );
+    }
+}
+
+/// The label parser reads every one-line byte string constant, whatever its
+/// visibility, keyword, type length or trailing comment.
+#[xmtp_common::test(unwrap_try = true)]
+fn byte_string_constants_parse_in_any_form() {
+    for (line, label) in [
+        ("const A: &[u8] = b\"A\";", Some("A")),
+        ("    pub const B: &[u8] = b\"B\";", Some("B")),
+        (
+            "pub(crate) const C: &[u8; 1] = b\"C\"; // a comment",
+            Some("C"),
+        ),
+        (
+            "pub(in crate::sql_key_store) static D: &[u8] = b\"D\";",
+            Some("D"),
+        ),
+        ("const E: &str = \"E\";", None),
+        ("let f: &[u8] = b\"f\";", None),
+        ("pub fn g() -> &'static [u8] { b\"g\" }", None),
+    ] {
+        assert_eq!(byte_string_constant(line), label, "{line}");
     }
 }
 
