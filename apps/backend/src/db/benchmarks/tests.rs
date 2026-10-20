@@ -144,8 +144,26 @@ fn statistics_preserve_samples_and_units() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn bulk_seed_matches_production_storage_and_read_semantics() {
     let mut database = TestDatabase::new()?;
-    let store = connect(&database, 1).await?;
+    let store = connect(&database, 1, SEED_TIMEOUT_MS).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT setting FROM pg_settings WHERE name = 'statement_timeout'"
+        )
+        .fetch_one(&store.primary)
+        .await?,
+        SEED_TIMEOUT_MS.to_string()
+    );
     let catalog = corpus::seed(&store, 1_000, 42).await?;
+    store.primary.close().await;
+    let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT setting FROM pg_settings WHERE name = 'statement_timeout'"
+        )
+        .fetch_one(&store.primary)
+        .await?,
+        REQUEST_TIMEOUT_MS.to_string()
+    );
     assert_eq!(catalog.len(), 100);
     let storage = report::storage(&store).await?;
     assert!(storage["heap_bytes"].as_i64().unwrap() > 0);
@@ -219,11 +237,11 @@ async fn bulk_seed_matches_production_storage_and_read_semantics() {
     database.remove()?;
 }
 
-/// A dormant half of the topic population and a hot 1% make recent-vs-old cursor tests meaningful.
+/// Skew, dormancy, and watermark maxima survive multiple load batches, including topics absent from the final batch.
 #[xmtp_common::test(unwrap_try = true)]
 async fn corpus_has_skew_and_dormant_history() {
     let mut database = TestDatabase::new()?;
-    let store = connect(&database, 1).await?;
+    let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
     let catalog = corpus::seed(&store, 100_000, 42).await?;
     assert_eq!(catalog.len(), 10_000);
     assert_eq!(
@@ -238,6 +256,7 @@ async fn corpus_has_skew_and_dormant_history() {
             .await?;
     assert!((40_000..55_000).contains(&hot_rows));
     assert!(catalog.iter().any(|topic| topic.head > 99_000));
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM topic_watermark watermark WHERE last_sequence_id <> (SELECT max(sequence_id) FROM envelopes envelope WHERE envelope.topic = watermark.topic)").fetch_one(&store.primary).await?, 0);
     store.primary.close().await;
     database.remove()?;
 }
@@ -246,11 +265,11 @@ async fn corpus_has_skew_and_dormant_history() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn copied_trials_are_isolated_and_removed_templates_fail() {
     let mut database = TestDatabase::new()?;
-    let store = connect(&database, 1).await?;
+    let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
     corpus::seed(&store, 1_000, 42).await?;
     store.primary.close().await;
     let mut copy = database.copy()?;
-    let copy_store = connect(&copy, 1).await?;
+    let copy_store = connect(&copy, 1, REQUEST_TIMEOUT_MS).await?;
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM envelopes")
             .fetch_one(&copy_store.primary)
@@ -262,7 +281,7 @@ async fn copied_trials_are_isolated_and_removed_templates_fail() {
         .await?;
     copy_store.primary.close().await;
     copy.remove()?;
-    let store = connect(&database, 1).await?;
+    let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM envelopes")
             .fetch_one(&store.primary)

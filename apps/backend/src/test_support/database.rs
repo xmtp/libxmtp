@@ -3,7 +3,7 @@ use sqlx::{Connection, PgConnection};
 use std::time::Duration;
 
 const DATABASE_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
-const DATABASE_COPY_TIMEOUT: Duration = Duration::from_secs(300);
+const DATABASE_COPY_TIMEOUT: Duration = Duration::from_secs(600);
 const REPLICA_REPLAY_TIMEOUT: Duration = Duration::from_secs(30);
 const REPLICA_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(100);
@@ -13,7 +13,7 @@ mod tests;
 /// Own a unique disposable database. Synchronous, bounded cleanup uses a separate
 /// runtime so assertion failures and test-runtime teardown cannot cancel it.
 /// Each database operation and its runtime shutdown share a 5 s budget,
-/// except copying a large benchmark template, which has a 300 s budget.
+/// except copying a large benchmark template, which has a 600 s budget.
 /// Drop logs a failed cleanup with the database name. It does not raise the error.
 pub struct TestDatabase {
     name: Option<String>,

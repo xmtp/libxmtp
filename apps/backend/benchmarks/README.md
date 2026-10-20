@@ -44,7 +44,7 @@ size or lower writer count if the growth budget cannot fit the batch).
 ## Corpus and efficient seeding
 
 - Seed exactly 1,000, 100,000, and 10,000,000 envelopes using server-side
-  `INSERT ... SELECT generate_series` in bounded 100,000-row transactions.
+  `INSERT ... SELECT generate_series` in bounded 50,000-row transactions.
   There is no per-message network round trip. All production migrations,
   constraints, indexes, WAL, fsync, and synchronous commits remain enabled.
 - Use `min(rows / 10, 10,000)` topics. Bootstrap one row per topic, then route
@@ -63,6 +63,10 @@ size or lower writer count if the growth budget cannot fit the batch).
   `VACUUM ANALYZE` and `CHECKPOINT`. Seeding duration and heap/index/total bytes
   are recorded. This is a clean, append-oriented baseline, **not** a model of
   production bloat or pruning history.
+  Watermarks are reduced from each batch's returned heads and inserted once in
+  sorted order, avoiding a full-table aggregate over the seeded payload heap.
+  Setup/maintenance statements have a separate 15-minute timeout; timed request
+  pools are re-opened with a 120-second statement timeout before measurement.
 
 ## Workloads
 

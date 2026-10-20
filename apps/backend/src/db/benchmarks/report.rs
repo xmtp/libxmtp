@@ -78,6 +78,7 @@ pub(super) async fn environment(store: &Store, config: &Config) -> TestResult<Va
     Ok(
         json!({"event": "environment", "format_version": 1, "config": config,
         "revision": String::from_utf8(revision.stdout)?.trim(), "postgres": settings, "migrations": migrations,
+        "request_timeout_ms": super::REQUEST_TIMEOUT_MS, "seed_timeout_ms": super::SEED_TIMEOUT_MS,
         "available_cpus": std::thread::available_parallelism()?.get(), "arch": std::env::consts::ARCH,
         "os": std::env::consts::OS, "cpu": system_line("/proc/cpuinfo", "model name"),
         "memory": system_line("/proc/meminfo", "MemTotal:"),

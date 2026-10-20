@@ -65,7 +65,7 @@ unit tests use the existing dev-dependencies.
 Use the shared `TestDatabase` guard for disposable databases. Its cleanup survives
 assertion failures and test-runtime teardown; do not add success-only cleanup.
 The manual database benchmarks and partitioning proposal are in `benchmarks/`.
-Benchmark trials copy a disconnected fixture with a separate 300 s copy budget;
+Benchmark trials copy a disconnected fixture with a separate 600 s copy budget;
 ordinary creation and cleanup retain their 5 s deadlines.
 Before connecting a new test database on a streaming replica, call
 `TestDatabase::wait_for_replica`; `TestServer` does this automatically. The helper

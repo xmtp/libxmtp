@@ -317,7 +317,7 @@ pub(super) async fn writes(
             for &batch in &config.batch_sizes {
                 for single_topic in [trial % 2 == 0, trial % 2 != 0] {
                     let mut copy = database.copy()?;
-                    let store = connect(&copy, writers as u32).await?;
+                    let store = connect(&copy, writers as u32, super::REQUEST_TIMEOUT_MS).await?;
                     let topics = corpus::catalog(&store).await?;
                     let connections =
                         try_join_all((0..writers).map(|_| store.primary.acquire())).await?;

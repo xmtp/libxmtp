@@ -3,8 +3,9 @@
 
 use super::{Store, TestResult};
 use sqlx::Row;
+use std::collections::BTreeMap;
 
-const SEED_BATCH: i64 = 100_000;
+const SEED_BATCH: i64 = 50_000;
 const MAX_TOPICS: i64 = 10_000;
 const PAYLOAD_SIZES: [usize; 10] = [256, 256, 256, 256, 256, 1024, 1024, 1024, 1024, 4096];
 
@@ -49,8 +50,9 @@ pub(super) async fn seed(store: &Store, rows: i64, seed: i64) -> TestResult<Vec<
     .await?;
     sqlx::query("INSERT INTO benchmark_payload SELECT ordinality - 1, payload FROM unnest($1::bytea[]) WITH ORDINALITY AS p(payload, ordinality)")
         .bind(&payloads).execute(&store.primary).await?;
+    let mut heads = BTreeMap::<Vec<u8>, i64>::new();
     for first in (1..=rows).step_by(SEED_BATCH as usize) {
-        sqlx::query(sqlx::AssertSqlSafe(include_str!("seed.sql")))
+        let batch_heads = sqlx::query(sqlx::AssertSqlSafe(include_str!("seed.sql")))
             .bind(first)
             .bind((first + SEED_BATCH - 1).min(rows))
             .bind(rows)
@@ -58,17 +60,23 @@ pub(super) async fn seed(store: &Store, rows: i64, seed: i64) -> TestResult<Vec<
             .bind(hot)
             .bind(active)
             .bind(seed)
-            .execute(&store.primary)
+            .fetch_all(&store.primary)
             .await?;
+        heads.extend(
+            batch_heads
+                .into_iter()
+                .map(|row| (row.get::<Vec<u8>, _>("topic"), row.get::<i64, _>("head"))),
+        );
     }
     sqlx::query("DROP TABLE benchmark_payload")
         .execute(&store.primary)
         .await?;
-    sqlx::query(
-        "INSERT INTO topic_watermark SELECT topic, max(sequence_id) FROM envelopes GROUP BY topic",
-    )
-    .execute(&store.primary)
-    .await?;
+    let (topics, heads): (Vec<_>, Vec<_>) = heads.into_iter().unzip();
+    sqlx::query("INSERT INTO topic_watermark SELECT * FROM unnest($1::bytea[], $2::bigint[])")
+        .bind(topics)
+        .bind(heads)
+        .execute(&store.primary)
+        .await?;
     sqlx::query("SELECT setval('envelope_sequence', $1, true)")
         .bind(rows)
         .execute(&store.primary)

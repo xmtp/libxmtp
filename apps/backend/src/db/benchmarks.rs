@@ -8,6 +8,9 @@ mod report;
 mod tests;
 mod workload;
 
+const REQUEST_TIMEOUT_MS: u64 = 120_000;
+const SEED_TIMEOUT_MS: u64 = 900_000;
+
 use super::Store;
 use crate::{
     config::Config as BackendConfig,
@@ -98,11 +101,11 @@ fn repository_path(path: impl AsRef<Path>) -> PathBuf {
         .join(path)
 }
 
-async fn connect(database: &TestDatabase, connections: u32) -> TestResult<Store> {
+async fn connect(database: &TestDatabase, connections: u32, timeout_ms: u64) -> TestResult<Store> {
     let mut config: BackendConfig =
         toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
     config.database.max_connections = connections;
-    config.database.max_statement_timeout_ms = 120_000;
+    config.database.max_statement_timeout_ms = timeout_ms;
     Ok(Store::connect(&config).await?)
 }
 
@@ -128,13 +131,13 @@ async fn baseline() {
     );
     let started = Instant::now();
     let mut metadata = TestDatabase::new()?;
-    let store = connect(&metadata, 1).await?;
+    let store = connect(&metadata, 1, REQUEST_TIMEOUT_MS).await?;
     record(&mut output, report::environment(&store, &config).await?)?;
     store.primary.close().await;
     metadata.remove()?;
     for &size in &config.sizes {
         let mut database = TestDatabase::new()?;
-        let store = connect(&database, 1).await?;
+        let store = connect(&database, 1, SEED_TIMEOUT_MS).await?;
         let seeded = Instant::now();
         let catalog = corpus::seed(&store, size, config.seed).await?;
         record(
@@ -143,6 +146,8 @@ async fn baseline() {
             "seed_seconds": seeded.elapsed().as_secs_f64(), "topics": catalog.len(),
             "storage": report::storage(&store).await?}),
         )?;
+        store.primary.close().await;
+        let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
         workload::reads(&store, &catalog, size, &config, &mut output).await?;
         store.primary.close().await;
         workload::writes(&database, size, &config, &mut output).await?;

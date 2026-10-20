@@ -10,7 +10,7 @@ WITH inputs AS (
         ELSE $6 + mod(random / 100, $4 - $6)
     END AS topic_id
     FROM inputs
-)
+), inserted AS (
 INSERT INTO envelopes (sequence_id, topic, server_ns, expiry_ns, message_hash,
     is_commit_or_proposal, payload, push_eligible, sender_hmac)
 SELECT id, '\x00'::bytea || substring(sha256(int8send(topic_id)) for 16),
@@ -21,3 +21,6 @@ SELECT id, '\x00'::bytea || substring(sha256(int8send(topic_id)) for 16),
     mod(id, 10) <> 0, sha256(int8send(id))
 FROM assigned JOIN benchmark_payload payloads ON payloads.payload_id = mod(assigned.id, 100)
 ORDER BY id
+RETURNING topic, sequence_id
+)
+SELECT topic, max(sequence_id) AS head FROM inserted GROUP BY topic
