@@ -595,18 +595,50 @@ fn cbor(bytes: &[u8]) -> Cbor {
     Cbor::decode(&mut SliceReader::new(bytes)).unwrap()
 }
 
-/// The CBOR of `bytes` with every map's entries in a fixed order, so two
-/// encodings of a value with a hash map compare equal.
+/// The stored fields that OpenMLS writes from a `HashMap`, as an array of
+/// pairs in the map's iteration order, so two encodings of one value can
+/// order them differently. Each is named with another field of its struct,
+/// which tells it apart from fields of the same name in other structs:
+/// `ProposalQueue.queued_proposals` (`vector_converter`) and the export
+/// tree's `Pprf.nodes` (`serialize_hashmap`). The other stored maps are
+/// `BTreeMap`s, written in key order.
+const HASH_MAP_FIELDS: [(&str, &str); 2] = [
+    ("queued_proposals", "proposal_references"),
+    ("nodes", "width"),
+];
+
+/// The CBOR of `bytes` with every map's entries, and every array written
+/// from a hash map ([`HASH_MAP_FIELDS`]), in a fixed order, so two
+/// encodings of one value compare equal.
 fn canonical(bytes: &[u8]) -> Vec<u8> {
     fn sort(value: Cbor) -> Cbor {
         match value {
             Cbor::Array(items) => Cbor::Array(items.into_iter().map(sort).collect()),
             Cbor::Map(entries) => {
+                let has = |name: &str| {
+                    entries
+                        .iter()
+                        .any(|(key, _)| matches!(key, Cbor::Text(text) if text == name))
+                };
+                let hash_maps: Vec<&str> = HASH_MAP_FIELDS
+                    .into_iter()
+                    .filter(|(field, sibling)| has(field) && has(sibling))
+                    .map(|(field, _)| field)
+                    .collect();
                 let mut entries: Vec<(Vec<u8>, Cbor, Cbor)> = entries
                     .into_iter()
                     .map(|(key, value)| {
                         let key = sort(key);
-                        (encode(&key), key, sort(value))
+                        let value = match (&key, sort(value)) {
+                            (Cbor::Text(name), Cbor::Array(mut items))
+                                if hash_maps.contains(&name.as_str()) =>
+                            {
+                                items.sort_by_cached_key(encode);
+                                Cbor::Array(items)
+                            }
+                            (_, value) => value,
+                        };
+                        (encode(&key), key, value)
                     })
                     .collect();
                 entries.sort_by(|a, b| a.0.cmp(&b.0));
@@ -639,6 +671,80 @@ fn round_trips<T: serde::Serialize + serde::de::DeserializeOwned>(what: &str, by
         canonical(bytes),
         "{what} does not encode back to its stored bytes"
     );
+}
+
+/// [`canonical`] makes two encodings of one value equal when OpenMLS writes
+/// its hash maps in another order. A staged commit with two queued proposals
+/// and an export tree with several PPRF nodes is decoded and encoded again
+/// many times, each time with new hash map seeds.
+#[xmtp_common::test(unwrap_try = true)]
+async fn canonical_orders_hash_map_fields() {
+    let (alice, bob, carol) = (provider().await, provider().await, provider().await);
+    let signer = |provider: &Provider| {
+        let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+        signer.store(provider.storage()).unwrap();
+        signer
+    };
+    let alice_signer = signer(&alice);
+    let mut group = MlsGroup::new(
+        &alice,
+        &alice_signer,
+        &group_config(),
+        credential("alice", &alice_signer),
+    )?;
+    for (provider, name) in [(&bob, "bob"), (&carol, "carol")] {
+        let joining = key_package(provider, &signer(provider), name);
+        group.propose_add_member(&alice, &alice_signer, joining.key_package())?;
+    }
+    group
+        .commit_builder()
+        .consume_proposal_store(true)
+        .load_psks(alice.storage())?
+        .build(alice.rand(), alice.crypto(), &alice_signer, |_| true)?
+        .stage_commit(&alice)?;
+    let mut staged: StagedCommit =
+        value_from_slice(&db_serialize(group.pending_commit().unwrap())?)?;
+    for component in [0x8001, 0x8002, 0x8003] {
+        staged.safe_export_secret(alice.crypto(), component)?;
+    }
+    let bytes = value_to_vec(&staged)?;
+
+    // Both hash maps hold more than one entry.
+    fn longest(value: &Cbor, field: &str) -> usize {
+        match value {
+            Cbor::Map(entries) => entries
+                .iter()
+                .map(|(key, value)| match (key, value) {
+                    (Cbor::Text(name), Cbor::Array(items)) if name == field => items.len(),
+                    _ => longest(value, field),
+                })
+                .max()
+                .unwrap_or(0),
+            Cbor::Array(items) => items
+                .iter()
+                .map(|item| longest(item, field))
+                .max()
+                .unwrap_or(0),
+            Cbor::Tag(_, inner) => longest(inner, field),
+            _ => 0,
+        }
+    }
+    for (field, _) in HASH_MAP_FIELDS {
+        assert!(longest(&cbor(&bytes), field) > 1, "one {field} entry");
+    }
+
+    let expected = canonical(&bytes);
+    let mut encodings = BTreeSet::new();
+    for _ in 0..32 {
+        let encoded = value_to_vec(&value_from_slice::<StagedCommit>(&bytes)?)?;
+        assert_eq!(
+            canonical(&encoded),
+            expected,
+            "an encoding differs after ordering"
+        );
+        encodings.insert(encoded);
+    }
+    assert!(encodings.len() > 1, "every encoding had the same order");
 }
 
 /// Every map key path in a stored value, with array items merged, and every
