@@ -173,7 +173,12 @@
       "skip_full_runs": false,
       "kache": [],
       "products": [],
-      "runners": {},
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
       "with": {},
       "cargo_roots": [],
       "crates": [],
@@ -217,7 +222,12 @@
       "skip_full_runs": false,
       "kache": [],
       "products": [],
-      "runners": {},
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
       "with": {},
       "cargo_roots": [],
       "crates": [],
@@ -400,7 +410,7 @@
       "products": [],
       "runners": {
         "runner": {
-          "pr": "blacksmith-8vcpu-ubuntu-2404",
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
           "merge": "ubuntu-24.04"
         }
       },
@@ -745,7 +755,7 @@
       "products": [],
       "runners": {
         "runner": {
-          "pr": "blacksmith-8vcpu-ubuntu-2404",
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
           "merge": "ubuntu-24.04"
         }
       },
@@ -947,7 +957,7 @@
       ],
       "runners": {
         "runner": {
-          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
           "merge": "ubuntu-24.04"
         }
       },
@@ -1145,7 +1155,7 @@
       ],
       "runners": {
         "runner": {
-          "pr": "blacksmith-8vcpu-ubuntu-2404",
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
           "merge": "ubuntu-24.04"
         },
         "compose-runner": {

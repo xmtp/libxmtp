@@ -93,9 +93,9 @@
 # the jobs that write the Gradle home, which lives in Blacksmith's cache and
 # which pull requests read. Pull request jobs use the smallest Blacksmith size
 # that keeps them off the critical path: 4 vCPU for light jobs, 8 vCPU for
-# Gradle and docs builds, 16 vCPU for jobs that compile on a cache miss.
-# Small jobs that read no Blacksmith cache use free runners on pull requests
-# too. On a GitHub-hosted Linux runner, setup-nix first frees disk space.
+# Gradle builds, 16 vCPU for jobs that compile on a cache miss and the docs.
+# Select suites and the gates use free runners on pull requests too. The
+# first PR runs measured each move; a job more than 30 s slower went back. On a GitHub-hosted Linux runner, setup-nix first frees disk space.
 #
 # `products` maps a product group name to its title (the products job name)
 # and its `path_filters` (the path-only filter syntax). nix/ci-sets.nix lists
@@ -337,6 +337,9 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
+    # Measured on PR runs: the free runner took 172 s longer.
+    runners:
+      runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       # Evaluation reads every Nix file and the data files below, through
       # readFile, importJSON, fromTOML, or a Gradle fetchDeps data file. A
@@ -360,6 +363,9 @@ suites:
     permissions: {contents: read}
     kache: []
     products: []
+    # Measured on PR runs: the free runner took 673 s longer.
+    runners:
+      runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - path_group: example_react_native
       - pr_label: "react-native"
@@ -447,7 +453,7 @@ suites:
     kache: []
     products: []
     runners:
-      runner: {pr: blacksmith-8vcpu-ubuntu-2404, merge: ubuntu-24.04}
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - cargo_package: [xmtp_backend, xdbg]
       - path_group: docker_backend
@@ -543,7 +549,7 @@ suites:
     kache: [rust-reference]
     products: []
     runners:
-      runner: {pr: blacksmith-8vcpu-ubuntu-2404, merge: ubuntu-24.04}
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - cargo_package: ["@default-members", error_glossary]
       - "{docs/error_glossary.md,dev/gen-error-glossary}"
@@ -595,7 +601,7 @@ suites:
     kache: []
     products: [sdk_js]
     runners:
-      runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - path_group: js_workspace
       - path_group: sdk_core
@@ -657,7 +663,7 @@ suites:
     kache: [rust-reference]
     products: [sdk_js]
     runners:
-      runner: {pr: blacksmith-8vcpu-ubuntu-2404, merge: ubuntu-24.04}
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
       compose-runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
     pr_filters:
       - path_group: js_workspace

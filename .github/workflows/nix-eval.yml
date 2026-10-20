@@ -1,13 +1,18 @@
 name: "Lint: Nix evaluation"
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 jobs:
   # post-merge.yml is the first job that builds the Darwin warm sets, so a pull
   # request that breaks their evaluation would pass. Evaluating every drvPath
   # catches that in about 2.5 minutes.
   ci-sets:
     name: Evaluate CI build sets
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
     steps:
       - name: Checkout

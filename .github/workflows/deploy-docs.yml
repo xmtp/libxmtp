@@ -5,7 +5,7 @@ name: "Build: Docs site"
       runner:
         description: The runner of the site build and the Rust reference. A dispatch uses the default.
         type: string
-        default: blacksmith-8vcpu-ubuntu-2404
+        default: blacksmith-16vcpu-ubuntu-2404
       compose-runner:
         description: The runner of the composed-site checks. A dispatch uses the default.
         type: string
@@ -45,13 +45,13 @@ jobs:
     uses: ./.github/workflows/docs-rust-reference.yml
     with:
       cache-mode: ${{ inputs.deploy && 'read' || '' }}
-      runner: ${{ inputs.runner || 'blacksmith-8vcpu-ubuntu-2404' }}
+      runner: ${{ inputs.runner || 'blacksmith-16vcpu-ubuntu-2404' }}
     secrets:
       KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
       KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
   site:
     name: Build site and JS reference
-    runs-on: ${{ inputs.runner || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ inputs.runner || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     steps:
     - name: Check out the source

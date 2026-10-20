@@ -5,7 +5,7 @@ on:
       runner:
         description: The runner label. ci.yml and deploy-docs.yml pass it.
         type: string
-        default: blacksmith-8vcpu-ubuntu-2404
+        default: blacksmith-16vcpu-ubuntu-2404
       cache-mode:
         description: >-
           setup-nix cache mode. Empty: trusted on a protected push to trunk,

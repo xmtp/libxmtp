@@ -6,7 +6,7 @@ on:
       runner:
         description: The amd64 runner label. ci.yml passes it from .github/ci-suites.yml (runners); a dispatch uses the default.
         type: string
-        default: blacksmith-8vcpu-ubuntu-2404
+        default: blacksmith-16vcpu-ubuntu-2404
     secrets:
       CACHIX_PR_AUTH_TOKEN:
         required: false
@@ -25,7 +25,7 @@ jobs:
       matrix:
         # Automatic runs test amd64. Manual runs also test arm64.
         arch: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["amd64", "arm64"]' || '["amd64"]') }}
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || inputs.runner || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || inputs.runner || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     steps:
       - name: Checkout
