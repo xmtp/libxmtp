@@ -142,16 +142,32 @@ class PagesDeployTests(unittest.TestCase):
         self.assertGreater(jobs["deploy"].get("timeout-minutes", 0), 10)
 
 
-def steps_using(node, action):
-    """Every step under `node` whose `uses` names `action`, at any depth."""
+IMAGE_ACTIONS = ("docker/build-push-action@", "docker/bake-action@")
+IMAGE_COMMAND = re.compile(r"\bdocker\s+(?:buildx\s+)?(?:build|bake)\b")
+
+
+def steps(node):
+    """Every step under `node`, at any depth: a mapping with `uses` or `run`."""
     if isinstance(node, dict):
-        if str(node.get("uses", "")).startswith(action + "@"):
+        if isinstance(node.get("uses"), str) or isinstance(node.get("run"), str):
             yield node
         for value in node.values():
-            yield from steps_using(value, action)
+            yield from steps(value)
     elif isinstance(node, list):
         for value in node:
-            yield from steps_using(value, action)
+            yield from steps(value)
+
+
+def image_build_settings(step):
+    """The text that configures the image build a step runs, or None."""
+    if str(step.get("uses", "")).startswith(IMAGE_ACTIONS):
+        # build-push-action takes `cache-to`; bake-action takes `set` lines
+        # such as `*.cache-to=type=gha`.
+        return json.dumps(step.get("with") or {})
+    run = step.get("run")
+    if isinstance(run, str) and IMAGE_COMMAND.search(run):
+        return run
+    return None
 
 
 class ImageCacheTests(unittest.TestCase):
@@ -160,16 +176,19 @@ class ImageCacheTests(unittest.TestCase):
 
         Every build that a source change starts misses that layer, which holds
         the target directory. Exporting it to the GitHub Actions cache gains
-        nothing and evicts other caches from the repository's quota.
+        nothing and evicts other caches from the repository's quota. The rule
+        covers the build-push and bake actions and `docker build`,
+        `docker buildx build`, and `docker buildx bake` commands.
         """
         builds = []
         for path in tracked(".github/*.yml", ".github/**/*.yml", ".github/**/*.yaml"):
-            for step in steps_using(
-                yaml.safe_load(path.read_text()), "docker/build-push-action"
-            ):
+            for step in steps(yaml.safe_load(path.read_text())):
+                settings = image_build_settings(step)
+                if settings is None:
+                    continue
                 builds.append(path.name)
                 with self.subTest(workflow=path.name, step=step.get("name")):
-                    self.assertNotIn("cache-to", step.get("with") or {})
+                    self.assertNotIn("cache-to", settings)
         # Guards against a walk that finds nothing: the xdbg and
         # keepalive-probe images at least.
         self.assertGreaterEqual(len(builds), 2)
