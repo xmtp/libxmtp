@@ -2,6 +2,9 @@
 # the newest push, pushes them to the trusted Cachix cache `xmtp`, and pins
 # them; release, developers, and CI jobs then substitute these outputs. Then it
 # checks that the sets substitute, builds the docs, and deploys GitHub Pages.
+# The RN device chain is advisory, so an RN break can reach trunk. The RN jobs
+# warm and pin only the RN set, after `build`, and no other job waits for
+# them: an RN break fails and alerts the RN jobs alone.
 #
 # Trusted: only pushes to trunk start this workflow, and only the writer
 # environment holds the trusted Cachix token.
@@ -22,9 +25,13 @@ jobs:
   # test nothing. Each stage substitutes the previous one from `xmtp`, so they
   # exchange no artifacts. The test packages (with and without iOS) and the
   # bare Android test app are warmed too, so pull requests that do not change
-  # them substitute them.
+  # them substitute them. The RN components share their native SDK builds with
+  # the Android and iOS release outputs, so the chain starts after `build` and
+  # substitutes them; it also runs when `build` fails.
   rn-components:
     name: Cache RN components (${{ matrix.system }})
+    needs: build
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -144,21 +151,30 @@ jobs:
           exchange: "false"
           artifact-prefix: rn
           cache-mode: trusted
-      # The warm set also holds the app build inputs, so a cold pull request
-      # build downloads them instead of fetching each one again.
-      - name: Build the warm app set
+      # The RN warm set (`ciSets.<system>.rn`) holds the RN stage members but
+      # the JavaScript layer, the app build inputs, and the RN shells, so a
+      # cold pull request build downloads them instead of fetching each one
+      # again. The earlier stages pushed the components and the package.
+      - name: Build the RN warm set
         shell: bash
         run: |
           options=(--no-link --print-out-paths)
           if [[ "$RUNNER_OS" == macOS ]]; then options+=(--option sandbox relaxed); fi
-          targets=(".#ciStages.$SYSTEM.consumers")
+          targets=(".#ciSets.$SYSTEM.rn")
           if [[ "$SYSTEM" == x86_64-linux ]]; then targets+=(.#react-native-test-consumer-android-bare); fi
           nix build "${options[@]}" "${targets[@]}" > "$RUNNER_TEMP/rn-apps"
-      - name: Finish app cache uploads
+      # Only this job pins the RN set, so the `dev-*` and `release-*` pins of
+      # `build` move on while RN is broken, and this pin keeps the last good
+      # RN revisions.
+      - name: Push and pin the RN warm set
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        shell: bash
         run: |
           while IFS= read -r path; do cachix push xmtp "$path"; done < "$RUNNER_TEMP/rn-apps"
+          # nix/ci-sets.nix names each set `ci-set-<name>`.
+          path=$(grep -x '/nix/store/[0-9a-z]\{32\}-ci-set-rn' "$RUNNER_TEMP/rn-apps")
+          cachix pin xmtp "rn-$SYSTEM" "$path" --keep-revisions 3
 
   # The RN device smoke of each merge: the full package's bare and Expo apps,
   # with every journey. It reads only `xmtp` and holds no token. The cache
@@ -238,7 +254,6 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   build:
-    needs: [rn-components, rn-package, rn-consumers]
     name: Cache dev and release outputs (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -276,15 +291,7 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           github-token: ${{ github.token }}
       - name: Build the warm sets
-        run: |
-          if [[ "$SYSTEM" == aarch64-darwin ]]; then
-            # Require the already-pushed app closure without allowing any builder.
-            # Keep it rooted while the aggregate retains its existing build mode.
-            nix build --max-jobs 0 --option builders "" \
-              --option always-allow-substitutes true \
-              --out-link "$RUNNER_TEMP/rn-consumer-inputs" .#react-native-consumer-ios
-          fi
-          nix build --keep-going --no-link ".#ciSets.$SYSTEM.dev" ".#ciSets.$SYSTEM.release"
+        run: nix build --keep-going --no-link ".#ciSets.$SYSTEM.dev" ".#ciSets.$SYSTEM.release"
       # The Cachix daemon pushes each path that this job builds. `cachix push`
       # pushes every closure path that Cachix reports missing, also paths that
       # this job substituted; `xmtp` reports a path of its upstream
@@ -293,7 +300,7 @@ jobs:
       - name: Push and pin the warm sets
         run: |
           # One evaluation for both sets: each takes 25-35 s.
-          paths=$(nix eval --json ".#ciSets.$SYSTEM" --apply 'builtins.mapAttrs (_: set: set.outPath)')
+          paths=$(nix eval --json ".#ciSets.$SYSTEM" --apply 'sets: builtins.mapAttrs (_: set: set.outPath) { inherit (sets) dev release; }')
           for set in dev release; do
             path=$(jq -r --arg set "$set" '.[$set]' <<< "$paths")
             cachix push xmtp "$path"
@@ -339,6 +346,8 @@ jobs:
       # each set member (an output path) and each crane dependency layer
       # (a build-time input outside the runtime closure). The link farms set
       # allowSubstitutes = false; always-allow-substitutes overrides that.
+      # It checks every set but `rn`: the RN jobs warm that one, and this job
+      # does not wait for them.
       - name: Dry-run the set members and dependency layers in an empty store
         # bash -eo pipefail: a failed nix or jq in a pipeline fails the step.
         # Without `shell`, GitHub runs bash -e only.
@@ -351,14 +360,14 @@ jobs:
           # x86_64-linux first: the Darwin sets then find the path valid even
           # when `xmtp` does not hold it.
           nix eval --store "$store" --json .#ciSets.x86_64-linux \
-            --apply 'builtins.mapAttrs (_: set: set.drvPath)' > /dev/null
+            --apply 'sets: builtins.mapAttrs (_: set: set.drvPath) (removeAttrs sets [ "rn" ])' > /dev/null
           # Write the drvs into the empty store: a drv of the host store is
           # unknown there.
           nix eval --store "$store" --json .#ciSets --apply '
-            builtins.mapAttrs (_: builtins.mapAttrs (_: set: {
+            builtins.mapAttrs (_: sets: builtins.mapAttrs (_: set: {
               members = builtins.attrValues set.passthru.members;
               drv = set.drvPath;
-            }))' > "$RUNNER_TEMP/ci-sets.json"
+            }) (removeAttrs sets [ "rn" ]))' > "$RUNNER_TEMP/ci-sets.json"
           # Each list goes through a file: bash ignores the exit status of a
           # process substitution, so a failed jq or nix would shrink the check.
           jq -r '.[][].members[]' "$RUNNER_TEMP/ci-sets.json" > "$RUNNER_TEMP/members.txt"
@@ -371,8 +380,8 @@ jobs:
           while read -r drv; do
             drvs+=("$drv")
           done < "$RUNNER_TEMP/drvs.txt"
-          # RN lock-only stores and native download farms are explicit set
-          # members, so their fixed-output closures are checked above too.
+          # The JavaScript layer's lock-only store is an explicit set member,
+          # so its fixed-output closure is checked above too.
           # Crane sets CRANE_BUILD_DEPS_ONLY on each dependency layer.
           nix derivation show --store "$store" -r "${drvs[@]}" |
             jq -r '(.derivations // .) | to_entries[]
@@ -430,8 +439,9 @@ jobs:
           echo "Every set member and dependency layer substitutes ($fetched paths)."
 
   # Pages content comes only from trusted trunk pushes. The native references
-  # and docs build after every warm member and dependency substitutes. A
-  # failed warm, upload, pin, or closure gate holds back deployment.
+  # and docs build after every member and dependency layer of the sets that
+  # `closure` checks substitutes. A failed warm, upload, pin, or closure gate
+  # of those sets holds back deployment; an RN failure does not.
   docs-swift:
     name: Swift reference
     needs: closure

@@ -317,11 +317,22 @@ declared Xcode; the consumer action sets `DEVELOPER_DIR` for simulator commands
 outside Nix. `react-native-conformance` executes fresh installed bare/Expo
 proofs in test, post-merge, and release jobs. Post-merge `rn-*` cache jobs build
 and push the RN stages, the test package, and the bare Android test app;
-`rn-smoke` runs every journey (`XMTP_RN_JOURNEYS=full`) in mode `read` without a
-token, and `rn-alert` posts a Slack message when an RN job fails or times out.
-The final `build` jobs wait for the RN cache jobs, not the smoke; the smoke
-waits for `build`, which pushes the backend and test services that it starts.
+`rn-consumers` then builds, pushes, and pins the RN warm set
+(`ciSets.<system>.rn`, pin `rn-<system>`). `rn-smoke` runs every journey
+(`XMTP_RN_JOURNEYS=full`) in mode `read` without a token, and `rn-alert` posts
+a Slack message when an RN job fails or times out.
+
+The device chain is advisory, so an RN break can reach trunk. It must hold
+back only the RN jobs: `build`, `closure`, the docs jobs, and `deploy` wait for
+no RN job, and the dev and release sets hold no RN output but the RN
+JavaScript layer, which the JavaScript suites and the docs read and blocking
+suites build. The RN cache jobs start after `build` (also when it fails),
+because the RN components share their native SDK builds with the Android and
+iOS release outputs: `build` compiles them once and the RN jobs substitute
+them. The smoke waits for `build`, which pushes the backend and test services
+that it starts. `closure` checks every set but `rn`, and the docs wait for it.
+`dev/tests/test_warm_sets.py` checks these rules.
 The test package outputs (`testStages`) are not set members: the cache jobs
-warm the test package and the bare Android test app only. Docs wait for the
-completed empty-store closure check. Keep every RN stage member in the
-dev/release declarations in `nix/ci-sets.nix`.
+warm the test package and the bare Android test app only. `ciStages` takes its
+members from the warm sets, so declare a new RN output in `nix/ci-sets.nix`:
+in dev when it belongs to the RN JavaScript layer, otherwise in rn.
