@@ -207,6 +207,9 @@ def runner_class(labels):
     blacksmith = re.search(r"blacksmith-(\d+)vcpu-ubuntu", label)
     if blacksmith:
         return "Linux", f"Blacksmith {blacksmith.group(1)} vCPU"
+    blacksmith = re.search(r"blacksmith-(\d+)vcpu-macos", label)
+    if blacksmith:
+        return "macOS", f"Blacksmith macOS {blacksmith.group(1)} vCPU"
     if "warp-macos" in label:
         return "macOS", "Warp macOS"
     if "macos" in label:
