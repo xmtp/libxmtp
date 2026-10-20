@@ -18,13 +18,18 @@ use xmtp_cryptography::{
 };
 use xmtp_db::{
     StoredSecret, XmtpMlsStorageProvider, XmtpOpenMlsProviderRef, XmtpTestDb,
-    identity::StoredIdentity, user_preferences::StoredUserPreferences,
+    group_intent::{IntentKind, QueryGroupIntent},
+    identity::StoredIdentity,
+    user_preferences::StoredUserPreferences,
 };
 use xmtp_id::{InboxOwner, associations::test_utils::MockSmartContractSignatureVerifier};
 use xmtp_mls::{
     Client,
     context::XmtpSharedContext,
-    groups::{intents::UpdateMetadataIntentData, send_message_opts::SendMessageOpts},
+    groups::{
+        intents::{QueueIntent, UpdateMetadataIntentData},
+        send_message_opts::SendMessageOpts,
+    },
     identity::{Identity, IdentityStrategy},
     tester,
     utils::{FullXmtpClient, register_client},
@@ -251,22 +256,31 @@ async fn hmac_keys_are_wiped_on_load_derive_send_and_sync() {
     );
 }
 
-/// Building an update-commit-log-signer intent, encoding it, and decoding the
-/// stored bytes again free no unwiped copy of the signer, raw or hex. The
-/// encoded bytes are the stored intent, the one allowed copy, so the test
-/// leaks them instead of freeing them inside the scan.
-#[xmtp_common::test(unwrap_try = true)]
-fn commit_log_signer_intent_wipes_its_copies() {
+/// Building an update-commit-log-signer intent, encoding it, queueing it,
+/// reading the stored row back, cloning it and decoding it free no unwiped
+/// copy of the signer, raw or hex. SQLite's own memory is not the Rust heap.
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
+async fn commit_log_signer_intent_wipes_its_copies() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let db = alix.context.db();
     let signer = Secret::new(COMMIT_LOG_SIGNER.to_vec());
     let signer_hex = hex::encode(COMMIT_LOG_SIGNER);
 
     let ((), hits) = scan(&[Canary::new(&COMMIT_LOG_SIGNER)], || {
         let intent = UpdateMetadataIntentData::new_update_commit_log_signer(signer);
-        let encoded = Vec::<u8>::from(intent);
-        let decoded = UpdateMetadataIntentData::try_from(encoded.clone()).unwrap();
+        let queued = QueueIntent::metadata_update()
+            .data(intent)
+            .queue(&group)
+            .unwrap();
+        let rows = db
+            .find_group_intents(group.group_id, None, Some(vec![IntentKind::MetadataUpdate]))
+            .unwrap();
+        let snapshot = queued.clone();
+        let decoded =
+            UpdateMetadataIntentData::try_from(snapshot.data.as_slice().to_vec()).unwrap();
         assert!(decoded.field_value == signer_hex);
-        drop(decoded);
-        std::mem::forget(encoded);
+        drop((queued, rows, snapshot, decoded));
     });
     drop(signer_hex);
 

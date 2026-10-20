@@ -64,7 +64,7 @@ pub mod id {
             return Ok(None);
         }
 
-        let data = SendMessageIntentData::from_bytes(&intent.data)?;
+        let data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
         let envelope: PlaintextEnvelope = PlaintextEnvelope::decode(data.message.as_slice())?;
 
         // optimistic message should always have a plaintext envelope

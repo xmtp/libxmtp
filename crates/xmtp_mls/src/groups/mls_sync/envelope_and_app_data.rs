@@ -583,7 +583,7 @@ where
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), IntentError> {
         if intent.kind == MetadataUpdate {
-            let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+            let data = UpdateMetadataIntentData::try_from(intent.data.as_slice().to_vec())?;
 
             match data.field_name.as_str() {
                 field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {

@@ -598,7 +598,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }))
             }
             IntentKind::MetadataUpdate => {
-                let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+                let metadata_intent =
+                    UpdateMetadataIntentData::try_from(intent.data.as_slice().to_vec())?;
 
                 // Compare-and-swap guard. This runs on every publish attempt,
                 // including the republish after an intent loses an epoch race,
@@ -689,7 +690,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             IntentKind::UpdateAdminList => {
                 let admin_list_update_intent =
-                    UpdateAdminListIntentData::try_from(intent.data.clone())?;
+                    UpdateAdminListIntentData::try_from(intent.data.as_slice().to_vec())?;
 
                 let signer = self.context.identity().installation_keys.clone();
                 let publish =
@@ -709,7 +710,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
-                    UpdatePermissionIntentData::try_from(intent.data.clone())?;
+                    UpdatePermissionIntentData::try_from(intent.data.as_slice().to_vec())?;
 
                 let signer = self.context.identity().installation_keys.clone();
                 let publish =
