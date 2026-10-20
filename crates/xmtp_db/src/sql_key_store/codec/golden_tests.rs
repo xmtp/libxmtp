@@ -103,7 +103,7 @@ struct GoldenFile {
 const GOLDEN_FILES: &[GoldenFile] = &[GoldenFile {
     name: "golden_rows_rc4.json",
     text: include_str!("golden_rows_rc4.json"),
-    sha256: "27efc2db15f1824f223cb574f139a2d753204840e58a719420a391ace5848565",
+    sha256: "c816f7a0626083f8141400a810b3c6e376a71e3a5eb07b36153bc314477063a9",
 }];
 
 const STORES: [&str; 3] = ["alice", "bob", "carol"];

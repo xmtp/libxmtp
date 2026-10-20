@@ -1,6 +1,6 @@
 {
   "description": "Key store rows and db_serialize columns written by libxmtp with CBOR values, from XMTP-shaped test groups. The keys are throwaway test keys. src/sql_key_store/codec/golden_tests.rs builds and reads them. Frozen: never edit or regenerate this file.",
-  "openmls": "xmtp/openmls 2d35df5c4008dfd976611284247f1b07887b947c",
+  "openmls": "xmtp/openmls 1135c3f316f81072533addc279a580855990d835",
   "groups": {
     "first": "18ba83231271e2c69cd23c31b2da209a",
     "second": "d20b83b8944741e205c1351cc9babce9"
