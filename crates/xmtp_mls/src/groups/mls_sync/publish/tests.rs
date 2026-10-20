@@ -336,11 +336,11 @@ fn golden_prepared_attempt_keeps_every_field() {
     }
 }
 
-/// Every byte field of the newest frozen attempt is a CBOR byte string, not an
-/// array of integers: the base's authenticator and proposal references, the
-/// payload hash, the envelopes, the standalone proposal's hash and bytes, the
-/// receipts, and the Welcome batch's envelopes and receipts. No stored array
-/// holds an integer.
+/// Every byte field of the newest frozen attempt, and of the same attempt as
+/// this build writes it, is a CBOR byte string, not an array of integers: the
+/// base's authenticator and proposal references, the payload hash, the
+/// envelopes, the standalone proposal's hash and bytes, the receipts, and the
+/// Welcome batch's envelopes and receipts. No stored array holds an integer.
 #[xmtp_common::test(unwrap_try = true)]
 fn stored_attempt_byte_fields_are_byte_strings() {
     use cbor4ii::core::{Value, dec::Decode as _, utils::SliceReader};
@@ -365,13 +365,16 @@ fn stored_attempt_byte_fields_are_byte_strings() {
         }
     }
     let golden = GOLDEN_PREPARED_ATTEMPTS.last().unwrap();
-    let bytes = hex::decode(golden.text.trim())?;
-    let mut byte_strings = 0;
-    walk(
-        &Value::decode(&mut SliceReader::new(&bytes))?,
-        &mut byte_strings,
-    );
-    assert_eq!(byte_strings, 9, "{}", golden.name);
+    let frozen = hex::decode(golden.text.trim())?;
+    let written = xmtp_db::db_serialize(&PreparedAttempt::decode(&frozen)?)?;
+    for (what, bytes) in [(golden.name, &frozen), ("this build", &written)] {
+        let mut byte_strings = 0;
+        walk(
+            &Value::decode(&mut SliceReader::new(bytes))?,
+            &mut byte_strings,
+        );
+        assert_eq!(byte_strings, 9, "{what}");
+    }
 }
 
 /// The stored attempt is CBOR: a map keyed by field names, so its first byte

@@ -357,7 +357,11 @@ mod tests {
         let bytes = generated.bundle.key_package().tls_serialize_detached()?;
         assert!(matches!(
             VerifiedKeyPackageV2::from_bytes(provider.crypto(), &bytes),
-            Err(crate::key_package::KeyPackageVerificationError::MlsValidation(_))
+            Err(
+                crate::key_package::KeyPackageVerificationError::MlsValidation(
+                    openmls::prelude::KeyPackageVerifyError::LifetimeError(_)
+                )
+            )
         ));
     }
 }

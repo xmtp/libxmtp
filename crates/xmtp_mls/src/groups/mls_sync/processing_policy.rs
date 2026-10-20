@@ -175,10 +175,11 @@ mod tests {
     }
 
     /// A received commit that Adds a key package whose last-resort mark
-    /// carries data is a terminal rejection: the receiver keeps
-    /// its epoch, and a later commit that Adds a package with an empty mark
-    /// applies. The error is the one libxmtp's receive path gets from
-    /// OpenMLS, mapped as that path maps it.
+    /// carries data is a terminal rejection, and a later commit that Adds a
+    /// package with an empty mark applies. The error is the one libxmtp's
+    /// receive path gets from OpenMLS, mapped as that path maps it. The sync
+    /// loop handles a terminal rejection through its shared arm, which other
+    /// tests drive with real rejected commits.
     // verifies: JOIN-082
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_commit_adding_a_last_resort_mark_with_data_is_rejected() {
@@ -296,11 +297,21 @@ mod tests {
         .expect_err("the commit applied");
         let error = GroupMessageProcessingError::from_app_data_processing(error);
         assert!(
-            format!("{error:?}").contains("MalformedLastResortComponent"),
+            matches!(
+                &error,
+                GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+                    crate::groups::app_data::ProcessMessageWithAppDataError::OpenMls(
+                        openmls::prelude::ProcessMessageError::ValidationError(
+                            openmls::prelude::ValidationError::KeyPackageVerifyError(
+                                openmls::prelude::KeyPackageVerifyError::MalformedLastResortComponent
+                            )
+                        )
+                    )
+                )
+            ),
             "{error:?}"
         );
         assert!(error.is_safe_rejection(), "{error:?}");
-        assert_eq!(bob_group.epoch(), epoch);
 
         alice_group.clear_pending_commit(alice.storage())?;
         let marked = key_package(&throwaway, "marked", Some(vec![]));

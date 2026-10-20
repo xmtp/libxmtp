@@ -260,9 +260,9 @@ fn key_package_topic_length_is_separate_from_ciphersuite_validation() {
 // verifies: JOIN-007, JOIN-008
 #[xmtp_common::test(unwrap_try = true)]
 async fn key_package_parse_precedes_existing_cryptographic_validation() {
-    for fixture in [
-        mismatched_key_package_envelope(),
-        expired_key_package_envelope(),
+    for (fixture, expired) in [
+        (mismatched_key_package_envelope(), false),
+        (expired_key_package_envelope(), true),
     ] {
         let parsed = parse_envelope(fixture.envelope)?;
         assert_eq!(
@@ -279,6 +279,19 @@ async fn key_package_parse_precedes_existing_cryptographic_validation() {
         .err()
         .expect("semantic key-package validation must still run");
         assert!(matches!(&error, ValidationError::KeyPackage(_)));
+        // The expired fixture fails at the lifetime check, not another one.
+        assert_eq!(
+            matches!(
+                &error,
+                ValidationError::KeyPackage(
+                    xmtp_id::key_package::KeyPackageVerificationError::MlsValidation(
+                        openmls::prelude::KeyPackageVerifyError::LifetimeError(_)
+                    )
+                )
+            ),
+            expired,
+            "{error:?}"
+        );
         assert_eq!(error.reason(), Reason::InvalidKeyPackage);
     }
 
