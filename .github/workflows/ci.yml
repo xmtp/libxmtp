@@ -311,6 +311,8 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-6vcpu-macos-15' || 'warp-macos-15-arm64-6x' }}
   test_android:
     name: Android SDK
     needs:
@@ -379,6 +381,8 @@ jobs:
       contents: read
     secrets:
       CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-6vcpu-macos-15' || 'warp-macos-15-arm64-6x' }}
   test_example_ios_advisory:
     name: iOS example app (advisory)
     needs:
@@ -389,6 +393,8 @@ jobs:
       contents: read
     secrets:
       CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-6vcpu-macos-15' || 'warp-macos-15-arm64-6x' }}
   check_react_native:
     name: React Native unit checks
     needs:

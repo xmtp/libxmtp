@@ -669,7 +669,7 @@ async fn preparation_fences_a_second_snapshot_of_the_same_intent() {
     assert_eq!(current, first);
 
     let later = QueueIntent::update_group_membership()
-        .data(requirements.intent.data.clone())
+        .data(requirements.intent.data.as_slice().to_vec())
         .queue(&group)?;
     assert!(matches!(
         prepare_kind(&group, IntentKind::UpdateGroupMembership).await,

@@ -13225,7 +13225,9 @@ dependencies = [
  "wasm-bindgen-test",
  "xmtp_common",
  "xmtp_configuration",
+ "xmtp_cryptography",
  "xmtp_events",
+ "zeroize",
 ]
 
 [[package]]

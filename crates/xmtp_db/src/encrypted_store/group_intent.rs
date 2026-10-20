@@ -21,7 +21,8 @@ use super::{
     schema::group_intents::{self, dsl},
 };
 use crate::{
-    Delete, NotFound, StorageError, group_message::QueryGroupMessage, impl_fetch, impl_store,
+    Delete, NotFound, StorageError, StoredSecret, group_message::QueryGroupMessage, impl_fetch,
+    impl_store,
 };
 
 mod error;
@@ -148,7 +149,7 @@ pub struct StoredGroupIntent {
     pub id: ID,
     pub kind: IntentKind,
     pub group_id: GroupId,
-    pub data: Vec<u8>,
+    pub data: StoredSecret,
     pub state: IntentState,
     pub payload_hash: Option<Vec<u8>>,
     pub post_commit_data: Option<Vec<u8>>,
@@ -169,7 +170,7 @@ impl std::fmt::Debug for StoredGroupIntent {
             "group_id: {}, ",
             fmt::truncate_hex(hex::encode(self.group_id))
         )?;
-        write!(f, "data: {}, ", fmt::truncate_hex(hex::encode(&self.data)))?;
+        write!(f, "data: {:?}, ", self.data)?;
         write!(f, "state: {:?}, ", self.state)?;
         write!(
             f,
@@ -218,7 +219,7 @@ impl<C: ConnectionExt> Delete<StoredGroupIntent> for DbConnection<C> {
 pub struct NewGroupIntent {
     pub kind: IntentKind,
     pub group_id: GroupId,
-    pub data: Vec<u8>,
+    pub data: StoredSecret,
     pub should_push: bool,
     #[builder(default = "IntentState::ToPublish")]
     pub state: IntentState,
@@ -240,7 +241,7 @@ impl NewGroupIntent {
         Self {
             kind,
             group_id: group_id.into(),
-            data,
+            data: data.into(),
             state: IntentState::ToPublish,
             should_push,
         }
@@ -951,7 +952,7 @@ pub(crate) mod tests {
             Self {
                 kind,
                 group_id,
-                data,
+                data: data.into(),
                 state,
                 should_push: false,
             }
@@ -1135,7 +1136,7 @@ pub(crate) mod tests {
 
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].kind, kind);
-            assert_eq!(results[0].data, data);
+            assert_eq!(results[0].data.as_slice(), data);
             assert_eq!(results[0].group_id.as_slice(), group_id.as_slice());
 
             let id = results[0].id;

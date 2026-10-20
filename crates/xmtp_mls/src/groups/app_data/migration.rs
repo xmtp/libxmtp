@@ -139,11 +139,11 @@ pub async fn synthesize_initial_component_values_from_extensions<C: XmtpSharedCo
     use xmtp_mls_common::app_data::migration::synthesize_canonical_subset_from_extensions;
 
     // Sync synthesis produces everything except GROUP_MEMBERSHIP.
-    let canonical: CanonicalBootstrapExpectation =
+    let mut canonical: CanonicalBootstrapExpectation =
         synthesize_canonical_subset_from_extensions(extensions)?;
 
     let mut out: BTreeMap<ComponentId, Vec<u8>> = BTreeMap::new();
-    for (id, (_op_type, bytes)) in canonical.strict.into_iter() {
+    for (id, (_op_type, bytes)) in std::mem::take(&mut canonical.strict) {
         out.insert(id, bytes);
     }
 
@@ -166,7 +166,7 @@ pub async fn synthesize_initial_component_values_from_extensions<C: XmtpSharedCo
         registry.set(*id, meta.clone())?;
     }
     let mut registry_delta: TlsMapDelta<ComponentId, VLBytes> = TlsMapDelta::new();
-    for (id, meta) in canonical.expected_registry.into_iter() {
+    for (id, meta) in std::mem::take(&mut canonical.expected_registry) {
         registry_delta = registry_delta.insert(id, VLBytes::new(meta.encode_to_vec()));
     }
     out.insert(
@@ -461,7 +461,7 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
     let empty_registry = xmtp_mls_common::app_data::component_registry::ComponentRegistry::new();
     let mut updater = stage.app_data_dictionary_updater();
     for (component_id, wire_bytes) in component_values.iter() {
-        let dict_bytes =
+        let mut dict_bytes =
             xmtp_mls_common::app_data::component_source::apply_app_data_update_payload(
                 *component_id,
                 wire_bytes,
@@ -469,9 +469,10 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
                 &empty_registry,
             )
             .map_err(BootstrapCommitError::DictApply)?;
+        // The bytes move to OpenMLS without a copy.
         updater.set(ComponentData::from_parts(
             component_id.as_u16(),
-            dict_bytes.into(),
+            std::mem::take(&mut *dict_bytes).into(),
         ));
     }
     stage.with_app_data_dictionary_updates(updater.changes());

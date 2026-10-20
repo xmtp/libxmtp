@@ -2,6 +2,11 @@ name: "Test: iOS SDK"
 
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -10,9 +15,12 @@ jobs:
   # One job builds the xcframework once (`sdks/ios/dev/bindings` skips the
   # copy when the store path is unchanged) and runs every iOS check.
   tests:
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: ${{ inputs.runner }}
     name: Lint and tests (macOS, simulator)
-    timeout-minutes: 60
+    # About 1.5x the slowest successful run through 2026-10-20 of this job
+    # and the jobs merged into it (29 min, cold builds included), rounded up
+    # to 5 min, so a stalled Nix download fails sooner.
+    timeout-minutes: 45
     env:
       NIX_DEVSHELL: ios
     steps:

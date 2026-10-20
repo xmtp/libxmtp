@@ -532,10 +532,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 // An older build queued this intent before the creation check.
                 // implements: GMOD-035
+                // The envelope content can hold a device-sync HMAC root key;
+                // the decoded envelope wipes it on drop.
                 if let Ok(PlaintextEnvelope {
-                    content: Some(Content::V1(V1 { content, .. })),
+                    content: Some(Content::V1(v1)),
                 }) = PlaintextEnvelope::decode(intent_data.message.as_slice())
-                    && Self::is_reserved_transcript_content(&content)
+                    && Self::is_reserved_transcript_content(&v1.content)
                 {
                     return Err(GroupError::ReservedTranscriptContentType);
                 }
@@ -598,7 +600,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }))
             }
             IntentKind::MetadataUpdate => {
-                let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+                let metadata_intent =
+                    UpdateMetadataIntentData::try_from(intent.data.as_slice().to_vec())?;
 
                 // Compare-and-swap guard. This runs on every publish attempt,
                 // including the republish after an intent loses an epoch race,
@@ -659,14 +662,18 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     generate_prepared_commit(
                         storage,
                         openmls_group,
+                        // `payload` can be the commit-log signer. It stays in
+                        // `Zeroizing` until it moves into OpenMLS, so a
+                        // return before this closure runs still wipes it.
                         move |group, provider| -> Result<_, GroupError> {
+                            let mut payload = payload;
                             Ok(stage_app_data_propose_and_commit(
                                 group,
                                 provider,
                                 &signer,
                                 catalogue,
                                 component_id,
-                                payload,
+                                std::mem::take(&mut *payload),
                             )?)
                         },
                     )?;
@@ -689,7 +696,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             IntentKind::UpdateAdminList => {
                 let admin_list_update_intent =
-                    UpdateAdminListIntentData::try_from(intent.data.clone())?;
+                    UpdateAdminListIntentData::try_from(intent.data.as_slice().to_vec())?;
 
                 let signer = self.context.identity().installation_keys.clone();
                 let publish =
@@ -709,7 +716,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
-                    UpdatePermissionIntentData::try_from(intent.data.clone())?;
+                    UpdatePermissionIntentData::try_from(intent.data.as_slice().to_vec())?;
 
                 let signer = self.context.identity().installation_keys.clone();
                 let publish =

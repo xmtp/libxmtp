@@ -399,7 +399,7 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
 
     let metadata = bo_group.mutable_metadata().unwrap();
     let min_version = metadata
-        .attributes
+        .attributes()
         .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
     assert_eq!(
         min_version.map(String::as_str),
@@ -412,7 +412,7 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
 
     let metadata = bo_group.mutable_metadata().unwrap();
     let min_version = metadata
-        .attributes
+        .attributes()
         .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
     assert_eq!(
         min_version.map(String::as_str),
@@ -426,7 +426,7 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
 
     let metadata = bo_group.mutable_metadata().unwrap();
     let min_version = metadata
-        .attributes
+        .attributes()
         .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
     assert_eq!(min_version.unwrap(), amal.version_info().pkg_version());
 }

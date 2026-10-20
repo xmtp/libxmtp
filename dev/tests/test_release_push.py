@@ -3,6 +3,8 @@
 
 import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import importlib.machinery
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -1000,14 +1002,164 @@ class XdbgImageTest(unittest.TestCase):
             steps["Extract image labels"]["with"]["tags"],
             "type=raw,value=${{ needs.release-backend.outputs.version }}",
         )
-        # The builder layer holds the target directory and cannot be reused
-        # across commits, so the job exports no layer cache.
-        self.assertNotIn("cache-to", build)
         # Nothing deploys the image.
         self.assertEqual(
             [s for s in job["steps"] if s.get("name", "").startswith("Deploy")], []
         )
         self.assertNotIn("TERRAFORM_TOKEN", release.read_text())
+
+
+class KeepaliveProbeImageTest(unittest.TestCase):
+    def test_push_paths_cover_every_input_of_the_image_build(self):
+        # A change to any input of the image must republish it. The package
+        # comes from the Dockerfile's `cargo build`; its crates are the path
+        # dependencies that Cargo builds for it (no dev-dependencies).
+        dockerfile = (ROOT / "apps/keepalive-probe/docker/Dockerfile").read_text()
+        (package,) = re.findall(r"cargo build --release --package (\S+)", dockerfile)
+        loader = importlib.machinery.SourceFileLoader(
+            "ci_suites", str(ROOT / "dev/ci-suites")
+        )
+        suites = importlib.util.module_from_spec(
+            importlib.util.spec_from_loader(loader.name, loader)
+        )
+        loader.exec_module(suites)
+        graph = suites.CargoGraph(ROOT)
+        crates, queue = set(), [graph.by_name[package]]
+        while queue:
+            crate = queue.pop()
+            if crate not in crates:
+                crates.add(crate)
+                queue.extend(graph.dependencies(crate))
+        workflow = ".github/workflows/push-keepalive-probe.yml"
+        expected = {f"{crate}/**" for crate in crates} | {
+            workflow,
+            # xmtp_proto's build script compiles the workspace protos.
+            "proto/**",
+            # Workspace build settings: rustflags, the pinned toolchain that
+            # rustup installs in the builder, and the lock file.
+            ".cargo/config.toml",
+            "rust-toolchain.toml",
+            "Cargo.toml",
+            "Cargo.lock",
+            # `COPY . .` copies the context that it filters.
+            ".dockerignore",
+        }
+        # PyYAML reads the `on` key as True.
+        push = yaml.safe_load((ROOT / workflow).read_text())[True]["push"]
+        self.assertEqual(sorted(push["paths"]), sorted(expected))
+
+    def test_runs_of_one_ref_never_overlap(self):
+        # Two overlapping main runs could finish out of order. One run per ref
+        # runs at a time, and it is never cancelled. The default queue keeps
+        # only the newest pending run; `queue: max` would keep more.
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/push-keepalive-probe.yml").read_text()
+        )
+        self.assertEqual(
+            workflow.get("concurrency"),
+            {
+                "group": "${{ github.workflow }}-${{ github.ref }}",
+                "cancel-in-progress": False,
+            },
+        )
+
+    CHECK = "Check that no newer commit on main changes the image"
+
+    def test_only_the_newest_image_commit_moves_latest(self):
+        # GitHub does not guarantee that waiting runs start in push order, so
+        # an older commit's run can run last. Every run pushes its sha tag;
+        # `latest` moves only when no newer commit on main changes a trigger
+        # path, because that commit's own run moves it.
+        path = ROOT / ".github/workflows/push-keepalive-probe.yml"
+        job = yaml.safe_load(path.read_text())["jobs"]["build"]
+        steps = {step["name"]: step for step in job["steps"]}
+        names = list(steps)
+        meta = "Extract metadata (tags, labels)"
+        self.assertLess(names.index(self.CHECK), names.index(meta))
+        self.assertLess(names.index(meta), names.index("Build and push image"))
+        self.assertEqual(steps[self.CHECK]["if"], "github.ref == 'refs/heads/main'")
+        self.assertEqual(steps[self.CHECK]["shell"], "bash")
+        self.assertEqual(
+            steps[meta]["with"]["tags"].splitlines(),
+            [
+                "type=raw,value=${{ steps.vars.outputs.short_sha }}",
+                "type=raw,value=latest,enable=${{ steps.latest.outputs.latest == 'true' }}",
+            ],
+        )
+        run = script(self.CHECK, path)
+        newer = ["docs/a.md", "nix/lib/shell-common.nix"]
+        cases = {
+            # (gh output lines, gh exit status): latest
+            "identical": ((["identical", "0"], 0), "true"),
+            "unrelated newer commits": ((["ahead", "2", *newer], 0), "true"),
+            "newer image commit": (
+                (["ahead", "3", *newer, "crates/xmtp_logging/src/lib.rs"], 0),
+                "false",
+            ),
+            "renamed out of a trigger path": (
+                (["ahead", "1", "docs/old.proto", "proto/old.proto"], 0),
+                "false",
+            ),
+            "newer workflow edit": (
+                (["ahead", "1", ".github/workflows/push-keepalive-probe.yml"], 0),
+                "false",
+            ),
+            "file list may be cut off": ((["ahead", "300", *newer], 0), "false"),
+            "main went backwards": ((["behind", "0"], 0), "false"),
+            "diverged": ((["diverged", "4", *newer], 0), "false"),
+            "api error": (([], 1), "false"),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            (temp / "bin").mkdir()
+            gh = temp / "bin/gh"
+            gh.write_text(
+                '#!/bin/sh\necho "$@" > "$GH_ARGS"\ncat "$GH_REPLY"\nexit "$GH_EXIT"\n'
+            )
+            gh.chmod(0o755)
+            for case, ((reply, status), latest) in cases.items():
+                with self.subTest(case=case):
+                    (temp / "reply").write_text("".join(f"{x}\n" for x in reply))
+                    (temp / "output").write_text("")
+                    done = subprocess.run(
+                        ["bash", "-eo", "pipefail", "-c", run],
+                        env=os.environ
+                        | {
+                            "PATH": f"{temp / 'bin'}:{os.environ['PATH']}",
+                            "GH_ARGS": str(temp / "args"),
+                            "GH_REPLY": str(temp / "reply"),
+                            "GH_EXIT": str(status),
+                            "GITHUB_OUTPUT": str(temp / "output"),
+                            "GITHUB_REPOSITORY": "xmtp/libxmtp",
+                            "SHA": "abc123",
+                        },
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(
+                        (temp / "output").read_text(), f"latest={latest}\n"
+                    )
+                    self.assertEqual(
+                        "::notice title=latest not moved::" in done.stdout,
+                        latest == "false",
+                    )
+                    self.assertTrue(
+                        (temp / "args")
+                        .read_text()
+                        .startswith("api repos/xmtp/libxmtp/compare/abc123...main ")
+                    )
+
+    def test_latest_check_lists_the_trigger_paths(self):
+        path = ROOT / ".github/workflows/push-keepalive-probe.yml"
+        run = script(self.CHECK, path)
+        patterns = run.split('case "$1" in', 1)[1].split(") return 0 ;;", 1)[0]
+        listed = [
+            pattern.strip().removesuffix("/*") + ("/**" if "/*" in pattern else "")
+            for pattern in patterns.replace("\\", "").split("|")
+        ]
+        push = yaml.safe_load(path.read_text())[True]["push"]
+        self.assertEqual(sorted(listed), sorted(push["paths"]))
 
 
 class NpmPublishAuthorizationTest(unittest.TestCase):

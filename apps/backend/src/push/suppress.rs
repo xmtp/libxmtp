@@ -4,11 +4,18 @@ use hmac::{Hmac, Mac};
 use prost::Message;
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
+use xmtp_cryptography::secret::Zeroizing;
 
-pub(crate) fn key(server_ns: i64, base: Option<i64>, keys: &[Option<Vec<u8>>; 3]) -> Option<&[u8]> {
+pub(crate) fn key(
+    server_ns: i64,
+    base: Option<i64>,
+    keys: &[Option<Zeroizing<Vec<u8>>>; 3],
+) -> Option<&[u8]> {
     let index =
         xmtp_push_types::hmac_epoch(server_ns / xmtp_common::NS_IN_SEC).checked_sub(base?)?;
-    keys.get(usize::try_from(index).ok()?)?.as_deref()
+    keys.get(usize::try_from(index).ok()?)?
+        .as_ref()
+        .map(|key| key.as_slice())
 }
 
 /// Decode only when a subscription has a key for this envelope's epoch.

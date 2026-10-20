@@ -31,7 +31,11 @@ async fn metadata_read_amplification() {
     // full-load path, and the public accessors still return the set values.
     let baseline = group.mutable_metadata_via_full_load()?;
     let now = group.mutable_metadata()?;
-    assert_eq!(baseline.attributes, now.attributes, "attributes must match");
+    assert_eq!(
+        baseline.attributes(),
+        now.attributes(),
+        "attributes must match"
+    );
     assert_eq!(baseline.admin_list, now.admin_list, "admin_list must match");
     assert_eq!(
         baseline.super_admin_list, now.super_admin_list,

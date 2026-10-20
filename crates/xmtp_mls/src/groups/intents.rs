@@ -15,6 +15,7 @@ use xmtp_common::types::Address;
 use xmtp_configuration::{
     GROUP_KEY_ROTATION_INTERVAL_NS, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
 };
+use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_id::key_package::{
     KeyPackageVerificationError, VerifiedKeyPackageV2, WrapperAlgorithm, WrapperEncryptionExtension,
 };
@@ -95,29 +96,39 @@ impl From<prost::DecodeError> for IntentError {
     }
 }
 
+/// The encoded envelope of a message to send. It can hold a device-sync
+/// HMAC root key, so it is wiped on drop and `Debug` shows only its length.
 #[derive(Debug, Clone)]
 pub struct SendMessageIntentData {
-    pub message: Vec<u8>,
+    pub message: xmtp_cryptography::Secret,
 }
 
 impl SendMessageIntentData {
     pub fn new(message: Vec<u8>) -> Self {
-        Self { message }
+        Self {
+            message: message.into(),
+        }
     }
 
+    /// The returned bytes are the stored intent. The proto temporary is wiped
+    /// after encoding.
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
-        SendMessageData {
+        let mut data = SendMessageData {
             version: Some(SendMessageVersion::V1(SendMessageV1 {
-                payload_bytes: self.message.clone(),
+                payload_bytes: self.message.as_slice().to_vec(),
             })),
+        };
+        let bytes = data.encode_to_vec();
+        if let Some(SendMessageVersion::V1(v1)) = &mut data.version {
+            v1.payload_bytes.zeroize();
         }
-        .encode_to_vec()
+        bytes
     }
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let msg = SendMessageData::decode(data)?;
         let payload_bytes = match msg.version {
-            Some(SendMessageVersion::V1(v1)) => v1.payload_bytes,
+            Some(SendMessageVersion::V1(mut v1)) => std::mem::take(&mut v1.payload_bytes),
             None => return Err(IntentError::MissingPayload),
         };
 
@@ -190,7 +201,9 @@ impl From<Vec<Vec<u8>>> for AddressesOrInstallationIds {
     }
 }
 
-#[derive(Debug, Clone)]
+/// A metadata update. Its values can hold the commit-log signer's private key
+/// as hex, so they are wiped on drop and `Debug` shows only the field name.
+#[derive(Clone)]
 pub struct UpdateMetadataIntentData {
     pub field_name: String,
     pub field_value: String,
@@ -198,6 +211,26 @@ pub struct UpdateMetadataIntentData {
     /// unless the field's currently committed value still equals this.
     /// `None` keeps the historical last-writer-wins behavior.
     pub expected_field_value: Option<String>,
+}
+
+impl std::fmt::Debug for UpdateMetadataIntentData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UpdateMetadataIntentData")
+            .field("field_name", &self.field_name)
+            .field("field_value", &"<redacted>")
+            .field(
+                "expected_field_value",
+                &self.expected_field_value.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
+
+impl Drop for UpdateMetadataIntentData {
+    fn drop(&mut self) {
+        self.field_value.zeroize();
+        self.expected_field_value.zeroize();
+    }
 }
 
 impl UpdateMetadataIntentData {
@@ -276,48 +309,40 @@ impl UpdateMetadataIntentData {
     }
 }
 
+/// The returned bytes are the stored intent. The values move into a proto
+/// temporary that is wiped after encoding.
 impl From<UpdateMetadataIntentData> for Vec<u8> {
-    fn from(intent: UpdateMetadataIntentData) -> Self {
-        let mut buf = Vec::new();
-
-        UpdateMetadataData {
+    fn from(mut intent: UpdateMetadataIntentData) -> Self {
+        let data = UpdateMetadataData {
             version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
-                field_name: intent.field_name.to_string(),
-                field_value: intent.field_value.clone(),
-                expected_field_value: intent.expected_field_value.clone(),
+                field_name: std::mem::take(&mut intent.field_name),
+                field_value: std::mem::take(&mut intent.field_value),
+                expected_field_value: intent.expected_field_value.take(),
             })),
-        }
-        .encode(&mut buf)
-        .expect("encode error");
-
-        buf
+        };
+        // Sized up front, so encoding never frees a partial copy. The proto
+        // wipes its values when it drops.
+        data.encode_to_vec()
     }
 }
 
 impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
     type Error = IntentError;
 
+    /// Decodes a stored intent. The input is wiped, and the values move out of
+    /// the decoded proto.
     fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
-        let msg = UpdateMetadataData::decode(Bytes::from(data))?;
-
-        let field_name = match msg.version {
-            Some(UpdateMetadataVersion::V1(ref v1)) => v1.field_name.clone(),
-            None => return Err(IntentError::MissingPayload),
-        };
-        let field_value = match msg.version {
-            Some(UpdateMetadataVersion::V1(ref v1)) => v1.field_value.clone(),
-            None => return Err(IntentError::MissingPayload),
+        let data = Zeroizing::new(data);
+        let msg = UpdateMetadataData::decode(data.as_slice())?;
+        let Some(UpdateMetadataVersion::V1(mut v1)) = msg.version else {
+            return Err(IntentError::MissingPayload);
         };
         // Absent on intents queued before the guard existed, and on payloads
         // written by a client that predates it — both mean last-writer-wins.
-        let expected_field_value = match msg.version {
-            Some(UpdateMetadataVersion::V1(ref v1)) => v1.expected_field_value.clone(),
-            None => return Err(IntentError::MissingPayload),
-        };
-
-        Ok(match expected_field_value {
-            Some(expected) => Self::new_guarded(field_name, field_value, expected),
-            None => Self::new(field_name, field_value),
+        Ok(Self {
+            field_name: std::mem::take(&mut v1.field_name),
+            field_value: std::mem::take(&mut v1.field_value),
+            expected_field_value: v1.expected_field_value.take(),
         })
     }
 }
@@ -1341,7 +1366,7 @@ pub(crate) mod tests {
         let as_bytes: Vec<u8> = intent.into();
         let restored_intent = SendMessageIntentData::from_bytes(as_bytes.as_slice()).unwrap();
 
-        assert_eq!(restored_intent.message, message);
+        assert_eq!(restored_intent.message.as_slice(), message.as_slice());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

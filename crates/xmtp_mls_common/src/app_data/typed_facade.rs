@@ -41,7 +41,7 @@ impl<'g> MlsGroupAppData<'g> {
     pub fn get<C: Component>(&self) -> Result<Option<C::Value>, ComponentSourceError> {
         let bytes = read_component_bytes(C::ID, self.extensions)?;
         match bytes {
-            Some(b) => Ok(Some(C::decode_value(&b)?)),
+            Some(b) => Ok(Some(C::decode_value(b)?)),
             None => Ok(None),
         }
     }

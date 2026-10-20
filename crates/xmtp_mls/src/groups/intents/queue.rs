@@ -1,6 +1,7 @@
 use crate::groups::intents::GROUP_KEY_ROTATION_INTERVAL_NS;
 use crate::groups::{GroupError, MlsGroup, XmtpSharedContext};
 use derive_builder::Builder;
+use xmtp_cryptography::Secret;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
     DbQuery, TransactionOutcome,
@@ -13,14 +14,21 @@ use xmtp_db::{
 pub struct QueueIntent {
     #[builder(setter(into))]
     kind: IntentKind,
-    /// not specifying data will be empty vec
-    #[builder(setter(into), default)]
-    data: Vec<u8>,
+    /// Not specifying data leaves it empty. The payload can hold the
+    /// commit-log signer, so the builder, its clone and the row wipe it.
+    #[builder(setter(custom), default = "Vec::new().into()")]
+    data: Secret,
     #[builder(setter(into), default)]
     should_push: bool,
 }
 
 impl QueueIntentBuilder {
+    /// Set the encoded intent payload. It moves into a [`Secret`] at once.
+    pub fn data(&mut self, data: impl Into<Vec<u8>>) -> &mut Self {
+        self.data = Some(Secret::from(data.into()));
+        self
+    }
+
     pub fn queue<C>(&mut self, group: &MlsGroup<C>) -> Result<StoredGroupIntent, GroupError>
     where
         C: XmtpSharedContext,
@@ -164,7 +172,7 @@ impl QueueIntent {
                     Some(vec![IntentKind::SendMessage]),
                 )?
                 .into_iter()
-                .find(|intent| intent.data == self.data)
+                .find(|intent| intent.data.as_slice() == self.data.as_slice())
             {
                 return Ok(existing);
             }
@@ -177,12 +185,13 @@ impl QueueIntent {
             should_push,
         } = self;
 
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            intent_kind,
-            group.group_id,
-            intent_data,
+        let intent = conn.insert_group_intent(NewGroupIntent {
+            kind: intent_kind,
+            group_id: group.group_id,
+            data: intent_data.into(),
             should_push,
-        ))?;
+            state: IntentState::ToPublish,
+        })?;
 
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(&group.group_id)?;

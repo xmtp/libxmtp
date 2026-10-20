@@ -84,7 +84,7 @@ where
                 .map_err(|error| GroupError::MetadataPermissionsError(error.into()))?;
             let field = |key: MetadataField| {
                 metadata
-                    .attributes
+                    .attributes()
                     .get(key.as_str())
                     .cloned()
                     .unwrap_or_default()
@@ -96,8 +96,8 @@ where
                 description: field(MetadataField::Description),
                 app_data: field(MetadataField::AppData),
                 membership_state: stored.membership_state,
-                admins: metadata.admin_list,
-                super_admins: metadata.super_admin_list,
+                admins: std::mem::take(&mut metadata.admin_list),
+                super_admins: std::mem::take(&mut metadata.super_admin_list),
                 permissions,
                 policy_type,
             })

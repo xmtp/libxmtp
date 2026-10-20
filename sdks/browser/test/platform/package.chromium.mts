@@ -233,7 +233,7 @@ try {
   await page.evaluate(async () =>
     (await import("./public-entry.chromium.ts")).loggingEnd(),
   );
-  // verifies: LOG-010. These logs come from the real SDK operations above.
+  // verifies: LOG-014. These logs come from the real SDK operations above.
   for (const target of ["xmtp_sdk::credentials", "xmtp_sdk::signer"])
     assert.ok(
       nativeLogs.some((line) => line.includes(target)),

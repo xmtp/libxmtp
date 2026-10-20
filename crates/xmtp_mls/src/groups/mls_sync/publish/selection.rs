@@ -132,7 +132,8 @@ impl SelectionRequirements {
         Ok(Some(Self {
             proposals,
             membership_bytes: read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, group)
-                .ok_or(GroupError::InvalidGroupMembership)?,
+                .ok_or(GroupError::InvalidGroupMembership)?
+                .to_vec(),
             old: extract_group_membership(group.extensions())?,
             own_update: (intent.kind == IntentKind::UpdateGroupMembership)
                 .then(|| UpdateGroupMembershipIntentData::try_from(intent.data.as_slice()))

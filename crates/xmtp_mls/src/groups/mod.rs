@@ -89,6 +89,7 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::{CIPHERSUITE, ED25519_KEY_LENGTH};
+use xmtp_cryptography::secret::Zeroize;
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
@@ -133,7 +134,7 @@ use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, Leav
 use xmtp_proto::{
     types::{Cursor, GroupId},
     xmtp::mls::message_contents::{
-        EncodedContent, OneshotMessage, PlaintextEnvelope,
+        ContentTypeId, EncodedContent, OneshotMessage, PlaintextEnvelope,
         content_types::ReactionV2,
         plaintext_envelope::{Content, V1},
     },
@@ -263,6 +264,55 @@ impl Default for QueryableContentFields {
     }
 }
 
+/// Decode only the content type of encoded content. prost skips the other
+/// fields without copying them, so a payload that holds a device-sync HMAC
+/// root key is never copied.
+pub(crate) fn encoded_content_type(
+    message: &[u8],
+) -> Result<Option<ContentTypeId>, prost::DecodeError> {
+    #[derive(Clone, PartialEq, prost::Message)]
+    struct TypeOnly {
+        #[prost(message, optional, tag = "1")]
+        r#type: Option<ContentTypeId>,
+    }
+    Ok(TypeOnly::decode(message)?.r#type)
+}
+
+impl QueryableContentFields {
+    /// Whether content of this type carries a reference id in its payload.
+    pub(crate) fn has_reference(content_type_id: &ContentTypeId) -> bool {
+        content_type_id.authority_id == "xmtp.org"
+            && matches!(
+                (
+                    content_type_id.type_id.as_str(),
+                    content_type_id.version_major
+                ),
+                (ReplyCodec::TYPE_ID, 1)
+                    | (ReactionCodec::TYPE_ID, ReactionCodec::MAJOR_VERSION)
+                    | (ReactionCodec::TYPE_ID, 1)
+                    | (
+                        DeleteMessageCodec::TYPE_ID,
+                        DeleteMessageCodec::MAJOR_VERSION
+                    )
+            )
+    }
+
+    /// The fields of a content type with no reference id.
+    pub(crate) fn from_type(content_type_id: &ContentTypeId) -> Self {
+        QueryableContentFields {
+            content_type: ContentType::from_identifier(
+                &content_type_id.authority_id,
+                &content_type_id.type_id,
+                content_type_id.version_major,
+            ),
+            version_major: content_type_id.version_major as i32,
+            version_minor: content_type_id.version_minor as i32,
+            authority_id: content_type_id.authority_id.to_string(),
+            reference_id: None,
+        }
+    }
+}
+
 impl TryFrom<EncodedContent> for QueryableContentFields {
     type Error = prost::DecodeError;
 
@@ -273,13 +323,15 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
 
         // Invalid compressed content has no searchable reference. Message
         // decoding still exposes the original envelope to the app.
-        let decoded = xmtp_content_types::compression::decompress(content).ok();
-        let reference_id = decoded.and_then(|content| {
+        // The content can hold a device-sync HMAC root key, so the decoded
+        // copy is wiped once its reference is read.
+        let mut decoded = xmtp_content_types::compression::decompress(content).ok();
+        let reference_id = decoded.as_ref().and_then(|content| {
             if content_type_id.authority_id != "xmtp.org" {
                 return None;
             }
             match (type_id_str.as_str(), content_type_id.version_major) {
-                (ReplyCodec::TYPE_ID, 1) => ReplyCodec::decode(content)
+                (ReplyCodec::TYPE_ID, 1) => ReplyCodec::decode(content.clone())
                     .ok()
                     .and_then(|reply| hex::decode(reply.reference).ok()),
                 (ReactionCodec::TYPE_ID, ReactionCodec::MAJOR_VERSION) => {
@@ -297,17 +349,13 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
                 _ => None,
             }
         });
+        if let Some(content) = &mut decoded {
+            content.content.zeroize();
+        }
 
         Ok(QueryableContentFields {
-            content_type: ContentType::from_identifier(
-                &content_type_id.authority_id,
-                &content_type_id.type_id,
-                content_type_id.version_major,
-            ),
-            version_major: content_type_id.version_major as i32,
-            version_minor: content_type_id.version_minor as i32,
-            authority_id: content_type_id.authority_id.to_string(),
             reference_id,
+            ..QueryableContentFields::from_type(&content_type_id)
         })
     }
 }

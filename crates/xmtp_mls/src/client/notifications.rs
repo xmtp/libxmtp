@@ -8,9 +8,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use xmtp_common::{ErrorCode, RetryableError};
+use xmtp_cryptography::secret::{Secret, Zeroizing};
 use xmtp_db::consent_record::{ConsentState, ConsentType};
 use xmtp_db::{
-    StorageError, TransactionOutcome::Continue, XmtpMlsStorageProvider,
+    StorageError, StoredSecret, TransactionOutcome::Continue, XmtpMlsStorageProvider,
     notifications::StoredNotification, prelude::*,
 };
 use xmtp_proto::backend_v1::{self, register_request::Delivery};
@@ -25,11 +26,14 @@ fn notification_settings_changed(context: &impl XmtpSharedContext) {
 }
 
 /// The delivery endpoint. Credentials are omitted from debug output.
+///
+/// The HTTP signing key serializes as a `Vec<u8>` does, so stored
+/// configurations do not change.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum NotificationChannel {
     Apns { token: String },
     Fcm { token: String },
-    Http { url: String, signing_key: Vec<u8> },
+    Http { url: String, signing_key: Secret },
 }
 
 impl std::fmt::Debug for NotificationChannel {
@@ -72,6 +76,8 @@ impl NotificationConfig {
         }
     }
 
+    /// The request copies the signing key and the recipient secret. Each copy
+    /// of the request wipes them on drop.
     pub(crate) fn registration(&self, record: &StoredNotification) -> backend_v1::RegisterRequest {
         let delivery = match &self.channel {
             NotificationChannel::Apns { token } => Delivery::Apns(backend_v1::ApnsDelivery {
@@ -83,16 +89,25 @@ impl NotificationConfig {
             NotificationChannel::Http { url, signing_key } => {
                 Delivery::Http(backend_v1::HttpDelivery {
                     url: url.clone(),
-                    signing_key: signing_key.clone(),
+                    signing_key: signing_key.as_slice().to_vec(),
                 })
             }
         };
         backend_v1::RegisterRequest {
             recipient_id: record.push_recipient_id.clone().unwrap_or_default(),
-            recipient_secret: record.push_recipient_secret.clone().unwrap_or_default(),
+            recipient_secret: recipient_secret(record),
             delivery: Some(delivery),
         }
     }
+}
+
+/// A copy of the stored recipient secret for a request, which wipes it on drop.
+pub(crate) fn recipient_secret(record: &StoredNotification) -> Vec<u8> {
+    record
+        .push_recipient_secret
+        .as_ref()
+        .map(|secret| secret.as_slice().to_vec())
+        .unwrap_or_default()
 }
 
 /// The locally stored notification state. This getter does not make a request.
@@ -238,6 +253,42 @@ pub(crate) fn decode<T: serde::de::DeserializeOwned>(value: &[u8]) -> Result<T, 
     serde_json::from_slice(value).map_err(|_| StorageError::DbDeserialize)
 }
 
+/// Encode a configuration, which holds the HTTP signing key, for storage.
+///
+/// The same JSON as [`encode`]. A first pass measures it, so the zeroizing
+/// buffer never grows and frees a partial copy of the key.
+pub(crate) fn encode_config(config: &NotificationConfig) -> Result<StoredSecret, StorageError> {
+    struct Measure(usize);
+    impl std::io::Write for Measure {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut measure = Measure(0);
+    serde_json::to_writer(&mut measure, config).map_err(|_| StorageError::DbSerialize)?;
+    let mut bytes = Zeroizing::new(Vec::with_capacity(measure.0));
+    serde_json::to_writer(&mut *bytes, config).map_err(|_| StorageError::DbSerialize)?;
+    Ok(bytes.into())
+}
+
+/// Decode the stored configuration. The stored bytes stay in their
+/// `StoredSecret`, and the signing key decodes straight into a `Secret`.
+pub(crate) fn stored_config(
+    record: &StoredNotification,
+) -> Result<NotificationConfig, StorageError> {
+    decode(
+        record
+            .push_config
+            .as_ref()
+            .ok_or(StorageError::DbDeserialize)?
+            .as_slice(),
+    )
+}
+
 pub(crate) fn state(record: &StoredNotification) -> Result<NotificationState, StorageError> {
     match record.push_state {
         0 => Ok(NotificationState::Disabled),
@@ -271,7 +322,9 @@ impl<Context: XmtpSharedContext> Client<Context> {
         }
         let valid_channel = match &config.channel {
             NotificationChannel::Apns { .. } | NotificationChannel::Fcm { .. } => true,
-            NotificationChannel::Http { signing_key, .. } => (16..=64).contains(&signing_key.len()),
+            NotificationChannel::Http { signing_key, .. } => {
+                (16..=64).contains(&signing_key.as_slice().len())
+            }
         };
         if !valid_channel {
             return Err(NotificationError::InvalidArgument);
@@ -288,13 +341,14 @@ impl<Context: XmtpSharedContext> Client<Context> {
                 let mut record = db.notification_record()?;
                 if record.push_recipient_id.is_none() {
                     record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
-                    record.push_recipient_secret = Some(xmtp_common::rand_vec::<32>());
+                    record.push_recipient_secret =
+                        Some(xmtp_cryptography::rand::rand_secret::<32>().into());
                 }
                 record.push_generation = record
                     .push_generation
                     .checked_add(1)
                     .ok_or(StorageError::DbSerialize)?;
-                record.push_config = Some(encode(&config)?);
+                record.push_config = Some(encode_config(&config)?);
                 record.push_state = 1;
                 record.push_failed_error = None;
                 record.push_deadlines = Some(encode(&worker::Deadlines::default())?);
@@ -378,8 +432,8 @@ impl<Context: XmtpSharedContext> Client<Context> {
             return Ok(());
         }
         let request = backend_v1::UnregisterRequest {
+            recipient_secret: recipient_secret(&record),
             recipient_id: record.push_recipient_id.unwrap_or_default(),
-            recipient_secret: record.push_recipient_secret.unwrap_or_default(),
         };
         match worker::bounded(self.context.api().unregister(request)).await {
             Ok(_) | Err(NotificationError::NotFound) => {
@@ -431,12 +485,7 @@ pub(crate) fn enabled_from_record(
     if record.push_state != 1 {
         return Ok(false);
     }
-    let config: NotificationConfig = decode(
-        record
-            .push_config
-            .as_deref()
-            .ok_or(StorageError::DbDeserialize)?,
-    )?;
+    let config = stored_config(record)?;
     Ok(effective(&config, group, consent))
 }
 

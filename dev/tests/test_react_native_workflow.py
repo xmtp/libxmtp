@@ -21,6 +21,11 @@ COMMAND = next(
     for step in ACTION["runs"]["steps"]
     if step.get("name") == "Build and exchange the declared products"
 )
+XCODE_CHECK = next(
+    step
+    for step in ACTION["runs"]["steps"]
+    if step.get("name") == "Verify the exact RN Apple toolchain"
+)
 WORKFLOWS = ROOT / ".github/workflows"
 PACKAGE_ROOT = "/nix/store/" + "p" * 32 + "-package"
 
@@ -403,6 +408,75 @@ def product_calls(document):
                 yield job_id, job, step["with"]
 
 
+class ReactNativeXcodeCheckTests(unittest.TestCase):
+    """Run the RN Xcode pin check with stub xcode-select and xcodebuild."""
+
+    PIN = {
+        "PIN_DIRECTORY": "/Applications/Xcode_27.0.app/Contents/Developer",
+        "PIN_VERSION": "27.0",
+        "PIN_BUILD": "27A266a",
+    }
+    ANNOTATION = "::error title=RN Xcode pin not on this runner::"
+
+    def check(self, directory, build, xcodebuild_fails=False):
+        with tempfile.TemporaryDirectory() as temporary:
+            binary = Path(temporary)
+            (binary / "xcode-select").write_text(
+                '#!/usr/bin/env bash\nprintf "%s\\n" "$STUB_DIRECTORY"\n'
+            )
+            (binary / "xcodebuild").write_text(
+                "#!/usr/bin/env bash\n"
+                '[[ -z "$STUB_FAIL" ]] || exit 1\n'
+                'printf "Xcode 27.0\\nBuild version %s\\n" "$STUB_BUILD"\n'
+            )
+            for path in binary.iterdir():
+                path.chmod(0o755)
+            # The command line of a composite step with `shell: bash`.
+            return subprocess.run(
+                [
+                    "bash",
+                    "--noprofile",
+                    "--norc",
+                    "-eo",
+                    "pipefail",
+                    "-c",
+                    XCODE_CHECK["run"],
+                ],
+                env=os.environ
+                | self.PIN
+                | {
+                    "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+                    "STUB_DIRECTORY": directory,
+                    "STUB_BUILD": build,
+                    "STUB_FAIL": "1" if xcodebuild_fails else "",
+                },
+                capture_output=True,
+                text=True,
+            )
+
+    def test_exact_pin_passes(self):
+        self.assertEqual(XCODE_CHECK["shell"], "bash")
+        result = self.check(self.PIN["PIN_DIRECTORY"], self.PIN["PIN_BUILD"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn(self.ANNOTATION, result.stdout)
+
+    def test_mismatch_fails_with_annotation(self):
+        cases = {
+            "directory": (
+                "/Applications/Xcode_27.app/Contents/Developer",
+                "27A266a",
+                False,
+            ),
+            "build": (self.PIN["PIN_DIRECTORY"], "27A5218g", False),
+            "xcodebuild failure": (self.PIN["PIN_DIRECTORY"], "27A266a", True),
+        }
+        for name, (directory, build, fails) in cases.items():
+            with self.subTest(case=name):
+                result = self.check(directory, build, fails)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(result.stdout.count(self.ANNOTATION), 1, result.stdout)
+
+
 class ReactNativeWorkflowTests(unittest.TestCase):
     def test_trusted_and_release_runs_never_read_the_ci_cache(self):
         for name in ("post-merge.yml", "release-react-native-sdk.yml"):
@@ -529,6 +603,89 @@ class ReactNativeWorkflowTests(unittest.TestCase):
                         ),
                         not token,
                     )
+
+    def test_scope_check_rejects_unknown_scope_and_package(self):
+        # workflow_call passes scope and package as free strings, and
+        # RN_PACKAGE_KIND maps any unknown package to release. The first step
+        # of components must reject them before any build.
+        document = workflow("test-react-native.yml")
+        components = document["jobs"]["components"]
+        step = components["steps"][0]
+        self.assertEqual(step["name"], "Check the scope")
+        self.assertEqual(step["env"]["PACKAGE"], "${{ inputs.package }}")
+        # The check runs on every event: neither it nor its job is skipped.
+        self.assertNotIn("if", components)
+        self.assertNotIn("if", step)
+        kind = inner(document["env"]["RN_PACKAGE_KIND"])
+
+        def check(scope, package):
+            values = {
+                "inputs.package": package,
+                "inputs.scope": scope,
+                "github.event_name": "workflow_dispatch",
+            }
+            return subprocess.run(
+                ["/bin/bash", "-euo", "pipefail", "-c", step["run"]],
+                env={
+                    "PATH": os.environ["PATH"],
+                    "SCOPE": scope,
+                    "PACKAGE": package,
+                    "KIND": expression(kind, values),
+                },
+                capture_output=True,
+                text=True,
+            )
+
+        for scope, package in (
+            ("full", "auto"),
+            ("full", "test"),
+            ("full", "release"),
+            # Empty means auto, as in RN_PACKAGE_KIND.
+            ("full", ""),
+            ("android-smoke", ""),
+            ("android-smoke", "auto"),
+            ("android-smoke", "test"),
+        ):
+            with self.subTest(scope=scope, package=package):
+                result = check(scope, package)
+                self.assertEqual(result.returncode, 0, result.stdout)
+        for scope, package, error in (
+            ("full", "relase", "::error::unknown package: relase"),
+            ("full", "Test", "::error::unknown package: Test"),
+            ("android", "auto", "::error::unknown scope: android"),
+            ("android-smoke", "release", "::error::scope android-smoke needs"),
+        ):
+            with self.subTest(scope=scope, package=package):
+                result = check(scope, package)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(error, result.stdout)
+
+    def test_macos_rows_get_a_shorter_timeout_than_linux_rows(self):
+        # The macOS rows get a timeout from their duration history, so a
+        # stalled Nix download fails sooner. A wrong matrix key in the
+        # expression would silently give them the Linux 90 minutes.
+        jobs = workflow("test-react-native.yml")["jobs"]
+        expected = {
+            "components": {"Linux": 90, "macOS": 35},
+            "consumers": {"Linux": 90, "macOS": 35},
+        }
+        for job_id, timeouts in expected.items():
+            job = jobs[job_id]
+            raw = inner(job["strategy"]["matrix"]["include"])
+            raw = raw.removeprefix("fromJSON(").removesuffix(")")
+            rows = json.loads(expression(raw, {"inputs.scope": "full"}))
+            found = {}
+            timeout = str(job["timeout-minutes"])
+            for row in rows:
+                values = {f"matrix.{key}": value for key, value in row.items()}
+                os_name = "macOS" if "macos" in row["runner"] else "Linux"
+                found[os_name] = (
+                    expression(inner(timeout), values)
+                    if "${{" in timeout
+                    else int(timeout)
+                )
+            with self.subTest(job=job_id):
+                self.assertEqual(found, timeouts)
 
     def test_android_smoke_runs_no_macos_job(self):
         # The Android smoke builds no iOS part, so no job of the chain runs on
