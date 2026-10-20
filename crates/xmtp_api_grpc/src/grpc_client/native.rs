@@ -129,7 +129,11 @@ pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint 
     apply_channel_options_with(endpoint, limit, *KEEPALIVE)
 }
 
-fn apply_channel_options_with(endpoint: Endpoint, limit: u64, keepalive: KeepaliveConfig) -> Endpoint {
+fn apply_channel_options_with(
+    endpoint: Endpoint,
+    limit: u64,
+    keepalive: KeepaliveConfig,
+) -> Endpoint {
     endpoint
         // Purpose: This setting controls the size of the initial connection-level flow control window for HTTP/2, which is the underlying protocol for gRPC.
         // Functionality: Flow control in HTTP/2 manages how much data can be in flight on the network. Setting the initial connection window size to (1 << 31) - 1 (the maximum possible value for a 32-bit integer, which is 2,147,483,647 bytes) essentially allows the client to receive a very large amount of data from the server before needing to acknowledge receipt and permit more data to be sent. This can be particularly useful in high-latency networks or when transferring large amounts of data.
@@ -149,7 +153,12 @@ fn apply_channel_options_with(endpoint: Endpoint, limit: u64, keepalive: Keepali
         // its probe count runs out (9 on Linux, 8 on macOS, 10 on Windows).
         // Impact: A backstop for connections that carry no HTTP/2 PINGs. See `KeepaliveConfig`.
         .tcp_keepalive(keepalive.tcp_keepalive)
-        .tcp_keepalive_interval(Some(KeepaliveConfig::TCP_KEEPALIVE_INTERVAL))
+        // Only with an idle time: hyper-util turns keep-alive on for an interval alone.
+        .tcp_keepalive_interval(
+            keepalive
+                .tcp_keepalive
+                .map(|_| KeepaliveConfig::TCP_KEEPALIVE_INTERVAL),
+        )
         // Purpose: Sets a maximum duration for the client to wait for a response to a request.
         // Functionality: If a response is not received within the specified timeout, the request is canceled and an error is returned.
         // Impact: This is critical for bounding the wait time for operations, which can enhance the predictability and reliability of client interactions by avoiding indefinitely hanging requests.
@@ -241,11 +250,8 @@ mod keepalive_tests {
     #[test]
     fn endpoint_gets_tcp_keepalive_idle_and_interval() {
         let cfg = KeepaliveConfig::from_lookup(|_| None);
-        let endpoint = apply_channel_options_with(
-            Endpoint::from_static("http://127.0.0.1:5556"),
-            5000,
-            cfg,
-        );
+        let endpoint =
+            apply_channel_options_with(Endpoint::from_static("http://127.0.0.1:5556"), 5000, cfg);
         assert_eq!(endpoint.get_tcp_keepalive(), Some(Duration::from_secs(60)));
         // Without an explicit interval, Windows gets keepaliveinterval = 0.
         assert_eq!(
@@ -272,6 +278,17 @@ mod keepalive_tests {
     fn zero_tcp_keepalive_disables_it() {
         let cfg = KeepaliveConfig::from_lookup(lookup(&[("XMTP_GRPC_TCP_KEEPALIVE_SECS", "0")]));
         assert_eq!(cfg.tcp_keepalive, None);
+    }
+
+    #[test]
+    fn disabled_tcp_keepalive_sets_no_endpoint_interval() {
+        // hyper-util turns keep-alive on when only an interval is set, so a disabled
+        // keep-alive must reach the endpoint with neither value.
+        let cfg = KeepaliveConfig::from_lookup(lookup(&[("XMTP_GRPC_TCP_KEEPALIVE_SECS", "0")]));
+        let endpoint =
+            apply_channel_options_with(Endpoint::from_static("http://127.0.0.1:5556"), 5000, cfg);
+        assert_eq!(endpoint.get_tcp_keepalive(), None);
+        assert_eq!(endpoint.get_tcp_keepalive_interval(), None);
     }
 
     #[test]
