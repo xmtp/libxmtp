@@ -1,6 +1,15 @@
 //! Heap-canary proofs that libxmtp wipes the copies of secrets it owns.
 //! Native only: it installs the heap-canary global allocator.
 //! Needs the shared backend (`just backend up`).
+//!
+//! A span or event field that copies a key must free that copy inside the
+//! scan. Without a subscriber, CI evaluates almost none: the test macro
+//! installs none there, and with none tracing's `log` feature builds an
+//! event's fields only for a `log` logger, which CI does not set, and a
+//! span's only until the process first sets any dispatcher. So each scan runs
+//! under [`traced`] or [`traced_sync`]: a global subscriber that formats
+//! every field on every thread when none is set
+//! (`install_field_evaluator`), and a trace layer over the flow itself.
 // The heap-canary harness is Unix-only (`libc::memmem`).
 #![cfg(unix)]
 
@@ -66,6 +75,32 @@ const COMMIT_LOG_SIGNER: [u8; 32] = [
     0xbe, 0x61, 0x34, 0xd9, 0x8f, 0x02, 0xa7, 0x56, 0xeb, 0x18, 0xcd, 0x45, 0x7a, 0x93, 0x2f, 0xf6,
 ];
 
+/// Poll `future` under a trace layer and drop the exported spans before
+/// returning, so any copy they hold is freed inside the caller's scan. The
+/// layer covers what `future` itself polls; a task it spawns reaches the
+/// global field evaluator instead.
+async fn traced<T>(future: impl std::future::Future<Output = T>) -> T {
+    use tracing::Instrument as _;
+    xmtp_logging::test_logging::install_field_evaluator();
+    let (result, spans) = xmtp_logging::test_logging::with_trace_layer_async(
+        true,
+        future.instrument(tracing::error_span!("zeroize")),
+    )
+    .await;
+    drop(spans);
+    result
+}
+
+/// [`traced`] for a closure.
+fn traced_sync<T>(run: impl FnOnce() -> T) -> T {
+    xmtp_logging::test_logging::install_field_evaluator();
+    let (result, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+        tracing::error_span!("zeroize").in_scope(run)
+    });
+    drop(spans);
+    result
+}
+
 async fn open_client(path: &str, strategy: IdentityStrategy) -> FullXmtpClient {
     Client::builder(strategy)
         .store(xmtp_db::TestDb::create_persistent_store(Some(path.to_owned())).await)
@@ -89,29 +124,32 @@ async fn installation_key_is_wiped_on_store_and_load() {
         Identity::new_inbox_with_installation_keys(wallet.get_identifier()?, 1, credential).await?;
     let path = xmtp_common::tmp_path();
 
-    let ((), hits) = scan_async(&[Canary::new(&INSTALLATION_KEY)], async {
-        let client = open_client(&path, IdentityStrategy::ExternalIdentity(identity)).await;
-        register_client(&client, &wallet).await;
-        let group = client.create_group(None, None).unwrap();
-        group
-            .send_message(b"first", SendMessageOpts::default())
-            .await
-            .unwrap();
-        let group_id = group.group_id;
-        drop(group);
-        drop(client);
+    let ((), hits) = scan_async(
+        &[Canary::new(&INSTALLATION_KEY)],
+        traced(async {
+            let client = open_client(&path, IdentityStrategy::ExternalIdentity(identity)).await;
+            register_client(&client, &wallet).await;
+            let group = client.create_group(None, None).unwrap();
+            group
+                .send_message(b"first", SendMessageOpts::default())
+                .await
+                .unwrap();
+            let group_id = group.group_id;
+            drop(group);
+            drop(client);
 
-        let client = open_client(&path, IdentityStrategy::CachedOnly).await;
-        let group = client.group(&group_id).unwrap();
-        group
-            .send_message(b"second", SendMessageOpts::default())
-            .await
-            .unwrap();
-        drop(group);
-        drop(client);
-        // Let tasks that still hold client state finish and free it.
-        xmtp_common::time::sleep(Duration::from_millis(500)).await;
-    })
+            let client = open_client(&path, IdentityStrategy::CachedOnly).await;
+            let group = client.group(&group_id).unwrap();
+            group
+                .send_message(b"second", SendMessageOpts::default())
+                .await
+                .unwrap();
+            drop(group);
+            drop(client);
+            // Let tasks that still hold client state finish and free it.
+            xmtp_common::time::sleep(Duration::from_millis(500)).await;
+        }),
+    )
     .await;
 
     assert_eq!(hits, [0], "freed heap blocks held the installation key");
@@ -205,15 +243,18 @@ async fn welcome_keys_are_wiped_when_joining() {
     ];
     drop((bundle, wrapper_key));
 
-    let ((), hits) = scan_async(&canaries, async {
-        let group = bo.create_group(None, None).unwrap();
-        group.add_members(&[alix.inbox_id()]).await.unwrap();
-        let joined = alix.sync_welcomes().await.unwrap();
-        assert_eq!(joined.len(), 1);
-        drop((group, joined));
-        // Let tasks that still hold Welcome state finish and free it.
-        xmtp_common::time::sleep(Duration::from_millis(500)).await;
-    })
+    let ((), hits) = scan_async(
+        &canaries,
+        traced(async {
+            let group = bo.create_group(None, None).unwrap();
+            group.add_members(&[alix.inbox_id()]).await.unwrap();
+            let joined = alix.sync_welcomes().await.unwrap();
+            assert_eq!(joined.len(), 1);
+            drop((group, joined));
+            // Let tasks that still hold Welcome state finish and free it.
+            xmtp_common::time::sleep(Duration::from_millis(500)).await;
+        }),
+    )
     .await;
 
     assert_eq!(hits, [0, 0], "freed heap blocks held a Welcome private key");
@@ -246,21 +287,25 @@ async fn hmac_keys_are_wiped_on_load_derive_send_and_sync() {
         Canary::new(&SYNCED_HMAC_ROOT_KEY),
     ];
 
-    let ((), hits) = scan_async(&canaries, async {
-        drop(StoredUserPreferences::load(&db).unwrap());
-        drop(group.hmac_keys(-1..=1).unwrap());
-        group
-            .send_message(b"hmac", SendMessageOpts::default())
-            .await
-            .unwrap();
+    let ((), hits) = scan_async(
+        &canaries,
+        traced(async {
+            drop(StoredUserPreferences::load(&db).unwrap());
+            drop(group.hmac_keys(-1..=1).unwrap());
+            group
+                .send_message(b"hmac", SendMessageOpts::default())
+                .await
+                .unwrap();
 
-        let update = PreferenceUpdate::try_from(synced).unwrap();
-        let PreferenceUpdate::Hmac { key, cycled_at_ns } = &update else {
-            panic!("an HMAC proto converts to an HMAC update");
-        };
-        StoredUserPreferences::store_hmac_key(&db, key.as_slice(), Some(*cycled_at_ns)).unwrap();
-        drop(update);
-    })
+            let update = PreferenceUpdate::try_from(synced).unwrap();
+            let PreferenceUpdate::Hmac { key, cycled_at_ns } = &update else {
+                panic!("an HMAC proto converts to an HMAC update");
+            };
+            StoredUserPreferences::store_hmac_key(&db, key.as_slice(), Some(*cycled_at_ns))
+                .unwrap();
+            drop(update);
+        }),
+    )
     .await;
 
     assert_eq!(
@@ -297,9 +342,11 @@ async fn preparing_a_sync_message_wipes_its_content() {
     .encode_to_vec();
 
     let ((), hits) = scan(&[Canary::new(&HMAC_ROOT_KEY)], || {
-        group
-            .send_message_optimistic(&content, SendMessageOpts::default())
-            .unwrap();
+        traced_sync(|| {
+            group
+                .send_message_optimistic(&content, SendMessageOpts::default())
+                .unwrap();
+        })
     });
     drop(content);
 
@@ -318,19 +365,21 @@ async fn commit_log_signer_intent_wipes_its_copies() {
     let signer_hex = hex::encode(COMMIT_LOG_SIGNER);
 
     let ((), hits) = scan(&[Canary::new(&COMMIT_LOG_SIGNER)], || {
-        let intent = UpdateMetadataIntentData::new_update_commit_log_signer(signer);
-        let queued = QueueIntent::metadata_update()
-            .data(intent)
-            .queue(&group)
-            .unwrap();
-        let rows = db
-            .find_group_intents(group.group_id, None, Some(vec![IntentKind::MetadataUpdate]))
-            .unwrap();
-        let snapshot = queued.clone();
-        let decoded =
-            UpdateMetadataIntentData::try_from(snapshot.data.as_slice().to_vec()).unwrap();
-        assert!(decoded.field_value == signer_hex);
-        drop((queued, rows, snapshot, decoded));
+        traced_sync(|| {
+            let intent = UpdateMetadataIntentData::new_update_commit_log_signer(signer);
+            let queued = QueueIntent::metadata_update()
+                .data(intent)
+                .queue(&group)
+                .unwrap();
+            let rows = db
+                .find_group_intents(group.group_id, None, Some(vec![IntentKind::MetadataUpdate]))
+                .unwrap();
+            let snapshot = queued.clone();
+            let decoded =
+                UpdateMetadataIntentData::try_from(snapshot.data.as_slice().to_vec()).unwrap();
+            assert!(decoded.field_value == signer_hex);
+            drop((queued, rows, snapshot, decoded));
+        })
     });
     drop(signer_hex);
 
