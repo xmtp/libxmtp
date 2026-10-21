@@ -4,7 +4,7 @@ description: Migrate a pre-8.0.0 React Native app to the native v8 API and a sel
 ---
 
 Every pre-8.0.0 React Native app must migrate. The npm package name remains
-`@xmtp/react-native-sdk`; version **8.0.0-rc3** uses the generated native v8 API.
+`@xmtp/react-native-sdk`; version **8.0.0-rc4** uses the generated native v8 API.
 Existing method names, option shapes, generic types, hooks, and database files
 are not a compatibility contract.
 
@@ -16,17 +16,17 @@ builds, and deployment floors.
 
 This guide lists changes from
 [`xmtp-react-native` v5.7.0](https://github.com/xmtp/xmtp-react-native/tree/f0a3d5ecec7552ee479de24b2f151db3e85fbb50)
-to `@xmtp/react-native-sdk` 8.0.0-rc3, built from `sdks/react-native` in
+to `@xmtp/react-native-sdk` 8.0.0-rc4, built from `sdks/react-native` in
 `xmtp/libxmtp`. A call can keep its name and still have different parameters,
 results, or behavior. The **Before** examples use v5.7.0. The **After** examples
 use the v8 declarations and are checked as complete TypeScript programs.
 
 ## Upgrade the native package
 
-Use SDK **8.0.0-rc3** with backend **8.0.0-rc3**:
+Use SDK **8.0.0-rc4** with backend **8.0.0-rc4**:
 
 ```sh
-npm install --save-exact @xmtp/react-native-sdk@8.0.0-rc3
+npm install --save-exact @xmtp/react-native-sdk@8.0.0-rc4
 ```
 
 Install iOS pods and rebuild the native app. Expo apps need a rebuilt development
