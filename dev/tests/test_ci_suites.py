@@ -157,6 +157,7 @@ class RenderTests(unittest.TestCase):
         return yaml.safe_load(SUITES.render_workflow(self.manifest, phase))["jobs"]
 
     def test_secrets_and_permissions_follow_the_declaration(self):
+        """Generated jobs must receive only their declared credentials and permissions."""
         manifest = copy.deepcopy(self.manifest)
         manifest["suites"]["docs_site"]["permissions"]["pages"] = "write"
         jobs = {}
@@ -167,8 +168,14 @@ class RenderTests(unittest.TestCase):
                 job = jobs[name]
                 if suite["secrets"] == "none":
                     self.assertNotIn("secrets", job)
-                elif suite["secrets"] == "kache":
-                    self.assertEqual(set(job["secrets"]), set(SUITES.KACHE_SECRETS))
+                elif suite["secrets"] in SUITES.SCOPED_SECRETS:
+                    self.assertEqual(
+                        job["secrets"],
+                        {
+                            secret: f"${{{{ secrets.{secret} }}}}"
+                            for secret in SUITES.SCOPED_SECRETS[suite["secrets"]]
+                        },
+                    )
                 else:
                     self.assertEqual(job["secrets"], "inherit")
         self.assertEqual(jobs["docs_site"]["permissions"]["pages"], "write")
