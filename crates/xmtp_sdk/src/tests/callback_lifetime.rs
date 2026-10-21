@@ -37,10 +37,14 @@ impl Future for HeldFuture {
         if !self.started {
             self.started = true;
             self.counts.active.fetch_add(1, Ordering::SeqCst);
-            self.entered.take().unwrap().send(()).unwrap();
         }
         match Pin::new(&mut self.release).poll(cx) {
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => {
+                if let Some(entered) = self.entered.take() {
+                    entered.send(()).unwrap();
+                }
+                Poll::Pending
+            }
             Poll::Ready(result) => {
                 result.expect("the probe must release each callback");
                 self.complete = true;
@@ -232,6 +236,26 @@ async fn cycle(family: Family, cancel: bool) {
     assert!(
         threads.len() >= CALLS,
         "held foreign calls did not enter independently"
+    );
+}
+
+/// Entry must prove a pending receiver, or release can race the callback's first poll.
+#[xmtp_common::test(unwrap_try = true)]
+async fn callback_lifetime_entry_requires_pending_receiver() {
+    let (release, receiver) = oneshot::channel();
+    let (entered, mut entries) = mpsc::unbounded_channel();
+    release.send(()).unwrap();
+    HeldFuture {
+        release: receiver,
+        entered: Some(entered),
+        counts: Arc::default(),
+        complete: false,
+        started: false,
+    }
+    .await;
+    assert_eq!(
+        entries.try_recv(),
+        Err(mpsc::error::TryRecvError::Disconnected)
     );
 }
 
