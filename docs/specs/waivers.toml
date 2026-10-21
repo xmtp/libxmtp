@@ -447,3 +447,136 @@ kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/4606"
 reason = "Two Type gaps remain. A table with fixed keys, including an entry of auth.keys or application_components, accepts an array and decodes it by position, such as limits = [] or database = ['postgres://localhost/xmtp']; a table whose keys the operator chooses refuses one. A key whose value is one of a fixed list of strings (server.log_level, server.log_format, and the type and policies of application_components[]) accepts a one-key table, such as server.log_level = { debug = {} }. attachments.target and attachments.target.S3.credentials refuse an array, and attachments.target.S3.credentials.kind refuses a table. The bounds and the standard checks hold: every_standard_check_in_the_field_table_refuses_a_failing_value proves them."
+
+[[waiver]]
+id = "GMOD-040"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "New groups, DMs, sync groups, and one-shot groups get a random 16-byte group_id, and no group root is drawn. Keyed creation lands with the client switch to keyed groups."
+
+[[waiver]]
+id = "GMOD-041"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "No key is derived from a group root yet. The derivation lands with the shared group-key module, and its uses land with keyed creation, signed publishes, and sealed commit-log entries."
+
+[[waiver]]
+id = "GMOD-042"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "No group root exists yet. Commit builders still produce an exported GroupInfo that every call site drops, and archive export still copies `_commit_log_signer` into `GroupSave.mutable_metadata`."
+
+[[waiver]]
+id = "META-075"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "The creator still writes `COMMIT_LOG_SIGNER` and writes no `GROUP_ROOT_KEY`."
+
+[[waiver]]
+id = "JOIN-083"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "A Welcome is not checked for a `GROUP_ROOT_KEY` that derives its `group_id`. Welcomes for 16-byte groups are accepted, and any Welcome that names a restored placeholder can activate it."
+
+[[waiver]]
+id = "API-300"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "Neither the backend nor the client verifies a publish signature. `GroupMessage` has no `signature` field and `SealedCommitLogEntry` does not exist in the schema yet."
+
+[[waiver]]
+id = "FORK-074"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "Entries are published as unencrypted `CommitLogEntry` payloads signed by the `COMMIT_LOG_SIGNER` key, on a topic named by the 16-byte group id. `SealedCommitLogEntry` does not exist in the schema yet."
+
+[[waiver]]
+id = "FORK-075"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "Readers verify entries under a consensus key taken from the first self-verifying entry on the topic and do not decrypt them, because entries are not sealed yet."
+
+[[waiver]]
+id = "API-210"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "The schema has no `GroupMessage.signature` and no `SealedCommitLogEntry`, and `ClientEnvelope` field 5 still carries `CommitLogEntry` instead of being reserved."
+
+[[waiver]]
+id = "API-230"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "Admission checks no signature on a group message or a commit-log entry, accepts 16-byte group ids, and parses commit-log entries as `CommitLogEntry`."
+
+[[waiver]]
+id = "API-223"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "The backend does not bound the number of envelopes in a publish request, so a request of more than 1000 envelopes is not refused with `REASON_TOO_LARGE`."
+
+[[waiver]]
+id = "API-281"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "The new rows of the bounds and admission tables are not enforced yet: a publish of more than 1000 envelopes and a group message without a valid signature are not refused with `INVALID_ARGUMENT`."
+
+[[waiver]]
+id = "TOPIC-001"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "The backend routes kinds `0x00` and `0x04` by a 16-byte group id, and reads the commit-log identifier from `PlaintextCommitLogEntry.group_id`."
+
+[[waiver]]
+id = "TOPIC-002"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "A 16-byte group id is still routable, and a 32-byte group id is refused as the wrong length."
+
+[[waiver]]
+id = "TOPIC-003"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "A request naming a 17-byte `0x00` or `0x04` topic is accepted, and one naming a 33-byte topic of those kinds fails with `INVALID_ARGUMENT`."
+
+[[waiver]]
+id = "CONF-073"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "The client does not split publish requests to the fixed bound of 1000 envelopes per request."
+
+[[waiver]]
+id = "FORK-030"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "Entries are evaluated under the consensus-key check, not FORK-075, because entries are not sealed yet."
+
+[[waiver]]
+id = "FORK-032"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "The chain check runs on entries that passed the consensus-key check, not FORK-075, because entries are not sealed yet."
+
+[[waiver]]
+id = "DMS-002"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "The DM registry has no `GROUP_ROOT_KEY` entry, and the creator writes `COMMIT_LOG_SIGNER`."

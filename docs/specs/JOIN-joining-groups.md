@@ -322,13 +322,14 @@ The check runs in both directions. Every leaf node's `signature_key` must be an 
 
 The last check is on the group itself. A joiner is being handed a configuration it did not choose, and some configurations are not safe to accept: a conversation that claims to be between two people but whose policies let a third be added, or a group whose rules require behaviour this client does not have. Refusing at join is the only chance to refuse at all, because after the join the client is a member and the configuration is the group's.
 
-DMS-003 owns the checks for a two-party conversation under JOIN-060, including a Welcome from the joiner's own inbox. [META section 2](META-group-metadata.md#2-well-known-components) owns the minimum client version component. [CONS section 3](CONS-consent.md#3-defaults-and-inherited-consent) owns join consent defaults, and CONS-030 and CONS-031 own consent filtering. SYNC-010 owns the checks for a sync-group Welcome under JOIN-060.
+DMS-003 owns the checks for a two-party conversation under JOIN-060, including a Welcome from the joiner's own inbox. [META section 2](META-group-metadata.md#2-well-known-components) owns the minimum client version component. [CONS section 3](CONS-consent.md#3-defaults-and-inherited-consent) owns join consent defaults, and CONS-030 and CONS-031 own consent filtering. SYNC-010 owns the checks for a sync-group Welcome under JOIN-060. GMOD-040 owns the group root; JOIN-083 checks that the root a Welcome carries names its group.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | JOIN-060 | Reject an inconsistent group | When the group a Welcome carries does not satisfy every property its stated conversation kind requires, the client MUST record a terminal rejection for the Welcome, whatever privileges that kind carries. | The kinds carrying the most privilege are the ones an attacker names, so a kind exempted from the check is a kind anyone can claim. |
 | JOIN-057 | Refuse an unsupported group | When the group a Welcome carries states a minimum client version later than this client's, the client MUST NOT join and MUST leave the Welcome eligible for a later attempt. | Joining a group whose rules the client cannot follow forks it. An upgrade makes the Welcome valid, which no other rejection reason does. |
 | JOIN-058 | The joiner is present | When a client joins a group from a Welcome, it MUST establish that one leaf node's `signature_key` is its own installation key, and MUST record a terminal rejection otherwise. | A Welcome the client can open but that adds somebody else installs a group the client can never send in and whose commits it can never apply. |
+| JOIN-083 | The root names the group | When a Welcome's group context has no `GROUP_ROOT_KEY` component of 32 bytes, or the public key of the group signing key derived from it under GMOD-041 is not the Welcome's `group_id`, the client MUST record a terminal rejection for the Welcome. | A joiner without the root cannot publish to the group, and a restored conversation activated by a group whose creator lacks the root continues into a stranger's group. |
 
 ## Known limitations
 
@@ -341,3 +342,5 @@ The client does not validate the `Lifetime` of the leaf nodes in the ratchet tre
 The window in JOIN-079 makes a welcome pointer that never resolves indistinguishable from one whose pointee is merely slow. A recipient on a long network outage can give up on a valid join, and no later event tells it that it did.
 
 A Welcome held for a later attempt under JOIN-077 or JOIN-057 delays the destruction of every superseded key package under JOIN-074 until the held Welcome is completed or rejected.
+
+JOIN-083 binds a Welcome to the group root, not to one MLS group. Every installation that was ever a member holds the root and can create a second MLS group with the same group id and root. Its Welcome passes JOIN-083 at an installation that does not hold the group, and activates a restored conversation with that id (JOIN-080). JOIN-042 keeps it from replacing a group the client holds.

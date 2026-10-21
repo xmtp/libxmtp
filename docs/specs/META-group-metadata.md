@@ -25,7 +25,7 @@ flowchart LR
 
 In scope: component ids; snapshot and Update payload encodings; component structure and byte limits; creation of metadata; preservation of untouched bytes; write-once components; disappearing settings and expiry; version-floor encoding; and what an SDK exposes about metadata.
 
-Out of scope: policy semantics and roles (`PERM`); proposal-list validity, commit validation, membership, and version-floor enforcement (`GMOD`); the commit-log signer and one-shot payload (`FORK`); DM identity and policy (`DMS`); consent (`CONS`); message content types (`CTYPE`); and archives (`ARCH`).
+Out of scope: policy semantics and roles (`PERM`); proposal-list validity, commit validation, membership, and version-floor enforcement (`GMOD`); the group root's derivation and use (`GMOD`, `FORK`) and the one-shot payload (`FORK`); DM identity and policy (`DMS`); consent (`CONS`); message content types (`CTYPE`); and archives (`ARCH`).
 
 | Related | Relation |
 | --- | --- |
@@ -33,7 +33,7 @@ Out of scope: policy semantics and roles (`PERM`); proposal-list validity, commi
 | `GMOD-001`, `GMOD-005`, `GMOD-021` | Own permitted proposal types, membership content, and validation before commit application. |
 | `DMS` | Reads `CONVERSATION_TYPE` and `DM_MEMBERS` from this spec and owns what a DM is. |
 | `JOIN-057`, `GMOD-022`, `GMOD-025`, `GMOD-026`, `GMOD-027` | Own Welcome holds, commit pauses, the monotonic floor, and version comparison. |
-| `FORK-010`, `FORK-050` | Own the signer key and the one-shot recovery payload. |
+| `GMOD-040`, `FORK-050` | Own the group root and the one-shot recovery payload. |
 | `EVENT` | EVENT-001 reports changed metadata and a group pause; EVENT-019 names changed metadata items. |
 
 ## Terms
@@ -87,7 +87,7 @@ GMOD-030 owns rejection of invalid proposal lists under the draft's section 4.7,
 
 ## 2. Well-known components
 
-The well-known component table gives ids, type tags, snapshot encodings, and byte limits. Creation is governed by META-018. The snapshot is the value in the dictionary; it is not necessarily the Update payload.
+The well-known component table gives ids, type tags, snapshot encodings, and byte limits. Creation is governed by META-075. The snapshot is the value in the dictionary; it is not necessarily the Update payload.
 
 Well-known user-scoped fields use the `USER_` name prefix. Operator documentation recommends the same prefix for application field names, without making it a configuration validation rule. `GROUP_IMAGE` bytes are opaque to the client and can carry a remote attachment descriptor; the client never fetches or parses the remote object, so a failed download does not change group state. `GROUP_IMAGE_URL` and `APP_DATA` are unchanged.
 
@@ -106,13 +106,14 @@ Collection snapshots contain sorted, unique keys (META-012). Collection Updates 
 | `0x8008` | `MESSAGE_DISAPPEAR_IN_NS` | `BYTES` | 8-byte big-endian signed integer; duration in nanoseconds |
 | `0x8009` | `APP_DATA` | `STRING` | UTF-8, at most 8192 bytes |
 | `0x800A` | `MIN_SUPPORTED_PROTOCOL_VERSION` | `STRING` | UTF-8 version under [Semantic Versioning 2.0.0 §2](https://semver.org/spec/v2.0.0.html#spec-item-2) |
-| `0x800B` | `COMMIT_LOG_SIGNER` | `BYTES` | Raw signing-key bytes of FORK-010 |
+| `0x800B` | `COMMIT_LOG_SIGNER` | `BYTES` | Raw Ed25519 signing-key bytes |
 | `0x800C` | `USER_DISPLAY_NAME` | `TLS_MAP_INBOX_ID_STRING` | `TlsMap<InboxId, ByteString>`; each value is valid UTF-8; bounded under META-068 |
 | `0x800D` | `GROUP_IMAGE` | `BYTES` | Opaque bytes; bounded under META-068 |
 | `0xBFFF` | `CONVERSATION_TYPE` | `BYTES` | 4-byte big-endian value of a defined `ConversationType` other than `CONVERSATION_TYPE_UNSPECIFIED` |
 | `0xBFFE` | `CREATOR_INBOX_ID` | `BYTES` | One `InboxId` |
 | `0xBFFD` | `DM_MEMBERS` | `TLS_SET_INBOX_ID` | `TlsSet<InboxId>` with exactly two entries |
 | `0xBFFC` | `ONESHOT_MESSAGE` | `BYTES` | Serialized `OneshotMessage` of FORK section 6 |
+| `0xBFFB` | `GROUP_ROOT_KEY` | `BYTES` | 32 bytes: the group root of GMOD-040 |
 
 The collection wire block below uses TLS presentation language. `K` and `T` are type parameters, with the concrete substitutions in the type table below. `<V>` is the variable-length byte-count prefix of [RFC 9420 §2.1.2](https://www.rfc-editor.org/rfc/rfc9420.html#section-2.1.2). Each `ByteString`, including a byte-string key, carries its own prefix. Scalar payloads have no extra prefix inside `ComponentData`. `TlsSet<K>` is `TlsMap<K, Empty>`; an empty value has no bytes or length prefix.
 
@@ -240,7 +241,7 @@ Registration never forces a commit of its own. A membership refresh that finds n
 | META-015 | Registry and immutable entries persist | When an `AppDataUpdate` removes `COMPONENT_REGISTRY`, or a registry delta updates or deletes an immutable component's entry, the client MUST reject the commit. | Removing the registry prevents later authorization; changing an immutable entry can change interpretation of fixed bytes. |
 | META-016 | Untouched registry entries are preserved | When a commit does not explicitly change a registry entry, the client MUST preserve that entry's bytes, including unknown protobuf fields and entries it cannot interpret. | Re-encoding an untouched entry can remove bytes that other members retain. |
 | META-017 | Untouched components pass through | When a client applies a commit, it MUST leave the bytes of every component the commit does not target unchanged, including a component it cannot decode. | |
-| META-018 | What a creator writes | When a client creates a group, it MUST populate the epoch-0 dictionary with `COMPONENT_REGISTRY`, `SUPER_ADMIN_LIST`, `ADMIN_LIST`, `GROUP_MEMBERSHIP`, `MIN_SUPPORTED_PROTOCOL_VERSION`, `CONVERSATION_TYPE`, and `CREATOR_INBOX_ID`, with the creator set to its own inbox id. It MUST include each supplied name, description, image URL, app-data string, and disappearing setting, and omit each unsupplied optional value. It MUST initialize role lists under PERM-002 or DMS-002, the DM pair under DMS-002, and the signer and one-shot payload under FORK-010 and FORK-050. | |
+| META-075 | What a creator writes | When a client creates a group, other than a restored placeholder under ARCH-015, it MUST populate the epoch-0 dictionary with `COMPONENT_REGISTRY`, `SUPER_ADMIN_LIST`, `ADMIN_LIST`, `GROUP_MEMBERSHIP`, `MIN_SUPPORTED_PROTOCOL_VERSION`, `CONVERSATION_TYPE`, `CREATOR_INBOX_ID`, and `GROUP_ROOT_KEY`, with the creator set to its own inbox id and the root the one GMOD-040 drew. It MUST include each supplied name, description, image URL, app-data string, and disappearing setting, and omit each unsupplied optional value and `COMMIT_LOG_SIGNER`. It MUST initialize role lists under PERM-002 or DMS-002, the DM pair under DMS-002, and the one-shot payload under FORK-050. | |
 | META-066 | Register fields at creation | When a client creates a group or DM, it MUST add to `COMPONENT_REGISTRY` each application definition in its configuration snapshot that is eligible for the conversation, using that definition's `component_type` and `permissions`; it MUST add `USER_DISPLAY_NAME` and, for a group, `GROUP_IMAGE` with the core policies of PERM-029, and leave all their component values absent. A sync group MUST NOT receive those entries. | A joiner reads field types and policies from the group, even when it has another backend snapshot. |
 | META-067 | Register missing fields | When a client with authority under PERM-026 builds a commit, it MUST include in that commit an Insert of each application definition eligible for the conversation whose ID has no raw key in the committed registry, subject to PERM-023; it MUST NOT overwrite a present raw entry with its backend copy. | Replacing an unreadable entry from a local snapshot would make later writes depend on which client refreshed. |
 | META-068 | Apply global field bounds | When a client validates an application component, `USER_DISPLAY_NAME`, `GROUP_IMAGE`, or `COMPONENT_REGISTRY`, it MUST reject a scalar or collection key or value longer than 8192 bytes and a collection snapshot longer than 65536 bytes after serialization. A registry entry is measured as stored, unknown protobuf fields included. | A registry type without a shared size bound lets a writer exceed the envelope budget and blocks later changes. A DM participant may write application-range registry entries, so an unbounded registry lets one participant grow every member's group context. |
@@ -260,7 +261,7 @@ PERM-012 rejects writes without a usable registry entry, PERM-008 denies malform
 
 ## 4. Immutable metadata
 
-Four components describe what a group is and never change: the conversation type, the creator, the DM pair, and the one-shot payload. They are immutable under META-004, so a joiner that validates them under JOIN-060 validates them for the life of the group.
+Five components never change: the conversation type, the creator, the DM pair, the one-shot payload, and the group root. They are immutable under META-004, so a joiner that validates them under JOIN-060 and JOIN-083 validates them for the life of the group.
 
 ```proto
 // Defines the type of conversation

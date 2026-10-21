@@ -29,7 +29,7 @@ Out of scope: how records travel between installations (`SYNC`), the DM identifi
 | `SYNC` | Owns the message that carries a record to a peer installation and when one is published. This spec owns the record and the merge. |
 | `JOIN` | Owns the join itself. This spec owns the record a conversation starts with when the join completes. |
 | `DMS` | Owns the DM identifier and DMS-010, which carries a record across the groups of one DM. CONS-024 owns only its precedence against a join default. |
-| `META` | Owns `CREATOR_INBOX_ID` and `CONVERSATION_TYPE`, which CONS-023 reads, and META-018, which binds the creator to write its own inbox id. |
+| `META` | Owns `CREATOR_INBOX_ID` and `CONVERSATION_TYPE`, which CONS-023 reads, and META-075, which binds the creator to write its own inbox id. |
 | `PUSH` | Owns which conversations produce push notifications. It reads conversation consent. |
 | FORK-053, FORK-060 | Own acceptance and response to readd requests, including consent checks. |
 | `ARCH` | Owns the archive. An imported record is merged under CONS-010. |
@@ -105,7 +105,7 @@ An app act is the user's decision on this installation now. It is stored with th
 
 Consent is implied for conversations started by the user, and conversations the user has chosen to send messages in. Creating a group or a DM sets it to allowed, and sending a message in a conversation that is not allowed sets it to allowed. Each is a decision, stored with the current time.
 
-A conversation the user is added to starts with an unknown consent state. The exception is a group whose creator and adder both name the user's own inbox. The group states its creator in `CREATOR_INBOX_ID` (`META`), and META-018 binds an honest creator to write its own inbox id; nothing binds a dishonest one, so the field alone is a claim by whoever created the group. The evidence the joiner has is the adder under JOIN-025: the inbox whose installation signed the `GroupInfo` in the Welcome, which an attacker cannot forge. Allowed is stored only when both name the own inbox. That proves an installation of the own inbox was a member and added this one; it does not prove the own inbox created the group (Known limitations).
+A conversation the user is added to starts with an unknown consent state. The exception is a group whose creator and adder both name the user's own inbox. The group states its creator in `CREATOR_INBOX_ID` (`META`), and META-075 binds an honest creator to write its own inbox id; nothing binds a dishonest one, so the field alone is a claim by whoever created the group. The evidence the joiner has is the adder under JOIN-025: the inbox whose installation signed the `GroupInfo` in the Welcome, which an attacker cannot forge. Allowed is stored only when both name the own inbox. That proves an installation of the own inbox was a member and added this one; it does not prove the own inbox created the group (Known limitations).
 
 A default carries no decision. It is stored at consent time 0, so under CONS-010 any record with a time replaces it, and it is stored only when the conversation has no record, because a record that arrived over the sync group before the Welcome is a decision. Neither `SYNC` nor an archive needs to carry a default: every installation derives it from its own Welcome.
 

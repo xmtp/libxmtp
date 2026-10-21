@@ -26,7 +26,7 @@ flowchart LR
 
 ## Scope
 
-In scope: the entries a client records for each commit outcome; the per-group signing key and the consensus key; who publishes entries and in what order; how a client verifies and accepts remote entries; the fork state and how it is computed; readd requests, the one-shot groups that carry them, and who may act on them; the readd commit; the recovery policy an app sets; and what an app can read.
+In scope: the entries a client records for each commit outcome; the keys an entry is sealed under and how a reader opens it; who publishes entries and in what order; how a client verifies and accepts remote entries; the fork state and how it is computed; readd requests, the one-shot groups that carry them, and who may act on them; the readd commit; the recovery policy an app sets; and what an app can read.
 
 Out of scope: commit validation, the membership component, and the protocol-version hold (GMOD-021, GMOD-005, GMOD-025), ordered topic processing and terminal rejection (PROC-005, PROC-011), the publish and query contract, sequence ids, and the admission of a commit-log entry (`API`), the topic layout (`TOPIC`), retention (`OPS`), the super admin role and proposal authorization (`PERM`), consent (`CONS`), the metadata components this spec uses (`META`), when a Welcome replaces existing group state (JOIN section 7), and the deployment switch that turns the log on (CONF-045).
 
@@ -34,12 +34,13 @@ Out of scope: commit validation, the membership component, and the protocol-vers
 | --- | --- |
 | `CONF` | Owns `commit_log_enabled` and CONF-045, the switch that turns publishing and reading off for a deployment. |
 | `JOIN` | Owns whether a Welcome replaces state the client already holds (JOIN-041 to JOIN-044), the adder read from the ratchet tree (JOIN-025), and key-package validation (JOIN-007, JOIN-008, JOIN-082). A readd is repaired by that path. |
-| `API` | Owns `ClientEnvelope` and its `commit_log_entry` payload, sequence ids (API-286 through API-289), the prefix a read returns (API-201), and the admission of a commit-log entry (API-230). |
-| `TOPIC` | Owns the commit-log kind byte and its 16-byte group identifier (TOPIC-001, TOPIC-002). |
+| `API` | Owns `ClientEnvelope` and its `sealed_commit_log_entry` payload, sequence ids (API-286 through API-289), the prefix a read returns (API-201), and the admission of a commit-log entry (API-230). |
+| `TOPIC` | Owns the commit-log kind byte and its 32-byte commit-log identifier (TOPIC-001, TOPIC-002). |
 | `OPS` | Owns retention. API-212 assigns commit-log expiry; OPS-001 prevents deletion of an exempt envelope. |
 | PERM-001, GMOD-015 | Own the super admin role and the same-installation readd exception used by FORK-062. |
 | [CONS section 1](CONS-consent.md#1-states-and-entities) | Defines the conversation consent state tested by FORK-020, FORK-030, and FORK-053. |
-| [META section 2](META-group-metadata.md#2-well-known-components) | Owns the `COMMIT_LOG_SIGNER`, `ONESHOT_MESSAGE`, and minimum protocol version components. This spec states their use. |
+| [META section 2](META-group-metadata.md#2-well-known-components) | Owns the `GROUP_ROOT_KEY`, `ONESHOT_MESSAGE`, and minimum protocol version components. This spec states their use. |
+| GMOD-040, GMOD-041 | Own the group root and the commit-log keys derived from it. |
 | GMOD-021, GMOD-025 | Own commit validation and the hold below a group's minimum protocol version. |
 | PROC-011, PROC-012 | Own terminal rejection, which FORK-002 records, and unresolved work, which it does not. |
 | `EVENT` | EVENT-001 reports when a conversation's fork state becomes forked. |
@@ -53,12 +54,11 @@ Out of scope: commit validation, the membership component, and the protocol-vers
 | Local entry | One `LocalCommitLogEntry` (section 1) that a client records for a commit outcome. |
 | Removal entry | A local entry for a commit that removed the recording installation. It carries the pre-commit epoch as its applied epoch. |
 | Membership | The span from one installation of a group's state, by creation, a Welcome, or an archive restore, to the next. Local entries from an earlier membership are not compared. |
-| Entry | A `PlaintextCommitLogEntry` (section 2), the plaintext a publisher signs. |
-| Commit-log topic | The topic of a group's entries on the backend (TOPIC-001). |
-| Signing key | The Ed25519 private key entries for a group are signed under. |
-| Consensus key | The public key every member verifies a group's entries under, fixed by FORK-012. |
+| Entry | A `PlaintextCommitLogEntry` (section 2), the plaintext a publisher seals. |
+| Commit-log topic | The topic of a conversation's entries, named by its commit-log id (TOPIC-001). |
+| Commit-log id | The public key of a conversation's commit-log signing key (GMOD-041). |
 | Publisher | An installation that publishes entries for a conversation: a member of a DM, or a super admin of a group. |
-| Accepted entry | An entry a client read from the commit-log topic and kept under FORK-031 and FORK-032. |
+| Accepted entry | An entry a client read from the commit-log topic and kept under FORK-075 and FORK-032. |
 | Fork state | One of `forked`, `not forked`, or `unknown`, held for each conversation and set under section 5. |
 | Readd request | A `ReaddRequest` (section 6): a forked installation's request to be removed and added back. |
 | One-shot group | A group whose conversation type is one-shot: it carries one `OneshotMessage` in its immutable metadata and never carries an application message. |
@@ -76,7 +76,7 @@ CONF-045 forbids publishing and reading while a deployment's `commit_log_enabled
 
 ```webidl
 dictionary LocalCommitLogEntry {
-  required sequence<octet> group_id;                    // 16 bytes
+  required sequence<octet> group_id;                    // 16 or 32 bytes
   required unsigned long long commit_sequence_id;
   required sequence<octet> last_epoch_authenticator;
   required CommitResult commit_result;                  // the wire enum of section 2
@@ -102,24 +102,26 @@ The result a terminal failure records is the first row below whose condition hol
 
 ## 2. Keys and signatures
 
-Entries are signed but not encrypted. One Ed25519 key signs every entry of a group for the group's life. The creator generates it, for a group and for a DM alike, and places the private key in the group's `COMMIT_LOG_SIGNER` component, which travels inside the group's encrypted state, so that every member with permission to read it can sign and nobody outside the group can. PERM-010 and PERM-011 govern write authorization; META-010 owns its encoding.
+Entries are encrypted and signed. Three keys serve a conversation's log, all derived from its group root under GMOD-041. The commit-log signing key signs every entry, the commit-log encryption key encrypts it, and the commit-log nonce key derives its nonce. Every installation that holds a conversation's MLS state received the root with the creation or Welcome that installed it, so every member can read the log, whether or not it is forked. The commit-log id names the topic (TOPIC-001). It is the only key a reader verifies entries under, and no entry can change it. A group whose id is 16 bytes has no commit-log id, and so no log to read.
 
-The consensus key is the public key of the first entry on the topic whose signature verifies under its own `public_key`. It is chosen by backend order and never changes. That order is what the trust rests on, and it is thin: anyone who can reach the backend and knows a group id can publish a self-signed entry to its commit-log topic, and if that entry arrives before the creator's first entry, every member fixes the impostor's key and discards every entry the real publishers produce for the group's life. The key in `COMMIT_LOG_SIGNER` is not consulted when the consensus key is chosen. The Known limitations record this and it is open with the owner.
+The nonce is derived from the topic and the entry, so the same entry sealed twice is the same bytes, and a retry is a duplicate under API-222. This is a deterministic use of RFC 8439, in the style of SIV ([RFC 5297](https://www.rfc-editor.org/rfc/rfc5297)). RFC 8439 §2.8 asks for a nonce that is unique for each invocation, and its §4 rejects truncated wide outputs as nonces because they can repeat. Here a repeat for identical input is intended. For distinct entries of one conversation, a repeat has probability at most q(q−1)/2^97 for q entries, about 2^-57 at a million entries. A repeat would reveal the XOR of the two entries to readers of the topic, and would allow AEAD forgeries under that nonce, which the signature check in FORK-075 still rejects.
 
-A publisher that holds no private key matching the consensus key has nothing useful to publish; its entries would be discarded under FORK-031. A publisher that holds the matching key and finds the component absent or holding a different key writes its own there, so that later super admins can publish. A DM's component cannot be rewritten after creation, so a DM whose consensus key is not the one in its component has one publisher.
-
-`API` owns `xmtp.backend.v1.CommitLogEntry` as a payload of `ClientEnvelope`; it is shown here because FORK-011 states what its fields carry. `serialized_commit_log_entry` is the protobuf encoding of a `PlaintextCommitLogEntry`; the signature covers exactly those bytes. `xmtp.mls.message_contents.CommitLogEntry`, an older message with a `sequence_id` field, is not used on this backend.
+`API` owns `xmtp.backend.v1.SealedCommitLogEntry` as a payload of `ClientEnvelope`. It is shown here because FORK-074 states what its fields carry. `xmtp.mls.message_contents.CommitLogEntry`, an older message with a `sequence_id` field, is not used on this backend.
 
 ```proto
 // xmtp.backend.v1
-// One entry of a group's commit log. The server decodes the group_id from the
-// entry to derive the topic. The signature is stored and returned, not
-// verified: it is made with a per-group key the server does not have. The
-// log position is `EnvelopeMeta.cursor`; the entry carries no sequence id.
-message CommitLogEntry {
-  // Serialized PlaintextCommitLogEntry.
-  bytes serialized_commit_log_entry = 1;
-  xmtp.identity.associations.RecoverableEd25519Signature signature = 2;
+// A commit-log entry, encrypted and signed under keys derived from the
+// group root. pending: FORK-074
+message SealedCommitLogEntry {
+  // 32-byte public key of the commit-log signing key. Derives the topic.
+  bytes commit_log_id = 1;
+  // 12 bytes.
+  bytes nonce = 2;
+  // ChaCha20-Poly1305 encryption of a serialized PlaintextCommitLogEntry.
+  bytes ciphertext = 3;
+  // 64-byte Ed25519 signature [R(32) || S(32)] over CommitLogEntryTBS by
+  // the commit-log signing key.
+  bytes signature = 4;
 }
 ```
 
@@ -151,27 +153,15 @@ message PlaintextCommitLogEntry {
 }
 ```
 
-```proto
-// xmtp.identity.associations
-message RecoverableEd25519Signature {
-  // 64 bytes [R(32 bytes) || S(32 bytes)]
-  bytes bytes = 1;
-  // 32 bytes
-  bytes public_key = 2;
-}
-```
-
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| FORK-010 | Creator generates the signing key | When a client creates a group or a DM while `commit_log_enabled` is `true`, it MUST generate a 32-byte Ed25519 private key from a cryptographically secure random source for that conversation alone and MUST place it in the conversation's `COMMIT_LOG_SIGNER` component. When a client holds the private key matching a group's consensus key and the group's `COMMIT_LOG_SIGNER` component is absent or holds a different key, it MUST write that private key to the component. | The component is what lets a later super admin publish entries other members accept. Without it the group has one publisher for its life. |
-| FORK-011 | Sign the entry bytes | When the client publishes an entry, it MUST set `serialized_commit_log_entry` to the protobuf encoding of the `PlaintextCommitLogEntry`, `signature.bytes` to the Ed25519 signature ([RFC 8032 §5.1.6](https://www.rfc-editor.org/rfc/rfc8032#section-5.1.6)) of exactly those bytes under the conversation's signing key, and `signature.public_key` to that key's 32-byte public key. | |
-| FORK-012 | The consensus key is fixed | The client MUST take as a conversation's consensus key the `signature.public_key` of the envelope with the lowest sequence id on its commit-log topic whose `signature.bytes` verifies over `serialized_commit_log_entry` under that same key, and MUST NOT replace it afterwards. | Two members that pick different keys accept different logs, and a key that can move lets whoever publishes later choose the log every member trusts. |
+| FORK-074 | Seal each entry | When the client publishes an entry, it MUST publish a `SealedCommitLogEntry` whose `commit_log_id` is the conversation's commit-log id and whose `nonce` is the first 12 bytes of the HMAC-SHA256, under the commit-log nonce key, of the commit-log topic followed by the protobuf encoding of the `PlaintextCommitLogEntry`. Its `ciphertext` MUST be the ChaCha20-Poly1305 ([RFC 8439](https://www.rfc-editor.org/rfc/rfc8439)) encryption of that same encoding under the commit-log encryption key, with that nonce and with the commit-log topic as associated data. Its `signature` MUST be the publish signature of `CommitLogEntryTBS` under the commit-log signing key. | A nonce taken from anything but the topic and the entry makes a retried entry a second stored copy, or puts two inputs under one nonce and key. An entry under any other key is discarded by every reader. |
 
 ## 3. Publishing entries
 
 A publisher appends its local entries to the conversation's commit-log topic in the order it recorded them. A reader accepts an entry only when it continues the previous accepted entry (FORK-032), so a gap is not a missing data point: it ends the log for every member. A publish that fails, or whose response does not confirm an entry, is retried from that entry before anything later is sent. Removal entries are never published: a removal entry does not attest the epoch the remaining members moved to.
 
-The backend routes an entry by the `group_id` inside it (TOPIC-001), refuses one whose `group_id` is not 16 bytes (TOPIC-002) or whose bytes do not decode (API-230), assigns it a sequence id (API-286 through API-289), and stores the signature without verifying it. A read returns a prefix of the topic in sequence id order (API-201), and a commit-log entry never expires (OPS-001), so the order every member reads is the order every member reads.
+The backend routes an entry by its `commit_log_id` (TOPIC-001). It refuses the entry unless its signature passes API-300 (API-230), assigns it a sequence id (API-286 through API-289), and stores it. It cannot decrypt it. A read returns a prefix of the topic in sequence id order (API-201), and a commit-log entry never expires (OPS-001), so the order every member reads is the order every member reads.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -180,9 +170,9 @@ The backend routes an entry by the `group_id` inside it (TOPIC-001), refuses one
 
 ## 4. Reading the remote log
 
-Every member reads the commit-log topic of each DM and group it holds and verifies each entry before it counts. Verification has two parts. The signature and the identity of the entry tie it to the conversation's consensus key and topic. The chain rules tie it to the previous accepted entry: sequence ids increase, an applied commit starts from the authenticator the last one produced and advances the epoch by one, and a rejected commit leaves both unchanged. An entry that fails either part is discarded and never counts, however often it is read.
+Every member reads the commit-log topic of each DM and group it holds and verifies each entry before it counts. Verification has two parts. The signature, the decryption, and the identity of the entry tie it to the conversation's commit-log id and group. The chain rules tie it to the previous accepted entry: sequence ids increase, an applied commit starts from the authenticator the last one produced and advances the epoch by one, and a rejected commit leaves both unchanged. An entry that fails either part is discarded and never counts, however often it is read.
 
-An entry under any key but the consensus key is discarded whoever published it. That stops a publisher that never held the key. It does not stop one that did: a super admin removed from the group keeps the signing key and can publish entries that continue the chain and that every member accepts. The Known limitations say what that costs.
+An entry that fails FORK-075 is discarded whoever published it, and the backend refuses one whose signature fails before storing it (API-230, API-300). That stops anyone who never held the root. It does not stop an installation that did: every installation that was ever a member holds the root, and can publish entries that continue the chain and that every member accepts. The Known limitations say what that costs.
 
 The chain conditions a reader applies once it holds an accepted entry for the conversation:
 
@@ -194,9 +184,9 @@ The chain conditions a reader applies once it holds an accepted entry for the co
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| FORK-030 | Read every conversation's log | While `commit_log_enabled` is `true`, the client MUST read every envelope on the commit-log topic of every DM and group it holds whose consent state is allowed, other than one-shot and sync groups, and MUST evaluate each under FORK-031 and FORK-032 exactly once, in sequence id order. | A member that does not read cannot learn it is forked, and keeps sending messages nobody can decrypt. An entry evaluated twice is a duplicate under the chain rules. |
-| FORK-031 | Verify signature and identity | When the client reads an entry, it MUST discard it unless `signature.public_key` equals the conversation's consensus key, `signature.bytes` verifies over `serialized_commit_log_entry` under that key, the decoded `group_id` equals the topic's group id, and `commit_sequence_id` is greater than 0. | Anyone can publish to a commit-log topic. The signature is the only thing that separates a publisher from an impostor. |
-| FORK-032 | Accept only a continuous chain | When an entry passes FORK-031 and the client holds an accepted entry for the conversation, the client MUST discard the entry unless every condition in the table above holds for it. | An entry that does not continue the chain is a duplicate, a publisher's stale view, or a forgery under a leaked key, and any of them accepted moves the consensus. |
+| FORK-030 | Read every conversation's log | While `commit_log_enabled` is `true`, the client MUST read every envelope on the commit-log topic of every DM and group it holds whose consent state is allowed, other than one-shot and sync groups, and MUST evaluate each under FORK-075 and FORK-032 exactly once, in sequence id order. | A member that does not read cannot learn it is forked, and keeps sending messages nobody can decrypt. An entry evaluated twice is a duplicate under the chain rules. |
+| FORK-075 | Verify and open each entry | When the client reads an envelope from a conversation's commit-log topic, it MUST discard it unless its `signature` passes API-300 over `CommitLogEntryTBS` under the conversation's commit-log id, its `ciphertext` decrypts under the commit-log encryption key with its `nonce` and the topic as associated data, the decrypted entry's `group_id` equals the conversation's group id, and its `commit_sequence_id` is greater than 0. A failed check discards that envelope only. | The operator can place any bytes on a topic. The signature and the decryption are what tie an entry to an installation that holds the conversation's root. |
+| FORK-032 | Accept only a continuous chain | When an entry passes FORK-075 and the client holds an accepted entry for the conversation, the client MUST discard the entry unless every condition in the table above holds for it. | An entry that does not continue the chain is a duplicate, a publisher's stale view, or a forgery under a leaked key, and any of them accepted changes the log every member compares against. |
 
 ## 5. Fork detection
 
@@ -301,16 +291,10 @@ An app can read each conversation's fork state, and its local and accepted remot
 
 A member whose epoch secrets have diverged cannot decrypt the readd commit. It stays active in its own view, so JOIN-041 holds the repair Welcome and JOIN-042 never lets it replace the state. The readd path repairs a member that can still process its removal. A rule that lets a Welcome from a permitted readder replace an active group whose fork state is `forked` would repair the rest; no spec states one, and JOIN is not amended here.
 
-The consensus key is whichever self-verifying entry reaches a conversation's commit-log topic first. Anyone who knows a group id can publish one before the creator does and fix a key no member holds; from then on every real entry is discarded and the conversation's fork state stays `unknown` for its life. The signing key in `COMMIT_LOG_SIGNER` is not used to check the choice.
+The commit-log topic is readable by anyone who knows its commit-log id. Its entries are encrypted, so such a reader learns how many entries the publishers write, when, their lengths, and which entries are byte-identical. Publishers that agree about a commit write byte-identical entries, which are stored once, and publishers that disagree write different entries, so such a reader can tell for each commit whether the publishers agreed. Lengths show the rough size of the sequence id and the epoch number, and whether the result is unknown. Each entry follows a commit on the group's message topic, where a commit is visible as one, so an observer who can read both topics can match them by timing; the operator can do this for every conversation.
 
-The commit-log topic is readable by anyone who can reach the backend. It reveals that a group exists, how often it commits, and its epoch authenticators, which are not secret. It is signed but not encrypted.
-
-A super admin removed from a group keeps the signing key. It can publish entries that continue the chain and that every member accepts, and so make every member report `forked` and ask for a readd that no readder's state matches. The log cannot be repaired and no key rotation exists.
-
-The consensus key is fixed by the first publisher. A DM whose consensus key is not the one in its `COMMIT_LOG_SIGNER` component has one publisher, and a group created before the component existed depends on its first publisher writing the key there under FORK-010. If that publisher's key is lost, the log ends.
+Every installation that was ever a member holds the root and can derive the commit-log keys. It can publish entries that continue the chain and that every member accepts, and so make every member report `forked` and ask for a readd that no readder's state matches. The log cannot be repaired, and the root never changes.
 
 A readd request is sent once per fork. If every readder drops it, or every readder stays `unknown`, nothing resends it; the requester waits for a Welcome that does not come.
 
 Only permitted readders readd. A group whose super admins are all offline, all forked, or all below the version FORK-063 names cannot recover.
-
-The backend does not check the signature on an entry (API-230). An entry under the wrong key costs the backend storage and every reader a verification, and is then discarded.

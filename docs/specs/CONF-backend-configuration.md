@@ -837,11 +837,11 @@ The client refreshes on its own schedule, spread at random. The interval, the sp
 
 ## 6. Applying the snapshot
 
-The client splits and bounds its requests to the published limits, so that a request the backend would reject is never sent. The table below names the bound for each request. The fields it does not name (`max_response_bytes`, `max_stream_topics`, `max_identity_entries`, and the four rate-limit fields) are published for an app to read. API-281 and API-282 own response and request bounds, API-234 owns the identity-log limit, and API-258 owns stream frame rate limits.
+The client splits and bounds its requests to the published limits, so that a request the backend would reject is never sent. The table below names the bound for each request; one bound is fixed rather than published. The fields it does not name (`max_response_bytes`, `max_stream_topics`, `max_identity_entries`, and the four rate-limit fields) are published for an app to read. API-281 and API-282 own response and request bounds, API-234 owns the identity-log limit, and API-258 owns stream frame rate limits.
 
 | Request | Bound from the snapshot |
 | --- | --- |
-| Publish | Encoded request not longer than `max_request_bytes`; distinct topics not more than `max_publish_topics`; each envelope not longer than `max_envelope_bytes` |
+| Publish | Encoded request not longer than `max_request_bytes`; distinct topics not more than `max_publish_topics`; each envelope not longer than `max_envelope_bytes`; envelopes not more than the fixed envelope bound of API section 7 |
 | Query | Topics per request not more than `max_query_topics`; `limit` not more than `max_query_limit` |
 | QueryNewest | Topics per request not more than `max_newest_full_topics` with full envelopes and `max_newest_metadata_topics` without |
 | GetInboxIds | Identifiers per request not more than `max_lookup_identifiers` |

@@ -183,6 +183,8 @@ The span catalogue names the operation spans an operator measures: the request s
 
 No envelope is deleted after its expiry today. `expiry_ns` is set under API-212 and OPS-001 and OPS-002 hold, but a row past its expiry stays readable for as long as the database keeps it, and an operator bounds storage outside the backend.
 
+A deletion of expired envelopes would let anyone who saved a signed group message from a topic of kind `0x00` publish it again as a new envelope, because the signature never expires and the duplicate check needs the stored row. A design that deletes such envelopes keeps the topic and `message_hash` of each one it deletes, and refuses a publish that matches them.
+
 `SERVING` reports that the instance can take requests, not that any client can reach it or that a message it accepted was delivered. A balancer's health check and an end-to-end probe measure different things.
 
 Shutdown reports `NOT_SERVING`, closes admission, and ends streams as one step, not in a promised order. A balancer that polls health can route one more request to a draining instance and see `UNAVAILABLE`. At the drain deadline a connection still carrying a request is aborted, and that request ends with no gRPC status at all.

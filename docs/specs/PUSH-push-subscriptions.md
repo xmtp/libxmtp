@@ -279,7 +279,7 @@ An app supplies the delivery target, because only the app holds the platform's p
 
 ## Known limitations
 
-Anyone who holds a recipient can subscribe to any group-message or welcome topic. The push body carries no content, so what such a subscriber learns is that traffic exists on a topic, and when. The backend does not authorize a publisher either.
+Anyone who holds a recipient can subscribe to any group-message or welcome topic. The push body carries no content, so what such a subscriber learns is that traffic exists on a topic, and when. The backend authorizes a publisher to a group-message topic only by a signature under its group id (API-230, API-300), and does not authorize a publisher to a welcome topic.
 
 A recipient is not bound to an installation. A revoked installation that still holds its recipient secret keeps renewing and receiving pushes until it stops or its app disables notifications. An operator who needs to cut off a revoked device does so through request authentication (AUTH-001).
 
