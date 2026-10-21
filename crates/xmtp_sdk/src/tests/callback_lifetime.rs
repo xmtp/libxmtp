@@ -247,6 +247,26 @@ async fn cycle(family: Family, cancel: bool) {
     );
 }
 
+/// Entry must prove a pending receiver, or release can race the callback's first poll.
+#[xmtp_common::test(unwrap_try = true)]
+async fn callback_lifetime_entry_requires_pending_receiver() {
+    let (release, receiver) = oneshot::channel();
+    let (entered, mut entries) = mpsc::unbounded_channel();
+    release.send(()).unwrap();
+    HeldFuture {
+        release: receiver,
+        entered: Some(entered),
+        counts: Arc::default(),
+        complete: false,
+        started: false,
+    }
+    .await;
+    assert_eq!(
+        entries.try_recv(),
+        Err(mpsc::error::TryRecvError::Disconnected)
+    );
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn callback_lifetime_native_matrix() {
     for family in [
