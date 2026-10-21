@@ -49,6 +49,10 @@ pub enum ValidationError {
     /// The welcome version is absent. Not retryable.
     #[error("welcome version is absent")]
     MissingWelcomeVersion,
+    /// The payload is a sealed commit-log entry, which admission does not
+    /// route yet. Not retryable.
+    #[error("sealed commit-log entries are not admitted")]
+    UnsupportedPayload,
     /// Protobuf framing is malformed. Not retryable.
     #[error(transparent)]
     Protobuf(#[from] prost::DecodeError),
@@ -123,6 +127,7 @@ impl ValidationError {
             Self::IdentityEncoding(_) | Self::Association(_) => Reason::InvalidIdentityUpdate,
             Self::MissingPayload
             | Self::MissingWelcomeVersion
+            | Self::UnsupportedPayload
             | Self::Protobuf(_)
             | Self::Tls(_)
             | Self::Protocol(_)
@@ -231,6 +236,7 @@ pub fn parse_envelope(envelope: ClientEnvelope) -> Result<ParsedEnvelope, Valida
             let decoded = decode_commit_log(&entry.serialized_commit_log_entry)?;
             checked_topic(TopicKind::CommitLogEntriesV1, &decoded.group_id)?
         }
+        Payload::SealedCommitLogEntry(_) => return Err(ValidationError::UnsupportedPayload),
     };
     let canonical = canonical_envelope(&envelope);
     Ok(ParsedEnvelope {

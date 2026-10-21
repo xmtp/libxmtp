@@ -48,6 +48,7 @@ mod tests {
                 data: vec![0, 255, 66],
                 sender_hmac: vec![1, 2],
                 should_push: true,
+                signature: vec![],
             }))
         );
 

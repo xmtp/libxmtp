@@ -143,6 +143,7 @@ pub fn group_message_envelope(
             data: bytes,
             sender_hmac: vec![0x33, 0x44],
             should_push: true,
+            signature: vec![],
         })),
     }
 }
@@ -167,6 +168,7 @@ pub fn non_protocol_group_message_envelope() -> ClientEnvelope {
             data: bytes,
             sender_hmac: vec![],
             should_push: false,
+            signature: vec![],
         })),
     }
 }
