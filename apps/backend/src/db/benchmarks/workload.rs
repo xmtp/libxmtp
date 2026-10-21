@@ -2,7 +2,7 @@
 //! outside timing; database calls and result materialization are inside it.
 
 use super::{
-    Config, Duration, Instant, Store, TestDatabase, TestResult, connect,
+    Config, Duration, Instant, Store, TestDatabase, TestResult,
     corpus::{self, Topic},
     record, report,
 };
@@ -336,7 +336,13 @@ pub(super) async fn writes(
             for &batch in &config.batch_sizes {
                 for single_topic in [trial % 2 == 0, trial % 2 != 0] {
                     let mut copy = database.copy()?;
-                    let store = connect(&copy, writers as u32, super::REQUEST_TIMEOUT_MS).await?;
+                    let store = super::partition::connect(
+                        &copy,
+                        writers as u32,
+                        super::REQUEST_TIMEOUT_MS,
+                        config.layout,
+                    )
+                    .await?;
                     let topics = corpus::catalog(&store).await?;
                     let connections =
                         try_join_all((0..writers).map(|_| store.primary.acquire())).await?;
@@ -411,7 +417,7 @@ pub(super) async fn writes(
                         "warmup_rows": writers * batch, "end_rows": end_rows, "growth_cap_reached": samples.len() == operations,
                         "wal_bytes": wal_bytes, "measurement": report::measurement(&samples, seconds, samples.len() * batch, samples.len() * batch * 1024)}),
                     )?;
-                    store.primary.close().await;
+                    super::partition::close(&store).await;
                     copy.remove()?;
                 }
             }

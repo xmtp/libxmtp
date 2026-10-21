@@ -85,6 +85,24 @@ pub(super) async fn seed(store: &Store, rows: i64, seed: i64) -> TestResult<Vec<
         .bind(rows)
         .execute(&store.primary)
         .await?;
+    let has_registry: bool =
+        sqlx::query_scalar("SELECT to_regclass('public.envelope_identity') IS NOT NULL")
+            .fetch_one(&store.primary)
+            .await?;
+    if has_registry {
+        sqlx::raw_sql("VACUUM (ANALYZE) envelope_identity")
+            .execute(&store.primary)
+            .await?;
+        let registered: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM envelope_identity identity
+            JOIN envelopes e USING (sequence_id, topic, message_hash)",
+        )
+        .fetch_one(&store.primary)
+        .await?;
+        if registered != rows {
+            return Err("seeded registry does not match envelope identities".into());
+        }
+    }
     for statement in [
         "VACUUM (ANALYZE) envelopes",
         "VACUUM (ANALYZE) topic_watermark",

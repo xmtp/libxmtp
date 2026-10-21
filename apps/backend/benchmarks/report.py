@@ -5,6 +5,8 @@ Operators pass a raw run path; summarize() validates the configured workload
 matrix, explicit skips, and trial coverage before reporting trial medians.
 Only the fixed format-version-1 workload names and finite numeric cells reach
 CSV output, which uses LF line endings for reproducible versioned summaries.
+Partition experiments also require complete first-use/control rollover trials;
+those sparse-ID diagnostics remain in JSONL, not steady-state CSV rows.
 """
 
 import argparse
@@ -69,6 +71,7 @@ def summarize(path):
             raise ValueError(f"invalid benchmark dimension: {field}")
     if type(config["trials"]) is not int or config["trials"] <= 0:
         raise ValueError("invalid trial count")
+    _validate_rollovers(events, config)
     corpora = [event for event in events if event["event"] == "corpus"]
     if (
         len(corpora) != len(config["sizes"])
@@ -167,6 +170,55 @@ def summarize(path):
         )
         results.append(result)
     return results
+
+
+def _validate_rollovers(events, config):
+    """Require every declared rollover trial without accepting unsafe numeric cells."""
+    layout = config.get("layout", "unpartitioned")
+    if layout not in ("unpartitioned", "sequence_ranges"):
+        raise ValueError("unknown benchmark layout")
+    expected = (
+        {
+            (edge, precreated, writers, trial)
+            for edge in (1_000_001, 10_000_001)
+            for precreated in (False, True)
+            for writers in config["writers"]
+            for trial in range(config["trials"])
+        }
+        if layout == "sequence_ranges"
+        else set()
+    )
+    seen = set()
+    for event in events:
+        if event.get("event") != "rollover":
+            continue
+        key = tuple(
+            event[field] for field in ("edge", "precreated", "writers", "trial")
+        )
+        if (
+            any(type(key[index]) is not int for index in (0, 2, 3))
+            or type(key[1]) is not bool
+            or key not in expected
+            or key in seen
+            or type(event["seed_rows"]) is not int
+            or event["seed_rows"] != 1000
+            or type(event["wal_bytes"]) is not int
+            or event["wal_bytes"] < 0
+        ):
+            raise ValueError("invalid or duplicate rollover trial")
+        measure = event["measurement"]
+        if (
+            type(measure["requests"]) is not int
+            or measure["requests"] != key[2]
+            or not isinstance(measure["latency_ms"], list)
+            or len(measure["latency_ms"]) != key[2]
+            or any(not _number(sample) for sample in measure["latency_ms"])
+            or any(not _number(measure[field]) for field in _STATISTICS)
+        ):
+            raise ValueError("invalid rollover measurements")
+        seen.add(key)
+    if seen != expected:
+        raise ValueError("missing rollover trials")
 
 
 def main():

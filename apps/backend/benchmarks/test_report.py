@@ -87,6 +87,80 @@ class ReportTests(unittest.TestCase):
             if event.get("case") == "query_recent" and event.get("trial") == trial
         )
 
+    def partitioned(self):
+        self.events[0]["config"]["layout"] = "sequence_ranges"
+        self.events[-1:-1] = [
+            {
+                "event": "rollover",
+                "edge": edge,
+                "precreated": precreated,
+                "writers": 1,
+                "seed_rows": 1000,
+                "wal_bytes": 100,
+                "trial": trial,
+                "measurement": dict(
+                    self.observation()["measurement"], requests=1, latency_ms=[1]
+                ),
+            }
+            for edge in (1_000_001, 10_000_001)
+            for precreated in (False, True)
+            for trial in range(3)
+        ]
+
+    def test_partitioned_runs_require_the_entire_rollover_matrix(self):
+        """Missing first-use/control groups or duplicate trials cannot yield a complete partition report."""
+        self.partitioned()
+        self.assertEqual(len(self.summarize()), 13)
+        original = copy.deepcopy(self.events)
+        for corruption in (
+            "missing_group",
+            "duplicate",
+            "missing_trial",
+            "unknown_layout",
+        ):
+            with self.subTest(corruption=corruption):
+                self.events = copy.deepcopy(original)
+                if corruption == "missing_group":
+                    self.events = [
+                        event for event in self.events if event.get("edge") != 1_000_001
+                    ]
+                elif corruption == "missing_trial":
+                    self.events.pop(-2)
+                elif corruption == "duplicate":
+                    self.events.insert(-1, copy.deepcopy(self.events[-2]))
+                else:
+                    self.events[0]["config"]["layout"] = "unknown"
+                with self.assertRaises(ValueError):
+                    self.summarize()
+
+    def test_rollover_dimensions_and_measurements_are_typed_and_finite(self):
+        """Sparse rollover diagnostics reject booleans-as-dimensions, formulas, and invalid samples."""
+        self.partitioned()
+        original = copy.deepcopy(self.events)
+        for field, value in (
+            ("edge", True),
+            ("precreated", 0),
+            ("writers", "=1"),
+            ("seed_rows", 0),
+            ("wal_bytes", -1),
+            ("trial", 9),
+        ):
+            with self.subTest(field=field):
+                self.events = copy.deepcopy(original)
+                self.events[-2][field] = value
+                with self.assertRaises(ValueError):
+                    self.summarize()
+        for field, value in (
+            ("requests", True),
+            ("p95_ms", float("inf")),
+            ("latency_ms", ["=1"]),
+        ):
+            with self.subTest(field=field):
+                self.events = copy.deepcopy(original)
+                self.events[-2]["measurement"][field] = value
+                with self.assertRaises(ValueError):
+                    self.summarize()
+
     def test_medians_and_trial_ranges_are_not_pooled_percentiles(self):
         """Repeated trials retain sample counts, median rates, and the range of measured throughput."""
         row = next(row for row in self.summarize() if row["case"] == "query_recent")

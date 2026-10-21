@@ -1,4 +1,5 @@
 {
+  "layout": "unpartitioned",
   "sizes": [1000, 100000, 10000000],
   "topic_counts": [1, 10, 100, 1000],
   "writers": [1, 8],

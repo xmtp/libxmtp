@@ -7,6 +7,7 @@ use std::collections::HashSet;
 
 fn config() -> Config {
     Config {
+        layout: partition::Layout::Unpartitioned,
         sizes: vec![1_000, 100_000, 10_000_000],
         topic_counts: vec![1, 10, 100, 1_000],
         writers: vec![1, 8],
@@ -34,7 +35,12 @@ fn configuration_rejects_unknown_and_missing_fields() {
     value["typo"] = json!(10);
     assert!(serde_json::from_value::<Config>(value.clone()).is_err());
     value.as_object_mut().unwrap().remove("typo");
-    value.as_object_mut().unwrap().remove("read_ms");
+    for field in ["read_ms", "layout"] {
+        let mut missing = value.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<Config>(missing).is_err());
+    }
+    value["layout"] = json!("unknown");
     assert!(serde_json::from_value::<Config>(value).is_err());
 }
 

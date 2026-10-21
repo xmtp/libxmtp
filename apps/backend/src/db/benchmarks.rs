@@ -3,8 +3,11 @@
 //! seeds disposable migrated databases, and writes raw JSONL observations.
 //! Workload dimensions must be unique before any database is created.
 //! Corpus construction, workloads, and reporting live in sibling modules.
+//! `partition` installs the approved experimental schema only in disposable fixtures;
+//! its writer and provisioning paths are excluded from production builds.
 
 mod corpus;
+pub(super) mod partition;
 mod report;
 mod tests;
 mod workload;
@@ -31,6 +34,7 @@ use xmtp_common::time::{Duration, Instant};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
+    layout: partition::Layout,
     sizes: Vec<i64>,
     topic_counts: Vec<usize>,
     writers: Vec<usize>,
@@ -153,6 +157,20 @@ async fn baseline() {
     for &size in &config.sizes {
         let mut database = TestDatabase::new()?;
         let store = connect(&database, 1, SEED_TIMEOUT_MS).await?;
+        let setup = Instant::now();
+        if config.layout == partition::Layout::SequenceRanges {
+            partition::install(&store).await?;
+            let partitions = partition::Partitions::new(store.primary.clone());
+            let last = size + size * config.write_growth_percent as i64 / 100;
+            for first in (1..=last).step_by(partition::RANGE_SIZE as usize) {
+                partitions.ensure(first).await?;
+            }
+        }
+        record(
+            &mut output,
+            json!({"event": "schema_setup", "rows": size,
+            "layout": config.layout, "seconds": setup.elapsed().as_secs_f64()}),
+        )?;
         let seeded = Instant::now();
         let catalog = corpus::seed(&store, size, config.seed).await?;
         record(
@@ -162,11 +180,14 @@ async fn baseline() {
             "storage": report::storage(&store).await?}),
         )?;
         store.primary.close().await;
-        let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
+        let store = partition::connect(&database, 1, REQUEST_TIMEOUT_MS, config.layout).await?;
         workload::reads(&store, &catalog, size, &config, &mut output).await?;
-        store.primary.close().await;
+        partition::close(&store).await;
         workload::writes(&database, size, &config, &mut output).await?;
         database.remove()?;
+    }
+    if config.layout == partition::Layout::SequenceRanges {
+        partition::rollovers(&config, &mut output).await?;
     }
     record(
         &mut output,

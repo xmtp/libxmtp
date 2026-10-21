@@ -1,8 +1,10 @@
 # Sequence-range partitioning experiment
 
-**Status: proposed; awaiting requester approval. No partitioned migration,
-trigger, partition creator, or publish-path change is implemented in this PR.**
-The benchmark suite is implemented independently. This proposal preserves the
+**Status: approved October 21, 2026; implementation is a benchmark-only experiment.**
+The versioned experimental migration is in `benchmarks/migrations/`, deliberately
+outside production's migration directory. Provisioning and Store experiment hooks
+are compiled only for tests. Production startup and schema remain unchanged.
+The benchmark suite is implemented independently. This experiment preserves the
 existing API, ordering, retention, and idempotency requirements; it proposes no
 spec changes. Approval authorizes the disposable-schema experiment below, not
 an unreviewed production migration or rollout.
@@ -16,7 +18,7 @@ This is a hypothesis to test, not an assumed improvement over the existing
 `(topic, sequence_id)` index. The existing indexed probes already avoid scanning
 all history for most queries. Partitioning could lose on inserts and no-hit reads.
 
-Approve or revise this specific design: range-partitioned envelope payloads,
+The approved design uses range-partitioned envelope payloads,
 a global idempotency registry, and automatic creation outside publish locks.
 Reject adopting it if the benchmark gains do not justify the registry, WAL,
 DDL, migrations, and operational complexity.
@@ -115,10 +117,11 @@ holding topic/allocation/publish locks: concurrent writers can deadlock.
    under the original total request deadline. Use bounded lock/statement
    timeouts and a bounded retry budget, with cancellation cleanup. Never hide
    failures as success, reuse stale validation heads, or spin indefinitely.
-6. After successful inserts near an edge, opportunistically ensure the next
-   range outside the publish transaction. A missing-range fallback still makes
-   progress after crashes or missed lookahead. Creation is driven by inserts,
-   not a required external scheduler. Readers remain read-only on replicas.
+6. This first experiment uses the missing-range fallback without speculative
+   lookahead or a range cache, making catalogue and rollover costs explicit.
+   Future variations may precreate the next range outside publish transactions.
+   Creation is driven by inserts, not a required external scheduler. Readers
+   remain read-only on replicas.
 
 Use least-privilege, schema-qualified provisioning SQL, validated numeric
 identifiers, an explicit migration/provisioning role, and no caller-controlled
@@ -145,10 +148,10 @@ guarantee/configuration must first follow the repository's Ref/spec process.
   Existing row-level pruning and watermark behavior remain in force. Test push,
   stream gap probes, identity reads, and closed-boundary scans as well as RPC reads.
 
-## Migration and seed strategy after approval
+## Experimental migration and seed strategy
 
-First implement only a **new versioned migration** and corresponding Store
-changes in a disposable experiment branch. Never edit the existing migrations.
+Apply only the **new versioned experimental migration** and corresponding
+test-only Store hooks to disposable fixtures. Never edit the existing migrations.
 For large corpus seeding, precreate all ranges touched by the known seed range
 outside the timer, then use the same bulk seed and real registry enforcement.
 For the steady-state insert comparison, also precreate ranges covering the
@@ -195,6 +198,38 @@ Accept only if repeated results demonstrate a useful recent-cursor benefit
 without unacceptable regressions in insert throughput/WAL, no-hit and history
 queries, newest, and rollover latency. Define those budgets with deployment
 owners before adoption; do not select numerical thresholds after seeing results.
+
+## Running the approved experiment
+
+Use `partitioned.json` with the same recipe and dedicated PostgreSQL instance as
+the baseline. Its required `layout` is `sequence_ranges`; `baseline.json` explicitly
+selects `unpartitioned`. The experimental migration refuses nonempty tables.
+The admin connection needs database/role creation privileges. Provisioning uses
+that separate owner connection; measured reads/publishes authenticate directly
+as `xmtp_bench_writer`, which has no elevated privileges or role memberships.
+Configure local authentication to allow this dedicated synthetic-data role;
+the runner does not modify `pg_hba.conf` or authentication settings.
+The writer URL removes the administrator's password; provision writer-specific
+credentials through PostgreSQL's standard password-file mechanism if needed.
+Ordinary correctness tests instead authenticate using their existing fixture
+credentials and `SET ROLE` on a separate writer pool, so Docker/password-backed
+test setups need no authentication changes. Those tests validate effective-role
+SQL permissions; the release benchmark separately verifies that its session user
+really is the restricted login, without an administrative login behind it.
+
+Each corpus precreates ranges covering its seed and full write-growth budget,
+recording setup separately. Real registration triggers, registry indexes, and
+deferred foreign keys remain enabled during bulk seeding and measurement.
+Storage records distinguish payload/index bytes from the additional registry;
+compare `envelope_and_identity_bytes`, not just the partitioned envelope relation.
+Raw output includes a checksum of the versioned experimental migration.
+
+Additional `rollover` records measure missing-range creation versus precreated
+controls at 1,000,001 and 10,000,001 with one/eight writers and three trials.
+They use fresh 1,000-row fixtures with sparse IDs: these isolate first-use DDL,
+retry, and coordination costs, not populated ten-million-row rollover behavior.
+No write warmup hides the missing partition in these trials. Do not pool the
+few first-use samples into a steady-state tail-latency claim.
 
 ## References
 

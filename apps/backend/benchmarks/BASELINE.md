@@ -1,8 +1,8 @@
 # Unpartitioned database baseline
 
-This is the initial schema-comparison baseline. The benchmark suite is
-implemented; [sequence-range partitioning](PARTITIONING.md) remains a proposal
-awaiting requester approval. No partitioned schema has been installed.
+This is the initial unpartitioned schema-comparison baseline.
+[Sequence-range partitioning](PARTITIONING.md) was approved on October 21, 2026,
+for a benchmark-only experiment; production migration/adoption remains separate.
 
 ## Reproduction and scope
 
@@ -12,8 +12,8 @@ Store reads and admitted-publish storage operations, not RPC or cryptographic
 validation. See [methodology and correctness checks](README.md).
 Measured code revision: `2f134b52d9043374026c3c5043a26877985f7b70`;
 Subsequent commits publish results, harden untimed configuration/report
-validation, normalize CSV line endings, and refine the proposal; the timed
-workload implementations are unchanged.
+validation, normalize CSV line endings, and implement the disposable partition
+experiment. These recorded observations still refer to the source revision above.
 
 - Host: eight available CPUs, Intel Xeon Platinum 8175M at 2.50 GHz,
   approximately 30.65 GiB RAM, Linux x86_64, local EBS-backed storage.

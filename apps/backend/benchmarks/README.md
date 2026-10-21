@@ -2,7 +2,9 @@
 
 Manual schema-comparison suite, not a CI performance gate. The runner calls the
 actual `Store` methods; production reads and diagnostic `EXPLAIN` probes share
-the same SQL files. No partitioned schema is installed by this suite.
+the same SQL files. The explicit `layout` selects either production's unpartitioned
+schema or the approved sequence-range experiment, only in disposable fixtures.
+Experimental Store hooks are excluded from production builds.
 
 ## Run
 
@@ -19,11 +21,12 @@ From the repository root:
 export DATABASE_URL='postgres://USER:PASSWORD@127.0.0.1:PORT/postgres'
 dev/nix-shell 'just backend bench apps/backend/benchmarks/baseline.json'
 dev/nix-shell 'python3 apps/backend/benchmarks/report.py backend-baseline.jsonl > baseline.csv'
+dev/nix-shell 'just backend bench apps/backend/benchmarks/partitioned.json'
 ```
 
 The JSON config is explicit and rejects unknown/missing fields and duplicate
 values in every workload dimension. Copy it to
-change an experiment; use the **identical config except output path** for the
+change an experiment; use the **identical config except layout and output path** for the
 partitioned rerun. Outputs use exclusive creation: choose a new path rather
 than overwriting a baseline. A complete run ends with a `complete` event;
 the reporter rejects unfinished runs and missing/duplicate trials.
@@ -31,6 +34,12 @@ Relative config and output paths resolve from the repository root, independent
 of Cargo's package working directory; absolute paths are also accepted.
 The committed baseline uses three trials, five-second read windows, and
 ten-second write windows (subject to the growth cap below).
+
+`layout` is required: `unpartitioned` or `sequence_ranges`. The partitioned
+experiment additionally requires admin role-creation privileges and local
+authentication for the unprivileged `xmtp_bench_writer` login. It creates no
+production migrations. See [partitioning](PARTITIONING.md#running-the-approved-experiment)
+for registry costs, privilege boundaries, setup accounting, and timed rollover controls.
 
 `sizes` accepts 1,000–1,000,000,000; `topic_counts` 1–1,000;
 `writers` 1–64; `batch_sizes` 1–100; `trials`, `read_ms`, `write_ms`, and
@@ -166,5 +175,6 @@ watermarks, post-seed allocation, duplicates, newest results, page ordering and
 Pure tests cover cursor proportions, distinct rotating sets, configuration
 bounds, output statistics, and rejection of incomplete reports.
 
-See [the partitioning proposal](PARTITIONING.md) for the approval boundary and
-the follow-up experiment; see [baseline results](BASELINE.md) for the measured run.
+See [the approved partitioning experiment](PARTITIONING.md) for its implementation
+and separate production-rollout boundary; see [baseline results](BASELINE.md) for
+the unpartitioned reference run.

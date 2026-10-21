@@ -78,6 +78,7 @@ pub(super) async fn environment(store: &Store, config: &Config) -> TestResult<Va
     Ok(
         json!({"event": "environment", "format_version": 1, "config": config,
         "revision": String::from_utf8(revision.stdout)?.trim(), "postgres": settings, "migrations": migrations,
+        "experimental_migration_sha256": hex::encode(xmtp_common::sha256_array(include_bytes!("../../../benchmarks/migrations/20261021000000_sequence_ranges.sql"))),
         "request_timeout_ms": super::REQUEST_TIMEOUT_MS, "seed_timeout_ms": super::SEED_TIMEOUT_MS,
         "available_cpus": std::thread::available_parallelism()?.get(), "arch": std::env::consts::ARCH,
         "os": std::env::consts::OS, "cpu": system_line("/proc/cpuinfo", "model name"),
@@ -94,7 +95,12 @@ pub(super) async fn storage(store: &Store) -> TestResult<Value> {
     let database_bytes: i64 = sqlx::query_scalar("SELECT pg_database_size(current_database())")
         .fetch_one(&store.primary)
         .await?;
+    let identity_bytes: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(pg_total_relation_size(to_regclass('public.envelope_identity')), 0)",
+    )
+    .fetch_one(&store.primary)
+    .await?;
     Ok(
-        json!({"heap_bytes": row.get::<i64, _>("heap"), "index_bytes": row.get::<i64, _>("indexes"), "total_bytes": row.get::<i64, _>("total"), "database_bytes": database_bytes, "tables": tables}),
+        json!({"heap_bytes": row.get::<i64, _>("heap"), "index_bytes": row.get::<i64, _>("indexes"), "total_bytes": row.get::<i64, _>("total"), "identity_bytes": identity_bytes, "envelope_and_identity_bytes": row.get::<i64, _>("total") + identity_bytes, "database_bytes": database_bytes, "tables": tables}),
     )
 }

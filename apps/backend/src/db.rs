@@ -1,3 +1,7 @@
+//! PostgreSQL storage for backend reads, publishing, identity, push, and stream state.
+//! `Store` owns primary/read pools; production connections apply only production
+//! migrations. Disposable benchmark schema hooks exist exclusively in test builds.
+
 pub(crate) mod boundary;
 mod identity;
 mod publish;
@@ -29,6 +33,8 @@ pub(crate) const PUSH_DISPATCHER: i32 = 3;
 pub struct Store {
     pub primary: PgPool,
     pub read: PgPool,
+    #[cfg(test)]
+    pub(crate) partitions: Option<std::sync::Arc<benchmarks::partition::Partitions>>,
 }
 
 impl Store {
@@ -54,7 +60,12 @@ impl Store {
             Some(url) => connect_pool(url, config).await?,
             None => primary.clone(),
         };
-        Ok(Self { primary, read })
+        Ok(Self {
+            primary,
+            read,
+            #[cfg(test)]
+            partitions: None,
+        })
     }
 }
 
