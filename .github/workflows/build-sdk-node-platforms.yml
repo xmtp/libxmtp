@@ -48,8 +48,8 @@ jobs:
             ["blacksmith-16vcpu-ubuntu-2404", "ubuntu-24.04", "ubuntu-24.04-arm",
             "ubuntu-latest", "macos-15", "warp-macos-15-arm64-6x", "windows-latest"]
           ALLOWED_IMAGES: >-
-            ["node:22.12.0-bookworm-slim@sha256:35531c52ce27b6575d69755c73e65d4468dba93a25644eed56dc12879cae9213",
-            "node:22.12.0-alpine@sha256:51eff88af6dff26f59316b6e356188ffa2c422bd3c3b76f2556a2e7e89d080bd"]
+            ["node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d",
+            "node:22.23.4-alpine@sha256:ce8d97f7cfc7c5386421eb932df20a29df99b1a7f469f6157d5c9956702ffadc"]
         run: |
           rejected=$(jq -r --argjson runners "$ALLOWED_RUNNERS" --argjson images "$ALLOWED_IMAGES" \
             --argjson targets "$ALLOWED_TARGETS" --argjson rustTargets "$ALLOWED_RUST_TARGETS" \
@@ -84,8 +84,8 @@ jobs:
               | "build platform \($t) on \(.runner)"]
             + [.node[] | .target as $t | select((.loadRunner | fits($t) | not) or
                 if ($t | startswith("linux-")) then
-                  (($t | endswith("-musl")) != ((.loadImage // "") | startswith("node:22.12.0-alpine@")))
-                  or (($t | endswith("-gnu")) != ((.loadImage // "") | startswith("node:22.12.0-bookworm-slim@")))
+                  (($t | endswith("-musl")) != ((.loadImage // "") | startswith("node:22.23.4-alpine@")))
+                  or (($t | endswith("-gnu")) != ((.loadImage // "") | startswith("node:22.23.4-bookworm-slim@")))
                 else .loadImage != null end)
               | "load platform \($t) on \(.loadRunner) with \(.loadImage // "no image")"]
             | .[] | @json' nix/sdk-platforms.json)
@@ -366,10 +366,10 @@ jobs:
         with:
           name: sdk_node_public
           path: target/sdk-packages/node
-      - name: Install Node.js 22.12.0
+      - name: Install Node.js 22.23.4
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: "22.12.0"
+          node-version: "22.23.4"
       # Each Linux target loads in the pinned image of its libc.
       - name: Installed package on Linux without build-host libraries
         if: runner.os == 'Linux'

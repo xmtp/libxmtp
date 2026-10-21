@@ -3,6 +3,22 @@
 Check an affected output with `nix build --no-link .#<output>`; run `dev/nix-shell 'just lint-config'`
 and `dev/nix-shell 'just test dev'`.
 
+`lib/node-versions.nix` pins security releases for each tooling major without
+updating unrelated nixpkgs packages. Verify versions against Node's official
+release index and source hashes against each release's `SHASUMS256.txt`.
+Keep `.node-version` and `.nvmrc` matched to Node 26. The slim overrides also
+update the full Node packages, `nodejs_latest`, and pnpm's embedded runtime.
+Node's scoped shared libraries also carry the release's Brotli security patch,
+c-ares update, and current same-major OpenSSL fixes. Do not substitute the
+unpatched nixpkgs libraries or update these dependencies globally. Node's
+nghttp2/ngtcp2 dependencies must use the same patched libraries, including
+their transitive TLS, DNS, and Brotli dependencies.
+The old shared-ICU Temporal and emulator patches are superseded by upstream
+support in these releases and must not be reapplied.
+The Node platform workflow and `sdk-platforms.json` use secure Node 22 images
+to check installation. Updating those CI runtimes must not raise the published
+SDK engine minimum of Node 22.12.0 or introduce consumer runtime checks.
+
 Rust-capable development shells set pinned Kache as `RUSTC_WRAPPER` and point
 `KACHE_HOST_CONFIG` at `lib/kache.toml` (`rustShellEnv` in
 `lib/shell-common.nix`). Check the package with `nix build --no-link .#kache`

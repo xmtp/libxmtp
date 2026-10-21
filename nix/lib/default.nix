@@ -106,6 +106,7 @@ let
   baseOverlays = [
     inputs.fenix.overlays.default
     inputs.foundry.overlay
+    (import ./node-versions.nix)
   ]
   ++ patches;
 
