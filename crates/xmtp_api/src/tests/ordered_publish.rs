@@ -179,3 +179,38 @@ async fn commit_log_publish_stops_at_the_first_failed_chunk() {
         .collect();
     assert_eq!(stored, expected);
 }
+
+/// A publish response that does not confirm a positive sequence id for an
+/// entry, by a zero sequence id or by no cursor at all, fails the publish
+/// and does not count that request's entries as stored, so a retry resends
+/// them.
+// verifies: FORK-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn commit_log_publish_without_a_positive_sequence_id_is_not_stored() {
+    let unconfirmed: [fn(&mut wire::EnvelopeMeta); 2] = [
+        |meta| meta.cursor.as_mut().unwrap().sequence_id = 0,
+        |meta| meta.cursor = None,
+    ];
+    for unconfirm in unconfirmed {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let mut mock = MockBackendClient::new();
+        mock.expect_publish().times(2).returning(move |request| {
+            let mut response = published(request);
+            if count.fetch_add(1, Ordering::SeqCst) == 1 {
+                unconfirm(&mut response.envelope_metas[0]);
+            }
+            Ok(response)
+        });
+        let mut stored = Vec::new();
+        let result = wrapper(mock)
+            .publish_commit_log(commit_log_entries(2500), &mut stored)
+            .await;
+        assert!(
+            matches!(result, Err(ApiError::ProtoConversion(_))),
+            "{result:?}"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(stored.len(), 1000);
+    }
+}
