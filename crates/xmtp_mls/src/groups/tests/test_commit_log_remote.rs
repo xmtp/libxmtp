@@ -669,7 +669,22 @@ async fn a_seal_failure_skips_only_that_conversation() {
 // verifies: FORK-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_failed_publish_ends_the_turn_not_the_worker() {
-    tester!(alix, disable_workers);
+    use futures::future::{Either, select};
+
+    // The first tick runs at once on native and one interval after the start
+    // on wasm, so the interval bounds both the wait for the first tick and
+    // the room after it. The refused publish must be observed, and the window
+    // after it must close, before the next tick.
+    const INTERVAL: Duration = Duration::from_secs(10);
+    const AFTER_PUBLISH: Duration = Duration::from_secs(2);
+    tester!(
+        alix,
+        disable_workers,
+        fork_recovery_opts: crate::builder::ForkRecoveryOpts {
+            worker_interval_ns: Some(INTERVAL.as_nanos() as u64),
+            ..Default::default()
+        }
+    );
     let group = alix.create_group(None, None)?;
     group.update_group_name("refused".into()).await?;
     let pending = publishable(&group).await.len();
@@ -686,10 +701,21 @@ async fn a_failed_publish_ends_the_turn_not_the_worker() {
             sealed
         }));
 
-    // The worker interval is five minutes, so this window holds only the
-    // first tick, which runs at once.
-    let run = xmtp_common::time::timeout(Duration::from_secs(3), worker._run()).await;
-    assert!(run.is_err(), "the worker stopped: {run:?}");
+    let window = async {
+        xmtp_common::time::timeout(INTERVAL * 2, async {
+            while script.lock().publishes_for(&commit_log_id) == 0 {
+                xmtp_common::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the first tick publishes");
+        xmtp_common::time::sleep(AFTER_PUBLISH).await;
+    };
+    let run = worker._run();
+    futures::pin_mut!(window, run);
+    if let Either::Right((stopped, _)) = select(window, run).await {
+        panic!("the worker stopped: {stopped:?}");
+    }
     assert_eq!(seals.load(Ordering::SeqCst), pending, "sealed once");
     assert_eq!(script.lock().publishes_for(&commit_log_id), 1, "sent once");
 }
