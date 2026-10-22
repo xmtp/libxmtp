@@ -336,6 +336,26 @@ async fn concurrent_duplicates_at_rollover_return_original_metadata() {
     owner.primary.close().await;
 }
 
+/// A duplicate committed after preflight must skip allocation under partitioned publish locks.
+/// Renaming the sequence makes even a zero-count allocation query fail.
+#[xmtp_common::test(unwrap_try = true)]
+async fn locked_duplicates_skip_sequence_allocation() {
+    let (_database, owner, writer) = fixture().await?;
+    let mut pending = vec![workload::pending(corpus::topic(0), 1, 0)];
+    writer.find_duplicates(&mut pending).await?;
+    assert!(pending[0].duplicate.is_none());
+    let committed = write(&owner, 1).await?;
+    sqlx::query("ALTER SEQUENCE public.envelope_sequence RENAME TO unused_envelope_sequence")
+        .execute(&owner.primary)
+        .await?;
+    let rows = writer.commit_publish(&mut pending, None, 30_000).await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].sequence_id, committed.sequence_id);
+    assert!(pending[0].duplicate.is_some());
+    close(&writer).await;
+    owner.primary.close().await;
+}
+
 /// Production and prefiltered multi-range pages, empty/caught-up reads, and newest match an independent reference.
 #[xmtp_common::test(unwrap_try = true)]
 async fn multi_range_reads_preserve_reference_pages_and_newest() {

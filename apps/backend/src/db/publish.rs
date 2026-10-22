@@ -105,7 +105,9 @@ impl Store {
             .filter(|item| item.duplicate.is_none())
             .collect();
         #[cfg(test)]
-        let inserted = if let Some(partitions) = &self.partitions {
+        let inserted = if new.is_empty() {
+            Vec::new()
+        } else if let Some(partitions) = &self.partitions {
             let ids = allocate(&mut tx, new.len()).await?;
             let missing = partitions.missing(&mut tx, &ids).await?;
             if !missing.is_empty() {
