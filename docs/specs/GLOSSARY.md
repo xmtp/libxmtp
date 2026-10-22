@@ -33,7 +33,7 @@ This file names things; it does not constrain them. Under SPEC-072 every obligat
 | Cursor | A client's position on one topic. Its meaning and bounds are stated by `API`. |
 | Message hash | The digest that identifies a stored envelope. Its algorithm and role in idempotency are stated by `API`. |
 | Group | An MLS group: a conversation named by a group id. A DM, a sync group, and a one-shot group are groups with a conversation type. |
-| Group root | The 32-byte secret from which each key of a group outside MLS is derived. Stated by the `GMOD` spec. |
+| Group root | The 32-byte secret a group's creator draws, from which the group id and each key in the group key table are derived. It is not the root key of `PUSH`, from which group HMAC keys derive. Stated by the `GMOD` spec. |
 | DM | A group between exactly two inboxes with the fixed DM policy. Owned by the `DMS` spec. |
 | Epoch | The MLS epoch of a group. Every commit advances it. |
 | Commit | An MLS message that changes a group's state and advances its epoch. |
@@ -44,7 +44,8 @@ This file names things; it does not constrain them. Under SPEC-072 every obligat
 | Handle | A public name, such as `nick` or `nick#2341`, that an inbox claims with a `ClaimHandle` action in its association log. Its grammar and the claim rules are stated by `IDENT` section 10. |
 | Name part | The text of a handle before its `#`, or the whole handle when it has no `#`. |
 | Display handle | The handle an inbox is shown by: the last of the handles in its association state (IDENT-082). An inbox that has claimed no handle has none. |
-| Commit-log entry | An encrypted, signed record of a commit that a client publishes for fork detection. Owned by the `FORK` spec. |
+| Commit-log entry | A record of a commit that a client publishes for fork detection: a `PlaintextCommitLogEntry`, which travels encrypted and signed in a `SealedCommitLogEntry`. Owned by the `FORK` spec. |
+| Commit-log id | The 32-byte public key of a group's commit-log signing key, which names the group's commit-log topic. Stated by the `GMOD` spec. |
 | Consent | An inbox's or conversation's state of allowed, denied, or unknown. Owned by the `CONS` spec. |
 | Content type | The typed encoding of a message payload. Owned by the `CTYPE` spec. |
 | Remote attachment | The description of a file a message carries by reference: the URL of an encrypted object, with the key material and digest to fetch and decrypt it. Its encoding is owned by `CTYPE`; its storage, upload, and download by `ATCH`. |

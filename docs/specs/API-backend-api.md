@@ -113,14 +113,14 @@ message GroupMessage {
 // group root. pending: FORK-074
 message SealedCommitLogEntry {
   // 32-byte public key of the commit-log signing key. Derives the topic.
-  bytes commit_log_id = 1;
+  bytes commit_log_id = 1; // pending: FORK-074
   // 12 bytes.
-  bytes nonce = 2;
+  bytes nonce = 2; // pending: FORK-074
   // ChaCha20-Poly1305 encryption of a serialized PlaintextCommitLogEntry.
-  bytes ciphertext = 3;
+  bytes ciphertext = 3; // pending: FORK-074
   // 64-byte Ed25519 signature [R(32) || S(32)] over CommitLogEntryTBS by
   // the commit-log signing key.
-  bytes signature = 4;
+  bytes signature = 4; // pending: FORK-074
 }
 
 // What a client publishes. WelcomeMessage and KeyPackage are defined in JOIN.
@@ -133,8 +133,8 @@ message ClientEnvelope {
     SealedCommitLogEntry sealed_commit_log_entry = 6; // pending: FORK-074
   }
   // The retired CommitLogEntry payload.
-  reserved 5;
-  reserved "commit_log_entry";
+  reserved 5; // pending: API-210
+  reserved "commit_log_entry"; // pending: API-210
 }
 
 // A stored envelope with its server-assigned metadata.
@@ -210,7 +210,7 @@ message PublishError {
 
 ### 3.1 Admission
 
-The backend parses every envelope to derive its topic and metadata. It validates a key package and an identity update against what it holds. It verifies the publish signature on a group message and on a sealed commit-log entry, under the public key that is the topic's identifier. Nothing else is checked. The backend holds no group secret, so a signed envelope is stored on the strength of its signature: an installation that holds the group root signed it. What acceptance does not establish is listed so that no client reads a stored envelope as more than it is.
+The backend parses every envelope to derive its topic and metadata. It validates a key package and an identity update against what it holds. It verifies the publish signature on a group message and on a sealed commit-log entry, under the public key that is the topic's identifier. Nothing else is checked. The backend holds no group secret, so a signed envelope is stored on the strength of its signature alone: whoever holds the private key of the topic's identifier signed it, which for an existing group's topics is an installation that holds the group root. What acceptance does not establish is listed so that no client reads a stored envelope as more than it is.
 
 The identity update is validated against the complete history of the inbox, read once from the store that publishes commit, so an update that depends on one the client has just had confirmed is validated against it. If that history grows between the read and the store, the validation may have passed against a state that no longer exists, so the request is aborted and the client starts over from the new history. IDENT-005 owns the association validation required at admission, including the signature rules in [IDENT section 4](IDENT-identity-updates.md#4-signature-kinds).
 
@@ -231,7 +231,9 @@ struct {
 
 struct {
     opaque label<V>;        // ASCII "xmtp commit log entry"
-    opaque topic<V>;        // 0x04 followed by the 32-byte commit-log id
+    opaque topic<V>;        // 0x04 followed by the 32-byte commit-log id:
+                            // commit_log_id at admission, the
+                            // conversation's own at a reader (FORK-075)
     opaque nonce<V>;        // SealedCommitLogEntry.nonce
     opaque ciphertext<V>;   // SealedCommitLogEntry.ciphertext
 } CommitLogEntryTBS;
@@ -474,7 +476,7 @@ message VerifySmartContractWalletSignaturesResponse {
 
 ## 7. Bounds, errors, and transport
 
-Every request has a bound it cannot exceed, published so that a client sizes its requests before it sends (CONF-073). The backend enforces each one; a client that sends past a bound gets `INVALID_ARGUMENT` and nothing stored. The byte budget on a request is measured twice: the transport measures the wire length before the backend sees the request, so a request that is too long on the wire is `OUT_OF_RANGE`, and admission measures the re-encoded length, which can be longer than the wire length when the client used a shorter varint encoding than the backend does, so a request that is within the budget on the wire and over it re-encoded is `INVALID_ARGUMENT` with `REASON_TOO_LARGE`. The transport ceiling is fixed, and configuration keeps every published byte budget under it (CONF-008), so a request within the published limits is always carried. The one response not bounded by `max_response_bytes` is `GetConfiguration`, which CONF-009 bounds separately.
+Every request has bounds it cannot exceed. Each bound but one is published, so that a client sizes its requests before it sends (CONF-073); the bounds table gives the fixed value of the one that is not. The backend enforces each one; a client that sends past a bound gets `INVALID_ARGUMENT` and nothing stored. The byte budget on a request is measured twice: the transport measures the wire length before the backend sees the request, so a request that is too long on the wire is `OUT_OF_RANGE`, and admission measures the re-encoded length, which can be longer than the wire length when the client used a shorter varint encoding than the backend does, so a request that is within the budget on the wire and over it re-encoded is `INVALID_ARGUMENT` with `REASON_TOO_LARGE`. The transport ceiling is fixed, and configuration keeps every published byte budget under it (CONF-008), so a request within the published limits is always carried. The one response not bounded by `max_response_bytes` is `GetConfiguration`, which CONF-009 bounds separately.
 
 The bounds table names each request's limits and the field of `LimitsConfiguration` that publishes them (CONF-069), or the fixed value of a bound that no field publishes. A publish that exceeds one carries `REASON_TOO_LARGE`; a bound checked on the input count is checked before repeated topics are merged.
 
@@ -529,7 +531,7 @@ API-297 refuses a reserved or short name part only when the backend admits a cla
 
 Sequence ids allocated but never stored leave gaps on a topic that look like envelopes not yet visible. A stream holds such a gap open until the closed allocation boundary (API-203) passes it; a `Query` and a `QueryNewest` do not wait and can return an envelope above the boundary. A client cannot distinguish a gap from a lagging publish by any read.
 
-Publish admission establishes only what the admission table says. A stored group message is evidence that an installation holding the group root signed it, not that the signer is a current member: the root never changes, so every installation that was ever a member can publish. A stored Welcome is not evidence that its destination exists. Storage and the recipient's processing capacity can be consumed on a group's topics by any holder of its root, and on a welcome topic by anyone who can reach the backend, subject to the credential checks in [AUTH section 1](AUTH-backend-auth.md#1-admission).
+Publish admission establishes only what the admission table says. The backend stores a group message on a group's topic only when an installation that holds the group root signed it. That does not show that the signer is a current member: the root never changes, so every installation that was ever a member can publish. It is not evidence for a reader either: the operator can place any bytes on a topic, and no requirement makes a client verify a group message's signature. A stored Welcome is not evidence that its destination exists. Storage can be consumed by anyone who can reach the backend, subject to the credential checks in [AUTH section 1](AUTH-backend-auth.md#1-admission): anyone can generate a key pair and publish signed group messages and sealed commit-log entries to the topics its public key names, and a commit or proposal there, or a commit-log entry, never expires (OPS-001). The processing capacity of a group's members can be consumed by any holder of the group's root, and that of a Welcome's recipient by anyone.
 
 Bytes after the MLS message in `GroupMessage.data` are accepted and stored. No client is known to produce them. They are not a forgery or a disclosure: the parsed message and its topic are unchanged. The publish signature covers them, so only a holder of the group root can vary them, and each variant is a new stored envelope with its own sequence id; a commit or proposal variant also keeps its zero expiry (OPS-001).
 

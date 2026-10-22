@@ -16,7 +16,7 @@ flowchart LR
   V -->|accept| A[Apply valid Updates in commit order<br/>for each component]
   A --> D[(Dictionary in the GroupContext)]
   D --> R[Component registry:<br/>type and policies per component]
-  D --> I[Immutable: conversation type,<br/>creator, DM pair, one-shot]
+  D --> I[Immutable: conversation type,<br/>creator, DM pair, one-shot,<br/>group root]
   D --> M[Mutable: name, settings,<br/>version floor, admin lists,<br/>membership]
   D --> O[Application components]
 ```

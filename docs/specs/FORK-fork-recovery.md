@@ -55,9 +55,8 @@ Out of scope: commit validation, the membership component, and the protocol-vers
 | Local entry | One `LocalCommitLogEntry` (section 1) that a client records for a commit outcome. |
 | Removal entry | A local entry for a commit that removed the recording installation. It carries the pre-commit epoch as its applied epoch. |
 | Membership | The span from one installation of a group's state, by creation, a Welcome, or an archive restore, to the next. Local entries from an earlier membership are not compared. |
-| Entry | A `PlaintextCommitLogEntry` (section 2), the plaintext a publisher seals. |
+| Entry | A commit-log entry: a `PlaintextCommitLogEntry` (section 2), which a publisher seals into a `SealedCommitLogEntry` (FORK-074). |
 | Commit-log topic | The topic of a conversation's entries, named by its commit-log id (TOPIC-001). |
-| Commit-log id | The public key of a conversation's commit-log signing key (GMOD-041). |
 | Publisher | An installation that publishes entries for a conversation: a member of a DM, or a super admin of a group. |
 | Accepted entry | An entry a client read from the commit-log topic and kept under FORK-075 and FORK-032. |
 | Fork state | One of `forked`, `not forked`, or `unknown`, held for each conversation and set under section 5. |
@@ -115,14 +114,14 @@ The nonce is derived from the topic and the entry, so the same entry sealed twic
 // group root. pending: FORK-074
 message SealedCommitLogEntry {
   // 32-byte public key of the commit-log signing key. Derives the topic.
-  bytes commit_log_id = 1;
+  bytes commit_log_id = 1; // pending: FORK-074
   // 12 bytes.
-  bytes nonce = 2;
+  bytes nonce = 2; // pending: FORK-074
   // ChaCha20-Poly1305 encryption of a serialized PlaintextCommitLogEntry.
-  bytes ciphertext = 3;
+  bytes ciphertext = 3; // pending: FORK-074
   // 64-byte Ed25519 signature [R(32) || S(32)] over CommitLogEntryTBS by
   // the commit-log signing key.
-  bytes signature = 4;
+  bytes signature = 4; // pending: FORK-074
 }
 ```
 
@@ -186,7 +185,7 @@ The chain conditions a reader applies once it holds an accepted entry for the co
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | FORK-030 | Read every conversation's log | While `commit_log_enabled` is `true`, the client MUST read every envelope on the commit-log topic of every DM and group it holds whose consent state is allowed, other than one-shot groups, sync groups, and restored groups under ARCH-015, and MUST evaluate each under FORK-075 and FORK-032 exactly once, in sequence id order. | A member that does not read cannot learn it is forked, and keeps sending messages nobody can decrypt. An entry evaluated twice is a duplicate under the chain rules. |
-| FORK-075 | Verify and open each entry | When the client reads an envelope from a conversation's commit-log topic, it MUST discard it unless its `signature` passes API-300 over `CommitLogEntryTBS` under the conversation's commit-log id, its `ciphertext` decrypts under the commit-log encryption key with its `nonce` and the topic as associated data, the decrypted entry's `group_id` equals the conversation's group id, and its `commit_sequence_id` is greater than 0. A failed check discards that envelope only. | The operator can place any bytes on a topic. The signature and the decryption are what tie an entry to an installation that holds the conversation's root. |
+| FORK-075 | Verify and open each entry | When the client reads an envelope from a conversation's commit-log topic, it MUST discard it unless its `commit_log_id` equals the conversation's commit-log id, its `signature` passes API-300 under that id over the `CommitLogEntryTBS` whose topic is the conversation's commit-log topic, its `ciphertext` decrypts under the commit-log encryption key with its `nonce` and that topic as associated data, the decrypted entry's `group_id` equals the conversation's group id, and its `commit_sequence_id` is greater than 0. A failed check discards that envelope only. | The operator can place any bytes on a topic. The signature and the decryption are what tie an entry to an installation that holds the conversation's root. |
 | FORK-032 | Accept only a continuous chain | When an entry passes FORK-075 and the client holds an accepted entry for the conversation, the client MUST discard the entry unless every condition in the table above holds for it. | An entry that does not continue the chain is a duplicate, a publisher's stale view, or a forgery under a leaked key, and any of them accepted changes the log every member compares against. |
 
 ## 5. Fork detection

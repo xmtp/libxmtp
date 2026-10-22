@@ -34,7 +34,7 @@ Out of scope: what the backend does with an envelope once routed, the envelope w
 
 ## 1. Layout
 
-A topic is one kind byte and one identifier, with nothing before, between, or after them. The identifier has a fixed length for each kind, so a topic parses without a length prefix and two implementations cannot disagree about where it ends. The backend reads the identifier from the payload; a publish request carries no topic field, so a client cannot store an envelope anywhere but where its payload says. A group's message topic carries its 32-byte group id. Its commit-log topic carries its commit-log id, a public key derived from the group root separately from the group id (GMOD-041), so nothing on the wire relates the two topics. A group whose id is 16 bytes has no topic: TOPIC-002 refuses any payload that names it.
+A topic is one kind byte and one identifier, with nothing before, between, or after them. The identifier has a fixed length for each kind, so a topic parses without a length prefix and two implementations cannot disagree about where it ends. The backend reads the identifier from the payload; a publish request carries no topic field, so a client cannot store an envelope anywhere but where its payload says. A group's message topic carries its 32-byte group id. Its commit-log topic carries its commit-log id, a public key derived from the group root separately from the group id (GMOD-041), so neither id can be computed from the other without the root. The operator can still link a conversation's two topics by timing, because each member reads both ([FORK Known limitations](FORK-fork-recovery.md#known-limitations)). A group whose id is 16 bytes has no topic: TOPIC-002 refuses any payload that names it.
 
 The table below is the layout. Its kind bytes and lengths are the exact values this spec owns (SPEC-039).
 
@@ -56,6 +56,6 @@ API-210 owns `ClientEnvelope` and its payloads, and [JOIN section 1](JOIN-joinin
 
 ## Known limitations
 
-A topic binds an envelope to the identifier its payload names. On kinds `0x00` and `0x04` that identifier is a public key, and admission requires a signature under it (API-230, API-300), so only an installation that holds the group root can publish there. Anyone who can reach the backend can still publish a Welcome naming any installation key, and can read any topic whose identifier it knows. Such an envelope consumes storage and the recipient's processing capacity without disclosing group plaintext.
+A topic binds an envelope to the identifier its payload names. On kinds `0x00` and `0x04` that identifier is a public key, and admission requires a signature under it (API-230, API-300), so only an installation that holds the group root can publish to an existing group's topics. Anyone who can reach the backend can still generate a key pair and publish signed envelopes to the topics its public key names, publish a Welcome naming any installation key, and read any topic whose identifier it knows. Such envelopes consume storage, and a Welcome its recipient's processing capacity, without disclosing group plaintext.
 
 A welcome topic's identifier need not be a registered installation key. A welcome pointer's pointee is stored under 32 random bytes that name no installation (JOIN-029), and the backend cannot tell that topic from a real installation's.

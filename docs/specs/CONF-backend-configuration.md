@@ -839,7 +839,7 @@ The client refreshes on its own schedule, spread at random. The interval, the sp
 
 The client splits and bounds its requests to the published limits, so that a request the backend would reject is never sent. The table below names the bound for each request; one bound is fixed rather than published. The fields it does not name (`max_response_bytes`, `max_stream_topics`, `max_identity_entries`, and the four rate-limit fields) are published for an app to read. API-281 and API-282 own response and request bounds, API-234 owns the identity-log limit, and API-258 owns stream frame rate limits.
 
-| Request | Bound from the snapshot |
+| Request | Bound |
 | --- | --- |
 | Publish | Encoded request not longer than `max_request_bytes`; distinct topics not more than `max_publish_topics`; each envelope not longer than `max_envelope_bytes`; envelopes not more than the fixed envelope bound of API section 7 |
 | Query | Topics per request not more than `max_query_topics`; `limit` not more than `max_query_limit` |
@@ -859,7 +859,7 @@ The version gate and the credential requirement fail creation, so an app gets on
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CONF-073 | Size every request to the snapshot | The client MUST split or bound every request it sends so that it stays within each bound in the table above. When one envelope alone is longer than `max_envelope_bytes`, the client MUST reject the publish before it sends any request. | |
+| CONF-073 | Size every request to its bounds | The client MUST split or bound every request it sends so that it stays within each bound in the table above. When one envelope alone is longer than `max_envelope_bytes`, the client MUST reject the publish before it sends any request. | |
 | CONF-043 | Advisory group size | When the number of distinct inboxes in a group's `GROUP_MEMBERSHIP` component plus the inboxes a change would add is greater than `max_group_members`, the client MUST reject the change before it builds a commit. | |
 | CONF-044 | Advisory installation count | When the number of installations an inbox's association state names is not less than `max_installations_per_inbox`, the client MUST NOT register a new installation for that inbox. | |
 | CONF-045 | Commit log follows the deployment | While the snapshot's `commit_log_enabled` is `false`, the client MUST NOT publish a commit-log entry and MUST NOT read the commit log. | A deployment that keeps no commit log would be sent entries it discards, and clients would read an always-empty log as evidence about groups. |
