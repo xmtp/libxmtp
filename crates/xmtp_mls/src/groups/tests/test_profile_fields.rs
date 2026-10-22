@@ -35,7 +35,7 @@ use crate::{
     context::XmtpSharedContext,
     groups::{
         GroupError, MlsGroup, UpdateAdminListType,
-        app_data::{AppDataBatch, GroupAppDataError},
+        app_data::{AppDataBatch, GroupAppDataError, load_component_registry},
         intents::{AppDataUpdateIntentData, ProposeMemberUpdateIntentData, QueueIntent},
         mls_sync::generate_prepared_commit,
     },
@@ -617,6 +617,9 @@ enum Uncommittable {
     /// Alix and Bo are super admins, and Alix removes Bo, then herself:
     /// together they leave none.
     NoSuperAdminLeft,
+    /// Alix deletes the membership's registry entry. It applies, but the
+    /// registry it leaves has no policy for a membership change.
+    RegistryWithoutMembership,
 }
 
 /// Receivers judge a standalone `AppDataUpdate` alone against the committed
@@ -633,6 +636,7 @@ enum Uncommittable {
 #[case::update_then_remove(Uncommittable::UpdateThenRemove)]
 #[case::remove_of_absent_component(Uncommittable::RemoveAbsent)]
 #[case::no_super_admin_left(Uncommittable::NoSuperAdminLeft)]
+#[case::registry_without_membership(Uncommittable::RegistryWithoutMembership)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_uncommittable_pending_app_data_does_not_block_the_group(
     #[case] uncommittable: Uncommittable,
@@ -718,6 +722,13 @@ async fn test_uncommittable_pending_app_data_does_not_block_the_group(
             propose_raw(&group, super_admins, remove_super_admin(alix.inbox_id())).await?;
             (&bo_group, 2)
         }
+        Uncommittable::RegistryWithoutMembership => {
+            let payload = TlsMapDelta::<ComponentId, VLBytes>::new()
+                .delete(ComponentId::GROUP_MEMBERSHIP)
+                .tls_serialize_detached()?;
+            propose_raw(&group, ComponentId::COMPONENT_REGISTRY, update(payload)).await?;
+            (&group, 1)
+        }
     };
     holder.sync().await?;
     assert_eq!(
@@ -761,6 +772,14 @@ async fn test_uncommittable_pending_app_data_does_not_block_the_group(
                 inboxes(member, ComponentId::SUPER_ADMIN_LIST)?,
                 vec![inbox(alix.inbox_id())]
             ),
+            Uncommittable::RegistryWithoutMembership => {
+                assert!(member.with_group_snapshot(|mls| {
+                    Ok(load_component_registry(mls)?
+                        .get(&ComponentId::GROUP_MEMBERSHIP)
+                        .unwrap()
+                        .is_some())
+                })?)
+            }
             _ => assert_eq!(
                 display_names(member)?,
                 BTreeMap::from([(inbox(bo.inbox_id()), b"Bo".to_vec())])
@@ -804,6 +823,65 @@ async fn test_membership_delta_stored_twice_does_not_block_the_group() -> Result
     bo_group.sync().await?;
     for member in [&group, &bo_group] {
         assert_eq!(member.members().await?.len(), 2);
+    }
+    Ok(())
+}
+
+/// Receivers check only that the leaf in a standalone Update proposal
+/// names its proposer's inbox, and a commit checks that the leaf's key is
+/// an installation of that inbox. Every commit of pending proposals carried
+/// one with an unregistered key and was refused, so no member could send
+/// again. No client proposes a leaf Update, so a commit never carries one.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_pending_leaf_update_does_not_block_the_group() -> Result<(), GroupError> {
+    use openmls::prelude::{CredentialWithKey, LeafNodeParameters, NewSignerBundle};
+    use xmtp_cryptography::XmtpInstallationCredential;
+    tester!(alix);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    let identity = bo_group.context.identity();
+    let unregistered = XmtpInstallationCredential::new();
+    let message = state_write(bo_group.context.mls_storage(), |tx| {
+        tx.with_group(bo_group.group_id, |mls, storage| {
+            let new_signer = NewSignerBundle {
+                signer: &unregistered,
+                credential_with_key: CredentialWithKey {
+                    credential: identity.credential(),
+                    signature_key: unregistered.public_slice().into(),
+                },
+            };
+            let (message, _) = mls
+                .propose_self_update_with_new_signer(
+                    &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
+                    &identity.installation_keys,
+                    new_signer,
+                    LeafNodeParameters::default(),
+                )
+                .unwrap();
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = bo_group.prepare_group_messages(vec![(message.as_slice(), false)])?;
+    bo_group.context.api().send_group_messages(messages).await?;
+    group.sync().await?;
+    assert_eq!(
+        group.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        1
+    );
+
+    group.send_message(b"after", Default::default()).await?;
+    bo_group.sync().await?;
+    bo_group.send_message(b"after", Default::default()).await?;
+    group.sync().await?;
+    for member in [&group, &bo_group] {
+        assert_eq!(
+            member.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+            0
+        );
     }
     Ok(())
 }

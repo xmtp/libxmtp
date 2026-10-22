@@ -254,6 +254,10 @@ impl<'a> Committable<'a> {
     /// Remove of one component, or two super-admin removals that leave
     /// none. Every member rejects a commit that carries them.
     ///
+    /// No client proposes a leaf Update, and receivers check only its
+    /// credential, so a commit never carries one: the commit builder would
+    /// refuse a leaf it cannot use.
+    ///
     /// The post-commit membership comes from the kept proposals, so the
     /// filter runs again over the kept ones until that membership stops
     /// changing. Each further pass keeps fewer, so this ends.
@@ -291,6 +295,9 @@ impl<'a> Committable<'a> {
         let mut proposers = HashMap::new();
         let mut kept = Vec::with_capacity(proposals.len());
         for queued in proposals {
+            if matches!(queued.proposal(), Proposal::Update(_)) {
+                continue;
+            }
             if let Proposal::AppDataUpdate(update) = queued.proposal() {
                 let id = ComponentId::from(update.component_id());
                 let operation = update.operation();

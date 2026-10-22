@@ -539,11 +539,16 @@ pub(super) fn omit_uncommittable_proposals(
         .into_iter()
         .cloned()
         .collect();
-    let omitted = kept.len() != group.pending_proposals().count();
-    if omitted {
+    let omitted = group.pending_proposals().count() - kept.len();
+    if omitted > 0 {
+        tracing::warn!(
+            group_id = hex::encode(group.group_id().as_slice()),
+            omitted,
+            "omitting pending proposals no commit can carry; they expire with the epoch"
+        );
         replace_proposals(group, storage, &kept)?;
     }
-    Ok(omitted)
+    Ok(omitted > 0)
 }
 
 fn remove_proposal(
